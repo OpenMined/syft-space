@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 
-const activeTab = ref<'services' | 'inbox' | 'usage' | 'settings'>('services')
+const router = useRouter()
+const route = useRoute()
 
 const showUserDropdown = ref(false)
 const hasWalletManager = ref(true) // This would come from your API/state management
 
-const handleTabChange = (tab: 'services' | 'inbox' | 'usage' | 'settings') => {
-  activeTab.value = tab
+const currentRouteName = computed(() => route.name as string)
+
+const navigateTo = (routeName: string) => {
+  router.push({ name: routeName })
 }
 </script>
 
@@ -28,10 +32,10 @@ const handleTabChange = (tab: 'services' | 'inbox' | 'usage' | 'settings') => {
       <!-- Navigation Tabs -->
       <nav class="flex items-center space-x-2 flex-grow justify-center">
         <button
-          @click="handleTabChange('services')"
+          @click="navigateTo('services')"
           :class="[
             'px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500',
-            activeTab === 'services'
+            currentRouteName === 'services'
               ? 'text-purple-700 bg-purple-50'
               : 'text-gray-700 hover:bg-gray-100'
           ]"
@@ -39,10 +43,10 @@ const handleTabChange = (tab: 'services' | 'inbox' | 'usage' | 'settings') => {
           Services
         </button>
         <button
-          @click="handleTabChange('inbox')"
+          @click="navigateTo('inbox')"
           :class="[
             'px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500',
-            activeTab === 'inbox'
+            currentRouteName === 'inbox'
               ? 'text-purple-700 bg-purple-50'
               : 'text-gray-700 hover:bg-gray-100'
           ]"
@@ -50,10 +54,10 @@ const handleTabChange = (tab: 'services' | 'inbox' | 'usage' | 'settings') => {
           Inbox
         </button>
         <button
-          @click="handleTabChange('usage')"
+          @click="navigateTo('usage')"
           :class="[
             'px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500',
-            activeTab === 'usage'
+            currentRouteName === 'usage'
               ? 'text-purple-700 bg-purple-50'
               : 'text-gray-700 hover:bg-gray-100'
           ]"
@@ -61,10 +65,10 @@ const handleTabChange = (tab: 'services' | 'inbox' | 'usage' | 'settings') => {
           Usage
         </button>
         <button
-          @click="handleTabChange('settings')"
+          @click="navigateTo('settings')"
           :class="[
             'px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500',
-            activeTab === 'settings'
+            currentRouteName === 'settings'
               ? 'text-purple-700 bg-purple-50'
               : 'text-gray-700 hover:bg-gray-100'
           ]"
@@ -77,6 +81,7 @@ const handleTabChange = (tab: 'services' | 'inbox' | 'usage' | 'settings') => {
       <div class="flex items-center space-x-3">
         <!-- Create Service Button -->
         <button
+          @click="navigateTo('create-service')"
           class="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
         >
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -104,7 +109,7 @@ const handleTabChange = (tab: 'services' | 'inbox' | 'usage' | 'settings') => {
             <div class="p-4">
               <div class="mb-4">
                 <p class="text-sm text-gray-500">Email</p>
-                <p class="text-sm font-medium text-gray-900">tauquir@openmined.org</p>
+                <p class="text-sm font-medium text-gray-900">user@openmined.org</p>
               </div>
               
               <div class="mb-4">
