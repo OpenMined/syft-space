@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="API", version="1.0.0")
 
@@ -11,9 +12,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+app.mount("/", StaticFiles(directory="frontend/dist", html=True, check_dir=False))
+
 
 @app.get("/health")
 async def health():
