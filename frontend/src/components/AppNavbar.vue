@@ -9,9 +9,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const route = useRoute()
+const userStore = useUserStore()
 
 const currentRouteName = computed(() => route.name as string)
 
@@ -87,21 +89,21 @@ const tabs = [
             <div class="p-4 space-y-4">
               <div>
                 <p class="text-sm text-gray-500 mb-0.5">Email</p>
-                <p class="text-sm font-medium text-gray-900">user@openmined.org</p>
+                <p class="text-sm font-medium text-gray-900">{{ userStore.email }}</p>
               </div>
               <div>
                 <p class="text-sm text-gray-500 mb-0.5">Balance</p>
-                <p class="text-sm font-semibold text-green-600">$87.20</p>
+                <p class="text-sm font-semibold text-green-600">{{ userStore.balance }}</p>
               </div>
               <hr class="border-gray-200" />
               <div>
                 <p class="text-sm text-gray-500 mb-0.5">Wallet Manager</p>
                 <a 
-                  href="https://payments.openmined.org" 
+                  :href="userStore.walletManagerUrl" 
                   target="_blank"
                   class="text-sm font-medium text-gray-900 hover:text-gray-700 inline-flex items-center gap-1.5"
                 >
-                  payments.openmined.org
+                  {{ userStore.walletManagerUrl.replace('https://', '') }}
                   <ExternalLink class="h-3 w-3 text-gray-400" />
                 </a>
               </div>
