@@ -76,11 +76,261 @@
             </div>
           </div>
         </div>
+        
+        <!-- Save Button -->
+        <div class="mt-8 flex justify-end">
+          <Button class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2">
+            Save Changes
+          </Button>
+        </div>
       </TabsContent>
 
       <TabsContent value="integrations" class="space-y-6">
-        <div class="bg-white border border-gray-200 rounded-lg p-6 min-h-[400px] flex items-center justify-center">
-          <p class="text-gray-600">Integrations settings will be available soon.</p>
+        <!-- Integrations Header -->
+        <div class="flex items-center justify-between mb-8">
+          <div>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">Your Integrations</h3>
+            <p class="text-gray-600">Manage your connected data sources and AI models</p>
+          </div>
+          <Button class="bg-purple-600 hover:bg-purple-700 text-white" @click="showCreateIntegrationDialog = true">
+            <Plus class="h-4 w-4 mr-2" />
+            Create Integration
+          </Button>
+        </div>
+
+        <!-- Data Integrations -->
+        <div class="space-y-4">
+          <div class="flex items-center gap-3 mb-4">
+            <h4 class="text-lg font-semibold text-gray-900">Data Integrations</h4>
+            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">3</Badge>
+          </div>
+          
+          <!-- Legal Documents Store -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-purple-100 rounded-lg">
+                  <Database class="h-6 w-6 text-purple-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Legal Documents Store</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Weaviate</Badge>
+                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1">
+                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      running
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">Vector database for legal document analysis and retrieval</p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">legal</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">documents</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">analysis</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Customer Analytics Store -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-blue-100 rounded-lg">
+                  <Database class="h-6 w-6 text-blue-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Customer Analytics Store</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Qdrant</Badge>
+                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1">
+                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      running
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">Vector database for customer behavior analysis and segmentation</p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">customer</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">analytics</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">segmentation</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Research Database -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-green-100 rounded-lg">
+                  <Database class="h-6 w-6 text-green-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Research Database</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Chroma</Badge>
+                    <Badge variant="outline" class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1">
+                      <div class="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
+                      stopped
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">Knowledge base for research papers and scientific literature</p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">research</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">papers</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">knowledge</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Model Integrations -->
+        <div class="space-y-4 mt-8">
+          <div class="flex items-center gap-3 mb-4">
+            <h4 class="text-lg font-semibold text-gray-900">Model Integrations</h4>
+            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">3</Badge>
+          </div>
+
+          <!-- NLP Processing Engine -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-purple-100 rounded-lg">
+                  <Brain class="h-6 w-6 text-purple-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">NLP Processing Engine</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">vLLM</Badge>
+                    <Badge variant="outline" class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1">
+                      <div class="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
+                      stopped
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">Large language model for natural language processing tasks</p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">nlp</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">analysis</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Code Assistant Model -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-orange-100 rounded-lg">
+                  <Brain class="h-6 w-6 text-orange-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Code Assistant Model</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Ollama</Badge>
+                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1">
+                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      running
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">Local code generation and programming assistance model</p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">code</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">programming</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Text Embedding Service -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-indigo-100 rounded-lg">
+                  <Brain class="h-6 w-6 text-indigo-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Text Embedding Service</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Hugging Face</Badge>
+                    <Badge variant="outline" class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1">
+                      <div class="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
+                      stopped
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">High-quality text embeddings for semantic search and similarity</p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">embeddings</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">semantic</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       </TabsContent>
 
@@ -90,23 +340,30 @@
         </div>
       </TabsContent>
     </Tabs>
-
-    <!-- Save Button -->
-    <div class="mt-8 flex justify-end">
-      <Button class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2">
-        Save Changes
-      </Button>
-    </div>
   </div>
+
+  <!-- Create Integration Dialog -->
+  <CreateIntegrationDialog 
+    v-model:open="showCreateIntegrationDialog"
+    @integration-created="handleIntegrationCreated"
+  />
 </template>
 
 <script setup lang="ts">
-import { Settings, Shield, AlertCircle, Copy } from 'lucide-vue-next'
+import { ref } from 'vue'
+import { Settings, Shield, AlertCircle, Copy, Plus, Database, Brain, Edit, Trash2 } from 'lucide-vue-next'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { useUserStore } from '@/stores/user'
+import CreateIntegrationDialog from '@/components/CreateIntegrationDialog.vue'
 
 const userStore = useUserStore()
+const showCreateIntegrationDialog = ref(false)
+
+const handleIntegrationCreated = () => {
+  console.log('Integration created successfully')
+}
 </script>
