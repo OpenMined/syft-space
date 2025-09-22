@@ -206,3 +206,6 @@ __marimo__/
 
 # User Data
 notebooks/
+
+# SyftBox
+.syftboxapp.json
