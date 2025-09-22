@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import ServicesPage from '../pages/ServicesPage.vue'
+import MyServicesPage from '../pages/MyServicesPage.vue'
 import InboxPage from '../pages/InboxPage.vue'
 import UsagePage from '../pages/UsagePage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
@@ -15,7 +15,7 @@ const router = createRouter({
     {
       path: '/services',
       name: 'services',
-      component: ServicesPage
+      component: MyServicesPage
     },
     {
       path: '/inbox',

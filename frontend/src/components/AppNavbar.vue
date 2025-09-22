@@ -22,7 +22,7 @@ const navigateTo = (routeName: string) => {
 }
 
 const tabs = [
-  { id: 'services', label: 'Services' },
+  { id: 'services', label: 'My Services' },
   { id: 'inbox', label: 'Inbox' },
   { id: 'usage', label: 'Usage' },
   { id: 'settings', label: 'Settings' }
@@ -39,7 +39,7 @@ const tabs = [
         </div>
         <span class="text-xl font-bold text-gray-900 tracking-tight">
           SyftNSAI 
-          <span class="ml-1 text-xs font-semibold text-purple-600 align-top">ALPHA</span>
+          <span class="ml-1 text-xs font-semibold text-purple-600 align-top">BETA</span>
         </span>
       </div>
 
