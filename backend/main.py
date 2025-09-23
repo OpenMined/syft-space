@@ -2,7 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-app = FastAPI(title="API", version="1.0.0")
+from .config import app_settings
+
+app = FastAPI(
+    title="NSAI API",
+    version="1.0.0",
+    debug=app_settings.debug,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -12,9 +18,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/", StaticFiles(directory="frontend/dist", html=True, check_dir=False))
-
 
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+app.mount("/", StaticFiles(directory="frontend/dist", html=True, check_dir=False))
