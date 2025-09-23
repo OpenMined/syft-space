@@ -1,0 +1,38 @@
+[project]
+name = "nsai-core"
+version = "0.1.0"
+description = "NSAI Core Backend API"
+authors = [
+    {name = "OpenMined", email = "support@openmined.org"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi==0.116.2",
+    "uvicorn[standard]==0.35.0",
+    "pydantic==2.11.9"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=22.0",
+    "isort>=5.0",
+    "flake8>=4.0",
+    "mypy>=0.950"
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
