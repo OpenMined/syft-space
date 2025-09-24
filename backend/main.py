@@ -1,13 +1,19 @@
-from fastapi import FastAPI
+from fastsyftbox import FastSyftBox
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from syft_core.config import SyftClientConfig
+
 
 from .config import app_settings
 
-app = FastAPI(
-    title="NSAI API",
+
+app = FastSyftBox(
+    app_name="NSAI",
+    syftbox_config=SyftClientConfig.load(app_settings.syftbox_config_path),
     version="1.0.0",
+    syftbox_endpoint_tags=["syftbox"],
     debug=app_settings.debug,
+    
 )
 
 app.add_middleware(

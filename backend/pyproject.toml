@@ -12,7 +12,8 @@ dependencies = [
     "uvicorn[standard]==0.35.0",
     "pydantic==2.11.9",
     "pydantic-settings>=2.0.0",
-    "sqlmodel>=0.0.14"
+    "sqlmodel>=0.0.14",
+    "fastsyftbox>=0.1.21",
 ]
 
 [project.optional-dependencies]

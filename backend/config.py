@@ -11,7 +11,6 @@ class AppSettings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
-        env_prefix="NSAI_",
     )
 
     # Database settings
@@ -21,6 +20,9 @@ class AppSettings(BaseSettings):
 
     # Application settings
     debug: bool = False
+
+    # Syftbox config path
+    syftbox_config_path: Path = Path("~/.syftbox/config.json").expanduser()
 
 
 # Global settings instance
