@@ -11,14 +11,25 @@
         </TabsList>
       </Tabs>
 
-      <!-- Search bar -->
-      <div class="relative w-80">
-        <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-        <Input
-          v-model="searchQuery"
-          placeholder="Find services, tags, owners..."
-          class="pl-10 pr-4 py-2 w-full"
-        />
+      <!-- Search bar and Create button -->
+      <div class="flex items-center gap-4">
+        <div class="relative w-80">
+          <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+          <Input
+            v-model="searchQuery"
+            placeholder="Find services, tags, owners..."
+            class="pl-10 pr-4 py-2 w-full"
+          />
+        </div>
+        
+        <!-- Create Service Button -->
+        <Button 
+          @click="router.push({ name: 'create-service' })"
+          class="bg-purple-600 hover:bg-purple-700 text-white"
+        >
+          <Plus class="h-4 w-4 mr-2" />
+          Create Service
+        </Button>
       </div>
     </div>
 
@@ -35,10 +46,14 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Search } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { Search, Plus } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import ServiceCard from '@/components/ServiceCard.vue'
+
+const router = useRouter()
 
 interface Service {
   id: string

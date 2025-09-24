@@ -54,7 +54,7 @@
       <div class="ml-4 text-right">
         <div class="flex flex-col gap-2">
           <template v-if="service.status === 'draft'">
-            <Button size="sm" class="bg-purple-600 hover:bg-purple-700 text-white w-full">
+            <Button variant="outline" size="sm" class="border-purple-600 text-purple-600 hover:bg-purple-50 hover:text-purple-700 w-full">
               <Send class="h-4 w-4 mr-2" />
               Publish
             </Button>

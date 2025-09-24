@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Plus, User, ExternalLink } from 'lucide-vue-next'
+import { User, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -64,15 +64,11 @@ const tabs = [
       
       <!-- Right side controls -->
       <div class="flex items-center space-x-3">
-        <!-- Create Service Button -->
-        <Button 
-          @click="navigateTo('create-service')"
-          class="bg-purple-600 hover:bg-purple-700 text-white"
-          size="sm"
-        >
-          <Plus class="h-4 w-4 mr-2" />
-          Create Service
-        </Button>
+        <!-- Balance Display -->
+        <div class="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg">
+          <span class="text-sm text-gray-600">Balance:</span>
+          <span class="text-sm font-semibold text-green-600">{{ userStore.balance }}</span>
+        </div>
         
         <!-- Avatar with Dropdown -->
         <DropdownMenu>
@@ -91,11 +87,6 @@ const tabs = [
                 <p class="text-sm text-gray-500 mb-0.5">Email</p>
                 <p class="text-sm font-medium text-gray-900">{{ userStore.email }}</p>
               </div>
-              <div>
-                <p class="text-sm text-gray-500 mb-0.5">Balance</p>
-                <p class="text-sm font-semibold text-green-600">{{ userStore.balance }}</p>
-              </div>
-              <hr class="border-gray-200" />
               <div>
                 <p class="text-sm text-gray-500 mb-0.5">Wallet Manager</p>
                 <a 
