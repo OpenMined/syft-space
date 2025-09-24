@@ -5,13 +5,16 @@
       <Settings class="h-6 w-6 text-gray-600" />
       <h1 class="text-2xl font-semibold text-gray-900">Settings</h1>
     </div>
-    <p class="text-gray-600 mb-8">Manage your integrations and wallet configuration</p>
+    <p class="text-gray-600 mb-8">Manage your data sources, policies, and server configurations</p>
 
     <!-- Tabs -->
     <Tabs default-value="general" class="w-full">
-      <TabsList class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px] mb-8">
+      <TabsList
+        class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-4 lg:w-[500px] mb-8"
+      >
         <TabsTrigger value="general">General</TabsTrigger>
-        <TabsTrigger value="integrations">Integrations</TabsTrigger>
+        <TabsTrigger value="data-sources">Data Sources</TabsTrigger>
+        <TabsTrigger value="models">Models</TabsTrigger>
         <TabsTrigger value="policies">Policies</TabsTrigger>
       </TabsList>
 
@@ -24,7 +27,9 @@
             </div>
             <div>
               <h3 class="text-lg font-medium text-gray-900">Wallet Manager</h3>
-              <p class="text-sm text-gray-600">Configure your wallet management settings and authentication</p>
+              <p class="text-sm text-gray-600">
+                Configure your wallet management settings and authentication
+              </p>
             </div>
           </div>
 
@@ -32,7 +37,10 @@
           <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
             <div class="flex items-start gap-3">
               <AlertCircle class="h-5 w-5 text-yellow-600 mt-0.5" />
-              <p class="text-sm text-yellow-800">Please ensure you fully trust this wallet manager as it handles financial transactions</p>
+              <p class="text-sm text-yellow-800">
+                Please ensure you fully trust this wallet manager as it handles financial
+                transactions
+              </p>
             </div>
           </div>
 
@@ -49,7 +57,9 @@
                   placeholder="https://payments.openmined.org"
                   class="pr-10"
                 />
-                <Copy class="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 cursor-pointer hover:text-gray-600" />
+                <Copy
+                  class="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 cursor-pointer hover:text-gray-600"
+                />
               </div>
             </div>
 
@@ -76,7 +86,7 @@
             </div>
           </div>
         </div>
-        
+
         <!-- Save Button -->
         <div class="mt-8 flex justify-end">
           <Button class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2">
@@ -85,43 +95,49 @@
         </div>
       </TabsContent>
 
-      <TabsContent value="integrations" class="space-y-6">
-        <!-- Integrations Header -->
+      <TabsContent value="data-sources" class="space-y-6">
+        <!-- Data Sources Header -->
         <div class="flex items-center justify-between mb-8">
           <div>
-            <h3 class="text-lg font-medium text-gray-900 mb-2">Your Integrations</h3>
-            <p class="text-gray-600">Manage your connected data sources and AI models</p>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">Data Sources</h3>
+            <p class="text-gray-600">Manage your connected data sources and vector databases</p>
           </div>
-          <Button class="bg-purple-600 hover:bg-purple-700 text-white" @click="showCreateIntegrationDialog = true">
+          <Button
+            class="bg-purple-600 hover:bg-purple-700 text-white"
+            @click="showCreateDataSourceDialog = true"
+          >
             <Plus class="h-4 w-4 mr-2" />
-            Create Integration
+            Add Data Source
           </Button>
         </div>
 
-        <!-- Data Integrations -->
+        <!-- Data Sources List -->
         <div class="space-y-4">
-          <div class="flex items-center gap-3 mb-4">
-            <h4 class="text-lg font-semibold text-gray-900">Data Integrations</h4>
-            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">3</Badge>
-          </div>
-          
+
           <!-- Legal Documents Store -->
           <div class="bg-white border border-gray-200 rounded-lg p-6">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-4">
                 <div class="p-3 bg-purple-100 rounded-lg">
-                  <Database class="h-6 w-6 text-purple-600" />
+                  <IntegrationIcon name="weaviate" class="h-6 w-6" />
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
                     <h3 class="text-lg font-medium text-gray-900">Legal Documents Store</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Weaviate</Badge>
-                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1">
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >Weaviate</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
+                    >
                       <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
                       running
                     </Badge>
                   </div>
-                  <p class="text-gray-600 mb-3">Vector database for legal document analysis and retrieval</p>
+                  <p class="text-gray-600 mb-3">
+                    Vector database for legal document analysis and retrieval
+                  </p>
                   <div class="flex gap-2">
                     <Badge variant="outline" class="text-xs px-2 py-1">legal</Badge>
                     <Badge variant="outline" class="text-xs px-2 py-1">documents</Badge>
@@ -147,18 +163,25 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-4">
                 <div class="p-3 bg-blue-100 rounded-lg">
-                  <Database class="h-6 w-6 text-blue-600" />
+                  <IntegrationIcon name="qdrant" class="h-6 w-6" />
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
                     <h3 class="text-lg font-medium text-gray-900">Customer Analytics Store</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Qdrant</Badge>
-                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1">
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >Qdrant</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
+                    >
                       <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
                       running
                     </Badge>
                   </div>
-                  <p class="text-gray-600 mb-3">Vector database for customer behavior analysis and segmentation</p>
+                  <p class="text-gray-600 mb-3">
+                    Vector database for customer behavior analysis and segmentation
+                  </p>
                   <div class="flex gap-2">
                     <Badge variant="outline" class="text-xs px-2 py-1">customer</Badge>
                     <Badge variant="outline" class="text-xs px-2 py-1">analytics</Badge>
@@ -184,18 +207,25 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-4">
                 <div class="p-3 bg-green-100 rounded-lg">
-                  <Database class="h-6 w-6 text-green-600" />
+                  <IntegrationIcon name="chroma" class="h-6 w-6" />
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
                     <h3 class="text-lg font-medium text-gray-900">Research Database</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Chroma</Badge>
-                    <Badge variant="outline" class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1">
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >Chroma</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1"
+                    >
                       <div class="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
                       stopped
                     </Badge>
                   </div>
-                  <p class="text-gray-600 mb-3">Knowledge base for research papers and scientific literature</p>
+                  <p class="text-gray-600 mb-3">
+                    Knowledge base for research papers and scientific literature
+                  </p>
                   <div class="flex gap-2">
                     <Badge variant="outline" class="text-xs px-2 py-1">research</Badge>
                     <Badge variant="outline" class="text-xs px-2 py-1">papers</Badge>
@@ -216,31 +246,51 @@
             </div>
           </div>
         </div>
+      </TabsContent>
 
-        <!-- Model Integrations -->
-        <div class="space-y-4 mt-8">
-          <div class="flex items-center gap-3 mb-4">
-            <h4 class="text-lg font-semibold text-gray-900">Model Integrations</h4>
-            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">3</Badge>
+      <TabsContent value="models" class="space-y-6">
+        <!-- Models Header -->
+        <div class="flex items-center justify-between mb-8">
+          <div>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">AI Models</h3>
+            <p class="text-gray-600">Configure your AI models and inference engines</p>
           </div>
+          <Button
+            class="bg-purple-600 hover:bg-purple-700 text-white"
+            @click="showCreateModelDialog = true"
+          >
+            <Plus class="h-4 w-4 mr-2" />
+            Add Model
+          </Button>
+        </div>
+
+        <!-- Models List -->
+        <div class="space-y-4">
 
           <!-- NLP Processing Engine -->
           <div class="bg-white border border-gray-200 rounded-lg p-6">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-4">
                 <div class="p-3 bg-purple-100 rounded-lg">
-                  <Brain class="h-6 w-6 text-purple-600" />
+                  <IntegrationIcon name="vllm" class="h-6 w-6" />
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
                     <h3 class="text-lg font-medium text-gray-900">NLP Processing Engine</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">vLLM</Badge>
-                    <Badge variant="outline" class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1">
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >vLLM</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1"
+                    >
                       <div class="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
                       stopped
                     </Badge>
                   </div>
-                  <p class="text-gray-600 mb-3">Large language model for natural language processing tasks</p>
+                  <p class="text-gray-600 mb-3">
+                    Large language model for natural language processing tasks
+                  </p>
                   <div class="flex gap-2">
                     <Badge variant="outline" class="text-xs px-2 py-1">nlp</Badge>
                     <Badge variant="outline" class="text-xs px-2 py-1">analysis</Badge>
@@ -265,18 +315,25 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-4">
                 <div class="p-3 bg-orange-100 rounded-lg">
-                  <Brain class="h-6 w-6 text-orange-600" />
+                  <IntegrationIcon name="ollama" class="h-6 w-6" />
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
                     <h3 class="text-lg font-medium text-gray-900">Code Assistant Model</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Ollama</Badge>
-                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1">
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >Ollama</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
+                    >
                       <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
                       running
                     </Badge>
                   </div>
-                  <p class="text-gray-600 mb-3">Local code generation and programming assistance model</p>
+                  <p class="text-gray-600 mb-3">
+                    Local code generation and programming assistance model
+                  </p>
                   <div class="flex gap-2">
                     <Badge variant="outline" class="text-xs px-2 py-1">code</Badge>
                     <Badge variant="outline" class="text-xs px-2 py-1">programming</Badge>
@@ -301,18 +358,25 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-4">
                 <div class="p-3 bg-indigo-100 rounded-lg">
-                  <Brain class="h-6 w-6 text-indigo-600" />
+                  <IntegrationIcon name="huggingface" class="h-6 w-6" />
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
                     <h3 class="text-lg font-medium text-gray-900">Text Embedding Service</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">Hugging Face</Badge>
-                    <Badge variant="outline" class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1">
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >Hugging Face</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1"
+                    >
                       <div class="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
                       stopped
                     </Badge>
                   </div>
-                  <p class="text-gray-600 mb-3">High-quality text embeddings for semantic search and similarity</p>
+                  <p class="text-gray-600 mb-3">
+                    High-quality text embeddings for semantic search and similarity
+                  </p>
                   <div class="flex gap-2">
                     <Badge variant="outline" class="text-xs px-2 py-1">embeddings</Badge>
                     <Badge variant="outline" class="text-xs px-2 py-1">semantic</Badge>
@@ -335,35 +399,328 @@
       </TabsContent>
 
       <TabsContent value="policies" class="space-y-6">
-        <div class="bg-white border border-gray-200 rounded-lg p-6 min-h-[400px] flex items-center justify-center">
-          <p class="text-gray-600">Policies settings will be available soon.</p>
+        <!-- Policies Header -->
+        <div class="flex items-center justify-between mb-8">
+          <div>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">Policy Configuration</h3>
+            <p class="text-gray-600">
+              Add and configure policies for your services
+            </p>
+          </div>
+          <Button
+            class="bg-purple-600 hover:bg-purple-700 text-white"
+            @click="showCreatePolicyDialog = true"
+          >
+            <Plus class="h-4 w-4 mr-2" />
+            Create Policy
+          </Button>
+        </div>
+
+        <!-- Active Policies -->
+        <div class="space-y-4">
+          <div class="flex items-center gap-3 mb-4">
+            <h4 class="text-lg font-semibold text-gray-900">Active Policies</h4>
+            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">3</Badge>
+          </div>
+
+          <!-- Rate Limiting Policy -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-blue-100 rounded-lg">
+                  <Gauge class="h-6 w-6 text-blue-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Rate Limiting Policy</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >Rate Limiter</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
+                    >
+                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      3 services
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">
+                    Controls request rates to prevent abuse and ensure fair resource usage
+                  </p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">Limit: 1000 req/min</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">Scope: Per User</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">Type: Sliding Window</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Rate Limiting Policy (Burst) -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-blue-100 rounded-lg">
+                  <Gauge class="h-6 w-6 text-blue-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Burst Rate Limiting Policy</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >Rate Limiter</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
+                    >
+                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      2 services
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">
+                    Controls short bursts while keeping sustained traffic within safe bounds
+                  </p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">Limit: 200 req/min</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">Scope: Per Service</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">Type: Token Bucket</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Accounting Policy -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-green-100 rounded-lg">
+                  <Calculator class="h-6 w-6 text-green-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Accounting Policy</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >Usage Tracking</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
+                    >
+                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      5 services
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">
+                    Tracks resource usage, costs, and generates billing reports for services
+                  </p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1"
+                      >Request: $0.001/request</Badge
+                    >
+                    <Badge variant="outline" class="text-xs px-2 py-1"
+                      >Tokens: $0.02/1K tokens</Badge
+                    >
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <!-- OpenTelemetry Observability Policy -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-purple-100 rounded-lg">
+                  <Activity class="h-6 w-6 text-purple-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">
+                      OpenTelemetry Observability Policy
+                    </h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >OTel</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
+                    >
+                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      2 services
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">
+                    Collects traces, metrics, and logs for system monitoring and debugging
+                  </p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1">Sampling: 10%</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1">Backend: Jaeger</Badge>
+                    <Badge variant="outline" class="text-xs px-2 py-1"
+                      >Endpoint: http://jaeger:4317</Badge
+                    >
+                    <Badge variant="outline" class="text-xs px-2 py-1">Batch Size: 512</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inactive Policies -->
+        <div class="space-y-4 mt-8">
+          <div class="flex items-center gap-3 mb-4">
+            <h4 class="text-lg font-semibold text-gray-900">Inactive Policies</h4>
+            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">1</Badge>
+          </div>
+
+          <!-- Human-in-the-Loop Policy -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-orange-100 rounded-lg">
+                  <Users class="h-6 w-6 text-orange-600" />
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-2">
+                    <h3 class="text-lg font-medium text-gray-900">Human-in-the-Loop Policy</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
+                      >HITL</Badge
+                    >
+                    <Badge
+                      variant="outline"
+                      class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1"
+                    >
+                      <div class="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
+                      Inactive
+                    </Badge>
+                  </div>
+                  <p class="text-gray-600 mb-3">
+                    Requires human approval for sensitive operations and decisions
+                  </p>
+                  <div class="flex gap-2">
+                    <Badge variant="outline" class="text-xs px-2 py-1"
+                      >Alert Destination: Inbox</Badge
+                    >
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button variant="outline" size="sm" class="text-gray-600">
+                  <Edit class="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       </TabsContent>
     </Tabs>
   </div>
 
-  <!-- Create Integration Dialog -->
-  <CreateIntegrationDialog 
-    v-model:open="showCreateIntegrationDialog"
-    @integration-created="handleIntegrationCreated"
+  <!-- Create Data Source Dialog -->
+  <CreateDataSourceDialog
+    v-model:open="showCreateDataSourceDialog"
+    @data-source-created="handleDataSourceCreated"
   />
+
+  <!-- Create Model Dialog -->
+  <CreateModelDialog
+    v-model:open="showCreateModelDialog"
+    @model-created="handleModelCreated"
+  />
+
+  <!-- Create Policy Dialog -->
+  <CreatePolicyDialog v-model:open="showCreatePolicyDialog" @policy-created="handlePolicyCreated" />
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Settings, Shield, AlertCircle, Copy, Plus, Database, Brain, Edit, Trash2 } from 'lucide-vue-next'
+import {
+  Settings,
+  Shield,
+  AlertCircle,
+  Copy,
+  Plus,
+  Database,
+  Brain,
+  Edit,
+  Trash2,
+  Gauge,
+  Calculator,
+  Activity,
+  Users,
+} from 'lucide-vue-next'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useUserStore } from '@/stores/user'
-import CreateIntegrationDialog from '@/components/CreateIntegrationDialog.vue'
+import CreateDataSourceDialog from '@/components/CreateDataSourceDialog.vue'
+import CreateModelDialog from '@/components/CreateModelDialog.vue'
+import CreatePolicyDialog from '@/components/CreatePolicyDialog.vue'
+import IntegrationIcon from '@/components/IntegrationIcons.vue'
 
 const userStore = useUserStore()
-const showCreateIntegrationDialog = ref(false)
+const showCreateDataSourceDialog = ref(false)
+const showCreateModelDialog = ref(false)
+const showCreatePolicyDialog = ref(false)
 
-const handleIntegrationCreated = () => {
-  console.log('Integration created successfully')
+const handleDataSourceCreated = () => {
+  console.log('Data source created successfully')
+}
+
+const handleModelCreated = () => {
+  console.log('Model created successfully')
+}
+
+const handlePolicyCreated = () => {
+  console.log('Policy created successfully')
 }
 </script>

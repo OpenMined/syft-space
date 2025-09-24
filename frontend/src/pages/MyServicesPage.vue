@@ -45,8 +45,8 @@ interface Service {
   type: 'data-source' | 'synthesizer'
   name: string
   description: string
-  price: string
-  supportedServices: string[]
+  dataSourceType?: string
+  modelType?: string
   languages: string[]
   domains: string[]
   mcpCompatible: boolean
@@ -61,8 +61,8 @@ const services = ref<Service[]>([
     type: 'data-source',
     name: 'research@safari-lab.org/animalsofsouthafrica',
     description: 'Species records, park reports, conservation notes.',
-    price: '$0.005 / request',
-    supportedServices: ['search', 'rag'],
+    dataSourceType: 'weaviate',
+    modelType: 'vllm',
     languages: ['english'],
     domains: ['wildlife'],
     mcpCompatible: true,
@@ -74,8 +74,8 @@ const services = ref<Service[]>([
     type: 'data-source',
     name: 'data@lexfirm.eu/lexcivillaw',
     description: 'Civil code, case law digests, firm memos (EU focus).',
-    price: '$0.010 / request',
-    supportedServices: ['search', 'rag'],
+    dataSourceType: 'qdrant',
+    modelType: 'ollama',
     languages: ['english', 'german', 'french'],
     domains: ['legal'],
     mcpCompatible: false,
@@ -87,8 +87,7 @@ const services = ref<Service[]>([
     type: 'data-source',
     name: 'admin@st-marys-hospital.com/meddevicerecords',
     description: 'Hospital device logs, maintenance + UDI registry links.',
-    price: '$0.02 / request',
-    supportedServices: ['search'],
+    dataSourceType: 'filesystem',
     languages: ['english'],
     domains: ['healthcare'],
     mcpCompatible: false,

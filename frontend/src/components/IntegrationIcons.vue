@@ -1,5 +1,12 @@
 <template>
+  <component 
+    v-if="isLucideIcon" 
+    :is="lucideIcon" 
+    :class="lucideIconClass"
+    v-bind="$attrs"
+  />
   <img 
+    v-else
     :src="iconSrc" 
     :alt="`${name} icon`"
     v-bind="$attrs"
@@ -8,6 +15,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { FolderOpen } from 'lucide-vue-next'
 
 // Import all icon images
 import weaviateIcon from '@/assets/icons/weaviate.png'
@@ -29,6 +37,25 @@ const iconMap: Record<string, string> = {
   ollama: ollamaIcon,
   huggingface: huggingfaceIcon,
 }
+
+const lucideIconMap: Record<string, any> = {
+  filesystem: FolderOpen,
+}
+
+const isLucideIcon = computed(() => {
+  return lucideIconMap[props.name] !== undefined
+})
+
+const lucideIcon = computed(() => {
+  return lucideIconMap[props.name]
+})
+
+const lucideIconClass = computed(() => {
+  if (props.name === 'filesystem') {
+    return 'text-purple-600'
+  }
+  return ''
+})
 
 const iconSrc = computed(() => {
   return iconMap[props.name] || ''

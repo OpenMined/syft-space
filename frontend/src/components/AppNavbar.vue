@@ -38,7 +38,7 @@ const tabs = [
           <span class="text-white font-bold text-lg">S</span>
         </div>
         <span class="text-xl font-bold text-gray-900 tracking-tight">
-          SyftNSAI 
+          SyftAI Server 
           <span class="ml-1 text-xs font-semibold text-purple-600 align-top">BETA</span>
         </span>
       </div>
