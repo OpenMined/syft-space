@@ -412,7 +412,7 @@
             @click="showCreatePolicyDialog = true"
           >
             <Plus class="h-4 w-4 mr-2" />
-            Create Policy
+            Add Policy
           </Button>
         </div>
 
