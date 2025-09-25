@@ -4,6 +4,7 @@ import { Inbox, X, Check, AlertCircle, Info, Trash2, Users, Gauge, Calculator, A
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -315,10 +316,20 @@ Consider upgrading your plan or optimizing your API usage patterns to avoid serv
 
 const selectedItem = ref<InboxItem | null>(null)
 const dialogOpen = ref(false)
+const activeTab = ref('all')
 
-const activeItems = computed(() => 
-  inboxItems.value.filter(item => !item.dismissed).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-)
+const activeItems = computed(() => {
+  const nonDismissed = inboxItems.value.filter(item => !item.dismissed)
+  
+  let filtered = nonDismissed
+  if (activeTab.value === 'read') {
+    filtered = nonDismissed.filter(item => item.read)
+  } else if (activeTab.value === 'unread') {
+    filtered = nonDismissed.filter(item => !item.read)
+  }
+  
+  return filtered.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+})
 
 const unreadCount = computed(() => 
   activeItems.value.filter(item => !item.read).length
@@ -402,15 +413,25 @@ const formatTimestamp = (date: Date) => {
 <template>
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-8">
-      <div class="flex items-center gap-3">
-        <Inbox class="h-6 w-6 text-gray-600" />
-        <h1 class="text-2xl font-semibold text-gray-900">Inbox</h1>
-        <Badge v-if="unreadCount > 0" variant="secondary" class="bg-purple-100 text-purple-700">
-          {{ unreadCount }} new
-        </Badge>
-      </div>
+    <div class="flex items-center gap-3 mb-2">
+      <Inbox class="h-6 w-6 text-gray-600" />
+      <h1 class="text-2xl font-semibold text-gray-900">Inbox</h1>
+      <Badge v-if="unreadCount > 0" variant="secondary" class="bg-purple-100 text-purple-700">
+        {{ unreadCount }} new
+      </Badge>
     </div>
+    <p class="text-gray-600 mb-8">Review notifications, policy decisions, and system alerts</p>
+
+    <!-- Tabs -->
+    <Tabs v-model="activeTab" class="w-full mb-8">
+      <TabsList
+        class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]"
+      >
+        <TabsTrigger value="all">All</TabsTrigger>
+        <TabsTrigger value="unread">Unread</TabsTrigger>
+        <TabsTrigger value="read">Read</TabsTrigger>
+      </TabsList>
+    </Tabs>
 
     <!-- Empty State -->
     <div v-if="activeItems.length === 0" class="text-center py-12">

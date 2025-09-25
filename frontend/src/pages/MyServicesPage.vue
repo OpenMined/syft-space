@@ -1,5 +1,12 @@
 <template>
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header -->
+    <div class="flex items-center gap-3 mb-2">
+      <Server class="h-6 w-6 text-gray-600" />
+      <h1 class="text-2xl font-semibold text-gray-900">My Services</h1>
+    </div>
+    <p class="text-gray-600 mb-8">Manage and monitor your published services</p>
+
     <!-- Header with tabs and search bar -->
     <div class="flex items-center justify-between gap-4 mb-8">
       <!-- Tabs -->
@@ -47,7 +54,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, Plus } from 'lucide-vue-next'
+import { Search, Plus, Server } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
