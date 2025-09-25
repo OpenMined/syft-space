@@ -420,37 +420,50 @@
         <div class="space-y-4">
           <div class="flex items-center gap-3 mb-4">
             <h4 class="text-lg font-semibold text-gray-900">Active Policies</h4>
-            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">3</Badge>
+            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">{{ activePolicies.length }}</Badge>
           </div>
 
-          <!-- Rate Limiting Policy -->
-          <div class="bg-white border border-gray-200 rounded-lg p-6">
+          <div
+            v-for="policy in activePolicies"
+            :key="policy.id"
+            class="bg-white border border-gray-200 rounded-lg p-6"
+          >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-4">
-                <div class="p-3 bg-blue-100 rounded-lg">
-                  <Gauge class="h-6 w-6 text-blue-600" />
+                <div :class="{
+                  'p-3 rounded-lg bg-blue-100': policy.color === 'blue',
+                  'p-3 rounded-lg bg-green-100': policy.color === 'green',
+                  'p-3 rounded-lg bg-purple-100': policy.color === 'purple',
+                  'p-3 rounded-lg bg-red-100': policy.color === 'red',
+                  'p-3 rounded-lg bg-orange-100': policy.color === 'orange'
+                }">
+                  <component :is="policy.icon" :class="{
+                    'h-6 w-6 text-blue-600': policy.color === 'blue',
+                    'h-6 w-6 text-green-600': policy.color === 'green',
+                    'h-6 w-6 text-purple-600': policy.color === 'purple',
+                    'h-6 w-6 text-red-600': policy.color === 'red',
+                    'h-6 w-6 text-orange-600': policy.color === 'orange'
+                  }" />
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
-                    <h3 class="text-lg font-medium text-gray-900">Rate Limiting Policy</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
-                      >Rate Limiter</Badge
-                    >
-                    <Badge
-                      variant="outline"
-                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
-                    >
+                    <h3 class="text-lg font-medium text-gray-900">{{ policy.name }}</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">{{ policy.badge }}</Badge>
+                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1">
                       <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                      3 services
+                      {{ policy.serviceCount }} services
                     </Badge>
                   </div>
-                  <p class="text-gray-600 mb-3">
-                    Controls request rates to prevent abuse and ensure fair resource usage
-                  </p>
+                  <p class="text-gray-600 mb-3">{{ policy.description }}</p>
                   <div class="flex gap-2">
-                    <Badge variant="outline" class="text-xs px-2 py-1">Limit: 1000 req/min</Badge>
-                    <Badge variant="outline" class="text-xs px-2 py-1">Scope: Per User</Badge>
-                    <Badge variant="outline" class="text-xs px-2 py-1">Type: Sliding Window</Badge>
+                    <Badge
+                      v-for="config in policy.configs"
+                      :key="config"
+                      variant="outline"
+                      class="text-xs px-2 py-1"
+                    >
+                      {{ config }}
+                    </Badge>
                   </div>
                 </div>
               </div>
@@ -467,182 +480,56 @@
             </div>
           </div>
 
-          <!-- Rate Limiting Policy (Burst) -->
-          <div class="bg-white border border-gray-200 rounded-lg p-6">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-4">
-                <div class="p-3 bg-blue-100 rounded-lg">
-                  <Gauge class="h-6 w-6 text-blue-600" />
-                </div>
-                <div class="flex-1">
-                  <div class="flex items-center gap-3 mb-2">
-                    <h3 class="text-lg font-medium text-gray-900">Burst Rate Limiting Policy</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
-                      >Rate Limiter</Badge
-                    >
-                    <Badge
-                      variant="outline"
-                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
-                    >
-                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                      2 services
-                    </Badge>
-                  </div>
-                  <p class="text-gray-600 mb-3">
-                    Controls short bursts while keeping sustained traffic within safe bounds
-                  </p>
-                  <div class="flex gap-2">
-                    <Badge variant="outline" class="text-xs px-2 py-1">Limit: 200 req/min</Badge>
-                    <Badge variant="outline" class="text-xs px-2 py-1">Scope: Per Service</Badge>
-                    <Badge variant="outline" class="text-xs px-2 py-1">Type: Token Bucket</Badge>
-                  </div>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Button variant="outline" size="sm" class="text-gray-600">
-                  <Edit class="h-4 w-4 mr-2" />
-                  Edit
-                </Button>
-                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
-                  <Trash2 class="h-4 w-4 mr-2" />
-                  Delete
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Accounting Policy -->
-          <div class="bg-white border border-gray-200 rounded-lg p-6">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-4">
-                <div class="p-3 bg-green-100 rounded-lg">
-                  <Calculator class="h-6 w-6 text-green-600" />
-                </div>
-                <div class="flex-1">
-                  <div class="flex items-center gap-3 mb-2">
-                    <h3 class="text-lg font-medium text-gray-900">Accounting Policy</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
-                      >Usage Tracking</Badge
-                    >
-                    <Badge
-                      variant="outline"
-                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
-                    >
-                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                      5 services
-                    </Badge>
-                  </div>
-                  <p class="text-gray-600 mb-3">
-                    Tracks resource usage, costs, and generates billing reports for services
-                  </p>
-                  <div class="flex gap-2">
-                    <Badge variant="outline" class="text-xs px-2 py-1"
-                      >Request: $0.001/request</Badge
-                    >
-                    <Badge variant="outline" class="text-xs px-2 py-1"
-                      >Tokens: $0.02/1K tokens</Badge
-                    >
-                  </div>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Button variant="outline" size="sm" class="text-gray-600">
-                  <Edit class="h-4 w-4 mr-2" />
-                  Edit
-                </Button>
-                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
-                  <Trash2 class="h-4 w-4 mr-2" />
-                  Delete
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <!-- OpenTelemetry Observability Policy -->
-          <div class="bg-white border border-gray-200 rounded-lg p-6">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-4">
-                <div class="p-3 bg-purple-100 rounded-lg">
-                  <Activity class="h-6 w-6 text-purple-600" />
-                </div>
-                <div class="flex-1">
-                  <div class="flex items-center gap-3 mb-2">
-                    <h3 class="text-lg font-medium text-gray-900">
-                      OpenTelemetry Observability Policy
-                    </h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
-                      >OTel</Badge
-                    >
-                    <Badge
-                      variant="outline"
-                      class="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
-                    >
-                      <div class="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                      2 services
-                    </Badge>
-                  </div>
-                  <p class="text-gray-600 mb-3">
-                    Collects traces, metrics, and logs for system monitoring and debugging
-                  </p>
-                  <div class="flex gap-2">
-                    <Badge variant="outline" class="text-xs px-2 py-1">Sampling: 10%</Badge>
-                    <Badge variant="outline" class="text-xs px-2 py-1">Backend: Jaeger</Badge>
-                    <Badge variant="outline" class="text-xs px-2 py-1"
-                      >Endpoint: http://jaeger:4317</Badge
-                    >
-                    <Badge variant="outline" class="text-xs px-2 py-1">Batch Size: 512</Badge>
-                  </div>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Button variant="outline" size="sm" class="text-gray-600">
-                  <Edit class="h-4 w-4 mr-2" />
-                  Edit
-                </Button>
-                <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
-                  <Trash2 class="h-4 w-4 mr-2" />
-                  Delete
-                </Button>
-              </div>
-            </div>
-          </div>
         </div>
 
         <!-- Inactive Policies -->
         <div class="space-y-4 mt-8">
           <div class="flex items-center gap-3 mb-4">
             <h4 class="text-lg font-semibold text-gray-900">Inactive Policies</h4>
-            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">1</Badge>
+            <Badge variant="secondary" class="bg-gray-100 text-gray-700 text-xs px-2 py-1">{{ inactivePolicies.length }}</Badge>
           </div>
 
-          <!-- Human-in-the-Loop Policy -->
-          <div class="bg-white border border-gray-200 rounded-lg p-6">
+          <div
+            v-for="policy in inactivePolicies"
+            :key="policy.id"
+            class="bg-white border border-gray-200 rounded-lg p-6"
+          >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-4">
-                <div class="p-3 bg-orange-100 rounded-lg">
-                  <Users class="h-6 w-6 text-orange-600" />
+                <div :class="{
+                  'p-3 rounded-lg bg-blue-100': policy.color === 'blue',
+                  'p-3 rounded-lg bg-green-100': policy.color === 'green',
+                  'p-3 rounded-lg bg-purple-100': policy.color === 'purple',
+                  'p-3 rounded-lg bg-red-100': policy.color === 'red',
+                  'p-3 rounded-lg bg-orange-100': policy.color === 'orange'
+                }">
+                  <component :is="policy.icon" :class="{
+                    'h-6 w-6 text-blue-600': policy.color === 'blue',
+                    'h-6 w-6 text-green-600': policy.color === 'green',
+                    'h-6 w-6 text-purple-600': policy.color === 'purple',
+                    'h-6 w-6 text-red-600': policy.color === 'red',
+                    'h-6 w-6 text-orange-600': policy.color === 'orange'
+                  }" />
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
-                    <h3 class="text-lg font-medium text-gray-900">Human-in-the-Loop Policy</h3>
-                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1"
-                      >HITL</Badge
-                    >
-                    <Badge
-                      variant="outline"
-                      class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1"
-                    >
+                    <h3 class="text-lg font-medium text-gray-900">{{ policy.name }}</h3>
+                    <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">{{ policy.badge }}</Badge>
+                    <Badge variant="outline" class="bg-gray-50 text-gray-600 border-gray-200 text-xs px-2 py-1">
                       <div class="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
                       Inactive
                     </Badge>
                   </div>
-                  <p class="text-gray-600 mb-3">
-                    Requires human approval for sensitive operations and decisions
-                  </p>
+                  <p class="text-gray-600 mb-3">{{ policy.description }}</p>
                   <div class="flex gap-2">
-                    <Badge variant="outline" class="text-xs px-2 py-1"
-                      >Alert Destination: Inbox</Badge
+                    <Badge
+                      v-for="config in policy.configs"
+                      :key="config"
+                      variant="outline"
+                      class="text-xs px-2 py-1"
                     >
+                      {{ config }}
+                    </Badge>
                   </div>
                 </div>
               </div>
@@ -706,11 +593,16 @@ import CreateDataSourceDialog from '@/components/CreateDataSourceDialog.vue'
 import CreateModelDialog from '@/components/CreateModelDialog.vue'
 import CreatePolicyDialog from '@/components/CreatePolicyDialog.vue'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
+import { getActivePolicies, getInactivePolicies } from '@/data/policies'
 
 const userStore = useUserStore()
 const showCreateDataSourceDialog = ref(false)
 const showCreateModelDialog = ref(false)
 const showCreatePolicyDialog = ref(false)
+
+// Get policies from shared data
+const activePolicies = getActivePolicies()
+const inactivePolicies = getInactivePolicies()
 
 const handleDataSourceCreated = () => {
   console.log('Data source created successfully')

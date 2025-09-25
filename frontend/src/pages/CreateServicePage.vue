@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="bg-white border-b border-gray-200">
       <div class="max-w-7xl mx-auto px-6 py-4">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center">
           <Button 
             variant="ghost"
             @click="router.push({ name: 'services' })"
@@ -12,9 +12,6 @@
             <ArrowLeft class="w-5 h-5 mr-2" />
             Back to My Services
           </Button>
-          <div class="text-sm font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-md">
-            Step 1 of 3
-          </div>
         </div>
       </div>
     </div>
@@ -31,8 +28,7 @@
       <div class="grid md:grid-cols-2 gap-8 mb-8">
         <!-- Data Service Card -->
         <Card 
-          class="cursor-pointer transition-all duration-200 hover:shadow-lg border-2 bg-white"
-          :class="selectedType === 'data' ? 'border-blue-300 shadow-lg bg-gradient-to-br from-blue-50 to-indigo-50' : 'border-gray-200 hover:border-gray-300'"
+          class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border-2 bg-white border-gray-200"
           @click="selectServiceType('data')"
         >
           <CardContent class="p-8">
@@ -57,8 +53,7 @@
 
         <!-- Model Service Card -->
         <Card 
-          class="cursor-pointer transition-all duration-200 hover:shadow-lg border-2 bg-white"
-          :class="selectedType === 'model' ? 'border-purple-300 shadow-lg bg-gradient-to-br from-purple-50 to-pink-50' : 'border-gray-200 hover:border-gray-300'"
+          class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-purple-300 hover:bg-gradient-to-br hover:from-purple-50 hover:to-pink-50 border-2 bg-white border-gray-200"
           @click="selectServiceType('model')"
         >
           <CardContent class="p-8">
@@ -101,20 +96,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Database, Brain, Shield, ArrowLeft } from 'lucide-vue-next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
 const router = useRouter()
-const selectedType = ref<string | null>(null)
 
 const selectServiceType = (type: 'data' | 'model') => {
-  selectedType.value = type
-  // Navigate to the appropriate service creation flow
-  // For now, we'll just log the selection
-  console.log(`Selected service type: ${type}`)
-  // TODO: Navigate to specific creation flows once they are implemented
+  if (type === 'data') {
+    router.push('/create/data-service')
+  } else if (type === 'model') {
+    router.push('/create/model-service')
+  }
 }
 </script>

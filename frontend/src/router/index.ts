@@ -33,9 +33,19 @@ const router = createRouter({
       component: SettingsPage
     },
     {
-      path: '/create-service',
-      name: 'create-service',
+      path: '/create',
+      name: 'create',
       component: CreateServicePage
+    },
+    {
+      path: '/create/data-service',
+      name: 'create-data-service',
+      component: () => import('../pages/CreateDataServicePage.vue')
+    },
+    {
+      path: '/create/model-service',
+      name: 'create-model-service',
+      component: () => import('../pages/CreateModelServicePage.vue')
     }
   ],
 })

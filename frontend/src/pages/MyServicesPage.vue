@@ -31,7 +31,7 @@
         
         <!-- Create Service Button -->
         <Button 
-          @click="router.push({ name: 'create-service' })"
+          @click="router.push({ name: 'create' })"
           class="bg-purple-600 hover:bg-purple-700 text-white"
         >
           <Plus class="h-4 w-4 mr-2" />

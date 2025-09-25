@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import AppNavbar from './components/AppNavbar.vue'
 
 const route = useRoute()
-const showNavbar = computed(() => route.name !== 'create-service')
+const showNavbar = computed(() => route.name !== 'create' && !route.path.startsWith('/create/'))
 </script>
 
 <template>
