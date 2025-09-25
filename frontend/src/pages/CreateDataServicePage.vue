@@ -218,13 +218,16 @@
               <Label for="description" class="text-sm font-medium text-gray-700">
                 Description
               </Label>
-              <Textarea
-                id="description"
+              <MdEditor
                 v-model="formData.description"
+                :height="200"
+                :toolbars-exclude="['github']"
+                :preview-theme="'github'"
+                :code-theme="'github'"
+                language="en-US"
                 placeholder="Detailed description of your service (supports Markdown)"
-                class="w-full min-h-[120px]"
               />
-              <p class="text-sm text-gray-500">Provide a detailed description. Markdown formatting is supported.</p>
+              <p class="text-sm text-gray-500">Provide a detailed description using the WYSIWYG markdown editor above.</p>
             </div>
 
             <!-- Tags -->
@@ -995,6 +998,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { MdEditor } from 'md-editor-v3'
+import 'md-editor-v3/lib/style.css'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDataSourceDialog from '@/components/CreateDataSourceDialog.vue'
 import CreateModelDialog from '@/components/CreateModelDialog.vue'

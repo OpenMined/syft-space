@@ -15,8 +15,8 @@
     "test:e2e": "start-server-and-test preview http://localhost:4173 'cypress run --e2e'",
     "test:e2e:dev": "start-server-and-test 'vite dev --port 4173' http://localhost:4173 'cypress open --e2e'",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build",
-    "lint:oxlint": "oxlint . --fix -D correctness --ignore-path .oxlintignore --ignore-path .gitignore",
+    "typecheck": "vue-tsc --build",
+    "lint:oxlint": "oxlint . --fix -D correctness --ignore-pattern=dist",
     "lint:eslint": "eslint . --fix",
     "lint": "run-s lint:*",
     "format": "prettier --write src/"
@@ -27,6 +27,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-vue-next": "^0.544.0",
+    "md-editor-v3": "^6.0.1",
     "pinia": "3.0.3",
     "reka-ui": "^2.5.0",
     "tailwind-merge": "^3.3.1",

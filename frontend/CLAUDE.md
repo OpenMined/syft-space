@@ -81,10 +81,21 @@ import { Save, ArrowLeft, Plus, X } from 'lucide-vue-next'
 - Use reactive refs and computed properties appropriately
 - Follow the existing file structure and naming conventions
 
+## Package Management
+
+This project uses **bun** as the package manager. Always use bun for package operations:
+
+```bash
+bun add <package-name>        # Install dependencies
+bun add -D <package-name>     # Install dev dependencies
+bun install                   # Install all dependencies
+bun remove <package-name>     # Remove dependencies
+```
+
 ## Testing Commands
 
 When code changes are made, run these commands to ensure quality:
 
-- `bun run lint:oxlint` - Check for linting errors
-- `bun run type-check` - Verify TypeScript types
+- `bun run lint` - Check for linting errors
+- `bun run typecheck` - Verify TypeScript types
 - `bun run test:unit` - Run tests (if available)
