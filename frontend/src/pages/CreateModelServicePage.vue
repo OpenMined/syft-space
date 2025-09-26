@@ -704,7 +704,7 @@
             :disabled="!isCurrentStepValid"
             class="bg-purple-600 hover:bg-purple-700 text-white px-8 ml-auto"
           >
-            {{ currentSubStep === 4 ? 'Deploy Service' : 'Next' }}
+            {{ currentSubStep === 4 ? 'Publish Service' : 'Next' }}
             <ArrowRight class="ml-2 h-4 w-4" />
           </Button>
         </div>

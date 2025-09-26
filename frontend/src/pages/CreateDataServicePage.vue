@@ -353,15 +353,7 @@
           <div v-if="selectedDataSourceType">
             <!-- File System Browser -->
             <div v-if="selectedDataSourceType === 'filesystem'" class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h3 class="text-lg font-medium text-gray-900 mb-4">Select Files</h3>
-              <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <FolderOpen class="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                <p class="text-gray-600 mb-2">Drop files here or click to browse</p>
-                <p class="text-sm text-gray-500">File browser UI will be implemented here</p>
-                <Button variant="outline" class="mt-4">
-                  Browse Files
-                </Button>
-              </div>
+              <FileExplorer v-model="selectedFiles" />
             </div>
 
             <!-- Vector Database Configuration -->
@@ -866,6 +858,14 @@
                   <div v-if="selectedDataSourceType === 'filesystem'">
                     <p><span class="font-medium">Type:</span> Files from your system</p>
                     <p><span class="font-medium">Files Selected:</span> {{ selectedFiles.length > 0 ? selectedFiles.length + ' files' : 'Ready to select files during deployment' }}</p>
+                    <div v-if="selectedFiles.length > 0" class="mt-2 max-h-32 overflow-y-auto">
+                      <ul class="text-xs text-gray-600 space-y-1">
+                        <li v-for="file in selectedFiles" :key="file" class="flex items-center gap-1">
+                          <FileText class="w-3 h-3" />
+                          {{ file }}
+                        </li>
+                      </ul>
+                    </div>
                   </div>
                   <div v-else-if="selectedDataSourceType === 'vector'">
                     <p><span class="font-medium">Type:</span> Vector Database</p>
@@ -958,7 +958,7 @@
             :disabled="!isCurrentStepValid"
             class="bg-purple-600 hover:bg-purple-700 text-white px-8 ml-auto"
           >
-            {{ currentSubStep === 5 ? 'Deploy Service' : 'Next' }}
+            {{ currentSubStep === 5 ? 'Publish Service' : 'Next' }}
             <ArrowRight class="ml-2 h-4 w-4" />
           </Button>
         </div>
@@ -988,11 +988,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Database, Plus, X, ArrowRight, FileText, FolderOpen, Code, FileType, Sparkles, GitMerge, Save, Clock, Calculator, Activity, Shield, Users, CheckSquare, Square, Filter, ArrowUpDown } from 'lucide-vue-next'
+import { ArrowLeft, Database, Plus, X, ArrowRight, FileText, FolderOpen, Code, FileType, Sparkles, GitMerge, Save, CheckSquare, Square, Filter, ArrowUpDown } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
@@ -1004,6 +1003,7 @@ import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDataSourceDialog from '@/components/CreateDataSourceDialog.vue'
 import CreateModelDialog from '@/components/CreateModelDialog.vue'
 import CreatePolicyDialog from '@/components/CreatePolicyDialog.vue'
+import FileExplorer from '@/components/FileExplorer.vue'
 import { AVAILABLE_POLICIES } from '@/data/policies'
 
 const router = useRouter()
@@ -1037,7 +1037,7 @@ const formData = ref({
   dataSource: '',
   responseType: 'raw',
   aiModel: '',
-  policies: {}
+  policies: {} as Record<string, boolean>
 })
 
 // Data source selection
@@ -1122,7 +1122,7 @@ const isStep2Valid = computed(() => {
   } else if (selectedDataSourceType.value === 'vector') {
     return selectedVectorDB.value !== null
   } else if (selectedDataSourceType.value === 'filesystem') {
-    return selectedFiles.value.length > 0 || true // For now, allow proceeding without files selected
+    return selectedFiles.value.length > 0
   }
   return false
 })
@@ -1197,20 +1197,6 @@ const handleModelCreated = () => {
 const handlePolicyCreated = () => {
   // In a real app, this would update the policy list
   console.log('Policy created')
-}
-
-// Get applied policies for review
-const getAppliedPolicies = () => {
-  const policies = []
-  for (const [policyId, isSelected] of Object.entries(formData.value.policies)) {
-    if (isSelected) {
-      const policy = AVAILABLE_POLICIES.find(p => p.id === policyId)
-      if (policy) {
-        policies.push(policy.name)
-      }
-    }
-  }
-  return policies
 }
 
 // Get applied policies with full details for review
