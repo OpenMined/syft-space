@@ -8,7 +8,7 @@ from .config import app_settings
 
 
 app = FastSyftBox(
-    app_name="NSAI",
+    app_name="SyftAIServer",
     syftbox_config=SyftClientConfig.load(app_settings.syftbox_config_path),
     version="1.0.0",
     syftbox_endpoint_tags=["syftbox"],

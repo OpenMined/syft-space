@@ -675,46 +675,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nsai-core"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "fastapi" },
-    { name = "fastsyftbox" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "sqlmodel" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "black" },
-    { name = "flake8" },
-    { name = "isort" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=22.0" },
-    { name = "fastapi", specifier = "==0.116.2" },
-    { name = "fastsyftbox", specifier = ">=0.1.21" },
-    { name = "flake8", marker = "extra == 'dev'", specifier = ">=4.0" },
-    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=0.950" },
-    { name = "pydantic", specifier = "==2.11.9" },
-    { name = "pydantic-settings", specifier = ">=2.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
-    { name = "sqlmodel", specifier = ">=0.0.14" },
-    { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "packaging"
 version = "25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1142,6 +1102,46 @@ sdist = { url = "https://files.pythonhosted.org/packages/a7/a5/d6f429d43394057b6
 wheels = [
     { url = "https://files.pythonhosted.org/packages/be/72/2db2f49247d0a18b4f1bb9a5a39a0162869acf235f3a96418363947b3d46/starlette-0.48.0-py3-none-any.whl", hash = "sha256:0764ca97b097582558ecb498132ed0c7d942f233f365b86ba37770e026510659", size = 73736, upload-time = "2025-09-13T08:41:03.869Z" },
 ]
+
+[[package]]
+name = "syai-server"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "fastsyftbox" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "sqlmodel" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "black" },
+    { name = "flake8" },
+    { name = "isort" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "black", marker = "extra == 'dev'", specifier = ">=22.0" },
+    { name = "fastapi", specifier = "==0.116.2" },
+    { name = "fastsyftbox", specifier = ">=0.1.21" },
+    { name = "flake8", marker = "extra == 'dev'", specifier = ">=4.0" },
+    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=0.950" },
+    { name = "pydantic", specifier = "==2.11.9" },
+    { name = "pydantic-settings", specifier = ">=2.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "sqlmodel", specifier = ">=0.0.14" },
+    { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "syft-core"

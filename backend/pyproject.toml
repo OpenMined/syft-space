@@ -1,7 +1,7 @@
 [project]
-name = "nsai-core"
+name = "syai-server"
 version = "0.1.0"
-description = "NSAI Core Backend API"
+description = "Syft AI Server Backend API"
 authors = [
     {name = "OpenMined", email = "support@openmined.org"}
 ]
