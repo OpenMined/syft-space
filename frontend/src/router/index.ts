@@ -4,6 +4,7 @@ import InboxPage from '../pages/InboxPage.vue'
 import UsagePage from '../pages/UsagePage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
 import CreateServicePage from '../pages/CreateServicePage.vue'
+import ServiceDetailPage from '../pages/ServiceDetailPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -16,6 +17,11 @@ const router = createRouter({
       path: '/services',
       name: 'services',
       component: MyServicesPage
+    },
+    {
+      path: '/services/:id',
+      name: 'service-detail',
+      component: ServiceDetailPage
     },
     {
       path: '/inbox',

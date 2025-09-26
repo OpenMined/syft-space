@@ -1,5 +1,5 @@
 <template>
-  <Card class="p-6 hover:shadow-lg transition-shadow">
+  <Card class="p-6 hover:shadow-lg transition-shadow cursor-pointer" @click="handleCardClick">
     <div class="flex items-start justify-between">
       <div class="flex-1">
         <div class="flex items-center gap-3 mb-2">
@@ -54,23 +54,23 @@
       <div class="ml-4 text-right">
         <div class="flex flex-col gap-2">
           <template v-if="service.status === 'draft'">
-            <Button variant="outline" size="sm" class="border-purple-600 text-purple-600 hover:bg-purple-50 hover:text-purple-700 w-full">
+            <Button variant="outline" size="sm" class="border-purple-600 text-purple-600 hover:bg-purple-50 hover:text-purple-700 w-full" @click.stop>
               <Send class="h-4 w-4 mr-2" />
               Publish
             </Button>
             <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" class="text-gray-600">
+              <Button variant="outline" size="sm" class="text-gray-600" @click.stop>
                 <Edit class="h-4 w-4 mr-2" />
                 Edit
               </Button>
-              <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700">
+              <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700" @click.stop>
                 <Trash2 class="h-4 w-4 mr-2" />
                 Delete
               </Button>
             </div>
           </template>
           <template v-else>
-            <Button variant="outline" size="sm" class="text-gray-600">
+            <Button variant="outline" size="sm" class="text-gray-600" @click.stop>
               <EyeOff class="h-4 w-4 mr-2" />
               Unpublish
             </Button>
@@ -82,12 +82,15 @@
 </template>
 
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import { Edit, Trash2, Send, EyeOff } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
+
+const router = useRouter()
 
 interface Service {
   id: string
@@ -141,7 +144,11 @@ const getTechnicalModelName = (type: string) => {
   return names[type] || type
 }
 
-defineProps<{
+const props = defineProps<{
   service: Service
 }>()
+
+const handleCardClick = () => {
+  router.push({ name: 'service-detail', params: { id: props.service.id } })
+}
 </script>
