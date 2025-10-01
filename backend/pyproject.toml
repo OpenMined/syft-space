@@ -26,6 +26,12 @@ dev = [
     "mypy>=0.950"
 ]
 
+libs = [
+    "weaviate-client>=4.17.0",
+    "docling>=2.55.0",
+]
+
+
 [tool.black]
 line-length = 88
 target-version = ['py39']

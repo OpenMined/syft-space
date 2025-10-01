@@ -22,7 +22,7 @@ class AppSettings(BaseSettings):
     debug: bool = False
 
     # Syftbox config path
-    syftbox_config_path : Path = Path("~/.syftbox/config.json").expanduser()
+    syftbox_config_path: Path = Path("~/.syftbox/config.json").expanduser()
 
 
 # Global settings instance
