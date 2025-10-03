@@ -6,6 +6,8 @@ from components.data_sources.interfaces import DataSourceProvisioner
 import requests
 import time
 from loguru import logger
+from components.data_sources.interfaces import DataSourceProvisioner
+from components.data_sources.registry import DATA_SOURCE_REGISTRY
 
 
 class WeaviateProvisioner(DataSourceProvisioner):
@@ -13,9 +15,9 @@ class WeaviateProvisioner(DataSourceProvisioner):
 
     SOURCE_NAME = "weaviate"
 
-    def __init__(self):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
         self.docker_compose_file: Optional[Path] = None
-        self.config: Dict[str, Any] = {}
         self.is_running = False
 
     def start(self, config: Dict[str, Any]) -> None:
@@ -117,3 +119,6 @@ class WeaviateProvisioner(DataSourceProvisioner):
             return ["docker", "compose"]
         except (subprocess.CalledProcessError, FileNotFoundError):
             return ["docker-compose"]
+
+
+DATA_SOURCE_REGISTRY.register_provisioner(WeaviateProvisioner)

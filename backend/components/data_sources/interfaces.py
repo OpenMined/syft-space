@@ -27,6 +27,14 @@ class DataSource(Protocol):
         return cls.SOURCE_NAME.lower()
 
     @classmethod
+    def description(cls):
+        return cls.__doc__
+
+    @classmethod
+    def icon(cls) -> str:
+        return "🕸️"
+
+    @classmethod
     def configuration_schema() -> Dict[str, Any]:
         """Return a dictionary of config values required by this data source provider.
         This will be displayed in the frontend/sdk as configurable values
@@ -58,6 +66,9 @@ class DataSource(Protocol):
 
 class DataSourceProvisioner(Protocol):
     """Provisioner interface."""
+
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
 
     SOURCE_NAME: str
 

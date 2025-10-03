@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from components.data_sources.interfaces import DataSource, Context, register_data_source
+from components.data_sources.interfaces import DataSource, Context
+from components.data_sources.registry import DATA_SOURCE_REGISTRY
 from components.data_sources.schemas import (
     SearchParameters,
     SearchResult,
@@ -22,7 +23,13 @@ except ImportError:
 
 
 class Weaviate(DataSource):
-    """Weaviate data source."""
+    """Weaviate is a vector database that allows you to store and query your data.
+
+    It uses transformers to embed your data and then allows you to query it using a similarity search.
+
+    Reference: https://weaviate.io/
+    Docs: https://weaviate.io/developers/weaviate/current/getting-started/introduction.html
+    """
 
     SOURCE_NAME = "weaviate"
 
@@ -178,4 +185,4 @@ class Weaviate(DataSource):
         )
 
 
-register_data_source(Weaviate)
+DATA_SOURCE_REGISTRY.register_source(Weaviate)

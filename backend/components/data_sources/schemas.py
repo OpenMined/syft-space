@@ -58,3 +58,15 @@ class SearchResult(BaseModel):
     search_engine: str = Field(..., description="Search engine used")
     api_version: str = Field(..., description="API version used")
     response_time_ms: int = Field(..., description="Response time in milliseconds")
+
+
+class DataSourceInfo(BaseModel):
+    """Information about a data source."""
+
+    name: str = Field(..., description="Name of the data source")
+    config_schema: Dict[str, Any] = Field(
+        ..., description="Configuration schema for the data source"
+    )
+    description: str = Field(..., description="Description of the data source")
+    icon: str = Field(..., description="Icon of the data source")
+    enabled: bool = Field(..., description="Whether the data source is enabled")
