@@ -1,10 +1,6 @@
-from ast import Dict
-from ast import List
 from enum import Enum
-from pydantic import BaseModel
-from pydantic import Field
-from pydantic import Optional
-from pydantic import Any
+from typing import Dict, List, Any
+from pydantic import BaseModel, Field
 
 
 class HealthcheckStatus(str, Enum):

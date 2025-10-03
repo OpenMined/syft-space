@@ -3693,7 +3693,6 @@ name = "syai-server"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "docling" },
     { name = "fastapi" },
     { name = "fastsyftbox" },
     { name = "pydantic" },
@@ -3712,13 +3711,14 @@ dev = [
     { name = "pytest-asyncio" },
 ]
 libs = [
+    { name = "docling" },
     { name = "weaviate-client" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=22.0" },
-    { name = "docling", specifier = ">=2.55.0" },
+    { name = "docling", marker = "extra == 'libs'", specifier = ">=2.55.0" },
     { name = "fastapi", specifier = "==0.116.2" },
     { name = "fastsyftbox", specifier = ">=0.1.21" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=4.0" },

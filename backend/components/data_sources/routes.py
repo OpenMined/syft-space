@@ -1,5 +1,5 @@
-from backend.components.data_sources.schemas import DataSourceInfo
-from backend.components.data_sources.handlers import DataSourceHandler
+from .schemas import DataSourceInfo
+from .handlers import DataSourceHandler
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends
 
