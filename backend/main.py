@@ -2,6 +2,7 @@ from fastsyftbox import FastSyftBox
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from syft_core.config import SyftClientConfig
+from fastapi import APIRouter
 
 
 from .config import app_settings
@@ -24,10 +25,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+router = APIRouter(prefix="/api/v1")
 
-@app.get("/health")
+@router.get("/health")
 async def health():
     return {"status": "healthy"}
 
+# Include the router in the app
+app.include_router(router)
 
 app.mount("/", StaticFiles(directory="frontend/dist", html=True, check_dir=False))
