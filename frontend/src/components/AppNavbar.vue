@@ -1,31 +1,50 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { User, ExternalLink } from 'lucide-vue-next'
+import { User, ExternalLink, Settings } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { useUserStore } from '@/stores/user'
+import { useInboxStore } from '@/stores/inbox'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const inboxStore = useInboxStore()
 
 const currentRouteName = computed(() => route.name as string)
+
+const isTabActive = (tabId: string) => {
+  if (tabId === 'endpoints') {
+    return currentRouteName.value === 'endpoints' || currentRouteName.value === 'endpoint-detail'
+  }
+  if (tabId === 'datasets') {
+    return currentRouteName.value === 'datasets' || currentRouteName.value === 'dataset-detail'
+  }
+  if (tabId === 'models') {
+    return currentRouteName.value === 'models' || currentRouteName.value === 'model-detail'
+  }
+  return currentRouteName.value === tabId
+}
 
 const navigateTo = (routeName: string) => {
   router.push({ name: routeName })
 }
 
 const tabs = [
-  { id: 'services', label: 'My Services' },
-  { id: 'inbox', label: 'Inbox' },
-  { id: 'usage', label: 'Usage' },
-  { id: 'settings', label: 'Settings' }
+  { id: 'home', label: 'Home' },
+  { id: 'endpoints', label: 'Endpoints' },
+  { id: 'datasets', label: 'Datasets' },
+  { id: 'models', label: 'Models' },
+  { id: 'inbox', label: 'Inbox' }
 ]
 </script>
 
@@ -45,21 +64,32 @@ const tabs = [
 
       <!-- Navigation Tabs -->
       <nav class="flex items-center space-x-2 flex-grow justify-center">
-        <Button
+        <div 
           v-for="tab in tabs"
           :key="tab.id"
-          @click="navigateTo(tab.id)"
-          :variant="currentRouteName === tab.id ? 'secondary' : 'ghost'"
-          size="sm"
-          class="text-sm font-medium"
-          :class="[
-            currentRouteName === tab.id 
-              ? 'text-purple-700 bg-purple-50 hover:bg-purple-100' 
-              : 'text-gray-700 hover:bg-gray-100'
-          ]"
+          class="relative"
         >
-          {{ tab.label }}
-        </Button>
+          <Button
+            @click="navigateTo(tab.id)"
+            :variant="isTabActive(tab.id) ? 'secondary' : 'ghost'"
+            size="sm"
+            class="text-sm font-medium"
+            :class="[
+              isTabActive(tab.id) 
+                ? 'text-purple-700 bg-purple-50 hover:bg-purple-100' 
+                : 'text-gray-700 hover:bg-gray-100'
+            ]"
+          >
+            {{ tab.label }}
+          </Button>
+          <Badge 
+            v-if="tab.id === 'inbox' && inboxStore.unreadCount > 0"
+            variant="secondary"
+            class="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center text-xs font-semibold min-w-[20px] rounded-full border-2 bg-red-500 border-white text-white"
+          >
+            {{ inboxStore.unreadCount > 9 ? '9+' : inboxStore.unreadCount }}
+          </Badge>
+        </div>
       </nav>
       
       <!-- Right side controls -->
@@ -99,6 +129,11 @@ const tabs = [
                 </a>
               </div>
             </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem @click="navigateTo('settings')" class="cursor-pointer">
+              <Settings class="h-4 w-4 mr-2" />
+              Settings
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

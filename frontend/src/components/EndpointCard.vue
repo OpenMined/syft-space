@@ -3,47 +3,47 @@
     <div class="flex items-start justify-between">
       <div class="flex-1">
         <div class="flex items-center gap-3 mb-2">
-          <h3 class="text-lg font-semibold">{{ service.name }}</h3>
+          <h3 class="text-lg font-semibold">{{ endpoint.name }}</h3>
           <Badge 
-            :variant="service.status === 'published' ? 'default' : 'secondary'"
-            :class="service.status === 'published' ? 'bg-green-100 text-green-700 hover:bg-green-100' : 'bg-gray-100 text-gray-700'"
+            :variant="endpoint.status === 'published' ? 'default' : 'secondary'"
+            :class="endpoint.status === 'published' ? 'bg-green-100 text-green-700 hover:bg-green-100' : 'bg-gray-100 text-gray-700'"
           >
-            {{ service.status === 'published' ? 'Published' : 'Draft' }}
+            {{ endpoint.status === 'published' ? 'Published' : 'Draft' }}
           </Badge>
         </div>
-        <p class="text-gray-600 mb-4">{{ service.description }}</p>
+        <p class="text-gray-600 mb-4">{{ endpoint.summary }}</p>
         
         <div class="flex items-center gap-4 flex-wrap">
           <div class="flex gap-2">
-            <TooltipProvider v-if="service.dataSourceType">
+            <TooltipProvider v-if="endpoint.dataSourceType">
               <Tooltip>
                 <TooltipTrigger as-child>
                   <Badge
                     variant="outline"
                     class="flex items-center gap-1 cursor-help"
                   >
-                    <IntegrationIcon :name="service.dataSourceType" class="h-3 w-3" />
-                    {{ getDataSourceName(service.dataSourceType) }}
+                    <IntegrationIcon :name="endpoint.dataSourceType" class="h-3 w-3" />
+                    {{ getDataSourceName(endpoint.dataSourceType) }}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {{ getTechnicalDataSourceName(service.dataSourceType) }}
+                  {{ getTechnicalDataSourceName(endpoint.dataSourceType) }}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <TooltipProvider v-if="service.modelType">
+            <TooltipProvider v-if="endpoint.modelType">
               <Tooltip>
                 <TooltipTrigger as-child>
                   <Badge
                     variant="outline"
                     class="flex items-center gap-1 cursor-help"
                   >
-                    <IntegrationIcon :name="service.modelType" class="h-3 w-3" />
-                    {{ getModelName(service.modelType) }}
+                    <IntegrationIcon :name="endpoint.modelType" class="h-3 w-3" />
+                    {{ getModelName(endpoint.modelType) }}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {{ getTechnicalModelName(service.modelType) }}
+                  {{ getTechnicalModelName(endpoint.modelType) }}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -53,7 +53,7 @@
       
       <div class="ml-4 text-right">
         <div class="flex flex-col gap-2">
-          <template v-if="service.status === 'draft'">
+          <template v-if="endpoint.status === 'draft'">
             <Button variant="outline" size="sm" class="border-purple-600 text-purple-600 hover:bg-purple-50 hover:text-purple-700 w-full" @click.stop>
               <Send class="h-4 w-4 mr-2" />
               Publish
@@ -89,22 +89,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
+import type { EndpointItem } from '@/stores/endpoints'
 
 const router = useRouter()
 
-interface Service {
-  id: string
-  type: 'data-source' | 'synthesizer'
-  name: string
-  description: string
-  dataSourceType?: string
-  modelType?: string
-  languages: string[]
-  domains: string[]
-  mcpCompatible: boolean
-  tags: string[]
-  status: 'published' | 'draft'
-}
 
 const getDataSourceName = (type: string) => {
   const names: Record<string, string> = {
@@ -145,10 +133,10 @@ const getTechnicalModelName = (type: string) => {
 }
 
 const props = defineProps<{
-  service: Service
+  endpoint: EndpointItem
 }>()
 
 const handleCardClick = () => {
-  router.push({ name: 'service-detail', params: { id: props.service.id } })
+  router.push({ name: 'endpoint-detail', params: { slug: props.endpoint.name } })
 }
 </script>

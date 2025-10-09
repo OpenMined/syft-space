@@ -25,26 +25,30 @@
       
       <!-- Icon/Checkbox container -->
       <div class="relative w-4 h-4 flex-shrink-0">
-        <!-- File/Folder icon - hide on hover -->
+        <!-- File/Folder icon - always hidden, replaced by checkbox -->
         <component
           :is="getIcon()"
-          class="w-4 h-4 absolute inset-0 transition-opacity duration-150 group-hover:opacity-0"
+          class="w-4 h-4 absolute inset-0 opacity-0"
           :class="getIconClass()"
         />
         
-        <!-- Selection checkbox - show on hover -->
+        <!-- Selection checkbox - always visible -->
         <input
           ref="checkboxRef"
           type="checkbox"
           :checked="isSelected || isPartiallySelected"
           @click.stop
           @change="handleCheckboxChange"
-          class="h-4 w-4 absolute inset-0 text-blue-600 rounded border-gray-300 focus:ring-blue-500 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-          :class="{
-            '!opacity-100': isSelected || isPartiallySelected
-          }"
+          class="h-4 w-4 absolute inset-0 text-blue-600 rounded border-gray-300 focus:ring-blue-500 opacity-100 cursor-pointer"
         />
       </div>
+      
+      <!-- File/Folder icon -->
+      <component
+        :is="getIcon()"
+        class="w-4 h-4 flex-shrink-0"
+        :class="getIconClass()"
+      />
       
       <!-- Name -->
       <span class="text-sm truncate flex-1">{{ node.name }}</span>

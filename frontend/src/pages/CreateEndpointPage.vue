@@ -6,11 +6,11 @@
         <div class="flex items-center">
           <Button 
             variant="ghost"
-            @click="router.push({ name: 'services' })"
+            @click="router.push({ name: 'endpoints' })"
             class="flex items-center text-gray-600 hover:text-gray-900"
           >
             <ArrowLeft class="w-5 h-5 mr-2" />
-            Back to My Services
+            Back to Endpoints
           </Button>
         </div>
       </div>
@@ -20,16 +20,16 @@
       <!-- Main heading -->
       <div class="text-center mb-12">
         <h1 class="text-4xl font-bold text-gray-900 mb-4 text-balance">
-          What kind of service do you want to create?
+          What type of endpoint do you want to create?
         </h1>
       </div>
 
-      <!-- Service type cards -->
+      <!-- Endpoint type cards -->
       <div class="grid md:grid-cols-2 gap-8 mb-8">
-        <!-- Data Service Card -->
+        <!-- Data Endpoint Card -->
         <Card 
           class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border-2 bg-white border-gray-200"
-          @click="selectServiceType('data')"
+          @click="selectEndpointType('data')"
         >
           <CardContent class="p-8">
             <div class="flex flex-col items-center text-center">
@@ -38,10 +38,10 @@
               </div>
               
               <h3 class="text-2xl font-bold text-gray-900 mb-3">I have data</h3>
-              <p class="text-sm font-medium mb-4 text-blue-600 dark:text-blue-400">Create a Data-as-a-Service solution</p>
+              <p class="text-sm font-medium mb-4 text-blue-600 dark:text-blue-400">Create a Data-as-a-Endpoint solution</p>
 
               <p class="text-gray-600 mb-4 text-balance">
-                Transform your documents, PDFs, or vector databases into searchable AI services.
+                Transform your documents, PDFs, or vector databases into searchable API endpoints.
               </p>
               
               <p class="text-sm text-gray-500 mb-6 text-balance">
@@ -51,10 +51,10 @@
           </CardContent>
         </Card>
 
-        <!-- Model Service Card -->
+        <!-- Model Endpoint Card -->
         <Card 
           class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-purple-300 hover:bg-gradient-to-br hover:from-purple-50 hover:to-pink-50 border-2 bg-white border-gray-200"
-          @click="selectServiceType('model')"
+          @click="selectEndpointType('model')"
         >
           <CardContent class="p-8">
             <div class="flex flex-col items-center text-center">
@@ -63,10 +63,10 @@
               </div>
               
               <h3 class="text-2xl font-bold text-gray-900 mb-3">I have a model</h3>
-              <p class="text-sm font-medium mb-4 text-purple-600 dark:text-purple-400">Create a Model-as-a-Service solution</p>
+              <p class="text-sm font-medium mb-4 text-purple-600 dark:text-purple-400">Create a Model-as-a-Endpoint solution</p>
 
               <p class="text-gray-600 mb-4 text-balance">
-                Deploy your fine-tuned or general-purpose AI models as accessible services.
+                Deploy your fine-tuned or general-purpose AI models as accessible API endpoints.
               </p>
               
               <p class="text-sm text-gray-500 mb-6 text-balance">
@@ -103,11 +103,11 @@ import { Button } from '@/components/ui/button'
 
 const router = useRouter()
 
-const selectServiceType = (type: 'data' | 'model') => {
+const selectEndpointType = (type: 'data' | 'model') => {
   if (type === 'data') {
-    router.push('/create/data-service')
+    router.push({name: 'create-data-endpoint'})
   } else if (type === 'model') {
-    router.push('/create/model-service')
+    router.push({name: 'create-model-endpoint'})
   }
 }
 </script>

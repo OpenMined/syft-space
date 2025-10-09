@@ -1,37 +1,61 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import MyServicesPage from '../pages/MyServicesPage.vue'
+import HomePage from '../pages/HomePage.vue'
+import EndpointsPage from '../pages/EndpointsPage.vue'
+import DatasetsPage from '../pages/DatasetsPage.vue'
+import ModelsPage from '../pages/ModelsPage.vue'
 import InboxPage from '../pages/InboxPage.vue'
-import UsagePage from '../pages/UsagePage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
-import CreateServicePage from '../pages/CreateServicePage.vue'
-import ServiceDetailPage from '../pages/ServiceDetailPage.vue'
+import CreateEndpointPage from '../pages/CreateEndpointPage.vue'
+import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
+import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
+import ModelDetailPage from '../pages/ModelDetailPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
-      redirect: '/services'
+      redirect: '/home'
     },
     {
-      path: '/services',
-      name: 'services',
-      component: MyServicesPage
+      path: '/home',
+      name: 'home',
+      component: HomePage
     },
     {
-      path: '/services/:id',
-      name: 'service-detail',
-      component: ServiceDetailPage
+      path: '/endpoints',
+      name: 'endpoints',
+      component: EndpointsPage
+    },
+    {
+      path: '/datasets',
+      name: 'datasets',
+      component: DatasetsPage
+    },
+    {
+      path: '/models',
+      name: 'models',
+      component: ModelsPage
+    },
+    {
+      path: '/endpoints/:slug',
+      name: 'endpoint-detail',
+      component: EndpointDetailPage
+    },
+    {
+      path: '/datasets/:slug',
+      name: 'dataset-detail',
+      component: DatasetDetailPage
+    },
+    {
+      path: '/models/:slug',
+      name: 'model-detail',
+      component: ModelDetailPage
     },
     {
       path: '/inbox',
       name: 'inbox',
       component: InboxPage
-    },
-    {
-      path: '/usage',
-      name: 'usage',
-      component: UsagePage
     },
     {
       path: '/settings',
@@ -41,17 +65,17 @@ const router = createRouter({
     {
       path: '/create',
       name: 'create',
-      component: CreateServicePage
+      component: CreateEndpointPage
     },
     {
-      path: '/create/data-service',
-      name: 'create-data-service',
-      component: () => import('../pages/CreateDataServicePage.vue')
+      path: '/create/data-endpoint',
+      name: 'create-data-endpoint',
+      component: () => import('../pages/CreateDataEndpointPage.vue')
     },
     {
-      path: '/create/model-service',
-      name: 'create-model-service',
-      component: () => import('../pages/CreateModelServicePage.vue')
+      path: '/create/model-endpoint',
+      name: 'create-model-endpoint',
+      component: () => import('../pages/CreateModelEndpointPage.vue')
     }
   ],
 })

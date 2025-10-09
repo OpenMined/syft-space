@@ -84,7 +84,7 @@
 
     <!-- Hint Text Below Both Panels -->
     <div class="text-sm text-gray-500 mt-4">
-      <p>Click folders to expand/collapse. Hover over items to reveal checkboxes.</p>
+      <p>Click folders to expand/collapse. Use checkboxes to select files and directories.</p>
     </div>
   </div>
 </template>

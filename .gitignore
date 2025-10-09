@@ -209,3 +209,4 @@ notebooks/
 
 # SyftBox
 .syftboxapp.json
+logs
