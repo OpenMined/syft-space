@@ -1,19 +1,20 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { DATA_SOURCE_TYPES, MODEL_TYPES, STATUS_OPTIONS, type ValueOf } from '@/lib/constants'
 
 export interface EndpointItem {
   id: string
   name: string
   summary: string
   description: string
-  dataSourceType?: string
-  modelType?: string
+  dataSourceType?: ValueOf<typeof DATA_SOURCE_TYPES>
+  modelType?: ValueOf<typeof MODEL_TYPES>
   price: string
   languages: string[]
   domains: string[]
   mcpCompatible: boolean
   tags: string[]
-  status: 'published' | 'draft'
+  status: ValueOf<typeof STATUS_OPTIONS>
 }
 
 export const useEndpointsStore = defineStore('endpoints', () => {
@@ -127,10 +128,7 @@ All records undergo verification by biomedical engineers and cross-referencing w
     },
   ])
 
-  const publishedEndpoints = computed(() => endpoints.value.filter((e) => e.status === 'published'))
-
   return {
     endpoints,
-    publishedEndpoints,
   }
 })

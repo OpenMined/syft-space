@@ -29,37 +29,32 @@ const props = defineProps<{
   name: string
 }>()
 
-const iconMap: Record<string, string> = {
-  weaviate: weaviateIcon,
-  qdrant: qdrantIcon,
-  chroma: chromaIcon,
-  vllm: vllmIcon,
-  ollama: ollamaIcon,
-  huggingface: huggingfaceIcon,
+interface IconConfig {
+  type: 'image' | 'lucide'
+  src?: string
+  component?: any
+  class?: string
 }
 
-const lucideIconMap: Record<string, any> = {
-  filesystem: FolderOpen,
+const iconConfig: Record<string, IconConfig> = {
+  weaviate: { type: 'image', src: weaviateIcon },
+  qdrant: { type: 'image', src: qdrantIcon },
+  chroma: { type: 'image', src: chromaIcon },
+  vllm: { type: 'image', src: vllmIcon },
+  ollama: { type: 'image', src: ollamaIcon },
+  huggingface: { type: 'image', src: huggingfaceIcon },
+  filesystem: { type: 'lucide', component: FolderOpen, class: 'text-purple-600' }
 }
 
-const isLucideIcon = computed(() => {
-  return lucideIconMap[props.name] !== undefined
-})
+const currentIcon = computed(() => iconConfig[props.name])
 
-const lucideIcon = computed(() => {
-  return lucideIconMap[props.name]
-})
+const isLucideIcon = computed(() => currentIcon.value?.type === 'lucide')
 
-const lucideIconClass = computed(() => {
-  if (props.name === 'filesystem') {
-    return 'text-purple-600'
-  }
-  return ''
-})
+const lucideIcon = computed(() => currentIcon.value?.component)
 
-const iconSrc = computed(() => {
-  return iconMap[props.name] || ''
-})
+const lucideIconClass = computed(() => currentIcon.value?.class || '')
+
+const iconSrc = computed(() => currentIcon.value?.src || '')
 </script>
 
 <style scoped>

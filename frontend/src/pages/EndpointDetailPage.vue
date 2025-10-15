@@ -357,6 +357,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useEndpointsStore } from '@/stores/endpoints'
 import type { EndpointItem } from '@/stores/endpoints'
+import { getDataSourceName, getModelName } from '@/lib/mappers'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
@@ -376,24 +377,6 @@ const togglePolicySection = (section: keyof typeof expandedSections.value) => {
   expandedSections.value[section] = !expandedSections.value[section]
 }
 
-const getDataSourceName = (type: string) => {
-  const names: Record<string, string> = {
-    filesystem: 'File System',
-    weaviate: 'Legal Documents Store',
-    qdrant: 'Customer Analytics Store',
-    chroma: 'Research Database'
-  }
-  return names[type] || type
-}
-
-const getModelName = (type: string) => {
-  const names: Record<string, string> = {
-    vllm: 'NLP Processing Engine',
-    ollama: 'Code Assistant Model',
-    huggingface: 'Text Embedding Service'
-  }
-  return names[type] || type
-}
 
 const getDatasetSlug = (dataSourceType: string) => {
   const datasetSlugs: Record<string, string> = {

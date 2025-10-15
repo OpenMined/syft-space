@@ -1,5 +1,12 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <ErrorBoundary 
+    :can-retry="true" 
+    :show-details="true"
+    custom-title="Endpoint Creation Error"
+    custom-message="There was a problem with the endpoint creation form. Please try again."
+    @retry="refreshForm"
+  >
+    <div class="min-h-screen bg-gray-50">
     <!-- Header -->
     <div class="bg-white border-b border-gray-200">
       <div class="max-w-7xl mx-auto px-6 py-4">
@@ -1597,12 +1604,28 @@
                   v-model="allowedUserInput"
                   @keydown.enter.prevent="addAllowedUser"
                   placeholder="user@example.com"
-                  class="flex-1"
-                  type="email"
+                  :class="[
+                    'flex-1',
+                    hasInputError ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                  ]"
+                  type="text"
+                  autocomplete="new-password"
+                  autocapitalize="off"
+                  autocorrect="off"
+                  spellcheck="false"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
+                  data-protonpass-ignore
                 />
                 <Button @click="addAllowedUser" variant="outline" size="default" class="px-4">
                   <Plus class="h-4 w-4" />
                 </Button>
+              </div>
+              
+              <!-- Error message -->
+              <div v-if="allowedUserError" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2">
+                {{ allowedUserError }}
               </div>
               
               <p class="text-xs text-gray-500">
@@ -1666,7 +1689,7 @@
     v-model:open="showCreateModelDialog"
     @model-created="handleModelCreated"
   />
-
+  </ErrorBoundary>
 </template>
 
 <script setup lang="ts">
@@ -1689,6 +1712,7 @@ import CreateDatasetDialog from '@/components/CreateDatasetDialog.vue'
 import CreateModelDialog from '@/components/CreateModelDialog.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
+import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import { mockModels } from '@/stores/models'
 
 const router = useRouter()
@@ -1746,6 +1770,8 @@ const showCreateModelDialog = ref(false)
 const endpointVisibility = ref<string>('')
 const allowedUsers = ref<string[]>([])
 const allowedUserInput = ref('')
+const allowedUserError = ref('')
+const hasInputError = ref(false)
 
 // Policy configurations
 interface PolicyConfig {
@@ -2378,16 +2404,53 @@ watch(() => pricingForm.value.pricingType, (newType) => {
 const addAllowedUser = () => {
   const input = allowedUserInput.value.trim()
   if (input) {
+    // Clear previous errors
+    allowedUserError.value = ''
+    hasInputError.value = false
+    
     // Handle comma-separated input
     const emails = input.split(',').map(email => email.trim()).filter(email => email)
+    const validEmails = []
+    const invalidEmails = []
+    const duplicateEmails = []
     
     for (const email of emails) {
-      if (!allowedUsers.value.includes(email) && isValidEmailOrWildcard(email)) {
-        allowedUsers.value.push(email)
+      if (allowedUsers.value.includes(email)) {
+        duplicateEmails.push(email)
+      } else if (isValidEmailOrWildcard(email)) {
+        validEmails.push(email)
+      } else {
+        invalidEmails.push(email)
       }
     }
     
-    allowedUserInput.value = ''
+    // Add valid emails
+    allowedUsers.value.push(...validEmails)
+    
+    // Show error for invalid or duplicate emails
+    if (invalidEmails.length > 0 || duplicateEmails.length > 0) {
+      const errorMessages = []
+      if (invalidEmails.length > 0) {
+        errorMessages.push(`Invalid format: ${invalidEmails.join(', ')}`)
+      }
+      if (duplicateEmails.length > 0) {
+        errorMessages.push(`Already added: ${duplicateEmails.join(', ')}`)
+      }
+      
+      allowedUserError.value = errorMessages.join('. ')
+      hasInputError.value = true
+      
+      // Auto-clear error after 5 seconds
+      setTimeout(() => {
+        allowedUserError.value = ''
+        hasInputError.value = false
+      }, 5000)
+    }
+    
+    // Clear input if all emails were processed (valid or invalid)
+    if (validEmails.length > 0 || invalidEmails.length > 0) {
+      allowedUserInput.value = ''
+    }
   }
 }
 
@@ -2398,9 +2461,17 @@ const removeAllowedUser = (index: number) => {
 const isValidEmailOrWildcard = (email: string) => {
   // Allow wildcard patterns like *@company.com, *.edu, *@contractors.org
   const wildcardEmailRegex = /^(\*|[^\s@]+)@([^\s@]+\.)*[^\s@]+$/
+  const wildcardDomainRegex = /^\*\.[^\s@]+$/  // For patterns like *.edu, *.com
   const regularEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   
-  return wildcardEmailRegex.test(email) || regularEmailRegex.test(email)
+  return wildcardEmailRegex.test(email) || wildcardDomainRegex.test(email) || regularEmailRegex.test(email)
+}
+
+// Form refresh function for error boundary retry
+const refreshForm = () => {
+  // In a real app, this would reset form state and reload data
+  console.log('Refreshing endpoint creation form...')
+  // Could reset form data to initial state
 }
 
 </script>

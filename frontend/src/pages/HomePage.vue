@@ -1,5 +1,12 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <ErrorBoundary 
+    :can-retry="true" 
+    :show-details="true"
+    custom-title="Dashboard Loading Error"
+    custom-message="There was a problem loading the dashboard. Please try again."
+    @retry="refreshDashboard"
+  >
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <!-- Header -->
     <div class="flex items-center gap-3 mb-2">
       <Home class="h-6 w-6 text-gray-600" />
@@ -312,11 +319,12 @@
       </DialogContent>
     </Dialog>
   </div>
+  </ErrorBoundary>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Database, Brain, Server, CheckCircle, Plus, Bell, Users, Gauge, Calculator, Activity, AlertCircle, Info, Trash2, Home, User } from 'lucide-vue-next'
+import { Database, Brain, Server, CheckCircle, Plus, Users, Gauge, Calculator, Activity, AlertCircle, Info, Trash2, Home, User } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -328,6 +336,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useInboxStore, type InboxItem } from '@/stores/inbox'
+import ErrorBoundary from '@/components/ErrorBoundary.vue'
 
 const inboxStore = useInboxStore()
 
@@ -464,6 +473,13 @@ const formatTimestamp = (date: Date) => {
     day: 'numeric',
     year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
   })
+}
+
+// Dashboard refresh function for error boundary retry
+const refreshDashboard = () => {
+  // In a real app, this would refresh data from APIs
+  console.log('Refreshing dashboard data...')
+  // Could trigger store refresh or component remount
 }
 
 // Enhanced markdown to HTML converter

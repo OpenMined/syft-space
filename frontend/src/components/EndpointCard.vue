@@ -90,47 +90,11 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import type { EndpointItem } from '@/stores/endpoints'
+import { getDataSourceName, getModelName, getTechnicalDataSourceName, getTechnicalModelName } from '@/lib/mappers'
 
 const router = useRouter()
 
 
-const getDataSourceName = (type: string) => {
-  const names: Record<string, string> = {
-    filesystem: 'File System',
-    weaviate: 'Legal Documents Store',
-    qdrant: 'Customer Analytics Store', 
-    chroma: 'Research Database'
-  }
-  return names[type] || type
-}
-
-const getModelName = (type: string) => {
-  const names: Record<string, string> = {
-    vllm: 'NLP Processing Engine',
-    ollama: 'Code Assistant Model',
-    huggingface: 'Text Embedding Service'
-  }
-  return names[type] || type
-}
-
-const getTechnicalDataSourceName = (type: string) => {
-  const names: Record<string, string> = {
-    filesystem: 'File System',
-    weaviate: 'Weaviate',
-    qdrant: 'Qdrant',
-    chroma: 'Chroma'
-  }
-  return names[type] || type
-}
-
-const getTechnicalModelName = (type: string) => {
-  const names: Record<string, string> = {
-    vllm: 'vLLM',
-    ollama: 'Ollama',
-    huggingface: 'Hugging Face'
-  }
-  return names[type] || type
-}
 
 const props = defineProps<{
   endpoint: EndpointItem

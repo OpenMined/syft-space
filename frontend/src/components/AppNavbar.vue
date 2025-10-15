@@ -22,17 +22,15 @@ const inboxStore = useInboxStore()
 
 const currentRouteName = computed(() => route.name as string)
 
+const routeMapping: Record<string, string[]> = {
+  'endpoints': ['endpoints', 'endpoint-detail'],
+  'datasets': ['datasets', 'dataset-detail'],
+  'models': ['models', 'model-detail']
+}
+
 const isTabActive = (tabId: string) => {
-  if (tabId === 'endpoints') {
-    return currentRouteName.value === 'endpoints' || currentRouteName.value === 'endpoint-detail'
-  }
-  if (tabId === 'datasets') {
-    return currentRouteName.value === 'datasets' || currentRouteName.value === 'dataset-detail'
-  }
-  if (tabId === 'models') {
-    return currentRouteName.value === 'models' || currentRouteName.value === 'model-detail'
-  }
-  return currentRouteName.value === tabId
+  const routes = routeMapping[tabId]
+  return routes ? routes.includes(currentRouteName.value) : currentRouteName.value === tabId
 }
 
 const navigateTo = (routeName: string) => {

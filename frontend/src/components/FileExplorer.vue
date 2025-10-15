@@ -62,9 +62,9 @@
                 class="flex items-center gap-2 text-xs text-blue-800 bg-white rounded px-3 py-2 shadow-sm"
               >
                 <component 
-                  :is="getFileIcon(path)" 
+                  :is="getFileIconForPath(path)" 
                   class="w-4 h-4 flex-shrink-0"
-                  :class="getFileIconColor(path)"
+                  :class="getFileIconColorForPath(path)"
                 />
                 <span class="truncate font-mono text-sm">{{ path }}</span>
               </div>
@@ -91,25 +91,11 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { 
-  HardDrive, 
-  Folder,
-  FileText, 
-  FileSpreadsheet, 
-  FileImage,
-  FileVideo,
-  FileArchive,
-  FileCode,
-  File,
-  BookOpen,
-  FileJson,
-  Cog,
-  Database,
-  Binary
-} from 'lucide-vue-next'
+import { HardDrive } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import TreeNode from './FileExplorerTreeNode.vue'
+import { useFileIcon } from '@/composables/useFileIcon'
 
 interface FileNode {
   name: string
@@ -134,6 +120,8 @@ const selectedFiles = computed({
 })
 
 const expandedDirs = ref<Set<string>>(new Set())
+
+const { getFileIcon, getFileIconColor } = useFileIcon()
 
 // Mock file system structure - in a real app, this would come from an API
 const rootNodes = ref<FileNode[]>([
@@ -341,183 +329,9 @@ const clearSelection = () => {
   selectedFiles.value = []
 }
 
-// Helper function to get file icon based on path
-const getFileIcon = (path: string) => {
-  const fileName = path.split('/').pop() || ''
-  const extension = fileName.split('.').pop()?.toLowerCase()
-  
-  // Check if it's a directory (folders in our data structure have children)
-  const findNode = (nodes: FileNode[], targetPath: string): FileNode | null => {
-    for (const node of nodes) {
-      if (node.path === targetPath) return node
-      if (node.children) {
-        const found = findNode(node.children, targetPath)
-        if (found) return found
-      }
-    }
-    return null
-  }
-  
-  const node = findNode(rootNodes.value, path)
-  if (node?.type === 'directory') return Folder
-  
-  // Special cases for config files
-  if (fileName.startsWith('.') && !extension) {
-    return Cog
-  }
-  
-  switch (extension) {
-    // Documents
-    case 'pdf':
-    case 'doc':
-    case 'docx':
-    case 'odt':
-    case 'rtf':
-    case 'txt':
-    case 'md':
-      return FileText
-    case 'tex':
-    case 'bib':
-      return FileText
-      
-    // Spreadsheets
-    case 'xls':
-    case 'xlsx':
-    case 'csv':
-      return FileSpreadsheet
-      
-    // Books
-    case 'epub':
-      return BookOpen
-      
-    // Images
-    case 'jpg':
-    case 'jpeg':
-    case 'png':
-    case 'gif':
-    case 'svg':
-    case 'webp':
-    case 'ico':
-      return FileImage
-      
-    // Videos
-    case 'mp4':
-    case 'avi':
-    case 'mov':
-    case 'webm':
-    case 'mkv':
-      return FileVideo
-      
-    // Archives
-    case 'zip':
-    case 'rar':
-    case 'tar':
-    case 'gz':
-    case '7z':
-    case 'deb':
-    case 'rpm':
-      return FileArchive
-      
-    // Data files
-    case 'json':
-      return FileJson
-    case 'xml':
-    case 'yaml':
-    case 'yml':
-      return FileCode
-      
-    // Database files
-    case 'sql':
-    case 'db':
-    case 'sqlite':
-      return Database
-      
-    // Code files
-    case 'js':
-    case 'ts':
-    case 'jsx':
-    case 'tsx':
-    case 'vue':
-    case 'py':
-    case 'java':
-    case 'cpp':
-    case 'c':
-    case 'h':
-    case 'hpp':
-    case 'html':
-    case 'css':
-    case 'scss':
-    case 'sass':
-    case 'less':
-    case 'php':
-    case 'rb':
-    case 'go':
-    case 'rs':
-    case 'sh':
-    case 'bash':
-      return FileCode
-      
-    // Binary files
-    case 'exe':
-    case 'bin':
-    case 'so':
-    case 'dll':
-    case 'iso':
-    case 'img':
-    case 'h5':
-    case 'hdf5':
-      return Binary
-      
-    // Presentations
-    case 'ppt':
-    case 'pptx':
-      return FileText
-      
-    default:
-      return File
-  }
-}
-
-// Helper function to get file icon color
-const getFileIconColor = (path: string) => {
-  const fileName = path.split('/').pop() || ''
-  const extension = fileName.split('.').pop()?.toLowerCase()
-  
-  // Check if it's a directory
-  const findNode = (nodes: FileNode[], targetPath: string): FileNode | null => {
-    for (const node of nodes) {
-      if (node.path === targetPath) return node
-      if (node.children) {
-        const found = findNode(node.children, targetPath)
-        if (found) return found
-      }
-    }
-    return null
-  }
-  
-  const node = findNode(rootNodes.value, path)
-  if (node?.type === 'directory') return 'text-blue-600'
-  
-  // Config files
-  if (fileName.startsWith('.')) {
-    return 'text-gray-500'
-  }
-  
-  switch (extension) {
-    case 'pdf': return 'text-red-600'
-    case 'doc': case 'docx': case 'odt': return 'text-blue-600'
-    case 'xls': case 'xlsx': return 'text-green-600'
-    case 'csv': return 'text-green-500'
-    case 'json': return 'text-yellow-600'
-    case 'epub': return 'text-indigo-600'
-    case 'py': return 'text-blue-500'
-    case 'js': case 'jsx': return 'text-yellow-500'
-    case 'ts': case 'tsx': return 'text-blue-700'
-    case 'html': return 'text-orange-500'
-    case 'css': return 'text-pink-500'
-    default: return 'text-gray-600'
-  }
-}
+// Helper functions using composable
+const getFileIconForPath = (path: string) => getFileIcon(path, false, rootNodes.value)
+const getFileIconColorForPath = (path: string) => getFileIconColor(path, rootNodes.value)
 </script>
 
 <style scoped>

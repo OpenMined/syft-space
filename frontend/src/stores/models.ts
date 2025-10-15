@@ -1,12 +1,14 @@
+import { MODEL_TYPES, STATUS_OPTIONS, type ValueOf, type OptionalTimestampField } from '@/lib/constants'
+
 export interface Model {
   id: string
   name: string
-  type: string
+  type: ValueOf<typeof MODEL_TYPES>
   description: string
   tags: string[]
-  status: 'running' | 'stopped'
+  status: ValueOf<typeof STATUS_OPTIONS>
   endpointCount: number
-  createdAt?: Date
+  createdAt?: OptionalTimestampField
 }
 
 export const mockModels: Model[] = [

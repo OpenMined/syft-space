@@ -1348,12 +1348,32 @@
                     v-model="allowedUserInput"
                     @keydown.enter.prevent="addAllowedUser"
                     placeholder="user@example.com"
-                    class="flex-1"
-                    type="email"
+                    :class="[
+                      'flex-1',
+                      hasInputError ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                    ]"
+                    type="text"
+                    autocomplete="new-password"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-bwignore
+                    data-protonpass-ignore
+                    data-dashlane-ignore
+                    data-form-type="other"
+                    data-password-manager="false"
+                    role="textbox"
                   />
                   <Button @click="addAllowedUser" variant="outline" size="default" class="px-4">
                     <Plus class="h-4 w-4" />
                   </Button>
+                </div>
+                
+                <!-- Error message -->
+                <div v-if="allowedUserError" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2">
+                  {{ allowedUserError }}
                 </div>
                 
                 <p class="text-xs text-gray-500">
@@ -1398,7 +1418,7 @@
             :disabled="!isCurrentStepValid"
             class="bg-purple-600 hover:bg-purple-700 text-white px-8 ml-auto"
           >
-            {{ currentSubStep === 4 ? 'Publish Endpoint' : 'Next' }}
+            {{ currentSubStep === APP_LIMITS.TOTAL_MODEL_ENDPOINT_CREATION_STEPS ? 'Publish Endpoint' : 'Next' }}
             <ArrowRight class="ml-2 h-4 w-4" />
           </Button>
         </div>
@@ -1433,6 +1453,7 @@ import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateModelDialog from '@/components/CreateModelDialog.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import { mockModels } from '@/stores/models'
+import { APP_LIMITS, UI_CONSTANTS } from '@/lib/constants'
 
 const router = useRouter()
 
@@ -1479,6 +1500,8 @@ const showCreateModelDialog = ref(false)
 const endpointVisibility = ref<string>('')
 const allowedUsers = ref<string[]>([])
 const allowedUserInput = ref('')
+const allowedUserError = ref('')
+const hasInputError = ref(false)
 
 // Policy configurations
 interface PolicyConfig {
@@ -1541,7 +1564,7 @@ const manualApprovalForm = ref({
   emailAddresses: '',
   slackWebhookUrl: '',
   whatsappNumber: '',
-  timeoutValue: '24',
+  timeoutValue: UI_CONSTANTS.DEFAULT_MANUAL_APPROVAL_TIMEOUT,
   timeoutUnit: 'hour',
   userType: 'all',
   users: '',
@@ -1929,12 +1952,12 @@ const loadRuleIntoForm = (policyId: string, config: PolicyConfig) => {
 const handleNext = () => {
   if (!isCurrentStepValid.value) return
   
-  if (currentSubStep.value < 4) {
+  if (currentSubStep.value < APP_LIMITS.TOTAL_MODEL_ENDPOINT_CREATION_STEPS) {
     currentSubStep.value++
   } else {
     // Deploy the endpoint
     console.log('Deploying model endpoint with data:', formData.value)
-    // router.push('/endpoints')
+    router.push({ name: 'endpoints' })
   }
 }
 
@@ -1987,16 +2010,52 @@ watch(() => pricingForm.value.pricingType, (newType) => {
 const addAllowedUser = () => {
   const input = allowedUserInput.value.trim()
   if (input) {
+    // Clear previous errors
+    allowedUserError.value = ''
+    hasInputError.value = false
+    
     // Handle comma-separated input
     const emails = input.split(',').map(email => email.trim()).filter(email => email)
+    const validEmails = []
+    const invalidEmails = []
+    const duplicateEmails = []
     
     for (const email of emails) {
-      if (!allowedUsers.value.includes(email) && isValidEmailOrWildcard(email)) {
-        allowedUsers.value.push(email)
+      if (allowedUsers.value.includes(email)) {
+        duplicateEmails.push(email)
+      } else if (isValidEmailOrWildcard(email)) {
+        validEmails.push(email)
+      } else {
+        invalidEmails.push(email)
       }
     }
     
-    allowedUserInput.value = ''
+    // Add valid emails
+    allowedUsers.value.push(...validEmails)
+    
+    // Show error for invalid or duplicate emails
+    if (invalidEmails.length > 0 || duplicateEmails.length > 0) {
+      const errorMessages = []
+      if (invalidEmails.length > 0) {
+        errorMessages.push(`Invalid format: ${invalidEmails.join(', ')}`)
+      }
+      if (duplicateEmails.length > 0) {
+        errorMessages.push(`Already added: ${duplicateEmails.join(', ')}`)
+      }
+      allowedUserError.value = errorMessages.join('. ')
+      hasInputError.value = true
+      
+      // Clear error after configured delay
+      setTimeout(() => {
+        allowedUserError.value = ''
+        hasInputError.value = false
+      }, UI_CONSTANTS.ERROR_AUTO_CLEAR_DELAY)
+    }
+    
+    // Clear input if all emails were processed (valid or invalid)
+    if (validEmails.length > 0 || invalidEmails.length > 0) {
+      allowedUserInput.value = ''
+    }
   }
 }
 
@@ -2007,8 +2066,9 @@ const removeAllowedUser = (index: number) => {
 const isValidEmailOrWildcard = (email: string) => {
   // Allow wildcard patterns like *@company.com, *.edu, *@contractors.org
   const wildcardEmailRegex = /^(\*|[^\s@]+)@([^\s@]+\.)*[^\s@]+$/
+  const wildcardDomainRegex = /^\*\.[^\s@]+$/  // For patterns like *.edu, *.com
   const regularEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   
-  return wildcardEmailRegex.test(email) || regularEmailRegex.test(email)
+  return wildcardEmailRegex.test(email) || wildcardDomainRegex.test(email) || regularEmailRegex.test(email)
 }
 </script>
