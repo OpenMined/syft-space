@@ -100,10 +100,63 @@
         </div>
       </div>
 
+      <!-- Endpoint Revenue -->
+      <div class="bg-white border border-gray-200 rounded-lg p-6">
+        <h2 class="text-2xl font-semibold text-gray-900 mb-6">Endpoint Revenue</h2>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div class="text-center p-4 bg-green-50 rounded-lg">
+            <p class="text-3xl font-bold text-green-600 mb-1">{{ getEndpointRevenue().total }}</p>
+            <p class="text-sm text-green-700">Total Revenue</p>
+          </div>
+          <div class="space-y-3">
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">This Month:</span>
+              <span class="text-sm text-green-600 font-semibold">{{ getEndpointRevenue().thisMonth }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">Last Month:</span>
+              <span class="text-sm text-gray-900 font-semibold">{{ getEndpointRevenue().lastMonth }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">Growth:</span>
+              <span class="text-sm text-green-600 font-semibold">{{ getEndpointRevenue().growth }}</span>
+            </div>
+          </div>
+          <div class="space-y-3">
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">Avg per Request:</span>
+              <span class="text-sm text-gray-900 font-semibold">{{ getEndpointRevenue().avgPerRequest }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">Revenue Rate:</span>
+              <span class="text-sm text-gray-900 font-semibold">{{ getEndpointRevenue().revenueRate }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">Paid Users:</span>
+              <span class="text-sm text-gray-900 font-semibold">{{ getEndpointRevenue().paidUsers }}</span>
+            </div>
+          </div>
+          <div class="space-y-3">
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">Free Requests:</span>
+              <span class="text-sm text-gray-900 font-semibold">{{ getEndpointRevenue().freeRequests }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">Paid Requests:</span>
+              <span class="text-sm text-gray-900 font-semibold">{{ getEndpointRevenue().paidRequests }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-gray-600">Conversion Rate:</span>
+              <span class="text-sm text-green-600 font-semibold">{{ getEndpointRevenue().conversionRate }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Content Grid -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Main Content - Description -->
-        <div class="lg:col-span-2">
+        <div class="lg:col-span-2 space-y-6">
           <div class="bg-white border border-gray-200 rounded-lg p-6">
             <h2 class="text-2xl font-semibold text-gray-900 mb-4">Description</h2>
             <div class="prose prose-sm max-w-none text-gray-600">
@@ -112,6 +165,31 @@
               </div>
               <div v-else>
                 {{ endpoint.summary }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Access Trends -->
+          <div class="bg-white border border-gray-200 rounded-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-2xl font-semibold text-gray-900">Access Trends</h2>
+              <div class="flex items-center gap-2">
+                <Button 
+                  v-for="period in ['Daily', 'Weekly', 'Monthly']" 
+                  :key="period"
+                  size="sm" 
+                  :variant="selectedPeriod === period ? 'default' : 'outline'"
+                  @click="selectedPeriod = period"
+                  class="text-xs"
+                >
+                  {{ period }}
+                </Button>
+              </div>
+            </div>
+            <div class="h-64 flex items-center justify-center border border-dashed border-gray-300 rounded-lg bg-gray-50">
+              <div class="text-center">
+                <p class="text-gray-500 text-lg mb-1">{{ selectedPeriod }} Access Chart</p>
+                <p class="text-gray-400 text-sm">Graph visualization will be displayed here</p>
               </div>
             </div>
           </div>
@@ -373,6 +451,8 @@ const expandedSections = ref({
   manualApproval: false
 })
 
+const selectedPeriod = ref('Daily')
+
 const togglePolicySection = (section: keyof typeof expandedSections.value) => {
   expandedSections.value[section] = !expandedSections.value[section]
 }
@@ -420,6 +500,22 @@ const getRequestStats = () => {
     successRate: '98.7%',
     thisMonth: '12.1k',
     activeUsers: '234'
+  }
+}
+
+const getEndpointRevenue = () => {
+  // Mock data - in real app this would come from billing/revenue API
+  return {
+    total: '$1,247.85',
+    thisMonth: '$285.40',
+    lastMonth: '$198.65',
+    growth: '+43.7%',
+    avgPerRequest: '$0.026',
+    revenueRate: '64.2%',
+    paidUsers: '156',
+    freeRequests: '16.8k',
+    paidRequests: '30.4k',
+    conversionRate: '18.3%'
   }
 }
 
