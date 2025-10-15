@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { DATA_SOURCE_TYPES, MODEL_TYPES, STATUS_OPTIONS, type ValueOf } from '@/lib/constants'
 
 export interface EndpointItem {

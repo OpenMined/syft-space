@@ -21,16 +21,16 @@ export const mockModelEndpoints: ModelEndpoint[] = [
     modelIds: ['nlp-engine'],
     url: '/api/v1/document-analysis',
     status: 'active',
-    createdAt: new Date('2024-01-25')
+    createdAt: new Date('2024-01-25'),
   },
   {
-    id: 'endpoint-2', 
+    id: 'endpoint-2',
     name: 'Content Generation API',
     description: 'Generate content using AI models',
     modelIds: ['nlp-engine'],
     url: '/api/v1/content-generation',
     status: 'active',
-    createdAt: new Date('2024-02-01')
+    createdAt: new Date('2024-02-01'),
   },
   {
     id: 'endpoint-3',
@@ -39,21 +39,19 @@ export const mockModelEndpoints: ModelEndpoint[] = [
     modelIds: ['code-assistant'],
     url: '/api/v1/code-review',
     status: 'active',
-    createdAt: new Date('2024-02-10')
-  }
+    createdAt: new Date('2024-02-10'),
+  },
 ]
 
 // Utility functions for working with model endpoints
 export const getEndpointsForModel = (modelId: string): ModelEndpoint[] => {
-  return mockModelEndpoints.filter(endpoint => 
-    endpoint.modelIds.includes(modelId)
-  )
+  return mockModelEndpoints.filter((endpoint) => endpoint.modelIds.includes(modelId))
 }
 
 export const getEndpointById = (endpointId: string): ModelEndpoint | undefined => {
-  return mockModelEndpoints.find(endpoint => endpoint.id === endpointId)
+  return mockModelEndpoints.find((endpoint) => endpoint.id === endpointId)
 }
 
 export const getActiveEndpoints = (): ModelEndpoint[] => {
-  return mockModelEndpoints.filter(endpoint => endpoint.status === 'active')
+  return mockModelEndpoints.filter((endpoint) => endpoint.status === 'active')
 }

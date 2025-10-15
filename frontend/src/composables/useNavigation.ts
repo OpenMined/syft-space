@@ -4,11 +4,12 @@
  */
 
 import { useRouter } from 'vue-router'
+import type { LocationQueryValue } from 'vue-router'
 
 export interface NavigationRoute {
   name: string
-  params?: Record<string, any>
-  query?: Record<string, any>
+  params?: Record<string, string | number>
+  query?: Record<string, LocationQueryValue | LocationQueryValue[]>
 }
 
 export function useNavigation() {
@@ -35,25 +36,25 @@ export function useNavigation() {
   // Standard route definitions for consistency
   const routes = {
     home: { name: 'home' },
-    
+
     // Endpoints
     endpoints: { name: 'endpoints' },
     endpointDetail: (slug: string) => ({ name: 'endpoint-detail', params: { slug } }),
     createEndpoint: { name: 'create-endpoint' },
     createDataEndpoint: { name: 'create-data-endpoint' },
     createModelEndpoint: { name: 'create-model-endpoint' },
-    
-    // Models  
+
+    // Models
     models: { name: 'models' },
     modelDetail: (slug: string) => ({ name: 'model-detail', params: { slug } }),
-    
+
     // Datasets
     datasets: { name: 'datasets' },
     datasetDetail: (slug: string) => ({ name: 'dataset-detail', params: { slug } }),
-    
+
     // Other pages
     inbox: { name: 'inbox' },
-    settings: { name: 'settings' }
+    settings: { name: 'settings' },
   }
 
   // Helper methods for common navigation patterns
@@ -77,7 +78,7 @@ export function useNavigation() {
     navigateTo,
     goBack,
     routes,
-    
+
     // Helper methods
     goToEndpoints,
     goToModels,
@@ -90,6 +91,6 @@ export function useNavigation() {
     goToDatasetDetail,
     goToCreateEndpoint,
     goToCreateDataEndpoint,
-    goToCreateModelEndpoint
+    goToCreateModelEndpoint,
   }
 }

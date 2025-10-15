@@ -1,5 +1,5 @@
 <template>
-  <CreateResourceDialog 
+  <CreateResourceDialog
     :open="open"
     :resource="dataset"
     :resource-config="datasetConfig"
@@ -44,6 +44,6 @@ const datasetConfig = {
     { id: 'qdrant', name: 'Qdrant', type: 'Data' },
     { id: 'chroma', name: 'Chroma', type: 'Data' },
     { id: 'custom', name: 'Custom', type: 'Data', isCustom: true },
-  ]
+  ],
 }
 </script>

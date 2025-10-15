@@ -1,16 +1,6 @@
 <template>
-  <component 
-    v-if="isLucideIcon" 
-    :is="lucideIcon" 
-    :class="lucideIconClass"
-    v-bind="$attrs"
-  />
-  <img 
-    v-else
-    :src="iconSrc" 
-    :alt="`${name} icon`"
-    v-bind="$attrs"
-  />
+  <component v-if="isLucideIcon" :is="lucideIcon" :class="lucideIconClass" v-bind="$attrs" />
+  <img v-else :src="iconSrc" :alt="`${name} icon`" v-bind="$attrs" />
 </template>
 
 <script setup lang="ts">
@@ -32,7 +22,7 @@ const props = defineProps<{
 interface IconConfig {
   type: 'image' | 'lucide'
   src?: string
-  component?: any
+  component?: typeof FolderOpen
   class?: string
 }
 
@@ -43,7 +33,7 @@ const iconConfig: Record<string, IconConfig> = {
   vllm: { type: 'image', src: vllmIcon },
   ollama: { type: 'image', src: ollamaIcon },
   huggingface: { type: 'image', src: huggingfaceIcon },
-  filesystem: { type: 'lucide', component: FolderOpen, class: 'text-purple-600' }
+  filesystem: { type: 'lucide', component: FolderOpen, class: 'text-purple-600' },
 }
 
 const currentIcon = computed(() => iconConfig[props.name])

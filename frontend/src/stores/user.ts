@@ -11,6 +11,6 @@ export const useUserStore = defineStore('user', () => {
     email,
     balance,
     walletManagerUrl,
-    authToken
+    authToken,
   }
 })

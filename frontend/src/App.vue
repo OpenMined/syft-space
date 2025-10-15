@@ -10,7 +10,7 @@ const showNavbar = computed(() => route.name !== 'create' && !route.path.startsW
 <template>
   <div class="min-h-screen bg-gray-50">
     <AppNavbar v-if="showNavbar" />
-    
+
     <main>
       <router-view />
     </main>

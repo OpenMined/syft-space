@@ -22,20 +22,20 @@ export interface FieldValidation<T = unknown> {
   error: ValidationResult
 }
 
-export function useFormValidation<TFormData extends Record<string, unknown> = Record<string, unknown>>() {
-  const fields = reactive<Record<keyof TFormData, FieldValidation>>({})
+export function useFormValidation() {
+  const fields = reactive<Record<string, FieldValidation>>({})
 
   // Register a field for validation
-  const registerField = <K extends keyof TFormData>(name: K, rules: ValidationRule<TFormData[K]>) => {
+  const registerField = (name: string, rules: ValidationRule) => {
     fields[name] = {
       rules,
       touched: false,
-      error: null
+      error: null,
     }
   }
 
   // Validate a single field
-  const validateField = <K extends keyof TFormData>(name: K, value: TFormData[K]): ValidationResult => {
+  const validateField = (name: string, value: unknown): ValidationResult => {
     const field = fields[name]
     if (!field) return null
 
@@ -76,7 +76,7 @@ export function useFormValidation<TFormData extends Record<string, unknown> = Re
   }
 
   // Set field as touched and validate
-  const touchField = (name: string, value: any) => {
+  const touchField = (name: string, value: unknown) => {
     const field = fields[name]
     if (field) {
       field.touched = true
@@ -85,15 +85,17 @@ export function useFormValidation<TFormData extends Record<string, unknown> = Re
   }
 
   // Validate all fields
-  const validateAll = (formData: Record<string, any>): boolean => {
+  const validateAll = (formData: Record<string, unknown>): boolean => {
     let isValid = true
-    
-    Object.keys(fields).forEach(name => {
+
+    Object.keys(fields).forEach((name) => {
       const field = fields[name]
-      field.touched = true
-      field.error = validateField(name, formData[name])
-      if (field.error) {
-        isValid = false
+      if (field) {
+        field.touched = true
+        field.error = validateField(name, formData[name])
+        if (field.error) {
+          isValid = false
+        }
       }
     })
 
@@ -114,7 +116,7 @@ export function useFormValidation<TFormData extends Record<string, unknown> = Re
   // Get all errors
   const errors = computed(() => {
     const errorObj: Record<string, string> = {}
-    Object.keys(fields).forEach(name => {
+    Object.keys(fields).forEach((name) => {
       const error = getFieldError(name)
       if (error) {
         errorObj[name] = error
@@ -125,15 +127,17 @@ export function useFormValidation<TFormData extends Record<string, unknown> = Re
 
   // Check if form is valid
   const isValid = computed(() => {
-    return Object.keys(fields).every(name => !hasFieldError(name))
+    return Object.keys(fields).every((name) => !hasFieldError(name))
   })
 
   // Reset validation state
   const reset = () => {
-    Object.keys(fields).forEach(name => {
+    Object.keys(fields).forEach((name) => {
       const field = fields[name]
-      field.touched = false
-      field.error = null
+      if (field) {
+        field.touched = false
+        field.error = null
+      }
     })
   }
 
@@ -147,7 +151,7 @@ export function useFormValidation<TFormData extends Record<string, unknown> = Re
     hasFieldError,
     errors,
     isValid,
-    reset
+    reset,
   }
 }
 
@@ -155,12 +159,20 @@ export function useFormValidation<TFormData extends Record<string, unknown> = Re
 export const commonRules = {
   required: { required: true },
   requiredString: { required: true, minLength: 1 },
-  name: { required: true, minLength: UI_CONSTANTS.FORM_VALIDATION_LIMITS.NAME_MIN_LENGTH, maxLength: UI_CONSTANTS.FORM_VALIDATION_LIMITS.NAME_MAX_LENGTH },
-  description: { required: true, minLength: UI_CONSTANTS.FORM_VALIDATION_LIMITS.DESCRIPTION_MIN_LENGTH, maxLength: UI_CONSTANTS.FORM_VALIDATION_LIMITS.DESCRIPTION_MAX_LENGTH },
-  url: { 
-    pattern: /^https?:\/\/[^\s/$.?#].[^\s]*$/i 
+  name: {
+    required: true,
+    minLength: UI_CONSTANTS.FORM_VALIDATION_LIMITS.NAME_MIN_LENGTH,
+    maxLength: UI_CONSTANTS.FORM_VALIDATION_LIMITS.NAME_MAX_LENGTH,
   },
-  email: { 
-    pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ 
-  }
+  description: {
+    required: true,
+    minLength: UI_CONSTANTS.FORM_VALIDATION_LIMITS.DESCRIPTION_MIN_LENGTH,
+    maxLength: UI_CONSTANTS.FORM_VALIDATION_LIMITS.DESCRIPTION_MAX_LENGTH,
+  },
+  url: {
+    pattern: /^https?:\/\/[^\s/$.?#].[^\s]*$/i,
+  },
+  email: {
+    pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  },
 }

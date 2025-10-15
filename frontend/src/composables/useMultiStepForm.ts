@@ -14,13 +14,13 @@ export interface FormStep {
 
 export function useMultiStepForm(steps: FormStep[]) {
   const currentStep = ref(1)
-  const formData = reactive({})
-  const errors = reactive({})
+  const formData = reactive<Record<string, unknown>>({})
+  const errors = reactive<Record<string, string | null>>({})
 
   // Computed properties
   const isFirstStep = computed(() => currentStep.value === 1)
   const isLastStep = computed(() => currentStep.value === steps.length)
-  const currentStepData = computed(() => steps.find(step => step.id === currentStep.value))
+  const currentStepData = computed(() => steps.find((step) => step.id === currentStep.value))
   const canProceed = computed(() => {
     const step = currentStepData.value
     return step ? (step.isValid ? step.isValid() : true) : true
@@ -57,21 +57,21 @@ export function useMultiStepForm(steps: FormStep[]) {
   }
 
   const validateAllSteps = (): boolean => {
-    return steps.every(step => step.isValid ? step.isValid() : true)
+    return steps.every((step) => (step.isValid ? step.isValid() : true))
   }
 
   // Utility methods
   const resetForm = () => {
     currentStep.value = 1
-    Object.keys(formData).forEach(key => {
+    Object.keys(formData).forEach((key) => {
       delete formData[key]
     })
-    Object.keys(errors).forEach(key => {
+    Object.keys(errors).forEach((key) => {
       delete errors[key]
     })
   }
 
-  const setFieldValue = (field: string, value: any) => {
+  const setFieldValue = (field: string, value: unknown) => {
     formData[field] = value
     // Clear error when field is updated
     if (errors[field]) {
@@ -111,7 +111,7 @@ export function useMultiStepForm(steps: FormStep[]) {
     resetForm,
     setFieldValue,
     setFieldError,
-    clearFieldError
+    clearFieldError,
   }
 }
 
@@ -121,6 +121,6 @@ export function useStepIndicator(currentStep: number, stepNumber: number) {
     'bg-blue-600 text-white': currentStep >= stepNumber,
     'bg-gray-200 text-gray-500': currentStep < stepNumber,
     'border-blue-600': currentStep >= stepNumber,
-    'border-gray-200': currentStep < stepNumber
+    'border-gray-200': currentStep < stepNumber,
   }))
 }

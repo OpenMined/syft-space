@@ -1,8 +1,8 @@
-import { 
-  Folder, 
-  FolderOpen, 
-  FileText, 
-  FileSpreadsheet, 
+import {
+  Folder,
+  FolderOpen,
+  FileText,
+  FileSpreadsheet,
   FileImage,
   FileVideo,
   FileArchive,
@@ -12,7 +12,7 @@ import {
   FileJson,
   Cog,
   Database,
-  Binary
+  Binary,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
@@ -29,7 +29,7 @@ export function useFileIcon() {
   const getFileIcon = (path: string, isExpanded = false, allNodes?: FileNode[]): Component => {
     const fileName = path.split('/').pop() || ''
     const extension = fileName.split('.').pop()?.toLowerCase()
-    
+
     // Check if it's a directory
     if (allNodes) {
       const findNode = (nodes: FileNode[], targetPath: string): FileNode | null => {
@@ -42,18 +42,18 @@ export function useFileIcon() {
         }
         return null
       }
-      
+
       const node = findNode(allNodes, path)
       if (node?.type === 'directory') {
         return isExpanded ? FolderOpen : Folder
       }
     }
-    
+
     // Special cases for config files
     if (fileName.startsWith('.') && !extension) {
       return Cog
     }
-    
+
     switch (extension) {
       // Documents
       case 'pdf':
@@ -66,17 +66,17 @@ export function useFileIcon() {
       case 'tex':
       case 'bib':
         return FileText
-        
+
       // Spreadsheets
       case 'xls':
       case 'xlsx':
       case 'csv':
         return FileSpreadsheet
-        
+
       // Books
       case 'epub':
         return BookOpen
-        
+
       // Images
       case 'jpg':
       case 'jpeg':
@@ -86,7 +86,7 @@ export function useFileIcon() {
       case 'webp':
       case 'ico':
         return FileImage
-        
+
       // Videos
       case 'mp4':
       case 'avi':
@@ -94,7 +94,7 @@ export function useFileIcon() {
       case 'webm':
       case 'mkv':
         return FileVideo
-        
+
       // Archives
       case 'zip':
       case 'rar':
@@ -104,7 +104,7 @@ export function useFileIcon() {
       case 'deb':
       case 'rpm':
         return FileArchive
-        
+
       // Data files
       case 'json':
         return FileJson
@@ -112,13 +112,13 @@ export function useFileIcon() {
       case 'yaml':
       case 'yml':
         return FileCode
-        
+
       // Database files
       case 'sql':
       case 'db':
       case 'sqlite':
         return Database
-        
+
       // Code files
       case 'js':
       case 'ts':
@@ -143,7 +143,7 @@ export function useFileIcon() {
       case 'sh':
       case 'bash':
         return FileCode
-        
+
       // Binary files
       case 'exe':
       case 'bin':
@@ -154,12 +154,12 @@ export function useFileIcon() {
       case 'h5':
       case 'hdf5':
         return Binary
-        
+
       // Presentations
       case 'ppt':
       case 'pptx':
         return FileText
-        
+
       default:
         return File
     }
@@ -168,7 +168,7 @@ export function useFileIcon() {
   const getFileIconColor = (path: string, allNodes?: FileNode[]): string => {
     const fileName = path.split('/').pop() || ''
     const extension = fileName.split('.').pop()?.toLowerCase()
-    
+
     // Check if it's a directory
     if (allNodes) {
       const findNode = (nodes: FileNode[], targetPath: string): FileNode | null => {
@@ -181,16 +181,16 @@ export function useFileIcon() {
         }
         return null
       }
-      
+
       const node = findNode(allNodes, path)
       if (node?.type === 'directory') return 'text-blue-600'
     }
-    
+
     // Config files
     if (fileName.startsWith('.')) {
       return 'text-gray-500'
     }
-    
+
     switch (extension) {
       // Documents
       case 'pdf':
@@ -208,18 +208,18 @@ export function useFileIcon() {
       case 'tex':
       case 'bib':
         return 'text-purple-600'
-        
+
       // Spreadsheets
       case 'xls':
       case 'xlsx':
         return 'text-green-600'
       case 'csv':
         return 'text-green-500'
-        
+
       // Books
       case 'epub':
         return 'text-indigo-600'
-        
+
       // Data files
       case 'json':
         return 'text-yellow-600'
@@ -228,13 +228,13 @@ export function useFileIcon() {
       case 'yaml':
       case 'yml':
         return 'text-pink-600'
-        
+
       // Database
       case 'sql':
       case 'db':
       case 'sqlite':
         return 'text-purple-700'
-        
+
       // Code files by language
       case 'js':
       case 'jsx':
@@ -271,7 +271,7 @@ export function useFileIcon() {
       case 'sh':
       case 'bash':
         return 'text-gray-700'
-        
+
       // Archives
       case 'zip':
       case 'rar':
@@ -282,7 +282,7 @@ export function useFileIcon() {
       case 'deb':
       case 'rpm':
         return 'text-red-800'
-        
+
       // Binary/Data files
       case 'iso':
       case 'img':
@@ -290,7 +290,7 @@ export function useFileIcon() {
       case 'h5':
       case 'hdf5':
         return 'text-indigo-700'
-        
+
       // Images
       case 'jpg':
       case 'jpeg':
@@ -299,7 +299,7 @@ export function useFileIcon() {
       case 'svg':
       case 'webp':
         return 'text-teal-600'
-        
+
       // Videos
       case 'mp4':
       case 'avi':
@@ -307,12 +307,12 @@ export function useFileIcon() {
       case 'webm':
       case 'mkv':
         return 'text-purple-600'
-        
+
       // Presentations
       case 'ppt':
       case 'pptx':
         return 'text-orange-600'
-        
+
       default:
         return 'text-gray-600'
     }
@@ -328,6 +328,6 @@ export function useFileIcon() {
   return {
     getFileIcon,
     getFileIconColor,
-    formatFileSize
+    formatFileSize,
   }
 }

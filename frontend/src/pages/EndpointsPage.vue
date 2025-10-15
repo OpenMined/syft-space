@@ -12,7 +12,8 @@
       <!-- Tabs -->
       <Tabs v-model="activeTab" class="w-auto">
         <TabsList
-          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]">
+          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]"
+        >
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="published">Published</TabsTrigger>
           <TabsTrigger value="draft">Draft</TabsTrigger>
@@ -22,12 +23,21 @@
       <!-- Search bar and Create button -->
       <div class="flex items-center gap-4">
         <div class="relative w-80">
-          <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <Input v-model="searchQuery" placeholder="Find endpoints, tags, owners..." class="pl-10 pr-4 py-2 w-full" />
+          <Search
+            class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400"
+          />
+          <Input
+            v-model="searchQuery"
+            placeholder="Find endpoints, tags, owners..."
+            class="pl-10 pr-4 py-2 w-full"
+          />
         </div>
 
         <!-- Create Endpoint Button -->
-        <Button @click="router.push({ name: 'create' })" class="bg-purple-600 hover:bg-purple-700 text-white">
+        <Button
+          @click="router.push({ name: 'create' })"
+          class="bg-purple-600 hover:bg-purple-700 text-white"
+        >
           <Plus class="h-4 w-4 mr-2" />
           Create Endpoint
         </Button>
@@ -57,8 +67,13 @@
       <div class="mt-8 bg-white rounded-lg shadow border border-gray-200 p-8 text-center">
         <Server class="h-12 w-12 text-gray-400 mx-auto mb-4" />
         <h3 class="text-lg font-medium text-gray-900 mb-2">No endpoints created</h3>
-        <p class="text-gray-600 mb-4">Create your first endpoint to start sharing datasets or AI models</p>
-        <Button @click="router.push({ name: 'create' })" class="bg-purple-600 hover:bg-purple-700 text-white">
+        <p class="text-gray-600 mb-4">
+          Create your first endpoint to start sharing datasets or AI models
+        </p>
+        <Button
+          @click="router.push({ name: 'create' })"
+          class="bg-purple-600 hover:bg-purple-700 text-white"
+        >
           <Plus class="h-4 w-4 mr-2" />
           Create Endpoint
         </Button>
@@ -80,8 +95,6 @@ import type { EndpointItem } from '@/stores/endpoints'
 
 const router = useRouter()
 const endpointsStore = useEndpointsStore()
-
-
 
 const searchQuery = ref('')
 const activeTab = ref('all')

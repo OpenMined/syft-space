@@ -1,5 +1,5 @@
 <template>
-  <CreateResourceDialog 
+  <CreateResourceDialog
     :open="open"
     :resource="model"
     :resource-config="modelConfig"
@@ -43,6 +43,6 @@ const modelConfig = {
     { id: 'ollama', name: 'Ollama', type: 'Model' },
     { id: 'huggingface', name: 'Hugging Face', type: 'Model' },
     { id: 'custom', name: 'Custom', type: 'Model', isCustom: true },
-  ]
+  ],
 }
 </script>

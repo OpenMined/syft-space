@@ -19,18 +19,18 @@ export const formatTimestamp = (date: Date): string => {
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
     })
   }
 }
 
 export const formatDate = (date: Date | undefined): string => {
   if (!date) return 'Unknown'
-  
+
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
   })
 }
 
@@ -38,6 +38,6 @@ export const formatDateShort = (date: Date): string => {
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
-    day: 'numeric'
+    day: 'numeric',
   })
 }

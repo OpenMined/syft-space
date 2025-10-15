@@ -1,8 +1,18 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Inbox, X, Check, AlertCircle, Info, Trash2, Users, Gauge, Calculator, Activity } from 'lucide-vue-next'
+import {
+  Inbox,
+  X,
+  AlertCircle,
+  Info,
+  Trash2,
+  Users,
+  Gauge,
+  Calculator,
+  Activity,
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -23,14 +33,14 @@ const activeTab = ref('all')
 
 const activeItems = computed(() => {
   const nonDismissed = inboxStore.activeItems
-  
+
   let filtered = nonDismissed
   if (activeTab.value === 'read') {
-    filtered = nonDismissed.filter(item => item.read)
+    filtered = nonDismissed.filter((item) => item.read)
   } else if (activeTab.value === 'unread') {
-    filtered = nonDismissed.filter(item => !item.read)
+    filtered = nonDismissed.filter((item) => !item.read)
   }
-  
+
   return filtered
 })
 
@@ -69,7 +79,7 @@ const getSourceIcon = (source: string) => {
   if (source.includes('Rate Limiting')) return Gauge
   if (source === 'Accounting Policy') return Calculator
   if (source === 'OpenTelemetry Observability Policy') return Activity
-  
+
   // Other source icons
   if (source.includes('Security')) return AlertCircle
   return Info
@@ -81,7 +91,7 @@ const getSourceColor = (source: string) => {
   if (source.includes('Rate Limiting')) return 'text-blue-600 bg-blue-100'
   if (source === 'Accounting Policy') return 'text-green-600 bg-green-100'
   if (source === 'OpenTelemetry Observability Policy') return 'text-purple-600 bg-purple-100'
-  
+
   // Other source colors
   if (source.includes('Security')) return 'text-red-600 bg-red-100'
   if (source.includes('Update')) return 'text-blue-600 bg-blue-100'
@@ -95,16 +105,16 @@ const formatTimestamp = (date: Date) => {
   const minutes = Math.floor(diff / 60000)
   const hours = Math.floor(diff / 3600000)
   const days = Math.floor(diff / 86400000)
-  
+
   if (minutes < 1) return 'Just now'
   if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
   if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`
   if (days < 7) return `${days} day${days > 1 ? 's' : ''} ago`
-  
-  return date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric', 
-    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined 
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
   })
 }
 </script>
@@ -115,7 +125,11 @@ const formatTimestamp = (date: Date) => {
     <div class="flex items-center gap-3 mb-2">
       <Inbox class="h-6 w-6 text-gray-600" />
       <h1 class="text-2xl font-semibold text-gray-900">Inbox</h1>
-      <Badge v-if="inboxStore.unreadCount > 0" variant="secondary" class="bg-purple-100 text-purple-700">
+      <Badge
+        v-if="inboxStore.unreadCount > 0"
+        variant="secondary"
+        class="bg-purple-100 text-purple-700"
+      >
         {{ inboxStore.unreadCount }} new
       </Badge>
     </div>
@@ -205,7 +219,10 @@ const formatTimestamp = (date: Date) => {
 
     <!-- Item Detail Dialog -->
     <Dialog v-model:open="dialogOpen">
-      <DialogContent v-if="selectedItem" class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl">
+      <DialogContent
+        v-if="selectedItem"
+        class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl"
+      >
         <!-- Header with background -->
         <div class="flex-shrink-0 border-b bg-gray-50">
           <DialogHeader class="p-6 pb-4">
@@ -217,7 +234,10 @@ const formatTimestamp = (date: Date) => {
                 <div>
                   <div class="flex items-center gap-2 mb-1">
                     <Badge variant="outline" class="text-xs">{{ selectedItem.source }}</Badge>
-                    <div v-if="!selectedItem.read" class="flex items-center gap-1 text-xs text-purple-600">
+                    <div
+                      v-if="!selectedItem.read"
+                      class="flex items-center gap-1 text-xs text-purple-600"
+                    >
                       <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
                       <span>New</span>
                     </div>
@@ -232,14 +252,17 @@ const formatTimestamp = (date: Date) => {
             <DialogDescription class="mt-2 text-base">{{ selectedItem.summary }}</DialogDescription>
           </DialogHeader>
         </div>
-        
+
         <!-- Content -->
         <div class="flex-1 min-h-0 overflow-y-auto">
           <div class="p-6">
-            <div class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-gray-600 prose-strong:text-gray-900 prose-code:text-purple-600 prose-pre:bg-gray-50 prose-pre:border prose-li:text-gray-600" v-html="markdownToHtml(selectedItem.longDescription)" />
+            <div
+              class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-gray-600 prose-strong:text-gray-900 prose-code:text-purple-600 prose-pre:bg-gray-50 prose-pre:border prose-li:text-gray-600"
+              v-html="markdownToHtml(selectedItem.longDescription)"
+            />
           </div>
         </div>
-        
+
         <!-- Footer with actions -->
         <div class="flex-shrink-0 border-t bg-gray-50">
           <DialogFooter class="p-6 pt-4">
@@ -249,7 +272,12 @@ const formatTimestamp = (date: Date) => {
                   variant="ghost"
                   size="default"
                   class="text-gray-600 hover:text-gray-900"
-                  @click="dismissItem(selectedItem); dialogOpen = false"
+                  @click="
+                    () => {
+                      selectedItem && dismissItem(selectedItem)
+                      dialogOpen = false
+                    }
+                  "
                 >
                   <Trash2 class="h-4 w-4 mr-2" />
                   Dismiss
@@ -260,7 +288,7 @@ const formatTimestamp = (date: Date) => {
                   v-if="selectedItem.actions?.negative"
                   variant="outline"
                   size="default"
-                  @click="handleNegativeAction(selectedItem)"
+                  @click="selectedItem && handleNegativeAction(selectedItem)"
                 >
                   {{ selectedItem.actions.negative.label }}
                 </Button>
@@ -269,7 +297,7 @@ const formatTimestamp = (date: Date) => {
                   variant="default"
                   size="default"
                   class="bg-purple-600 hover:bg-purple-700"
-                  @click="handlePositiveAction(selectedItem)"
+                  @click="selectedItem && handlePositiveAction(selectedItem)"
                 >
                   {{ selectedItem.actions.positive.label }}
                 </Button>
@@ -290,27 +318,30 @@ function markdownToHtml(markdown: string): string {
     .replace(/^### (.*$)/gim, '<h3>$1</h3>')
     .replace(/^## (.*$)/gim, '<h2>$1</h2>')
     .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    
+
     // Bold and italic
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    
+
     // Code blocks with language hint
     .replace(/```(\w+)?\n([^`]+)```/g, '<pre><code>$2</code></pre>')
     .replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>')
-    
+
     // Inline code
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    
+
     // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-purple-600 hover:text-purple-700 underline">$1</a>')
-    
+    .replace(
+      /\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" class="text-purple-600 hover:text-purple-700 underline">$1</a>',
+    )
+
     // Line breaks
     .replace(/\n\n/g, '</p><p>')
-    
+
     // Lists - handle multi-line
     .split('\n')
-    .map(line => {
+    .map((line) => {
       if (/^\d+\.\s/.test(line)) {
         return '<li>' + line.substring(line.indexOf('.') + 2) + '</li>'
       } else if (/^-\s/.test(line)) {
@@ -319,21 +350,21 @@ function markdownToHtml(markdown: string): string {
       return line
     })
     .join('\n')
-    
+
   // Wrap in paragraph tags
   html = '<p>' + html + '</p>'
-  
+
   // Clean up empty paragraphs
   html = html.replace(/<p>\s*<\/p>/g, '')
-  
+
   // Wrap consecutive list items in ul/ol tags
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, match => {
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => {
     if (match.includes('<li>1.')) {
       return '<ol class="list-decimal list-inside space-y-1">' + match + '</ol>'
     }
     return '<ul class="list-disc list-inside space-y-1">' + match + '</ul>'
   })
-  
+
   return html
 }
 </script>

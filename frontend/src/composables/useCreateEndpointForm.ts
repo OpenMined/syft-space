@@ -5,7 +5,6 @@
 
 import { ref, computed, reactive } from 'vue'
 import { APP_LIMITS, UI_CONSTANTS } from '@/lib/constants'
-import type { Ref } from 'vue'
 
 export interface EndpointFormData {
   name: string
@@ -25,7 +24,7 @@ export function useCreateEndpointForm() {
   const currentStep = ref(1)
   const isSubmitting = ref(false)
   const submitError = ref<string | null>(null)
-  
+
   // Form data
   const formData = reactive<EndpointFormData>({
     name: '',
@@ -34,8 +33,8 @@ export function useCreateEndpointForm() {
     visibility: 'public',
     tags: [],
     pricing: {
-      type: 'free'
-    }
+      type: 'free',
+    },
   })
 
   // Validation helpers
@@ -46,7 +45,7 @@ export function useCreateEndpointForm() {
       case 2: // Data Source / Model
         return true // Override in specific implementations
       case 3: // Output
-        return true // Override in specific implementations  
+        return true // Override in specific implementations
       case 4: // Policies
         return true // Override in specific implementations
       case 5: // Review
@@ -57,11 +56,7 @@ export function useCreateEndpointForm() {
   }
 
   const isValidForm = (): boolean => {
-    return !!(
-      formData.name &&
-      formData.description &&
-      formData.visibility
-    )
+    return !!(formData.name && formData.description && formData.visibility)
   }
 
   // Navigation
@@ -92,7 +87,10 @@ export function useCreateEndpointForm() {
 
   // Progress calculation
   const progress = computed(() => {
-    return (currentStep.value / APP_LIMITS.TOTAL_ENDPOINT_CREATION_STEPS) * APP_LIMITS.PERCENTAGE_MULTIPLIER
+    return (
+      (currentStep.value / APP_LIMITS.TOTAL_ENDPOINT_CREATION_STEPS) *
+      APP_LIMITS.PERCENTAGE_MULTIPLIER
+    )
   })
 
   // Save operations
@@ -121,9 +119,9 @@ export function useCreateEndpointForm() {
       // Implement form submission logic
       console.log('Submitting form...', formData)
       // In real app, this would call an API
-      await new Promise(resolve => setTimeout(resolve, UI_CONSTANTS.API_SIMULATION_DELAY)) // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, UI_CONSTANTS.API_SIMULATION_DELAY)) // Simulate API call
       return true
-    } catch (error) {
+    } catch {
       submitError.value = 'Failed to create endpoint. Please try again.'
       return false
     } finally {
@@ -136,7 +134,7 @@ export function useCreateEndpointForm() {
     currentStep.value = 1
     isSubmitting.value = false
     submitError.value = null
-    
+
     // Reset form data
     formData.name = ''
     formData.description = ''
@@ -157,26 +155,26 @@ export function useCreateEndpointForm() {
     isSubmitting,
     submitError,
     formData,
-    
+
     // Computed
     progress,
     isFirstStep,
     isLastStep,
     canSaveDraft,
-    
+
     // Validation
     isValidStep,
     isValidForm,
     canProceedToStep,
-    
+
     // Navigation
     nextStep,
     previousStep,
     goToStep,
-    
+
     // Operations
     saveDraft,
     submitForm,
-    resetForm
+    resetForm,
   }
 }

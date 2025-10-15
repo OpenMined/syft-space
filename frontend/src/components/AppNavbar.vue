@@ -23,9 +23,9 @@ const inboxStore = useInboxStore()
 const currentRouteName = computed(() => route.name as string)
 
 const routeMapping: Record<string, string[]> = {
-  'endpoints': ['endpoints', 'endpoint-detail'],
-  'datasets': ['datasets', 'dataset-detail'],
-  'models': ['models', 'model-detail']
+  endpoints: ['endpoints', 'endpoint-detail'],
+  datasets: ['datasets', 'dataset-detail'],
+  models: ['models', 'model-detail'],
 }
 
 const isTabActive = (tabId: string) => {
@@ -42,7 +42,7 @@ const tabs = [
   { id: 'endpoints', label: 'Endpoints' },
   { id: 'datasets', label: 'Datasets' },
   { id: 'models', label: 'Models' },
-  { id: 'inbox', label: 'Inbox' }
+  { id: 'inbox', label: 'Inbox' },
 ]
 </script>
 
@@ -51,36 +51,34 @@ const tabs = [
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center h-16 gap-6">
       <!-- Logo and App Name -->
       <div class="flex items-center space-x-3">
-        <div class="h-8 w-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+        <div
+          class="h-8 w-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center"
+        >
           <span class="text-white font-bold text-lg">S</span>
         </div>
         <span class="text-xl font-bold text-gray-900 tracking-tight">
-          SyftAI Server 
+          SyftAI Server
           <span class="ml-1 text-xs font-semibold text-purple-600 align-top">BETA</span>
         </span>
       </div>
 
       <!-- Navigation Tabs -->
       <nav class="flex items-center space-x-2 flex-grow justify-center">
-        <div 
-          v-for="tab in tabs"
-          :key="tab.id"
-          class="relative"
-        >
+        <div v-for="tab in tabs" :key="tab.id" class="relative">
           <Button
             @click="navigateTo(tab.id)"
             :variant="isTabActive(tab.id) ? 'secondary' : 'ghost'"
             size="sm"
             class="text-sm font-medium"
             :class="[
-              isTabActive(tab.id) 
-                ? 'text-purple-700 bg-purple-50 hover:bg-purple-100' 
-                : 'text-gray-700 hover:bg-gray-100'
+              isTabActive(tab.id)
+                ? 'text-purple-700 bg-purple-50 hover:bg-purple-100'
+                : 'text-gray-700 hover:bg-gray-100',
             ]"
           >
             {{ tab.label }}
           </Button>
-          <Badge 
+          <Badge
             v-if="tab.id === 'inbox' && inboxStore.unreadCount > 0"
             variant="secondary"
             class="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center text-xs font-semibold min-w-[20px] rounded-full border-2 bg-red-500 border-white text-white"
@@ -89,7 +87,7 @@ const tabs = [
           </Badge>
         </div>
       </nav>
-      
+
       <!-- Right side controls -->
       <div class="flex items-center space-x-3">
         <!-- Balance Display -->
@@ -97,7 +95,7 @@ const tabs = [
           <span class="text-sm text-gray-600">Balance:</span>
           <span class="text-sm font-semibold text-green-600">{{ userStore.balance }}</span>
         </div>
-        
+
         <!-- Avatar with Dropdown -->
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
@@ -117,8 +115,8 @@ const tabs = [
               </div>
               <div>
                 <p class="text-sm text-gray-500 mb-0.5">Wallet Manager</p>
-                <a 
-                  :href="userStore.walletManagerUrl" 
+                <a
+                  :href="userStore.walletManagerUrl"
                   target="_blank"
                   class="text-sm font-medium text-gray-900 hover:text-gray-700 inline-flex items-center gap-1.5"
                 >

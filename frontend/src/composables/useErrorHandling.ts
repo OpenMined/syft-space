@@ -31,46 +31,51 @@ export function useErrorHandling() {
     message: string,
     type: ErrorState['type'] = ERROR_TYPES.UNKNOWN,
     statusCode?: number,
-    details?: Record<string, unknown>
+    details?: Record<string, unknown>,
   ): ErrorState => ({
     message,
     type,
     statusCode,
-    details
+    details,
   })
 
-  const handleApiError = (error: any): ErrorState => {
-    if (error.response) {
+  const handleApiError = (error: unknown): ErrorState => {
+    // Type guard for axios-like error
+    if (typeof error === 'object' && error !== null && 'response' in error) {
+      const axiosError = error as { response: { status: number; data?: { message?: string } } }
       // API responded with error status
-      const status = error.response.status
-      const message = error.response.data?.message || error.message || 'An error occurred'
-      
+      const status = axiosError.response.status
+      const message = axiosError.response.data?.message || 'An error occurred'
+
       let type: ErrorState['type'] = ERROR_TYPES.SERVER
       if (status >= HTTP_STATUS.CLIENT_ERROR_START && status < HTTP_STATUS.SERVER_ERROR_START) {
-        type = status === HTTP_STATUS.UNPROCESSABLE_ENTITY ? ERROR_TYPES.VALIDATION : ERROR_TYPES.NETWORK
+        type =
+          status === HTTP_STATUS.UNPROCESSABLE_ENTITY ? ERROR_TYPES.VALIDATION : ERROR_TYPES.NETWORK
       }
-      
-      return createError(message, type, status, error.response.data)
-    } else if (error.request) {
+
+      return createError(message, type, status, axiosError.response.data)
+    } else if (typeof error === 'object' && error !== null && 'request' in error) {
       // Network error
       return createError(
         'Network error. Please check your connection and try again.',
-        ERROR_TYPES.NETWORK
+        ERROR_TYPES.NETWORK,
       )
     } else {
       // Other error
-      return createError(error.message || 'An unexpected error occurred')
+      const errorMessage =
+        typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as { message: unknown }).message)
+          : 'An unexpected error occurred'
+      return createError(errorMessage)
     }
   }
 
   const setError = (error: ErrorState | string) => {
-    const errorState = typeof error === 'string' 
-      ? createError(error) 
-      : error
-      
+    const errorState = typeof error === 'string' ? createError(error) : error
+
     globalError.value = errorState
     errorHistory.value.unshift(errorState)
-    
+
     // Keep only last N errors
     if (errorHistory.value.length > APP_LIMITS.MAX_ERROR_HISTORY_SIZE) {
       errorHistory.value = errorHistory.value.slice(0, APP_LIMITS.MAX_ERROR_HISTORY_SIZE)
@@ -110,7 +115,7 @@ export function useErrorHandling() {
 
   // Async operation wrapper
   const useAsyncOperation = <T = unknown, TArgs extends unknown[] = unknown[]>(
-    operation: (...args: TArgs) => Promise<T>
+    operation: (...args: TArgs) => Promise<T>,
   ): AsyncOperation<T, TArgs> => {
     const loading = ref(false)
     const error = ref<ErrorState | null>(null)
@@ -119,7 +124,7 @@ export function useErrorHandling() {
     const execute = async (...args: TArgs): Promise<T> => {
       loading.value = true
       error.value = null
-      
+
       try {
         const result = await operation(...args)
         data.value = result
@@ -143,9 +148,9 @@ export function useErrorHandling() {
     return {
       loading,
       error,
-      data,
+      data: data as Ref<T | null>,
       execute,
-      reset
+      reset,
     }
   }
 
@@ -153,51 +158,51 @@ export function useErrorHandling() {
   const withRetry = async <T>(
     operation: () => Promise<T>,
     maxRetries: number = 3,
-    delay: number = UI_CONSTANTS.DEFAULT_RETRY_DELAY
+    delay: number = UI_CONSTANTS.DEFAULT_RETRY_DELAY,
   ): Promise<T> => {
-    let lastError: any
-    
+    let lastError: unknown
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         return await operation()
       } catch (error) {
         lastError = error
-        
+
         if (attempt === maxRetries) {
           throw error
         }
-        
+
         // Only retry on network errors or 5xx server errors
         const errorState = handleApiError(error)
-        if (errorState.type === ERROR_TYPES.VALIDATION || 
-            (errorState.statusCode && errorState.statusCode < HTTP_STATUS.SERVER_ERROR_START)) {
+        if (
+          errorState.type === ERROR_TYPES.VALIDATION ||
+          (errorState.statusCode && errorState.statusCode < HTTP_STATUS.SERVER_ERROR_START)
+        ) {
           throw error
         }
-        
+
         // Exponential backoff
         const waitTime = delay * Math.pow(2, attempt - 1)
-        await new Promise(resolve => setTimeout(resolve, waitTime))
+        await new Promise((resolve) => setTimeout(resolve, waitTime))
       }
     }
-    
+
     throw lastError
   }
 
   // Computed properties
   const hasError = computed(() => globalError.value !== null)
-  const errorMessage = computed(() => 
-    globalError.value ? getErrorMessage(globalError.value) : ''
-  )
+  const errorMessage = computed(() => (globalError.value ? getErrorMessage(globalError.value) : ''))
 
   return {
     // State
     globalError,
     errorHistory,
-    
+
     // Computed
     hasError,
     errorMessage,
-    
+
     // Methods
     createError,
     handleApiError,
@@ -206,6 +211,6 @@ export function useErrorHandling() {
     clearErrorHistory,
     getErrorMessage,
     useAsyncOperation,
-    withRetry
+    withRetry,
   }
 }

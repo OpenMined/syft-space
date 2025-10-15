@@ -54,55 +54,74 @@
       >
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-4">
-            <div :class="[
-              'p-3 rounded-lg',
-              model.type === 'vllm' ? 'bg-purple-100' : 
-              model.type === 'ollama' ? 'bg-orange-100' : 
-              'bg-indigo-100'
-            ]">
+            <div
+              :class="[
+                'p-3 rounded-lg',
+                model.type === 'vllm'
+                  ? 'bg-purple-100'
+                  : model.type === 'ollama'
+                    ? 'bg-orange-100'
+                    : 'bg-indigo-100',
+              ]"
+            >
               <IntegrationIcon :name="model.type" class="h-6 w-6" />
             </div>
             <div class="flex-1">
               <div class="flex items-center gap-3 mb-2">
                 <h3 class="text-lg font-medium text-gray-900">{{ model.name }}</h3>
-                <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">{{ model.type }}</Badge>
+                <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">{{
+                  model.type
+                }}</Badge>
                 <Badge
                   variant="outline"
-                  :class="model.status === 'running' 
-                    ? 'bg-green-50 text-green-700 border-green-200' 
-                    : 'bg-gray-50 text-gray-600 border-gray-200'
+                  :class="
+                    model.status === 'running'
+                      ? 'bg-green-50 text-green-700 border-green-200'
+                      : 'bg-gray-50 text-gray-600 border-gray-200'
                   "
                   class="text-xs px-2 py-1"
                 >
-                  <div :class="model.status === 'running' 
-                    ? 'w-2 h-2 bg-green-500 rounded-full mr-1' 
-                    : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
-                  "></div>
+                  <div
+                    :class="
+                      model.status === 'running'
+                        ? 'w-2 h-2 bg-green-500 rounded-full mr-1'
+                        : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
+                    "
+                  ></div>
                   {{ model.status }}
                 </Badge>
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger as-child>
-                      <Badge 
-                        variant="outline" 
-                        :class="model.endpointCount > 0 
-                          ? 'bg-blue-50 text-blue-700 border-blue-200 cursor-help' 
-                          : 'bg-gray-50 text-gray-600 border-gray-200'"
+                      <Badge
+                        variant="outline"
+                        :class="
+                          model.endpointCount > 0
+                            ? 'bg-blue-50 text-blue-700 border-blue-200 cursor-help'
+                            : 'bg-gray-50 text-gray-600 border-gray-200'
+                        "
                         class="text-xs px-2 py-1"
                       >
-                        <div :class="model.endpointCount > 0 
-                          ? 'w-2 h-2 bg-blue-500 rounded-full mr-1' 
-                          : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
-                        "></div>
-                        {{ model.endpointCount === 0 ? 'No endpoints' : `${model.endpointCount} endpoint${model.endpointCount !== 1 ? 's' : ''}` }}
+                        <div
+                          :class="
+                            model.endpointCount > 0
+                              ? 'w-2 h-2 bg-blue-500 rounded-full mr-1'
+                              : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
+                          "
+                        ></div>
+                        {{
+                          model.endpointCount === 0
+                            ? 'No endpoints'
+                            : `${model.endpointCount} endpoint${model.endpointCount !== 1 ? 's' : ''}`
+                        }}
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent v-if="model.endpointCount > 0">
                       <div class="space-y-1">
                         <p class="font-medium text-xs">Connected Endpoints:</p>
                         <ul class="space-y-1">
-                          <li 
-                            v-for="endpointName in getEndpointNamesForModel(model.id)" 
+                          <li
+                            v-for="endpointName in getEndpointNamesForModel(model.id)"
                             :key="endpointName"
                             class="text-xs"
                           >
@@ -133,11 +152,21 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" class="text-gray-600" @click.stop="handleEditModel(model)">
+            <Button
+              variant="outline"
+              size="sm"
+              class="text-gray-600"
+              @click.stop="handleEditModel(model)"
+            >
               <Edit class="h-4 w-4 mr-2" />
               Edit
             </Button>
-            <Button variant="outline" size="sm" class="text-red-600 hover:text-red-700" @click.stop="handleDeleteModel(model)">
+            <Button
+              variant="outline"
+              size="sm"
+              class="text-red-600 hover:text-red-700"
+              @click.stop="handleDeleteModel(model)"
+            >
               <Trash2 class="h-4 w-4 mr-2" />
               Delete
             </Button>
@@ -159,13 +188,13 @@
           </span>
         </div>
       </div>
-      
+
       <!-- Empty state content -->
       <div class="mt-8 bg-white rounded-lg shadow border border-gray-200 p-8 text-center">
         <Brain class="h-12 w-12 text-gray-400 mx-auto mb-4" />
         <h3 class="text-lg font-medium text-gray-900 mb-2">No models yet</h3>
         <p class="text-gray-600 mb-4">Start by adding or connecting your first AI model</p>
-        <Button 
+        <Button
           class="bg-purple-600 hover:bg-purple-700 text-white"
           @click="showCreateModelDialog = true"
         >
@@ -194,7 +223,7 @@
           Are you sure you want to delete "{{ modelToDelete?.name }}"? This action cannot be undone.
         </DialogDescription>
       </DialogHeader>
-      
+
       <div v-if="modelToDelete && modelToDelete.endpointCount > 0" class="py-4">
         <div class="space-y-4">
           <div class="bg-red-50 border border-red-200 rounded-md p-4">
@@ -202,14 +231,15 @@
               <div class="text-xl">⚠️</div>
               <div class="flex-1">
                 <p class="text-red-900 font-semibold text-sm mb-2">
-                  This model has {{ modelToDelete.endpointCount }} dependent endpoint{{ modelToDelete.endpointCount !== 1 ? 's' : '' }} that will be deleted:
+                  This model has {{ modelToDelete.endpointCount }} dependent endpoint{{
+                    modelToDelete.endpointCount !== 1 ? 's' : ''
+                  }}
+                  that will be deleted:
                 </p>
-                <p class="text-red-800 text-xs mb-3">
-                  Check each endpoint to confirm deletion
-                </p>
+                <p class="text-red-800 text-xs mb-3">Check each endpoint to confirm deletion</p>
                 <div class="space-y-2">
-                  <div 
-                    v-for="endpointName in getEndpointNamesForModel(modelToDelete.id)" 
+                  <div
+                    v-for="endpointName in getEndpointNamesForModel(modelToDelete.id)"
                     :key="endpointName"
                     class="flex items-center gap-3 p-2.5 bg-white rounded border border-red-200"
                   >
@@ -220,16 +250,14 @@
                       @change="() => toggleEndpoint(endpointName)"
                       class="w-4 h-4 text-red-600 bg-white border-red-400 rounded focus:ring-red-500 focus:ring-2"
                     />
-                    <label 
+                    <label
                       :for="`endpoint-${endpointName}`"
                       class="flex-1 cursor-pointer flex items-center justify-between"
                     >
                       <span class="text-sm font-medium text-gray-900">
                         {{ endpointName }}
                       </span>
-                      <span class="text-xs text-red-600">
-                        Will be deleted
-                      </span>
+                      <span class="text-xs text-red-600"> Will be deleted </span>
                     </label>
                   </div>
                 </div>
@@ -240,17 +268,13 @@
       </div>
 
       <DialogFooter>
-        <Button variant="outline" @click="cancelDeleteModel">
-          Cancel
-        </Button>
-        <Button 
-          variant="destructive" 
-          @click="confirmDeleteModel"
-          :disabled="!allEndpointsChecked"
-        >
-          {{ modelToDelete?.endpointCount > 0 
-            ? `Delete Model & ${modelToDelete.endpointCount} Endpoint${modelToDelete.endpointCount !== 1 ? 's' : ''}` 
-            : 'Delete Model' }}
+        <Button variant="outline" @click="cancelDeleteModel"> Cancel </Button>
+        <Button variant="destructive" @click="confirmDeleteModel" :disabled="!allEndpointsChecked">
+          {{
+            modelToDelete && modelToDelete.endpointCount && modelToDelete.endpointCount > 0
+              ? `Delete Model & ${modelToDelete.endpointCount} Endpoint${modelToDelete.endpointCount !== 1 ? 's' : ''}`
+              : 'Delete Model'
+          }}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -266,7 +290,14 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateModelDialog from '@/components/CreateModelDialog.vue'
 
@@ -283,18 +314,18 @@ const mockEndpoints: Endpoint[] = [
   {
     id: 'endpoint-1',
     name: 'Document Analysis API',
-    modelIds: ['nlp-engine']
+    modelIds: ['nlp-engine'],
   },
   {
-    id: 'endpoint-2', 
+    id: 'endpoint-2',
     name: 'Content Generation API',
-    modelIds: ['nlp-engine']
+    modelIds: ['nlp-engine'],
   },
   {
     id: 'endpoint-3',
     name: 'Code Review Assistant',
-    modelIds: ['code-assistant']
-  }
+    modelIds: ['code-assistant'],
+  },
 ]
 
 const router = useRouter()
@@ -318,7 +349,7 @@ const filteredModels = computed(() => {
       if (
         !model.name.toLowerCase().includes(query) &&
         !model.description.toLowerCase().includes(query) &&
-        !model.tags.some(tag => tag.toLowerCase().includes(query))
+        !model.tags.some((tag) => tag.toLowerCase().includes(query))
       ) {
         return false
       }
@@ -353,8 +384,8 @@ const handleModelUpdated = () => {
 // Function to get endpoint names connected to a model
 const getEndpointNamesForModel = (modelId: string): string[] => {
   return mockEndpoints
-    .filter(endpoint => endpoint.modelIds.includes(modelId))
-    .map(endpoint => endpoint.name)
+    .filter((endpoint) => endpoint.modelIds.includes(modelId))
+    .map((endpoint) => endpoint.name)
 }
 
 // Reset editing state when dialog closes
@@ -372,7 +403,7 @@ const confirmDeleteModel = () => {
   if (modelToDelete.value) {
     console.log('Deleting model:', modelToDelete.value.name)
     // In a real app, this would call an API to delete the model
-    const index = models.value.findIndex(m => m.id === modelToDelete.value!.id)
+    const index = models.value.findIndex((m) => m.id === modelToDelete.value!.id)
     if (index > -1) {
       models.value.splice(index, 1)
     }
@@ -391,7 +422,7 @@ const cancelDeleteModel = () => {
 const allEndpointsChecked = computed(() => {
   if (!modelToDelete.value) return true
   if (modelToDelete.value.endpointCount === 0) return true
-  
+
   const endpointNames = getEndpointNamesForModel(modelToDelete.value.id)
   return endpointNames.length > 0 && endpointNames.length === checkedEndpoints.value.length
 })

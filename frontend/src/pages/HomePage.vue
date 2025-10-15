@@ -1,19 +1,28 @@
 <template>
-  <ErrorBoundary :can-retry="true" :show-details="true" custom-title="Dashboard Loading Error"
-    custom-message="There was a problem loading the dashboard. Please try again." @retry="refreshDashboard">
+  <ErrorBoundary
+    :can-retry="true"
+    :show-details="true"
+    custom-title="Dashboard Loading Error"
+    custom-message="There was a problem loading the dashboard. Please try again."
+    @retry="refreshDashboard"
+  >
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <!-- Header -->
       <div class="flex items-center gap-3 mb-2">
         <Home class="h-6 w-6 text-gray-600" />
         <h1 class="text-2xl font-semibold text-gray-900">Home</h1>
       </div>
-      <p class="text-gray-600 mb-8">Share access to your data and models safely, privately, and on your own terms</p>
+      <p class="text-gray-600 mb-8">
+        Share access to your data and models safely, privately, and on your own terms
+      </p>
 
       <!-- Dashboard metrics -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <!-- Total Revenue -->
-        <div @click="revenueDialogOpen = true"
-          class="bg-white p-6 rounded-lg shadow border border-gray-200 cursor-pointer hover:shadow-md hover:border-green-300 transition-all duration-200">
+        <div
+          @click="revenueDialogOpen = true"
+          class="bg-white p-6 rounded-lg shadow border border-gray-200 cursor-pointer hover:shadow-md hover:border-green-300 transition-all duration-200"
+        >
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-sm font-medium text-gray-600">Total Revenue</h3>
             <div class="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center">
@@ -25,8 +34,10 @@
         </div>
 
         <!-- Total Datasets -->
-        <div @click="$router.push('/datasets')"
-          class="bg-white p-6 rounded-lg shadow border border-gray-200 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all duration-200">
+        <div
+          @click="$router.push('/datasets')"
+          class="bg-white p-6 rounded-lg shadow border border-gray-200 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all duration-200"
+        >
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-sm font-medium text-gray-600">Total Datasets</h3>
             <div class="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
@@ -38,8 +49,10 @@
         </div>
 
         <!-- Total Models -->
-        <div @click="$router.push('/models')"
-          class="bg-white p-6 rounded-lg shadow border border-gray-200 cursor-pointer hover:shadow-md hover:border-purple-300 transition-all duration-200">
+        <div
+          @click="$router.push('/models')"
+          class="bg-white p-6 rounded-lg shadow border border-gray-200 cursor-pointer hover:shadow-md hover:border-purple-300 transition-all duration-200"
+        >
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-sm font-medium text-gray-600">Total Models</h3>
             <div class="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center">
@@ -51,8 +64,10 @@
         </div>
 
         <!-- Total Endpoints -->
-        <div @click="$router.push('/endpoints')"
-          class="bg-white p-6 rounded-lg shadow border border-gray-200 cursor-pointer hover:shadow-md hover:border-orange-300 transition-all duration-200">
+        <div
+          @click="$router.push('/endpoints')"
+          class="bg-white p-6 rounded-lg shadow border border-gray-200 cursor-pointer hover:shadow-md hover:border-orange-300 transition-all duration-200"
+        >
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-sm font-medium text-gray-600">Total Endpoints</h3>
             <div class="w-8 h-8 bg-orange-50 rounded-lg flex items-center justify-center">
@@ -74,43 +89,58 @@
           </div>
           <div class="p-6">
             <div class="space-y-4">
-              <button @click="$router.push('/create')"
-                class="group p-4 rounded-lg border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all duration-200 text-left w-full">
+              <button
+                @click="$router.push('/create')"
+                class="group p-4 rounded-lg border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all duration-200 text-left w-full"
+              >
                 <div class="flex items-center gap-3">
                   <div
-                    class="w-10 h-10 bg-orange-50 group-hover:bg-orange-100 rounded-lg flex items-center justify-center transition-colors">
+                    class="w-10 h-10 bg-orange-50 group-hover:bg-orange-100 rounded-lg flex items-center justify-center transition-colors"
+                  >
                     <Plus class="w-5 h-5 text-orange-600" />
                   </div>
                   <div>
-                    <div class="font-medium text-gray-900 group-hover:text-orange-600">Create New Endpoint</div>
+                    <div class="font-medium text-gray-900 group-hover:text-orange-600">
+                      Create New Endpoint
+                    </div>
                     <div class="text-xs text-gray-500">Share access to your data or AI models</div>
                   </div>
                 </div>
               </button>
 
-              <button @click="$router.push('/datasets')"
-                class="group p-4 rounded-lg border border-gray-200 hover:border-green-300 hover:shadow-md transition-all duration-200 text-left w-full">
+              <button
+                @click="$router.push('/datasets')"
+                class="group p-4 rounded-lg border border-gray-200 hover:border-green-300 hover:shadow-md transition-all duration-200 text-left w-full"
+              >
                 <div class="flex items-center gap-3">
                   <div
-                    class="w-10 h-10 bg-green-50 group-hover:bg-green-100 rounded-lg flex items-center justify-center transition-colors">
+                    class="w-10 h-10 bg-green-50 group-hover:bg-green-100 rounded-lg flex items-center justify-center transition-colors"
+                  >
                     <Database class="w-5 h-5 text-green-600" />
                   </div>
                   <div>
-                    <div class="font-medium text-gray-900 group-hover:text-green-600">Manage Datasets</div>
+                    <div class="font-medium text-gray-900 group-hover:text-green-600">
+                      Manage Datasets
+                    </div>
                     <div class="text-xs text-gray-500">Add and organize datasets</div>
                   </div>
                 </div>
               </button>
 
-              <button @click="$router.push('/models')"
-                class="group p-4 rounded-lg border border-gray-200 hover:border-purple-300 hover:shadow-md transition-all duration-200 text-left w-full">
+              <button
+                @click="$router.push('/models')"
+                class="group p-4 rounded-lg border border-gray-200 hover:border-purple-300 hover:shadow-md transition-all duration-200 text-left w-full"
+              >
                 <div class="flex items-center gap-3">
                   <div
-                    class="w-10 h-10 bg-purple-50 group-hover:bg-purple-100 rounded-lg flex items-center justify-center transition-colors">
+                    class="w-10 h-10 bg-purple-50 group-hover:bg-purple-100 rounded-lg flex items-center justify-center transition-colors"
+                  >
                     <Brain class="w-5 h-5 text-purple-600" />
                   </div>
                   <div>
-                    <div class="font-medium text-gray-900 group-hover:text-purple-600">Manage Models</div>
+                    <div class="font-medium text-gray-900 group-hover:text-purple-600">
+                      Manage Models
+                    </div>
                     <div class="text-xs text-gray-500">View and configure AI models</div>
                   </div>
                 </div>
@@ -125,9 +155,11 @@
             <div class="flex items-center justify-between">
               <div>
                 <h2 class="text-lg font-semibold text-gray-900">Inbox</h2>
-                <p class="text-sm text-gray-600 mt-1">{{ inboxStore.unreadCount }} unread message{{
-                  inboxStore.unreadCount
-                    !== 1 ? 's' : '' }}</p>
+                <p class="text-sm text-gray-600 mt-1">
+                  {{ inboxStore.unreadCount }} unread message{{
+                    inboxStore.unreadCount !== 1 ? 's' : ''
+                  }}
+                </p>
               </div>
               <Button @click="$router.push('/inbox')" variant="outline" size="sm">
                 View All
@@ -137,7 +169,9 @@
 
           <div class="flex-1 min-h-0">
             <div v-if="inboxStore.unreadCount === 0" class="p-8 text-center">
-              <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-3">
+              <div
+                class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-3"
+              >
                 <CheckCircle class="w-6 h-6 text-green-600" />
               </div>
               <h3 class="text-sm font-medium text-gray-900 mb-1">All caught up!</h3>
@@ -146,30 +180,48 @@
 
             <div v-else class="max-h-80 overflow-y-auto">
               <div class="divide-y divide-gray-100">
-                <div v-for="item in inboxStore.activeItems.filter(item => !item.read)" :key="item.id"
-                  class="p-4 hover:bg-gray-50 cursor-pointer" @click="openItemDialog(item)">
+                <div
+                  v-for="item in inboxStore.activeItems.filter((item) => !item.read)"
+                  :key="item.id"
+                  class="p-4 hover:bg-gray-50 cursor-pointer"
+                  @click="openItemDialog(item)"
+                >
                   <div class="flex items-start gap-3">
                     <div
-                      :class="`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${getSourceColor(item.source)}`">
+                      :class="`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${getSourceColor(item.source)}`"
+                    >
                       <component :is="getSourceIcon(item.source)" class="w-4 h-4" />
                     </div>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-start justify-between gap-2">
                         <div class="flex-1 min-w-0">
-                          <h3 class="text-sm font-medium text-gray-900 truncate">{{ item.title }}</h3>
+                          <h3 class="text-sm font-medium text-gray-900 truncate">
+                            {{ item.title }}
+                          </h3>
                           <p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ item.summary }}</p>
                           <div class="flex items-center gap-2 mt-2">
-                            <span class="text-xs text-gray-400">{{ formatTimestamp(item.timestamp) }}</span>
+                            <span class="text-xs text-gray-400">{{
+                              formatTimestamp(item.timestamp)
+                            }}</span>
                             <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
                           </div>
                         </div>
                         <div v-if="item.actions" class="flex items-center gap-1 ml-2" @click.stop>
-                          <Button v-if="item.actions.positive" size="sm" class="h-6 px-2 text-xs whitespace-nowrap"
-                            @click="handlePositiveAction(item)">
+                          <Button
+                            v-if="item.actions.positive"
+                            size="sm"
+                            class="h-6 px-2 text-xs whitespace-nowrap"
+                            @click="handlePositiveAction(item)"
+                          >
                             {{ item.actions.positive.label }}
                           </Button>
-                          <Button v-if="item.actions.negative" size="sm" variant="outline"
-                            class="h-6 px-2 text-xs whitespace-nowrap" @click="handleNegativeAction(item)">
+                          <Button
+                            v-if="item.actions.negative"
+                            size="sm"
+                            variant="outline"
+                            class="h-6 px-2 text-xs whitespace-nowrap"
+                            @click="handleNegativeAction(item)"
+                          >
                             {{ item.actions.negative.label }}
                           </Button>
                         </div>
@@ -200,18 +252,44 @@
           <table class="w-full">
             <thead class="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Transaction
-                  ID
+                <th
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  Transaction ID
                 </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Endpoint</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                <th
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  User
+                </th>
+                <th
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  Endpoint
+                </th>
+                <th
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  Status
+                </th>
+                <th
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  Amount
+                </th>
+                <th
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  Time
+                </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-              <tr v-for="transaction in recentTransactions" :key="transaction.id" class="hover:bg-gray-50">
+              <tr
+                v-for="transaction in recentTransactions"
+                :key="transaction.id"
+                class="hover:bg-gray-50"
+              >
                 <td class="px-6 py-4 whitespace-nowrap">
                   <span class="text-sm font-mono text-gray-900">{{ transaction.id }}</span>
                 </td>
@@ -227,7 +305,11 @@
                   <span class="text-sm text-gray-900">{{ transaction.endpoint }}</span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <Badge :class="getStatusColor(transaction.status)" variant="outline" class="text-xs">
+                  <Badge
+                    :class="getStatusColor(transaction.status)"
+                    variant="outline"
+                    class="text-xs"
+                  >
                     {{ transaction.status }}
                   </Badge>
                 </td>
@@ -235,13 +317,17 @@
                   <span class="text-sm font-semibold text-gray-900">${{ transaction.amount }}</span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class="text-sm text-gray-500">{{ formatTimestamp(new Date(transaction.timestamp)) }}</span>
+                  <span class="text-sm text-gray-500">{{
+                    formatTimestamp(new Date(transaction.timestamp))
+                  }}</span>
                 </td>
               </tr>
             </tbody>
           </table>
           <div v-if="recentTransactions.length === 0" class="p-8 text-center">
-            <div class="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-3">
+            <div
+              class="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-3"
+            >
               <Activity class="w-6 h-6 text-gray-400" />
             </div>
             <h3 class="text-sm font-medium text-gray-900 mb-1">No queries yet</h3>
@@ -252,8 +338,10 @@
 
       <!-- Item Detail Dialog -->
       <Dialog v-model:open="dialogOpen">
-        <DialogContent v-if="selectedItem"
-          class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl">
+        <DialogContent
+          v-if="selectedItem"
+          class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl"
+        >
           <!-- Header with background -->
           <div class="flex-shrink-0 border-b bg-gray-50">
             <DialogHeader class="p-6 pb-4">
@@ -265,7 +353,10 @@
                   <div>
                     <div class="flex items-center gap-2 mb-1">
                       <Badge variant="outline" class="text-xs">{{ selectedItem.source }}</Badge>
-                      <div v-if="!selectedItem.read" class="flex items-center gap-1 text-xs text-purple-600">
+                      <div
+                        v-if="!selectedItem.read"
+                        class="flex items-center gap-1 text-xs text-purple-600"
+                      >
                         <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
                         <span>New</span>
                       </div>
@@ -277,7 +368,9 @@
                 </div>
               </div>
               <DialogTitle class="text-xl font-semibold">{{ selectedItem.title }}</DialogTitle>
-              <DialogDescription class="mt-2 text-base">{{ selectedItem.summary }}</DialogDescription>
+              <DialogDescription class="mt-2 text-base">{{
+                selectedItem.summary
+              }}</DialogDescription>
             </DialogHeader>
           </div>
 
@@ -286,7 +379,8 @@
             <div class="p-6">
               <div
                 class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-gray-600 prose-strong:text-gray-900 prose-code:text-purple-600 prose-pre:bg-gray-50 prose-pre:border prose-li:text-gray-600"
-                v-html="markdownToHtml(selectedItem.longDescription)" />
+                v-html="markdownToHtml(selectedItem.longDescription)"
+              />
             </div>
           </div>
 
@@ -295,19 +389,37 @@
             <DialogFooter class="p-6 pt-4">
               <div class="flex items-center justify-between w-full">
                 <div class="flex items-center gap-4">
-                  <Button variant="ghost" size="default" class="text-gray-600 hover:text-gray-900"
-                    @click="dismissItem(selectedItem); dialogOpen = false">
+                  <Button
+                    variant="ghost"
+                    size="default"
+                    class="text-gray-600 hover:text-gray-900"
+                    @click="
+                      () => {
+                        selectedItem && dismissItem(selectedItem)
+                        dialogOpen = false
+                      }
+                    "
+                  >
                     <Trash2 class="h-4 w-4 mr-2" />
                     Dismiss
                   </Button>
                 </div>
                 <div class="flex items-center gap-3">
-                  <Button v-if="selectedItem.actions?.negative" variant="outline" size="default"
-                    @click="handleNegativeAction(selectedItem)">
+                  <Button
+                    v-if="selectedItem.actions?.negative"
+                    variant="outline"
+                    size="default"
+                    @click="selectedItem && handleNegativeAction(selectedItem)"
+                  >
                     {{ selectedItem.actions.negative.label }}
                   </Button>
-                  <Button v-if="selectedItem.actions?.positive" variant="default" size="default"
-                    class="bg-purple-600 hover:bg-purple-700" @click="handlePositiveAction(selectedItem)">
+                  <Button
+                    v-if="selectedItem.actions?.positive"
+                    variant="default"
+                    size="default"
+                    class="bg-purple-600 hover:bg-purple-700"
+                    @click="selectedItem && handlePositiveAction(selectedItem)"
+                  >
                     {{ selectedItem.actions.positive.label }}
                   </Button>
                 </div>
@@ -319,7 +431,9 @@
 
       <!-- Revenue Details Dialog -->
       <Dialog v-model:open="revenueDialogOpen">
-        <DialogContent class="max-w-6xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl">
+        <DialogContent
+          class="max-w-6xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl"
+        >
           <!-- Header -->
           <div class="flex-shrink-0 border-b bg-green-50">
             <DialogHeader class="p-6">
@@ -328,8 +442,12 @@
                   <Calculator class="h-6 w-6 text-green-600" />
                 </div>
                 <div>
-                  <DialogTitle class="text-2xl font-semibold text-gray-900">Revenue Details</DialogTitle>
-                  <DialogDescription class="text-green-700">Complete revenue breakdown and analytics</DialogDescription>
+                  <DialogTitle class="text-2xl font-semibold text-gray-900"
+                    >Revenue Details</DialogTitle
+                  >
+                  <DialogDescription class="text-green-700"
+                    >Complete revenue breakdown and analytics</DialogDescription
+                  >
                 </div>
               </div>
             </DialogHeader>
@@ -341,19 +459,27 @@
               <!-- Revenue Summary -->
               <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div class="text-center p-4 bg-green-50 rounded-lg">
-                  <p class="text-3xl font-bold text-green-600 mb-1">${{ getRevenueDetails().total }}</p>
+                  <p class="text-3xl font-bold text-green-600 mb-1">
+                    ${{ getRevenueDetails().total }}
+                  </p>
                   <p class="text-sm text-green-700">Total Revenue</p>
                 </div>
                 <div class="text-center p-4 bg-gray-50 rounded-lg">
-                  <p class="text-2xl font-bold text-gray-900 mb-1">${{ getRevenueDetails().thisMonth }}</p>
+                  <p class="text-2xl font-bold text-gray-900 mb-1">
+                    ${{ getRevenueDetails().thisMonth }}
+                  </p>
                   <p class="text-sm text-gray-600">This Month</p>
                 </div>
                 <div class="text-center p-4 bg-gray-50 rounded-lg">
-                  <p class="text-2xl font-bold text-gray-900 mb-1">${{ getRevenueDetails().lastMonth }}</p>
+                  <p class="text-2xl font-bold text-gray-900 mb-1">
+                    ${{ getRevenueDetails().lastMonth }}
+                  </p>
                   <p class="text-sm text-gray-600">Last Month</p>
                 </div>
                 <div class="text-center p-4 bg-gray-50 rounded-lg">
-                  <p class="text-2xl font-bold text-green-600 mb-1">{{ getRevenueDetails().growth }}</p>
+                  <p class="text-2xl font-bold text-green-600 mb-1">
+                    {{ getRevenueDetails().growth }}
+                  </p>
                   <p class="text-sm text-gray-600">Growth</p>
                 </div>
               </div>
@@ -362,11 +488,16 @@
               <div class="bg-white border border-gray-200 rounded-lg p-6">
                 <h3 class="text-lg font-semibold text-gray-900 mb-4">Top Performing Endpoints</h3>
                 <div class="space-y-4">
-                  <div v-for="endpoint in getRevenueDetails().topEndpoints" :key="endpoint.name"
-                    class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div
+                    v-for="endpoint in getRevenueDetails().topEndpoints"
+                    :key="endpoint.name"
+                    class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  >
                     <div>
                       <h4 class="font-medium text-gray-900">{{ endpoint.name }}</h4>
-                      <p class="text-sm text-gray-600">{{ endpoint.percentage }}% of total revenue</p>
+                      <p class="text-sm text-gray-600">
+                        {{ endpoint.percentage }}% of total revenue
+                      </p>
                     </div>
                     <div class="text-right">
                       <p class="font-semibold text-green-600">${{ endpoint.revenue }}</p>
@@ -379,8 +510,11 @@
               <div class="bg-white border border-gray-200 rounded-lg p-6">
                 <h3 class="text-lg font-semibold text-gray-900 mb-4">Monthly Revenue Trend</h3>
                 <div class="grid grid-cols-5 gap-4">
-                  <div v-for="month in getRevenueDetails().monthlyBreakdown" :key="month.month"
-                    class="text-center p-3 bg-gray-50 rounded-lg">
+                  <div
+                    v-for="month in getRevenueDetails().monthlyBreakdown"
+                    :key="month.month"
+                    class="text-center p-3 bg-gray-50 rounded-lg"
+                  >
                     <p class="text-sm text-gray-600 mb-1">{{ month.month }}</p>
                     <p class="font-semibold text-gray-900">${{ month.revenue }}</p>
                   </div>
@@ -392,21 +526,26 @@
                 <h3 class="text-lg font-semibold text-gray-900 mb-4">Key Metrics</h3>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div class="text-center p-3 bg-blue-50 rounded-lg">
-                    <p class="text-xl font-bold text-blue-600 mb-1">{{ getRevenueDetails().metrics.totalTransactions }}
+                    <p class="text-xl font-bold text-blue-600 mb-1">
+                      {{ getRevenueDetails().metrics.totalTransactions }}
                     </p>
                     <p class="text-xs text-blue-700">Total Transactions</p>
                   </div>
                   <div class="text-center p-3 bg-purple-50 rounded-lg">
-                    <p class="text-xl font-bold text-purple-600 mb-1">{{
-                      getRevenueDetails().metrics.avgRevenuePerTransaction }}</p>
+                    <p class="text-xl font-bold text-purple-600 mb-1">
+                      {{ getRevenueDetails().metrics.avgRevenuePerTransaction }}
+                    </p>
                     <p class="text-xs text-purple-700">Avg per Transaction</p>
                   </div>
                   <div class="text-center p-3 bg-orange-50 rounded-lg">
-                    <p class="text-xl font-bold text-orange-600 mb-1">{{ getRevenueDetails().metrics.paidUsers }}</p>
+                    <p class="text-xl font-bold text-orange-600 mb-1">
+                      {{ getRevenueDetails().metrics.paidUsers }}
+                    </p>
                     <p class="text-xs text-orange-700">Paid Users</p>
                   </div>
                   <div class="text-center p-3 bg-green-50 rounded-lg">
-                    <p class="text-xl font-bold text-green-600 mb-1">{{ getRevenueDetails().metrics.conversionRate }}
+                    <p class="text-xl font-bold text-green-600 mb-1">
+                      {{ getRevenueDetails().metrics.conversionRate }}
                     </p>
                     <p class="text-xs text-green-700">Conversion Rate</p>
                   </div>
@@ -422,7 +561,22 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Database, Brain, Server, CheckCircle, Plus, Users, Gauge, Calculator, Activity, AlertCircle, Info, Trash2, Home, User } from 'lucide-vue-next'
+import {
+  Database,
+  Brain,
+  Server,
+  CheckCircle,
+  Plus,
+  Users,
+  Gauge,
+  Calculator,
+  Activity,
+  AlertCircle,
+  Info,
+  Trash2,
+  Home,
+  User,
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -446,7 +600,7 @@ const recentTransactions = ref([
     endpoint: 'Financial-Analytics-API',
     status: 'Success',
     amount: '0.05',
-    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000) // 2 hours ago
+    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
   },
   {
     id: 'TXN-2024-002',
@@ -454,7 +608,7 @@ const recentTransactions = ref([
     endpoint: 'Customer-Insights',
     status: 'Success',
     amount: '0.12',
-    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000) // 4 hours ago
+    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000), // 4 hours ago
   },
   {
     id: 'TXN-2024-003',
@@ -462,7 +616,7 @@ const recentTransactions = ref([
     endpoint: 'Marketing-Data-API',
     status: 'Failed',
     amount: '0.08',
-    timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000) // 6 hours ago
+    timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
   },
   {
     id: 'TXN-2024-004',
@@ -470,7 +624,7 @@ const recentTransactions = ref([
     endpoint: 'Research-Dataset',
     status: 'Pending',
     amount: '0.03',
-    timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000) // 8 hours ago
+    timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000), // 8 hours ago
   },
   {
     id: 'TXN-2024-005',
@@ -478,8 +632,8 @@ const recentTransactions = ref([
     endpoint: 'ML-Model-API',
     status: 'Success',
     amount: '0.25',
-    timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000) // 12 hours ago
-  }
+    timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000), // 12 hours ago
+  },
 ])
 
 const selectedItem = ref<InboxItem | null>(null)
@@ -570,7 +724,7 @@ const formatTimestamp = (date: Date) => {
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
-    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
   })
 }
 
@@ -585,7 +739,7 @@ const getTotalRevenue = () => {
   // Mock data - in real app this would come from revenue API
   return {
     total: '2,847.23',
-    growth: '+24.3%'
+    growth: '+24.3%',
   }
 }
 
@@ -600,21 +754,21 @@ const getRevenueDetails = () => {
       { name: 'Financial Analytics API', revenue: '1,142.50', percentage: 40.1 },
       { name: 'Customer Insights API', revenue: '856.75', percentage: 30.1 },
       { name: 'Marketing Data API', revenue: '523.40', percentage: 18.4 },
-      { name: 'Research Dataset API', revenue: '324.58', percentage: 11.4 }
+      { name: 'Research Dataset API', revenue: '324.58', percentage: 11.4 },
     ],
     monthlyBreakdown: [
-      { month: 'Jan', revenue: 384.20 },
-      { month: 'Feb', revenue: 421.50 },
-      { month: 'Mar', revenue: 456.80 },
+      { month: 'Jan', revenue: 384.2 },
+      { month: 'Feb', revenue: 421.5 },
+      { month: 'Mar', revenue: 456.8 },
       { month: 'Apr', revenue: 423.15 },
-      { month: 'May', revenue: 524.80 }
+      { month: 'May', revenue: 524.8 },
     ],
     metrics: {
       totalTransactions: '47,234',
       avgRevenuePerTransaction: '$0.060',
       paidUsers: '1,847',
-      conversionRate: '23.4%'
-    }
+      conversionRate: '23.4%',
+    },
   }
 }
 
@@ -638,14 +792,17 @@ function markdownToHtml(markdown: string): string {
     .replace(/`([^`]+)`/g, '<code>$1</code>')
 
     // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-purple-600 hover:text-purple-700 underline">$1</a>')
+    .replace(
+      /\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" class="text-purple-600 hover:text-purple-700 underline">$1</a>',
+    )
 
     // Line breaks
     .replace(/\n\n/g, '</p><p>')
 
     // Lists - handle multi-line
     .split('\n')
-    .map(line => {
+    .map((line) => {
       if (/^\d+\.\s/.test(line)) {
         return '<li>' + line.substring(line.indexOf('.') + 2) + '</li>'
       } else if (/^-\s/.test(line)) {
@@ -662,7 +819,7 @@ function markdownToHtml(markdown: string): string {
   html = html.replace(/<p>\s*<\/p>/g, '')
 
   // Wrap consecutive list items in ul/ol tags
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, match => {
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => {
     if (match.includes('<li>1.')) {
       return '<ol class="list-decimal list-inside space-y-1">' + match + '</ol>'
     }

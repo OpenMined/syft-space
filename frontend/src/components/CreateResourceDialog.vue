@@ -2,42 +2,65 @@
   <Dialog v-model:open="isOpen">
     <DialogContent class="sm:max-w-[700px]">
       <DialogHeader>
-        <DialogTitle>{{ isEditMode ? `Edit ${resourceConfig.displayName}` : `Create ${resourceConfig.displayName}` }}</DialogTitle>
+        <DialogTitle>{{
+          isEditMode ? `Edit ${resourceConfig.displayName}` : `Create ${resourceConfig.displayName}`
+        }}</DialogTitle>
       </DialogHeader>
 
       <!-- Step Indicator -->
       <div class="flex items-center justify-center py-4">
         <div class="flex items-center space-x-4">
           <div class="flex items-center">
-            <div :class="[
-              'w-3 h-3 rounded-full transition-colors',
-              currentStepIndex >= 0 ? 'bg-blue-500' : 'bg-gray-300'
-            ]"></div>
-            <span class="ml-2 text-sm font-medium" :class="currentStepIndex === 0 ? 'text-gray-900' : 'text-gray-500'">
+            <div
+              :class="[
+                'w-3 h-3 rounded-full transition-colors',
+                currentStepIndex >= 0 ? 'bg-blue-500' : 'bg-gray-300',
+              ]"
+            ></div>
+            <span
+              class="ml-2 text-sm font-medium"
+              :class="currentStepIndex === 0 ? 'text-gray-900' : 'text-gray-500'"
+            >
               Type Selection
             </span>
           </div>
           <div class="w-24 h-0.5 bg-gray-300">
-            <div class="h-full bg-blue-500 transition-all" :style="{ width: currentStepIndex >= 1 ? '100%' : '0%' }"></div>
+            <div
+              class="h-full bg-blue-500 transition-all"
+              :style="{ width: currentStepIndex >= 1 ? '100%' : '0%' }"
+            ></div>
           </div>
           <div class="flex items-center">
-            <div :class="[
-              'w-3 h-3 rounded-full transition-colors',
-              currentStepIndex >= 1 ? 'bg-blue-500' : 'bg-gray-300'
-            ]"></div>
-            <span class="ml-2 text-sm font-medium" :class="currentStepIndex === 1 ? 'text-gray-900' : 'text-gray-500'">
+            <div
+              :class="[
+                'w-3 h-3 rounded-full transition-colors',
+                currentStepIndex >= 1 ? 'bg-blue-500' : 'bg-gray-300',
+              ]"
+            ></div>
+            <span
+              class="ml-2 text-sm font-medium"
+              :class="currentStepIndex === 1 ? 'text-gray-900' : 'text-gray-500'"
+            >
               Configuration
             </span>
           </div>
           <div class="w-24 h-0.5 bg-gray-300">
-            <div class="h-full bg-blue-500 transition-all" :style="{ width: currentStepIndex >= 2 ? '100%' : '0%' }"></div>
+            <div
+              class="h-full bg-blue-500 transition-all"
+              :style="{ width: currentStepIndex >= 2 ? '100%' : '0%' }"
+            ></div>
           </div>
           <div class="flex items-center">
-            <div :class="[
-              'w-3 h-3 rounded-full transition-colors',
-              currentStepIndex >= 2 ? 'bg-blue-500' : 'bg-gray-300'
-            ]"></div>
-            <span class="ml-2 text-sm font-medium" :class="currentStepIndex === 2 ? 'text-gray-900' : 'text-gray-500'">
+            <div
+              :class="[
+                'w-3 h-3 rounded-full transition-colors',
+                currentStepIndex >= 2 ? 'bg-blue-500' : 'bg-gray-300',
+              ]"
+            ></div>
+            <span
+              class="ml-2 text-sm font-medium"
+              :class="currentStepIndex === 2 ? 'text-gray-900' : 'text-gray-500'"
+            >
               Done
             </span>
           </div>
@@ -46,10 +69,9 @@
 
       <Separator class="mb-6" />
 
-      <div class="flex flex-col" style="height: 400px;">
+      <div class="flex flex-col" style="height: 400px">
         <!-- Type Selection Step -->
         <div v-if="currentStep === 'type-selection'" class="flex flex-col h-full">
-
           <!-- Search Input -->
           <div class="relative mb-4">
             <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -61,16 +83,20 @@
           </div>
 
           <!-- Resource Options Grid -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto flex-1 pr-2 pb-2">
+          <div
+            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto flex-1 pr-2 pb-2"
+          >
             <div
               v-for="option in filteredOptions"
               :key="option.id"
-              @click="option.isCustom ? openCustomSDKDocs() : selectedType = option.id"
+              @click="option.isCustom ? openCustomSDKDocs() : (selectedType = option.id)"
               :class="[
                 'flex flex-col items-center justify-center p-6 rounded-lg border cursor-pointer transition-all group h-40',
-                option.isCustom 
+                option.isCustom
                   ? 'border-purple-200 bg-gradient-to-r from-purple-50 to-blue-50 hover:border-purple-300 hover:bg-gradient-to-r hover:from-purple-100 hover:to-blue-100'
-                  : (selectedType === option.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50')
+                  : selectedType === option.id
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:bg-gray-50',
               ]"
             >
               <div v-if="option.isCustom" class="transition-all duration-200 mb-2">
@@ -87,7 +113,10 @@
                 class="h-12 w-12 mb-3"
                 :class="selectedType === option.id ? 'text-blue-600' : 'text-gray-600'"
               />
-              <div v-if="option.isCustom" class="text-center transition-all duration-200 min-h-[1.25rem]">
+              <div
+                v-if="option.isCustom"
+                class="text-center transition-all duration-200 min-h-[1.25rem]"
+              >
                 <span class="font-medium text-purple-800 group-hover:hidden">
                   {{ option.name }}
                 </span>
@@ -95,12 +124,21 @@
                   View documentation
                 </span>
               </div>
-              <span v-else class="font-medium text-center" :class="selectedType === option.id ? 'text-blue-900' : 'text-gray-900'">
+              <span
+                v-else
+                class="font-medium text-center"
+                :class="selectedType === option.id ? 'text-blue-900' : 'text-gray-900'"
+              >
                 {{ option.name }}
               </span>
-              <div v-if="option.isCustom" class="text-center transition-all duration-200 min-h-[1rem]">
+              <div
+                v-if="option.isCustom"
+                class="text-center transition-all duration-200 min-h-[1rem]"
+              >
                 <span class="text-xs text-purple-600 group-hover:hidden">Using SDK</span>
-                <span class="hidden group-hover:block text-xs text-purple-600">Opens in a new tab</span>
+                <span class="hidden group-hover:block text-xs text-purple-600"
+                  >Opens in a new tab</span
+                >
               </div>
             </div>
           </div>
@@ -111,10 +149,13 @@
           <div>
             <h3 class="text-lg font-semibold">Configure {{ selectedTypeName }}</h3>
             <p class="text-sm text-muted-foreground">
-              Set up your {{ selectedTypeName }} {{ resourceConfig.singularName }} {{ resourceConfig.configurationSuffix }}
+              Set up your {{ selectedTypeName }} {{ resourceConfig.singularName }}
+              {{ resourceConfig.configurationSuffix }}
             </p>
           </div>
-          <div class="min-h-[200px] flex items-center justify-center border-2 border-dashed rounded-lg">
+          <div
+            class="min-h-[200px] flex items-center justify-center border-2 border-dashed rounded-lg"
+          >
             <p class="text-muted-foreground">Configuration form for {{ selectedTypeName }}</p>
           </div>
         </div>
@@ -122,12 +163,18 @@
         <!-- Done Step -->
         <div v-if="currentStep === 'done'" class="space-y-4">
           <div class="text-center py-8">
-            <div class="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+            <div
+              class="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4"
+            >
               <Check class="h-8 w-8 text-green-600" />
             </div>
-            <h3 class="text-xl font-semibold mb-2">{{ resourceConfig.displayName }} {{ isEditMode ? 'Updated' : 'Created' }} Successfully!</h3>
+            <h3 class="text-xl font-semibold mb-2">
+              {{ resourceConfig.displayName }}
+              {{ isEditMode ? 'Updated' : 'Created' }} Successfully!
+            </h3>
             <p class="text-gray-600">
-              Your {{ selectedTypeName }} {{ resourceConfig.singularName }} has been {{ isEditMode ? 'updated' : 'created' }} and is ready to use.
+              Your {{ selectedTypeName }} {{ resourceConfig.singularName }} has been
+              {{ isEditMode ? 'updated' : 'created' }} and is ready to use.
             </p>
           </div>
         </div>
@@ -138,19 +185,13 @@
       <DialogFooter>
         <!-- Type Selection Step Buttons -->
         <div v-if="currentStep === 'type-selection'" class="flex justify-between w-full">
-          <Button variant="ghost" @click="handleCancel">
-            Cancel
-          </Button>
-          <Button @click="goToNextStep" :disabled="!selectedType">
-            Next
-          </Button>
+          <Button variant="ghost" @click="handleCancel"> Cancel </Button>
+          <Button @click="goToNextStep" :disabled="!selectedType"> Next </Button>
         </div>
 
         <!-- Configuration Step Buttons -->
         <div v-if="currentStep === 'configuration'" class="flex justify-between w-full">
-          <Button variant="ghost" @click="goToPreviousStep">
-            Previous
-          </Button>
+          <Button variant="ghost" @click="goToPreviousStep"> Previous </Button>
           <Button @click="handleCreate">
             {{ isEditMode ? 'Update' : 'Create' }}
           </Button>
@@ -158,9 +199,7 @@
 
         <!-- Done Step Buttons -->
         <div v-if="currentStep === 'done'" class="flex justify-end w-full">
-          <Button @click="handleClose">
-            Close
-          </Button>
+          <Button @click="handleClose"> Close </Button>
         </div>
       </DialogFooter>
     </DialogContent>
@@ -223,7 +262,7 @@ const emit = defineEmits<{
 
 const isOpen = computed({
   get: () => props.open,
-  set: (value) => emit('update:open', value)
+  set: (value) => emit('update:open', value),
 })
 
 const currentStep = ref<Step>('type-selection')
@@ -239,13 +278,13 @@ const currentStepIndex = computed(() => {
 
 const filteredOptions = computed(() => {
   if (!searchQuery.value) return props.resourceConfig.options
-  return props.resourceConfig.options.filter(option => 
-    option.name.toLowerCase().includes(searchQuery.value.toLowerCase())
+  return props.resourceConfig.options.filter((option) =>
+    option.name.toLowerCase().includes(searchQuery.value.toLowerCase()),
   )
 })
 
 const selectedTypeName = computed(() => {
-  const option = props.resourceConfig.options.find(o => o.id === selectedType.value)
+  const option = props.resourceConfig.options.find((o) => o.id === selectedType.value)
   return option?.name || props.resourceConfig.displayName
 })
 
@@ -293,22 +332,29 @@ const openCustomSDKDocs = () => {
 }
 
 // Watch for resource prop changes to populate form in edit mode
-watch(() => props.resource, (newResource) => {
-  if (newResource && props.open) {
-    selectedType.value = newResource.type
-    currentStep.value = 'configuration'
-  }
-}, { immediate: true })
+watch(
+  () => props.resource,
+  (newResource) => {
+    if (newResource && props.open) {
+      selectedType.value = newResource.type
+      currentStep.value = 'configuration'
+    }
+  },
+  { immediate: true },
+)
 
 // Watch for dialog open state to reset or populate form
-watch(() => props.open, (isOpen) => {
-  if (isOpen && props.resource) {
-    // Editing mode - populate form
-    selectedType.value = props.resource.type
-    currentStep.value = 'configuration'
-  } else if (isOpen && !props.resource) {
-    // Creation mode - reset form
-    resetDialog()
-  }
-})
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen && props.resource) {
+      // Editing mode - populate form
+      selectedType.value = props.resource.type
+      currentStep.value = 'configuration'
+    } else if (isOpen && !props.resource) {
+      // Creation mode - reset form
+      resetDialog()
+    }
+  },
+)
 </script>

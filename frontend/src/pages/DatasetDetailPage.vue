@@ -4,8 +4,8 @@
     <nav class="flex mb-6" aria-label="Breadcrumb">
       <ol class="flex items-center space-x-2">
         <li>
-          <router-link 
-            to="/datasets" 
+          <router-link
+            to="/datasets"
             class="text-gray-500 hover:text-gray-700 text-sm font-medium flex items-center"
           >
             <Database class="h-4 w-4 mr-1" />
@@ -22,10 +22,10 @@
     <!-- Error State -->
     <div v-if="error" class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
       <h3 class="text-lg font-medium text-red-900 mb-2">Dataset not found</h3>
-      <p class="text-red-700 mb-4">The dataset you're looking for doesn't exist or has been deleted.</p>
-      <Button @click="$router.push('/datasets')" variant="outline">
-        Back to Datasets
-      </Button>
+      <p class="text-red-700 mb-4">
+        The dataset you're looking for doesn't exist or has been deleted.
+      </p>
+      <Button @click="$router.push('/datasets')" variant="outline"> Back to Datasets </Button>
     </div>
 
     <!-- Dataset Details -->
@@ -34,24 +34,37 @@
       <div class="bg-white border border-gray-200 rounded-lg p-6">
         <div class="flex items-start justify-between">
           <div class="flex items-start gap-4">
-            <div :class="[
-              'p-3 rounded-lg',
-              dataset.type === 'weaviate' ? 'bg-purple-100' : 
-              dataset.type === 'qdrant' ? 'bg-blue-100' : 
-              'bg-green-100'
-            ]">
+            <div
+              :class="[
+                'p-3 rounded-lg',
+                dataset.type === 'weaviate'
+                  ? 'bg-purple-100'
+                  : dataset.type === 'qdrant'
+                    ? 'bg-blue-100'
+                    : 'bg-green-100',
+              ]"
+            >
               <IntegrationIcon :name="dataset.type" class="h-8 w-8" />
             </div>
             <div>
               <h1 class="text-3xl font-bold text-gray-900 mb-2">{{ dataset.name }}</h1>
               <p class="text-gray-600 mb-4">{{ dataset.description }}</p>
               <div class="flex flex-wrap items-center gap-2">
-                <Badge :variant="dataset.status === 'running' ? 'default' : 'outline'" :class="dataset.status === 'running'
-                  ? 'bg-green-50 text-green-700 border-green-200'
-                  : 'bg-gray-50 text-gray-600 border-gray-200'">
-                  <div :class="dataset.status === 'running'
-                    ? 'w-2 h-2 bg-green-500 rounded-full mr-2'
-                    : 'w-2 h-2 bg-gray-400 rounded-full mr-2'"></div>
+                <Badge
+                  :variant="dataset.status === 'running' ? 'default' : 'outline'"
+                  :class="
+                    dataset.status === 'running'
+                      ? 'bg-green-50 text-green-700 border-green-200'
+                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                  "
+                >
+                  <div
+                    :class="
+                      dataset.status === 'running'
+                        ? 'w-2 h-2 bg-green-500 rounded-full mr-2'
+                        : 'w-2 h-2 bg-gray-400 rounded-full mr-2'
+                    "
+                  ></div>
                   {{ dataset.status === 'running' ? 'Running' : 'Stopped' }}
                 </Badge>
                 <Badge variant="outline" class="bg-blue-50 text-blue-700 border-blue-200">
@@ -59,8 +72,12 @@
                   {{ dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1) }}
                 </Badge>
                 <!-- Tags as badges -->
-                <Badge v-for="tag in dataset.tags" :key="`tag-${tag}`" variant="outline"
-                  class="bg-amber-50 text-amber-700 border-amber-200">
+                <Badge
+                  v-for="tag in dataset.tags"
+                  :key="`tag-${tag}`"
+                  variant="outline"
+                  class="bg-amber-50 text-amber-700 border-amber-200"
+                >
                   <div class="w-2 h-2 bg-amber-500 rounded-full mr-2"></div>
                   {{ tag }}
                 </Badge>
@@ -72,7 +89,11 @@
               <Edit class="h-4 w-4 mr-2" />
               Edit
             </Button>
-            <Button variant="outline" class="text-red-600 hover:text-red-700" @click="deleteDataset">
+            <Button
+              variant="outline"
+              class="text-red-600 hover:text-red-700"
+              @click="deleteDataset"
+            >
               <Trash2 class="h-4 w-4 mr-2" />
               Delete
             </Button>
@@ -90,7 +111,9 @@
             <div class="space-y-3">
               <div class="flex justify-between items-center">
                 <span class="text-sm text-gray-600">Type:</span>
-                <span class="text-sm text-gray-900">{{ dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1) }}</span>
+                <span class="text-sm text-gray-900">{{
+                  dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1)
+                }}</span>
               </div>
               <div class="flex justify-between items-center">
                 <span class="text-sm text-gray-600">Status:</span>
@@ -118,11 +141,15 @@
               <div class="space-y-3">
                 <div class="flex justify-between items-center">
                   <span class="text-sm text-gray-600">This Month:</span>
-                  <span class="text-sm text-green-600 font-semibold">{{ getRevenue().thisMonth }}</span>
+                  <span class="text-sm text-green-600 font-semibold">{{
+                    getRevenue().thisMonth
+                  }}</span>
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-sm text-gray-600">Growth:</span>
-                  <span class="text-sm text-green-600 font-semibold">{{ getRevenue().growth }}</span>
+                  <span class="text-sm text-green-600 font-semibold">{{
+                    getRevenue().growth
+                  }}</span>
                 </div>
               </div>
             </div>
@@ -134,19 +161,27 @@
             <div class="space-y-3">
               <div class="flex justify-between items-center">
                 <span class="text-sm text-gray-600">Total Queries:</span>
-                <span class="text-sm text-gray-900 font-semibold">{{ getUsageStats().totalQueries }}</span>
+                <span class="text-sm text-gray-900 font-semibold">{{
+                  getUsageStats().totalQueries
+                }}</span>
               </div>
               <div class="flex justify-between items-center">
                 <span class="text-sm text-gray-600">Data Points:</span>
-                <span class="text-sm text-gray-900 font-semibold">{{ getUsageStats().dataPoints }}</span>
+                <span class="text-sm text-gray-900 font-semibold">{{
+                  getUsageStats().dataPoints
+                }}</span>
               </div>
               <div class="flex justify-between items-center">
                 <span class="text-sm text-gray-600">Storage Used:</span>
-                <span class="text-sm text-gray-900 font-semibold">{{ getUsageStats().storageUsed }}</span>
+                <span class="text-sm text-gray-900 font-semibold">{{
+                  getUsageStats().storageUsed
+                }}</span>
               </div>
               <div class="flex justify-between items-center">
                 <span class="text-sm text-gray-600">This Month:</span>
-                <span class="text-sm text-gray-900 font-semibold">{{ getUsageStats().thisMonth }}</span>
+                <span class="text-sm text-gray-900 font-semibold">{{
+                  getUsageStats().thisMonth
+                }}</span>
               </div>
             </div>
           </div>
@@ -155,10 +190,16 @@
         <!-- Dataset Configuration -->
         <div class="bg-white border border-gray-200 rounded-lg p-6">
           <h2 class="text-2xl font-semibold text-gray-900 mb-4">Dataset Configuration</h2>
-          <div class="min-h-[300px] flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
+          <div
+            class="min-h-[300px] flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg bg-gray-50"
+          >
             <div class="text-center">
-              <p class="text-gray-500 text-lg mb-2">Configuration for {{ dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1) }}</p>
-              <p class="text-gray-400 text-sm">Dataset configuration details will be displayed here</p>
+              <p class="text-gray-500 text-lg mb-2">
+                Configuration for {{ dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1) }}
+              </p>
+              <p class="text-gray-400 text-sm">
+                Dataset configuration details will be displayed here
+              </p>
             </div>
           </div>
         </div>
@@ -168,10 +209,10 @@
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-2xl font-semibold text-gray-900">Access Trends</h2>
             <div class="flex items-center gap-2">
-              <Button 
-                v-for="period in ['Daily', 'Weekly', 'Monthly']" 
+              <Button
+                v-for="period in ['Daily', 'Weekly', 'Monthly']"
                 :key="period"
-                size="sm" 
+                size="sm"
                 :variant="selectedPeriod === period ? 'default' : 'outline'"
                 @click="selectedPeriod = period"
                 class="text-xs"
@@ -180,7 +221,9 @@
               </Button>
             </div>
           </div>
-          <div class="h-64 flex items-center justify-center border border-dashed border-gray-300 rounded-lg bg-gray-50">
+          <div
+            class="h-64 flex items-center justify-center border border-dashed border-gray-300 rounded-lg bg-gray-50"
+          >
             <div class="text-center">
               <p class="text-gray-500 text-lg mb-1">{{ selectedPeriod }} Access Chart</p>
               <p class="text-gray-400 text-sm">Graph visualization will be displayed here</p>
@@ -192,8 +235,8 @@
         <div class="bg-white border border-gray-200 rounded-lg p-6">
           <h2 class="text-xl font-semibold text-gray-900 mb-4">Connected Endpoints</h2>
           <div v-if="connectedEndpoints.length > 0" class="space-y-4">
-            <div 
-              v-for="endpoint in connectedEndpoints" 
+            <div
+              v-for="endpoint in connectedEndpoints"
               :key="endpoint.id"
               class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
             >
@@ -204,31 +247,37 @@
                   </div>
                   <div>
                     <h3 class="text-sm font-medium text-gray-900">{{ endpoint.name }}</h3>
-                    <p class="text-xs text-gray-600">{{ endpoint.description || 'API endpoint' }}</p>
+                    <p class="text-xs text-gray-600">
+                      {{ endpoint.description || 'API endpoint' }}
+                    </p>
                   </div>
                 </div>
                 <Button variant="outline" size="sm">
                   <ExternalLink class="h-3 w-3" />
                 </Button>
               </div>
-              
+
               <!-- Request Distribution for this endpoint -->
               <div class="mt-3 pt-3 border-t border-gray-100">
                 <div class="flex items-center justify-between mb-2">
                   <span class="text-xs text-gray-600 font-medium">Request Distribution</span>
-                  <span class="text-xs text-gray-900 font-semibold">{{ getEndpointPercentage(endpoint.name) }}% of total</span>
+                  <span class="text-xs text-gray-900 font-semibold"
+                    >{{ getEndpointPercentage(endpoint.name) }}% of total</span
+                  >
                 </div>
                 <div class="flex items-center gap-3">
                   <div class="flex-1 bg-gray-200 rounded-full h-2">
-                    <div 
-                      class="h-2 rounded-full transition-all duration-300" 
-                      :style="{ 
-                        width: getEndpointPercentage(endpoint.name) + '%', 
-                        backgroundColor: getEndpointColor(endpoint.name) 
+                    <div
+                      class="h-2 rounded-full transition-all duration-300"
+                      :style="{
+                        width: getEndpointPercentage(endpoint.name) + '%',
+                        backgroundColor: getEndpointColor(endpoint.name),
                       }"
                     ></div>
                   </div>
-                  <span class="text-xs text-gray-600">{{ getEndpointRequests(endpoint.name) }} requests</span>
+                  <span class="text-xs text-gray-600"
+                    >{{ getEndpointRequests(endpoint.name) }} requests</span
+                  >
                 </div>
               </div>
             </div>
@@ -236,7 +285,9 @@
           <div v-else class="text-center py-8">
             <Globe class="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h3 class="text-lg font-medium text-gray-900 mb-2">No endpoints connected</h3>
-            <p class="text-gray-600 mb-4">This dataset is not currently connected to any endpoints.</p>
+            <p class="text-gray-600 mb-4">
+              This dataset is not currently connected to any endpoints.
+            </p>
             <Button>
               <Plus class="h-4 w-4 mr-2" />
               Create Endpoint
@@ -264,7 +315,7 @@
           Are you sure you want to delete "{{ dataset?.name }}"? This action cannot be undone.
         </DialogDescription>
       </DialogHeader>
-      
+
       <div v-if="dataset && dataset.endpointCount > 0" class="py-4">
         <div class="space-y-4">
           <div class="bg-red-50 border border-red-200 rounded-md p-4">
@@ -272,14 +323,15 @@
               <div class="text-xl">⚠️</div>
               <div class="flex-1">
                 <p class="text-red-900 font-semibold text-sm mb-2">
-                  This dataset has {{ dataset.endpointCount }} dependent endpoint{{ dataset.endpointCount !== 1 ? 's' : '' }} that will be deleted:
+                  This dataset has {{ dataset.endpointCount }} dependent endpoint{{
+                    dataset.endpointCount !== 1 ? 's' : ''
+                  }}
+                  that will be deleted:
                 </p>
-                <p class="text-red-800 text-xs mb-3">
-                  Check each endpoint to confirm deletion
-                </p>
+                <p class="text-red-800 text-xs mb-3">Check each endpoint to confirm deletion</p>
                 <div class="space-y-2">
-                  <div 
-                    v-for="endpointName in getEndpointNamesForDataset(dataset.id)" 
+                  <div
+                    v-for="endpointName in getEndpointNamesForDataset(dataset.id)"
                     :key="endpointName"
                     class="flex items-center gap-3 p-2.5 bg-white rounded border border-red-200"
                   >
@@ -290,16 +342,14 @@
                       @change="() => toggleEndpoint(endpointName)"
                       class="w-4 h-4 text-red-600 bg-white border-red-400 rounded focus:ring-red-500 focus:ring-2"
                     />
-                    <label 
+                    <label
                       :for="`endpoint-${endpointName}`"
                       class="flex-1 cursor-pointer flex items-center justify-between"
                     >
                       <span class="text-sm font-medium text-gray-900">
                         {{ endpointName }}
                       </span>
-                      <span class="text-xs text-red-600">
-                        Will be deleted
-                      </span>
+                      <span class="text-xs text-red-600"> Will be deleted </span>
                     </label>
                   </div>
                 </div>
@@ -310,17 +360,13 @@
       </div>
 
       <DialogFooter>
-        <Button variant="outline" @click="cancelDelete">
-          Cancel
-        </Button>
-        <Button 
-          variant="destructive" 
-          @click="confirmDelete"
-          :disabled="!allEndpointsChecked"
-        >
-          {{ dataset?.endpointCount > 0 
-            ? `Delete Dataset & ${dataset.endpointCount} Endpoint${dataset.endpointCount !== 1 ? 's' : ''}` 
-            : 'Delete Dataset' }}
+        <Button variant="outline" @click="cancelDelete"> Cancel </Button>
+        <Button variant="destructive" @click="confirmDelete" :disabled="!allEndpointsChecked">
+          {{
+            dataset && dataset.endpointCount && dataset.endpointCount > 0
+              ? `Delete Dataset & ${dataset.endpointCount} Endpoint${dataset.endpointCount !== 1 ? 's' : ''}`
+              : 'Delete Dataset'
+          }}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -333,7 +379,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { Database, ChevronRight, Edit, Trash2, Globe, Plus, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDatasetDialog from '@/components/CreateDatasetDialog.vue'
 
@@ -365,7 +418,7 @@ const mockDatasets: DataSource[] = [
     tags: ['legal', 'documents', 'analysis'],
     status: 'running',
     endpointCount: 3,
-    createdAt: new Date('2024-01-15')
+    createdAt: new Date('2024-01-15'),
   },
   {
     id: '2',
@@ -375,7 +428,7 @@ const mockDatasets: DataSource[] = [
     tags: ['customer', 'analytics', 'segmentation'],
     status: 'running',
     endpointCount: 1,
-    createdAt: new Date('2024-02-10')
+    createdAt: new Date('2024-02-10'),
   },
   {
     id: '3',
@@ -385,8 +438,8 @@ const mockDatasets: DataSource[] = [
     tags: ['research', 'papers', 'knowledge'],
     status: 'stopped',
     endpointCount: 0,
-    createdAt: new Date('2024-03-05')
-  }
+    createdAt: new Date('2024-03-05'),
+  },
 ]
 
 const mockEndpoints: Endpoint[] = [
@@ -394,26 +447,26 @@ const mockEndpoints: Endpoint[] = [
     id: 'endpoint-1',
     name: 'Legal Document Analysis API',
     description: 'Analyze and extract insights from legal documents',
-    datasetIds: ['1']
+    datasetIds: ['1'],
   },
   {
-    id: 'endpoint-2', 
+    id: 'endpoint-2',
     name: 'Contract Review Assistant',
     description: 'AI-powered contract review and analysis',
-    datasetIds: ['1']
+    datasetIds: ['1'],
   },
   {
     id: 'endpoint-3',
     name: 'Legal Research Helper',
     description: 'Search and retrieve relevant legal precedents',
-    datasetIds: ['1']
+    datasetIds: ['1'],
   },
   {
     id: 'endpoint-4',
     name: 'Customer Insights API',
     description: 'Generate customer behavior insights',
-    datasetIds: ['2']
-  }
+    datasetIds: ['2'],
+  },
 ]
 
 const route = useRoute()
@@ -428,16 +481,14 @@ const selectedPeriod = ref('Daily')
 
 const connectedEndpoints = computed(() => {
   if (!dataset.value) return []
-  return mockEndpoints.filter(endpoint => 
-    endpoint.datasetIds.includes(dataset.value!.id)
-  )
+  return mockEndpoints.filter((endpoint) => endpoint.datasetIds.includes(dataset.value!.id))
 })
 
 const formatDate = (date: Date) => {
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
   })
 }
 
@@ -447,7 +498,7 @@ const getUsageStats = () => {
     totalQueries: '8.4k',
     dataPoints: '2.1M',
     storageUsed: '1.2GB',
-    thisMonth: '847'
+    thisMonth: '847',
   }
 }
 
@@ -457,7 +508,7 @@ const getRevenue = () => {
     total: '$842.60',
     thisMonth: '$156.30',
     lastMonth: '$142.85',
-    growth: '+9.4%'
+    growth: '+9.4%',
   }
 }
 
@@ -466,41 +517,40 @@ const getEndpointDistribution = () => {
   return [
     { name: 'Legal Document Analysis API', percentage: 45, color: '#3B82F6', requests: '3.8k' },
     { name: 'Contract Review Assistant', percentage: 35, color: '#10B981', requests: '2.9k' },
-    { name: 'Legal Research Helper', percentage: 20, color: '#F59E0B', requests: '1.7k' }
+    { name: 'Legal Research Helper', percentage: 20, color: '#F59E0B', requests: '1.7k' },
   ]
 }
 
 const getEndpointPercentage = (endpointName: string) => {
   const distribution = getEndpointDistribution()
-  const endpoint = distribution.find(e => e.name === endpointName)
+  const endpoint = distribution.find((e) => e.name === endpointName)
   return endpoint?.percentage || 0
 }
 
 const getEndpointColor = (endpointName: string) => {
   const distribution = getEndpointDistribution()
-  const endpoint = distribution.find(e => e.name === endpointName)
+  const endpoint = distribution.find((e) => e.name === endpointName)
   return endpoint?.color || '#6B7280'
 }
 
 const getEndpointRequests = (endpointName: string) => {
   const distribution = getEndpointDistribution()
-  const endpoint = distribution.find(e => e.name === endpointName)
+  const endpoint = distribution.find((e) => e.name === endpointName)
   return endpoint?.requests || '0'
 }
-
 
 // Function to get endpoint names connected to a dataset
 const getEndpointNamesForDataset = (datasetId: string): string[] => {
   return mockEndpoints
-    .filter(endpoint => endpoint.datasetIds.includes(datasetId))
-    .map(endpoint => endpoint.name)
+    .filter((endpoint) => endpoint.datasetIds.includes(datasetId))
+    .map((endpoint) => endpoint.name)
 }
 
 // Check if all endpoints are selected
 const allEndpointsChecked = computed(() => {
   if (!dataset.value) return true
   if (dataset.value.endpointCount === 0) return true
-  
+
   const endpointNames = getEndpointNamesForDataset(dataset.value.id)
   return endpointNames.length > 0 && endpointNames.length === checkedEndpoints.value.length
 })
@@ -550,8 +600,8 @@ const cancelDelete = () => {
 
 onMounted(() => {
   const datasetSlug = route.params.slug as string
-  const foundDataset = mockDatasets.find(d => d.name === datasetSlug)
-  
+  const foundDataset = mockDatasets.find((d) => d.name === datasetSlug)
+
   if (foundDataset) {
     dataset.value = foundDataset
   } else {
