@@ -2,7 +2,8 @@ from fastsyftbox import FastSyftBox
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from syft_core.config import SyftClientConfig
-from fastapi import APIRouter
+from fastapi import APIRouter, status
+from fastapi.responses import RedirectResponse
 
 
 from .config import app_settings
@@ -14,7 +15,6 @@ app = FastSyftBox(
     version="1.0.0",
     syftbox_endpoint_tags=["syftbox"],
     debug=app_settings.debug,
-    
 )
 
 app.add_middleware(
@@ -27,11 +27,21 @@ app.add_middleware(
 
 router = APIRouter(prefix="/api/v1")
 
+
 @router.get("/health")
 async def health():
     return {"status": "healthy"}
 
+
 # Include the router in the app
 app.include_router(router)
+app.mount(
+    "/syftai-server", StaticFiles(directory="frontend/dist", html=True, check_dir=False)
+)
 
-app.mount("/", StaticFiles(directory="frontend/dist", html=True, check_dir=False))
+
+@app.get("/")
+async def redirect_root():
+    return RedirectResponse(
+        url="/syftai-server", status_code=status.HTTP_307_TEMPORARY_REDIRECT
+    )

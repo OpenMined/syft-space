@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import HomePage from '../pages/HomePage.vue'
 import EndpointsPage from '../pages/EndpointsPage.vue'
 import DatasetsPage from '../pages/DatasetsPage.vue'
@@ -11,72 +11,72 @@ import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHashHistory(),
   routes: [
     {
       path: '/',
-      redirect: '/home'
+      redirect: '/home',
     },
     {
       path: '/home',
       name: 'home',
-      component: HomePage
+      component: HomePage,
     },
     {
       path: '/endpoints',
       name: 'endpoints',
-      component: EndpointsPage
+      component: EndpointsPage,
     },
     {
       path: '/datasets',
       name: 'datasets',
-      component: DatasetsPage
+      component: DatasetsPage,
     },
     {
       path: '/models',
       name: 'models',
-      component: ModelsPage
+      component: ModelsPage,
     },
     {
       path: '/endpoints/:slug',
       name: 'endpoint-detail',
-      component: EndpointDetailPage
+      component: EndpointDetailPage,
     },
     {
       path: '/datasets/:slug',
       name: 'dataset-detail',
-      component: DatasetDetailPage
+      component: DatasetDetailPage,
     },
     {
       path: '/models/:slug',
       name: 'model-detail',
-      component: ModelDetailPage
+      component: ModelDetailPage,
     },
     {
       path: '/inbox',
       name: 'inbox',
-      component: InboxPage
+      component: InboxPage,
     },
     {
       path: '/settings',
       name: 'settings',
-      component: SettingsPage
+      component: SettingsPage,
     },
     {
       path: '/create',
       name: 'create',
-      component: CreateEndpointPage
+      component: CreateEndpointPage,
     },
     {
       path: '/create/data-endpoint',
       name: 'create-data-endpoint',
-      component: () => import('../pages/CreateDataEndpointPage.vue')
+      component: () => import('../pages/CreateDataEndpointPage.vue'),
     },
     {
       path: '/create/model-endpoint',
       name: 'create-model-endpoint',
-      component: () => import('../pages/CreateModelEndpointPage.vue')
-    }
+      component: () => import('../pages/CreateModelEndpointPage.vue'),
+    },
   ],
 })
 
