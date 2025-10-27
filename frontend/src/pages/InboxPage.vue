@@ -120,20 +120,22 @@ const formatTimestamp = (date: Date) => {
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="max-w-6xl mx-auto px-6 lg:px-8 py-8 lg:py-12">
     <!-- Header -->
-    <div class="flex items-center gap-3 mb-2">
-      <Inbox class="h-6 w-6 text-gray-600" />
-      <h1 class="text-2xl font-semibold text-gray-900">Inbox</h1>
-      <Badge
-        v-if="inboxStore.unreadCount > 0"
-        variant="secondary"
-        class="bg-purple-100 text-purple-700"
-      >
-        {{ inboxStore.unreadCount }} new
-      </Badge>
+    <div class="mb-10">
+      <div class="flex items-center gap-3 mb-3">
+        <Inbox class="h-6 w-6 text-[var(--color-warning)]" />
+        <h1 class="text-3xl font-heading font-semibold text-[var(--color-text)]">Your Inbox</h1>
+        <Badge
+          v-if="inboxStore.unreadCount > 0"
+          variant="secondary"
+          class="bg-[var(--color-warning-contrast)] text-[var(--color-warning-strong)] px-2.5 py-1 rounded-md"
+        >
+          {{ inboxStore.unreadCount }} new
+        </Badge>
+      </div>
+      <p class="text-sm text-[var(--color-text-light)] md:max-w-[50%]">Your inbox collects system alerts and requests related to your resources and endpoints. Review items here to approve access, resolve issues, and keep things running smoothly.</p>
     </div>
-    <p class="text-gray-600 mb-8">Review notifications, policy decisions, and system alerts</p>
 
     <!-- Tabs -->
     <Tabs v-model="activeTab" class="w-full mb-8">
@@ -148,18 +150,20 @@ const formatTimestamp = (date: Date) => {
 
     <!-- Empty State -->
     <div v-if="activeItems.length === 0" class="text-center py-12">
-      <Inbox class="mx-auto h-12 w-12 text-gray-400" />
-      <h3 class="mt-2 text-sm font-semibold text-gray-900">No items</h3>
-      <p class="mt-1 text-sm text-gray-500">Your inbox is empty.</p>
+      <div class="mx-auto w-14 h-14 bg-[var(--color-bg-alt)] rounded-full flex items-center justify-center mb-6">
+        <Inbox class="h-7 w-7 text-[var(--color-text-light)]" />
+      </div>
+      <h3 class="text-xl font-heading font-medium text-[var(--color-text)] mb-3">No items</h3>
+      <p class="text-sm text-[var(--color-text-light)]">Your inbox is empty.</p>
     </div>
 
     <!-- Inbox Items -->
-    <div v-else class="space-y-4">
+    <div v-else class="space-y-5">
       <Card
         v-for="item in activeItems"
         :key="item.id"
-        class="cursor-pointer hover:shadow-md transition-shadow"
-        :class="{ 'border-purple-200 bg-purple-50/50': !item.read }"
+        class="cursor-pointer hover:shadow-lg transition-all border-[var(--color-border)] rounded-xl"
+        :class="{ 'border-[var(--color-warning)] bg-[var(--color-warning-contrast)]': !item.read }"
         @click="openItemDialog(item)"
       >
         <CardHeader class="pb-3">
@@ -171,10 +175,10 @@ const formatTimestamp = (date: Date) => {
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1">
                   <Badge variant="outline" class="text-xs">{{ item.source }}</Badge>
-                  <span class="text-xs text-gray-500">
+                  <span class="text-xs text-[var(--color-text-light)]">
                     {{ item.timestamp.toLocaleString() }}
                   </span>
-                  <div v-if="!item.read" class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                  <div v-if="!item.read" class="w-2 h-2 bg-[var(--color-warning)] rounded-full animate-pulse"></div>
                 </div>
                 <CardTitle class="text-base">{{ item.title }}</CardTitle>
                 <CardDescription class="mt-1">{{ item.summary }}</CardDescription>

@@ -5,7 +5,7 @@ import DatasetsPage from '../pages/DatasetsPage.vue'
 import ModelsPage from '../pages/ModelsPage.vue'
 import InboxPage from '../pages/InboxPage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
-import CreateEndpointPage from '../pages/CreateEndpointPage.vue'
+import AnalyticsPage from '../pages/AnalyticsPage.vue'
 import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
 import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
@@ -58,14 +58,14 @@ const router = createRouter({
       component: InboxPage,
     },
     {
+      path: '/analytics',
+      name: 'analytics',
+      component: AnalyticsPage,
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: SettingsPage,
-    },
-    {
-      path: '/create',
-      name: 'create',
-      component: CreateEndpointPage,
     },
     {
       path: '/create/data-endpoint',

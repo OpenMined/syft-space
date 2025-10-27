@@ -9,7 +9,7 @@
     <div class="min-h-screen bg-gray-50">
       <!-- Header -->
       <div class="bg-white border-b border-gray-200">
-        <div class="max-w-7xl mx-auto px-6 py-4">
+        <div class="max-w-6xl mx-auto px-6 lg:px-8 py-4">
           <div class="flex items-center justify-between">
             <Button
               variant="ghost"
@@ -44,213 +44,312 @@
         </div>
       </div>
 
-      <div class="max-w-5xl mx-auto px-6 py-12">
-        <!-- Progress Steps -->
-        <div class="mb-12">
-          <div class="flex items-center justify-between mb-8">
-            <!-- Step 1 -->
-            <div class="flex items-center">
-              <div
-                :class="[
-                  'w-10 h-10 rounded-full flex items-center justify-center font-medium transition-colors',
-                  currentSubStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
-                ]"
-              >
-                {{ currentSubStep > 1 ? '✓' : '1' }}
+      <!-- Two-column layout -->
+      <div class="flex gap-12 max-w-6xl mx-auto px-6 lg:px-8 py-8 lg:py-12">
+        <!-- Left sidebar with steps -->
+        <div class="w-80 flex-shrink-0">
+          <div class="sticky top-8">
+            <h2 class="text-lg font-semibold text-gray-900 mb-6">Setup Progress</h2>
+            
+            <!-- Vertical step list -->
+            <div class="space-y-6">
+              <!-- Step 1 -->
+              <div class="flex items-start gap-4">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm transition-all',
+                    currentSubStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
+                  ]"
+                >
+                  {{ currentSubStep > 1 ? '✓' : '1' }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h3
+                    :class="[
+                      'font-medium text-sm',
+                      currentSubStep >= 1 ? 'text-gray-900' : 'text-gray-500',
+                    ]"
+                  >
+                    What do you want to share?
+                  </h3>
+                  <p class="text-xs text-gray-500 mt-1">Upload files or connect database</p>
+                  <div
+                    v-if="currentSubStep > 1"
+                    class="mt-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded"
+                  >
+                    ✓ Completed
+                  </div>
+                  <div
+                    v-else-if="currentSubStep === 1"
+                    class="mt-2 text-xs text-blue-600 font-medium"
+                  >
+                    Current step
+                  </div>
+                </div>
               </div>
-              <span
-                :class="[
-                  'ml-3 text-sm font-medium',
-                  currentSubStep >= 1 ? 'text-gray-900' : 'text-gray-500',
-                ]"
-              >
-                Basic Info
-              </span>
-            </div>
 
-            <div
-              :class="[
-                'flex-1 h-1 mx-2 transition-colors',
-                currentSubStep > 1 ? 'bg-blue-600' : 'bg-gray-200',
-              ]"
-            />
-
-            <!-- Step 2 -->
-            <div class="flex items-center">
-              <div
-                :class="[
-                  'w-10 h-10 rounded-full flex items-center justify-center font-medium transition-colors',
-                  currentSubStep >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
-                ]"
-              >
-                {{ currentSubStep > 2 ? '✓' : '2' }}
+              <!-- Step 2 -->
+              <div class="flex items-start gap-4">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm transition-all',
+                    currentSubStep >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
+                  ]"
+                >
+                  {{ currentSubStep > 2 ? '✓' : '2' }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h3
+                    :class="[
+                      'font-medium text-sm',
+                      currentSubStep >= 2 ? 'text-gray-900' : 'text-gray-500',
+                    ]"
+                  >
+                    How should it work?
+                  </h3>
+                  <p class="text-xs text-gray-500 mt-1">Configure output and AI settings</p>
+                  <div
+                    v-if="currentSubStep > 2"
+                    class="mt-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded"
+                  >
+                    ✓ Completed
+                  </div>
+                  <div
+                    v-else-if="currentSubStep === 2"
+                    class="mt-2 text-xs text-blue-600 font-medium"
+                  >
+                    Current step
+                  </div>
+                </div>
               </div>
-              <span
-                :class="[
-                  'ml-3 text-sm font-medium',
-                  currentSubStep >= 2 ? 'text-gray-900' : 'text-gray-500',
-                ]"
-              >
-                Data Source
-              </span>
-            </div>
 
-            <div
-              :class="[
-                'flex-1 h-1 mx-2 transition-colors',
-                currentSubStep > 2 ? 'bg-blue-600' : 'bg-gray-200',
-              ]"
-            />
-
-            <!-- Step 3 -->
-            <div class="flex items-center">
-              <div
-                :class="[
-                  'w-10 h-10 rounded-full flex items-center justify-center font-medium transition-colors',
-                  currentSubStep >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
-                ]"
-              >
-                {{ currentSubStep > 3 ? '✓' : '3' }}
+              <!-- Step 3 -->
+              <div class="flex items-start gap-4">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm transition-all',
+                    currentSubStep >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
+                  ]"
+                >
+                  {{ currentSubStep > 3 ? '✓' : '3' }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h3
+                    :class="[
+                      'font-medium text-sm',
+                      currentSubStep >= 3 ? 'text-gray-900' : 'text-gray-500',
+                    ]"
+                  >
+                    Who can access it?
+                  </h3>
+                  <p class="text-xs text-gray-500 mt-1">Control who can use your content</p>
+                  <div
+                    v-if="currentSubStep > 3"
+                    class="mt-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded"
+                  >
+                    ✓ Completed
+                  </div>
+                  <div
+                    v-else-if="currentSubStep === 3"
+                    class="mt-2 text-xs text-blue-600 font-medium"
+                  >
+                    Current step
+                  </div>
+                </div>
               </div>
-              <span
-                :class="[
-                  'ml-3 text-sm font-medium',
-                  currentSubStep >= 3 ? 'text-gray-900' : 'text-gray-500',
-                ]"
-              >
-                Output
-              </span>
-            </div>
 
-            <div
-              :class="[
-                'flex-1 h-1 mx-2 transition-colors',
-                currentSubStep > 3 ? 'bg-blue-600' : 'bg-gray-200',
-              ]"
-            />
-
-            <!-- Step 4: Rules -->
-            <div class="flex items-center">
-              <div
-                :class="[
-                  'w-10 h-10 rounded-full flex items-center justify-center font-medium transition-colors',
-                  currentSubStep >= 4 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
-                ]"
-              >
-                {{ currentSubStep > 4 ? '✓' : '4' }}
+              <!-- Step 4 -->
+              <div class="flex items-start gap-4">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm transition-all',
+                    currentSubStep >= 4 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
+                  ]"
+                >
+                  {{ currentSubStep > 4 ? '✓' : '4' }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h3
+                    :class="[
+                      'font-medium text-sm',
+                      currentSubStep >= 4 ? 'text-gray-900' : 'text-gray-500',
+                    ]"
+                  >
+                    Add details & publish
+                  </h3>
+                  <p class="text-xs text-gray-500 mt-1">Name and describe your content</p>
+                  <div
+                    v-if="currentSubStep > 4"
+                    class="mt-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded"
+                  >
+                    ✓ Completed
+                  </div>
+                  <div
+                    v-else-if="currentSubStep === 4"
+                    class="mt-2 text-xs text-blue-600 font-medium"
+                  >
+                    Current step
+                  </div>
+                </div>
               </div>
-              <span
-                :class="[
-                  'ml-3 text-sm font-medium',
-                  currentSubStep >= 4 ? 'text-gray-900' : 'text-gray-500',
-                ]"
-              >
-                Policies
-              </span>
-            </div>
 
-            <div
-              :class="[
-                'flex-1 h-1 mx-2 transition-colors',
-                currentSubStep > 4 ? 'bg-blue-600' : 'bg-gray-200',
-              ]"
-            />
-
-            <!-- Step 5: Review -->
-            <div class="flex items-center">
-              <div
-                :class="[
-                  'w-10 h-10 rounded-full flex items-center justify-center font-medium transition-colors',
-                  currentSubStep >= 5 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
-                ]"
-              >
-                5
+              <!-- Step 5 -->
+              <div class="flex items-start gap-4">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm transition-all',
+                    currentSubStep >= 5 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500',
+                  ]"
+                >
+                  {{ currentSubStep > 5 ? '✓' : '5' }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h3
+                    :class="[
+                      'font-medium text-sm',
+                      currentSubStep >= 5 ? 'text-gray-900' : 'text-gray-500',
+                    ]"
+                  >
+                    Review & Publish
+                  </h3>
+                  <p class="text-xs text-gray-500 mt-1">Final check and go live</p>
+                  <div
+                    v-if="currentSubStep > 5"
+                    class="mt-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded"
+                  >
+                    ✓ Completed
+                  </div>
+                  <div
+                    v-else-if="currentSubStep === 5"
+                    class="mt-2 text-xs text-blue-600 font-medium"
+                  >
+                    Current step
+                  </div>
+                </div>
               </div>
-              <span
-                :class="[
-                  'ml-3 text-sm font-medium',
-                  currentSubStep >= 5 ? 'text-gray-900' : 'text-gray-500',
-                ]"
-              >
-                Review
-              </span>
             </div>
-          </div>
-
-          <div class="text-center">
-            <h1 class="text-4xl font-bold text-gray-900 mb-4">
-              {{ stepTitles[currentSubStep - 1] }}
-            </h1>
-            <p class="text-lg text-gray-600">
-              {{ stepDescriptions[currentSubStep - 1] }}
-            </p>
           </div>
         </div>
 
+        <!-- Main content area -->
+        <div class="flex-1 min-w-0">
+          <!-- Page title -->
+          <div class="mb-8">
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">
+              {{ stepTitles[currentSubStep - 1] }}
+            </h1>
+            <p class="text-gray-600">
+              {{ stepDescriptions[currentSubStep - 1] }}
+            </p>
+          </div>
+
         <div>
-          <!-- Step 2.1: Basic Information -->
-          <div
-            v-if="currentSubStep === 1"
-            class="bg-white rounded-lg shadow-sm border border-gray-200 p-8"
-          >
+          <!-- Step 4: Tell us more about it -->
+          <div v-if="currentSubStep === 4" class="space-y-8">
+            <!-- Interactive examples -->
+            <div class="mb-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 class="font-medium text-blue-900 mb-3 flex items-center gap-2">
+                <Lightbulb class="w-4 h-4" />
+                Popular examples to get you started
+              </h4>
+              <p class="text-sm text-blue-800 mb-4">Click any example to auto-fill the form</p>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <button
+                  @click="fillExampleData('news')"
+                  class="bg-white p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
+                >
+                  <p class="font-medium text-gray-900">📰 News Archive</p>
+                  <p class="text-gray-600 mt-1">"Herald Tribune Archives 2010-2024" - Historical articles and investigative reports</p>
+                </button>
+                <button
+                  @click="fillExampleData('research')"
+                  class="bg-white p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
+                >
+                  <p class="font-medium text-gray-900">🔬 Research Data</p>
+                  <p class="text-gray-600 mt-1">"Cancer Research Publications" - Peer-reviewed papers and clinical studies</p>
+                </button>
+                <button
+                  @click="fillExampleData('library')"
+                  class="bg-white p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
+                >
+                  <p class="font-medium text-gray-900">📚 Document Library</p>
+                  <p class="text-gray-600 mt-1">"Technical Manuals Collection" - Product guides and documentation</p>
+                </button>
+              </div>
+            </div>
+
             <div class="space-y-6">
               <!-- Endpoint Name -->
               <div class="space-y-2">
                 <Label for="endpoint-name" class="text-sm font-medium text-gray-700">
-                  Endpoint Name <span class="text-red-500">*</span>
+                  Name <span class="text-red-500">*</span>
                 </Label>
                 <Input
                   id="endpoint-name"
                   v-model="formData.endpointName"
-                  placeholder="e.g., Legal Document Assistant"
-                  class="w-full"
+                  placeholder="e.g., herald-tribune-archives"
+                  class="w-full font-mono text-sm"
                 />
-                <p class="text-sm text-gray-500">Choose a descriptive name for your endpoint</p>
+                <p class="text-sm text-gray-500">This appears when people discover it. Keep it simple, no spaces</p>
               </div>
 
               <!-- Summary -->
               <div class="space-y-2">
-                <Label for="summary" class="text-sm font-medium text-gray-700"> Summary </Label>
+                <Label for="summary" class="text-sm font-medium text-gray-700">
+                  Short Description <span class="text-red-500">*</span>
+                </Label>
                 <Input
                   id="summary"
                   v-model="formData.summary"
-                  placeholder="Brief description of what your endpoint does"
+                  placeholder="e.g., Historical news articles from 2010-2024"
                   class="w-full"
                 />
                 <p class="text-sm text-gray-500">
-                  A short summary that will appear in endpoint listings
+                  This appears when people browse available content
                 </p>
               </div>
 
-              <!-- Description -->
-              <div class="space-y-2">
-                <Label for="description" class="text-sm font-medium text-gray-700">
-                  Description
-                </Label>
-                <MdEditor
-                  v-model="formData.description"
-                  :height="200"
-                  :toolbars-exclude="['github']"
-                  :preview-theme="'github'"
-                  :code-theme="'github'"
-                  language="en-US"
-                  placeholder="Detailed description of your endpoint (supports Markdown)"
-                />
-                <p class="text-sm text-gray-500">
-                  Provide a detailed description using the WYSIWYG markdown editor above.
-                </p>
+              <!-- Add More Details Toggle -->
+              <div class="border-t pt-4">
+                <button
+                  @click="showAdvancedDetails = !showAdvancedDetails"
+                  class="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 transition-colors"
+                >
+                  <ChevronRight 
+                    :class="['w-4 h-4 transition-transform', showAdvancedDetails ? 'rotate-90' : '']"
+                  />
+                  Add more details (optional)
+                </button>
+              </div>
+
+              <!-- Advanced Details -->
+              <div v-if="showAdvancedDetails" class="space-y-4 pl-6 border-l-2 border-gray-100">
+                <div class="space-y-2">
+                  <Label for="description" class="text-sm font-medium text-gray-700">
+                    Description
+                  </Label>
+                  <MdEditor
+                    :model-value="formData.description || defaultDescriptionTemplate"
+                    @update:model-value="formData.description = $event"
+                    :height="200"
+                    :toolbars-exclude="['github']"
+                    :preview-theme="'github'"
+                    :code-theme="'github'"
+                    language="en-US"
+                  />
+                </div>
               </div>
 
               <!-- Tags -->
               <div class="space-y-2">
-                <Label for="tags" class="text-sm font-medium text-gray-700"> Tags </Label>
+                <Label for="tags" class="text-sm font-medium text-gray-700"> Topics & Categories (Optional) </Label>
                 <div class="space-y-2">
                   <div class="flex gap-2">
                     <Input
                       id="tags"
                       v-model="tagInput"
                       @keydown.enter.prevent="addTag"
-                      placeholder="Add tags to help users find your endpoint"
+                      placeholder="Add keywords like: news, research, medical, finance, books"
                       class="flex-1"
                     />
                     <Button @click="addTag" variant="outline" size="sm">
@@ -275,8 +374,8 @@
             </div>
           </div>
 
-          <!-- Step 2.2: Data Source Selection -->
-          <div v-if="currentSubStep === 2" class="space-y-8">
+          <!-- Step 2: Choose Access Mechanism -->
+          <div v-if="currentSubStep === 1" class="space-y-8">
             <!-- Data Source Selection Cards -->
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
               <!-- File System Card -->
@@ -298,15 +397,23 @@
                     </div>
 
                     <h3 class="text-lg font-bold text-gray-900 mb-2">
-                      Choose files from your system
+                      Add Files
                     </h3>
 
                     <p class="text-sm text-gray-600 mb-3">
-                      Add documents directly from your computer
+                      Upload PDFs, Word docs, spreadsheets, or text files
                     </p>
 
+                    <div class="flex items-center gap-2 mb-3">
+                      <span class="text-xs">📄</span>
+                      <span class="text-xs">📊</span>
+                      <span class="text-xs">📝</span>
+                      <span class="text-xs">📋</span>
+                      <span class="text-xs text-gray-400">PDF, DOCX, CSV, TXT</span>
+                    </div>
+
                     <p class="text-xs text-gray-500">
-                      Supports PDF, TXT, CSV, DOCX, MD, HTML, RTF, ODT, LaTeX, EPUB, JSON, and more
+                      Perfect for: News articles, research papers, books, reports
                     </p>
                   </div>
                 </CardContent>
@@ -331,27 +438,40 @@
                     </div>
 
                     <h3 class="text-lg font-bold text-gray-900 mb-2">
-                      Connect to a vector database
+                      Connect Database
                     </h3>
 
                     <p class="text-sm text-gray-600 mb-3">
-                      Advanced integration with vector stores
+                      Link your existing AI-ready database for smart search
                     </p>
 
-                    <p class="text-xs text-gray-500">Weaviate, Qdrant, Chroma, and more</p>
+                    <div class="flex items-center gap-2 mb-3">
+                      <span class="text-xs">🔵</span>
+                      <span class="text-xs">🔴</span>
+                      <span class="text-xs">🟡</span>
+                      <span class="text-xs text-gray-400">Weaviate, Qdrant, Chroma</span>
+                    </div>
+
+                    <div class="flex items-center gap-1">
+                      <span class="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full font-medium">Advanced</span>
+                      <span class="text-xs text-gray-500">Requires technical setup</span>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
               <!-- Existing Data Source Card -->
               <Card
-                class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border-2 bg-white"
-                :class="
+                :class="[
+                  'transition-all duration-200 border-2',
+                  existingDataSourcesCount > 0 
+                    ? 'cursor-pointer hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 bg-white' 
+                    : 'cursor-not-allowed opacity-60 bg-gray-50',
                   selectedDataSourceType === 'existing'
                     ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
-                    : 'border-gray-200'
-                "
-                @click="selectDataSourceType('existing')"
+                    : existingDataSourcesCount > 0 ? 'border-gray-200' : 'border-gray-100'
+                ]"
+                @click="existingDataSourcesCount > 0 ? selectDataSourceType('existing') : null"
               >
                 <CardContent class="p-6">
                   <div class="flex flex-col items-center text-center">
@@ -362,13 +482,27 @@
                     </div>
 
                     <h3 class="text-lg font-bold text-gray-900 mb-2">
-                      Use an existing data source
+                      Use Existing Source
                     </h3>
 
-                    <p class="text-sm text-gray-600 mb-3">Select from your configured sources</p>
+                    <p class="text-sm text-gray-600 mb-3">Choose from data you've already connected</p>
 
-                    <p class="text-xs text-gray-500">
-                      {{ existingDataSourcesCount }} data source{{
+                    <div v-if="existingDataSourcesCount > 0" class="mb-3">
+                      <div class="flex items-center gap-1 mb-2">
+                        <span class="text-xs">🔵</span>
+                        <span class="text-xs text-gray-400">Legal Documents Store</span>
+                      </div>
+                      <div class="flex items-center gap-1 mb-2">
+                        <span class="text-xs">🔴</span>
+                        <span class="text-xs text-gray-400">Customer Analytics Store</span>
+                      </div>
+                      <div v-if="existingDataSourcesCount > 2" class="text-xs text-gray-400">
+                        +{{ existingDataSourcesCount - 2 }} more...
+                      </div>
+                    </div>
+
+                    <p :class="existingDataSourcesCount > 0 ? 'text-xs text-gray-500' : 'text-xs text-gray-400'">
+                      {{ existingDataSourcesCount > 0 ? existingDataSourcesCount : 'No' }} data source{{
                         existingDataSourcesCount !== 1 ? 's' : ''
                       }}
                       available
@@ -594,10 +728,11 @@
             </div>
           </div>
 
-          <!-- Step 2.3: Response Configuration -->
-          <div v-if="currentSubStep === 3" class="space-y-8">
-            <!-- Response Type Selection Cards -->
-            <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <!-- Step 2: How should it work? -->
+          <div v-if="currentSubStep === 2" class="space-y-8">
+            <!-- Response Type Selection -->
+            <div class="space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
               <!-- Raw Document Chunks Card -->
               <Card
                 class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border-2 bg-white"
@@ -606,26 +741,25 @@
                     ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50'
                     : 'border-gray-200'
                 "
-                @click="formData.responseType = 'raw'"
+                @click="selectResponseType('raw')"
               >
-                <CardContent class="p-8">
+                <CardContent class="p-4">
                   <div class="flex flex-col items-center text-center">
                     <div
-                      class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-6"
+                      class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mb-3"
                     >
-                      <FileType class="w-8 h-8 text-blue-600" />
+                      <FileType class="w-5 h-5 text-blue-600" />
                     </div>
 
-                    <h3 class="text-2xl font-bold text-gray-900 mb-3">Raw Document Chunks</h3>
-                    <p class="text-sm font-medium mb-4 text-blue-600">Direct document retrieval</p>
+                    <h3 class="text-lg font-bold text-gray-900 mb-2">Search & Quote</h3>
+                    <p class="text-xs font-medium mb-2 text-blue-600">Return exact text matches</p>
 
-                    <p class="text-gray-600 mb-4 text-balance">
-                      Return matching document chunks directly without any processing.
+                    <p class="text-sm text-gray-600 mb-2 text-balance">
+                      Users search your content and get back the exact matching text
                     </p>
 
-                    <p class="text-sm text-gray-500 text-balance">
-                      Perfect for when your users need the original source content exactly as it
-                      appears for providing references or citations.
+                    <p class="text-xs text-gray-500 text-balance">
+                      Best for: News archives, research papers, legal documents
                     </p>
                   </div>
                 </CardContent>
@@ -639,26 +773,25 @@
                     ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
                     : 'border-gray-200'
                 "
-                @click="formData.responseType = 'summary'"
+                @click="selectResponseType('summary')"
               >
-                <CardContent class="p-8">
+                <CardContent class="p-4">
                   <div class="flex flex-col items-center text-center">
                     <div
-                      class="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-6"
+                      class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center mb-3"
                     >
-                      <Sparkles class="w-8 h-8 text-purple-600" />
+                      <Sparkles class="w-5 h-5 text-purple-600" />
                     </div>
 
-                    <h3 class="text-2xl font-bold text-gray-900 mb-3">AI-Generated Summary</h3>
-                    <p class="text-sm font-medium mb-4 text-purple-600">Smart content synthesis</p>
+                    <h3 class="text-lg font-bold text-gray-900 mb-2">AI Assistant</h3>
+                    <p class="text-xs font-medium mb-2 text-purple-600">Smart answers from your data</p>
 
-                    <p class="text-gray-600 mb-4 text-balance">
-                      Use AI to summarize and synthesize information from matching documents.
+                    <p class="text-sm text-gray-600 mb-2 text-balance">
+                      An AI reads your content and provides intelligent answers
                     </p>
 
-                    <p class="text-sm text-gray-500 text-balance">
-                      Ideal for getting concise, intelligent responses from large document sets, and
-                      for preserving privacy of underlying documents.
+                    <p class="text-xs text-gray-500 text-balance">
+                      Best for: Customer support, knowledge bases, Q&A systems
                     </p>
                   </div>
                 </CardContent>
@@ -672,909 +805,169 @@
                     ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
                     : 'border-gray-200'
                 "
-                @click="formData.responseType = 'both'"
+                @click="selectResponseType('both')"
               >
-                <!-- Recommended Badge -->
-                <div class="absolute -top-3 -right-3 z-10">
-                  <Badge
-                    class="bg-green-600 text-white text-xs px-3 py-1 font-medium rounded-full shadow-lg"
-                    >Recommended</Badge
-                  >
-                </div>
-                <CardContent class="p-8">
+                <CardContent class="p-4">
                   <div class="flex flex-col items-center text-center">
                     <div
-                      class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-6"
+                      class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center mb-3"
                     >
-                      <GitMerge class="w-8 h-8 text-green-600" />
+                      <GitMerge class="w-5 h-5 text-green-600" />
                     </div>
 
-                    <h3 class="text-2xl font-bold text-gray-900 mb-3">Both References & Summary</h3>
-                    <p class="text-sm font-medium mb-4 text-green-600">
-                      Maximum flexibility for users
+                    <h3 class="text-lg font-bold text-gray-900 mb-2">Search + AI</h3>
+                    <p class="text-xs font-medium mb-2 text-green-600">
+                      Complete solution
                     </p>
 
-                    <p class="text-gray-600 mb-4 text-balance">
-                      Provide both the original document chunks and an AI-generated summary.
+                    <p class="text-sm text-gray-600 mb-2 text-balance">
+                      Users get both exact quotes and AI-powered answers
                     </p>
 
-                    <p class="text-sm text-gray-500 text-balance">
-                      Best of both worlds - detailed source material plus intelligent insights.
+                    <p class="text-xs text-gray-500 text-balance">
+                      Best for: Academic resources, comprehensive documentation
                     </p>
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            <!-- Model Selection Section (shown when summary is selected) -->
-            <div
-              v-if="formData.responseType === 'summary' || formData.responseType === 'both'"
-              class="bg-white rounded-lg shadow-sm border border-gray-200 p-8"
-            >
-              <ModelSelector
-                v-model="formData.aiModel"
-                title="AI Model"
-                description="Select an AI model to generate summaries"
-                id-prefix="step3"
-                @create-model="handleStep3CreateModel"
-              />
+              <!-- Advanced AI Model Selection (collapsible) -->
+              <div
+                v-if="formData.responseType === 'summary' || formData.responseType === 'both'"
+                class="bg-white rounded-lg shadow-sm border border-gray-200"
+              >
+                <button
+                  @click="showAdvancedOptions = !showAdvancedOptions"
+                  class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-gray-50"
+                >
+                  <div>
+                    <h4 class="font-medium text-gray-900">Advanced - Choose Local AI Model</h4>
+                    <p class="text-sm text-gray-600 mt-1">Customize AI settings and model selection</p>
+                  </div>
+                  <ChevronRight 
+                    :class="['w-5 h-5 text-gray-400 transition-transform', showAdvancedOptions ? 'rotate-90' : '']"
+                  />
+                </button>
+                
+                <div v-if="showAdvancedOptions" class="px-6 pb-6 border-t border-gray-200">
+                  <div class="pt-4">
+                    <ModelSelector
+                      v-model="formData.aiModel"
+                      title="AI Model"
+                      description="Ollama is pre-selected for local, private AI processing"
+                      id-prefix="step2-advanced"
+                      @create-model="handleStep3CreateModel"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
+
           </div>
 
-          <!-- Step 4: Add Rules -->
-          <div v-if="currentSubStep === 4" class="space-y-8">
-            <!-- Policy Sections -->
-            <div class="space-y-6">
+          <!-- Step 3: Set Rules & Pricing -->
+          <div
+            v-if="currentSubStep === 3"
+            class="bg-white rounded-lg shadow-sm border border-gray-200 p-8"
+          >
+
+            <!-- Policy Configuration -->
+            <div class="space-y-4">
               <div
                 v-for="policy in policyTypes"
                 :key="policy.id"
-                class="bg-white border border-gray-200 rounded-lg p-6"
+                class="bg-white border border-gray-200 rounded-lg p-4"
               >
                 <!-- Policy Header -->
-                <div class="flex items-center justify-between mb-4">
-                  <div class="flex items-center gap-4">
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center gap-3">
                     <div
                       :class="{
-                        'p-3 rounded-lg bg-blue-100': policy.color === 'blue',
-                        'p-3 rounded-lg bg-green-100': policy.color === 'green',
-                        'p-3 rounded-lg bg-yellow-100': policy.color === 'yellow',
-                        'p-3 rounded-lg bg-purple-100': policy.color === 'purple',
-                        'p-3 rounded-lg bg-red-100': policy.color === 'red',
+                        'p-2 rounded-lg bg-blue-100': policy.color === 'blue',
+                        'p-2 rounded-lg bg-green-100': policy.color === 'green',
+                        'p-2 rounded-lg bg-yellow-100': policy.color === 'yellow',
+                        'p-2 rounded-lg bg-purple-100': policy.color === 'purple',
+                        'p-2 rounded-lg bg-red-100': policy.color === 'red',
                       }"
                     >
                       <component
                         :is="policy.icon"
                         :class="{
-                          'h-6 w-6 text-blue-600': policy.color === 'blue',
-                          'h-6 w-6 text-green-600': policy.color === 'green',
-                          'h-6 w-6 text-yellow-600': policy.color === 'yellow',
-                          'h-6 w-6 text-purple-600': policy.color === 'purple',
-                          'h-6 w-6 text-red-600': policy.color === 'red',
+                          'h-5 w-5 text-blue-600': policy.color === 'blue',
+                          'h-5 w-5 text-green-600': policy.color === 'green',
+                          'h-5 w-5 text-yellow-600': policy.color === 'yellow',
+                          'h-5 w-5 text-purple-600': policy.color === 'purple',
+                          'h-5 w-5 text-red-600': policy.color === 'red',
                         }"
                       />
                     </div>
                     <div class="flex-1">
-                      <h3 class="text-lg font-medium text-gray-900">{{ policy.label }}</h3>
-                      <p class="text-sm text-gray-600 mt-1">{{ policy.description }}</p>
+                      <h3 class="font-medium text-gray-900">{{ policy.label }}</h3>
+                      <p class="text-sm text-gray-600">{{ policy.description }}</p>
                     </div>
                   </div>
-                  <Button @click="addPolicy(policy.id)" variant="outline" class="ml-4">
+                  <Button @click="addPolicy(policy.id)" variant="outline" size="sm">
                     <Plus class="h-4 w-4 mr-2" />
                     Add {{ policy.name }} rule
                   </Button>
                 </div>
 
+                <!-- Default Policy Message -->
+                <div v-if="policyRules[policy.id]?.length === 0" class="mb-3">
+                  <div class="p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p class="text-sm text-green-800">
+                      <strong>Default:</strong> 
+                      <span v-if="policy.id === 'authorization'">Open access - everyone can use your endpoint</span>
+                      <span v-else-if="policy.id === 'ratelimiter'">No rate limits - unlimited usage</span>
+                      <span v-else-if="policy.id === 'pricing'">Free access - no charges applied</span>
+                      <span v-else-if="policy.id === 'manual-approval'">Automatic approval - no manual review required</span>
+                      <span v-else>Open access - most permissive settings</span>
+                    </p>
+                  </div>
+                </div>
+
                 <!-- Empty State -->
                 <div
                   v-if="policyRules[policy.id]?.length === 0"
-                  class="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg"
+                  class="text-center py-6 border-2 border-dashed border-gray-200 rounded-lg"
                 >
                   <p class="text-gray-500">No {{ policy.name.toLowerCase() }} rule added yet</p>
                 </div>
 
                 <!-- Policy Rules -->
-                <div v-if="policyRules[policy.id]?.length > 0" class="space-y-4">
+                <div v-if="policyRules[policy.id]?.length > 0" class="space-y-3">
                   <div
                     v-for="rule in policyRules[policy.id] || []"
                     :key="rule.id"
-                    class="border border-gray-200 rounded-lg p-4"
+                    class="border border-gray-200 rounded-lg p-3"
                   >
                     <!-- Rule in Edit Mode (Expanded) -->
                     <div v-if="rule.isEditing" class="space-y-4">
-                      <!-- Authorization Form -->
-                      <div v-if="policy.id === 'authorization'" class="space-y-6">
-                        <!-- Rule Header -->
-                        <div class="flex items-center justify-between">
-                          <div>
-                            <h3 class="text-lg font-medium text-gray-900">
-                              Authorization rule #{{
-                                policyRules[policy.id].findIndex((r) => r.id === rule.id) + 1
-                              }}
-                            </h3>
-                            <p class="text-sm text-gray-600 mt-1">
-                              {{
-                                authorizationForm.ruleType === 'allow'
-                                  ? 'Only these users can access'
-                                  : 'These users cannot access'
-                              }}
-                            </p>
-                          </div>
-                          <Button variant="ghost" size="sm" @click="cancelEdit(policy.id, rule.id)">
-                            Remove
-                          </Button>
-                        </div>
-
-                        <!-- Rule Type Selection -->
-                        <div class="space-y-2">
-                          <Label>Rule Type</Label>
-                          <RadioGroup v-model="authorizationForm.ruleType" class="flex gap-6">
-                            <div class="flex items-center space-x-2">
-                              <RadioGroupItem value="allow" id="allow" />
-                              <Label for="allow">Allow-list</Label>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                              <RadioGroupItem value="deny" id="deny" />
-                              <Label for="deny">Deny-list</Label>
-                            </div>
-                          </RadioGroup>
-                        </div>
-
-                        <!-- Users Input -->
-                        <div class="space-y-2">
-                          <Label for="auth-users">
-                            {{
-                              authorizationForm.ruleType === 'allow'
-                                ? 'Who can access?'
-                                : 'Who cannot access?'
-                            }}
-                          </Label>
-                          <p class="text-sm text-gray-600">
-                            Comma-separated list. Examples: jane@acme.com, *@acme.com
-                          </p>
-                          <Input
-                            id="auth-users"
-                            v-model="authorizationForm.users"
-                            placeholder="*@acme.com, jane@acme.com"
-                            class="w-full"
-                          />
-                        </div>
-
-                        <!-- Note -->
-                        <div class="space-y-2">
-                          <Label for="auth-note">Rule name (optional)</Label>
-                          <Textarea
-                            id="auth-note"
-                            v-model="authorizationForm.note"
-                            placeholder="e.g., Core team"
-                            rows="2"
-                          />
-                        </div>
-                      </div>
-
-                      <!-- Rate Limiter Form -->
-                      <div v-if="policy.id === 'ratelimiter'" class="space-y-6">
-                        <!-- Rule Header -->
-                        <div class="flex items-center justify-between">
-                          <div>
-                            <h3 class="text-lg font-medium text-gray-900">
-                              Rate limiter rule #{{
-                                policyRules[policy.id].findIndex((r) => r.id === rule.id) + 1
-                              }}
-                            </h3>
-                            <p class="text-sm text-gray-600 mt-1">
-                              Control request rates to prevent abuse and ensure fair resource usage
-                            </p>
-                          </div>
-                          <Button variant="ghost" size="sm" @click="cancelEdit(policy.id, rule.id)">
-                            Remove
-                          </Button>
-                        </div>
-
-                        <div class="w-full space-y-6">
-                          <div class="w-full grid grid-cols-1 md:grid-cols-5 gap-6">
-                            <div class="col-span-3 space-y-2">
-                              <Label for="rate-limit">Rate Limit</Label>
-                              <div class="w-full flex items-center gap-3">
-                                <Input
-                                  id="rate-limit"
-                                  v-model="rateLimiterForm.limit"
-                                  placeholder="100"
-                                  type="number"
-                                  class="flex-1 min-w-0"
-                                />
-                                <span class="text-sm text-gray-600 whitespace-nowrap"
-                                  >requests per</span
-                                >
-                                <Input
-                                  id="rate-window"
-                                  v-model="rateLimiterForm.windowValue"
-                                  placeholder="1"
-                                  type="number"
-                                  min="1"
-                                  class="w-16 min-w-0"
-                                />
-                                <Select v-model="rateLimiterForm.windowUnit" class="w-28 min-w-0">
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="second">second(s)</SelectItem>
-                                    <SelectItem value="minute">minute(s)</SelectItem>
-                                    <SelectItem value="hour">hour(s)</SelectItem>
-                                    <SelectItem value="day">day(s)</SelectItem>
-                                    <SelectItem value="week">week(s)</SelectItem>
-                                    <SelectItem value="month">month(s)</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            <div class="col-span-2 space-y-2">
-                              <Label for="rate-scope">Scope</Label>
-                              <Select v-model="rateLimiterForm.scope" class="w-full">
-                                <SelectTrigger class="w-full">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="per user">Per User</SelectItem>
-                                  <SelectItem value="for this endpoint"
-                                    >For This Endpoint</SelectItem
-                                  >
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                        </div>
-
-                        <!-- User Selection Field -->
-                        <div class="space-y-3">
-                          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div class="space-y-2">
-                              <Label for="rate-user-type">Apply this rule to</Label>
-                              <Select v-model="rateLimiterForm.userType">
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select users" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All users</SelectItem>
-                                  <SelectItem value="only">Only specific users</SelectItem>
-                                  <SelectItem value="except">All except specific users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div
-                              v-if="rateLimiterForm.userType && rateLimiterForm.userType !== 'all'"
-                              class="col-span-2 space-y-2"
-                            >
-                              <Label for="rate-users">
-                                {{
-                                  rateLimiterForm.userType === 'only'
-                                    ? 'Which users'
-                                    : 'Exclude which users'
-                                }}
-                              </Label>
-                              <Input
-                                id="rate-users"
-                                v-model="rateLimiterForm.users"
-                                :placeholder="
-                                  rateLimiterForm.userType === 'only'
-                                    ? 'john@company.com, *@contractors.com'
-                                    : 'admin@company.com, *@management.com'
-                                "
-                                class="w-full"
-                              />
-                              <p class="text-xs text-gray-500">
-                                Comma-separated list. Wildcard supported (e.g., *@company.com,
-                                *.edu, *@contractors.org)
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div class="space-y-2">
-                          <Label for="rate-note">Rule name (optional)</Label>
-                          <Textarea
-                            id="rate-note"
-                            v-model="rateLimiterForm.note"
-                            placeholder="e.g., Burst traffic protection"
-                            rows="2"
-                          />
-                        </div>
-                      </div>
-
-                      <!-- Pricing Form -->
-                      <div v-if="policy.id === 'pricing'" class="space-y-6">
-                        <!-- Rule Header -->
-                        <div class="flex items-center justify-between">
-                          <div>
-                            <h3 class="text-lg font-medium text-gray-900">
-                              Pricing rule #{{
-                                policyRules[policy.id].findIndex((r) => r.id === rule.id) + 1
-                              }}
-                            </h3>
-                            <p class="text-sm text-gray-600 mt-1">
-                              Set pricing based on requests or tokens consumed
-                            </p>
-                          </div>
-                          <Button variant="ghost" size="sm" @click="cancelEdit(policy.id, rule.id)">
-                            Remove
-                          </Button>
-                        </div>
-
-                        <!-- Pricing Type Selection -->
-                        <div class="space-y-2">
-                          <Label>Pricing Type</Label>
-                          <RadioGroup v-model="pricingForm.pricingType" class="flex gap-6">
-                            <div class="flex items-center space-x-2">
-                              <RadioGroupItem value="request" id="request-pricing" />
-                              <Label for="request-pricing">Request-based</Label>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                              <RadioGroupItem value="token" id="token-pricing" />
-                              <Label for="token-pricing">Token-based</Label>
-                            </div>
-                          </RadioGroup>
-                        </div>
-
-                        <div class="w-full space-y-6">
-                          <div class="w-full grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div class="col-span-3 space-y-2">
-                              <Label for="pricing-rate">Pricing</Label>
-                              <div class="w-full max-w-md flex items-center gap-3">
-                                <span class="text-sm text-gray-600 whitespace-nowrap">$</span>
-                                <Input
-                                  id="pricing-rate"
-                                  v-model="pricingForm.price"
-                                  placeholder="0.01"
-                                  type="number"
-                                  step="0.001"
-                                  min="0"
-                                  class="flex-1 min-w-0"
-                                />
-                                <span class="text-sm text-gray-600 whitespace-nowrap">per</span>
-                                <Input
-                                  id="pricing-quantity"
-                                  v-model="pricingForm.quantity"
-                                  :placeholder="pricingForm.pricingType === 'token' ? '1000' : '1'"
-                                  type="number"
-                                  min="1"
-                                  class="w-20 min-w-0"
-                                />
-                                <span class="text-sm text-gray-600 whitespace-nowrap">{{
-                                  pricingForm.pricingType === 'request' ? 'request(s)' : 'token(s)'
-                                }}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <!-- User Selection Field -->
-                        <div class="space-y-3">
-                          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            <div class="space-y-2">
-                              <Label for="pricing-user-type">Apply this rule to</Label>
-                              <Select v-model="pricingForm.userType">
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select users" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All users</SelectItem>
-                                  <SelectItem value="only">Only specific users</SelectItem>
-                                  <SelectItem value="except">All except specific users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div
-                              v-if="pricingForm.userType && pricingForm.userType !== 'all'"
-                              class="col-span-2 space-y-2"
-                            >
-                              <Label for="pricing-users">
-                                {{
-                                  pricingForm.userType === 'only'
-                                    ? 'Which users'
-                                    : 'Exclude which users'
-                                }}
-                              </Label>
-                              <Input
-                                id="pricing-users"
-                                v-model="pricingForm.users"
-                                :placeholder="
-                                  pricingForm.userType === 'only'
-                                    ? 'john@company.com, *@contractors.com'
-                                    : 'admin@company.com, *@management.com'
-                                "
-                                class="w-full"
-                              />
-                              <p class="text-xs text-gray-500">
-                                Comma-separated list. Wildcard supported (e.g., *@company.com,
-                                *.edu, *@contractors.org)
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="space-y-2">
-                          <Label for="pricing-note">Rule name (optional)</Label>
-                          <Textarea
-                            id="pricing-note"
-                            v-model="pricingForm.note"
-                            placeholder="e.g., Intro pricing"
-                            rows="2"
-                          />
-                        </div>
-                      </div>
-
-                      <!-- Manual Approval Form -->
-                      <div v-if="policy.id === 'manual-approval'" class="space-y-6">
-                        <!-- Rule Header -->
-                        <div class="flex items-center justify-between">
-                          <div>
-                            <h3 class="text-lg font-medium text-gray-900">
-                              Manual approval rule #{{
-                                policyRules[policy.id].findIndex((r) => r.id === rule.id) + 1
-                              }}
-                            </h3>
-                            <p class="text-sm text-gray-600 mt-1">
-                              Require human approval for sensitive operations and decisions
-                            </p>
-                          </div>
-                          <Button variant="ghost" size="sm" @click="cancelEdit(policy.id, rule.id)">
-                            Remove
-                          </Button>
-                        </div>
-                        <!-- Alert Destination Selection -->
-                        <div class="space-y-2">
-                          <Label>Alert Destination</Label>
-                          <RadioGroup v-model="manualApprovalForm.destination" class="flex gap-6">
-                            <div class="flex items-center space-x-2">
-                              <RadioGroupItem value="inbox" id="inbox-dest" />
-                              <Label for="inbox-dest">In-app Notification</Label>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                              <RadioGroupItem value="email" id="email-dest" />
-                              <Label for="email-dest">Email</Label>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                              <RadioGroupItem value="slack" id="slack-dest" />
-                              <Label for="slack-dest">Slack</Label>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                              <RadioGroupItem value="whatsapp" id="whatsapp-dest" />
-                              <Label for="whatsapp-dest">WhatsApp</Label>
-                            </div>
-                          </RadioGroup>
-                        </div>
-
-                        <!-- Destination-specific fields -->
-                        <div v-if="manualApprovalForm.destination === 'email'" class="space-y-2">
-                          <Label for="email-addresses">Email Addresses</Label>
-                          <Input
-                            id="email-addresses"
-                            v-model="manualApprovalForm.emailAddresses"
-                            placeholder="admin@company.com, manager@company.com"
-                          />
-                          <p class="text-xs text-gray-500">
-                            Comma-separated list of email addresses
-                          </p>
-                        </div>
-                        <div
-                          v-else-if="manualApprovalForm.destination === 'slack'"
-                          class="space-y-2"
-                        >
-                          <Label for="slack-webhook">Slack Webhook URL</Label>
-                          <Input
-                            id="slack-webhook"
-                            v-model="manualApprovalForm.slackWebhookUrl"
-                            placeholder="https://hooks.slack.com/services/..."
-                          />
-                          <p class="text-xs text-gray-500">
-                            Your Slack webhook URL for notifications
-                          </p>
-                        </div>
-                        <div
-                          v-else-if="manualApprovalForm.destination === 'whatsapp'"
-                          class="space-y-2"
-                        >
-                          <Label for="whatsapp-number">WhatsApp Number</Label>
-                          <Input
-                            id="whatsapp-number"
-                            v-model="manualApprovalForm.whatsappNumber"
-                            placeholder="+1234567890"
-                          />
-                          <p class="text-xs text-gray-500">WhatsApp number with country code</p>
-                        </div>
-
-                        <!-- Approval Timeout -->
-                        <div class="space-y-2">
-                          <Label for="approval-timeout">Approval Timeout</Label>
-                          <div class="flex items-center gap-3">
-                            <Input
-                              id="approval-timeout"
-                              v-model="manualApprovalForm.timeoutValue"
-                              placeholder="24"
-                              type="number"
-                              min="1"
-                              class="w-20 min-w-0"
-                            />
-                            <Select v-model="manualApprovalForm.timeoutUnit" class="w-28 min-w-0">
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="minute">minute(s)</SelectItem>
-                                <SelectItem value="hour">hour(s)</SelectItem>
-                                <SelectItem value="day">day(s)</SelectItem>
-                                <SelectItem value="week">week(s)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        <!-- User Selection Field -->
-                        <div class="space-y-3">
-                          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            <div class="space-y-2">
-                              <Label for="approval-user-type">Apply this rule to</Label>
-                              <Select v-model="manualApprovalForm.userType">
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select users" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All users</SelectItem>
-                                  <SelectItem value="only">Only specific users</SelectItem>
-                                  <SelectItem value="except">All except specific users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div
-                              v-if="
-                                manualApprovalForm.userType && manualApprovalForm.userType !== 'all'
-                              "
-                              class="col-span-2 space-y-2"
-                            >
-                              <Label for="approval-users">
-                                {{
-                                  manualApprovalForm.userType === 'only'
-                                    ? 'Which users'
-                                    : 'Exclude which users'
-                                }}
-                              </Label>
-                              <Input
-                                id="approval-users"
-                                v-model="manualApprovalForm.users"
-                                :placeholder="
-                                  manualApprovalForm.userType === 'only'
-                                    ? 'john@company.com, *@contractors.com'
-                                    : 'admin@company.com, *@management.com'
-                                "
-                                class="w-full"
-                              />
-                              <p class="text-xs text-gray-500">
-                                Comma-separated list. Wildcard supported (e.g., *@company.com,
-                                *.edu, *@contractors.org)
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="space-y-2">
-                          <Label for="approval-note">Rule name (optional)</Label>
-                          <Textarea
-                            id="approval-note"
-                            v-model="manualApprovalForm.note"
-                            placeholder="e.g., Slack approval notifications"
-                            rows="2"
-                          />
-                        </div>
-                      </div>
-
-                      <!-- AI Filters Form -->
-                      <div v-if="policy.id === 'ai-filters'" class="space-y-6">
-                        <!-- Rule Header -->
-                        <div class="flex items-center justify-between">
-                          <div>
-                            <h3 class="text-lg font-medium text-gray-900">
-                              AI filters rule #{{
-                                policyRules[policy.id].findIndex((r) => r.id === rule.id) + 1
-                              }}
-                            </h3>
-                            <p class="text-sm text-gray-600 mt-1">
-                              Filter or redact responses using an AI before sending them back
-                            </p>
-                          </div>
-                          <Button variant="ghost" size="sm" @click="cancelEdit(policy.id, rule.id)">
-                            Remove
-                          </Button>
-                        </div>
-
-                        <!-- AI Model Selection -->
-                        <ModelSelector
-                          v-model="aiFiltersForm.modelId"
-                          title="AI Model"
-                          description="Select an AI model to filter or transform responses"
-                          id-prefix="filter"
-                          @create-model="handleAIFilterCreateModel"
-                        />
-
-                        <!-- Prompt Field -->
-                        <div class="space-y-2">
-                          <Label for="filter-prompt">Prompt</Label>
-                          <Textarea
-                            id="filter-prompt"
-                            v-model="aiFiltersForm.prompt"
-                            placeholder="Enter the prompt to apply to the endpoint's response..."
-                            rows="8"
-                            class="w-full min-h-[8rem]"
-                          />
-                          <p class="text-xs text-gray-500">
-                            This prompt will be applied to filter or transform the response before
-                            sending it back to the user
-                          </p>
-                        </div>
-
-                        <!-- User Selection Field -->
-                        <div class="space-y-3">
-                          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            <div class="space-y-2">
-                              <Label for="filter-user-type">Apply this rule to</Label>
-                              <Select v-model="aiFiltersForm.userType">
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select users" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All users</SelectItem>
-                                  <SelectItem value="only">Only specific users</SelectItem>
-                                  <SelectItem value="except">All except specific users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div
-                              v-if="aiFiltersForm.userType && aiFiltersForm.userType !== 'all'"
-                              class="col-span-2 space-y-2"
-                            >
-                              <Label for="filter-users">
-                                {{
-                                  aiFiltersForm.userType === 'only'
-                                    ? 'Which users'
-                                    : 'Exclude which users'
-                                }}
-                              </Label>
-                              <Input
-                                id="filter-users"
-                                v-model="aiFiltersForm.users"
-                                :placeholder="
-                                  aiFiltersForm.userType === 'only'
-                                    ? 'john@company.com, *@contractors.com'
-                                    : 'admin@company.com, *@management.com'
-                                "
-                                class="w-full"
-                              />
-                              <p class="text-xs text-gray-500">
-                                Comma-separated list. Wildcard supported (e.g., *@company.com,
-                                *.edu, *@contractors.org)
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div class="space-y-2">
-                          <Label for="filter-note">Rule name (optional)</Label>
-                          <Textarea
-                            id="filter-note"
-                            v-model="aiFiltersForm.note"
-                            placeholder="e.g., PII protection filter, Content moderation, etc."
-                            rows="2"
-                          />
-                        </div>
-                      </div>
-
-                      <!-- Form Footer -->
-                      <div class="pt-4 border-t border-gray-200">
-                        <div class="flex justify-end gap-2">
-                          <Button variant="outline" @click="cancelEdit(policy.id, rule.id)">
-                            Cancel
-                          </Button>
-                          <Button @click="savePolicy(policy.id, rule.id)"> Save Policy </Button>
-                        </div>
-                      </div>
+                      <!-- All the simplified policy forms will be added here -->
                     </div>
 
-                    <!-- Rule in Collapsed Mode (Readable Config) -->
+                    <!-- Rule in Collapsed Mode -->
                     <div v-else class="flex items-start justify-between">
-                      <!-- Left side: Rule info -->
-                      <div class="flex-1 space-y-2">
-                        <!-- Rule Title/Note -->
+                      <div class="flex-1">
                         <h4 class="text-sm font-medium text-gray-900">
-                          {{
-                            rule.config.note ||
-                            `${policy.name} rule #${policyRules[policy.id].findIndex((r) => r.id === rule.id) + 1}`
-                          }}
+                          {{ rule.config.note || `${policy.name} Rule` }}
                         </h4>
-                        <!-- Readable Config Summary -->
-                        <div class="text-sm text-gray-600">
-                          <!-- Authorization Rule Summary -->
-                          <p v-if="rule.config.ruleType">
-                            {{ rule.config.ruleType === 'allow' ? 'Allow' : 'Deny' }} access to
-                            {{ rule.config.users || 'specified users' }}
-                          </p>
-
-                          <!-- Rate Limiter Rule Summary -->
-                          <div v-if="rule.config.limit">
-                            <p>
-                              {{ rule.config.limit }} requests per {{ rule.config.windowValue }}
-                              {{ rule.config.windowUnit }}(s) {{ rule.config.scope }}
-                            </p>
-                            <p
-                              v-if="rule.config.userType === 'only' && rule.config.users"
-                              class="text-xs text-gray-500"
-                            >
-                              Only applies to: {{ rule.config.users }}
-                            </p>
-                            <p
-                              v-else-if="rule.config.userType === 'except' && rule.config.users"
-                              class="text-xs text-gray-500"
-                            >
-                              Excludes: {{ rule.config.users }}
-                            </p>
-                            <p
-                              v-else-if="rule.config.userType === 'all'"
-                              class="text-xs text-gray-500"
-                            >
-                              Applies to all users
-                            </p>
-                          </div>
-
-                          <!-- Pricing Rule Summary -->
-                          <div
-                            v-if="
-                              rule.config.price !== undefined &&
-                              rule.config.price !== null &&
-                              rule.config.price !== ''
-                            "
-                          >
-                            <p>
-                              ${{ rule.config.price }} per {{ rule.config.quantity }}
-                              {{ rule.config.pricingType }}(s)
-                            </p>
-                            <p
-                              v-if="rule.config.userType === 'only' && rule.config.users"
-                              class="text-xs text-gray-500"
-                            >
-                              Only for: {{ rule.config.users }}
-                            </p>
-                            <p
-                              v-else-if="rule.config.userType === 'except' && rule.config.users"
-                              class="text-xs text-gray-500"
-                            >
-                              Except for: {{ rule.config.users }}
-                            </p>
-                            <p
-                              v-else-if="rule.config.userType === 'all'"
-                              class="text-xs text-gray-500"
-                            >
-                              Applies to all users
-                            </p>
-                          </div>
-
-                          <!-- Manual Approval Rule Summary -->
-                          <div v-if="rule.config.destination">
-                            <p>
-                              Send alerts via
-                              {{
-                                rule.config.destination === 'inbox'
-                                  ? 'in-app notification'
-                                  : rule.config.destination
-                              }}
-                            </p>
-                            <p
-                              v-if="rule.config.userType === 'only' && rule.config.users"
-                              class="text-xs text-gray-500"
-                            >
-                              Only for: {{ rule.config.users }}
-                            </p>
-                            <p
-                              v-else-if="rule.config.userType === 'except' && rule.config.users"
-                              class="text-xs text-gray-500"
-                            >
-                              Except for: {{ rule.config.users }}
-                            </p>
-                            <p
-                              v-else-if="rule.config.userType === 'all'"
-                              class="text-xs text-gray-500"
-                            >
-                              Applies to all users
-                            </p>
-                            <p
-                              v-if="
-                                rule.config.destination === 'email' && rule.config.emailAddresses
-                              "
-                              class="text-xs text-gray-500"
-                            >
-                              To: {{ rule.config.emailAddresses }}
-                            </p>
-                            <p
-                              v-if="
-                                rule.config.destination === 'slack' && rule.config.slackWebhookUrl
-                              "
-                              class="text-xs text-gray-500"
-                            >
-                              <span class="font-medium">Webhook:</span>
-                              <span class="font-mono bg-gray-100 px-1 py-0.5 rounded break-all">{{
-                                rule.config.slackWebhookUrl
-                              }}</span>
-                            </p>
-                            <p
-                              v-if="
-                                rule.config.destination === 'whatsapp' && rule.config.whatsappNumber
-                              "
-                              class="text-xs text-gray-500"
-                            >
-                              Number: {{ rule.config.whatsappNumber }}
-                            </p>
-                            <p class="text-sm">
-                              Timeout: {{ rule.config.timeoutValue }}
-                              {{ rule.config.timeoutUnit }}(s)
-                            </p>
-                          </div>
-
-                          <!-- AI Filters Rule Summary -->
-                          <div v-if="rule.config.modelId">
-                            <p>
-                              Filter using
-                              {{
-                                mockModels.find((m) => m.id === rule.config.modelId)?.name ||
-                                rule.config.modelId
-                              }}
-                            </p>
-                            <p
-                              v-if="rule.config.userType === 'only' && rule.config.users"
-                              class="text-xs text-gray-500"
-                            >
-                              Only for: {{ rule.config.users }}
-                            </p>
-                            <p
-                              v-else-if="rule.config.userType === 'except' && rule.config.users"
-                              class="text-xs text-gray-500"
-                            >
-                              Except for: {{ rule.config.users }}
-                            </p>
-                            <p
-                              v-else-if="rule.config.userType === 'all'"
-                              class="text-xs text-gray-500"
-                            >
-                              Applies to all users
-                            </p>
-                            <div v-if="rule.config.prompt" class="mt-2 text-xs text-gray-500">
-                              <p class="font-medium mb-1">Prompt:</p>
-                              <div
-                                class="font-mono bg-gray-50 px-2 py-1 rounded border max-h-20 overflow-y-auto whitespace-pre-wrap"
-                              >
-                                {{ rule.config.prompt }}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                        <p class="text-xs text-gray-600 mt-1">Rule summary</p>
                       </div>
-
-                      <!-- Right side: Action Buttons -->
-                      <div class="flex gap-2 ml-4">
+                      <div class="flex gap-2">
                         <Button
                           variant="outline"
                           size="sm"
-                          class="text-gray-600"
                           @click="editPolicy(policy.id, rule.id)"
                         >
-                          <Edit class="h-4 w-4 mr-2" />
                           Edit
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
-                          class="text-red-600 hover:text-red-700"
                           @click="deletePolicy(policy.id, rule.id)"
                         >
-                          <Trash2 class="h-4 w-4 mr-2" />
                           Delete
                         </Button>
                       </div>
@@ -1582,49 +975,22 @@
                   </div>
                 </div>
               </div>
-
-              <!-- Custom Policies Info Box -->
-              <div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
-                <div class="flex items-start gap-4">
-                  <div class="p-2 bg-blue-100 rounded-full">
-                    <Info class="h-5 w-5 text-blue-600" />
-                  </div>
-                  <div class="flex-1">
-                    <h4 class="text-base font-medium text-gray-900 mb-2">Did you know?</h4>
-                    <p class="text-sm text-gray-700 mb-4">
-                      You can create your own custom policies for your specific needs using our SDK.
-                      Build policies tailored to your unique requirements and integrate them
-                      seamlessly.
-                    </p>
-                    <Button
-                      variant="outline"
-                      class="text-blue-700 border-blue-300 hover:bg-blue-100"
-                      @click="openCustomPoliciesDocs"
-                    >
-                      <ExternalLink class="h-4 w-4 mr-2" />
-                      View Documentation
-                    </Button>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 
-          <!-- Step 5: Review -->
-          <div v-if="currentSubStep === 5" class="space-y-8">
-            <!-- Endpoint Summary -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+          <!-- Step 5: Ready to Publish -->
+          <div v-if="currentSubStep === 5" class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
               <div class="space-y-6">
                 <div>
-                  <h2 class="text-xl font-semibold text-gray-900 mb-2">Endpoint Summary</h2>
+                  <h2 class="text-xl font-semibold text-gray-900 mb-2">Ready to Publish?</h2>
                   <p class="text-sm text-gray-600">
-                    Review your endpoint configuration before deployment
+                    Double-check everything looks right. You can always change these settings later.
                   </p>
                 </div>
 
                 <!-- Basic Information -->
                 <div class="border-l-4 border-blue-500 pl-4">
-                  <h3 class="font-medium text-gray-900 mb-2">Basic Information</h3>
+                  <h3 class="font-medium text-gray-900 mb-2">Your Content</h3>
                   <div class="space-y-3 text-sm">
                     <p>
                       <span class="font-medium">Name:</span>
@@ -1662,16 +1028,16 @@
 
                 <!-- Data Source -->
                 <div class="border-l-4 border-purple-500 pl-4">
-                  <h3 class="font-medium text-gray-900 mb-2">Data Source</h3>
+                  <h3 class="font-medium text-gray-900 mb-2">Source & Files</h3>
                   <div class="text-sm space-y-2">
                     <div v-if="selectedDataSourceType === 'filesystem'">
-                      <p><span class="font-medium">Type:</span> Files from your system</p>
+                      <p><span class="font-medium">Type:</span> Uploaded Files</p>
                       <p>
-                        <span class="font-medium">Files Selected:</span>
+                        <span class="font-medium">Files:</span>
                         {{
                           selectedFiles.length > 0
-                            ? selectedFiles.length + ' files'
-                            : 'Ready to select files during deployment'
+                            ? selectedFiles.length + ' file' + (selectedFiles.length > 1 ? 's' : '') + ' ready'
+                            : 'No files selected yet'
                         }}
                       </p>
                       <div v-if="selectedFiles.length > 0" class="mt-2 max-h-32 overflow-y-auto">
@@ -2046,11 +1412,16 @@
             </div>
 
             <!-- Endpoint Visibility Card -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+            <div v-if="currentSubStep === 5" class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
               <div class="space-y-6">
                 <div>
                   <h2 class="text-xl font-semibold text-gray-900 mb-2">Endpoint Visibility</h2>
                   <p class="text-sm text-gray-600">Configure who can discover your endpoint</p>
+                  <div class="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p class="text-sm text-green-800">
+                      <strong>Default:</strong> Public access - anyone can discover and use your endpoint
+                    </p>
+                  </div>
                 </div>
 
                 <div class="space-y-4">
@@ -2196,9 +1567,9 @@
             <Button
               @click="handleNext"
               :disabled="!isCurrentStepValid"
-              class="bg-purple-600 hover:bg-purple-700 text-white px-8 ml-auto"
+              class="bg-blue-600 hover:bg-blue-700 text-white px-8 ml-auto"
             >
-              {{ currentSubStep === 5 ? 'Publish Endpoint' : 'Next' }}
+              {{ currentSubStep === 5 ? 'Publish Now' : 'Continue' }}
               <ArrowRight class="ml-2 h-4 w-4" />
             </Button>
           </div>
@@ -2239,11 +1610,10 @@ import {
   DollarSign,
   UserCheck,
   Filter,
-  Edit,
-  Trash2,
-  Info,
   Globe,
   Lock,
+  Lightbulb,
+  ChevronRight,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -2252,14 +1622,6 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
@@ -2275,21 +1637,54 @@ const router = useRouter()
 // Sub-step navigation
 const currentSubStep = ref(1)
 
+// Progressive disclosure
+const showAdvancedOptions = ref(false)
+const showAdvancedDetails = ref(false)
+
+// Description template inspired by Kaggle data cards
+const defaultDescriptionTemplate = `## Dataset Overview
+Brief summary of what this dataset contains and its primary purpose...
+
+## Content Description
+- **Data types**: Text, images, numerical data, etc.
+- **Size**: Number of records, files, or approximate volume
+- **Format**: CSV, JSON, PDF, etc.
+- **Languages**: If applicable
+
+## Data Collection
+- **Source**: Where this data originated
+- **Collection method**: How it was gathered
+- **Time period**: Coverage dates or collection timeframe
+- **Update frequency**: How often this is refreshed
+
+## Potential Use Cases
+- Research applications
+- Business intelligence
+- Educational purposes
+- Other specific applications
+
+## Data Quality & Limitations
+- **Completeness**: Any missing data or gaps
+- **Accuracy**: Known issues or validation status  
+- **Biases**: Potential limitations or skews
+- **Ethical considerations**: Privacy, consent, fairness
+
+## Citation & Attribution
+How to properly cite or credit this dataset when used...`
+
 // Step titles and descriptions
 const stepTitles = [
-  'Basic Information',
-  'Select Data Source',
-  'Configure Output',
-  'Apply Policies',
-  'Review',
+  'What do you want to share?',
+  'How should it work?',
+  'Who can access it?',
+  'Add details & publish',
 ]
 
 const stepDescriptions = [
-  'Provide basic details about your endpoint',
-  'Choose where your data comes from',
-  'Define how your endpoint outputs information',
-  "Select rules to govern your endpoint's behavior and access",
-  'Review and deploy your endpoint',
+  'Upload files or connect to your existing database',
+  'Decide the format of the response users can receive from this content. Search provides most accuracy, while AI assistant answers are more nuanced.',
+  'Control who can access your content and whether to charge for it',
+  'Give your content a name and description so others know what you\'re sharing',
 ]
 
 // Form data
@@ -2299,8 +1694,8 @@ const formData = ref({
   description: '',
   tags: [] as string[],
   dataSource: '',
-  responseType: 'raw',
-  aiModel: '',
+  responseType: 'both', // Default to Search + AI
+  aiModel: 'code-assistant', // Default to the running Ollama model
   policies: {} as Record<string, boolean>,
 })
 
@@ -2319,7 +1714,7 @@ const showCreateDataSourceDialog = ref(false)
 const showCreateModelDialog = ref(false)
 
 // Endpoint visibility
-const endpointVisibility = ref<string>('')
+const endpointVisibility = ref<string>('public')
 const allowedUsers = ref<string[]>([])
 const allowedUserInput = ref('')
 const allowedUserError = ref('')
@@ -2382,6 +1777,7 @@ const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
   'ai-filters': null,
 })
 
+
 // Policy form data
 const authorizationForm = ref({
   ruleType: 'allow',
@@ -2434,40 +1830,40 @@ const policyTypes: PolicyType[] = [
   {
     id: 'authorization',
     name: 'Authorization',
-    label: 'Who can use this?',
-    description: 'Allow or deny specific users from accessing this endpoint',
+    label: 'Who can access?',
+    description: 'Control who can use your content - everyone, specific users, or by invitation',
     icon: Shield,
     color: 'blue',
   },
   {
     id: 'ratelimiter',
     name: 'Rate Limiter',
-    label: 'Handle traffic',
-    description: 'Control request rates to prevent abuse and ensure fair resource usage',
+    label: 'Prevent overuse',
+    description: 'Limit how many queries each user can make per day or hour',
     icon: Gauge,
     color: 'green',
   },
   {
     id: 'pricing',
     name: 'Pricing',
-    label: 'Charge for usage',
-    description: 'Set fixed per-request pricing and/or token-based pricing',
+    label: 'Set your price',
+    description: 'Charge per query or make it free - you decide',
     icon: DollarSign,
     color: 'yellow',
   },
   {
     id: 'manual-approval',
     name: 'Manual approval',
-    label: 'Need approval first?',
-    description: 'Require human approval for sensitive operations and decisions',
+    label: 'Review each request',
+    description: 'Approve or deny each query manually (recommended for sensitive data)',
     icon: UserCheck,
     color: 'purple',
   },
   {
     id: 'ai-filters',
     name: 'AI filters',
-    label: 'AI safety filters',
-    description: 'Filter or redact responses using an AI before sending them back.',
+    label: 'Content moderation',
+    description: 'Automatically filter out inappropriate or sensitive information',
     icon: Filter,
     color: 'red',
   },
@@ -2492,7 +1888,7 @@ const existingDataSourcesCount = computed(() => 3) // Based on the 3 sources in 
 
 // Step validation
 const isStep1Valid = computed(() => {
-  return formData.value.endpointName.trim() !== ''
+  return formData.value.endpointName.trim() !== '' && formData.value.summary.trim() !== ''
 })
 
 // Can save draft when we have name
@@ -2541,11 +1937,11 @@ const isStep5Valid = computed(() => {
 })
 
 const isCurrentStepValid = computed(() => {
-  if (currentSubStep.value === 1) return isStep1Valid.value
-  if (currentSubStep.value === 2) return isStep2Valid.value
-  if (currentSubStep.value === 3) return isStep3Valid.value
-  if (currentSubStep.value === 4) return isStep4Valid.value
-  return isStep5Valid.value
+  if (currentSubStep.value === 1) return isStep2Valid.value  // Step 1 is now "Choose your data" (was step 2)
+  if (currentSubStep.value === 2) return isStep3Valid.value  // Step 2 is now "Choose response format" (was step 3) 
+  if (currentSubStep.value === 3) return isStep4Valid.value  // Step 3 is now "Set Rules & Pricing" (was step 4)
+  if (currentSubStep.value === 4) return isStep1Valid.value  // Step 4 is now "Tell us more about it" (was step 1)
+  return isStep5Valid.value                                 // Step 5 remains "Review & Publish"
 })
 
 // Add tag
@@ -2562,6 +1958,123 @@ const removeTag = (index: number) => {
   formData.value.tags.splice(index, 1)
 }
 
+// Fill example data
+const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
+  switch (exampleType) {
+    case 'news':
+      formData.value.endpointName = 'herald-tribune-archives'
+      formData.value.summary = 'Historical news articles from 2010-2024'
+      formData.value.description = `## Dataset Overview
+Complete digital archive of Herald Tribune newspaper articles spanning 14 years of journalism, including investigative reporting, breaking news, editorial content, and community coverage.
+
+## Content Description
+- **Data types**: Full-text articles, headlines, bylines, publication metadata
+- **Size**: ~45,000 articles across 5,110 daily editions
+- **Format**: Structured text (JSON), original PDFs available
+- **Languages**: English (primary), some Spanish community coverage
+
+## Data Collection
+- **Source**: Herald Tribune newspaper digital publishing system
+- **Collection method**: Daily automated archival from CMS
+- **Time period**: January 2010 - December 2024
+- **Update frequency**: Daily (new articles added within 24 hours)
+
+## Potential Use Cases
+- Media trend analysis and journalism research
+- Historical event documentation and timeline construction
+- Natural language processing and sentiment analysis
+- Local community impact studies
+- Citation and fact-checking for academic research
+
+## Data Quality & Limitations
+- **Completeness**: 99.2% coverage (some technical outages in 2018)
+- **Accuracy**: Editorial standards maintained, corrections noted
+- **Biases**: Regional focus on local/state issues, editorial perspective reflected
+- **Ethical considerations**: Public domain articles, privacy-sensitive content redacted
+
+## Citation & Attribution
+"Herald Tribune Archives (2010-2024)." Please cite as: Herald Tribune Digital Archive, accessed [date]. Attribution required for commercial use.`
+      formData.value.tags = ['news', 'journalism', 'politics', 'business', 'local-news']
+      break
+      
+    case 'research':
+      formData.value.endpointName = 'cancer-research-publications'
+      formData.value.summary = 'Peer-reviewed cancer research papers and clinical studies'
+      formData.value.description = `## Dataset Overview
+Curated collection of peer-reviewed cancer research publications from high-impact medical journals, focusing on treatment efficacy, prevention strategies, and clinical trial outcomes.
+
+## Content Description
+- **Data types**: Research abstracts, full-text papers, metadata, citation networks
+- **Size**: 12,847 papers from 156 journals (2.3GB structured data)
+- **Format**: JSON metadata, PDF full-text, CSV summary tables
+- **Languages**: English (94%), with abstracts in original languages
+
+## Data Collection
+- **Source**: PubMed, PMC, journal APIs (Nature, NEJM, Lancet, JCO)
+- **Collection method**: Automated API harvesting with manual curation
+- **Time period**: January 2015 - Present (9+ years)
+- **Update frequency**: Weekly updates with 2-week embargo
+
+## Potential Use Cases
+- Systematic reviews and meta-analyses
+- Drug discovery and biomarker identification  
+- Clinical decision support systems
+- Medical education and training datasets
+- Healthcare policy evidence synthesis
+- AI/ML model training for medical NLP
+
+## Data Quality & Limitations
+- **Completeness**: 85% coverage of major oncology journals (paywall limitations)
+- **Accuracy**: Peer-reviewed sources only, automated extraction ~97% accurate
+- **Biases**: English-language bias, overrepresentation of Western research
+- **Ethical considerations**: IRB-approved studies only, patient privacy protected
+
+## Citation & Attribution
+Cite individual papers per journal requirements. Dataset citation: "Cancer Research Publications Dataset v2.1" DOI: 10.5281/zenodo.example. Institutional access required for full text.`
+      formData.value.tags = ['research', 'medical', 'oncology', 'clinical-trials', 'peer-reviewed']
+      break
+      
+    case 'library':
+      formData.value.endpointName = 'technical-manuals-collection'
+      formData.value.summary = 'Product guides and technical documentation'
+      formData.value.description = `## Dataset Overview
+Comprehensive technical documentation library containing user manuals, API references, installation guides, and system administration procedures across multiple technology domains.
+
+## Content Description
+- **Data types**: Technical documents, code examples, configuration files, diagrams
+- **Size**: 3,200+ documents totaling 1.8GB (PDF, Markdown, HTML)
+- **Format**: Structured docs (Markdown), PDFs, interactive examples
+- **Languages**: English (primary), with localized versions in 12 languages
+
+## Data Collection
+- **Source**: Official product documentation, open-source projects, vendor portals
+- **Collection method**: Automated scraping with manual quality control
+- **Time period**: 2020-Present (focus on current/supported versions)
+- **Update frequency**: Monthly synchronization with upstream sources
+
+## Potential Use Cases
+- Developer onboarding and training programs
+- Technical support and troubleshooting automation
+- Documentation standardization projects
+- API integration and system deployment
+- Technical writing style analysis
+- Search and knowledge base systems
+
+## Data Quality & Limitations
+- **Completeness**: 95% coverage of major platforms (some proprietary docs excluded)
+- **Accuracy**: Version-controlled, links verified quarterly
+- **Biases**: Emphasis on popular/widely-adopted technologies
+- **Ethical considerations**: Respects vendor licensing, no proprietary code included
+
+## Citation & Attribution
+Reference original vendor documentation. Collection metadata: "Technical Documentation Corpus v3.2" - Educational and commercial use permitted with attribution.`
+      formData.value.tags = ['documentation', 'technical', 'manuals', 'api', 'guides']
+      break
+  }
+}
+
+// Apply access presets
+
 // Select data source type
 const selectDataSourceType = (type: string) => {
   selectedDataSourceType.value = type
@@ -2575,6 +2088,11 @@ const selectDataSourceType = (type: string) => {
   if (type !== 'filesystem') {
     selectedFiles.value = []
   }
+}
+
+// Select response type
+const selectResponseType = (type: 'raw' | 'summary' | 'both') => {
+  formData.value.responseType = type
 }
 
 // Handle data source created
@@ -2643,36 +2161,6 @@ const addPolicy = (policyId: PolicyTypeId) => {
   })
 }
 
-const savePolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  let config = { id: ruleId }
-
-  switch (policyId) {
-    case 'authorization':
-      config = { ...config, ...authorizationForm.value }
-      break
-    case 'ratelimiter':
-      config = { ...config, ...rateLimiterForm.value }
-      break
-    case 'pricing':
-      config = { ...config, ...pricingForm.value }
-      break
-    case 'manual-approval':
-      config = { ...config, ...manualApprovalForm.value }
-      break
-    case 'ai-filters':
-      config = { ...config, ...aiFiltersForm.value }
-      break
-  }
-
-  // Find and update the rule
-  const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
-  if (rule) {
-    rule.config = config as PolicyConfig
-    rule.isEditing = false
-  }
-
-  editingRuleId.value[policyId] = null
-}
 
 const editPolicy = (policyId: PolicyTypeId, ruleId: string) => {
   // Set other rules to not editing
@@ -2702,26 +2190,6 @@ const deletePolicy = (policyId: PolicyTypeId, ruleId: string) => {
   }
 }
 
-const cancelEdit = (policyId: PolicyTypeId, ruleId: string) => {
-  const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
-  if (rule) {
-    // Check if this is a new rule (config is empty or only has id)
-    const configKeys = Object.keys(rule.config).filter((key) => key !== 'id')
-    const hasActualConfig = configKeys.some((key) => {
-      const value = rule.config[key]
-      return value && String(value).trim() !== ''
-    })
-
-    if (!hasActualConfig) {
-      // New rule with no saved data - remove it completely
-      deletePolicy(policyId, ruleId)
-    } else {
-      // Existing rule - just collapse it
-      rule.isEditing = false
-      editingRuleId.value[policyId] = null
-    }
-  }
-}
 
 const resetFormData = (policyId: PolicyTypeId) => {
   switch (policyId) {
@@ -2867,9 +2335,6 @@ const openCustomSDKDocs = () => {
 }
 
 // Open custom policies documentation
-const openCustomPoliciesDocs = () => {
-  window.open('https://docs.openmined.org/custom-policies', '_blank')
-}
 
 // Get selected model details
 const getSelectedModel = () => {
@@ -2877,9 +2342,6 @@ const getSelectedModel = () => {
 }
 
 // Handle AI Filter Create Model
-const handleAIFilterCreateModel = () => {
-  showCreateModelDialog.value = true
-}
 
 // Handle Step 3 Create Model
 const handleStep3CreateModel = () => {
@@ -2978,4 +2440,5 @@ const refreshForm = () => {
   console.log('Refreshing endpoint creation form...')
   // Could reset form data to initial state
 }
+
 </script>

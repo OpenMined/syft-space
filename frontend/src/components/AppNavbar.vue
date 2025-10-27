@@ -39,10 +39,11 @@ const navigateTo = (routeName: string) => {
 
 const tabs = [
   { id: 'home', label: 'Home' },
-  { id: 'endpoints', label: 'Endpoints' },
   { id: 'datasets', label: 'Datasets' },
   { id: 'models', label: 'Models' },
+  { id: 'endpoints', label: 'Endpoints' },
   { id: 'inbox', label: 'Inbox' },
+  { id: 'analytics', label: 'Analytics' },
 ]
 </script>
 
@@ -54,10 +55,10 @@ const tabs = [
         <div
           class="h-8 w-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center"
         >
-          <span class="text-white font-bold text-lg">S</span>
+          <span class="text-white font-bold text-base">S</span>
         </div>
-        <span class="text-xl font-bold text-gray-900 tracking-tight">
-          SyftAI Server
+        <span class="text-lg font-bold text-gray-900 tracking-tight">
+          SyftAI Space
           <span class="ml-1 text-xs font-semibold text-purple-600 align-top">BETA</span>
         </span>
       </div>

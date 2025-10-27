@@ -1,16 +1,18 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="max-w-7xl mx-auto px-8 lg:px-16 py-12">
     <!-- Header -->
-    <div class="flex items-center gap-3 mb-2">
-      <Settings class="h-6 w-6 text-gray-600" />
-      <h1 class="text-2xl font-semibold text-gray-900">Settings</h1>
+    <div class="mb-10">
+      <div class="flex items-center gap-3 mb-3">
+        <Settings class="h-5 w-5 text-gray-600" />
+        <h1 class="text-3xl font-light text-primary" style="font-family: var(--font-primary); font-weight: 400;">Settings</h1>
+      </div>
+      <p class="text-gray-600">Configure your workspace preferences</p>
     </div>
-    <p class="text-gray-600 mb-8">Manage your system and server configuration</p>
 
     <!-- Content -->
     <div class="space-y-6">
       <!-- Wallet Manager Section -->
-      <div class="bg-white border border-gray-200 rounded-lg p-6">
+      <div class="bg-white border border-gray-200 rounded-xl p-6">
         <div class="flex items-center gap-3 mb-6">
           <div class="p-2 bg-purple-100 rounded-md">
             <Shield class="h-5 w-5 text-purple-600" />
@@ -24,7 +26,7 @@
         </div>
 
         <!-- Warning Alert -->
-        <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
           <div class="flex items-start gap-3">
             <AlertCircle class="h-5 w-5 text-yellow-600 mt-0.5" />
             <p class="text-sm text-yellow-800">
