@@ -4,9 +4,9 @@
     <div class="mb-10">
       <div class="flex items-center gap-3 mb-3">
         <Brain class="h-6 w-6 text-[var(--color-secondary)]" />
-        <h1 class="text-3xl font-heading font-semibold text-[var(--color-text)]">Your Models</h1>
+        <h1 class="text-2xl font-bold text-gray-900">Your Models</h1>
       </div>
-      <p class="text-sm text-[var(--color-text-light)] md:max-w-[50%]">Models here are accessible only for your private use. They're ideal for building powerful flows on your machine; expose them to others later by creating endpoints.</p>
+      <p class="text-gray-600 md:max-w-[50%]">Models here are accessible only for your private use. They're ideal for building powerful flows on your machine; expose them to others later by creating endpoints.</p>
     </div>
 
     <!-- Header with tabs and search bar -->
@@ -54,8 +54,8 @@
         class="bg-[var(--color-bg-light)] border border-[var(--color-border)] rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
         @click="navigateToDetail(model.name)"
       >
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-4">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-4">
             <div
               :class="[
                 'p-3.5 rounded-xl',
@@ -70,7 +70,7 @@
             </div>
             <div class="flex-1">
               <div class="flex items-center gap-3 mb-2">
-                <h3 class="text-lg font-heading font-medium text-[var(--color-text)]">{{ model.name }}</h3>
+                <h3 class="text-lg font-semibold text-gray-900">{{ model.name }}</h3>
                 <Badge
                   variant="outline"
                   :class="
@@ -135,7 +135,7 @@
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p class="text-[var(--color-text-light)] mb-4">
+              <p class="text-gray-600 mb-4">
                 {{ model.description }}
               </p>
               <div class="flex gap-2">
@@ -143,7 +143,7 @@
                   v-for="tag in model.tags"
                   :key="tag"
                   variant="outline"
-                  class="text-xs px-3 py-1 rounded-full border-[var(--color-border)] text-[var(--color-text-light)]"
+                  class="text-xs px-3 py-1 rounded-full border-gray-200 text-gray-600"
                 >
                   {{ tag }}
                 </Badge>

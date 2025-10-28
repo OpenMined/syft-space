@@ -125,7 +125,7 @@ const formatTimestamp = (date: Date) => {
     <div class="mb-10">
       <div class="flex items-center gap-3 mb-3">
         <Inbox class="h-6 w-6 text-[var(--color-warning)]" />
-        <h1 class="text-3xl font-heading font-semibold text-[var(--color-text)]">Your Inbox</h1>
+        <h1 class="text-2xl font-bold text-gray-900">Your Inbox</h1>
         <Badge
           v-if="inboxStore.unreadCount > 0"
           variant="secondary"
@@ -134,7 +134,7 @@ const formatTimestamp = (date: Date) => {
           {{ inboxStore.unreadCount }} new
         </Badge>
       </div>
-      <p class="text-sm text-[var(--color-text-light)] md:max-w-[50%]">Your inbox collects system alerts and requests related to your resources and endpoints. Review items here to approve access, resolve issues, and keep things running smoothly.</p>
+      <p class="text-gray-600 md:max-w-[50%]">Your inbox collects system alerts and requests related to your resources and endpoints. Review items here to approve access, resolve issues, and keep things running smoothly.</p>
     </div>
 
     <!-- Tabs -->

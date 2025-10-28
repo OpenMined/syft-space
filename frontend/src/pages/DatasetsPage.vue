@@ -4,9 +4,9 @@
     <div class="mb-10">
       <div class="flex items-center gap-3 mb-3">
         <Database class="h-6 w-6 text-[var(--color-info)]" />
-        <h1 class="text-3xl font-heading font-semibold text-[var(--color-text)]">Your Datasets</h1>
+        <h1 class="text-2xl font-bold text-gray-900">Your Datasets</h1>
       </div>
-      <p class="text-sm text-[var(--color-text-light)] md:max-w-[50%]">Datasets are local data sources only you can see and use. Power AI workflows and queries locally; share access later via endpoints.</p>
+      <p class="text-gray-600 md:max-w-[50%]">Datasets are local data sources only you can see and use. Power AI workflows and queries locally; share access later via endpoints.</p>
     </div>
 
     <!-- Actions Bar -->
@@ -33,23 +33,24 @@
         class="bg-[var(--color-bg-light)] border border-[var(--color-border)] rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
         @click="navigateToDetail(dataSource.name)"
       >
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-4">
-            <div
-              :class="[
-                'p-3.5 rounded-xl',
-                dataSource.type === 'weaviate'
-                  ? 'bg-purple-100'
-                  : dataSource.type === 'qdrant'
-                    ? 'bg-blue-100'
-                    : 'bg-green-100',
-              ]"
-            >
-              <IntegrationIcon :name="dataSource.type" class="h-6 w-6" />
-            </div>
-            <div class="flex-1">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <div class="flex items-start gap-4">
+              <div
+                :class="[
+                  'p-3.5 rounded-xl',
+                  dataSource.type === 'weaviate'
+                    ? 'bg-purple-100'
+                    : dataSource.type === 'qdrant'
+                      ? 'bg-blue-100'
+                      : 'bg-green-100',
+                ]"
+              >
+                <Database class="h-6 w-6 text-gray-700" />
+              </div>
+              <div class="flex-1">
               <div class="flex items-center gap-3 mb-2">
-                <h3 class="font-heading font-medium text-[var(--color-text)] text-lg">{{ dataSource.name }}</h3>
+                <h3 class="text-lg font-semibold text-gray-900">{{ dataSource.name }}</h3>
                 <Badge
                   variant="outline"
                   :class="
@@ -114,18 +115,52 @@
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p class="text-[var(--color-text-light)] mb-4">
+              <p class="text-gray-600 mb-4">
                 {{ dataSource.description }}
               </p>
+              
+              <!-- Watched Paths Preview -->
+              <div class="mb-4 space-y-2 pl-2">
+                <div v-if="dataSource.isCustom" class="text-sm text-gray-500">
+                  📂 <span class="italic">Custom dataset - manually configured</span>
+                </div>
+                
+                <div v-else-if="!dataSource.watchedPaths || dataSource.watchedPaths.length === 0" class="text-sm text-gray-500">
+                  📂 <span class="italic">No paths configured</span>
+                </div>
+                
+                <div v-else class="space-y-1">
+                  <div class="text-sm text-gray-500 flex items-center gap-2">
+                    📂 <span class="font-medium">Files & Folders:</span>
+                  </div>
+                  <div class="ml-6 space-y-1 py-1">
+                    <div 
+                      v-for="path in getPathsPreview(dataSource).paths" 
+                      :key="path"
+                      class="text-sm font-mono text-gray-500 opacity-75"
+                    >
+                      {{ path }}
+                    </div>
+                    <div 
+                      v-if="getPathsPreview(dataSource).hasMore" 
+                      class="text-sm text-gray-500 opacity-60 italic"
+                    >
+                      +{{ getPathsPreview(dataSource).totalCount - 3 }} more...
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
               <div class="flex gap-2">
                 <Badge
                   v-for="tag in dataSource.tags"
                   :key="tag"
                   variant="outline"
-                  class="text-xs px-3 py-1 rounded-full border-[var(--color-border)] text-[var(--color-text-light)]"
+                  class="text-xs px-3 py-1 rounded-full border-gray-200 text-gray-600"
                 >
                   {{ tag }}
                 </Badge>
+              </div>
               </div>
             </div>
           </div>
@@ -133,7 +168,7 @@
             <Button
               variant="outline"
               size="sm"
-              class="text-[var(--color-text-light)] hover:text-[var(--color-text)] border-[var(--color-border)] px-4 py-2 rounded-lg"
+              class="text-gray-600 hover:text-gray-900 border-gray-200 px-4 py-2 rounded-lg"
               @click.stop="handleEditDataset(dataSource)"
             >
               <Edit class="h-4 w-4 mr-2" />
@@ -142,7 +177,7 @@
             <Button
               variant="outline"
               size="sm"
-              class="text-[var(--color-danger)] hover:text-[var(--color-danger-strong)] border-[var(--color-border)] px-4 py-2 rounded-lg"
+              class="text-red-600 hover:text-red-700 border-gray-200 px-4 py-2 rounded-lg"
               @click.stop="handleDeleteDataset(dataSource)"
             >
               <Trash2 class="h-4 w-4 mr-2" />
@@ -280,7 +315,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDatasetDialog from '@/components/CreateDatasetDialog.vue'
 
 interface DataSource {
@@ -291,6 +325,8 @@ interface DataSource {
   tags: string[]
   status: 'running' | 'stopped'
   endpointCount: number
+  watchedPaths?: string[]
+  isCustom?: boolean
 }
 
 interface Endpoint {
@@ -335,6 +371,8 @@ const dataSources = ref<DataSource[]>([
     tags: ['legal', 'documents', 'analysis'],
     status: 'running',
     endpointCount: 3,
+    watchedPaths: ['/data/legal/contracts', '/data/legal/cases', '/data/legal/regulations', '/data/legal/archived'],
+    isCustom: false,
   },
   {
     id: '2',
@@ -344,6 +382,8 @@ const dataSources = ref<DataSource[]>([
     tags: ['customer', 'analytics', 'segmentation'],
     status: 'running',
     endpointCount: 1,
+    watchedPaths: ['/data/analytics/surveys', '/data/analytics/feedback'],
+    isCustom: false,
   },
   {
     id: '3',
@@ -353,6 +393,7 @@ const dataSources = ref<DataSource[]>([
     tags: ['research', 'papers', 'knowledge'],
     status: 'stopped',
     endpointCount: 0,
+    isCustom: true,
   },
 ])
 
@@ -462,6 +503,38 @@ const toggleEndpoint = (endpointName: string) => {
     checkedEndpoints.value.splice(index, 1)
   } else {
     checkedEndpoints.value.push(endpointName)
+  }
+}
+
+// Get preview paths for dataset card
+const getPathsPreview = (dataSource: DataSource) => {
+  if (dataSource.isCustom) {
+    return {
+      isCustom: true,
+      paths: [],
+      hasMore: false,
+      totalCount: 0
+    }
+  }
+  
+  if (!dataSource.watchedPaths || dataSource.watchedPaths.length === 0) {
+    return {
+      isCustom: false,
+      paths: [],
+      hasMore: false,
+      totalCount: 0
+    }
+  }
+  
+  // Show first 3 paths with "..." if there are more
+  const pathsToShow = dataSource.watchedPaths.slice(0, 3)
+  const hasMore = dataSource.watchedPaths.length > 3
+  
+  return {
+    isCustom: false,
+    paths: pathsToShow,
+    hasMore,
+    totalCount: dataSource.watchedPaths.length
   }
 }
 </script>

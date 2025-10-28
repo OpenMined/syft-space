@@ -23,7 +23,7 @@
               </div>
               <div class="flex items-start gap-2">
                 <span class="text-amber-600">•</span>
-                <span><strong>Do you want to provide AI responses?</strong> (chatbot, Q&A, analysis) → Choose <strong>AI Models</strong></span>
+                <span><strong>Do you want to bring your specialized AI model?</strong> → Choose <strong>AI Models</strong></span>
               </div>
             </div>
           </div>
@@ -151,18 +151,15 @@ const emit = defineEmits<Emits>()
 
 const router = useRouter()
 
-const selectEndpointType = async (type: 'data' | 'model') => {
-  // Close the modal first
+const selectEndpointType = (type: 'data' | 'model') => {
+  // Close modal first
   emit('update:open', false)
   
-  // Wait a small delay to ensure modal closes
-  await new Promise(resolve => setTimeout(resolve, 100))
-  
-  // Navigate to the appropriate page using direct paths
+  // Navigate using named routes
   if (type === 'data') {
-    await router.push('/create/data-endpoint')
+    router.push({ name: 'create-data-endpoint' })
   } else if (type === 'model') {
-    await router.push('/create/model-endpoint')
+    router.push({ name: 'create-model-endpoint' })
   }
 }
 </script>

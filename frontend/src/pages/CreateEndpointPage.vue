@@ -42,7 +42,7 @@
             </div>
             <div class="flex items-start gap-2">
               <span class="text-amber-600">•</span>
-              <span><strong>Do you want to provide AI responses?</strong> (chatbot, Q&A, analysis) → Choose <strong>AI Models</strong></span>
+              <span><strong>Do you want to bring your own specialized AI model?</strong> → Choose <strong>AI Models</strong></span>
             </div>
           </div>
         </div>

@@ -176,22 +176,57 @@
           <!-- Overview Tab -->
           <TabsContent value="overview" class="space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <!-- Description -->
-              <div class="lg:col-span-2 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <FileText class="h-5 w-5 text-gray-500" />
-                  Description
-                </h2>
-                <div class="prose prose-sm max-w-none text-gray-600">
-                  <div v-if="endpoint.description" class="markdown-content">
-                    <MdPreview
-                      :model-value="endpoint.description"
-                      preview-theme="default"
-                      :show-code-row-number="false"
-                    />
+              <!-- Description and Data Sources -->
+              <div class="lg:col-span-2 space-y-6">
+                <!-- Description -->
+                <div class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm p-6">
+                  <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <FileText class="h-5 w-5 text-gray-500" />
+                    Description
+                  </h2>
+                  <div class="prose prose-sm max-w-none text-gray-600">
+                    <div v-if="endpoint.description" class="markdown-content">
+                      <MdPreview
+                        :model-value="endpoint.description"
+                        preview-theme="default"
+                        :show-code-row-number="false"
+                      />
+                    </div>
+                    <div v-else>
+                      {{ endpoint.summary }}
+                    </div>
                   </div>
-                  <div v-else>
-                    {{ endpoint.summary }}
+                </div>
+
+                <!-- Data Sources -->
+                <div class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm p-6">
+                  <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Database class="h-5 w-5 text-gray-500" />
+                    Data Sources
+                  </h2>
+                  <div class="space-y-3">
+                    <div 
+                      v-for="path in getEndpointDataSources()" 
+                      :key="path.id"
+                      class="p-3 bg-gray-50/50 border border-gray-100 rounded-lg"
+                    >
+                      <div class="flex items-start gap-3">
+                        <div 
+                          :class="[
+                            'w-2 h-2 rounded-full mt-1.5',
+                            path.status === 'indexed' ? 'bg-green-500' :
+                            path.status === 'processing' ? 'bg-blue-500' :
+                            path.status === 'queued' ? 'bg-yellow-500' :
+                            path.status === 'errored' ? 'bg-red-500' : 'bg-gray-400'
+                          ]"
+                        ></div>
+                        <div class="flex-1">
+                          <p class="text-xs font-medium text-gray-900">{{ path.path }}</p>
+                          <p class="text-xs text-gray-500 mt-1">{{ path.fileCount }} files</p>
+                          <p class="text-xs text-gray-600 mt-1 italic">{{ path.summary }}</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -723,6 +758,7 @@ import {
   Plus,
   Users,
   BarChart3,
+  Database,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -812,6 +848,33 @@ const getEndpointRevenue = () => {
     paidRequests: '30.4k',
     conversionRate: '18.3%',
   }
+}
+
+const getEndpointDataSources = () => {
+  // Return the same data sources that the endpoint uses
+  return [
+    {
+      id: '1',
+      path: '/data/legal/contracts',
+      fileCount: 1247,
+      status: 'indexed',
+      summary: 'Commercial agreements, service contracts, and partnership documents'
+    },
+    {
+      id: '2',
+      path: '/data/legal/cases',
+      fileCount: 856,
+      status: 'processing',
+      summary: 'Court decisions, case law, and legal precedents from various jurisdictions'
+    },
+    {
+      id: '3',
+      path: '/data/legal/regulations',
+      fileCount: 423,
+      status: 'queued',
+      summary: 'Federal and state regulations, compliance guidelines, and regulatory updates'
+    }
+  ]
 }
 
 const deleteEndpoint = () => {

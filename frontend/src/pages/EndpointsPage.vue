@@ -6,9 +6,9 @@
         <div>
           <div class="flex items-center gap-3 mb-3">
             <Server class="h-6 w-6 text-[var(--color-accent)]" />
-            <h1 class="text-3xl font-heading font-semibold text-[var(--color-text)]">Your Endpoints</h1>
+            <h1 class="text-2xl font-bold text-gray-900">Your Endpoints</h1>
           </div>
-          <p class="text-sm text-[var(--color-text-light)] md:max-w-[50%]">Endpoints are the way to safely share your datasets and models. Create as many as you need per resource, each with its own rules, access controls, and tracking.</p>
+          <p class="text-gray-600 md:max-w-[50%]">Endpoints are the way to safely share your datasets and models. Create as many as you need per resource, each with its own rules, access controls, and tracking.</p>
         </div>
         <div class="flex items-center gap-3">
           <!-- Help Info -->

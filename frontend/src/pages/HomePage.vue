@@ -143,7 +143,7 @@
                   <button @click="$router.push('/datasets')" class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-50 transition-colors">
                     <Database class="w-4 h-4 text-blue-600" />
                     <span class="text-2xl font-light text-gray-900">12</span>
-                    <span class="text-sm text-gray-500">Documents</span>
+                    <span class="text-sm text-gray-500">Datasets</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>

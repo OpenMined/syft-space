@@ -15,13 +15,15 @@ export interface EndpointItem {
   mcpCompatible: boolean
   tags: string[]
   status: ValueOf<typeof STATUS_OPTIONS>
+  watchedPaths?: string[]
+  isCustom?: boolean
 }
 
 export const useEndpointsStore = defineStore('endpoints', () => {
   const endpoints = ref<EndpointItem[]>([
     {
       id: '1',
-      name: 'animalsofsouthafrica',
+      name: 'test@openmined.org/animalsofsouthafrica',
       summary: 'Species records, park reports, conservation notes.',
       description: `This dataset contains comprehensive information about the diverse wildlife found across South Africa's various ecosystems, from the arid Karoo to the lush coastal regions.
 
@@ -54,10 +56,12 @@ All entries undergo verification by trained biologists and cross-referencing wit
       mcpCompatible: true,
       tags: ['domain:wildlife'],
       status: 'published',
+      watchedPaths: ['/data/wildlife/species', '/data/wildlife/conservation', '/data/wildlife/parks'],
+      isCustom: false,
     },
     {
       id: '2',
-      name: 'lexcivillaw',
+      name: 'test@openmined.org/lexcivillaw',
       summary: 'Civil code, case law digests, firm memos (EU focus).',
       description: `This dataset contains comprehensive European civil law materials including case law, civil codes, legal commentary, and regulatory frameworks from across the European Union and associated jurisdictions.
 
@@ -90,10 +94,12 @@ All legal documents undergo verification by qualified legal professionals and cr
       mcpCompatible: false,
       tags: ['domain:legal', 'language:de'],
       status: 'published',
+      watchedPaths: ['/data/legal/cases', '/data/legal/codes', '/data/legal/eu-regulations', '/data/legal/commentary'],
+      isCustom: false,
     },
     {
       id: '3',
-      name: 'meddevicerecords',
+      name: 'test@openmined.org/meddevicerecords',
       summary: 'Hospital device logs, maintenance + UDI registry links.',
       description: `This dataset contains comprehensive information about medical devices and equipment used across St. Mary's Hospital network, including installation records, maintenance schedules, and operational status.
 
@@ -125,6 +131,7 @@ All records undergo verification by biomedical engineers and cross-referencing w
       mcpCompatible: false,
       tags: ['domain:healthcare'],
       status: 'draft',
+      isCustom: true,
     },
   ])
 

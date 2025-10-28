@@ -9,6 +9,8 @@ import AnalyticsPage from '../pages/AnalyticsPage.vue'
 import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
 import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
+import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
+import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -70,12 +72,12 @@ const router = createRouter({
     {
       path: '/create/data-endpoint',
       name: 'create-data-endpoint',
-      component: () => import('../pages/CreateDataEndpointPage.vue'),
+      component: CreateDataEndpointPage,
     },
     {
       path: '/create/model-endpoint',
       name: 'create-model-endpoint',
-      component: () => import('../pages/CreateModelEndpointPage.vue'),
+      component: CreateModelEndpointPage,
     },
   ],
 })
