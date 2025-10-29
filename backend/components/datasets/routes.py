@@ -7,7 +7,8 @@ from .schemas import DatasetType
 
 
 def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
-    router = APIRouter(prefix="/datasets/")
+    """Build the dataset routes."""
+    router = APIRouter(prefix="/datasets")
 
     def get_handler() -> DatasetHandler:
         """Get the dataset handler."""

@@ -4,8 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi import APIRouter, status
 from fastapi.responses import RedirectResponse
 from components.datasets.handlers import DatasetHandler
-from components.datasets.registry import DATA_SOURCE_REGISTRY
-from components.datasets.routes import build_data_source_routes
+from components.datasets.registry import DATASET_TYPE_REGISTRY
+from components.datasets.routes import build_dataset_routes
 
 # Import the data_sources package to trigger all registrations
 import components.datasets  # noqa: F401
@@ -32,9 +32,9 @@ app.add_middleware(
 # Create a router
 router = APIRouter(prefix="/api/v1")
 
-# Add the data source routes to the router
+# Add the dataset routes to the router
 router.include_router(
-    build_data_source_routes(DatasetHandler(registry=DATA_SOURCE_REGISTRY))
+    build_dataset_routes(DatasetHandler(registry=DATASET_TYPE_REGISTRY))
 )
 
 
