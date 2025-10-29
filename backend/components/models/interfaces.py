@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Protocol
-from pydantic import BaseModel
-from pydantic import EmailStr, Field
+
 from components.integrations.schemas import HealthcheckResponse, SearchParameters
+from pydantic import BaseModel, EmailStr, Field
 
 
 class Context(BaseModel):

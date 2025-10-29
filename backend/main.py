@@ -1,24 +1,22 @@
-from fastsyftbox import FastSyftBox
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from syft_core.config import SyftClientConfig
 from fastapi import APIRouter, status
 from fastapi.responses import RedirectResponse
-from components.data_sources.handlers import DataSourceHandler
-from components.data_sources.registry import DATA_SOURCE_REGISTRY
-from components.data_sources.routes import build_data_source_routes
+from components.datasets.handlers import DatasetHandler
+from components.datasets.registry import DATA_SOURCE_REGISTRY
+from components.datasets.routes import build_data_source_routes
 
 # Import the data_sources package to trigger all registrations
-import components.data_sources  # noqa: F401
+import components.datasets  # noqa: F401
 
 from .config import app_settings
 
 
-app = FastSyftBox(
-    app_name="SyftAIServer",
-    syftbox_config=SyftClientConfig.load(app_settings.syftbox_config_path),
-    version="1.0.0",
-    syftbox_endpoint_tags=["syftbox"],
+app = FastAPI(
+    title="Syft AI Server",
+    description="Syft AI Server is a server for the Syft AI platform.",
+    version="0.1.0",
     debug=app_settings.debug,
 )
 
@@ -36,7 +34,7 @@ router = APIRouter(prefix="/api/v1")
 
 # Add the data source routes to the router
 router.include_router(
-    build_data_source_routes(DataSourceHandler(registry=DATA_SOURCE_REGISTRY))
+    build_data_source_routes(DatasetHandler(registry=DATA_SOURCE_REGISTRY))
 )
 
 

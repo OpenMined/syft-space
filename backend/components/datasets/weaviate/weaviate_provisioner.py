@@ -1,19 +1,20 @@
 import asyncio
-from pathlib import Path
 import subprocess
-from typing import Dict, Any, Optional, List
-from components.data_sources.interfaces import DataSourceProvisioner
-import requests
 import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import requests
 from loguru import logger
-from components.data_sources.interfaces import DataSourceProvisioner
-from components.data_sources.registry import DATA_SOURCE_REGISTRY
+
+from components.datasets.interfaces import BaseDatasetTypeProvisioner
+from components.datasets.registry import DATASET_TYPE_REGISTRY
 
 
-class WeaviateProvisioner(DataSourceProvisioner):
+class WeaviateProvisioner(BaseDatasetTypeProvisioner):
     """Provisioner for Weaviate - synchronous by default."""
 
-    SOURCE_NAME = "weaviate"
+    NAME = "weaviate"
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
@@ -121,4 +122,4 @@ class WeaviateProvisioner(DataSourceProvisioner):
             return ["docker-compose"]
 
 
-DATA_SOURCE_REGISTRY.register_provisioner(WeaviateProvisioner)
+DATASET_TYPE_REGISTRY.register_provisioner(WeaviateProvisioner)

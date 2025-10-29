@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import Type, Dict
+
+from typing import Dict, Type
+
 from .interfaces import ModelSource, ModelSourceProvisioner
 
 _model_sources: Dict[str, Type[ModelSource]] = {}

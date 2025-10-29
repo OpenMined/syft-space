@@ -1,28 +1,28 @@
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-from components.data_sources.interfaces import DataSource, Context
-from components.data_sources.registry import DATA_SOURCE_REGISTRY
-from components.data_sources.schemas import (
-    SearchParameters,
-    SearchResult,
-    SearchedDocument,
+from typing import Any, Dict, List, Optional
+
+from components.datasets.interfaces import BaseDatasetType, Context
+from components.datasets.registry import DATASET_TYPE_REGISTRY
+from components.datasets.schemas import (
     HealthcheckResponse,
     HealthcheckStatus,
+    SearchedDocument,
+    SearchParameters,
+    SearchResult,
 )
-
 
 try:
     import weaviate
-    from weaviate.classes.query import MetadataQuery
     from docling.document_converter import DocumentConverter
+    from weaviate.classes.query import MetadataQuery
 
     enabled = True
 except ImportError:
     enabled = False
 
 
-class Weaviate(DataSource):
+class Weaviate(BaseDatasetType):
     """Weaviate is a vector database that allows you to store and query your data.
 
     It uses transformers to embed your data and then allows you to query it using a similarity search.
@@ -31,7 +31,7 @@ class Weaviate(DataSource):
     Docs: https://weaviate.io/developers/weaviate/current/getting-started/introduction.html
     """
 
-    SOURCE_NAME = "weaviate"
+    NAME = "weaviate"
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
@@ -164,7 +164,7 @@ class Weaviate(DataSource):
         return SearchResult(
             documents=documents,
             cost=0.0,
-            search_engine=self.SOURCE_NAME,
+            search_engine=self.name(),
             api_version="1.0.0",
         )
 
@@ -185,4 +185,4 @@ class Weaviate(DataSource):
         )
 
 
-DATA_SOURCE_REGISTRY.register_source(Weaviate)
+DATASET_TYPE_REGISTRY.register_dataset_type(Weaviate)

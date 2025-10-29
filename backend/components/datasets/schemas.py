@@ -1,5 +1,6 @@
 from enum import Enum
-from typing import Dict, List, Any
+from typing import Any, Dict, List
+
 from pydantic import BaseModel, Field
 
 
@@ -56,7 +57,7 @@ class SearchResult(BaseModel):
     response_time_ms: int = Field(..., description="Response time in milliseconds")
 
 
-class DataSourceInfo(BaseModel):
+class DatasetType(BaseModel):
     """Information about a data source."""
 
     name: str = Field(..., description="Name of the data source")

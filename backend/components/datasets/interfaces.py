@@ -1,30 +1,33 @@
 from typing import Any, Dict, List, Optional, Protocol
-from pydantic import BaseModel
-from pydantic import EmailStr, Field
-from components.data_sources.schemas import HealthcheckResponse, SearchParameters
+
+from pydantic import BaseModel, EmailStr, Field
+
+from components.datasets.schemas import HealthcheckResponse, SearchParameters
 
 
 class Context(BaseModel):
-    """Context for the data source search."""
+    """Context for the dataset search."""
 
     sender: EmailStr = Field(..., description="Email of the sender")
 
 
-class DataSource(Protocol):
-    """Data source interface."""
+class BaseDatasetType(Protocol):
+    """Base dataset type interface."""
 
-    SOURCE_NAME: str
+    NAME: str
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
 
     @classmethod
     def name(cls):
-        return cls.SOURCE_NAME
+        """Get the name of the dataset type."""
+        return cls.NAME
 
     @classmethod
     def type(cls):
-        return cls.SOURCE_NAME.lower()
+        """Get the type of the dataset type."""
+        return cls.NAME.lower()
 
     @classmethod
     def description(cls):
@@ -36,7 +39,7 @@ class DataSource(Protocol):
 
     @classmethod
     def configuration_schema() -> Dict[str, Any]:
-        """Return a dictionary of config values required by this data source provider.
+        """Return a dictionary of config values required by this dataset type.
         This will be displayed in the frontend/sdk as configurable values
         when creating a service.
         """
@@ -45,17 +48,17 @@ class DataSource(Protocol):
     def search(
         self, ctx: Context, query: str, params: Optional[SearchParameters] = None
     ) -> List[Dict[str, Any]]:
-        """Search the data source for the given query."""
+        """Search the dataset for the given query."""
         pass
 
     def ingest(self, ctx: Context, data: List[Dict[str, Any]]) -> None:
-        """Ingest the data into the data source."""
+        """Ingest the data into the dataset."""
         pass
 
     def healthcheck(self) -> HealthcheckResponse:
-        """Healthcheck the data source.
+        """Healthcheck the dataset.
 
-        This will be called to check if the data source is healthy.
+        This will be called to check if the dataset is healthy.
         """
         pass
 
@@ -64,20 +67,24 @@ class DataSource(Protocol):
         return True
 
 
-class DataSourceProvisioner(Protocol):
-    """Provisioner interface."""
+class BaseDatasetTypeProvisioner(Protocol):
+    """Base dataset type provisioner interface."""
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
 
-    SOURCE_NAME: str
+    NAME: str
+
+    @classmethod
+    def name(cls):
+        return cls.NAME
 
     def start(self, config: Dict[str, Any]) -> None:
-        """Start the provisioner."""
+        """Start the dataset type provisioner."""
         pass
 
     def stop(self) -> None:
-        """Stop the provisioner."""
+        """Stop the dataset type provisioner."""
         pass
 
     def status(self) -> str:
