@@ -1,5 +1,7 @@
 from typing import Any, Dict, List
 
+from fastapi.exceptions import HTTPException
+
 from components.datasets.interfaces import BaseDatasetType
 from components.datasets.registry import DatasetTypeRegistry
 from components.datasets.schemas import DatasetType
@@ -43,10 +45,9 @@ class DatasetHandler:
         try:
             dataset_type_class = self.registry.get_dataset_type(name)
         except KeyError as e:
-            raise KeyError(f"Dataset type '{name}' not found") from e
-
-        if not dataset_type_class.enabled():
-            raise ValueError(f"Dataset type '{name}' is not enabled")
+            raise HTTPException(
+                status_code=404, detail=f"Dataset type '{name}' not found"
+            ) from e
 
         return dataset_type_class.configuration_schema()
 
@@ -81,8 +82,10 @@ class DatasetHandler:
         """
         try:
             dataset_type_class = self.registry.get_dataset_type(name)
-        except KeyError as e:
-            raise KeyError(f"Dataset type '{name}' not found") from e
+        except KeyError:
+            raise HTTPException(
+                status_code=404, detail=f"Dataset type '{name}' not found"
+            )
 
         return DatasetType(
             name=dataset_type_class.name(),
