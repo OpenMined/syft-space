@@ -216,7 +216,9 @@ class EndpointHandler:
         # Apply pre-hooks
         for policy in policies:
             try:
-                policy_type_cls = self.policy_registry.get_policy_type(policy.type)
+                policy_type_cls = self.policy_registry.get_policy_type(
+                    policy.policy_type
+                )
                 policy_instance = policy_type_cls(policy.configuration)
                 policy_context = policy_instance.pre_hook(policy_context)
             except Exception as e:
@@ -254,7 +256,9 @@ class EndpointHandler:
         # Apply post-hooks
         for policy in policies:
             try:
-                policy_type_cls = self.policy_registry.get_policy_type(policy.type)
+                policy_type_cls = self.policy_registry.get_policy_type(
+                    policy.policy_type
+                )
                 policy_instance = policy_type_cls(policy.configuration)
                 policy_context = policy_instance.post_hook(policy_context)
             except Exception as e:
