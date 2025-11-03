@@ -1,69 +1,119 @@
-from enum import Enum
-from typing import Any, Dict, List
+"""Dataset API schemas for request/response models."""
+
+from datetime import datetime
+from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 
-class HealthcheckStatus(str, Enum):
-    """Status for the data source healthcheck."""
+class DatasetTypeInfoResponse(BaseModel):
+    """Response model for dataset type information."""
 
-    HEALTHY = "healthy"
-    UNHEALTHY = "unhealthy"
-
-
-class HealthcheckResponse(BaseModel):
-    """Response for the data source healthcheck."""
-
-    status: HealthcheckStatus
-
-
-class SearchParameters(BaseModel):
-    """Parameters for the data source search."""
-
-    similarity_threshold: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Similarity threshold for matching"
+    name: str = Field(..., description="Name of the dataset type")
+    description: str = Field(..., description="Description of the dataset type")
+    config_schema: dict[str, Any] = Field(
+        ..., description="Configuration schema for the dataset type"
     )
-    limit: int = Field(
-        default=5, ge=1, description="Maximum number of results to return"
+    icon: str = Field(..., description="Icon for the dataset type")
+    enabled: bool = Field(..., description="Whether the dataset type is enabled")
+
+
+class CreateDatasetRequest(BaseModel):
+    """Request model for creating a dataset."""
+
+    name: str = Field(..., description="Unique name for the dataset")
+    dtype: str = Field(..., description="Dataset type name")
+    configuration: dict[str, Any] = Field(
+        ..., description="Filled configuration schema"
     )
-    include_metadata: bool = Field(
-        default=True, description="Whether to include metadata in response"
-    )
-    extra_options: Dict[str, Any] = Field(
-        default_factory=dict, description="Extra options for the search"
+    summary: str = Field(default="", description="Brief summary of the dataset")
+    tags: str = Field(
+        default="", description="Comma-separated tags (e.g., 'legal,documents')"
     )
 
+    class Config:
+        """Pydantic config."""
 
-class SearchedDocument(BaseModel):
-    document_id: str = Field(..., description="Unique identifier for the document")
-    content: str = Field(..., description="Content of the document")
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict, description="Document metadata"
+        json_schema_extra = {
+            "example": {
+                "name": "legal-docs",
+                "dtype": "weaviate",
+                "configuration": {
+                    "httpPort": 8080,
+                    "grpcPort": 50051,
+                    "collectionName": "LegalDocuments",
+                    "ingestionPath": "/data/legal",
+                },
+                "summary": "Legal documents for RAG analysis",
+                "tags": "legal,documents,analysis",
+            }
+        }
+
+
+class DatasetResponse(BaseModel):
+    """Response model for dataset details."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Dataset name")
+    dtype: str = Field(..., description="Dataset type name")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
+    summary: str = Field(..., description="Dataset summary")
+    tags: str = Field(..., description="Comma-separated tags")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class DatasetListItem(BaseModel):
+    """Response model for dataset in list view."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Dataset name")
+    dtype: str = Field(..., description="Dataset type name")
+    summary: str = Field(..., description="Dataset summary")
+    tags: str = Field(..., description="Comma-separated tags")
+    created_at: datetime = Field(..., description="Creation timestamp")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class IngestDataRequest(BaseModel):
+    """Request model for ingesting data into a dataset."""
+
+    documents: list[dict[str, Any]] = Field(
+        ..., description="List of documents to ingest"
     )
-    similarity_score: float = Field(
-        ..., description="Similarity score for the document"
-    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "documents": [
+                    {
+                        "document_id": "doc1",
+                        "content": "This is a document.",
+                        "metadata": {"source": "manual", "author": "Alice"},
+                    },
+                    {
+                        "content": "Another document without explicit ID.",
+                        "metadata": {"source": "import"},
+                    },
+                ]
+            }
+        }
 
 
-class SearchResult(BaseModel):
-    """Message in the response"""
+class IngestDataResponse(BaseModel):
+    """Response model for data ingestion."""
 
-    documents: List[SearchedDocument] = Field(
-        ..., description="List of searched documents"
-    )
-    cost: float = Field(..., description="Cost of the search")
-    search_engine: str = Field(..., description="Search engine used")
-    api_version: str = Field(..., description="API version used")
-    response_time_ms: int = Field(..., description="Response time in milliseconds")
-
-
-class DatasetType(BaseModel):
-    """Information about a data source."""
-
-    name: str = Field(..., description="Name of the data source")
-    config_schema: Dict[str, Any] = Field(
-        ..., description="Configuration schema for the data source"
-    )
-    description: str = Field(..., description="Description of the data source")
-    icon: str = Field(..., description="Icon of the data source")
-    enabled: bool = Field(..., description="Whether the data source is enabled")
+    message: str = Field(..., description="Success message")
+    documents_ingested: int = Field(..., description="Number of documents ingested")

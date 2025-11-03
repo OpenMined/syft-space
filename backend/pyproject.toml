@@ -68,6 +68,8 @@ disallow_untyped_defs = true
 [tool.ruff]
 line-length = 88
 target-version = "py39"
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -79,9 +81,10 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
+    "B008",  # Do not perform function calls in argument defaults (FastAPI Depends is fine)
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Unused imports in __init__.py
 
 [tool.pytest.ini_options]
@@ -92,4 +95,10 @@ addopts = "-v --cov=. --cov-report=term-missing --cov-report=html"
 
 [tool.bandit]
 exclude_dirs = ["tests", "test", ".venv", "venv"]
-skips = ["B101"]  # Skip assert_used check
+skips = [
+    "B101",  # Skip assert_used check
+    "B104",  # Hardcoded bind all interfaces (0.0.0.0 is intentional for API server)
+    "B404",  # Import subprocess module (needed for Docker management)
+    "B603",  # Subprocess without shell=true (we use list args which is safer)
+    "B607",  # Starting process with partial path (docker command is standard)
+]
