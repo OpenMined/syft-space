@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "syai-server"
 version = "0.1.0"
@@ -10,32 +14,91 @@ requires-python = ">=3.9"
 dependencies = [
     "fastapi==0.116.2",
     "uvicorn[standard]==0.35.0",
-    "pydantic==2.11.9",
+    "pydantic[email]==2.11.9",
     "pydantic-settings>=2.0.0",
     "sqlmodel>=0.0.14",
-    "fastsyftbox>=0.1.21",
+    "loguru>=0.7.3",
+    "requests>=2.32.5",
 ]
 
 [project.optional-dependencies]
-dev = [
+# Testing dependencies
+test = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",
-    "black>=22.0",
-    "isort>=5.0",
-    "flake8>=4.0",
-    "mypy>=0.950"
+    "pytest-cov>=4.0",
+    "httpx>=0.24.0",  # For FastAPI testing
 ]
 
-[tool.black]
-line-length = 88
-target-version = ['py39']
+# Linting and formatting tools
+lint = [
+    "ruff>=0.1.0",      # Fast linter and formatter (replaces black, isort, flake8)
+    "mypy>=0.950",      # Static type checking
+    "bandit[toml]>=1.7.0",  # Security linting
+]
 
-[tool.isort]
-profile = "black"
-line_length = 88
+# Pre-commit hooks
+pre-commit = [
+    "pre-commit>=3.0.0",
+]
+
+# Additional optional libraries
+libs = [
+    "weaviate-client>=4.17.0",
+    "docling>=2.55.0",
+]
+
+# All development dependencies (includes test, lint, pre-commit)
+dev = [
+    "syai-server[test,lint,pre-commit]",
+]
+
+# All dependencies (includes dev and libs)
+all = [
+    "syai-server[dev,libs]",
+]
+
 
 [tool.mypy]
 python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # Do not perform function calls in argument defaults (FastAPI Depends is fine)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Unused imports in __init__.py
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "-v --cov=. --cov-report=term-missing --cov-report=html"
+
+[tool.bandit]
+exclude_dirs = ["tests", "test", ".venv", "venv"]
+skips = [
+    "B101",  # Skip assert_used check
+    "B104",  # Hardcoded bind all interfaces (0.0.0.0 is intentional for API server)
+    "B404",  # Import subprocess module (needed for Docker management)
+    "B603",  # Subprocess without shell=true (we use list args which is safer)
+    "B607",  # Starting process with partial path (docker command is standard)
+]
