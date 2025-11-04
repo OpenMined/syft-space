@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlmodel import JSON, Column, Field, Relationship, SQLModel
+from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from components.endpoints.entities import Endpoint
@@ -27,6 +27,7 @@ class Policy(SQLModel, table=True):
     )
     endpoint_id: UUID = Field(
         ...,
+        sa_column=Column(ForeignKey("endpoints.id", ondelete="CASCADE")),
         description="ID of the endpoint this policy is attached to",
     )
     # Reverse relationship: all policies for an endpoint

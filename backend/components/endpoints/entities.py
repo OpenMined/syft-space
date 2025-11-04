@@ -11,6 +11,7 @@ from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 if TYPE_CHECKING:
     from components.datasets.entities import Dataset
     from components.models.entities import Model
+    from components.policies.entities import Policy
 
 
 class ResponseType(str, Enum):
@@ -63,6 +64,10 @@ class Endpoint(SQLModel, table=True):
     model: Optional["Model"] = Relationship(
         back_populates="endpoints",
         sa_relationship_kwargs={"foreign_keys": "[Endpoint.model_id]"},
+    )
+    policies: list["Policy"] = Relationship(
+        back_populates="endpoint",
+        sa_relationship_kwargs={"foreign_keys": "[Policy.endpoint_id]"},
     )
 
     @field_validator("response_type")
