@@ -50,7 +50,7 @@ libs = [
 
 # All development dependencies (includes test, lint, pre-commit)
 dev = [
-    "syai-server[test,lint,pre-commit]",
+    "syai-server[libs,test,lint,pre-commit]",
 ]
 
 # All dependencies (includes dev and libs)
