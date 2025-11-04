@@ -36,7 +36,7 @@ class WeaviateDatasetType(BaseDatasetType):
     Docs: https://weaviate.io/developers/weaviate/
     """
 
-    NAME = "weaviate"
+    NAME = "weaviate_local"
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate dataset type.
