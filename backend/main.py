@@ -59,7 +59,7 @@ app.add_middleware(
 
 
 # Initialize database
-db_path = Path.home() / ".syftai" / "syftai.db"
+db_path = app_settings.sqlite_db_path.resolve()
 db_config = SQLiteConfig(db_path)
 database = Database(db_config)
 

@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generic, Optional, TypeVar
 
+from loguru import logger
 from sqlmodel import Session, SQLModel, create_engine, select
 
 T = TypeVar("T", bound=SQLModel)
@@ -37,6 +38,9 @@ class Database:
 
     def __init__(self, config: DatabaseConfig):
         """Initialize the database"""
+        logger.info(
+            f"Initializing database with connection string: {config.get_connection_string()}"
+        )
         self.engine = create_engine(config.get_connection_string())
 
     def create_db_and_tables(self):
