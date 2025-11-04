@@ -26,7 +26,7 @@ except ImportError:
     enabled = False
 
 
-class WeaviateDatasetType(BaseDatasetType):
+class WeaviateLocalDatasetType(BaseDatasetType):
     """Weaviate is a vector database that allows you to store and query your data.
 
     It uses transformers to embed your data and then allows you to query it using
