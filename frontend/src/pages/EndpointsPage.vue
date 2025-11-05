@@ -35,7 +35,7 @@
     <div class="mb-8">
       <div class="flex items-center justify-between gap-4">
         <!-- Tabs -->
-        <Tabs v-model:value="activeTab" class="w-auto">
+        <Tabs v-model="activeTab" class="w-auto">
           <TabsList
             class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]"
           >
@@ -78,35 +78,37 @@
       <!-- Divider with centered text -->
       <div class="relative">
         <div class="absolute inset-0 flex items-center">
-          <div class="w-full border-t border-[var(--color-border)]"></div>
+          <div class="w-full border-t border-gray-300"></div>
         </div>
         <div class="relative flex justify-center text-sm">
-          <span class="px-4 bg-[var(--color-bg)] text-[var(--color-text-light)] font-medium">
+          <span class="px-4 bg-gray-50 text-gray-600 font-medium">
             Demo: Empty State (shown when no endpoints exist)
           </span>
         </div>
       </div>
 
-      <!-- Empty state (like GitHub's empty repo) -->
-      <div class="mt-8 text-center py-12">
-        <div class="mx-auto w-14 h-14 bg-[var(--color-bg-alt)] rounded-full flex items-center justify-center mb-6">
-          <Server class="w-7 h-7 text-[var(--color-text-light)]" />
-        </div>
-        <h3 class="text-xl font-heading font-medium text-[var(--color-text)] mb-3">No endpoints yet</h3>
-        <p class="text-sm text-[var(--color-text-light)] mb-8 max-w-sm mx-auto">
-          Get started by creating your first endpoint to share data or models.
-        </p>
-        <div class="flex items-center justify-center gap-3">
-          <Button
-            @click="showCreateEndpointModal = true"
-            class="bg-[var(--color-success)] hover:bg-[var(--color-success-strong)] text-white font-medium px-6 py-2.5 rounded-lg shadow-sm hover:shadow-md transition-all"
-          >
-            <Plus class="h-4 w-4 mr-2" />
-            Create your first endpoint
-          </Button>
-          <Button variant="outline" class="text-[var(--color-text-light)] hover:text-[var(--color-text)] border-[var(--color-border)] px-6 py-2.5 rounded-lg">
-            Learn more
-          </Button>
+      <!-- Empty state content -->
+      <div class="mt-8 bg-white rounded-lg shadow border border-gray-200 p-8">
+        <div class="text-center py-12">
+          <div class="mx-auto w-14 h-14 bg-[var(--color-bg-alt)] rounded-full flex items-center justify-center mb-6">
+            <Server class="w-7 h-7 text-[var(--color-text-light)]" />
+          </div>
+          <h3 class="text-xl font-heading font-medium text-[var(--color-text)] mb-3">No endpoints yet</h3>
+          <p class="text-sm text-[var(--color-text-light)] mb-8 max-w-sm mx-auto">
+            Get started by creating your first endpoint to share data or models.
+          </p>
+          <div class="flex items-center justify-center gap-3">
+            <Button
+              @click="showCreateEndpointModal = true"
+              class="bg-[var(--color-success)] hover:bg-[var(--color-success-strong)] text-white font-medium px-6 py-2.5 rounded-lg shadow-sm hover:shadow-md transition-all"
+            >
+              <Plus class="h-4 w-4 mr-2" />
+              Create your first endpoint
+            </Button>
+            <Button variant="outline" class="text-[var(--color-text-light)] hover:text-[var(--color-text)] border-[var(--color-border)] px-6 py-2.5 rounded-lg">
+              Learn more
+            </Button>
+          </div>
         </div>
       </div>
     </div>

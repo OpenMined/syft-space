@@ -100,7 +100,7 @@
 
       <!-- Tabs Navigation -->
       <Tabs default-value="overview" class="space-y-4">
-        <TabsList class="grid grid-cols-3 w-full bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm">
+        <TabsList class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3">
           <TabsTrigger value="overview" class="flex items-center gap-2">
             <Brain class="h-4 w-4" />
             Overview

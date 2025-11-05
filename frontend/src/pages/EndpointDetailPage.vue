@@ -107,53 +107,21 @@
                 </Tooltip>
               </TooltipProvider>
               <!-- Delete Endpoint Action -->
-              <AlertDialog>
-                <AlertDialogTrigger as-child>
-                  <Button variant="outline" size="icon" class="text-red-600 border-red-200 hover:bg-red-50">
-                    <Trash2 class="h-4 w-4" />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <div class="space-y-4">
-                    <div>
-                      <h3 class="text-sm font-semibold text-red-600">Danger Zone</h3>
-                      <p class="text-xs text-gray-600 mt-1">Permanently delete this endpoint and all associated data.</p>
-                    </div>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete endpoint</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This action cannot be undone. Please type
-                        <span class="font-medium text-gray-900"> {{ endpoint?.name }} </span>
-                        to confirm deletion.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div class="space-y-2">
-                      <Label class="text-xs text-gray-600">Confirm name</Label>
-                      <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'endpoint-name'" />
-                      <p class="text-xs" :class="deleteNameConfirm === endpoint?.name ? 'text-green-600' : 'text-gray-500'">
-                        {{ deleteNameConfirm === endpoint?.name ? 'Name matches' : 'Enter the endpoint name exactly' }}
-                      </p>
-                    </div>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        :disabled="deleteNameConfirm !== endpoint?.name"
-                        class="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        @click="deleteEndpoint"
-                      >
-                        Delete Endpoint
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </div>
-                </AlertDialogContent>
-              </AlertDialog>
+              <Button 
+                variant="outline" 
+                size="icon" 
+                class="text-red-600 border-red-200 hover:bg-red-50"
+                @click="() => { deleteNameConfirm = ''; showDeleteDialog = true; }"
+              >
+                <Trash2 class="h-4 w-4" />
+              </Button>
             </div>
           </div>
         </div>
 
         <!-- Tabs Section -->
-          <Tabs v-model="activeTab" class="space-y-4">
-          <TabsList class="grid grid-cols-4 w-full bg-white/80 backdrop-blur-sm border border-gray-200">
+        <Tabs v-model="activeTab" class="space-y-4">
+          <TabsList class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-4">
             <TabsTrigger value="overview" class="flex items-center gap-2">
               <Layout class="h-4 w-4" />
               Overview
@@ -170,7 +138,6 @@
               <Shield class="h-4 w-4" />
               Access Control
             </TabsTrigger>
-            
           </TabsList>
 
           <!-- Overview Tab -->
@@ -728,6 +695,43 @@
       </div>
     </div>
   </div>
+
+  <!-- Delete Confirmation Dialog -->
+  <Dialog v-model:open="showDeleteDialog">
+    <DialogContent class="sm:max-w-[600px]">
+      <div class="space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-red-600">Danger Zone</h3>
+          <p class="text-xs text-gray-600 mt-1">Permanently delete this endpoint and all associated data.</p>
+        </div>
+        <DialogHeader>
+          <DialogTitle>Delete endpoint</DialogTitle>
+          <DialogDescription>
+            This action cannot be undone. Please type
+            <span class="font-medium text-gray-900"> {{ endpoint?.name }} </span>
+            to confirm deletion.
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-2">
+          <Label class="text-xs text-gray-600">Confirm name</Label>
+          <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'endpoint-name'" />
+          <p class="text-xs" :class="deleteNameConfirm === endpoint?.name ? 'text-green-600' : 'text-gray-500'">
+            {{ deleteNameConfirm === endpoint?.name ? 'Name matches' : 'Enter the endpoint name exactly' }}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showDeleteDialog = false">Cancel</Button>
+          <Button
+            variant="destructive"
+            :disabled="deleteNameConfirm !== endpoint?.name"
+            @click="deleteEndpoint"
+          >
+            Delete Endpoint
+          </Button>
+        </DialogFooter>
+      </div>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
@@ -774,16 +778,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useEndpointsStore } from '@/stores/endpoints'
 import type { EndpointItem } from '@/stores/endpoints'
 import { getDataSourceName, getModelName } from '@/lib/mappers'
@@ -798,6 +799,7 @@ const endpointsStore = useEndpointsStore()
 const activeTab = ref('overview')
 const selectedPeriod = ref('Daily')
 const deleteNameConfirm = ref('')
+const showDeleteDialog = ref(false)
 
 const getDatasetSlug = (dataSourceType: string) => {
   const datasetSlugs: Record<string, string> = {
@@ -880,6 +882,7 @@ const getEndpointDataSources = () => {
 const deleteEndpoint = () => {
   // Handle endpoint deletion
   console.log('Deleting endpoint:', endpoint.value?.name)
+  showDeleteDialog.value = false
   router.push('/endpoints')
 }
 
