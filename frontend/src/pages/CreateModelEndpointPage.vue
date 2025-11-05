@@ -9,7 +9,7 @@
     <div class="min-h-screen bg-gray-50">
       <!-- Header -->
       <div class="bg-white border-b border-gray-200">
-        <div class="max-w-6xl mx-auto px-6 lg:px-8 py-4">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div class="flex items-center justify-between">
             <Button
               variant="ghost"
@@ -45,7 +45,7 @@
       </div>
 
       <!-- Two-column layout -->
-      <div class="flex gap-12 max-w-6xl mx-auto px-6 lg:px-8 py-8 lg:py-12">
+      <div class="flex gap-12 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
         <!-- Left sidebar with steps -->
         <div class="w-80 flex-shrink-0">
           <div class="sticky top-8">

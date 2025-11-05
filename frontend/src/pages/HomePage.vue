@@ -7,7 +7,7 @@
     @retry="refreshDashboard"
   >
     <div class="min-h-screen bg-gradient-to-br from-white via-blue-50/20 to-purple-50/30">
-      <div class="max-w-6xl mx-auto px-6 lg:px-8 py-8 lg:py-12">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
         <!-- Hero Section -->
         <div class="text-center mb-16">
           <h1 class="heading-1 font-light text-gray-900 mb-4">
