@@ -73,7 +73,7 @@
                   >
                     What do you want to share?
                   </h3>
-                  <p class="text-xs text-gray-500 mt-1">Upload files or connect database</p>
+                  <p class="text-xs text-gray-500 mt-1">Add files or connect database</p>
                   <div
                     v-if="currentSubStep > 1"
                     class="mt-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded"
@@ -266,7 +266,7 @@
 
                     <h3 class="text-lg font-bold text-gray-900 mb-2">Add Files</h3>
                     <p class="text-sm text-gray-600 mb-4">
-                      Upload documents, spreadsheets, or text files from your computer
+                      Add documents, spreadsheets, or text files from your computer
                     </p>
 
                     <div class="space-y-2 text-xs text-gray-500 mb-4">
@@ -720,7 +720,7 @@
                 <div v-if="policyRules[policy.id]?.length === 0" class="mb-3">
                   <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
                     <p class="text-sm text-green-700">
-                      <strong class="font-medium">Default:</strong> 
+                      <strong class="font-medium">Default: </strong>
                       <span v-if="policy.id === 'authorization'">Open access - everyone can use your endpoint</span>
                       <span v-else-if="policy.id === 'ratelimiter'">No rate limits - unlimited usage</span>
                       <span v-else-if="policy.id === 'pricing'">Free access - no charges applied</span>
@@ -1518,7 +1518,7 @@ const stepTitles = [
 ]
 
 const stepDescriptions = [
-  'Upload files or connect to your existing database',
+  'Add files or connect to your existing database',
   'Decide the format of the response users can receive from this content. Search provides most accuracy, while AI assistant answers are more nuanced.',
   'Control who can access your content and whether to charge for it',
   'Give your content a name and description so others know what you\'re sharing',

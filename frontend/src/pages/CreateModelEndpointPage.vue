@@ -473,7 +473,7 @@
               <div v-if="policyRules[policy.id]?.length === 0" class="mb-3">
                 <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
                   <p class="text-sm text-green-700">
-                    <strong class="font-medium">Default:</strong> 
+                    <strong class="font-medium">Default: </strong>
                     <span v-if="policy.id === 'authorization'">Open access - everyone can use your endpoint</span>
                     <span v-else-if="policy.id === 'ratelimiter'">No rate limits - unlimited usage</span>
                     <span v-else-if="policy.id === 'pricing'">Free access - no charges applied</span>

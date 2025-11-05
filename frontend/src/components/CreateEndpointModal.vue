@@ -19,7 +19,7 @@
             <div class="space-y-2 text-sm text-amber-800">
               <div class="flex items-start gap-2">
                 <span class="text-amber-600">•</span>
-                <span><strong>Do you have files to upload?</strong> (PDFs, CSVs, documents) → Choose <strong>Documents & Data</strong></span>
+                <span><strong>Do you have files to add?</strong> (PDFs, CSVs, documents) → Choose <strong>Documents & Data</strong></span>
               </div>
               <div class="flex items-start gap-2">
                 <span class="text-amber-600">•</span>
