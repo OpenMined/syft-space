@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DialogClose, type DialogCloseProps } from 'radix-vue'
+import { DialogClose, type DialogCloseProps } from 'reka-ui'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
