@@ -1,12 +1,12 @@
 """Weaviate dataset type implementation."""
 
-from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import ValidationError
 
 from components.dataset_types.interfaces import (
     BaseDatasetType,
+    IngestFile,
     IngestRequest,
     SearchedDocument,
     SearchParameters,
@@ -20,7 +20,7 @@ from components.shared.domain_types import (
 
 try:
     import weaviate
-    from docling.document_converter import DocumentConverter
+    from docling.document_converter import DocumentConverter, DocumentStream
     from weaviate.classes.query import MetadataQuery
 
     enabled = True
@@ -99,10 +99,6 @@ class WeaviateLocalDatasetType(BaseDatasetType):
                     "type": "string",
                     "title": "Default Collection/Class Name",
                 },
-                "ingestionPath": {
-                    "type": "string",
-                    "title": "Ingestion Path",
-                },
                 "ingestFileTypeOptions": {
                     "type": "array",
                     "title": "Ingest File Type Options",
@@ -117,13 +113,12 @@ class WeaviateLocalDatasetType(BaseDatasetType):
                     "default": 10,
                 },
             },
-            "required": ["httpPort", "grpcPort", "collectionName", "ingestionPath"],
+            "required": ["httpPort", "grpcPort", "collectionName"],
             "order": [
                 "httpPort",
                 "grpcPort",
                 "useTLS",
                 "collectionName",
-                "ingestionPath",
                 "ingestFileTypeOptions",
                 "queryLimit",
             ],
@@ -137,6 +132,8 @@ class WeaviateLocalDatasetType(BaseDatasetType):
             configuration: Configuration dictionary to validate
         """
 
+        # TODO: Maybe use Pydantic model to validate configuration
+
         # Check if required fields are present
         if "httpPort" not in configuration:
             raise ValidationError("httpPort is required")
@@ -144,15 +141,6 @@ class WeaviateLocalDatasetType(BaseDatasetType):
             raise ValidationError("grpcPort is required")
         if "collectionName" not in configuration:
             raise ValidationError("collectionName is required")
-        if "ingestionPath" not in configuration:
-            raise ValidationError("ingestionPath is required")
-
-        # Check if ingestion path exists
-        ingestion_path = Path(configuration["ingestionPath"])
-        if not ingestion_path.exists():
-            raise ValidationError("ingestionPath does not exist")
-        if not ingestion_path.is_dir():
-            raise ValidationError("ingestionPath is not a directory")
 
         # Check if httpPort and grpcPort are positive
         if configuration["httpPort"] <= 0:
@@ -164,7 +152,7 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         if configuration.get("queryLimit", 10) <= 0:
             raise ValidationError("queryLimit must be positive")
 
-    def _parse_document(self, file_path: Path) -> dict[str, Any]:
+    def _parse_document(self, file: IngestFile) -> dict[str, Any]:
         """Parse the document into a dictionary.
 
         Args:
@@ -173,21 +161,24 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         Returns:
             Dictionary with parsed document content and metadata
         """
-        conv_result = self.converter.convert(file_path)
-        document = conv_result.document.export_to_markdown()
+        # Convert the file to a document stream
+        document_stream = DocumentStream(name=file.filename, stream=file.file_handle)
+        conv_result = self.converter.convert(document_stream)
+
+        # Return the parsed document content and metadata
         return {
-            "content": document,
-            "file_name": file_path.name,
-            "file_type": file_path.suffix[1:],
-            "file_path": file_path.as_posix(),
+            "content": conv_result.document.export_to_markdown(),
+            "file_name": file.filename,
+            "file_type": file.content_type,
+            "file_size": file.file_size or 0,
         }
 
     def ingest(self, ctx: Context, request: IngestRequest) -> None:
-        """Ingest data into the dataset.
+        """Ingest files into Weaviate.
 
         Args:
             ctx: Request context with sender information
-            request: Ingest request with documents to add
+            request: Ingest request with files to process
         """
         if not enabled:
             raise ImportError("Weaviate and docling are required for ingestion")
@@ -195,26 +186,17 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         with weaviate.connect_to_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
-            # Check if the collection exists, if not create it
-            exists = client.collections.exists(self.config["collectionName"])
-            if not exists:
+            # Ensure collection exists
+            if not client.collections.exists(self.config["collectionName"]):
                 client.collections.create(self.config["collectionName"])
-
-        # Create the ingestion path if it doesn't exist
-        ingestion_path = Path(self.config["ingestionPath"])
-        ingestion_path.mkdir(parents=True, exist_ok=True)
 
         # Ingest the data into the data source
         with weaviate.connect_to_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
             collection = client.collections.get(self.config["collectionName"])
-            for document in ingestion_path.iterdir():
-                if (
-                    document.is_file()
-                    and document.suffix.lower() in self.config["ingestFileTypeOptions"]
-                ):
-                    collection.data.insert(self._parse_document(document))
+            for file in request.files:
+                collection.data.insert(self._parse_document(file))
 
     def search(
         self, ctx: Context, query: str, params: Optional[SearchParameters] = None

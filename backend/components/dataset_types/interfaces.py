@@ -48,23 +48,30 @@ class SearchResult(BaseModel):
     )
 
 
-class IngestDocument(BaseModel):
-    """A single document to ingest."""
+class IngestFile(BaseModel):
+    """Framework-agnostic file wrapper for ingestion."""
 
-    document_id: Optional[str] = Field(
-        default=None, description="Optional unique identifier for the document"
+    file_handle: Any = Field(
+        ..., description="File-like object (SpooledTemporaryFile, BytesIO, etc.)"
     )
-    content: str = Field(..., description="Content of the document")
+    filename: str = Field(..., description="Original filename")
+    content_type: Optional[str] = Field(default=None, description="MIME type")
+    file_size: Optional[int] = Field(default=None, description="Size in bytes")
     metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Document metadata"
+        default_factory=dict, description="Custom metadata"
     )
+
+    class Config:
+        """Pydantic config."""
+
+        arbitrary_types_allowed = True
 
 
 class IngestRequest(BaseModel):
     """Domain contract for data ingestion."""
 
-    documents: list[IngestDocument] = Field(
-        ..., description="List of documents to ingest"
+    files: list[IngestFile] = Field(
+        default_factory=list, description="List of files to ingest"
     )
 
 
@@ -148,7 +155,7 @@ class BaseDatasetType(Protocol):
 
         Args:
             ctx: Request context with sender information
-            request: Ingest request with documents to add
+            request: Ingest request with files to add
         """
         ...
 

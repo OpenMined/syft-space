@@ -86,35 +86,8 @@ class DatasetListItem(BaseModel):
         from_attributes = True
 
 
-class IngestDataRequest(BaseModel):
-    """Request model for ingesting data into a dataset."""
+class IngestFileResponse(BaseModel):
+    """Response for file ingestion."""
 
-    documents: list[dict[str, Any]] = Field(
-        ..., description="List of documents to ingest"
-    )
-
-    class Config:
-        """Pydantic config."""
-
-        json_schema_extra = {
-            "example": {
-                "documents": [
-                    {
-                        "document_id": "doc1",
-                        "content": "This is a document.",
-                        "metadata": {"source": "manual", "author": "Alice"},
-                    },
-                    {
-                        "content": "Another document without explicit ID.",
-                        "metadata": {"source": "import"},
-                    },
-                ]
-            }
-        }
-
-
-class IngestDataResponse(BaseModel):
-    """Response model for data ingestion."""
-
+    filename: str = Field(..., description="Uploaded filename")
     message: str = Field(..., description="Success message")
-    documents_ingested: int = Field(..., description="Number of documents ingested")
