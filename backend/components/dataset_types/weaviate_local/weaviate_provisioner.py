@@ -17,7 +17,7 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
     All methods are classmethods. State is tracked via Docker container names.
     """
 
-    NAME = "weaviate"
+    NAME = "weaviate_local"
 
     @classmethod
     def name(cls) -> str:
@@ -41,7 +41,8 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
         dataset_name = config.get("dataset_name", "default")
 
         # Use dataset name to create unique container name
-        container_name = f"weaviate-{dataset_name}"
+        # Convert to lowercase to comply with Docker Compose naming requirements
+        container_name = f"weaviate-{dataset_name}".lower()
 
         # Setup environment for docker-compose
         cls._setup_environment(http_port, grpc_port, query_limit)
@@ -58,7 +59,12 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
             "-d",
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to start Weaviate container: {e.stderr}")
+            raise RuntimeError(f"Failed to start Weaviate container: {e.stderr}") from e
+
         logger.info(f"Started Weaviate container '{container_name}': {result.stdout}")
 
         # Wait for health

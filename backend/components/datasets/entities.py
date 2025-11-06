@@ -17,7 +17,7 @@ class Dataset(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
     name: str = Field(..., unique=True, index=True, description="Unique dataset name")
-    type: str = Field(..., description="Dataset type name (references dataset type)")
+    dtype: str = Field(..., description="Dataset type name (references dataset type)")
     configuration: dict = Field(
         default_factory=dict,
         sa_column=Column(JSON),
@@ -45,7 +45,7 @@ class Dataset(SQLModel, table=True):
         json_schema_extra = {
             "example": {
                 "name": "legal-docs",
-                "type": "weaviate",
+                "dtype": "weaviate",
                 "configuration": {
                     "httpPort": 8080,
                     "grpcPort": 50051,

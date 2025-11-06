@@ -116,6 +116,18 @@ class BaseDatasetType(Protocol):
         """
         ...
 
+    @classmethod
+    def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+        """Validate the configuration for the dataset type.
+
+        Args:
+            configuration: Configuration dictionary to validate
+
+        Raises:
+            ValidationError: If configuration is invalid
+        """
+        ...
+
     def search(
         self, ctx: Context, query: str, params: Optional[SearchParameters] = None
     ) -> SearchResult:

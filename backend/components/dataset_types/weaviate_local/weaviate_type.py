@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import ValidationError
+
 from components.dataset_types.interfaces import (
     BaseDatasetType,
     IngestRequest,
@@ -126,6 +128,41 @@ class WeaviateLocalDatasetType(BaseDatasetType):
                 "queryLimit",
             ],
         }
+
+    @classmethod
+    def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+        """Validate the configuration for the dataset type.
+
+        Args:
+            configuration: Configuration dictionary to validate
+        """
+
+        # Check if required fields are present
+        if "httpPort" not in configuration:
+            raise ValidationError("httpPort is required")
+        if "grpcPort" not in configuration:
+            raise ValidationError("grpcPort is required")
+        if "collectionName" not in configuration:
+            raise ValidationError("collectionName is required")
+        if "ingestionPath" not in configuration:
+            raise ValidationError("ingestionPath is required")
+
+        # Check if ingestion path exists
+        ingestion_path = Path(configuration["ingestionPath"])
+        if not ingestion_path.exists():
+            raise ValidationError("ingestionPath does not exist")
+        if not ingestion_path.is_dir():
+            raise ValidationError("ingestionPath is not a directory")
+
+        # Check if httpPort and grpcPort are positive
+        if configuration["httpPort"] <= 0:
+            raise ValidationError("httpPort must be positive")
+        if configuration["grpcPort"] <= 0:
+            raise ValidationError("grpcPort must be positive")
+
+        # Check if queryLimit is positive
+        if configuration.get("queryLimit", 10) <= 0:
+            raise ValidationError("queryLimit must be positive")
 
     def _parse_document(self, file_path: Path) -> dict[str, Any]:
         """Parse the document into a dictionary.
