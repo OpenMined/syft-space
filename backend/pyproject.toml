@@ -19,6 +19,7 @@ dependencies = [
     "sqlmodel>=0.0.14",
     "loguru>=0.7.3",
     "requests>=2.32.5",
+    "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]
