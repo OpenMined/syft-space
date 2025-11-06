@@ -289,10 +289,10 @@ class EndpointHandler:
 
         # Get dataset type
         try:
-            dataset_type_cls = self.dataset_registry.get_dataset_type(dataset.type)
+            dataset_type_cls = self.dataset_registry.get_dataset_type(dataset.dtype)
         except KeyError:
             raise HTTPException(
-                status_code=400, detail=f"Dataset type '{dataset.type}' not registered"
+                status_code=400, detail=f"Dataset type '{dataset.dtype}' not registered"
             ) from None
 
         # Create dataset instance
@@ -334,7 +334,7 @@ class EndpointHandler:
 
         return ReferencesResponse(
             documents=documents,
-            provider_info=ProviderInfo(search_engine=dataset.type),
+            provider_info=ProviderInfo(search_engine=dataset.dtype),
             cost=0.0,  # TODO: Implement cost tracking
         )
 

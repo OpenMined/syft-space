@@ -60,6 +60,7 @@ class DatasetResponse(BaseModel):
     configuration: dict[str, Any] = Field(..., description="Configuration")
     summary: str = Field(..., description="Dataset summary")
     tags: str = Field(..., description="Comma-separated tags")
+    provisioner_state: dict[str, Any] = Field(..., description="Provisioner state")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 

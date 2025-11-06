@@ -1,6 +1,7 @@
 """Dataset handlers for business logic."""
 
 from fastapi import HTTPException
+from loguru import logger
 
 from components.dataset_types.interfaces import IngestDocument, IngestRequest
 from components.dataset_types.registry import DatasetTypeRegistry
@@ -102,7 +103,7 @@ class DatasetHandler:
 
         # Validate configuration
         try:
-            dataset_type.model_validate(request.configuration)
+            dataset_type.validate_configuration(request.configuration)
         except Exception as e:
             raise HTTPException(
                 status_code=400, detail=f"Invalid configuration: {str(e)}"
@@ -122,11 +123,13 @@ class DatasetHandler:
         if provisioner_cls is not None:
             try:
                 # Add dataset_name to config for unique resource naming
+                logger.info(f"Starting provisioner: {request.configuration}")
                 provisioner_config = {
                     **request.configuration,
                     "dataset_name": request.name,
                 }
                 provisioner_state = provisioner_cls.start(provisioner_config)
+                logger.info(f"Provisioner started: {provisioner_state}")
             except Exception as e:
                 raise HTTPException(
                     status_code=500,
@@ -136,7 +139,7 @@ class DatasetHandler:
         # Create dataset entity
         dataset = Dataset(
             name=request.name,
-            type=request.dtype,
+            dtype=request.dtype,
             configuration=request.configuration,
             summary=request.summary,
             tags=request.tags,
@@ -199,7 +202,7 @@ class DatasetHandler:
 
         # Check provisioner status if provisioner state exists
         if dataset.provisioner_state:
-            provisioner_cls = self.registry.get_provisioner(dataset.type)
+            provisioner_cls = self.registry.get_provisioner(dataset.dtype)
             if provisioner_cls is not None:
                 try:
                     provisioner_running = provisioner_cls.is_running(
@@ -216,7 +219,7 @@ class DatasetHandler:
 
         return {
             "name": dataset.name,
-            "type": dataset.type,
+            "type": dataset.dtype,
             "provisioner_running": provisioner_running,
             "provisioner_status": provisioner_status,
             "provisioner_state": dataset.provisioner_state,
@@ -241,7 +244,7 @@ class DatasetHandler:
 
         # Stop provisioner if it exists and was provisioned
         if dataset.provisioner_state:
-            provisioner_cls = self.registry.get_provisioner(dataset.type)
+            provisioner_cls = self.registry.get_provisioner(dataset.dtype)
             if provisioner_cls is not None:
                 try:
                     provisioner_cls.stop(dataset.provisioner_state)
@@ -283,17 +286,17 @@ class DatasetHandler:
 
         # Get dataset type
         try:
-            dataset_type_cls = self.registry.get_dataset_type(dataset.type)
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
         except KeyError:
             raise HTTPException(
-                status_code=500, detail=f"Dataset type '{dataset.type}' not registered"
+                status_code=500, detail=f"Dataset type '{dataset.dtype}' not registered"
             ) from None
 
         # Check if enabled
         if not dataset_type_cls.enabled():
             raise HTTPException(
                 status_code=503,
-                detail=f"Dataset type '{dataset.type}' is not enabled. Install required dependencies.",
+                detail=f"Dataset type '{dataset.dtype}' is not enabled. Install required dependencies.",
             )
 
         # Create dataset type instance

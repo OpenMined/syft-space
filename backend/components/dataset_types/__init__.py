@@ -14,9 +14,11 @@ def register_builtin_types(registry: "DatasetTypeRegistry") -> None:
     Args:
         registry: The dataset type registry to register types with
     """
+    from .weaviate_local.weaviate_provisioner import WeaviateProvisioner
     from .weaviate_local.weaviate_type import WeaviateLocalDatasetType
 
     registry.register_dataset_type(WeaviateLocalDatasetType)
+    registry.register_provisioner(WeaviateProvisioner)
 
 
 __all__ = ["register_builtin_types"]
