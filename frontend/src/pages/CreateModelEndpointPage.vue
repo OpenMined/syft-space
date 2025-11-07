@@ -492,7 +492,7 @@
               </div>
 
               <!-- Policy Rules -->
-              <div v-if="policyRules[policy.id]?.length > 0" class="space-y-3">
+              <div v-if="(policyRules[policy.id] || []).length > 0" class="space-y-3">
                 <div
                   v-for="rule in policyRules[policy.id] || []"
                   :key="rule.id"
@@ -1823,6 +1823,15 @@ const savePolicy = (policyId: string, ruleId: string) => {
     rule.isEditing = false
   }
 
+  editingRuleId.value[policyId] = null
+}
+
+const cancelEditPolicy = (policyId: string, ruleId: string) => {
+  // Find and cancel editing for the rule
+  const rule = policyRules.value[policyId]?.find((r) => r.id === ruleId)
+  if (rule) {
+    rule.isEditing = false
+  }
   editingRuleId.value[policyId] = null
 }
 
