@@ -1,11 +1,13 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
     <!-- Header -->
-    <div class="flex items-center gap-3 mb-2">
-      <Brain class="h-6 w-6 text-gray-600" />
-      <h1 class="text-2xl font-semibold text-gray-900">Models</h1>
+    <div class="mb-10">
+      <div class="flex items-center gap-3 mb-3">
+        <Brain class="h-6 w-6 text-[var(--color-secondary)]" />
+        <h1 class="text-2xl font-bold text-gray-900">Your Models</h1>
+      </div>
+      <p class="text-gray-600 md:max-w-[50%]">Models here are accessible only for your private use. They're ideal for building powerful flows on your machine; expose them to others later by creating endpoints.</p>
     </div>
-    <p class="text-gray-600 mb-8">Add and manage your AI models</p>
 
     <!-- Header with tabs and search bar -->
     <div class="flex items-center justify-between gap-4 mb-8">
@@ -29,13 +31,13 @@
           <Input
             v-model="searchQuery"
             placeholder="Find models, tags, types..."
-            class="pl-10 pr-4 py-2 w-full"
+            class="pl-10 pr-4 py-2.5 w-full bg-[var(--color-bg-alt)] border-[var(--color-border)] rounded-lg focus:bg-[var(--color-bg-light)] transition-colors"
           />
         </div>
 
         <!-- Add Model Button -->
         <Button
-          class="bg-purple-600 hover:bg-purple-700 text-white"
+          class="bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)] text-white px-5 py-2.5 rounded-lg shadow-sm hover:shadow-md transition-all"
           @click="showCreateModelDialog = true"
         >
           <Plus class="h-4 w-4 mr-2" />
@@ -45,18 +47,18 @@
     </div>
 
     <!-- Models List -->
-    <div class="space-y-4">
+    <div class="space-y-5">
       <div
         v-for="model in filteredModels"
         :key="model.id"
-        class="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow cursor-pointer"
+        class="bg-[var(--color-bg-light)] border border-[var(--color-border)] rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
         @click="navigateToDetail(model.name)"
       >
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-4">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-4">
             <div
               :class="[
-                'p-3 rounded-lg',
+                'p-3.5 rounded-xl',
                 model.type === 'vllm'
                   ? 'bg-purple-100'
                   : model.type === 'ollama'
@@ -68,18 +70,15 @@
             </div>
             <div class="flex-1">
               <div class="flex items-center gap-3 mb-2">
-                <h3 class="text-lg font-medium text-gray-900">{{ model.name }}</h3>
-                <Badge variant="secondary" class="bg-gray-900 text-white text-xs px-2 py-1">{{
-                  model.type
-                }}</Badge>
+                <h3 class="text-lg font-semibold text-gray-900">{{ model.name }}</h3>
                 <Badge
                   variant="outline"
                   :class="
                     model.status === 'running'
-                      ? 'bg-green-50 text-green-700 border-green-200'
-                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                      ? 'bg-[var(--color-success-contrast)] text-[var(--color-success-strong)] border-[var(--color-success)]'
+                      : 'bg-[var(--color-bg-alt)] text-[var(--color-text-light)] border-[var(--color-border)]'
                   "
-                  class="text-xs px-2 py-1"
+                  class="text-xs px-2.5 py-1 rounded-md"
                 >
                   <div
                     :class="
@@ -97,10 +96,10 @@
                         variant="outline"
                         :class="
                           model.endpointCount > 0
-                            ? 'bg-blue-50 text-blue-700 border-blue-200 cursor-help'
-                            : 'bg-gray-50 text-gray-600 border-gray-200'
+                            ? 'bg-[var(--color-info-contrast)] text-[var(--color-info-strong)] border-[var(--color-info)] cursor-help'
+                            : 'bg-[var(--color-bg-alt)] text-[var(--color-text-light)] border-[var(--color-border)]'
                         "
-                        class="text-xs px-2 py-1"
+                        class="text-xs px-2.5 py-1 rounded-md"
                       >
                         <div
                           :class="
@@ -136,7 +135,7 @@
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p class="text-gray-600 mb-3">
+              <p class="text-gray-600 mb-4">
                 {{ model.description }}
               </p>
               <div class="flex gap-2">
@@ -144,7 +143,7 @@
                   v-for="tag in model.tags"
                   :key="tag"
                   variant="outline"
-                  class="text-xs px-2 py-1"
+                  class="text-xs px-3 py-1 rounded-full border-gray-200 text-gray-600"
                 >
                   {{ tag }}
                 </Badge>

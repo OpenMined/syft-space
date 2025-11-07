@@ -17,6 +17,38 @@
         </div>
         <p class="text-gray-600 mb-4">{{ endpoint.summary }}</p>
 
+        <!-- Watched Paths Preview -->
+        <div class="mb-4 space-y-2 pl-2">
+          <div v-if="endpoint.isCustom" class="text-sm text-gray-500">
+            📂 <span class="italic">Custom dataset - manually configured</span>
+          </div>
+          
+          <div v-else-if="!endpoint.watchedPaths || endpoint.watchedPaths.length === 0" class="text-sm text-gray-500">
+            📂 <span class="italic">No paths configured</span>
+          </div>
+          
+          <div v-else class="space-y-1">
+            <div class="text-sm text-gray-500 flex items-center gap-2">
+              📂 <span class="font-medium">Files & Folders:</span>
+            </div>
+            <div class="ml-6 space-y-1 py-1">
+              <div 
+                v-for="path in getPathsPreview(endpoint).paths" 
+                :key="path"
+                class="text-sm font-mono text-gray-500 opacity-75"
+              >
+                {{ path }}
+              </div>
+              <div 
+                v-if="getPathsPreview(endpoint).hasMore" 
+                class="text-sm text-gray-500 opacity-60 italic"
+              >
+                +{{ getPathsPreview(endpoint).totalCount - 3 }} more...
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="flex items-center gap-4 flex-wrap">
           <div class="flex gap-2">
             <TooltipProvider v-if="endpoint.dataSourceType">
@@ -113,5 +145,37 @@ const props = defineProps<{
 
 const handleCardClick = () => {
   router.push({ name: 'endpoint-detail', params: { slug: props.endpoint.name } })
+}
+
+// Get preview paths for endpoint card
+const getPathsPreview = (endpoint: EndpointItem) => {
+  if (endpoint.isCustom) {
+    return {
+      isCustom: true,
+      paths: [],
+      hasMore: false,
+      totalCount: 0
+    }
+  }
+  
+  if (!endpoint.watchedPaths || endpoint.watchedPaths.length === 0) {
+    return {
+      isCustom: false,
+      paths: [],
+      hasMore: false,
+      totalCount: 0
+    }
+  }
+  
+  // Show first 3 paths with "..." if there are more
+  const pathsToShow = endpoint.watchedPaths.slice(0, 3)
+  const hasMore = endpoint.watchedPaths.length > 3
+  
+  return {
+    isCustom: false,
+    paths: pathsToShow,
+    hasMore,
+    totalCount: endpoint.watchedPaths.length
+  }
 }
 </script>

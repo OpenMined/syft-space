@@ -101,8 +101,8 @@ These techniques work together to enable collaborative model training while main
       id: '3',
       source: 'System Update',
       title: 'New version available',
-      summary: 'SyftAI Server v2.1.0 is now available with performance improvements',
-      longDescription: `## Update Available: SyftAI Server v2.1.0
+      summary: 'Syft AI Space v2.1.0 is now available with performance improvements',
+      longDescription: `## Update Available: Syft AI Space v2.1.0
 
 ### What's New
 - **Performance**: 30% faster model inference

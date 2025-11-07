@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Rubik:wght@300;400;500;600;700&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
@@ -76,6 +77,73 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  
+  /* Custom design system variables */
+  --color-primary: #17161D;
+  --color-text: #17161D;
+  --color-text-light: #464158;
+  --color-border: #E5E7EB;
+  --color-bg: #FCFCFD;
+  --color-bg-light: #FFFFFF;
+  --color-bg-alt: #F4F3F6;
+  
+  /* Brand accents */
+  --color-accent: #6976AE;
+  --color-accent-contrast: #DEE1ED;
+  --color-accent-strong: #373B7B;
+  
+  --color-secondary: #937098;
+  --color-secondary-contrast: #E9E1EA;
+  --color-secondary-strong: #563B59;
+  
+  --color-success: #53BEA9;
+  --color-success-contrast: #DAF1ED;
+  --color-success-strong: #155548;
+  
+  --color-info: #4392C5;
+  --color-info-contrast: #C2DEF0;
+  --color-info-strong: #1F567A;
+  
+  --color-warning: #F8C073;
+  --color-warning-contrast: #FCE9CF;
+  --color-warning-strong: #B8520A;
+  
+  --color-danger: #CC677B;
+  --color-danger-contrast: #F2D9DE;
+  --color-danger-strong: #9B2737;
+  
+  /* Shadows and overlays */
+  --overlay-weak: rgba(245, 247, 250, 0.72);
+  --overlay-strong: rgba(255, 255, 255, 0.82);
+  --shadow-accent-1: rgba(60, 80, 120, 0.10);
+  --shadow-accent-2: rgba(60, 80, 120, 0.13);
+  
+  /* Gradients */
+  --gradient-start: #FCFCFD;
+  --gradient-end: #F4F3F6;
+  
+  /* Glass morphism */
+  --glass: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-hover: rgba(255, 255, 255, 0.98);
+  --glass-light: rgba(255, 255, 255, 0.9);
+  
+  /* Shadows */
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  
+  /* Spacing */
+  --spacing-xs: 0.5rem;
+  --spacing-sm: 1rem;
+  --spacing-md: 1.5rem;
+  --spacing-lg: 2rem;
+  --spacing-xl: 3rem;
+  --spacing-xxl: 4rem;
+  --spacing-xxxl: 6rem;
+  
+  /* Font */
+  --font-primary: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-secondary: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .dark {
@@ -111,6 +179,44 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+  
+  /* Dark theme custom variables */
+  --color-primary: #FFFFFF;
+  --color-text: #FFFFFF;
+  --color-text-light: #D1D5DB;
+  --color-border: #4B5563;
+  --color-bg: #17161D;
+  --color-bg-light: #2E2B3B;
+  --color-bg-alt: #1F1F23;
+  
+  /* Dark theme brand colors */
+  --color-accent: #BB86FC;
+  --color-accent-contrast: #3B2A5C;
+  --color-accent-strong: #9C5AFC;
+  
+  --color-secondary: #32D5E8;
+  --color-secondary-contrast: #1E3A3F;
+  --color-secondary-strong: #14B8CC;
+  
+  /* Enhanced overlays for dark theme */
+  --overlay-weak: rgba(23, 22, 29, 0.72);
+  --overlay-strong: rgba(46, 43, 59, 0.82);
+  --shadow-accent-1: rgba(187, 134, 252, 0.15);
+  --shadow-accent-2: rgba(187, 134, 252, 0.25);
+  
+  /* Dark gradients */
+  --gradient-start: #17161D;
+  --gradient-end: #1F1F23;
+  
+  /* Dark glass morphism */
+  --glass: rgba(46, 43, 59, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-hover: rgba(46, 43, 59, 0.95);
+  --glass-light: rgba(23, 22, 29, 0.5);
+  
+  /* Dark shadows */
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
 }
 
 @layer base {
@@ -120,5 +226,135 @@
   body {
     @apply bg-background text-foreground;
     overflow-y: scroll;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 400;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  
+  .font-heading {
+    font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  
+  .font-body {
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 }
+
+/* Custom utility classes for design system */
+.glass-card {
+  background: var(--glass);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+.glass-hover:hover {
+  background: var(--glass-hover);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.12);
+}
+
+.glass-subtle {
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 8px 32px 0 rgba(105, 118, 174, 0.06);
+}
+
+.text-primary {
+  color: var(--color-text);
+}
+
+.text-light {
+  color: var(--color-text-light);
+}
+
+.bg-custom {
+  background: var(--color-bg);
+}
+
+.bg-custom-light {
+  background: var(--color-bg-light);
+}
+
+.bg-custom-alt {
+  background: var(--color-bg-alt);
+}
+
+.accent-gradient {
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+}
+
+.secondary-gradient {
+  background: linear-gradient(135deg, var(--color-secondary) 0%, #563B59 100%);
+}
+
+.success-gradient {
+  background: linear-gradient(135deg, var(--color-success) 0%, #155548 100%);
+}
+
+.info-gradient {
+  background: linear-gradient(135deg, var(--color-info) 0%, #1F567A 100%);
+}
+
+.warning-gradient {
+  background: linear-gradient(135deg, var(--color-warning) 0%, #B8520A 100%);
+}
+
+.danger-gradient {
+  background: linear-gradient(135deg, var(--color-danger) 0%, #9B2737 100%);
+}
+
+.custom-shadow {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.custom-shadow-lg {
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* Typography scale (consistent across app) */
+:root {
+  --fs-xs: 0.75rem;    /* 12px */
+  --fs-sm: 0.875rem;   /* 14px */
+  --fs-base: 1rem;     /* 16px */
+  --fs-lg: 1.125rem;   /* 18px */
+  --fs-xl: 1.25rem;    /* 20px */
+  --fs-2xl: 1.5rem;    /* 24px */
+  --fs-3xl: 1.875rem;  /* 30px */
+  --fs-4xl: 2.25rem;   /* 36px */
+}
+
+.text-xs { font-size: var(--fs-xs); }
+.text-sm { font-size: var(--fs-sm); }
+.text-base { font-size: var(--fs-base); }
+.text-lg { font-size: var(--fs-lg); }
+.text-xl { font-size: var(--fs-xl); }
+.text-2xl { font-size: var(--fs-2xl); }
+.text-3xl { font-size: var(--fs-3xl); }
+.text-4xl { font-size: var(--fs-4xl); }
+
+/* Heading utilities */
+.heading-1 { font-size: var(--fs-4xl); font-weight: 500; letter-spacing: -0.01em; }
+.heading-2 { font-size: var(--fs-3xl); font-weight: 600; }
+.heading-3 { font-size: var(--fs-2xl); font-weight: 600; }
+.body-lg   { font-size: var(--fs-lg); }
+.body-base { font-size: var(--fs-base); }
+.body-sm   { font-size: var(--fs-sm); }

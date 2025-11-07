@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, ExternalLink, Settings } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { useUserStore } from '@/stores/user'
 import { useInboxStore } from '@/stores/inbox'
+import RevenueDetailsDialog from '@/components/RevenueDetailsDialog.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -21,6 +22,7 @@ const userStore = useUserStore()
 const inboxStore = useInboxStore()
 
 const currentRouteName = computed(() => route.name as string)
+const revenueDialogOpen = ref(false)
 
 const routeMapping: Record<string, string[]> = {
   endpoints: ['endpoints', 'endpoint-detail'],
@@ -39,10 +41,11 @@ const navigateTo = (routeName: string) => {
 
 const tabs = [
   { id: 'home', label: 'Home' },
-  { id: 'endpoints', label: 'Endpoints' },
   { id: 'datasets', label: 'Datasets' },
   { id: 'models', label: 'Models' },
+  { id: 'endpoints', label: 'Endpoints' },
   { id: 'inbox', label: 'Inbox' },
+  { id: 'analytics', label: 'Analytics' },
 ]
 </script>
 
@@ -54,10 +57,10 @@ const tabs = [
         <div
           class="h-8 w-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center"
         >
-          <span class="text-white font-bold text-lg">S</span>
+          <span class="text-white font-bold text-base">S</span>
         </div>
-        <span class="text-xl font-bold text-gray-900 tracking-tight">
-          SyftAI Server
+        <span class="text-lg font-bold text-gray-900 tracking-tight">
+          SyftAI Space
           <span class="ml-1 text-xs font-semibold text-purple-600 align-top">BETA</span>
         </span>
       </div>
@@ -91,10 +94,13 @@ const tabs = [
       <!-- Right side controls -->
       <div class="flex items-center space-x-3">
         <!-- Balance Display -->
-        <div class="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg">
+        <button
+          @click="revenueDialogOpen = true"
+          class="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+        >
           <span class="text-sm text-gray-600">Balance:</span>
           <span class="text-sm font-semibold text-green-600">{{ userStore.balance }}</span>
-        </div>
+        </button>
 
         <!-- Avatar with Dropdown -->
         <DropdownMenu>
@@ -135,4 +141,6 @@ const tabs = [
       </div>
     </div>
   </header>
+  <!-- Revenue Details Dialog -->
+  <RevenueDetailsDialog v-model:open="revenueDialogOpen" />
 </template>

@@ -5,10 +5,12 @@ import DatasetsPage from '../pages/DatasetsPage.vue'
 import ModelsPage from '../pages/ModelsPage.vue'
 import InboxPage from '../pages/InboxPage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
-import CreateEndpointPage from '../pages/CreateEndpointPage.vue'
+import AnalyticsPage from '../pages/AnalyticsPage.vue'
 import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
 import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
+import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
+import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -58,24 +60,24 @@ const router = createRouter({
       component: InboxPage,
     },
     {
+      path: '/analytics',
+      name: 'analytics',
+      component: AnalyticsPage,
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: SettingsPage,
     },
     {
-      path: '/create',
-      name: 'create',
-      component: CreateEndpointPage,
-    },
-    {
       path: '/create/data-endpoint',
       name: 'create-data-endpoint',
-      component: () => import('../pages/CreateDataEndpointPage.vue'),
+      component: CreateDataEndpointPage,
     },
     {
       path: '/create/model-endpoint',
       name: 'create-model-endpoint',
-      component: () => import('../pages/CreateModelEndpointPage.vue'),
+      component: CreateModelEndpointPage,
     },
   ],
 })
