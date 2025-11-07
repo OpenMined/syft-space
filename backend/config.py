@@ -21,9 +21,6 @@ class AppSettings(BaseSettings):
     # Application settings
     debug: bool = False
 
-    # Syftbox config path
-    syftbox_config_path : Path = Path("~/.syftbox/config.json").expanduser()
-
 
 # Global settings instance
 app_settings = AppSettings()

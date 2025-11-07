@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, Generic, List, Optional, Type, TypeVar
+from typing import Generic, Optional, TypeVar
 
+from loguru import logger
 from sqlmodel import Session, SQLModel, create_engine, select
 
 T = TypeVar("T", bound=SQLModel)
@@ -36,11 +38,14 @@ class Database:
 
     def __init__(self, config: DatabaseConfig):
         """Initialize the database"""
+        logger.info(
+            f"Initializing database with connection string: {config.get_connection_string()}"
+        )
         self.engine = create_engine(config.get_connection_string())
 
     def create_db_and_tables(self):
         """Create the database and tables"""
-        SQLModel.metadata.create_all(self.engine)
+        SQLModel.metadata.create_all(self.engine, checkfirst=True)
 
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
@@ -52,7 +57,7 @@ class Database:
 class BaseRepository(Generic[T]):
     """Base repository class for CRUD operations"""
 
-    def __init__(self, db: Database, model: Type[T]):
+    def __init__(self, db: Database, model: type[T]):
         """Initialize the base repository"""
         self.db = db
         self.model = model
@@ -70,7 +75,7 @@ class BaseRepository(Generic[T]):
         with self.db.get_session() as session:
             return session.get(self.model, id)
 
-    def get_all(self) -> List[T]:
+    def get_all(self) -> list[T]:
         """Get all objects from the database"""
         with self.db.get_session() as session:
             statement = select(self.model)
@@ -88,6 +93,27 @@ class BaseRepository(Generic[T]):
         """Delete an object from the database"""
         with self.db.get_session() as session:
             obj = session.get(self.model, id)
+            if obj:
+                session.delete(obj)
+                session.commit()
+                return True
+            return False
+
+    def get_by_field(self, field_name: str, value: any) -> Optional[T]:
+        """Get an object by a specific field value"""
+        with self.db.get_session() as session:
+            statement = select(self.model).where(
+                getattr(self.model, field_name) == value
+            )
+            return session.exec(statement).first()
+
+    def delete_by_field(self, field_name: str, value: any) -> bool:
+        """Delete an object by a specific field value"""
+        with self.db.get_session() as session:
+            statement = select(self.model).where(
+                getattr(self.model, field_name) == value
+            )
+            obj = session.exec(statement).first()
             if obj:
                 session.delete(obj)
                 session.commit()
