@@ -1,6 +1,8 @@
 """Dataset type interfaces and domain models."""
 
-from typing import Any, Optional, Protocol
+from io import BytesIO
+from tempfile import SpooledTemporaryFile
+from typing import Any, BinaryIO, Optional, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -51,7 +53,7 @@ class SearchResult(BaseModel):
 class IngestFile(BaseModel):
     """Framework-agnostic file wrapper for ingestion."""
 
-    file_handle: Any = Field(
+    file_handle: BinaryIO | SpooledTemporaryFile | BytesIO = Field(
         ..., description="File-like object (SpooledTemporaryFile, BytesIO, etc.)"
     )
     filename: str = Field(..., description="Original filename")

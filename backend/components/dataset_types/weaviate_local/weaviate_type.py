@@ -1,5 +1,6 @@
 """Weaviate dataset type implementation."""
 
+from io import BytesIO
 from typing import Any, Optional
 
 from pydantic import ValidationError
@@ -162,7 +163,8 @@ class WeaviateLocalDatasetType(BaseDatasetType):
             Dictionary with parsed document content and metadata
         """
         # Convert the file to a document stream
-        document_stream = DocumentStream(name=file.filename, stream=file.file_handle)
+        stream = BytesIO(file.file_handle.read())
+        document_stream = DocumentStream(name=file.filename, stream=stream)
         conv_result = self.converter.convert(document_stream)
 
         # Return the parsed document content and metadata
