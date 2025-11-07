@@ -3,10 +3,13 @@
     <!-- Header -->
     <div class="mb-10">
       <div class="flex items-center gap-3 mb-3">
-        <Brain class="h-6 w-6 text-[var(--color-secondary)]" />
-        <h1 class="text-2xl font-bold text-gray-900">Your Models</h1>
+        <Brain class="h-6 w-6 text-primary" />
+        <h1 class="heading-3">Your Models</h1>
       </div>
-      <p class="text-gray-600 md:max-w-[50%]">Models here are accessible only for your private use. They're ideal for building powerful flows on your machine; expose them to others later by creating endpoints.</p>
+      <p class="body-lg text-muted-foreground md:max-w-[50%]">
+        Models here are accessible only for your private use. They're ideal for building powerful
+        flows on your machine; expose them to others later by creating endpoints.
+      </p>
     </div>
 
     <!-- Header with tabs and search bar -->
@@ -26,20 +29,17 @@
       <div class="flex items-center gap-4">
         <div class="relative w-80">
           <Search
-            class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400"
+            class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
           />
           <Input
             v-model="searchQuery"
             placeholder="Find models, tags, types..."
-            class="pl-10 pr-4 py-2.5 w-full bg-[var(--color-bg-alt)] border-[var(--color-border)] rounded-lg focus:bg-[var(--color-bg-light)] transition-colors"
+            class="pl-10 pr-4 py-2.5 w-full"
           />
         </div>
 
         <!-- Add Model Button -->
-        <Button
-          class="bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)] text-white px-5 py-2.5 rounded-lg shadow-sm hover:shadow-md transition-all"
-          @click="showCreateModelDialog = true"
-        >
+        <Button @click="showCreateModelDialog = true">
           <Plus class="h-4 w-4 mr-2" />
           Add Model
         </Button>
@@ -51,7 +51,7 @@
       <div
         v-for="model in filteredModels"
         :key="model.id"
-        class="bg-[var(--color-bg-light)] border border-[var(--color-border)] rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
+        class="bg-card border border-border rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
         @click="navigateToDetail(model.name)"
       >
         <div class="flex items-start justify-between">
@@ -60,31 +60,31 @@
               :class="[
                 'p-3.5 rounded-xl',
                 model.type === 'vllm'
-                  ? 'bg-purple-100'
+                  ? 'bg-primary/10'
                   : model.type === 'ollama'
-                    ? 'bg-orange-100'
-                    : 'bg-indigo-100',
+                    ? 'bg-orange-50 dark:bg-orange-950/50'
+                    : 'bg-blue-50 dark:bg-blue-950/50',
               ]"
             >
               <IntegrationIcon :name="model.type" class="h-6 w-6" />
             </div>
             <div class="flex-1">
               <div class="flex items-center gap-3 mb-2">
-                <h3 class="text-lg font-semibold text-gray-900">{{ model.name }}</h3>
+                <h3 class="heading-3 text-foreground">{{ model.name }}</h3>
                 <Badge
                   variant="outline"
                   :class="
                     model.status === 'running'
-                      ? 'bg-[var(--color-success-contrast)] text-[var(--color-success-strong)] border-[var(--color-success)]'
-                      : 'bg-[var(--color-bg-alt)] text-[var(--color-text-light)] border-[var(--color-border)]'
+                      ? 'bg-green-50 dark:bg-green-950/50 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800'
+                      : 'bg-muted text-muted-foreground border-border'
                   "
-                  class="text-xs px-2.5 py-1 rounded-md"
+                  class="body-sm px-2.5 py-1 rounded-md"
                 >
                   <div
                     :class="
                       model.status === 'running'
-                        ? 'w-2 h-2 bg-green-500 rounded-full mr-1'
-                        : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
+                        ? 'w-2 h-2 bg-green-500 dark:bg-green-400 rounded-full mr-1'
+                        : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
                     "
                   ></div>
                   {{ model.status }}
@@ -96,16 +96,16 @@
                         variant="outline"
                         :class="
                           model.endpointCount > 0
-                            ? 'bg-[var(--color-info-contrast)] text-[var(--color-info-strong)] border-[var(--color-info)] cursor-help'
-                            : 'bg-[var(--color-bg-alt)] text-[var(--color-text-light)] border-[var(--color-border)]'
+                            ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 cursor-help'
+                            : 'bg-muted text-muted-foreground border-border'
                         "
-                        class="text-xs px-2.5 py-1 rounded-md"
+                        class="body-sm px-2.5 py-1 rounded-md"
                       >
                         <div
                           :class="
                             model.endpointCount > 0
-                              ? 'w-2 h-2 bg-blue-500 rounded-full mr-1'
-                              : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
+                              ? 'w-2 h-2 bg-blue-500 dark:bg-blue-400 rounded-full mr-1'
+                              : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
                           "
                         ></div>
                         {{
@@ -117,12 +117,12 @@
                     </TooltipTrigger>
                     <TooltipContent v-if="model.endpointCount > 0">
                       <div class="space-y-1">
-                        <p class="font-medium text-xs">Connected Endpoints:</p>
+                        <p class="font-medium body-sm">Connected Endpoints:</p>
                         <ul class="space-y-1">
                           <li
                             v-for="endpointName in getEndpointNamesForModel(model.id)"
                             :key="endpointName"
-                            class="text-xs"
+                            class="body-sm"
                           >
                             • {{ endpointName }}
                           </li>
@@ -130,12 +130,12 @@
                       </div>
                     </TooltipContent>
                     <TooltipContent v-else>
-                      <p class="text-xs">This model is not connected to any endpoint</p>
+                      <p class="body-sm">This model is not connected to any endpoint</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p class="text-gray-600 mb-4">
+              <p class="text-muted-foreground mb-4">
                 {{ model.description }}
               </p>
               <div class="flex gap-2">
@@ -143,7 +143,7 @@
                   v-for="tag in model.tags"
                   :key="tag"
                   variant="outline"
-                  class="text-xs px-3 py-1 rounded-full border-gray-200 text-gray-600"
+                  class="body-sm px-3 py-1 rounded-full border-border text-muted-foreground"
                 >
                   {{ tag }}
                 </Badge>
@@ -154,7 +154,7 @@
             <Button
               variant="outline"
               size="sm"
-              class="text-gray-600"
+              class="text-muted-foreground hover:text-foreground"
               @click.stop="handleEditModel(model)"
             >
               <Edit class="h-4 w-4 mr-2" />
@@ -163,7 +163,7 @@
             <Button
               variant="outline"
               size="sm"
-              class="text-red-600 hover:text-red-700"
+              class="text-destructive hover:text-destructive"
               @click.stop="handleDeleteModel(model)"
             >
               <Trash2 class="h-4 w-4 mr-2" />
@@ -179,24 +179,21 @@
       <!-- Divider with centered text -->
       <div class="relative">
         <div class="absolute inset-0 flex items-center">
-          <div class="w-full border-t border-gray-300"></div>
+          <div class="w-full border-t border-border"></div>
         </div>
-        <div class="relative flex justify-center text-sm">
-          <span class="px-4 bg-gray-50 text-gray-600 font-medium">
+        <div class="relative flex justify-center body-sm">
+          <span class="px-4 bg-background text-muted-foreground font-medium">
             Demo: Empty State (shown when no models exist)
           </span>
         </div>
       </div>
 
       <!-- Empty state content -->
-      <div class="mt-8 bg-white rounded-lg shadow border border-gray-200 p-8 text-center">
-        <Brain class="h-12 w-12 text-gray-400 mx-auto mb-4" />
-        <h3 class="text-lg font-medium text-gray-900 mb-2">No models yet</h3>
-        <p class="text-gray-600 mb-4">Start by adding or connecting your first AI model</p>
-        <Button
-          class="bg-purple-600 hover:bg-purple-700 text-white"
-          @click="showCreateModelDialog = true"
-        >
+      <div class="mt-8 bg-card rounded-lg shadow border border-border p-8 text-center">
+        <Brain class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+        <h3 class="heading-3 text-foreground mb-2">No models yet</h3>
+        <p class="text-muted-foreground mb-4">Start by adding or connecting your first AI model</p>
+        <Button @click="showCreateModelDialog = true">
           <Plus class="h-4 w-4 mr-2" />
           Add Model
         </Button>
@@ -225,38 +222,40 @@
 
       <div v-if="modelToDelete && modelToDelete.endpointCount > 0" class="py-4">
         <div class="space-y-4">
-          <div class="bg-red-50 border border-red-200 rounded-md p-4">
+          <div class="bg-destructive/10 border border-destructive/20 rounded-md p-4">
             <div class="flex items-start gap-3">
               <div class="text-xl">⚠️</div>
               <div class="flex-1">
-                <p class="text-red-900 font-semibold text-sm mb-2">
+                <p class="text-destructive font-semibold body-sm mb-2">
                   This model has {{ modelToDelete.endpointCount }} dependent endpoint{{
                     modelToDelete.endpointCount !== 1 ? 's' : ''
                   }}
                   that will be deleted:
                 </p>
-                <p class="text-red-800 text-xs mb-3">Check each endpoint to confirm deletion</p>
+                <p class="text-destructive/80 body-sm mb-3">
+                  Check each endpoint to confirm deletion
+                </p>
                 <div class="space-y-2">
                   <div
                     v-for="endpointName in getEndpointNamesForModel(modelToDelete.id)"
                     :key="endpointName"
-                    class="flex items-center gap-3 p-2.5 bg-white rounded border border-red-200"
+                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20"
                   >
                     <input
                       type="checkbox"
                       :id="`endpoint-${endpointName}`"
                       :checked="checkedEndpoints.includes(endpointName)"
                       @change="() => toggleEndpoint(endpointName)"
-                      class="w-4 h-4 text-red-600 bg-white border-red-400 rounded focus:ring-red-500 focus:ring-2"
+                      class="w-4 h-4 text-destructive bg-background border-destructive rounded focus:ring-destructive focus:ring-2"
                     />
                     <label
                       :for="`endpoint-${endpointName}`"
                       class="flex-1 cursor-pointer flex items-center justify-between"
                     >
-                      <span class="text-sm font-medium text-gray-900">
+                      <span class="body-sm font-medium text-foreground">
                         {{ endpointName }}
                       </span>
-                      <span class="text-xs text-red-600"> Will be deleted </span>
+                      <span class="body-sm text-destructive"> Will be deleted </span>
                     </label>
                   </div>
                 </div>

@@ -3,7 +3,7 @@
     <div class="file-explorer-header mb-4">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <h3 class="text-lg font-medium text-gray-900">Select Files & Directories</h3>
+          <h3 class="text-lg font-medium text-foreground">Select Files & Directories</h3>
           <Badge variant="secondary">{{ selectedFiles.length }} selected</Badge>
         </div>
         <div class="flex items-center gap-2">
@@ -24,10 +24,10 @@
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
         <!-- Left Panel: File Browser -->
         <div
-          class="file-tree border-2 border-gray-200 rounded-lg overflow-hidden flex flex-col h-full"
+          class="file-tree border-2 border-border rounded-lg overflow-hidden flex flex-col h-full"
         >
-          <div class="bg-gray-50 border-b border-gray-200 px-4 py-2 flex-shrink-0">
-            <div class="flex items-center gap-2 text-sm text-gray-600">
+          <div class="bg-muted border-b border-border px-4 py-2 flex-shrink-0">
+            <div class="flex items-center gap-2 text-sm text-muted-foreground">
               <HardDrive class="w-4 h-4" />
               <span>Home Directory (~)</span>
             </div>
@@ -48,10 +48,10 @@
         </div>
 
         <!-- Right Panel: Selection Preview -->
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 flex flex-col h-full">
+        <div class="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex flex-col h-full">
           <div class="flex items-center justify-between mb-4 flex-shrink-0">
-            <h4 class="text-sm font-medium text-blue-900">Selected Files & Directories</h4>
-            <Badge variant="secondary" class="bg-blue-100 text-blue-800">
+            <h4 class="text-sm font-medium text-blue-900 dark:text-blue-100">Selected Files & Directories</h4>
+            <Badge variant="secondary" class="bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200">
               {{ selectedFiles.length }} item{{ selectedFiles.length !== 1 ? 's' : '' }}
             </Badge>
           </div>
@@ -61,7 +61,7 @@
               <div
                 v-for="path in selectedFiles"
                 :key="path"
-                class="flex items-center gap-2 text-xs text-blue-800 bg-white rounded px-3 py-2 shadow-sm"
+                class="flex items-center gap-2 text-xs text-blue-800 dark:text-blue-200 bg-card rounded px-3 py-2 shadow-sm"
               >
                 <component
                   :is="getFileIconForPath(path)"
@@ -74,11 +74,11 @@
           </div>
 
           <div v-else class="flex-1 flex flex-col items-center justify-center text-center">
-            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+            <div class="w-16 h-16 bg-blue-100 dark:bg-blue-950/50 rounded-full flex items-center justify-center mb-4">
               <HardDrive class="w-8 h-8 text-blue-400" />
             </div>
-            <h5 class="text-blue-900 font-medium mb-2">No files selected</h5>
-            <p class="text-blue-700 text-sm">
+            <h5 class="text-blue-900 dark:text-blue-100 font-medium mb-2">No files selected</h5>
+            <p class="text-blue-700 dark:text-blue-300 text-sm">
               Browse the file tree on the left and select files or folders to see them here.
             </p>
           </div>
@@ -87,7 +87,7 @@
     </div>
 
     <!-- Hint Text Below Both Panels -->
-    <div class="text-sm text-gray-500 mt-4">
+    <div class="text-sm text-muted-foreground mt-4">
       <p>Click folders to expand/collapse. Use checkboxes to select files and directories.</p>
     </div>
   </div>

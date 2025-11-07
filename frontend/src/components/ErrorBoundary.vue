@@ -1,22 +1,22 @@
 <template>
   <div v-if="hasError" class="error-boundary">
-    <div class="bg-red-50 border border-red-200 rounded-lg p-6">
+    <div class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg p-6">
       <div class="flex items-start">
-        <AlertCircle class="h-5 w-5 text-red-400 mt-0.5 mr-3 flex-shrink-0" />
+        <AlertCircle class="h-5 w-5 text-red-400 dark:text-red-500 mt-0.5 mr-3 flex-shrink-0" />
         <div class="flex-1">
-          <h3 class="text-sm font-medium text-red-800 mb-1">
+          <h3 class="text-sm font-medium text-red-800 dark:text-red-200 mb-1">
             {{ errorTitle }}
           </h3>
-          <p class="text-sm text-red-700 mb-4">
+          <p class="text-sm text-red-700 dark:text-red-300 mb-4">
             {{ errorMessage }}
           </p>
 
           <!-- Error details (only in development) -->
           <details v-if="showDetails && errorDetails" class="mb-4">
-            <summary class="text-xs text-red-600 cursor-pointer hover:text-red-800">
+            <summary class="text-xs text-red-600 dark:text-red-400 cursor-pointer hover:text-red-800 dark:hover:text-red-200">
               Show technical details
             </summary>
-            <pre class="mt-2 text-xs text-red-600 bg-red-100 p-2 rounded overflow-auto">{{
+            <pre class="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/30 p-2 rounded overflow-auto">{{
               errorDetails
             }}</pre>
           </details>
@@ -27,7 +27,7 @@
               @click="handleRetry"
               size="sm"
               variant="outline"
-              class="text-red-700 border-red-300 hover:bg-red-100"
+              class="text-red-700 dark:text-red-300 border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-950/30"
             >
               <RefreshCw class="h-3 w-3 mr-1" />
               Try Again
@@ -37,7 +37,7 @@
               @click="handleDismiss"
               size="sm"
               variant="ghost"
-              class="text-red-700 hover:bg-red-100"
+              class="text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-950/30"
             >
               Dismiss
             </Button>
@@ -47,7 +47,7 @@
               @click="fallbackAction.handler"
               size="sm"
               variant="outline"
-              class="text-red-700 border-red-300 hover:bg-red-100"
+              class="text-red-700 dark:text-red-300 border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-950/30"
             >
               {{ fallbackAction.label }}
             </Button>
