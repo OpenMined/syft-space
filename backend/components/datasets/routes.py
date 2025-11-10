@@ -1,8 +1,9 @@
 """Dataset API routes."""
 
+import json
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from .handlers import DatasetHandler
 from .schemas import (
@@ -10,8 +11,7 @@ from .schemas import (
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
-    IngestDataRequest,
-    IngestDataResponse,
+    IngestFileResponse,
 )
 
 
@@ -113,24 +113,32 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
         """
         return handler.get_dataset(name)
 
-    @router.post("/{name}/ingest", response_model=IngestDataResponse)
-    async def ingest_data(
+    @router.post("/{name}/ingest", response_model=IngestFileResponse)
+    async def ingest_file(
         name: str,
-        request: IngestDataRequest,
+        file: UploadFile = File(...),
+        metadata: str = Form("{}"),
         handler: DatasetHandler = Depends(get_handler),
-    ) -> IngestDataResponse:
-        """Ingest data into a dataset.
+    ) -> IngestFileResponse:
+        """Ingest a single file into dataset.
 
         Args:
             name: Dataset name
-            request: Ingest request with documents
+            file: Uploaded file
+            metadata: JSON string with custom metadata
 
         Returns:
-            Ingestion result
+            Ingestion result with file details
         """
+        # Parse and enrich metadata
+        metadata_dict = json.loads(metadata)
+        metadata_dict["filename"] = file.filename
+        metadata_dict["content_type"] = file.content_type
+        metadata_dict["file_size"] = file.size
+
         # TODO: Get sender_email from auth context when auth is implemented
         sender_email = "admin@example.com"
-        return handler.ingest_data(name, request.documents, sender_email)
+        return await handler.ingest_file(name, file, metadata_dict, sender_email)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_dataset(

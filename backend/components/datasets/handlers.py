@@ -1,9 +1,11 @@
 """Dataset handlers for business logic."""
 
-from fastapi import HTTPException
+from typing import Any
+
+from fastapi import HTTPException, UploadFile
 from loguru import logger
 
-from components.dataset_types.interfaces import IngestDocument, IngestRequest
+from components.dataset_types.interfaces import IngestFile, IngestRequest
 from components.dataset_types.registry import DatasetTypeRegistry
 from components.shared.domain_types import Context
 
@@ -14,7 +16,7 @@ from .schemas import (
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
-    IngestDataResponse,
+    IngestFileResponse,
 )
 
 
@@ -263,18 +265,26 @@ class DatasetHandler:
 
         return {"message": f"Successfully deleted dataset '{name}'"}
 
-    def ingest_data(
-        self, name: str, documents: list[dict], sender_email: str
-    ) -> IngestDataResponse:
-        """Ingest data into a dataset.
+    async def ingest_file(
+        self,
+        name: str,
+        file: UploadFile,
+        metadata: dict[str, Any],
+        sender_email: str,
+    ) -> IngestFileResponse:
+        """Ingest a file into dataset.
+
+        Converts FastAPI UploadFile to framework-agnostic IngestFile,
+        then delegates to dataset type's ingest method.
 
         Args:
             name: Dataset name
-            documents: List of documents to ingest
+            file: Uploaded file
+            metadata: Enriched metadata dictionary
             sender_email: Email of the user performing ingestion
 
         Returns:
-            Ingestion response
+            Ingestion response with file details
 
         Raises:
             HTTPException: If dataset not found or ingestion fails
@@ -302,23 +312,20 @@ class DatasetHandler:
         # Create dataset type instance
         dataset_instance = dataset_type_cls(dataset.configuration)
 
-        # Create context
-        ctx = Context(sender=sender_email)
+        # Convert to domain model (framework-agnostic)
+        ingest_file_obj = IngestFile(
+            file_handle=file.file,
+            filename=file.filename,
+            content_type=file.content_type,
+            file_size=file.size,
+            metadata=metadata,
+        )
 
-        # Convert documents to IngestDocument format
-        ingest_docs = [
-            IngestDocument(
-                document_id=doc.get("document_id"),
-                content=doc.get("content", ""),
-                metadata=doc.get("metadata", {}),
-            )
-            for doc in documents
-        ]
-
-        # Create ingest request
-        ingest_request = IngestRequest(documents=ingest_docs)
+        # Create domain request
+        ingest_request = IngestRequest(files=[ingest_file_obj])
 
         # Perform ingestion
+        ctx = Context(sender=sender_email)
         try:
             dataset_instance.ingest(ctx, ingest_request)
         except Exception as e:
@@ -326,7 +333,7 @@ class DatasetHandler:
                 status_code=500, detail=f"Ingestion failed: {str(e)}"
             ) from e
 
-        return IngestDataResponse(
-            message=f"Successfully ingested data into dataset '{name}'",
-            documents_ingested=len(documents),
+        return IngestFileResponse(
+            filename=file.filename,
+            message=f"Successfully ingested file into dataset '{name}'",
         )
