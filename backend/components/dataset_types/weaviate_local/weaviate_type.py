@@ -22,11 +22,14 @@ from components.shared.domain_types import (
 try:
     import weaviate
     from docling.document_converter import DocumentConverter, DocumentStream
+    from weaviate.classes.config import Configure
     from weaviate.classes.query import MetadataQuery
 
     enabled = True
 except ImportError:
     enabled = False
+
+DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
 
 class WeaviateLocalDatasetType(BaseDatasetType):
@@ -190,7 +193,10 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         ) as client:
             # Ensure collection exists
             if not client.collections.exists(self.config["collectionName"]):
-                client.collections.create(self.config["collectionName"])
+                client.collections.create(
+                    self.config["collectionName"],
+                    vectorizer_config=Configure.Vectorizer.text2vec_transformers(),
+                )
 
         # Ingest the data into the data source
         with weaviate.connect_to_local(
@@ -221,6 +227,12 @@ class WeaviateLocalDatasetType(BaseDatasetType):
 
         documents = []
 
+        threshold = (
+            params.similarity_threshold
+            if params.similarity_threshold
+            else DEFAULT_SIMILARITY_THRESHOLD
+        )
+
         with weaviate.connect_to_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
@@ -228,7 +240,10 @@ class WeaviateLocalDatasetType(BaseDatasetType):
             results = collection.query.near_text(
                 query=query,
                 limit=params.limit,
-                return_metadata=MetadataQuery(distance=True, score=True),
+                distance=threshold,
+                return_metadata=MetadataQuery(
+                    distance=True, score=True, creation_time=True
+                ),
             )
 
             for result in results.objects:
