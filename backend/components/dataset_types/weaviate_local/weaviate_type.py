@@ -227,7 +227,7 @@ class WeaviateLocalDatasetType(BaseDatasetType):
 
         documents = []
 
-        threshold = (
+        similarity_threshold = (
             params.similarity_threshold
             if params.similarity_threshold
             else DEFAULT_SIMILARITY_THRESHOLD
@@ -237,15 +237,15 @@ class WeaviateLocalDatasetType(BaseDatasetType):
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
             collection = client.collections.get(self.config["collectionName"])
+
             results = collection.query.near_text(
                 query=query,
                 limit=params.limit,
-                distance=threshold,
+                certainty=similarity_threshold,
                 return_metadata=MetadataQuery(
                     distance=True, score=True, creation_time=True
                 ),
             )
-
             for result in results.objects:
                 documents.append(
                     SearchedDocument(

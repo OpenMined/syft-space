@@ -15,9 +15,9 @@ def register_builtin_types(registry: "ModelTypeRegistry") -> None:
         registry: The model type registry to register types with
     """
     # Import and register built-in model types here as they're implemented
-    # from .openai.openai_type import OpenAIModelType
-    # registry.register_model_type(OpenAIModelType)
-    pass
+    from .openai.openai_type import OpenAIModelType
+
+    registry.register_model_type(OpenAIModelType)
 
 
 __all__ = ["register_builtin_types"]
