@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,12 @@ class AppSettings(BaseSettings):
 
     # Application settings
     debug: bool = False
+
+    # Reset database settings
+    reset_db: bool = Field(
+        default=False,
+        description="Reset the database (delete and recreate all tables)",
+    )
 
 
 # Global settings instance

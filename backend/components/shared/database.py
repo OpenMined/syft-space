@@ -43,8 +43,10 @@ class Database:
         )
         self.engine = create_engine(config.get_connection_string())
 
-    def create_db_and_tables(self):
+    def create_db_and_tables(self, reset: bool = False):
         """Create the database and tables"""
+        if reset:
+            SQLModel.metadata.drop_all(self.engine)
         SQLModel.metadata.create_all(self.engine, checkfirst=True)
 
     @contextmanager

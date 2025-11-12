@@ -64,7 +64,7 @@ db_config = SQLiteConfig(db_path)
 database = Database(db_config)
 
 # Create tables
-database.create_db_and_tables()
+database.create_db_and_tables(reset=app_settings.reset_db)
 
 # Initialize repositories
 dataset_repository = DatasetRepository(database)
