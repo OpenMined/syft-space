@@ -29,6 +29,7 @@ services:
     image: cr.weaviate.io/semitechnologies/transformers-inference:sentence-transformers-multi-qa-MiniLM-L6-cos-v1
     environment:
       ENABLE_CUDA: "0"
+    restart: unless-stopped
 
 volumes:
   weaviate_data:
