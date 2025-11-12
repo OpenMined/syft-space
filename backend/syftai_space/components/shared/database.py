@@ -8,6 +8,9 @@ from loguru import logger
 from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
+
 T = TypeVar("T", bound=SQLModel)
 
 
@@ -15,8 +18,13 @@ class DatabaseConfig(ABC):
     """Base database configuration class"""
 
     @abstractmethod
-    def get_connection_string(self) -> str:
-        """Get the connection string for the database"""
+    def get_database_url(self) -> str:
+        """Get the database connection URL"""
+        pass
+
+    @abstractmethod
+    def setup(self) -> None:
+        """Perform any database-specific setup (create dirs, etc.)"""
         pass
 
     @abstractmethod
@@ -40,12 +48,14 @@ class SQLiteConfig(DatabaseConfig):
         """
         self.db_path = db_path
         self.enable_foreign_keys = enable_foreign_keys
-        # Handle SQLite-specific setup
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def get_connection_string(self) -> str:
-        """Get the connection string for the database"""
+    def get_database_url(self) -> str:
+        """Get the database connection URL"""
         return f"sqlite:///{self.db_path}"
+
+    def setup(self) -> None:
+        """Create parent directory if it doesn't exist"""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
     def configure_engine(self, engine: Engine) -> None:
         """Configure SQLite-specific PRAGMA settings"""
@@ -59,16 +69,25 @@ class SQLiteConfig(DatabaseConfig):
                 cursor.close()
                 logger.debug("SQLite PRAGMA foreign_keys=ON set for new connection")
 
+    
 
 class Database:
     """Database class for managing database connections and sessions"""
 
     def __init__(self, config: DatabaseConfig):
-        """Initialize the database"""
-        logger.info(
-            f"Initializing database with connection string: {config.get_connection_string()}"
-        )
-        self.engine = create_engine(config.get_connection_string())
+        """Initialize the database with a configuration
+
+        Args:
+            config: Database configuration instance
+        """
+        # Run database-specific setup
+        config.setup()
+
+        # Get database URL and create engine
+        self.database_url = config.get_database_url()
+        logger.info(f"Initializing database with connection URL: {self.database_url}")
+        self.engine = create_engine(self.database_url)
+
         # Apply database-specific configurations
         config.configure_engine(self.engine)
 
@@ -77,6 +96,35 @@ class Database:
         if reset:
             SQLModel.metadata.drop_all(self.engine)
         SQLModel.metadata.create_all(self.engine, checkfirst=True)
+
+    def run_migrations(self):
+        """Run Alembic migrations to upgrade database to latest version"""
+        try:
+            # Get the directory where alembic.ini is located (backend directory)
+            backend_dir = Path(__file__).parent.parent.parent
+            alembic_ini_path = backend_dir / "alembic.ini"
+
+            if not alembic_ini_path.exists():
+                logger.warning(
+                    f"alembic.ini not found at {alembic_ini_path}, falling back to create_all"
+                )
+                SQLModel.metadata.create_all(self.engine, checkfirst=True)
+                return
+
+            # Create Alembic config and override the database URL
+            # This ensures migrations run against the correct database
+            alembic_cfg = AlembicConfig(str(alembic_ini_path))
+            alembic_cfg.set_main_option("sqlalchemy.url", self.database_url)
+
+            # Run upgrade to head
+            command.upgrade(alembic_cfg, "head")
+
+            logger.info("✅ Database migrations completed successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to run migrations: {e}")
+            logger.warning("Falling back to create_all")
+            SQLModel.metadata.create_all(self.engine, checkfirst=True)
 
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
