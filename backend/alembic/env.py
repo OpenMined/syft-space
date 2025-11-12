@@ -1,12 +1,20 @@
 """Alembic environment configuration for SQLModel."""
-# ruff: noqa: E402
-# Model imports must happen after database config setup for Alembic
 
 from logging.config import fileConfig
 
 from sqlmodel import SQLModel
 
 from alembic import context
+from components.datasets.entities import Dataset  # noqa: F401
+from components.endpoints.entities import Endpoint  # noqa: F401
+from components.models.entities import Model  # noqa: F401
+from components.policies.entities import Policy  # noqa: F401
+from components.shared.database import SQLiteConfig
+from config import app_settings
+
+# Add your other model imports here as you create them
+# from components.accounting.entities import ...
+# from components.profile.entities import ...
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -21,22 +29,8 @@ if config.config_file_name is not None:
 # This is always injected here rather than in alembic.ini
 # When run from CLI, it uses the default path from app_settings
 # When run from Database.run_migrations(), the URL is overridden
-from components.shared.database import SQLiteConfig
-from config import app_settings
-
 db_config = SQLiteConfig(app_settings.sqlite_db_path)
 config.set_main_option("sqlalchemy.url", db_config.get_database_url())
-
-# Import all models here to ensure they are registered with SQLModel.metadata
-# This is critical for autogenerate to work properly
-from components.datasets.entities import Dataset  # noqa: F401
-from components.endpoints.entities import Endpoint  # noqa: F401
-from components.models.entities import Model  # noqa: F401
-from components.policies.entities import Policy  # noqa: F401
-
-# Add your other model imports here as you create them
-# from components.accounting.entities import ...
-# from components.profile.entities import ...
 
 # Set target metadata for 'autogenerate' support
 # SQLModel uses SQLModel.metadata just like SQLAlchemy's Base.metadata

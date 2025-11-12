@@ -51,7 +51,7 @@ class MyModel(SQLModel, table=True):
     name: str = Field(..., unique=True)
 ```
 
-**2. Import in `alembic/env.py`:**
+**2. Import at the top of `alembic/env.py` (with other model imports):**
 ```python
 from components.my_component.entities import MyModel  # noqa: F401
 ```
