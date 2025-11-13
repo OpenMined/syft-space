@@ -8,6 +8,7 @@ from fastapi import APIRouter, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 
 # Import explicit registration functions
 from components.dataset_types import register_builtin_types as register_dataset_types
@@ -62,15 +63,15 @@ async def lifespan(app: FastAPI):
             listener = await ngrok.forward(port)
             public_url = listener.url()
 
-            print("\n" + "=" * 70)
-            print("🚀 Ngrok tunnel established!")
-            print(f"📡 Public URL: {public_url}")
-            print(f"🔗 Local URL: http://localhost:{port}")
-            print("=" * 70 + "\n")
+            logger.info("\n" + "=" * 70)
+            logger.info("🚀 Ngrok tunnel established!")
+            logger.info(f"📡 Public URL: {public_url}")
+            logger.info(f"🔗 Local URL: http://localhost:{port}")
+            logger.info("=" * 70 + "\n")
 
         except Exception as e:
-            print(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
-            print("   Continuing without ngrok...\n")
+            logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
+            logger.error("   Continuing without ngrok...\n")
 
     yield  # Application runs here
 
@@ -78,9 +79,9 @@ async def lifespan(app: FastAPI):
     if listener:
         try:
             await listener.close()
-            print("✅ Ngrok tunnel closed")
+            logger.info("✅ Ngrok tunnel closed")
         except Exception as e:
-            print(f"⚠️  Warning: Error closing ngrok tunnel: {e}")
+            logger.error(f"⚠️  Warning: Error closing ngrok tunnel: {e}")
 
 
 # Initialize FastAPI app
