@@ -30,7 +30,7 @@ class AppSettings(BaseSettings):
 
     # Ngrok settings
     use_ngrok: bool = Field(
-        default=True,
+        default=False,
         description="Use ngrok to expose the server to the internet",
     )
     ngrok_auth_token: str = Field(

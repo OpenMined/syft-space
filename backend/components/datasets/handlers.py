@@ -7,7 +7,7 @@ from loguru import logger
 
 from components.dataset_types.interfaces import IngestFile, IngestRequest
 from components.dataset_types.registry import DatasetTypeRegistry
-from components.shared.domain_types import Context
+from components.shared.domain_types import Context, HealthcheckStatus
 
 from .entities import Dataset
 from .repository import DatasetRepository
@@ -16,6 +16,7 @@ from .schemas import (
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
+    HealthcheckResponse,
     IngestFileResponse,
 )
 
@@ -265,7 +266,7 @@ class DatasetHandler:
 
         return {"message": f"Successfully deleted dataset '{name}'"}
 
-    async def ingest_file(
+    def ingest_file(
         self,
         name: str,
         file: UploadFile,
@@ -337,3 +338,53 @@ class DatasetHandler:
             filename=file.filename,
             message=f"Successfully ingested file into dataset '{name}'",
         )
+
+    def healthcheck(self, name: str) -> HealthcheckResponse:
+        """Check the health of a dataset.
+
+        Args:
+            name: Dataset name
+
+        Returns:
+            Healthcheck response
+        """
+        message = ""
+        try:
+            dataset = self.repository.get_by_name(name)
+            if not dataset:
+                raise HTTPException(
+                    status_code=404, detail=f"Dataset '{name}' not found"
+                )
+
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+            provisioner_cls = self.registry.get_provisioner(dataset.dtype)
+
+            dataset_type = dataset_type_cls(dataset.configuration)
+            healthcheck_response = dataset_type.healthcheck()
+
+            message += f"Dataset type healthcheck: {healthcheck_response.message}. "
+
+            if dataset.provisioner_state is not None:
+                try:
+                    provisioner_status = provisioner_cls.status(
+                        dataset.provisioner_state
+                    )
+                    message += f"Provisioner status: {provisioner_status}. "
+                except Exception as e:
+                    provisioner_status = HealthcheckStatus.UNHEALTHY
+                    message += f"Failed to check provisioner status: {str(e)}"
+            else:
+                provisioner_status = None
+
+            return HealthcheckResponse(
+                dataset_type_status=healthcheck_response.status,
+                provisioner_status=provisioner_status,
+                message=message,
+            )
+        except Exception as e:
+            message += f"Failed to healthcheck dataset '{name}': {str(e)}"
+            return HealthcheckResponse(
+                dataset_type_status=HealthcheckStatus.UNHEALTHY,
+                provisioner_status=None,
+                message=message,
+            )

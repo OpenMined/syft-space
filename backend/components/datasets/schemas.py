@@ -1,10 +1,12 @@
 """Dataset API schemas for request/response models."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from components.shared.domain_types import HealthcheckStatus
 
 
 class DatasetTypeInfoResponse(BaseModel):
@@ -91,3 +93,16 @@ class IngestFileResponse(BaseModel):
 
     filename: str = Field(..., description="Uploaded filename")
     message: str = Field(..., description="Success message")
+
+
+class HealthcheckResponse(BaseModel):
+    """Response for healthcheck."""
+
+    # dataset type status and provisioner status
+    dataset_type_status: HealthcheckStatus = Field(
+        ..., description="Dataset type health status"
+    )
+    provisioner_status: Optional[HealthcheckStatus] = Field(
+        None, description="Provisioner health status"
+    )
+    message: str = Field(..., description="Health message")

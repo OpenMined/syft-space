@@ -11,6 +11,7 @@ from .schemas import (
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
+    HealthcheckResponse,
     IngestFileResponse,
 )
 
@@ -138,7 +139,7 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
 
         # TODO: Get sender_email from auth context when auth is implemented
         sender_email = "admin@example.com"
-        return await handler.ingest_file(name, file, metadata_dict, sender_email)
+        return handler.ingest_file(name, file, metadata_dict, sender_email)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_dataset(
@@ -154,5 +155,17 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             Success message
         """
         return handler.delete_dataset(name)
+
+    @router.get("/{name}/health", response_model=HealthcheckResponse)
+    async def healthcheck(
+        name: str,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> HealthcheckResponse:
+        """Check the health of a dataset.
+
+        Returns:
+            Healthcheck response
+        """
+        return handler.healthcheck(name)
 
     return router
