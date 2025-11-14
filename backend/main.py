@@ -1,11 +1,14 @@
 """Main FastAPI application."""
 
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 
 # Import explicit registration functions
 from components.dataset_types import register_builtin_types as register_dataset_types
@@ -40,12 +43,54 @@ from components.shared.database import Database, SQLiteConfig
 
 from .config import app_settings
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan - handles startup and shutdown events."""
+    # Startup: Initialize ngrok if enabled
+    listener = None
+    if app_settings.use_ngrok:
+        try:
+            import ngrok
+
+            # Set auth token if provided
+            ngrok.set_auth_token(app_settings.ngrok_auth_token)
+
+            # Get the port from environment variable or default
+            port = int(os.getenv("SYFTAI_PORT", "8080"))
+
+            # Start ngrok tunnel
+            listener = await ngrok.forward(port)
+            public_url = listener.url()
+
+            logger.info("\n" + "=" * 70)
+            logger.info("🚀 Ngrok tunnel established!")
+            logger.info(f"📡 Public URL: {public_url}")
+            logger.info(f"🔗 Local URL: http://localhost:{port}")
+            logger.info("=" * 70 + "\n")
+
+        except Exception as e:
+            logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
+            logger.error("   Continuing without ngrok...\n")
+
+    yield  # Application runs here
+
+    # Shutdown: Clean up ngrok if it was started
+    if listener:
+        try:
+            await listener.close()
+            logger.info("✅ Ngrok tunnel closed")
+        except Exception as e:
+            logger.error(f"⚠️  Warning: Error closing ngrok tunnel: {e}")
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Syft AI Server",
     description="Syft AI Server - RAG platform with datasets, models, endpoints, and policies",
     version="0.1.0",
     debug=app_settings.debug,
+    lifespan=lifespan,
 )
 
 # Add CORS middleware

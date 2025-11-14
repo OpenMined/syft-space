@@ -21,6 +21,7 @@ dependencies = [
     "requests>=2.32.5",
     "python-multipart>=0.0.20",
     "openai>=2.7.2",
+    "ngrok>=1.4.0",
 ]
 
 [project.optional-dependencies]

@@ -6,8 +6,10 @@ repos:
       # Run the linter
       - id: ruff
         args: [--fix]
+        files: ^backend/
       # Run the formatter
       - id: ruff-format
+        files: ^backend/
 
   # # mypy - Static type checking
   # - repo: https://github.com/pre-commit/mirrors-mypy
@@ -19,6 +21,7 @@ repos:
   #         - sqlmodel
   #         - pydantic
   #       args: [--ignore-missing-imports]
+  #       files: ^backend/
 
   # General pre-commit hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -44,6 +47,7 @@ repos:
       - id: bandit
         args: [-c, backend/pyproject.toml]
         additional_dependencies: ["bandit[toml]"]
+        files: ^backend/
 
 # Configuration for pre-commit
 default_language_version:

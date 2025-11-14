@@ -28,6 +28,16 @@ class AppSettings(BaseSettings):
         description="Reset the database (delete and recreate all tables)",
     )
 
+    # Ngrok settings
+    use_ngrok: bool = Field(
+        default=True,
+        description="Use ngrok to expose the server to the internet",
+    )
+    ngrok_auth_token: str = Field(
+        default="",
+        description="Ngrok authentication token",
+    )
+
 
 # Global settings instance
 app_settings = AppSettings()
