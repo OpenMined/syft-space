@@ -5,6 +5,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
+from components.tenants.dependency import get_tenant_dependency
+from components.tenants.entities import Tenant
+
 from .handlers import DatasetHandler
 from .schemas import (
     CreateDatasetRequest,
@@ -76,49 +79,58 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
     @router.post("/", response_model=DatasetResponse, status_code=201)
     async def create_dataset(
         request: CreateDatasetRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: DatasetHandler = Depends(get_handler),
     ) -> DatasetResponse:
         """Create a new dataset.
 
         Args:
             request: Dataset creation request with configuration
+            tenant: Current tenant (injected)
 
         Returns:
             Created dataset details
         """
-        return handler.create_dataset(request)
+        return handler.create_dataset(request, tenant)
 
     @router.get("/", response_model=list[DatasetListItem])
     async def list_datasets(
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: DatasetHandler = Depends(get_handler),
     ) -> list[DatasetListItem]:
         """List all datasets.
 
+        Args:
+            tenant: Current tenant (injected)
+
         Returns:
             List of datasets with summary information
         """
-        return handler.list_datasets()
+        return handler.list_datasets(tenant)
 
     @router.get("/{name}", response_model=DatasetResponse)
     async def get_dataset(
         name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: DatasetHandler = Depends(get_handler),
     ) -> DatasetResponse:
         """Get details of a specific dataset.
 
         Args:
             name: Dataset name
+            tenant: Current tenant (injected)
 
         Returns:
             Dataset details including configuration
         """
-        return handler.get_dataset(name)
+        return handler.get_dataset(name, tenant)
 
     @router.post("/{name}/ingest", response_model=IngestFileResponse)
     async def ingest_file(
         name: str,
         file: UploadFile = File(...),
         metadata: str = Form("{}"),
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: DatasetHandler = Depends(get_handler),
     ) -> IngestFileResponse:
         """Ingest a single file into dataset.
@@ -127,6 +139,7 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             name: Dataset name
             file: Uploaded file
             metadata: JSON string with custom metadata
+            tenant: Current tenant (injected)
 
         Returns:
             Ingestion result with file details
@@ -139,33 +152,40 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
 
         # TODO: Get sender_email from auth context when auth is implemented
         sender_email = "admin@example.com"
-        return handler.ingest_file(name, file, metadata_dict, sender_email)
+        return handler.ingest_file(name, file, metadata_dict, sender_email, tenant)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_dataset(
         name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: DatasetHandler = Depends(get_handler),
     ) -> dict[str, str]:
         """Delete a dataset.
 
         Args:
             name: Dataset name
+            tenant: Current tenant (injected)
 
         Returns:
             Success message
         """
-        return handler.delete_dataset(name)
+        return handler.delete_dataset(name, tenant)
 
     @router.get("/{name}/health", response_model=HealthcheckResponse)
     async def healthcheck(
         name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: DatasetHandler = Depends(get_handler),
     ) -> HealthcheckResponse:
         """Check the health of a dataset.
 
+        Args:
+            name: Dataset name
+            tenant: Current tenant (injected)
+
         Returns:
             Healthcheck response
         """
-        return handler.healthcheck(name)
+        return handler.healthcheck(name, tenant)
 
     return router

@@ -4,6 +4,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from components.tenants.dependency import get_tenant_dependency
+from components.tenants.entities import Tenant
+
 from .handlers import ModelHandler
 from .schemas import (
     CreateModelRequest,
@@ -73,57 +76,67 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
     @router.post("/", response_model=ModelResponse, status_code=201)
     async def create_model(
         request: CreateModelRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: ModelHandler = Depends(get_handler),
     ) -> ModelResponse:
         """Create a new model.
 
         Args:
             request: Model creation request with configuration
+            tenant: Current tenant (injected)
 
         Returns:
             Created model details
         """
-        return handler.create_model(request)
+        return handler.create_model(request, tenant)
 
     @router.get("/", response_model=list[ModelListItem])
     async def list_models(
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: ModelHandler = Depends(get_handler),
     ) -> list[ModelListItem]:
         """List all models.
 
+        Args:
+            tenant: Current tenant (injected)
+
         Returns:
             List of models with summary information
         """
-        return handler.list_models()
+        return handler.list_models(tenant)
 
     @router.get("/{name}", response_model=ModelResponse)
     async def get_model(
         name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: ModelHandler = Depends(get_handler),
     ) -> ModelResponse:
         """Get details of a specific model.
 
         Args:
             name: Model name
+            tenant: Current tenant (injected)
 
         Returns:
             Model details including configuration
         """
-        return handler.get_model(name)
+        return handler.get_model(name, tenant)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_model(
         name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: ModelHandler = Depends(get_handler),
     ) -> dict[str, str]:
         """Delete a model.
 
         Args:
             name: Model name
+            tenant: Current tenant (injected)
 
         Returns:
             Success message
         """
-        return handler.delete_model(name)
+        return handler.delete_model(name, tenant)
 
     return router

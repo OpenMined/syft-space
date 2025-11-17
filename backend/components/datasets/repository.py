@@ -1,6 +1,9 @@
 """Dataset repository for database operations."""
 
 from typing import Optional
+from uuid import UUID
+
+from sqlmodel import select
 
 from components.shared.database import BaseRepository, Database
 
@@ -18,39 +21,84 @@ class DatasetRepository(BaseRepository[Dataset]):
         """
         super().__init__(db, Dataset)
 
-    def get_by_name(self, name: str) -> Optional[Dataset]:
-        """Get a dataset by name.
+    def get_all(self, tenant_id: UUID) -> list[Dataset]:
+        """Get all datasets for a specific tenant.
 
         Args:
-            name: Dataset name
-
-        Returns:
-            Dataset if found, None otherwise
-        """
-        return self.get_by_field("name", name)
-
-    def delete_by_name(self, name: str) -> bool:
-        """Delete a dataset by name.
-
-        Args:
-            name: Dataset name
-
-        Returns:
-            True if deleted, False if not found
-        """
-        return self.delete_by_field("name", name)
-
-    def get_by_type(self, type_name: str) -> list[Dataset]:
-        """Get all datasets of a specific type.
-
-        Args:
-            type_name: Dataset type name
+            tenant_id: Tenant ID
 
         Returns:
             List of datasets
         """
         with self.db.get_session() as session:
-            from sqlmodel import select
+            statement = select(Dataset).where(Dataset.tenant_id == tenant_id)
+            return list(session.exec(statement).all())
 
-            statement = select(Dataset).where(Dataset.dtype == type_name)
+    def get_by_id(self, id: int, tenant_id: UUID) -> Optional[Dataset]:
+        """Get a dataset by ID within a tenant.
+
+        Args:
+            id: Dataset ID
+            tenant_id: Tenant ID
+
+        Returns:
+            Dataset if found, None otherwise
+        """
+        with self.db.get_session() as session:
+            statement = select(Dataset).where(
+                Dataset.id == id, Dataset.tenant_id == tenant_id
+            )
+            return session.exec(statement).first()
+
+    def get_by_name(self, name: str, tenant_id: UUID) -> Optional[Dataset]:
+        """Get a dataset by name within a tenant.
+
+        Args:
+            name: Dataset name
+            tenant_id: Tenant ID
+
+        Returns:
+            Dataset if found, None otherwise
+        """
+        with self.db.get_session() as session:
+            statement = select(Dataset).where(
+                Dataset.name == name, Dataset.tenant_id == tenant_id
+            )
+            return session.exec(statement).first()
+
+    def delete_by_name(self, name: str, tenant_id: UUID) -> bool:
+        """Delete a dataset by name within a tenant.
+
+        Args:
+            name: Dataset name
+            tenant_id: Tenant ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        with self.db.get_session() as session:
+            statement = select(Dataset).where(
+                Dataset.name == name, Dataset.tenant_id == tenant_id
+            )
+            obj = session.exec(statement).first()
+            if obj:
+                session.delete(obj)
+                session.commit()
+                return True
+            return False
+
+    def get_by_type(self, type_name: str, tenant_id: UUID) -> list[Dataset]:
+        """Get all datasets of a specific type within a tenant.
+
+        Args:
+            type_name: Dataset type name
+            tenant_id: Tenant ID
+
+        Returns:
+            List of datasets
+        """
+        with self.db.get_session() as session:
+            statement = select(Dataset).where(
+                Dataset.dtype == type_name, Dataset.tenant_id == tenant_id
+            )
             return list(session.exec(statement).all())

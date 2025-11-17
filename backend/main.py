@@ -41,6 +41,13 @@ from components.policy_types.registry import POLICY_TYPE_REGISTRY
 # Import database
 from components.shared.database import Database, SQLiteConfig
 
+# Import tenant components
+from components.tenants.entities import Tenant
+from components.tenants.handlers import TenantHandler
+from components.tenants.middleware import TenantMiddleware
+from components.tenants.repository import TenantRepository
+from components.tenants.routes import build_tenant_routes
+
 from .config import app_settings
 
 
@@ -111,6 +118,23 @@ database = Database(db_config)
 # Create tables
 database.create_db_and_tables(reset=app_settings.reset_db)
 
+# Initialize tenant repository and create default tenant
+tenant_repository = TenantRepository(database)
+default_tenant = tenant_repository.get_by_name(app_settings.default_tenant_name)
+if not default_tenant:
+    logger.info(f"Creating default tenant: {app_settings.default_tenant_name}")
+    default_tenant = tenant_repository.create(
+        Tenant(
+            name=app_settings.default_tenant_name,
+            display_name="Root Tenant",
+            is_active=True,
+            metadata={"description": "Default root tenant"},
+        )
+    )
+    logger.info(f"Default tenant created with ID: {default_tenant.id}")
+else:
+    logger.info(f"Default tenant already exists: {default_tenant.name}")
+
 # Initialize repositories
 dataset_repository = DatasetRepository(database)
 model_repository = ModelRepository(database)
@@ -135,6 +159,10 @@ endpoint_handler = EndpointHandler(
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
 )
+tenant_handler = TenantHandler(tenant_repository)
+
+# Add tenant middleware (after CORS, before routes)
+app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
 
 # Create main API router
 router = APIRouter(prefix="/api/v1")
@@ -144,6 +172,7 @@ router.include_router(build_dataset_routes(dataset_handler))
 router.include_router(build_model_routes(model_handler))
 router.include_router(build_policy_routes(policy_handler))
 router.include_router(build_endpoint_routes(endpoint_handler))
+router.include_router(build_tenant_routes(tenant_handler))
 
 
 @router.get("/health")

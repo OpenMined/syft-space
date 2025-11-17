@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
-from sqlmodel import JSON, Column, Field, Relationship, SQLModel
+from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from components.endpoints.entities import Endpoint
+    from components.tenants.entities import Tenant
 
 
 class Dataset(SQLModel, table=True):
@@ -16,7 +17,13 @@ class Dataset(SQLModel, table=True):
     __tablename__ = "datasets"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
-    name: str = Field(..., unique=True, index=True, description="Unique dataset name")
+    tenant_id: UUID = Field(
+        ...,
+        sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
+        index=True,
+        description="Tenant ID for multi-tenancy isolation",
+    )
+    name: str = Field(..., index=True, description="Dataset name (unique per tenant)")
     dtype: str = Field(..., description="Dataset type name (references dataset type)")
     configuration: dict = Field(
         default_factory=dict,
@@ -33,7 +40,8 @@ class Dataset(SQLModel, table=True):
         description="Provisioner tracking state (container_id, pid, port, etc.) for re-discovery",
     )
 
-    # Reverse relationship: all endpoints using this dataset
+    # Relationships
+    tenant: "Tenant" = Relationship(back_populates="datasets")
     endpoints: list["Endpoint"] = Relationship(
         back_populates="dataset",
         sa_relationship_kwargs={"foreign_keys": "[Endpoint.dataset_id]"},

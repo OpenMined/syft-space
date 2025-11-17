@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from components.policy_types.registry import PolicyTypeRegistry
+from components.tenants.entities import Tenant
 
 from .entities import Policy
 from .repository import PolicyRepository
@@ -79,11 +80,14 @@ class PolicyHandler:
             enabled=policy_type_cls.enabled(),
         )
 
-    def create_policy(self, request: CreatePolicyRequest) -> PolicyResponse:
+    def create_policy(
+        self, request: CreatePolicyRequest, tenant: Tenant
+    ) -> PolicyResponse:
         """Create a new policy.
 
         Args:
             request: Policy creation request
+            tenant: Tenant context
 
         Returns:
             Created policy
@@ -107,6 +111,7 @@ class PolicyHandler:
             policy_type=request.policy_type,
             configuration=request.configuration,
             endpoint_id=request.endpoint_id,
+            tenant_id=tenant.id,  # Set tenant_id explicitly
         )
 
         # Save to database
@@ -114,20 +119,24 @@ class PolicyHandler:
 
         return PolicyResponse.model_validate(created)
 
-    def list_policies(self) -> list[PolicyListItem]:
-        """List all policies.
+    def list_policies(self, tenant: Tenant) -> list[PolicyListItem]:
+        """List all policies for a tenant.
+
+        Args:
+            tenant: Tenant context
 
         Returns:
             List of policies
         """
-        policies = self.repository.get_all()
+        policies = self.repository.get_all(tenant.id)
         return [PolicyListItem.model_validate(p) for p in policies]
 
-    def get_policy(self, policy_id: UUID) -> PolicyResponse:
-        """Get a specific policy by ID.
+    def get_policy(self, policy_id: UUID, tenant: Tenant) -> PolicyResponse:
+        """Get a specific policy by ID within a tenant.
 
         Args:
             policy_id: Policy UUID
+            tenant: Tenant context
 
         Returns:
             Policy details
@@ -135,7 +144,7 @@ class PolicyHandler:
         Raises:
             HTTPException: If policy not found
         """
-        policy = self.repository.get_by_id(policy_id)
+        policy = self.repository.get_by_id(policy_id, tenant.id)
         if not policy:
             raise HTTPException(
                 status_code=404, detail=f"Policy '{policy_id}' not found"
@@ -143,11 +152,12 @@ class PolicyHandler:
 
         return PolicyResponse.model_validate(policy)
 
-    def delete_policy(self, policy_id: UUID) -> dict:
-        """Delete a policy by ID.
+    def delete_policy(self, policy_id: UUID, tenant: Tenant) -> dict:
+        """Delete a policy by ID within a tenant.
 
         Args:
             policy_id: Policy UUID
+            tenant: Tenant context
 
         Returns:
             Success message
@@ -155,6 +165,14 @@ class PolicyHandler:
         Raises:
             HTTPException: If policy not found
         """
+        # First get the policy to verify it exists and belongs to tenant
+        policy = self.repository.get_by_id(policy_id, tenant.id)
+        if not policy:
+            raise HTTPException(
+                status_code=404, detail=f"Policy '{policy_id}' not found"
+            )
+
+        # Now delete it using the base repository method
         deleted = self.repository.delete(policy_id)
         if not deleted:
             raise HTTPException(
@@ -163,14 +181,17 @@ class PolicyHandler:
 
         return {"message": f"Successfully deleted policy '{policy_id}'"}
 
-    def get_policies_by_endpoint(self, endpoint_id: UUID) -> list[PolicyResponse]:
-        """Get all policies for a specific endpoint.
+    def get_policies_by_endpoint(
+        self, endpoint_id: UUID, tenant: Tenant
+    ) -> list[PolicyResponse]:
+        """Get all policies for a specific endpoint within a tenant.
 
         Args:
             endpoint_id: Endpoint UUID
+            tenant: Tenant context
 
         Returns:
             List of policies
         """
-        policies = self.repository.get_by_endpoint_id(endpoint_id)
+        policies = self.repository.get_by_endpoint_id(endpoint_id, tenant.id)
         return [PolicyResponse.model_validate(p) for p in policies]

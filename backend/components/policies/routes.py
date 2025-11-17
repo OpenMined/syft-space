@@ -5,6 +5,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
+from components.tenants.dependency import get_tenant_dependency
+from components.tenants.entities import Tenant
+
 from .handlers import PolicyHandler
 from .schemas import (
     CreatePolicyRequest,
@@ -74,57 +77,67 @@ def build_policy_routes(handler: PolicyHandler) -> APIRouter:
     @router.post("/", response_model=PolicyResponse, status_code=201)
     async def create_policy(
         request: CreatePolicyRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: PolicyHandler = Depends(get_handler),
     ) -> PolicyResponse:
         """Create a new policy.
 
         Args:
             request: Policy creation request with configuration
+            tenant: Current tenant (injected)
 
         Returns:
             Created policy details
         """
-        return handler.create_policy(request)
+        return handler.create_policy(request, tenant)
 
     @router.get("/", response_model=list[PolicyListItem])
     async def list_policies(
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: PolicyHandler = Depends(get_handler),
     ) -> list[PolicyListItem]:
         """List all policies.
 
+        Args:
+            tenant: Current tenant (injected)
+
         Returns:
             List of policies with summary information
         """
-        return handler.list_policies()
+        return handler.list_policies(tenant)
 
     @router.get("/{policy_id}", response_model=PolicyResponse)
     async def get_policy(
         policy_id: UUID,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: PolicyHandler = Depends(get_handler),
     ) -> PolicyResponse:
         """Get details of a specific policy.
 
         Args:
             policy_id: Policy UUID
+            tenant: Current tenant (injected)
 
         Returns:
             Policy details including configuration
         """
-        return handler.get_policy(policy_id)
+        return handler.get_policy(policy_id, tenant)
 
     @router.delete("/{policy_id}", response_model=dict[str, str])
     async def delete_policy(
         policy_id: UUID,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: PolicyHandler = Depends(get_handler),
     ) -> dict[str, str]:
         """Delete a policy.
 
         Args:
             policy_id: Policy UUID
+            tenant: Current tenant (injected)
 
         Returns:
             Success message
         """
-        return handler.delete_policy(policy_id)
+        return handler.delete_policy(policy_id, tenant)
 
     return router

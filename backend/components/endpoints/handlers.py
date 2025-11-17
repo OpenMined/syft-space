@@ -14,6 +14,7 @@ from components.policies.repository import PolicyRepository
 from components.policy_types.interfaces import PolicyContext
 from components.policy_types.registry import PolicyTypeRegistry
 from components.shared.domain_types import Context
+from components.tenants.entities import Tenant
 
 from .entities import Endpoint, ResponseType
 from .repository import EndpointRepository
@@ -64,11 +65,14 @@ class EndpointHandler:
         self.model_registry = model_registry
         self.policy_registry = policy_registry
 
-    def create_endpoint(self, request: CreateEndpointRequest) -> EndpointResponse:
+    def create_endpoint(
+        self, request: CreateEndpointRequest, tenant: Tenant
+    ) -> EndpointResponse:
         """Create a new endpoint.
 
         Args:
             request: Endpoint creation request
+            tenant: Tenant context
 
         Returns:
             Created endpoint
@@ -83,24 +87,24 @@ class EndpointHandler:
                 detail="At least one of dataset_id or model_id must be provided",
             )
 
-        # Check if slug already exists
-        existing = self.endpoint_repository.get_by_slug(request.slug)
+        # Check if slug already exists within tenant
+        existing = self.endpoint_repository.get_by_slug(request.slug, tenant.id)
         if existing:
             raise HTTPException(
                 status_code=409, detail=f"Endpoint slug '{request.slug}' already exists"
             )
 
-        # Verify dataset exists if provided
+        # Verify dataset exists if provided (within tenant)
         if request.dataset_id:
-            dataset = self.dataset_repository.get_by_id(request.dataset_id)
+            dataset = self.dataset_repository.get_by_id(request.dataset_id, tenant.id)
             if not dataset:
                 raise HTTPException(
                     status_code=404, detail=f"Dataset '{request.dataset_id}' not found"
                 )
 
-        # Verify model exists if provided
+        # Verify model exists if provided (within tenant)
         if request.model_id:
-            model = self.model_repository.get_by_id(request.model_id)
+            model = self.model_repository.get_by_id(request.model_id, tenant.id)
             if not model:
                 raise HTTPException(
                     status_code=404, detail=f"Model '{request.model_id}' not found"
@@ -118,6 +122,7 @@ class EndpointHandler:
             visibility=request.visibility,
             published=request.published,
             tags=request.tags,
+            tenant_id=tenant.id,  # Set tenant_id explicitly
         )
 
         # Save to database
@@ -125,20 +130,24 @@ class EndpointHandler:
 
         return EndpointResponse.model_validate(created)
 
-    def list_endpoints(self) -> list[EndpointListItem]:
-        """List all endpoints.
+    def list_endpoints(self, tenant: Tenant) -> list[EndpointListItem]:
+        """List all endpoints for a tenant.
+
+        Args:
+            tenant: Tenant context
 
         Returns:
             List of endpoints
         """
-        endpoints = self.endpoint_repository.get_all()
+        endpoints = self.endpoint_repository.get_all(tenant.id)
         return [EndpointListItem.model_validate(ep) for ep in endpoints]
 
-    def get_endpoint(self, slug: str) -> EndpointResponse:
-        """Get a specific endpoint by slug.
+    def get_endpoint(self, slug: str, tenant: Tenant) -> EndpointResponse:
+        """Get a specific endpoint by slug within a tenant.
 
         Args:
             slug: Endpoint slug
+            tenant: Tenant context
 
         Returns:
             Endpoint details
@@ -146,17 +155,18 @@ class EndpointHandler:
         Raises:
             HTTPException: If endpoint not found
         """
-        endpoint = self.endpoint_repository.get_by_slug(slug)
+        endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
         return EndpointResponse.model_validate(endpoint)
 
-    def delete_endpoint(self, slug: str) -> dict:
-        """Delete an endpoint by slug.
+    def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
+        """Delete an endpoint by slug within a tenant.
 
         Args:
             slug: Endpoint slug
+            tenant: Tenant context
 
         Returns:
             Success message
@@ -164,20 +174,21 @@ class EndpointHandler:
         Raises:
             HTTPException: If endpoint not found
         """
-        deleted = self.endpoint_repository.delete_by_slug(slug)
+        deleted = self.endpoint_repository.delete_by_slug(slug, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
         return {"message": f"Successfully deleted endpoint '{slug}'"}
 
     def query_endpoint(
-        self, slug: str, request: QueryEndpointRequest
+        self, slug: str, request: QueryEndpointRequest, tenant: Tenant
     ) -> QueryEndpointResponse:
         """Query an endpoint - main RAG flow.
 
         Args:
             slug: Endpoint slug
             request: Query request
+            tenant: Tenant context
 
         Returns:
             Query response with summary and/or references
@@ -186,7 +197,7 @@ class EndpointHandler:
             HTTPException: If endpoint not found or query fails
         """
         # Get endpoint
-        endpoint = self.endpoint_repository.get_by_slug(slug)
+        endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 

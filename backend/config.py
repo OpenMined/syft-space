@@ -38,6 +38,16 @@ class AppSettings(BaseSettings):
         description="Ngrok authentication token",
     )
 
+    # Multi-tenancy settings
+    enable_multi_tenancy: bool = Field(
+        default=False,
+        description="Enable multi-tenancy support",
+    )
+    default_tenant_name: str = Field(
+        default="root",
+        description="Default tenant name (used when multi-tenancy is disabled)",
+    )
+
 
 # Global settings instance
 app_settings = AppSettings()

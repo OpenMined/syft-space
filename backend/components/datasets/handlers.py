@@ -8,6 +8,7 @@ from loguru import logger
 from components.dataset_types.interfaces import IngestFile, IngestRequest
 from components.dataset_types.registry import DatasetTypeRegistry
 from components.shared.domain_types import Context, HealthcheckStatus
+from components.tenants.entities import Tenant
 
 from .entities import Dataset
 from .repository import DatasetRepository
@@ -84,11 +85,14 @@ class DatasetHandler:
             enabled=dataset_type_cls.enabled(),
         )
 
-    def create_dataset(self, request: CreateDatasetRequest) -> DatasetResponse:
+    def create_dataset(
+        self, request: CreateDatasetRequest, tenant: Tenant
+    ) -> DatasetResponse:
         """Create a new dataset.
 
         Args:
             request: Dataset creation request
+            tenant: Tenant context
 
         Returns:
             Created dataset
@@ -112,8 +116,8 @@ class DatasetHandler:
                 status_code=400, detail=f"Invalid configuration: {str(e)}"
             ) from e
 
-        # Check if name already exists
-        existing = self.repository.get_by_name(request.name)
+        # Check if name already exists within tenant
+        existing = self.repository.get_by_name(request.name, tenant.id)
         if existing:
             raise HTTPException(
                 status_code=409, detail=f"Dataset '{request.name}' already exists"
@@ -147,6 +151,7 @@ class DatasetHandler:
             summary=request.summary,
             tags=request.tags,
             provisioner_state=provisioner_state,
+            tenant_id=tenant.id,  # Set tenant_id explicitly
         )
 
         # Save to database
@@ -154,20 +159,24 @@ class DatasetHandler:
 
         return DatasetResponse.model_validate(created)
 
-    def list_datasets(self) -> list[DatasetListItem]:
-        """List all datasets.
+    def list_datasets(self, tenant: Tenant) -> list[DatasetListItem]:
+        """List all datasets for a tenant.
+
+        Args:
+            tenant: Tenant context
 
         Returns:
             List of datasets
         """
-        datasets = self.repository.get_all()
+        datasets = self.repository.get_all(tenant.id)
         return [DatasetListItem.model_validate(ds) for ds in datasets]
 
-    def get_dataset(self, name: str) -> DatasetResponse:
-        """Get a specific dataset by name.
+    def get_dataset(self, name: str, tenant: Tenant) -> DatasetResponse:
+        """Get a specific dataset by name within a tenant.
 
         Args:
             name: Dataset name
+            tenant: Tenant context
 
         Returns:
             Dataset details
@@ -175,13 +184,13 @@ class DatasetHandler:
         Raises:
             HTTPException: If dataset not found
         """
-        dataset = self.repository.get_by_name(name)
+        dataset = self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
         return DatasetResponse.model_validate(dataset)
 
-    def get_dataset_provisioner_status(self, name: str) -> dict:
+    def get_dataset_provisioner_status(self, name: str, tenant: Tenant) -> dict:
         """Get provisioner status for a dataset.
 
         For datasets without provisioners (e.g., remote datasets), all provisioner
@@ -189,6 +198,7 @@ class DatasetHandler:
 
         Args:
             name: Dataset name
+            tenant: Tenant context
 
         Returns:
             Dictionary with provisioner status info
@@ -196,7 +206,7 @@ class DatasetHandler:
         Raises:
             HTTPException: If dataset not found
         """
-        dataset = self.repository.get_by_name(name)
+        dataset = self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
@@ -228,11 +238,12 @@ class DatasetHandler:
             "provisioner_state": dataset.provisioner_state,
         }
 
-    def delete_dataset(self, name: str) -> dict:
-        """Delete a dataset by name.
+    def delete_dataset(self, name: str, tenant: Tenant) -> dict:
+        """Delete a dataset by name within a tenant.
 
         Args:
             name: Dataset name
+            tenant: Tenant context
 
         Returns:
             Success message
@@ -241,7 +252,7 @@ class DatasetHandler:
             HTTPException: If dataset not found
         """
         # Get dataset first to check provisioner state
-        dataset = self.repository.get_by_name(name)
+        dataset = self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
@@ -260,7 +271,7 @@ class DatasetHandler:
                     )
 
         # Delete from database
-        deleted = self.repository.delete_by_name(name)
+        deleted = self.repository.delete_by_name(name, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
@@ -272,6 +283,7 @@ class DatasetHandler:
         file: UploadFile,
         metadata: dict[str, Any],
         sender_email: str,
+        tenant: Tenant,
     ) -> IngestFileResponse:
         """Ingest a file into dataset.
 
@@ -283,6 +295,7 @@ class DatasetHandler:
             file: Uploaded file
             metadata: Enriched metadata dictionary
             sender_email: Email of the user performing ingestion
+            tenant: Tenant context
 
         Returns:
             Ingestion response with file details
@@ -291,7 +304,7 @@ class DatasetHandler:
             HTTPException: If dataset not found or ingestion fails
         """
         # Get dataset
-        dataset = self.repository.get_by_name(name)
+        dataset = self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
@@ -339,18 +352,19 @@ class DatasetHandler:
             message=f"Successfully ingested file into dataset '{name}'",
         )
 
-    def healthcheck(self, name: str) -> HealthcheckResponse:
+    def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
         """Check the health of a dataset.
 
         Args:
             name: Dataset name
+            tenant: Tenant context
 
         Returns:
             Healthcheck response
         """
         message = ""
         try:
-            dataset = self.repository.get_by_name(name)
+            dataset = self.repository.get_by_name(name, tenant.id)
             if not dataset:
                 raise HTTPException(
                     status_code=404, detail=f"Dataset '{name}' not found"

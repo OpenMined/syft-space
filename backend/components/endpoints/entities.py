@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from components.datasets.entities import Dataset
     from components.models.entities import Model
     from components.policies.entities import Policy
+    from components.tenants.entities import Tenant
 
 
 class ResponseType(str, Enum):
@@ -28,8 +29,14 @@ class Endpoint(SQLModel, table=True):
     __tablename__ = "endpoints"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
+    tenant_id: UUID = Field(
+        ...,
+        sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
+        index=True,
+        description="Tenant ID for multi-tenancy isolation",
+    )
     name: str = Field(..., description="Name of the endpoint")
-    slug: str = Field(..., unique=True, index=True, description="Unique URL slug")
+    slug: str = Field(..., index=True, description="URL slug (unique per tenant)")
     description: str = Field(default="", description="Markdown description")
     summary: str = Field(default="", description="Brief summary")
     dataset_id: Optional[UUID] = Field(
@@ -56,7 +63,8 @@ class Endpoint(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Relationships: access linked dataset and model objects
+    # Relationships
+    tenant: "Tenant" = Relationship(back_populates="endpoints")
     dataset: Optional["Dataset"] = Relationship(
         back_populates="endpoints",
         sa_relationship_kwargs={"foreign_keys": "[Endpoint.dataset_id]"},

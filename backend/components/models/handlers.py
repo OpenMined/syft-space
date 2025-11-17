@@ -3,6 +3,7 @@
 from fastapi import HTTPException
 
 from components.model_types.registry import ModelTypeRegistry
+from components.tenants.entities import Tenant
 
 from .entities import Model
 from .repository import ModelRepository
@@ -77,11 +78,14 @@ class ModelHandler:
             enabled=model_type_cls.enabled(),
         )
 
-    def create_model(self, request: CreateModelRequest) -> ModelResponse:
+    def create_model(
+        self, request: CreateModelRequest, tenant: Tenant
+    ) -> ModelResponse:
         """Create a new model.
 
         Args:
             request: Model creation request
+            tenant: Tenant context
 
         Returns:
             Created model
@@ -97,8 +101,8 @@ class ModelHandler:
                 status_code=400, detail=f"Model type '{request.dtype}' not found"
             ) from None
 
-        # Check if name already exists
-        existing = self.repository.get_by_name(request.name)
+        # Check if name already exists within tenant
+        existing = self.repository.get_by_name(request.name, tenant.id)
         if existing:
             raise HTTPException(
                 status_code=409, detail=f"Model '{request.name}' already exists"
@@ -111,6 +115,7 @@ class ModelHandler:
             configuration=request.configuration,
             summary=request.summary,
             tags=request.tags,
+            tenant_id=tenant.id,  # Set tenant_id explicitly
         )
 
         # Save to database
@@ -118,20 +123,24 @@ class ModelHandler:
 
         return ModelResponse.model_validate(created)
 
-    def list_models(self) -> list[ModelListItem]:
-        """List all models.
+    def list_models(self, tenant: Tenant) -> list[ModelListItem]:
+        """List all models for a tenant.
+
+        Args:
+            tenant: Tenant context
 
         Returns:
             List of models
         """
-        models = self.repository.get_all()
+        models = self.repository.get_all(tenant.id)
         return [ModelListItem.model_validate(m) for m in models]
 
-    def get_model(self, name: str) -> ModelResponse:
-        """Get a specific model by name.
+    def get_model(self, name: str, tenant: Tenant) -> ModelResponse:
+        """Get a specific model by name within a tenant.
 
         Args:
             name: Model name
+            tenant: Tenant context
 
         Returns:
             Model details
@@ -139,17 +148,18 @@ class ModelHandler:
         Raises:
             HTTPException: If model not found
         """
-        model = self.repository.get_by_name(name)
+        model = self.repository.get_by_name(name, tenant.id)
         if not model:
             raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
         return ModelResponse.model_validate(model)
 
-    def delete_model(self, name: str) -> dict:
-        """Delete a model by name.
+    def delete_model(self, name: str, tenant: Tenant) -> dict:
+        """Delete a model by name within a tenant.
 
         Args:
             name: Model name
+            tenant: Tenant context
 
         Returns:
             Success message
@@ -157,7 +167,7 @@ class ModelHandler:
         Raises:
             HTTPException: If model not found
         """
-        deleted = self.repository.delete_by_name(name)
+        deleted = self.repository.delete_by_name(name, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 

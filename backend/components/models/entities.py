@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlmodel import JSON, Column, Field, Relationship, SQLModel
+from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from components.endpoints.entities import Endpoint
+    from components.tenants.entities import Tenant
 
 
 class Model(SQLModel, table=True):
@@ -16,7 +17,13 @@ class Model(SQLModel, table=True):
     __tablename__ = "models"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
-    name: str = Field(..., unique=True, index=True, description="Unique model name")
+    tenant_id: UUID = Field(
+        ...,
+        sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
+        index=True,
+        description="Tenant ID for multi-tenancy isolation",
+    )
+    name: str = Field(..., index=True, description="Model name (unique per tenant)")
     dtype: str = Field(..., description="Model type name (references model type)")
     configuration: dict = Field(
         default_factory=dict,
@@ -28,7 +35,8 @@ class Model(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Reverse relationship: all endpoints using this model
+    # Relationships
+    tenant: "Tenant" = Relationship(back_populates="models")
     endpoints: list["Endpoint"] = Relationship(
         back_populates="model",
         sa_relationship_kwargs={"foreign_keys": "[Endpoint.model_id]"},

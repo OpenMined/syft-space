@@ -8,6 +8,7 @@ from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from components.endpoints.entities import Endpoint
+    from components.tenants.entities import Tenant
 
 
 class Policy(SQLModel, table=True):
@@ -16,6 +17,12 @@ class Policy(SQLModel, table=True):
     __tablename__ = "policies"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
+    tenant_id: UUID = Field(
+        ...,
+        sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
+        index=True,
+        description="Tenant ID for multi-tenancy isolation",
+    )
     name: str = Field(..., description="Name of the policy")
     policy_type: str = Field(
         ..., description="Policy type name (references policy type)"
@@ -30,14 +37,15 @@ class Policy(SQLModel, table=True):
         sa_column=Column(ForeignKey("endpoints.id", ondelete="CASCADE")),
         description="ID of the endpoint this policy is attached to",
     )
-    # Reverse relationship: all policies for an endpoint
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    # Relationships
+    tenant: "Tenant" = Relationship(back_populates="policies")
     endpoint: "Endpoint" = Relationship(
         back_populates="policies",
         sa_relationship_kwargs={"foreign_keys": "[Policy.endpoint_id]"},
     )
-
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         """Pydantic config."""

@@ -2,6 +2,9 @@
 
 from fastapi import APIRouter, Depends
 
+from components.tenants.dependency import get_tenant_dependency
+from components.tenants.entities import Tenant
+
 from .handlers import EndpointHandler
 from .schemas import (
     CreateEndpointRequest,
@@ -30,48 +33,57 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
     @router.post("/", response_model=EndpointResponse, status_code=201)
     async def create_endpoint(
         request: CreateEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
     ) -> EndpointResponse:
         """Create a new endpoint.
 
         Args:
             request: Endpoint creation request
+            tenant: Current tenant (injected)
 
         Returns:
             Created endpoint details
         """
-        return handler.create_endpoint(request)
+        return handler.create_endpoint(request, tenant)
 
     @router.get("/", response_model=list[EndpointListItem])
     async def list_endpoints(
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
     ) -> list[EndpointListItem]:
         """List all endpoints.
 
+        Args:
+            tenant: Current tenant (injected)
+
         Returns:
             List of endpoints with summary information
         """
-        return handler.list_endpoints()
+        return handler.list_endpoints(tenant)
 
     @router.get("/{slug}", response_model=EndpointResponse)
     async def get_endpoint(
         slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
     ) -> EndpointResponse:
         """Get details of a specific endpoint.
 
         Args:
             slug: Endpoint slug
+            tenant: Current tenant (injected)
 
         Returns:
             Endpoint details
         """
-        return handler.get_endpoint(slug)
+        return handler.get_endpoint(slug, tenant)
 
     @router.post("/{slug}/query", response_model=QueryEndpointResponse)
     async def query_endpoint(
         slug: str,
         request: QueryEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
     ) -> QueryEndpointResponse:
         """Query an endpoint - main RAG flow.
@@ -84,25 +96,28 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Args:
             slug: Endpoint slug
             request: Query request with messages and parameters
+            tenant: Current tenant (injected)
 
         Returns:
             Query response with summary and/or references
         """
-        return handler.query_endpoint(slug, request)
+        return handler.query_endpoint(slug, request, tenant)
 
     @router.delete("/{slug}", response_model=dict[str, str])
     async def delete_endpoint(
         slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
     ) -> dict[str, str]:
         """Delete an endpoint.
 
         Args:
             slug: Endpoint slug
+            tenant: Current tenant (injected)
 
         Returns:
             Success message
         """
-        return handler.delete_endpoint(slug)
+        return handler.delete_endpoint(slug, tenant)
 
     return router
