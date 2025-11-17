@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from pydantic import field_validator
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -27,16 +28,19 @@ class Endpoint(SQLModel, table=True):
     """Endpoint entity representing a configured endpoint instance."""
 
     __tablename__ = "endpoints"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "slug", name="uq_endpoint_tenant_slug"),
+        Index("idx_endpoint_tenant_slug", "tenant_id", "slug"),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
     tenant_id: UUID = Field(
         ...,
         sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
-        index=True,
         description="Tenant ID for multi-tenancy isolation",
     )
     name: str = Field(..., description="Name of the endpoint")
-    slug: str = Field(..., index=True, description="URL slug (unique per tenant)")
+    slug: str = Field(..., description="URL slug (unique per tenant)")
     description: str = Field(default="", description="Markdown description")
     summary: str = Field(default="", description="Brief summary")
     dataset_id: Optional[UUID] = Field(

@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -15,12 +16,15 @@ class Policy(SQLModel, table=True):
     """Policy entity representing a configured policy instance."""
 
     __tablename__ = "policies"
+    __table_args__ = (
+        UniqueConstraint("endpoint_id", "name", name="uq_policy_endpoint_name"),
+        Index("idx_policy_tenant_endpoint", "tenant_id", "endpoint_id"),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
     tenant_id: UUID = Field(
         ...,
         sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
-        index=True,
         description="Tenant ID for multi-tenancy isolation",
     )
     name: str = Field(..., description="Name of the policy")

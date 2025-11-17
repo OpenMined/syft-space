@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -15,15 +16,18 @@ class Dataset(SQLModel, table=True):
     """Dataset entity representing a configured dataset instance."""
 
     __tablename__ = "datasets"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_dataset_tenant_name"),
+        Index("idx_dataset_tenant_name", "tenant_id", "name"),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
     tenant_id: UUID = Field(
         ...,
         sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
-        index=True,
         description="Tenant ID for multi-tenancy isolation",
     )
-    name: str = Field(..., index=True, description="Dataset name (unique per tenant)")
+    name: str = Field(..., description="Dataset name (unique per tenant)")
     dtype: str = Field(..., description="Dataset type name (references dataset type)")
     configuration: dict = Field(
         default_factory=dict,

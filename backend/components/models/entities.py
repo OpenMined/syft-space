@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -15,15 +16,18 @@ class Model(SQLModel, table=True):
     """Model entity representing a configured model instance."""
 
     __tablename__ = "models"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_model_tenant_name"),
+        Index("idx_model_tenant_name", "tenant_id", "name"),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
     tenant_id: UUID = Field(
         ...,
         sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
-        index=True,
         description="Tenant ID for multi-tenancy isolation",
     )
-    name: str = Field(..., index=True, description="Model name (unique per tenant)")
+    name: str = Field(..., description="Model name (unique per tenant)")
     dtype: str = Field(..., description="Model type name (references model type)")
     configuration: dict = Field(
         default_factory=dict,
