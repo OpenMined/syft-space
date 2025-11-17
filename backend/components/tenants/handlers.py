@@ -60,7 +60,7 @@ class TenantHandler:
             name=request.name,
             display_name=request.display_name,
             domain=request.domain,
-            metadata=request.metadata,
+            meta=request.meta,
             is_active=True,
         )
 

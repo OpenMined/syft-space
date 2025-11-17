@@ -17,7 +17,7 @@ class CreateTenantRequest(BaseModel):
     domain: Optional[str] = Field(
         None, description="Optional domain for subdomain-based tenant resolution"
     )
-    metadata: dict = Field(
+    meta: dict = Field(
         default_factory=dict, description="Additional metadata (billing, limits, etc.)"
     )
 
@@ -30,7 +30,7 @@ class TenantResponse(BaseModel):
     display_name: str
     domain: Optional[str]
     is_active: bool
-    metadata: dict
+    meta: dict
     created_at: datetime
     updated_at: datetime
 

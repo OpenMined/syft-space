@@ -35,7 +35,7 @@ class Tenant(SQLModel, table=True):
         description="Optional domain for subdomain-based tenant resolution",
     )
     is_active: bool = Field(default=True, description="Whether tenant is active")
-    metadata: dict = Field(
+    meta: dict = Field(
         default_factory=dict,
         sa_column=Column(JSON),
         description="Additional metadata (billing, limits, etc.)",
@@ -58,6 +58,6 @@ class Tenant(SQLModel, table=True):
                 "display_name": "ACME Corporation",
                 "domain": "acme.example.com",
                 "is_active": True,
-                "metadata": {"billing_plan": "enterprise", "max_users": 100},
+                "meta": {"billing_plan": "enterprise", "max_users": 100},
             }
         }

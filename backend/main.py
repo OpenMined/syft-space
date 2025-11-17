@@ -47,8 +47,7 @@ from components.tenants.handlers import TenantHandler
 from components.tenants.middleware import TenantMiddleware
 from components.tenants.repository import TenantRepository
 from components.tenants.routes import build_tenant_routes
-
-from .config import app_settings
+from config import app_settings
 
 
 @asynccontextmanager
@@ -128,7 +127,7 @@ if not default_tenant:
             name=app_settings.default_tenant_name,
             display_name="Root Tenant",
             is_active=True,
-            metadata={"description": "Default root tenant"},
+            meta={"description": "Default root tenant"},
         )
     )
     logger.info(f"Default tenant created with ID: {default_tenant.id}")

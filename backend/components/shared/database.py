@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Generic, Optional, TypeVar
 
 from loguru import logger
+from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine, select
 
 T = TypeVar("T", bound=SQLModel)
@@ -18,19 +19,45 @@ class DatabaseConfig(ABC):
         """Get the connection string for the database"""
         pass
 
+    @abstractmethod
+    def configure_engine(self, engine: Engine) -> None:
+        """
+        Configure database-specific settings on the engine.
+        Override this method in subclasses to add database-specific configurations.
+        """
+        pass
+
 
 class SQLiteConfig(DatabaseConfig):
     """SQLite database configuration"""
 
-    def __init__(self, db_path: Path):
-        """Initialize the SQLite database configuration"""
+    def __init__(self, db_path: Path, enable_foreign_keys: bool = True):
+        """Initialize the SQLite database configuration
+
+        Args:
+            db_path: Path to the SQLite database file
+            enable_foreign_keys: Whether to enable foreign key constraints (default: True)
+        """
         self.db_path = db_path
+        self.enable_foreign_keys = enable_foreign_keys
         # Handle SQLite-specific setup
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
     def get_connection_string(self) -> str:
         """Get the connection string for the database"""
         return f"sqlite:///{self.db_path}"
+
+    def configure_engine(self, engine: Engine) -> None:
+        """Configure SQLite-specific PRAGMA settings"""
+        if self.enable_foreign_keys:
+
+            @event.listens_for(engine, "connect")
+            def set_sqlite_pragma(dbapi_conn, connection_record):
+                """Set SQLite PRAGMA on each new connection"""
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+                logger.debug("SQLite PRAGMA foreign_keys=ON set for new connection")
 
 
 class Database:
@@ -42,6 +69,8 @@ class Database:
             f"Initializing database with connection string: {config.get_connection_string()}"
         )
         self.engine = create_engine(config.get_connection_string())
+        # Apply database-specific configurations
+        config.configure_engine(self.engine)
 
     def create_db_and_tables(self, reset: bool = False):
         """Create the database and tables"""
