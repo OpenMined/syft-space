@@ -45,22 +45,22 @@ const statusClasses = {
   stopped: '', // Will use shadcn variant styling
   error: '', // Will use shadcn variant styling
   warning:
-    'bg-yellow-50 dark:bg-yellow-950/50 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800',
+    'bg-accent/10 text-accent-foreground border-accent/50',
   success: '', // Will use shadcn variant styling
   pending:
-    'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800',
+    'bg-secondary/10 text-secondary-foreground border-secondary/50',
   published: '', // Will use shadcn variant styling
   draft: '', // Will use shadcn variant styling
 }
 
 const indicatorClasses = {
-  running: 'bg-green-500 dark:bg-green-400',
+  running: 'bg-primary',
   stopped: 'bg-muted-foreground',
   error: 'bg-destructive',
-  warning: 'bg-yellow-500 dark:bg-yellow-400',
-  success: 'bg-green-500 dark:bg-green-400',
-  pending: 'bg-blue-500 dark:bg-blue-400',
-  published: 'bg-green-500 dark:bg-green-400 animate-pulse',
+  warning: 'bg-accent',
+  success: 'bg-primary',
+  pending: 'bg-secondary',
+  published: 'bg-primary animate-pulse',
   draft: 'bg-muted-foreground',
 }
 </script>

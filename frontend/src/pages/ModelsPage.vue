@@ -62,8 +62,8 @@
                 model.type === 'vllm'
                   ? 'bg-primary/10'
                   : model.type === 'ollama'
-                    ? 'bg-orange-50 dark:bg-orange-950/50'
-                    : 'bg-blue-50 dark:bg-blue-950/50',
+                    ? 'bg-primary/10'
+                    : 'bg-primary/10',
               ]"
             >
               <IntegrationIcon :name="model.type" class="h-6 w-6" />
@@ -75,15 +75,15 @@
                   variant="outline"
                   :class="
                     model.status === 'running'
-                      ? 'bg-green-50 dark:bg-green-950/50 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800'
-                      : 'bg-muted text-muted-foreground border-border'
+                      ? 'bg-primary/10 text-primary border border-primary/20'
+                      : 'bg-muted text-muted-foreground border border-border'
                   "
                   class="body-sm px-2.5 py-1 rounded-md"
                 >
                   <div
                     :class="
                       model.status === 'running'
-                        ? 'w-2 h-2 bg-green-500 dark:bg-green-400 rounded-full mr-1'
+                        ? 'w-2 h-2 bg-primary rounded-full mr-1'
                         : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
                     "
                   ></div>
@@ -96,15 +96,15 @@
                         variant="outline"
                         :class="
                           model.endpointCount > 0
-                            ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 cursor-help'
-                            : 'bg-muted text-muted-foreground border-border'
+                            ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
+                            : 'bg-muted text-muted-foreground border border-border'
                         "
                         class="body-sm px-2.5 py-1 rounded-md"
                       >
                         <div
                           :class="
                             model.endpointCount > 0
-                              ? 'w-2 h-2 bg-blue-500 dark:bg-blue-400 rounded-full mr-1'
+                              ? 'w-2 h-2 bg-secondary rounded-full mr-1'
                               : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
                           "
                         ></div>
@@ -135,7 +135,7 @@
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p class="text-muted-foreground mb-4">
+              <p class="body-sm text-muted-foreground mb-4">
                 {{ model.description }}
               </p>
               <div class="flex gap-2">

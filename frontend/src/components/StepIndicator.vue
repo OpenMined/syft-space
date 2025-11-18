@@ -47,19 +47,19 @@ const props = defineProps<Props>()
 
 const getStepClasses = (stepId: number) =>
   computed(() => ({
-    'bg-blue-600 dark:bg-blue-500 text-white border-blue-600 dark:border-blue-500': props.currentStep >= stepId,
+    'bg-primary text-primary-foreground border-primary': props.currentStep >= stepId,
     'bg-muted text-muted-foreground border-border': props.currentStep < stepId,
   }))
 
 const getStepTextClasses = (stepId: number) =>
   computed(() => ({
-    'text-blue-600 dark:text-blue-400': props.currentStep >= stepId,
+    'text-primary': props.currentStep >= stepId,
     'text-muted-foreground': props.currentStep < stepId,
   }))
 
 const getConnectorClasses = (stepId: number) =>
   computed(() => ({
-    'bg-blue-600 dark:bg-blue-500': props.currentStep > stepId,
+    'bg-primary': props.currentStep > stepId,
     'bg-muted': props.currentStep <= stepId,
   }))
 </script>

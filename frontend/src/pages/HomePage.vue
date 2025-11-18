@@ -23,10 +23,10 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button @click="showCreateEndpointModal = true"
-                    class="group bg-card hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-lg hover:-translate-y-1">
+                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1">
                     <div class="flex flex-col items-start space-y-3">
                       <div
-                        class="w-12 h-12 bg-blue-100 dark:bg-blue-950 rounded-lg flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-900 transition-colors">
+                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors">
                         <FolderOpen class="w-6 h-6 text-blue-600 dark:text-blue-400" />
                       </div>
                       <div>
@@ -50,10 +50,10 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button @click="$router.push('/datasets')"
-                    class="group bg-card hover:bg-green-50 dark:hover:bg-green-950/50 rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-green-300 dark:hover:border-green-700 hover:shadow-lg hover:-translate-y-1">
+                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1">
                     <div class="flex flex-col items-start space-y-3">
                       <div
-                        class="w-12 h-12 bg-green-100 dark:bg-green-950 rounded-lg flex items-center justify-center group-hover:bg-green-200 dark:group-hover:bg-green-900 transition-colors">
+                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors">
                         <Settings class="w-6 h-6 text-green-600 dark:text-green-400" />
                       </div>
                       <div>
@@ -73,10 +73,10 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button @click="$router.push('/models')"
-                    class="group bg-card hover:bg-purple-50 dark:hover:bg-purple-950/50 rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-purple-300 dark:hover:border-purple-700 hover:shadow-lg hover:-translate-y-1">
+                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1">
                     <div class="flex flex-col items-start space-y-3">
                       <div
-                        class="w-12 h-12 bg-purple-100 dark:bg-purple-950 rounded-lg flex items-center justify-center group-hover:bg-purple-200 dark:group-hover:bg-purple-900 transition-colors">
+                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors">
                         <Brain class="w-6 h-6 text-purple-600 dark:text-purple-400" />
                       </div>
                       <div>
@@ -98,10 +98,10 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button @click="$router.push('/inbox')"
-                    class="group bg-card hover:bg-orange-50 dark:hover:bg-orange-950/50 rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-orange-300 dark:hover:border-orange-700 hover:shadow-lg hover:-translate-y-1 relative">
+                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1 relative">
                     <div class="flex flex-col items-start space-y-3">
                       <div
-                        class="w-12 h-12 bg-orange-100 dark:bg-orange-950 rounded-lg flex items-center justify-center group-hover:bg-orange-200 dark:group-hover:bg-orange-900 transition-colors">
+                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors">
                         <ShieldCheck class="w-6 h-6 text-orange-600 dark:text-orange-400" />
                       </div>
                       <div>
@@ -130,7 +130,7 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button @click="$router.push('/datasets')"
-                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors">
+                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
                     <Database class="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     <span class="text-2xl font-light text-foreground">12</span>
                     <span class="body-sm text-muted-foreground">Datasets</span>
@@ -148,7 +148,7 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button @click="$router.push('/models')"
-                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950/50 transition-colors">
+                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
                     <Brain class="w-4 h-4 text-purple-600 dark:text-purple-400" />
                     <span class="text-2xl font-light text-foreground">7</span>
                     <span class="body-sm text-muted-foreground">Models</span>
@@ -166,7 +166,7 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button @click="$router.push('/inbox')"
-                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/50 transition-colors">
+                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
                     <ShieldCheck class="w-4 h-4 text-orange-600 dark:text-orange-400" />
                     <span class="text-2xl font-light text-foreground">{{
                       inboxStore.unreadCount
@@ -186,7 +186,7 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button @click="revenueDialogOpen = true"
-                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-green-50 dark:hover:bg-green-950/50 transition-colors">
+                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
                     <TrendingUp class="w-4 h-4 text-green-600 dark:text-green-400" />
                     <span class="text-2xl font-light text-foreground">${{ getTotalRevenue().total }}</span>
                     <span class="body-sm text-muted-foreground">Revenue</span>
@@ -325,7 +325,7 @@
           <div class="flex-1 min-h-0 overflow-y-auto">
             <div class="p-6">
               <div
-                class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-primary prose-pre:bg-muted prose-pre:border prose-li:text-muted-foreground dark:prose-invert"
+                class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-primary prose-code:font-mono prose-pre:bg-muted prose-pre:border prose-pre:font-mono prose-li:text-muted-foreground dark:prose-invert"
                 v-html="markdownToHtml(selectedItem.longDescription)" />
             </div>
           </div>

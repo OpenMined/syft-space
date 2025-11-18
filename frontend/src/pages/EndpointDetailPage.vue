@@ -55,14 +55,14 @@
                     :variant="endpoint.status === 'published' ? 'default' : 'outline'"
                     :class="
                       endpoint.status === 'published'
-                        ? 'bg-success/10 text-success border-success/20'
-                        : 'bg-muted text-muted-foreground border-border'
+                        ? 'bg-primary/10 text-primary border border-primary/20'
+                        : 'bg-muted text-muted-foreground border border-border'
                     "
                   >
                     <div
                       :class="
                         endpoint.status === 'published'
-                          ? 'w-2 h-2 bg-success rounded-full mr-2 animate-pulse'
+                          ? 'w-2 h-2 bg-primary rounded-full mr-2 animate-pulse'
                           : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
                       "
                     ></div>
@@ -334,8 +334,8 @@
                         {{ getEndpointRevenue().growth }} from last month
                       </p>
                     </div>
-                    <div class="p-3 rounded-lg bg-green-100">
-                      <DollarSign class="h-5 w-5 text-green-600" />
+                    <div class="p-3 rounded-lg bg-primary/10">
+                      <DollarSign class="h-5 w-5 text-primary" />
                     </div>
                   </div>
                 </CardContent>
@@ -353,8 +353,8 @@
                         {{ getRequestStats().successRate }} success rate
                       </p>
                     </div>
-                    <div class="p-3 rounded-lg bg-blue-100">
-                      <BarChart3 class="h-5 w-5 text-blue-600" />
+                    <div class="p-3 rounded-lg bg-primary/10">
+                      <BarChart3 class="h-5 w-5 text-primary" />
                     </div>
                   </div>
                 </CardContent>
@@ -372,8 +372,8 @@
                         {{ getEndpointRevenue().paidUsers }} paid
                       </p>
                     </div>
-                    <div class="p-3 rounded-lg bg-purple-100">
-                      <Users class="h-5 w-5 text-purple-600" />
+                    <div class="p-3 rounded-lg bg-primary/10">
+                      <Users class="h-5 w-5 text-primary" />
                     </div>
                   </div>
                 </CardContent>
@@ -391,8 +391,8 @@
                         {{ getEndpointRevenue().conversionRate }} conversion
                       </p>
                     </div>
-                    <div class="p-3 rounded-lg bg-amber-100">
-                      <TrendingUp class="h-5 w-5 text-amber-600" />
+                    <div class="p-3 rounded-lg bg-primary/10">
+                      <TrendingUp class="h-5 w-5 text-primary" />
                     </div>
                   </div>
                 </CardContent>
@@ -436,7 +436,7 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
-                  <CardTitle class="text-base">Request Breakdown</CardTitle>
+                  <CardTitle>Request Breakdown</CardTitle>
                 </CardHeader>
                 <CardContent class="space-y-3">
                   <div class="flex justify-between items-center">
@@ -456,7 +456,7 @@
 
               <Card>
                 <CardHeader>
-                  <CardTitle class="text-base">Revenue Metrics</CardTitle>
+                  <CardTitle>Revenue Metrics</CardTitle>
                 </CardHeader>
                 <CardContent class="space-y-3">
                   <div class="flex justify-between items-center">
@@ -487,7 +487,7 @@
                       <p class="body-sm text-muted-foreground mb-1">Status</p>
                       <p class="heading-3 text-success">Healthy</p>
                     </div>
-                    <CheckCircle2 class="h-5 w-5 text-green-500" />
+                    <CheckCircle2 class="h-5 w-5 text-primary" />
                   </div>
                 </CardContent>
               </Card>
@@ -586,7 +586,7 @@
               <Card>
                 <CardHeader>
                   <CardTitle class="flex items-center gap-2">
-                    <Gauge class="h-5 w-5 text-green-600" />
+                    <Gauge class="h-5 w-5 text-primary" />
                     Rate Limiting
                   </CardTitle>
                   <CardDescription>Control request frequency</CardDescription>

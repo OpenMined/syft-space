@@ -267,7 +267,7 @@ const formatTimestamp = (date: Date) => {
         <div class="flex-1 min-h-0 overflow-y-auto">
           <div class="p-6">
             <div
-              class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-primary prose-pre:bg-muted prose-pre:border prose-li:text-muted-foreground dark:prose-invert"
+              class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-primary prose-code:font-mono prose-pre:bg-muted prose-pre:border prose-pre:font-mono prose-li:text-muted-foreground dark:prose-invert"
               v-html="markdownToHtml(selectedItem.longDescription)"
             />
           </div>

@@ -16,7 +16,7 @@
             <summary class="text-xs text-red-600 dark:text-red-400 cursor-pointer hover:text-red-800 dark:hover:text-red-200">
               Show technical details
             </summary>
-            <pre class="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/30 p-2 rounded overflow-auto">{{
+            <pre class="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/30 p-2 rounded overflow-auto font-mono">{{
               errorDetails
             }}</pre>
           </details>

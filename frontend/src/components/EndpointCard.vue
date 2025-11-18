@@ -3,19 +3,20 @@
     <div class="flex items-start justify-between">
       <div class="flex-1">
         <div class="flex items-center gap-3 mb-2">
-          <h3 class="text-lg font-semibold">{{ endpoint.name }}</h3>
+          <h3 class="heading-3 text-foreground">{{ endpoint.name }}</h3>
           <Badge
             :variant="endpoint.status === 'published' ? 'default' : 'secondary'"
             :class="
               endpoint.status === 'published'
-                ? 'bg-green-50 dark:bg-green-950/50 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800'
-                : 'bg-muted text-muted-foreground border-border'
+                ? 'bg-primary/10 text-primary border border-primary/20'
+                : 'bg-muted text-muted-foreground border border-border'
             "
+            class="body-sm px-2.5 py-1 rounded-md"
           >
             {{ endpoint.status === 'published' ? 'Published' : 'Draft' }}
           </Badge>
         </div>
-        <p class="text-muted-foreground mb-4">{{ endpoint.summary }}</p>
+        <p class="body-sm text-muted-foreground mb-4">{{ endpoint.summary }}</p>
 
         <!-- Watched Paths Preview -->
         <div class="mb-4 space-y-2 pl-2">

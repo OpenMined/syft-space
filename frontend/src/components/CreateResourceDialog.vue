@@ -14,7 +14,7 @@
             <div
               :class="[
                 'w-3 h-3 rounded-full transition-colors',
-                currentStepIndex >= 0 ? 'bg-blue-500' : 'bg-muted',
+                currentStepIndex >= 0 ? 'bg-primary' : 'bg-muted',
               ]"
             ></div>
             <span
@@ -26,7 +26,7 @@
           </div>
           <div class="w-24 h-0.5 bg-muted">
             <div
-              class="h-full bg-blue-500 transition-all"
+              class="h-full bg-primary transition-all"
               :style="{ width: currentStepIndex >= 1 ? '100%' : '0%' }"
             ></div>
           </div>
@@ -34,7 +34,7 @@
             <div
               :class="[
                 'w-3 h-3 rounded-full transition-colors',
-                currentStepIndex >= 1 ? 'bg-blue-500' : 'bg-muted',
+                currentStepIndex >= 1 ? 'bg-primary' : 'bg-muted',
               ]"
             ></div>
             <span
@@ -46,7 +46,7 @@
           </div>
           <div class="w-24 h-0.5 bg-muted">
             <div
-              class="h-full bg-blue-500 transition-all"
+              class="h-full bg-primary transition-all"
               :style="{ width: currentStepIndex >= 2 ? '100%' : '0%' }"
             ></div>
           </div>
@@ -54,7 +54,7 @@
             <div
               :class="[
                 'w-3 h-3 rounded-full transition-colors',
-                currentStepIndex >= 2 ? 'bg-blue-500' : 'bg-muted',
+                currentStepIndex >= 2 ? 'bg-primary' : 'bg-muted',
               ]"
             ></div>
             <span

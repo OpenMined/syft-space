@@ -341,7 +341,7 @@
                         <span class="text-muted-foreground">Legal Documents Store</span>
                       </div>
                       <div class="flex items-center gap-2 body-sm">
-                        <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <div class="w-2 h-2 bg-primary rounded-full"></div>
                         <span class="text-muted-foreground">Research Papers Collection</span>
                       </div>
                       <div

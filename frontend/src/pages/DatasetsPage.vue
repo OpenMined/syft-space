@@ -36,22 +36,22 @@
                 :class="[
                   'p-3.5 rounded-xl',
                   dataSource.type === 'weaviate'
-                    ? 'bg-purple-100'
+                    ? 'bg-primary/10'
                     : dataSource.type === 'qdrant'
-                      ? 'bg-blue-100'
-                      : 'bg-green-100',
+                      ? 'bg-primary/10'
+                      : 'bg-primary/10',
                 ]"
               >
                 <Database class="h-6 w-6 text-foreground/60" />
               </div>
               <div class="flex-1">
                 <div class="flex items-center gap-3 mb-2">
-                  <h3 class="heading-3 text-foreground">{{ dataSource.name }}</h3>
+                  <h3 class="heading-4 text-foreground">{{ dataSource.name }}</h3>
                   <Badge
                     variant="outline"
                     :class="
                       dataSource.status === 'running'
-                        ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400 dark:border-green-800'
+                        ? 'bg-primary/10 text-primary border border-primary/20'
                         : 'bg-muted text-muted-foreground border-border'
                     "
                     class="body-sm px-2.5 py-1 rounded-md"
@@ -59,8 +59,8 @@
                     <div
                       :class="
                         dataSource.status === 'running'
-                          ? 'w-2 h-2 bg-green-500 rounded-full mr-1'
-                          : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
+                          ? 'w-2 h-2 bg-primary rounded-full mr-1'
+                          : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
                       "
                     ></div>
                     {{ dataSource.status }}
@@ -72,18 +72,18 @@
                           variant="outline"
                           :class="
                             dataSource.endpointCount > 0
-                              ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800 cursor-help'
-                              : 'bg-muted text-muted-foreground border-border'
+                              ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
+                              : 'bg-muted text-muted-foreground border border-border'
                           "
                           class="body-sm px-2.5 py-1 rounded-md"
                         >
-                          <div
+                          <Link
                             :class="
                               dataSource.endpointCount > 0
-                                ? 'w-2 h-2 bg-blue-500 rounded-full mr-1'
-                                : 'w-2 h-2 bg-muted-foreground/40 rounded-full mr-1'
+                                ? 'w-3.5 h-3.5 mr-1.5'
+                                : 'w-3.5 h-3.5 mr-1.5 opacity-40'
                             "
-                          ></div>
+                          />
                           {{
                             dataSource.endpointCount === 0
                               ? 'No endpoints'
@@ -295,7 +295,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Database, Plus, Edit, Trash2 } from 'lucide-vue-next'
+import { Database, Plus, Edit, Trash2, Link } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'

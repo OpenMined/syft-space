@@ -41,10 +41,10 @@
               :class="[
                 'p-4 rounded-2xl shadow-sm',
                 model.type === 'vllm'
-                  ? 'bg-purple-50 border border-border'
+                  ? 'bg-primary/10 border border-border'
                   : model.type === 'ollama'
-                    ? 'bg-orange-50 border border-border'
-                    : 'bg-indigo-50 border border-border',
+                    ? 'bg-primary/10 border border-border'
+                    : 'bg-primary/10 border border-border',
               ]"
             >
               <IntegrationIcon :name="model.type" class="h-8 w-8" />
@@ -57,14 +57,14 @@
                   variant="outline"
                   :class="
                     model.status === 'running'
-                      ? 'bg-success/10 text-success-foreground border border-success/20 px-3 py-1.5 rounded-full'
+                      ? 'bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-full'
                       : 'bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full'
                   "
                 >
                   <div
                     :class="
                       model.status === 'running'
-                        ? 'w-2 h-2 bg-success rounded-full mr-2'
+                        ? 'w-2 h-2 bg-primary rounded-full mr-2'
                         : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
                     "
                   ></div>
@@ -72,7 +72,7 @@
                 </Badge>
                 <Badge
                   variant="outline"
-                  class="bg-primary/10 text-primary-foreground border border-primary/20 px-3 py-1.5 rounded-full"
+                  class="bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full"
                 >
                   {{ model.type.charAt(0).toUpperCase() + model.type.slice(1) }}
                 </Badge>
@@ -141,7 +141,7 @@
                   <div
                     :class="[
                       'w-2.5 h-2.5 rounded-full',
-                      model.status === 'running' ? 'bg-green-500 dark:bg-green-400' : 'bg-muted',
+                      model.status === 'running' ? 'bg-primary' : 'bg-muted',
                     ]"
                   ></div>
                   <p class="body-sm font-medium text-foreground capitalize">{{ model.status }}</p>
@@ -374,20 +374,20 @@
               </Button>
             </div>
 
-            <div class="space-y-6">
-              <div class="flex justify-between items-center py-4 border-b border-border">
+            <div class="space-y-3">
+              <div class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg">
                 <span class="body-sm text-muted-foreground">Average per Request</span>
                 <span class="body-sm font-medium text-foreground">$0.053</span>
               </div>
-              <div class="flex justify-between items-center py-4 border-b border-border">
+              <div class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg">
                 <span class="body-sm text-muted-foreground">Peak Hour Revenue</span>
                 <span class="body-sm font-medium text-foreground">$127.40/hr</span>
               </div>
-              <div class="flex justify-between items-center py-4 border-b border-border">
+              <div class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg">
                 <span class="body-sm text-muted-foreground">Total Tokens Processed</span>
                 <span class="body-sm font-medium text-primary">2.4M</span>
               </div>
-              <div class="flex justify-between items-center py-4">
+              <div class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg">
                 <span class="body-sm text-muted-foreground">Cost per Token</span>
                 <span class="body-sm font-medium text-foreground">$0.00012</span>
               </div>
@@ -514,7 +514,7 @@
                 <span class="text-muted-foreground">[{{ log.timestamp }}]</span>
                 <span
                   :class="[
-                    'ml-2 px-2 py-1 rounded text-xs font-bold',
+                    'ml-2 px-2 py-1 rounded body-sm font-bold',
                     log.level === 'INFO'
                       ? 'bg-green-900 text-green-200'
                       : log.level === 'WARN'

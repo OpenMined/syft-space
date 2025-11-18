@@ -43,10 +43,10 @@
               :class="[
                 'p-4 rounded-2xl shadow-sm',
                 dataset.type === 'weaviate'
-                  ? 'bg-purple-50 border border-border'
+                  ? 'bg-primary/10 border border-border'
                   : dataset.type === 'qdrant'
-                    ? 'bg-blue-50 border border-border'
-                    : 'bg-green-50 border border-border',
+                    ? 'bg-primary/10 border border-border'
+                    : 'bg-primary/10 border border-border',
               ]"
             >
               <IntegrationIcon :name="dataset.type" class="h-8 w-8" />
@@ -59,14 +59,14 @@
                   variant="outline"
                   :class="
                     dataset.status === 'running'
-                      ? 'bg-green-50/50 text-green-700 border-border px-3 py-1.5 rounded-full'
-                      : 'bg-muted/50 text-muted-foreground border-border px-3 py-1.5 rounded-full'
+                      ? 'bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-full'
+                      : 'bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full'
                   "
                 >
                   <div
                     :class="
                       dataset.status === 'running'
-                        ? 'w-2 h-2 bg-green-500 rounded-full mr-2'
+                        ? 'w-2 h-2 bg-primary rounded-full mr-2'
                         : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
                     "
                   ></div>
@@ -74,7 +74,7 @@
                 </Badge>
                 <Badge
                   variant="outline"
-                  class="bg-blue-50/50 text-blue-700 border-border px-3 py-1.5 rounded-full"
+                  class="bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full"
                 >
                   {{ dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1) }}
                 </Badge>
@@ -82,7 +82,7 @@
                   v-for="tag in dataset.tags"
                   :key="`tag-${tag}`"
                   variant="outline"
-                  class="bg-muted/50 text-muted-foreground border-border px-3 py-1.5 rounded-full"
+                  class="bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full"
                 >
                   {{ tag }}
                 </Badge>
@@ -143,7 +143,7 @@
                   <div
                     :class="[
                       'w-2.5 h-2.5 rounded-full',
-                      dataset.status === 'running' ? 'bg-green-500 dark:bg-green-400' : 'bg-muted',
+                      dataset.status === 'running' ? 'bg-primary' : 'bg-muted',
                     ]"
                   ></div>
                   <p class="body-sm font-medium text-foreground capitalize">{{ dataset.status }}</p>
@@ -157,14 +157,14 @@
 
               <div class="text-center">
                 <p class="body-sm text-muted-foreground mb-1">Queries</p>
-                <p class="body-sm font-medium text-blue-600 dark:text-blue-400">
+                <p class="body-sm font-medium text-primary">
                   {{ getUsageStats().totalQueries }}
                 </p>
               </div>
 
               <div class="text-center">
                 <p class="body-sm text-muted-foreground mb-1">Data Points</p>
-                <p class="body-sm font-medium text-green-600 dark:text-green-400">
+                <p class="body-sm font-medium text-primary">
                   {{ getUsageStats().dataPoints }}
                 </p>
               </div>
@@ -184,7 +184,7 @@
             class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
           >
             <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-4">Watched Paths</h2>
+              <h2 class="heading-3">Watched Paths</h2>
               <Button variant="outline" size="sm" @click="refreshWatchedPaths">
                 <RefreshCw class="h-4 w-4 mr-2" :class="{ 'animate-spin': isRefreshingPaths }" />
                 Refresh
@@ -201,13 +201,13 @@
                     :class="[
                       'w-3 h-3 rounded-full',
                       path.status === 'indexed'
-                        ? 'bg-green-500 dark:bg-green-400'
+                        ? 'bg-primary'
                         : path.status === 'processing'
-                          ? 'bg-blue-500 dark:bg-blue-400'
+                          ? 'bg-secondary'
                           : path.status === 'queued'
-                            ? 'bg-yellow-500 dark:bg-yellow-400'
+                            ? 'bg-accent'
                             : path.status === 'errored'
-                              ? 'bg-red-500 dark:bg-red-400'
+                              ? 'bg-destructive'
                               : 'bg-muted',
                     ]"
                   ></div>
@@ -248,21 +248,21 @@
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-6">
                   <span class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground">
-                    <div class="w-2.5 h-2.5 bg-green-500 dark:bg-green-400 rounded-full"></div>
+                    <div class="w-2.5 h-2.5 bg-primary rounded-full"></div>
                     Indexed ({{ getWatchedPaths().filter((p) => p.status === 'indexed').length }})
                   </span>
                   <span class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground">
-                    <div class="w-2.5 h-2.5 bg-blue-500 dark:bg-blue-400 rounded-full"></div>
+                    <div class="w-2.5 h-2.5 bg-secondary rounded-full"></div>
                     Processing ({{
                       getWatchedPaths().filter((p) => p.status === 'processing').length
                     }})
                   </span>
                   <span class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground">
-                    <div class="w-2.5 h-2.5 bg-yellow-500 dark:bg-yellow-400 rounded-full"></div>
+                    <div class="w-2.5 h-2.5 bg-accent rounded-full"></div>
                     Queued ({{ getWatchedPaths().filter((p) => p.status === 'queued').length }})
                   </span>
                   <span class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground">
-                    <div class="w-2.5 h-2.5 bg-red-500 dark:bg-red-400 rounded-full"></div>
+                    <div class="w-2.5 h-2.5 bg-destructive rounded-full"></div>
                     Errored ({{ getWatchedPaths().filter((p) => p.status === 'errored').length }})
                   </span>
                 </div>
@@ -277,7 +277,7 @@
           <!-- Configuration Settings -->
           <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
             <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-4">Configuration</h2>
+              <h2 class="heading-3">Configuration</h2>
               <div class="flex items-center gap-3">
                 <Button variant="outline" size="sm">
                   <Edit class="h-4 w-4 mr-2" />
@@ -295,8 +295,8 @@
               <div class="flex justify-between items-center py-2">
                 <span class="body-sm text-muted-foreground">Connection Status</span>
                 <div class="flex items-center gap-3">
-                  <div class="w-2.5 h-2.5 bg-green-500 dark:bg-green-400 rounded-full"></div>
-                  <span class="body-sm font-medium text-green-600 dark:text-green-400"
+                  <div class="w-2.5 h-2.5 bg-primary rounded-full"></div>
+                  <span class="body-sm font-medium text-primary"
                     >Connected</span
                   >
                 </div>
@@ -362,7 +362,7 @@
 
           <!-- Connected Endpoints -->
           <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <h2 class="heading-4 mb-4">Connected Endpoints ({{ connectedEndpoints.length }})</h2>
+            <h2 class="heading-3 mb-4">Connected Endpoints ({{ connectedEndpoints.length }})</h2>
             <div v-if="connectedEndpoints.length > 0" class="space-y-4">
               <div
                 v-for="endpoint in connectedEndpoints"
@@ -371,9 +371,9 @@
               >
                 <div class="flex items-center gap-4">
                   <div
-                    class="p-3 bg-blue-50 dark:bg-blue-950 border border-blue-100 dark:border-blue-800 rounded-xl"
+                    class="p-3 bg-primary/10 rounded-xl"
                   >
-                    <Globe class="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    <Globe class="h-5 w-5 text-primary" />
                   </div>
                   <div>
                     <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
@@ -444,17 +444,17 @@
               <div
                 v-for="log in getAccessLogs()"
                 :key="log.id"
-                class="flex items-center justify-between py-3 px-4 border border-border rounded-lg"
+                class="flex items-center justify-between py-3 px-4 bg-muted/50 border border-border rounded-lg"
               >
                 <div class="flex items-center gap-3">
                   <div
                     :class="[
                       'w-2 h-2 rounded-full',
                       log.status === 'success'
-                        ? 'bg-green-500'
+                        ? 'bg-primary'
                         : log.status === 'error'
-                          ? 'bg-red-500'
-                          : 'bg-yellow-500',
+                          ? 'bg-destructive'
+                          : 'bg-accent',
                     ]"
                   ></div>
                   <span class="body-sm font-medium text-foreground">{{ log.endpoint }}</span>
