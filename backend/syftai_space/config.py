@@ -40,7 +40,7 @@ class AppSettings(BaseSettings):
 
     # Multi-tenancy settings
     enable_multi_tenancy: bool = Field(
-        default=False,
+        default=True,
         description="Enable multi-tenancy support",
     )
     default_tenant_name: str = Field(

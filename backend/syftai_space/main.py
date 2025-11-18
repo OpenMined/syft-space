@@ -180,7 +180,7 @@ router.include_router(build_endpoint_routes(endpoint_handler))
 router.include_router(build_tenant_routes(tenant_handler))
 
 
-@router.get("/health")
+@router.get("/health", tags=["system"])
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "version": "0.1.0"}
@@ -199,7 +199,7 @@ if frontend_path.exists():
     )
 
 
-@app.get("/")
+@app.get("/", tags=["system"])
 async def redirect_root():
     """Redirect root to frontend or API docs."""
     if frontend_path.exists():
