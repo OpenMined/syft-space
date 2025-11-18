@@ -5,16 +5,17 @@ from logging.config import fileConfig
 from sqlmodel import SQLModel
 
 from alembic import context
-from components.datasets.entities import Dataset  # noqa: F401
-from components.endpoints.entities import Endpoint  # noqa: F401
-from components.models.entities import Model  # noqa: F401
-from components.policies.entities import Policy  # noqa: F401
-from components.shared.database import SQLiteConfig
-from config import app_settings
+from syftai_space.components.datasets.entities import Dataset  # noqa: F401
+from syftai_space.components.endpoints.entities import Endpoint  # noqa: F401
+from syftai_space.components.models.entities import Model  # noqa: F401
+from syftai_space.components.policies.entities import Policy  # noqa: F401
+from syftai_space.components.shared.database import SQLiteConfig
+from syftai_space.components.tenants.entities import Tenant  # noqa: F401
+from syftai_space.config import app_settings
 
 # Add your other model imports here as you create them
-# from components.accounting.entities import ...
-# from components.profile.entities import ...
+# from syftai_space.components.accounting.entities import ...
+# from syftai_space.components.profile.entities import ...
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
