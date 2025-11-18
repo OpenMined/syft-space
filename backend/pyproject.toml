@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "syai-server"
+name = "syftai_space"
 version = "0.1.0"
 description = "Syft AI Server Backend API"
 authors = [
@@ -53,12 +53,12 @@ libs = [
 
 # All development dependencies (includes test, lint, pre-commit)
 dev = [
-    "syai-server[libs,test,lint,pre-commit]",
+    "syftai_space[libs,test,lint,pre-commit]",
 ]
 
 # All dependencies (includes dev and libs)
 all = [
-    "syai-server[dev,libs]",
+    "syftai_space[dev,libs]",
 ]
 
 
@@ -105,3 +105,7 @@ skips = [
     "B603",  # Subprocess without shell=true (we use list args which is safer)
     "B607",  # Starting process with partial path (docker command is standard)
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]  # Find packages in current directory (backend/)
+include = ["syftai_space*"]  # Include syftai_space and sub-packages
