@@ -134,20 +134,21 @@ curl -X POST http://localhost:8000/api/v1/endpoints/doc-qa/query \
 
 ```
 backend/
-├── components/
-│   ├── dataset_types/       # Dataset type definitions and provisioners
-│   │   ├── interfaces.py    # Base protocols
-│   │   ├── registry.py      # Type registry
-│   │   └── weaviate/        # Weaviate implementation
-│   ├── datasets/            # Dataset CRUD and management
-│   ├── model_types/         # Model type definitions
-│   ├── models/              # Model CRUD and management
-│   ├── policy_types/        # Policy type definitions
-│   ├── policies/            # Policy CRUD and management
-│   ├── endpoints/           # Endpoint CRUD and query orchestration
-│   └── shared/              # Shared utilities and types
-├── main.py                  # FastAPI application entry point
-├── config.py                # Application configuration
+├── syftai_space/
+│  ├── components/
+│  │   ├── dataset_types/       # Dataset type definitions and provisioners
+│  │   │   ├── interfaces.py    # Base protocols
+│  │   │   ├── registry.py      # Type registry
+│  │   │   └── weaviate/        # Weaviate implementation
+│  │   ├── datasets/            # Dataset CRUD and management
+│  │   ├── model_types/         # Model type definitions
+│  │   ├── models/              # Model CRUD and management
+│  │   ├── policy_types/        # Policy type definitions
+│  │   ├── policies/            # Policy CRUD and management
+│  │   ├── endpoints/           # Endpoint CRUD and query orchestration
+│  │   └── shared/              # Shared utilities and types
+│  ├── main.py                  # FastAPI application entry point
+│  ├── config.py                # Application configuration
 └── pyproject.toml           # Project dependencies and metadata
 ```
 
