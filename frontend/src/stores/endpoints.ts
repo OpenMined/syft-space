@@ -56,7 +56,11 @@ All entries undergo verification by trained biologists and cross-referencing wit
       mcpCompatible: true,
       tags: ['domain:wildlife'],
       status: 'published',
-      watchedPaths: ['/data/wildlife/species', '/data/wildlife/conservation', '/data/wildlife/parks'],
+      watchedPaths: [
+        '/data/wildlife/species',
+        '/data/wildlife/conservation',
+        '/data/wildlife/parks',
+      ],
       isCustom: false,
     },
     {
@@ -94,7 +98,12 @@ All legal documents undergo verification by qualified legal professionals and cr
       mcpCompatible: false,
       tags: ['domain:legal', 'language:de'],
       status: 'published',
-      watchedPaths: ['/data/legal/cases', '/data/legal/codes', '/data/legal/eu-regulations', '/data/legal/commentary'],
+      watchedPaths: [
+        '/data/legal/cases',
+        '/data/legal/codes',
+        '/data/legal/eu-regulations',
+        '/data/legal/commentary',
+      ],
       isCustom: false,
     },
     {

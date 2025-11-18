@@ -1,5 +1,5 @@
 <template>
-  <div class="flex justify-between items-center pt-6 border-t border-gray-200">
+  <div class="flex justify-between items-center pt-6 border-t border-border">
     <Button v-if="!isFirstStep" variant="outline" @click="$emit('previous')" :disabled="loading">
       <ChevronLeft class="h-4 w-4 mr-2" />
       Previous

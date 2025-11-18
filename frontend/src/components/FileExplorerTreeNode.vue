@@ -36,7 +36,7 @@
           :checked="isSelected || isPartiallySelected"
           @click.stop
           @change="handleCheckboxChange"
-          class="h-4 w-4 absolute inset-0 text-blue-600 rounded border-gray-300 focus:ring-blue-500 opacity-100 cursor-pointer"
+          class="h-4 w-4 absolute inset-0 text-blue-600 rounded border-border focus:ring-blue-500 opacity-100 cursor-pointer"
         />
       </div>
 
@@ -47,7 +47,7 @@
       <span class="text-sm truncate flex-1">{{ node.name }}</span>
 
       <!-- File size -->
-      <span v-if="node.type === 'file' && node.size" class="text-xs text-gray-500">
+      <span v-if="node.type === 'file' && node.size" class="text-xs text-muted-foreground">
         {{ formatFileSize(node.size) }}
       </span>
     </div>

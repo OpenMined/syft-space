@@ -2,8 +2,8 @@
   <div class="space-y-6">
     <!-- Header -->
     <div class="space-y-2">
-      <h4 class="text-base font-medium text-gray-900">{{ title }}</h4>
-      <p class="text-sm text-gray-600">{{ description }}</p>
+      <h4 class="text-base font-medium text-foreground">{{ title }}</h4>
+      <p class="text-sm text-muted-foreground">{{ description }}</p>
     </div>
 
     <!-- Model List -->
@@ -13,8 +13,8 @@
         <div
           v-for="model in mockModels"
           :key="model.id"
-          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-          :class="modelValue === model.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
+          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
+          :class="modelValue === model.id ? 'border-blue-500 bg-blue-50' : 'border-border'"
           @click="$emit('update:modelValue', model.id)"
         >
           <RadioGroupItem :value="model.id" :id="`${idPrefix}-${model.id}`" />
@@ -43,32 +43,32 @@
                   :class="
                     model.status === 'running'
                       ? 'bg-green-50 text-green-700 border-green-200'
-                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                      : 'bg-muted text-muted-foreground border-border'
                   "
                   class="text-xs"
                 >
                   {{ model.status }}
                 </Badge>
               </div>
-              <p class="text-sm text-gray-600 mt-1">{{ model.description }}</p>
+              <p class="text-sm text-muted-foreground mt-1">{{ model.description }}</p>
             </div>
           </Label>
         </div>
 
         <!-- Create New Model Option (outside radio group) -->
         <div
-          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-gray-50 border-gray-200"
+          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50 border-border"
           @click="handleCreateModel"
         >
           <!-- Spacer to maintain alignment with radio button items -->
           <div class="w-4 h-4"></div>
           <div class="flex items-center gap-3 cursor-pointer flex-1">
-            <div class="p-2 bg-gray-100 rounded">
-              <Plus class="h-5 w-5 text-gray-600" />
+            <div class="p-2 bg-muted rounded">
+              <Plus class="h-5 w-5 text-muted-foreground" />
             </div>
             <div class="flex-1">
               <span class="font-medium">Create New Model</span>
-              <p class="text-sm text-gray-600 mt-1">Set up a new AI model for your endpoint</p>
+              <p class="text-sm text-muted-foreground mt-1">Set up a new AI model for your endpoint</p>
             </div>
           </div>
         </div>

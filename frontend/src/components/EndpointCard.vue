@@ -3,45 +3,49 @@
     <div class="flex items-start justify-between">
       <div class="flex-1">
         <div class="flex items-center gap-3 mb-2">
-          <h3 class="text-lg font-semibold">{{ endpoint.name }}</h3>
+          <h3 class="heading-3 text-foreground">{{ endpoint.name }}</h3>
           <Badge
             :variant="endpoint.status === 'published' ? 'default' : 'secondary'"
             :class="
               endpoint.status === 'published'
-                ? 'bg-green-100 text-green-700 hover:bg-green-100'
-                : 'bg-gray-100 text-gray-700'
+                ? 'bg-primary/10 text-primary border border-primary/20'
+                : 'bg-muted text-muted-foreground border border-border'
             "
+            class="body-sm px-2.5 py-1 rounded-md"
           >
             {{ endpoint.status === 'published' ? 'Published' : 'Draft' }}
           </Badge>
         </div>
-        <p class="text-gray-600 mb-4">{{ endpoint.summary }}</p>
+        <p class="body-sm text-muted-foreground mb-4">{{ endpoint.summary }}</p>
 
         <!-- Watched Paths Preview -->
         <div class="mb-4 space-y-2 pl-2">
-          <div v-if="endpoint.isCustom" class="text-sm text-gray-500">
+          <div v-if="endpoint.isCustom" class="text-sm text-muted-foreground">
             📂 <span class="italic">Custom dataset - manually configured</span>
           </div>
-          
-          <div v-else-if="!endpoint.watchedPaths || endpoint.watchedPaths.length === 0" class="text-sm text-gray-500">
+
+          <div
+            v-else-if="!endpoint.watchedPaths || endpoint.watchedPaths.length === 0"
+            class="text-sm text-muted-foreground"
+          >
             📂 <span class="italic">No paths configured</span>
           </div>
-          
+
           <div v-else class="space-y-1">
-            <div class="text-sm text-gray-500 flex items-center gap-2">
+            <div class="text-sm text-muted-foreground flex items-center gap-2">
               📂 <span class="font-medium">Files & Folders:</span>
             </div>
             <div class="ml-6 space-y-1 py-1">
-              <div 
-                v-for="path in getPathsPreview(endpoint).paths" 
+              <div
+                v-for="path in getPathsPreview(endpoint).paths"
                 :key="path"
-                class="text-sm font-mono text-gray-500 opacity-75"
+                class="text-sm font-mono text-muted-foreground opacity-75"
               >
                 {{ path }}
               </div>
-              <div 
-                v-if="getPathsPreview(endpoint).hasMore" 
-                class="text-sm text-gray-500 opacity-60 italic"
+              <div
+                v-if="getPathsPreview(endpoint).hasMore"
+                class="text-sm text-muted-foreground opacity-60 italic"
               >
                 +{{ getPathsPreview(endpoint).totalCount - 3 }} more...
               </div>
@@ -84,24 +88,19 @@
       <div class="ml-4 text-right">
         <div class="flex flex-col gap-2">
           <template v-if="endpoint.status === 'draft'">
-            <Button
-              variant="outline"
-              size="sm"
-              class="border-purple-600 text-purple-600 hover:bg-purple-50 hover:text-purple-700 w-full"
-              @click.stop
-            >
+            <Button variant="outline" size="sm" class="w-full" @click.stop>
               <Send class="h-4 w-4 mr-2" />
               Publish
             </Button>
             <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" class="text-gray-600" @click.stop>
+              <Button variant="outline" size="sm" @click.stop>
                 <Edit class="h-4 w-4 mr-2" />
                 Edit
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                class="text-red-600 hover:text-red-700"
+                class="text-destructive hover:text-destructive"
                 @click.stop
               >
                 <Trash2 class="h-4 w-4 mr-2" />
@@ -110,7 +109,7 @@
             </div>
           </template>
           <template v-else>
-            <Button variant="outline" size="sm" class="text-gray-600" @click.stop>
+            <Button variant="outline" size="sm" @click.stop>
               <EyeOff class="h-4 w-4 mr-2" />
               Unpublish
             </Button>
@@ -154,28 +153,28 @@ const getPathsPreview = (endpoint: EndpointItem) => {
       isCustom: true,
       paths: [],
       hasMore: false,
-      totalCount: 0
+      totalCount: 0,
     }
   }
-  
+
   if (!endpoint.watchedPaths || endpoint.watchedPaths.length === 0) {
     return {
       isCustom: false,
       paths: [],
       hasMore: false,
-      totalCount: 0
+      totalCount: 0,
     }
   }
-  
+
   // Show first 3 paths with "..." if there are more
   const pathsToShow = endpoint.watchedPaths.slice(0, 3)
   const hasMore = endpoint.watchedPaths.length > 3
-  
+
   return {
     isCustom: false,
     paths: pathsToShow,
     hasMore,
-    totalCount: endpoint.watchedPaths.length
+    totalCount: endpoint.watchedPaths.length,
   }
 }
 </script>

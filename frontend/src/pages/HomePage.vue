@@ -1,40 +1,39 @@
 <template>
-  <ErrorBoundary
-    :can-retry="true"
-    :show-details="true"
-    custom-title="Dashboard Loading Error"
-    custom-message="There was a problem loading the dashboard. Please try again."
-    @retry="refreshDashboard"
-  >
-    <div class="min-h-screen bg-gradient-to-br from-white via-blue-50/20 to-purple-50/30">
+  <ErrorBoundary :can-retry="true" :show-details="true" custom-title="Dashboard Loading Error"
+    custom-message="There was a problem loading the dashboard. Please try again." @retry="refreshDashboard">
+    <div class="min-h-screen bg-background">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
         <!-- Hero Section -->
         <div class="text-center mb-16">
-          <h1 class="heading-1 font-light text-gray-900 mb-4">
-            Welcome to your <span class="font-medium text-blue-600">Syft AI Space</span>
+          <h1 class="heading-1 font-light text-foreground mb-4">
+            Welcome to your
+            <span class="font-medium text-primary">SyftAI Space</span>
           </h1>
-          <p class="body-lg text-gray-600 max-w-2xl mx-auto">A Space where you can turn data and models into shareable workflows — exposing them through secure endpoints under your own rules for privacy, payments, and human oversight.</p>
+          <p class="body-lg text-muted-foreground max-w-2xl mx-auto">
+            A Space where you can turn data and models into shareable workflows — exposing them
+            through secure endpoints under your own rules for privacy, payments, and human
+            oversight.
+          </p>
         </div>
-          
+
         <!-- Action Cards -->
         <div class="mb-12">
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button
-                    @click="showCreateEndpointModal = true"
-                    class="group bg-white hover:bg-blue-50 rounded-xl p-6 text-left transition-all duration-200 border border-gray-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-1"
-            >
+                  <button @click="showCreateEndpointModal = true"
+                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1">
                     <div class="flex flex-col items-start space-y-3">
-                      <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
-                        <FolderOpen class="w-6 h-6 text-blue-600" />
+                      <div
+                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                        <FolderOpen class="w-6 h-6 text-blue-600 dark:text-blue-400" />
                       </div>
                       <div>
-                        <div class="font-medium text-gray-900">
+                        <div class="font-medium text-foreground">
                           Publish your first data source
                         </div>
-                        <div class="text-sm text-gray-500 mt-1">
+                        <div class="body-sm text-muted-foreground mt-1">
                           Add files or link a source
                         </div>
                       </div>
@@ -50,21 +49,16 @@
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button
-                    @click="$router.push('/datasets')"
-                    class="group bg-white hover:bg-green-50 rounded-xl p-6 text-left transition-all duration-200 border border-gray-200 hover:border-green-300 hover:shadow-lg hover:-translate-y-1"
-            >
+                  <button @click="$router.push('/datasets')"
+                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1">
                     <div class="flex flex-col items-start space-y-3">
-                      <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-200 transition-colors">
-                        <Settings class="w-6 h-6 text-green-600" />
+                      <div
+                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                        <Settings class="w-6 h-6 text-green-600 dark:text-green-400" />
                       </div>
                       <div>
-                        <div class="font-medium text-gray-900">
-                          Manage your data
-                        </div>
-                        <div class="text-sm text-gray-500 mt-1">
-                          Datasets and sources
-                        </div>
+                        <div class="font-medium text-foreground">Manage your data</div>
+                        <div class="body-sm text-muted-foreground mt-1">Datasets and sources</div>
                       </div>
                     </div>
                   </button>
@@ -78,19 +72,16 @@
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button
-                    @click="$router.push('/models')"
-                    class="group bg-white hover:bg-purple-50 rounded-xl p-6 text-left transition-all duration-200 border border-gray-200 hover:border-purple-300 hover:shadow-lg hover:-translate-y-1"
-            >
+                  <button @click="$router.push('/models')"
+                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1">
                     <div class="flex flex-col items-start space-y-3">
-                      <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center group-hover:bg-purple-200 transition-colors">
-                        <Brain class="w-6 h-6 text-purple-600" />
+                      <div
+                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                        <Brain class="w-6 h-6 text-purple-600 dark:text-purple-400" />
                       </div>
                       <div>
-                        <div class="font-medium text-gray-900">
-                          Manage your models
-                        </div>
-                        <div class="text-sm text-gray-500 mt-1">
+                        <div class="font-medium text-foreground">Manage your models</div>
+                        <div class="body-sm text-muted-foreground mt-1">
                           vLLM, Ollama, or custom
                         </div>
                       </div>
@@ -106,24 +97,22 @@
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button
-                    @click="$router.push('/inbox')"
-                    class="group bg-white hover:bg-orange-50 rounded-xl p-6 text-left transition-all duration-200 border border-gray-200 hover:border-orange-300 hover:shadow-lg hover:-translate-y-1 relative"
-            >
+                  <button @click="$router.push('/inbox')"
+                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1 relative">
                     <div class="flex flex-col items-start space-y-3">
-                      <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center group-hover:bg-orange-200 transition-colors">
-                        <ShieldCheck class="w-6 h-6 text-orange-600" />
+                      <div
+                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                        <ShieldCheck class="w-6 h-6 text-orange-600 dark:text-orange-400" />
                       </div>
                       <div>
-                        <div class="font-medium text-gray-900">
-                          Review usage & requests
-                        </div>
-                        <div class="text-sm text-gray-500 mt-1">
+                        <div class="font-medium text-foreground">Review usage & requests</div>
+                        <div class="body-sm text-muted-foreground mt-1">
                           {{ inboxStore.unreadCount }} pending
                         </div>
                       </div>
                     </div>
-                    <div v-if="inboxStore.unreadCount > 0" class="absolute -top-2 -right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                    <div v-if="inboxStore.unreadCount > 0"
+                      class="absolute -top-2 -right-2 w-3 h-3 bg-destructive rounded-full animate-pulse"></div>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -135,15 +124,16 @@
         </div>
 
         <!-- Compact Overview -->
-        <div class="bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100 p-4 mb-10 shadow-sm">
+        <div class="bg-card/80 backdrop-blur-sm rounded-xl border border-border p-4 mb-10 shadow-sm">
           <div class="flex items-center justify-center gap-8">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button @click="$router.push('/datasets')" class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-50 transition-colors">
-                    <Database class="w-4 h-4 text-blue-600" />
-                    <span class="text-2xl font-light text-gray-900">12</span>
-                    <span class="text-sm text-gray-500">Datasets</span>
+                  <button @click="$router.push('/datasets')"
+                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+                    <Database class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span class="text-2xl font-light text-foreground">12</span>
+                    <span class="body-sm text-muted-foreground">Datasets</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -151,16 +141,17 @@
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            
-            <div class="w-px h-8 bg-gray-200"></div>
-            
+
+            <div class="w-px h-8 bg-border"></div>
+
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button @click="$router.push('/models')" class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-purple-50 transition-colors">
-                    <Brain class="w-4 h-4 text-purple-600" />
-                    <span class="text-2xl font-light text-gray-900">7</span>
-                    <span class="text-sm text-gray-500">Models</span>
+                  <button @click="$router.push('/models')"
+                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+                    <Brain class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    <span class="text-2xl font-light text-foreground">7</span>
+                    <span class="body-sm text-muted-foreground">Models</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -168,16 +159,19 @@
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            
-            <div class="w-px h-8 bg-gray-200"></div>
-            
+
+            <div class="w-px h-8 bg-border"></div>
+
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button @click="$router.push('/inbox')" class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-orange-50 transition-colors">
-                    <ShieldCheck class="w-4 h-4 text-orange-600" />
-                    <span class="text-2xl font-light text-gray-900">{{ inboxStore.unreadCount }}</span>
-                    <span class="text-sm text-gray-500">Requests</span>
+                  <button @click="$router.push('/inbox')"
+                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+                    <ShieldCheck class="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                    <span class="text-2xl font-light text-foreground">{{
+                      inboxStore.unreadCount
+                      }}</span>
+                    <span class="body-sm text-muted-foreground">Requests</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -185,16 +179,17 @@
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            
-            <div class="w-px h-8 bg-gray-200"></div>
-            
+
+            <div class="w-px h-8 bg-border"></div>
+
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button @click="revenueDialogOpen = true" class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-green-50 transition-colors">
-                    <TrendingUp class="w-4 h-4 text-green-600" />
-                    <span class="text-2xl font-light text-gray-900">${{ getTotalRevenue().total }}</span>
-                    <span class="text-sm text-gray-500">Revenue</span>
+                  <button @click="revenueDialogOpen = true"
+                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+                    <TrendingUp class="w-4 h-4 text-green-600 dark:text-green-400" />
+                    <span class="text-2xl font-light text-foreground">${{ getTotalRevenue().total }}</span>
+                    <span class="body-sm text-muted-foreground">Revenue</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -206,57 +201,48 @@
         </div>
 
         <!-- Recent Activity -->
-        <div class="bg-white rounded-xl border border-gray-100 p-6 mb-10 shadow-sm">
+        <div class="bg-card rounded-xl border border-border p-6 mb-10 shadow-sm">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="heading-3 text-gray-900">Recent Activity</h2>
-            <button
-              @click="$router.push('/inbox')"
-              class="text-sm text-blue-600 hover:text-blue-700"
-            >
+            <h2 class="heading-3">Recent Activity</h2>
+            <Button @click="$router.push('/inbox')" variant="ghost" size="sm"
+              class="body-sm text-primary hover:text-primary/80">
               View all →
-            </button>
+            </Button>
           </div>
 
           <div v-if="inboxStore.unreadCount === 0" class="text-center py-8">
-            <p class="body-sm text-gray-400">No pending requests</p>
+            <p class="body-sm text-muted-foreground">No pending requests</p>
           </div>
 
           <div v-else class="space-y-3 max-h-64 overflow-y-auto">
-            <div
-              v-for="item in inboxStore.activeItems.slice(0, 3)"
-              :key="item.id"
-              class="flex items-start gap-3 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
-              @click="openItemDialog(item)"
-            >
-              <div :class="`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${getSourceColor(item.source)}`">
+            <div v-for="item in inboxStore.activeItems.slice(0, 3)" :key="item.id"
+              class="flex items-start gap-3 p-4 rounded-lg bg-muted hover:bg-muted/80 cursor-pointer transition-colors"
+              @click="openItemDialog(item)">
+              <div
+                :class="`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${getSourceColor(item.source)}`">
                 <component :is="getSourceIcon(item.source)" class="w-4 h-4" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-start justify-between gap-2">
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 mb-1">
-                      <span class="body-sm font-medium text-primary truncate">{{ item.source }}</span>
-                      <div v-if="!item.read" class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      <span class="body-sm font-medium text-foreground truncate">{{
+                        item.source
+                        }}</span>
+                      <div v-if="!item.read" class="w-2 h-2 bg-primary rounded-full"></div>
                     </div>
-                    <p class="body-sm text-primary truncate mb-1">{{ item.title }}</p>
-                    <p class="text-xs font-light text-light">{{ formatTimestamp(item.timestamp) }}</p>
+                    <p class="body-sm text-foreground truncate mb-1">{{ item.title }}</p>
+                    <p class="body-sm font-light text-muted-foreground">
+                      {{ formatTimestamp(item.timestamp) }}
+                    </p>
                   </div>
                   <div v-if="item.actions" class="flex items-center gap-1" @click.stop>
-                    <Button
-                      v-if="item.actions.positive"
-                      size="sm"
-                      class="h-6 px-2 text-xs bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)] text-white"
-                      @click="handlePositiveAction(item)"
-                    >
+                    <Button v-if="item.actions.positive" size="sm" variant="outline"
+                      @click="handlePositiveAction(item)">
                       {{ item.actions.positive.label }}
                     </Button>
-                    <Button
-                      v-if="item.actions.negative"
-                      size="sm"
-                      variant="outline"
-                      class="h-6 px-2 text-xs border-gray-300 hover:border-gray-400"
-                      @click="handleNegativeAction(item)"
-                    >
+                    <Button v-if="item.actions.negative" size="sm" variant="outline"
+                      class="text-destructive hover:text-destructive" @click="handleNegativeAction(item)">
                       {{ item.actions.negative.label }}
                     </Button>
                   </div>
@@ -267,34 +253,37 @@
         </div>
 
         <!-- Getting Started -->
-        <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-100">
-          <h3 class="heading-3 text-gray-900 mb-4 flex items-center gap-2">
-            <Zap class="w-4 h-4 text-blue-600" />
+        <div class="bg-muted/50 rounded-xl p-6 border border-border">
+          <h3 class="heading-3 mb-4 flex items-center gap-2">
+            <Zap class="w-4 h-4 text-blue-600 dark:text-blue-400" />
             Quick Start Guide
           </h3>
-          
+
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <button class="group flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
-              <FileText class="w-4 h-4 text-blue-600" />
+            <button
+              class="group flex items-center gap-3 p-3 bg-card rounded-lg border border-border hover:border-border/60 transition-colors">
+              <FileText class="w-4 h-4 text-blue-600 dark:text-blue-400" />
               <div class="text-left">
-                <div class="body-sm font-medium text-gray-900">Publish Documents</div>
-                <div class="text-xs text-gray-500">Share PDFs securely</div>
+                <div class="body-sm font-medium text-foreground">Publish Documents</div>
+                <div class="body-sm text-muted-foreground">Share PDFs securely</div>
               </div>
             </button>
-            
-            <button class="group flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
-              <Zap class="w-4 h-4 text-indigo-600" />
+
+            <button
+              class="group flex items-center gap-3 p-3 bg-card rounded-lg border border-border hover:border-border/60 transition-colors">
+              <Zap class="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               <div class="text-left">
-                <div class="body-sm font-medium text-gray-900">Connect AI Models</div>
-                <div class="text-xs text-gray-500">Link AI endpoints</div>
+                <div class="body-sm font-medium text-foreground">Connect AI Models</div>
+                <div class="body-sm text-muted-foreground">Link AI endpoints</div>
               </div>
             </button>
-            
-            <button class="group flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
-              <Shield class="w-4 h-4 text-purple-600" />
+
+            <button
+              class="group flex items-center gap-3 p-3 bg-card rounded-lg border border-border hover:border-border/60 transition-colors">
+              <Shield class="w-4 h-4 text-purple-600 dark:text-purple-400" />
               <div class="text-left">
-                <div class="body-sm font-medium text-gray-900">Configure Access</div>
-                <div class="text-xs text-gray-500">Set permissions</div>
+                <div class="body-sm font-medium text-foreground">Configure Access</div>
+                <div class="body-sm text-muted-foreground">Set permissions</div>
               </div>
             </button>
           </div>
@@ -303,11 +292,9 @@
 
       <!-- Item Detail Dialog -->
       <Dialog v-model:open="dialogOpen">
-        <DialogContent
-          v-if="selectedItem"
-          class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl"
-        >
-          <div class="flex-shrink-0 border-b bg-gray-50">
+        <DialogContent v-if="selectedItem"
+          class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl">
+          <div class="flex-shrink-0 border-b bg-muted/50">
             <DialogHeader class="p-6 pb-4">
               <div class="flex items-start justify-between mb-3">
                 <div class="flex items-center gap-3">
@@ -316,72 +303,54 @@
                   </div>
                   <div>
                     <div class="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" class="text-xs">{{ selectedItem.source }}</Badge>
-                      <div
-                        v-if="!selectedItem.read"
-                        class="flex items-center gap-1 text-xs text-purple-600"
-                      >
-                        <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                      <Badge variant="outline" class="body-sm">{{ selectedItem.source }}</Badge>
+                      <div v-if="!selectedItem.read" class="flex items-center gap-1 body-sm text-primary">
+                        <div class="w-2 h-2 bg-primary rounded-full"></div>
                         <span>New</span>
                       </div>
                     </div>
-                    <span class="text-sm text-gray-500">
+                    <span class="body-sm text-muted-foreground">
                       {{ formatTimestamp(selectedItem.timestamp) }}
                     </span>
                   </div>
                 </div>
               </div>
-              <DialogTitle class="text-2xl font-semibold">{{ selectedItem.title }}</DialogTitle>
+              <DialogTitle class="heading-2">{{ selectedItem.title }}</DialogTitle>
               <DialogDescription class="mt-2 body-base">{{
                 selectedItem.summary
-              }}</DialogDescription>
+                }}</DialogDescription>
             </DialogHeader>
           </div>
 
           <div class="flex-1 min-h-0 overflow-y-auto">
             <div class="p-6">
               <div
-                class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-gray-600 prose-strong:text-gray-900 prose-code:text-purple-600 prose-pre:bg-gray-50 prose-pre:border prose-li:text-gray-600"
-                v-html="markdownToHtml(selectedItem.longDescription)"
-              />
+                class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-primary prose-code:font-mono prose-pre:bg-muted prose-pre:border prose-pre:font-mono prose-li:text-muted-foreground dark:prose-invert"
+                v-html="markdownToHtml(selectedItem.longDescription)" />
             </div>
           </div>
 
-          <div class="flex-shrink-0 border-t bg-gray-50">
+          <div class="flex-shrink-0 border-t bg-muted/50">
             <DialogFooter class="p-6 pt-4">
               <div class="flex items-center justify-between w-full">
                 <div class="flex items-center gap-4">
-                  <Button
-                    variant="ghost"
-                    size="default"
-                    class="text-gray-600 hover:text-gray-900"
-                    @click="
-                      () => {
-                        selectedItem && dismissItem(selectedItem)
-                        dialogOpen = false
-                      }
-                    "
-                  >
+                  <Button variant="ghost" size="default" class="text-muted-foreground hover:text-foreground" @click="
+                    () => {
+                      selectedItem && dismissItem(selectedItem)
+                      dialogOpen = false
+                    }
+                  ">
                     <Trash2 class="h-4 w-4 mr-2" />
                     Dismiss
                   </Button>
                 </div>
                 <div class="flex items-center gap-3">
-                  <Button
-                    v-if="selectedItem.actions?.negative"
-                    variant="outline"
-                    size="default"
-                    @click="selectedItem && handleNegativeAction(selectedItem)"
-                  >
+                  <Button v-if="selectedItem.actions?.negative" variant="outline" size="default"
+                    @click="selectedItem && handleNegativeAction(selectedItem)">
                     {{ selectedItem.actions.negative.label }}
                   </Button>
-                  <Button
-                    v-if="selectedItem.actions?.positive"
-                    variant="default"
-                    size="default"
-                    class="bg-purple-600 hover:bg-purple-700"
-                    @click="selectedItem && handlePositiveAction(selectedItem)"
-                  >
+                  <Button v-if="selectedItem.actions?.positive" variant="default" size="default"
+                    @click="selectedItem && handlePositiveAction(selectedItem)">
                     {{ selectedItem.actions.positive.label }}
                   </Button>
                 </div>
@@ -430,12 +399,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useInboxStore, type InboxItem } from '@/stores/inbox'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import CreateEndpointModal from '@/components/CreateEndpointModal.vue'
@@ -488,14 +452,18 @@ const getSourceIcon = (source: string) => {
 }
 
 const getSourceColor = (source: string) => {
-  if (source === 'Human-in-the-Loop Policy') return 'text-orange-600 bg-orange-100'
-  if (source.includes('Rate Limiting')) return 'text-blue-600 bg-blue-100'
-  if (source === 'Accounting Policy') return 'text-green-600 bg-green-100'
-  if (source === 'OpenTelemetry Observability Policy') return 'text-purple-600 bg-purple-100'
-  if (source.includes('Security')) return 'text-red-600 bg-red-100'
-  if (source.includes('Update')) return 'text-blue-600 bg-blue-100'
-  if (source.includes('Usage')) return 'text-purple-600 bg-purple-100'
-  return 'text-gray-600 bg-gray-100'
+  if (source === 'Human-in-the-Loop Policy')
+    return 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/50'
+  if (source.includes('Rate Limiting'))
+    return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50'
+  if (source === 'Accounting Policy')
+    return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/50'
+  if (source === 'OpenTelemetry Observability Policy') return 'text-primary bg-primary/10'
+  if (source.includes('Security')) return 'text-destructive bg-destructive/10'
+  if (source.includes('Update'))
+    return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50'
+  if (source.includes('Usage')) return 'text-primary bg-primary/10'
+  return 'text-muted-foreground bg-muted'
 }
 
 const formatTimestamp = (date: Date) => {
@@ -521,8 +489,6 @@ const refreshDashboard = () => {
   console.log('Refreshing dashboard data...')
 }
 
-
-
 function markdownToHtml(markdown: string): string {
   let html = markdown
     .replace(/^### (.*$)/gim, '<h3>$1</h3>')
@@ -535,7 +501,7 @@ function markdownToHtml(markdown: string): string {
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(
       /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" class="text-purple-600 hover:text-purple-700 underline">$1</a>',
+      '<a href="$2" class="text-primary hover:text-primary/80 underline">$1</a>',
     )
     .replace(/\n\n/g, '</p><p>')
     .split('\n')
