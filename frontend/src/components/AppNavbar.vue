@@ -15,6 +15,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { useUserStore } from '@/stores/user'
 import { useInboxStore } from '@/stores/inbox'
 import RevenueDetailsDialog from '@/components/RevenueDetailsDialog.vue'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -50,18 +51,18 @@ const tabs = [
 </script>
 
 <template>
-  <header class="bg-white shadow-sm border-b border-gray-200">
+  <header class="bg-background shadow-sm border-b border-border">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center h-16 gap-6">
       <!-- Logo and App Name -->
       <div class="flex items-center space-x-3">
         <div
-          class="h-8 w-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center"
+          class="h-8 w-8 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center"
         >
-          <span class="text-white font-bold text-base">S</span>
+          <span class="text-primary-foreground font-bold text-base">S</span>
         </div>
-        <span class="text-lg font-bold text-gray-900 tracking-tight">
+        <span class="text-lg font-bold text-foreground tracking-tight">
           SyftAI Space
-          <span class="ml-1 text-xs font-semibold text-purple-600 align-top">BETA</span>
+          <span class="ml-1 text-xs font-semibold text-primary align-top">BETA</span>
         </span>
       </div>
 
@@ -75,16 +76,16 @@ const tabs = [
             class="text-sm font-medium"
             :class="[
               isTabActive(tab.id)
-                ? 'text-purple-700 bg-purple-50 hover:bg-purple-100'
-                : 'text-gray-700 hover:bg-gray-100',
+                ? 'text-primary bg-primary/10 hover:bg-primary/20'
+                : 'text-foreground hover:bg-muted',
             ]"
           >
             {{ tab.label }}
           </Button>
           <Badge
             v-if="tab.id === 'inbox' && inboxStore.unreadCount > 0"
-            variant="secondary"
-            class="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center text-xs font-semibold min-w-[20px] rounded-full border-2 bg-red-500 border-white text-white"
+            variant="destructive"
+            class="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center text-xs font-semibold min-w-[20px] rounded-full border-2 border-background"
           >
             {{ inboxStore.unreadCount > 9 ? '9+' : inboxStore.unreadCount }}
           </Badge>
@@ -93,13 +94,17 @@ const tabs = [
 
       <!-- Right side controls -->
       <div class="flex items-center space-x-3">
+        <!-- Theme Toggle -->
+        <ThemeToggle />
         <!-- Balance Display -->
         <button
           @click="revenueDialogOpen = true"
-          class="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+          class="flex items-center gap-2 bg-muted hover:bg-muted/80 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
         >
-          <span class="text-sm text-gray-600">Balance:</span>
-          <span class="text-sm font-semibold text-green-600">{{ userStore.balance }}</span>
+          <span class="text-sm text-muted-foreground">Balance:</span>
+          <span class="text-sm font-semibold text-green-600 dark:text-green-400">{{
+            userStore.balance
+          }}</span>
         </button>
 
         <!-- Avatar with Dropdown -->
@@ -107,27 +112,27 @@ const tabs = [
           <DropdownMenuTrigger as-child>
             <Button variant="ghost" size="icon" class="h-10 w-10 rounded-lg">
               <Avatar class="h-8 w-8">
-                <AvatarFallback class="bg-gray-200 text-gray-600">
+                <AvatarFallback class="bg-muted text-muted-foreground">
                   <User class="h-4 w-4" />
                 </AvatarFallback>
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent class="w-56 bg-white border border-gray-200 shadow-lg" align="end">
+          <DropdownMenuContent class="w-56" align="end">
             <div class="p-4 space-y-4">
               <div>
-                <p class="text-sm text-gray-500 mb-0.5">Email</p>
-                <p class="text-sm font-medium text-gray-900">{{ userStore.email }}</p>
+                <p class="text-sm text-muted-foreground mb-0.5">Email</p>
+                <p class="text-sm font-medium text-foreground">{{ userStore.email }}</p>
               </div>
               <div>
-                <p class="text-sm text-gray-500 mb-0.5">Wallet Manager</p>
+                <p class="text-sm text-muted-foreground mb-0.5">Wallet Manager</p>
                 <a
                   :href="userStore.walletManagerUrl"
                   target="_blank"
-                  class="text-sm font-medium text-gray-900 hover:text-gray-700 inline-flex items-center gap-1.5"
+                  class="text-sm font-medium text-foreground hover:text-muted-foreground inline-flex items-center gap-1.5"
                 >
                   {{ userStore.walletManagerUrl.replace('https://', '') }}
-                  <ExternalLink class="h-3 w-3 text-gray-400" />
+                  <ExternalLink class="h-3 w-3 text-muted-foreground" />
                 </a>
               </div>
             </div>

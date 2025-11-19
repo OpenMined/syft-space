@@ -11,39 +11,39 @@
       <!-- Dependencies Warning -->
       <div v-if="dependencies && dependencies.length > 0" class="py-4">
         <div class="space-y-4">
-          <div class="bg-red-50 border border-red-200 rounded-md p-4">
+          <div class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-md p-4">
             <div class="flex items-start gap-3">
               <div class="text-xl">⚠️</div>
               <div class="flex-1">
-                <p class="text-red-900 font-semibold text-sm mb-2">
+                <p class="text-red-900 dark:text-red-100 font-semibold text-sm mb-2">
                   This {{ itemType.toLowerCase() }} has {{ dependencies.length }} dependent
                   {{ dependencyType }}{{ dependencies.length !== 1 ? 's' : '' }} that will be
                   deleted:
                 </p>
-                <p class="text-red-800 text-xs mb-3">
+                <p class="text-red-800 dark:text-red-200 text-xs mb-3">
                   Check each {{ dependencyType }} to confirm deletion
                 </p>
                 <div class="space-y-2">
                   <div
                     v-for="dependency in dependencies"
                     :key="dependency.id"
-                    class="flex items-center gap-3 p-2.5 bg-white rounded border border-red-200"
+                    class="flex items-center gap-3 p-2.5 bg-card rounded border border-red-200 dark:border-red-800"
                   >
                     <input
                       type="checkbox"
                       :id="`dependency-${dependency.id}`"
                       :checked="checkedDependencies.includes(dependency.id)"
                       @change="() => toggleDependency(dependency.id)"
-                      class="w-4 h-4 text-red-600 bg-white border-red-400 rounded focus:ring-red-500 focus:ring-2"
+                      class="w-4 h-4 text-red-600 dark:text-red-400 bg-card border-red-400 dark:border-red-600 rounded focus:ring-red-500 focus:ring-2"
                     />
                     <label
                       :for="`dependency-${dependency.id}`"
                       class="flex-1 cursor-pointer flex items-center justify-between"
                     >
-                      <span class="text-sm font-medium text-gray-900">
+                      <span class="text-sm font-medium text-foreground">
                         {{ dependency.name }}
                       </span>
-                      <span class="text-xs text-red-600"> Will be deleted </span>
+                      <span class="text-xs text-red-600 dark:text-red-400"> Will be deleted </span>
                     </label>
                   </div>
                 </div>

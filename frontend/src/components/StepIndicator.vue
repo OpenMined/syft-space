@@ -14,7 +14,7 @@
         <div :class="getStepTextClasses(step.id)" class="font-medium">
           {{ step.title }}
         </div>
-        <div v-if="step.description" class="text-gray-500 text-xs">
+        <div v-if="step.description" class="text-muted-foreground text-xs">
           {{ step.description }}
         </div>
       </div>
@@ -47,19 +47,19 @@ const props = defineProps<Props>()
 
 const getStepClasses = (stepId: number) =>
   computed(() => ({
-    'bg-blue-600 text-white border-blue-600': props.currentStep >= stepId,
-    'bg-gray-200 text-gray-500 border-gray-200': props.currentStep < stepId,
+    'bg-primary text-primary-foreground border-primary': props.currentStep >= stepId,
+    'bg-muted text-muted-foreground border-border': props.currentStep < stepId,
   }))
 
 const getStepTextClasses = (stepId: number) =>
   computed(() => ({
-    'text-blue-600': props.currentStep >= stepId,
-    'text-gray-500': props.currentStep < stepId,
+    'text-primary': props.currentStep >= stepId,
+    'text-muted-foreground': props.currentStep < stepId,
   }))
 
 const getConnectorClasses = (stepId: number) =>
   computed(() => ({
-    'bg-blue-600': props.currentStep > stepId,
-    'bg-gray-200': props.currentStep <= stepId,
+    'bg-primary': props.currentStep > stepId,
+    'bg-muted': props.currentStep <= stepId,
   }))
 </script>

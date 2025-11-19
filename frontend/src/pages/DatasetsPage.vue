@@ -3,23 +3,19 @@
     <!-- Header -->
     <div class="mb-10">
       <div class="flex items-center gap-3 mb-3">
-        <Database class="h-6 w-6 text-[var(--color-info)]" />
-        <h1 class="text-2xl font-bold text-gray-900">Your Datasets</h1>
+        <Database class="h-6 w-6 text-primary" />
+        <h1 class="heading-3">Your Datasets</h1>
       </div>
-      <p class="text-gray-600 md:max-w-[50%]">Datasets are local data sources only you can see and use. Power AI workflows and queries locally; share access later via endpoints.</p>
+      <p class="body-lg text-muted-foreground md:max-w-[50%]">
+        Datasets are local data sources only you can see and use. Power AI workflows and queries
+        locally; share access later via endpoints.
+      </p>
     </div>
 
     <!-- Actions Bar -->
     <div class="flex items-center justify-between mb-8">
-      <Input
-        v-model="searchQuery"
-        placeholder="Search datasets..."
-        class="w-64 bg-[var(--color-bg-alt)] border-[var(--color-border)] rounded-lg"
-      />
-      <Button
-        @click="showCreateDataSourceDialog = true"
-        class="bg-[var(--color-success)] hover:bg-[var(--color-success-strong)] text-white px-5 py-2.5 rounded-lg shadow-sm hover:shadow-md transition-all"
-      >
+      <Input v-model="searchQuery" placeholder="Search datasets..." class="w-64" />
+      <Button @click="showCreateDataSourceDialog = true">
         <Plus class="h-4 w-4 mr-2" />
         Add Dataset
       </Button>
@@ -30,7 +26,7 @@
       <div
         v-for="dataSource in filteredDataSources"
         :key="dataSource.id"
-        class="bg-[var(--color-bg-light)] border border-[var(--color-border)] rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
+        class="bg-card border border-border rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
         @click="navigateToDetail(dataSource.name)"
       >
         <div class="flex items-start justify-between">
@@ -40,144 +36,142 @@
                 :class="[
                   'p-3.5 rounded-xl',
                   dataSource.type === 'weaviate'
-                    ? 'bg-purple-100'
+                    ? 'bg-primary/10'
                     : dataSource.type === 'qdrant'
-                      ? 'bg-blue-100'
-                      : 'bg-green-100',
+                      ? 'bg-primary/10'
+                      : 'bg-primary/10',
                 ]"
               >
-                <Database class="h-6 w-6 text-gray-700" />
+                <Database class="h-6 w-6 text-foreground/60" />
               </div>
               <div class="flex-1">
-              <div class="flex items-center gap-3 mb-2">
-                <h3 class="text-lg font-semibold text-gray-900">{{ dataSource.name }}</h3>
-                <Badge
-                  variant="outline"
-                  :class="
-                    dataSource.status === 'running'
-                      ? 'bg-[var(--color-success-contrast)] text-[var(--color-success-strong)] border-[var(--color-success)]'
-                      : 'bg-[var(--color-bg-alt)] text-[var(--color-text-light)] border-[var(--color-border)]'
-                  "
-                  class="text-xs px-2.5 py-1 rounded-md"
-                >
-                  <div
+                <div class="flex items-center gap-3 mb-2">
+                  <h3 class="heading-4 text-foreground">{{ dataSource.name }}</h3>
+                  <Badge
+                    variant="outline"
                     :class="
                       dataSource.status === 'running'
-                        ? 'w-2 h-2 bg-green-500 rounded-full mr-1'
-                        : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
+                        ? 'bg-primary/10 text-primary border border-primary/20'
+                        : 'bg-muted text-muted-foreground border-border'
                     "
-                  ></div>
-                  {{ dataSource.status }}
-                </Badge>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Badge
-                        variant="outline"
-                        :class="
-                          dataSource.endpointCount > 0
-                            ? 'bg-[var(--color-info-contrast)] text-[var(--color-info-strong)] border-[var(--color-info)] cursor-help'
-                            : 'bg-[var(--color-bg-alt)] text-[var(--color-text-light)] border-[var(--color-border)]'
-                        "
-                        class="text-xs px-2.5 py-1 rounded-md"
-                      >
-                        <div
+                    class="body-sm px-2.5 py-1 rounded-md"
+                  >
+                    <div
+                      :class="
+                        dataSource.status === 'running'
+                          ? 'w-2 h-2 bg-primary rounded-full mr-1'
+                          : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
+                      "
+                    ></div>
+                    {{ dataSource.status }}
+                  </Badge>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Badge
+                          variant="outline"
                           :class="
                             dataSource.endpointCount > 0
-                              ? 'w-2 h-2 bg-blue-500 rounded-full mr-1'
-                              : 'w-2 h-2 bg-gray-400 rounded-full mr-1'
+                              ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
+                              : 'bg-muted text-muted-foreground border border-border'
                           "
-                        ></div>
-                        {{
-                          dataSource.endpointCount === 0
-                            ? 'No endpoints'
-                            : `${dataSource.endpointCount} endpoint${dataSource.endpointCount !== 1 ? 's' : ''}`
-                        }}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent v-if="dataSource.endpointCount > 0">
-                      <div class="space-y-1">
-                        <p class="font-medium text-xs">Connected Endpoints:</p>
-                        <ul class="space-y-1">
-                          <li
-                            v-for="endpointName in getEndpointNamesForDataset(dataSource.id)"
-                            :key="endpointName"
-                            class="text-xs"
-                          >
-                            • {{ endpointName }}
-                          </li>
-                        </ul>
+                          class="body-sm px-2.5 py-1 rounded-md"
+                        >
+                          <Link
+                            :class="
+                              dataSource.endpointCount > 0
+                                ? 'w-3.5 h-3.5 mr-1.5'
+                                : 'w-3.5 h-3.5 mr-1.5 opacity-40'
+                            "
+                          />
+                          {{
+                            dataSource.endpointCount === 0
+                              ? 'No endpoints'
+                              : `${dataSource.endpointCount} endpoint${dataSource.endpointCount !== 1 ? 's' : ''}`
+                          }}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent v-if="dataSource.endpointCount > 0">
+                        <div class="space-y-1">
+                          <p class="font-medium body-sm">Connected Endpoints:</p>
+                          <ul class="space-y-1">
+                            <li
+                              v-for="endpointName in getEndpointNamesForDataset(dataSource.id)"
+                              :key="endpointName"
+                              class="body-sm"
+                            >
+                              • {{ endpointName }}
+                            </li>
+                          </ul>
+                        </div>
+                      </TooltipContent>
+                      <TooltipContent v-else>
+                        <p class="body-sm">This dataset is not connected to any endpoint</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <p class="body-sm text-muted-foreground mb-4">
+                  {{ dataSource.description }}
+                </p>
+
+                <!-- Watched Paths Preview -->
+                <div class="mb-4 space-y-2 pl-2">
+                  <div v-if="dataSource.isCustom" class="body-sm text-muted-foreground">
+                    📂 <span class="italic">Custom dataset - manually configured</span>
+                  </div>
+
+                  <div
+                    v-else-if="!dataSource.watchedPaths || dataSource.watchedPaths.length === 0"
+                    class="body-sm text-muted-foreground"
+                  >
+                    📂 <span class="italic">No paths configured</span>
+                  </div>
+
+                  <div v-else class="space-y-1">
+                    <div class="body-sm text-muted-foreground flex items-center gap-2">
+                      📂 <span class="font-medium">Files & Folders:</span>
+                    </div>
+                    <div class="ml-6 space-y-1 py-1">
+                      <div
+                        v-for="path in getPathsPreview(dataSource).paths"
+                        :key="path"
+                        class="body-sm font-mono text-muted-foreground opacity-75"
+                      >
+                        {{ path }}
                       </div>
-                    </TooltipContent>
-                    <TooltipContent v-else>
-                      <p class="text-xs">This dataset is not connected to any endpoint</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              <p class="text-gray-600 mb-4">
-                {{ dataSource.description }}
-              </p>
-              
-              <!-- Watched Paths Preview -->
-              <div class="mb-4 space-y-2 pl-2">
-                <div v-if="dataSource.isCustom" class="text-sm text-gray-500">
-                  📂 <span class="italic">Custom dataset - manually configured</span>
-                </div>
-                
-                <div v-else-if="!dataSource.watchedPaths || dataSource.watchedPaths.length === 0" class="text-sm text-gray-500">
-                  📂 <span class="italic">No paths configured</span>
-                </div>
-                
-                <div v-else class="space-y-1">
-                  <div class="text-sm text-gray-500 flex items-center gap-2">
-                    📂 <span class="font-medium">Files & Folders:</span>
-                  </div>
-                  <div class="ml-6 space-y-1 py-1">
-                    <div 
-                      v-for="path in getPathsPreview(dataSource).paths" 
-                      :key="path"
-                      class="text-sm font-mono text-gray-500 opacity-75"
-                    >
-                      {{ path }}
-                    </div>
-                    <div 
-                      v-if="getPathsPreview(dataSource).hasMore" 
-                      class="text-sm text-gray-500 opacity-60 italic"
-                    >
-                      +{{ getPathsPreview(dataSource).totalCount - 3 }} more...
+                      <div
+                        v-if="getPathsPreview(dataSource).hasMore"
+                        class="body-sm text-muted-foreground opacity-60 italic"
+                      >
+                        +{{ getPathsPreview(dataSource).totalCount - 3 }} more...
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              
-              <div class="flex gap-2">
-                <Badge
-                  v-for="tag in dataSource.tags"
-                  :key="tag"
-                  variant="outline"
-                  class="text-xs px-3 py-1 rounded-full border-gray-200 text-gray-600"
-                >
-                  {{ tag }}
-                </Badge>
-              </div>
+
+                <div class="flex gap-2">
+                  <Badge
+                    v-for="tag in dataSource.tags"
+                    :key="tag"
+                    variant="outline"
+                    class="body-sm"
+                  >
+                    {{ tag }}
+                  </Badge>
+                </div>
               </div>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              class="text-gray-600 hover:text-gray-900 border-gray-200 px-4 py-2 rounded-lg"
-              @click.stop="handleEditDataset(dataSource)"
-            >
+            <Button variant="outline" size="sm" @click.stop="handleEditDataset(dataSource)">
               <Edit class="h-4 w-4 mr-2" />
               Edit
             </Button>
             <Button
               variant="outline"
               size="sm"
-              class="text-red-600 hover:text-red-700 border-gray-200 px-4 py-2 rounded-lg"
+              class="text-destructive hover:text-destructive"
               @click.stop="handleDeleteDataset(dataSource)"
             >
               <Trash2 class="h-4 w-4 mr-2" />
@@ -193,24 +187,23 @@
       <!-- Divider with centered text -->
       <div class="relative">
         <div class="absolute inset-0 flex items-center">
-          <div class="w-full border-t border-gray-300"></div>
+          <div class="w-full border-t border-border"></div>
         </div>
-        <div class="relative flex justify-center text-sm">
-          <span class="px-4 bg-gray-50 text-gray-600 font-medium">
+        <div class="relative flex justify-center body-sm">
+          <span class="px-4 bg-background text-muted-foreground font-medium">
             Demo: Empty State (shown when no datasets exist)
           </span>
         </div>
       </div>
 
       <!-- Empty state content -->
-      <div class="mt-8 bg-white rounded-lg shadow border border-gray-200 p-8 text-center">
-        <Database class="h-12 w-12 text-gray-400 mx-auto mb-4" />
-        <h3 class="text-lg font-medium text-gray-900 mb-2">No datasets yet</h3>
-        <p class="text-gray-600 mb-4">Start by adding or connecting your first dataset</p>
-        <Button
-          class="bg-purple-600 hover:bg-purple-700 text-white"
-          @click="showCreateDataSourceDialog = true"
-        >
+      <div class="mt-8 bg-card rounded-lg shadow border border-border p-8 text-center">
+        <Database class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+        <h3 class="heading-3 text-foreground mb-2">No datasets yet</h3>
+        <p class="body-sm text-muted-foreground mb-4">
+          Start by adding or connecting your first dataset
+        </p>
+        <Button @click="showCreateDataSourceDialog = true">
           <Plus class="h-4 w-4 mr-2" />
           Add Dataset
         </Button>
@@ -240,38 +233,38 @@
 
       <div v-if="datasetToDelete && datasetToDelete.endpointCount > 0" class="py-4">
         <div class="space-y-4">
-          <div class="bg-red-50 border border-red-200 rounded-md p-4">
+          <div class="bg-destructive/10 border border-destructive/20 rounded-md p-4">
             <div class="flex items-start gap-3">
               <div class="text-xl">⚠️</div>
               <div class="flex-1">
-                <p class="text-red-900 font-semibold text-sm mb-2">
+                <p class="text-destructive font-semibold body-sm mb-2">
                   This dataset has {{ datasetToDelete.endpointCount }} dependent endpoint{{
                     datasetToDelete.endpointCount !== 1 ? 's' : ''
                   }}
                   that will be deleted:
                 </p>
-                <p class="text-red-800 text-xs mb-3">Check each endpoint to confirm deletion</p>
+                <p class="text-destructive/80 body-sm mb-3">Check each endpoint to confirm deletion</p>
                 <div class="space-y-2">
                   <div
                     v-for="endpointName in getEndpointNamesForDataset(datasetToDelete.id)"
                     :key="endpointName"
-                    class="flex items-center gap-3 p-2.5 bg-white rounded border border-red-200"
+                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20"
                   >
                     <input
                       type="checkbox"
                       :id="`endpoint-${endpointName}`"
                       :checked="checkedEndpoints.includes(endpointName)"
                       @change="() => toggleEndpoint(endpointName)"
-                      class="w-4 h-4 text-red-600 bg-white border-red-400 rounded focus:ring-red-500 focus:ring-2"
+                      class="w-4 h-4 text-destructive bg-background border-destructive/40 rounded focus:ring-destructive/50 focus:ring-2"
                     />
                     <label
                       :for="`endpoint-${endpointName}`"
                       class="flex-1 cursor-pointer flex items-center justify-between"
                     >
-                      <span class="text-sm font-medium text-gray-900">
+                      <span class="body-sm font-medium text-foreground">
                         {{ endpointName }}
                       </span>
-                      <span class="text-xs text-red-600"> Will be deleted </span>
+                      <span class="body-sm text-destructive"> Will be deleted </span>
                     </label>
                   </div>
                 </div>
@@ -302,7 +295,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Database, Plus, Edit, Trash2 } from 'lucide-vue-next'
+import { Database, Plus, Edit, Trash2, Link } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -371,7 +364,12 @@ const dataSources = ref<DataSource[]>([
     tags: ['legal', 'documents', 'analysis'],
     status: 'running',
     endpointCount: 3,
-    watchedPaths: ['/data/legal/contracts', '/data/legal/cases', '/data/legal/regulations', '/data/legal/archived'],
+    watchedPaths: [
+      '/data/legal/contracts',
+      '/data/legal/cases',
+      '/data/legal/regulations',
+      '/data/legal/archived',
+    ],
     isCustom: false,
   },
   {
@@ -513,28 +511,28 @@ const getPathsPreview = (dataSource: DataSource) => {
       isCustom: true,
       paths: [],
       hasMore: false,
-      totalCount: 0
+      totalCount: 0,
     }
   }
-  
+
   if (!dataSource.watchedPaths || dataSource.watchedPaths.length === 0) {
     return {
       isCustom: false,
       paths: [],
       hasMore: false,
-      totalCount: 0
+      totalCount: 0,
     }
   }
-  
+
   // Show first 3 paths with "..." if there are more
   const pathsToShow = dataSource.watchedPaths.slice(0, 3)
   const hasMore = dataSource.watchedPaths.length > 3
-  
+
   return {
     isCustom: false,
     paths: pathsToShow,
     hasMore,
-    totalCount: dataSource.watchedPaths.length
+    totalCount: dataSource.watchedPaths.length,
   }
 }
 </script>

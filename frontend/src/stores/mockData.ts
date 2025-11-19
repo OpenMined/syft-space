@@ -61,17 +61,17 @@ export const getMockEndpointDistribution = (modelId?: string): EndpointDistribut
   // Different distributions based on model
   const distributions = {
     'nlp-engine': [
-      { name: 'Document Analysis API', percentage: 65, color: '#3B82F6', requests: '15.4k' },
-      { name: 'Content Generation API', percentage: 35, color: '#10B981', requests: '8.3k' },
+      { name: 'Document Analysis API', percentage: 65, color: 'hsl(var(--chart-1))', requests: '15.4k' },
+      { name: 'Content Generation API', percentage: 35, color: 'hsl(var(--chart-2))', requests: '8.3k' },
     ],
     'code-assistant': [
-      { name: 'Code Review Assistant', percentage: 100, color: '#F59E0B', requests: '12.1k' },
+      { name: 'Code Review Assistant', percentage: 100, color: 'hsl(var(--chart-3))', requests: '12.1k' },
     ],
     'text-embedding': [
-      { name: 'Semantic Search API', percentage: 70, color: '#8B5CF6', requests: '8.9k' },
-      { name: 'Document Similarity API', percentage: 30, color: '#EF4444', requests: '3.8k' },
+      { name: 'Semantic Search API', percentage: 70, color: 'hsl(var(--chart-4))', requests: '8.9k' },
+      { name: 'Document Similarity API', percentage: 30, color: 'hsl(var(--chart-5))', requests: '3.8k' },
     ],
-    default: [{ name: 'Primary API', percentage: 100, color: '#6B7280', requests: '0' }],
+    default: [{ name: 'Primary API', percentage: 100, color: 'hsl(var(--muted-foreground))', requests: '0' }],
   }
 
   return distributions[modelId as keyof typeof distributions] || distributions.default
@@ -80,15 +80,15 @@ export const getMockEndpointDistribution = (modelId?: string): EndpointDistribut
 // Common color schemes
 export const colorSchemes = {
   status: {
-    running: 'bg-green-50 text-green-700 border-green-200',
-    stopped: 'bg-gray-50 text-gray-600 border-gray-200',
-    published: 'bg-blue-50 text-blue-700 border-blue-200',
-    draft: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+    running: 'bg-primary/10 text-primary border-primary/20',
+    stopped: 'bg-muted text-muted-foreground border-border',
+    published: 'bg-secondary/10 text-secondary-foreground border-secondary/20',
+    draft: 'bg-accent/10 text-accent-foreground border-accent/20',
   },
   modelType: {
-    vllm: 'bg-purple-100',
-    ollama: 'bg-orange-100',
-    huggingface: 'bg-indigo-100',
+    vllm: 'bg-primary/10',
+    ollama: 'bg-secondary/10',
+    huggingface: 'bg-accent/10',
   },
 }
 

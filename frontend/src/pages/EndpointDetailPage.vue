@@ -1,21 +1,23 @@
 <template>
-  <div class="min-h-screen bg-gradient-to-br from-[var(--color-bg)] via-[var(--color-accent-contrast)]/10 to-[var(--color-secondary)]/5">
-    <div class="max-w-7xl mx-auto px-8 lg:px-16 py-16">
+  <div
+    class="min-h-screen bg-gradient-to-br from-background via-blue-50/20 dark:via-blue-950/20 to-purple-50/20 dark:to-purple-950/20"
+  >
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
       <!-- Breadcrumb Navigation -->
       <nav class="flex mb-6" aria-label="Breadcrumb">
         <ol class="flex items-center space-x-2">
           <li>
             <router-link
               to="/endpoints"
-              class="text-gray-500 hover:text-gray-700 text-sm font-medium flex items-center"
+              class="text-muted-foreground hover:text-foreground body-sm font-medium flex items-center transition-colors"
             >
-              <Server class="h-4 w-4 mr-1" />
+              <Server class="h-4 w-4 mr-2" />
               Endpoints
             </router-link>
           </li>
           <li class="flex items-center">
-            <ChevronRight class="h-4 w-4 text-gray-400 mx-2" />
-            <span class="text-gray-900 text-sm font-medium">{{
+            <ChevronRight class="h-4 w-4 text-muted-foreground mx-3" />
+            <span class="text-foreground body-sm font-medium">{{
               endpoint?.name || 'Loading...'
             }}</span>
           </li>
@@ -23,9 +25,12 @@
       </nav>
 
       <!-- Error State -->
-      <div v-if="error" class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-        <h3 class="text-lg font-medium text-red-900 mb-2">Endpoint not found</h3>
-        <p class="text-red-700 mb-4">
+      <div
+        v-if="error"
+        class="bg-destructive/10 border border-destructive/20 rounded-2xl p-8 text-center"
+      >
+        <h3 class="heading-3 text-destructive mb-2">Endpoint not found</h3>
+        <p class="text-destructive mb-4">
           The endpoint you're looking for doesn't exist or has been deleted.
         </p>
         <Button @click="$router.push('/endpoints')" variant="outline"> Back to Endpoints </Button>
@@ -34,29 +39,31 @@
       <!-- Main Content -->
       <div v-else-if="endpoint" class="space-y-6">
         <!-- Header Section -->
-        <div class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm p-6">
+        <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
           <div class="flex items-start justify-between">
             <div class="flex items-start gap-4">
-              <div class="p-3 rounded-lg bg-gradient-to-br from-purple-100 to-blue-100">
-                <Server class="h-8 w-8 text-purple-600" />
+              <div
+                class="p-3 rounded-lg bg-gradient-to-br from-purple-100 dark:from-purple-950 to-blue-100 dark:to-blue-950"
+              >
+                <Server class="h-8 w-8 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
-                <h1 class="text-2xl font-bold text-gray-900 mb-2">{{ endpoint.name }}</h1>
-                <p class="text-gray-600 mb-4">{{ endpoint.summary }}</p>
+                <h1 class="heading-2 mb-2">{{ endpoint.name }}</h1>
+                <p class="body-lg text-muted-foreground mb-4">{{ endpoint.summary }}</p>
                 <div class="flex flex-wrap items-center gap-2">
                   <Badge
                     :variant="endpoint.status === 'published' ? 'default' : 'outline'"
                     :class="
                       endpoint.status === 'published'
-                        ? 'bg-green-50 text-green-700 border-green-200'
-                        : 'bg-gray-50 text-gray-600 border-gray-200'
+                        ? 'bg-primary/10 text-primary border border-primary/20'
+                        : 'bg-muted text-muted-foreground border border-border'
                     "
                   >
                     <div
                       :class="
                         endpoint.status === 'published'
-                          ? 'w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse'
-                          : 'w-2 h-2 bg-gray-400 rounded-full mr-2'
+                          ? 'w-2 h-2 bg-primary rounded-full mr-2 animate-pulse'
+                          : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
                       "
                     ></div>
                     {{ endpoint.status === 'published' ? 'Live' : 'Draft' }}
@@ -64,12 +71,12 @@
                   <Badge
                     v-if="endpoint.mcpCompatible"
                     variant="outline"
-                    class="bg-blue-50 text-blue-700 border-blue-200"
+                    class="bg-primary/10 text-primary border-primary/20"
                   >
                     <CheckCircle2 class="w-3 h-3 mr-1" />
                     MCP Compatible
                   </Badge>
-                  <Badge variant="outline" class="bg-purple-50 text-purple-700 border-purple-200">
+                  <Badge variant="outline" class="bg-primary/10 text-primary border-primary/20">
                     {{ endpoint.price || '$0.005/request' }}
                   </Badge>
                 </div>
@@ -80,11 +87,7 @@
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger as-child>
-                    <Button
-                      v-if="endpoint.status === 'draft'"
-                      variant="default"
-                      class="bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700"
-                    >
+                    <Button v-if="endpoint.status === 'draft'" variant="default">
                       <Send class="h-4 w-4 mr-2" />
                       Publish
                     </Button>
@@ -107,11 +110,16 @@
                 </Tooltip>
               </TooltipProvider>
               <!-- Delete Endpoint Action -->
-              <Button 
-                variant="outline" 
-                size="icon" 
-                class="text-red-600 border-red-200 hover:bg-red-50"
-                @click="() => { deleteNameConfirm = ''; showDeleteDialog = true; }"
+              <Button
+                variant="outline"
+                size="icon"
+                class="text-destructive border-destructive/20 hover:bg-destructive/10"
+                @click="
+                  () => {
+                    deleteNameConfirm = ''
+                    showDeleteDialog = true
+                  }
+                "
               >
                 <Trash2 class="h-4 w-4" />
               </Button>
@@ -121,7 +129,9 @@
 
         <!-- Tabs Section -->
         <Tabs v-model="activeTab" class="space-y-4">
-          <TabsList class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-4">
+          <TabsList
+            class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-4"
+          >
             <TabsTrigger value="overview" class="flex items-center gap-2">
               <Layout class="h-4 w-4" />
               Overview
@@ -146,12 +156,14 @@
               <!-- Description and Data Sources -->
               <div class="lg:col-span-2 space-y-6">
                 <!-- Description -->
-                <div class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm p-6">
-                  <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <FileText class="h-5 w-5 text-gray-500" />
+                <div
+                  class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+                >
+                  <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
+                    <FileText class="h-5 w-5 text-muted-foreground" />
                     Description
                   </h2>
-                  <div class="prose prose-sm max-w-none text-gray-600">
+                  <div class="prose prose-sm max-w-none text-muted-foreground">
                     <div v-if="endpoint.description" class="markdown-content">
                       <MdPreview
                         :model-value="endpoint.description"
@@ -166,31 +178,42 @@
                 </div>
 
                 <!-- Data Sources -->
-                <div class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm p-6">
-                  <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Database class="h-5 w-5 text-gray-500" />
+                <div
+                  class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+                >
+                  <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
+                    <Database class="h-5 w-5 text-muted-foreground" />
                     Data Sources
                   </h2>
                   <div class="space-y-3">
-                    <div 
-                      v-for="path in getEndpointDataSources()" 
+                    <div
+                      v-for="path in getEndpointDataSources()"
                       :key="path.id"
-                      class="p-3 bg-gray-50/50 border border-gray-100 rounded-lg"
+                      class="p-3 bg-muted/50 border border-border rounded-lg"
                     >
                       <div class="flex items-start gap-3">
-                        <div 
+                        <div
                           :class="[
                             'w-2 h-2 rounded-full mt-1.5',
-                            path.status === 'indexed' ? 'bg-green-500' :
-                            path.status === 'processing' ? 'bg-blue-500' :
-                            path.status === 'queued' ? 'bg-yellow-500' :
-                            path.status === 'errored' ? 'bg-red-500' : 'bg-gray-400'
+                            path.status === 'indexed'
+                              ? 'bg-success'
+                              : path.status === 'processing'
+                                ? 'bg-primary'
+                                : path.status === 'queued'
+                                  ? 'bg-warning'
+                                  : path.status === 'errored'
+                                    ? 'bg-destructive'
+                                    : 'bg-muted-foreground',
                           ]"
                         ></div>
                         <div class="flex-1">
-                          <p class="text-xs font-medium text-gray-900">{{ path.path }}</p>
-                          <p class="text-xs text-gray-500 mt-1">{{ path.fileCount }} files</p>
-                          <p class="text-xs text-gray-600 mt-1 italic">{{ path.summary }}</p>
+                          <p class="body-sm font-medium text-foreground">{{ path.path }}</p>
+                          <p class="body-sm text-muted-foreground mt-1">
+                            {{ path.fileCount }} files
+                          </p>
+                          <p class="body-sm text-muted-foreground mt-1 italic">
+                            {{ path.summary }}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -201,40 +224,52 @@
               <!-- Quick Stats -->
               <div class="space-y-4">
                 <!-- Endpoint Details Card -->
-                <div class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm p-6">
-                  <h3 class="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Info class="h-4 w-4 text-gray-500" />
+                <div
+                  class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+                >
+                  <h3 class="body-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                    <Info class="h-4 w-4 text-muted-foreground" />
                     Details
                   </h3>
                   <div class="space-y-3">
                     <div class="flex justify-between items-center py-1">
-                      <span class="text-xs text-gray-600">Type</span>
-                      <span class="text-xs font-medium text-gray-900">{{ getEndpointType() }}</span>
+                      <span class="body-sm text-muted-foreground">Type</span>
+                      <span class="body-sm font-medium text-foreground">{{
+                        getEndpointType()
+                      }}</span>
                     </div>
                     <Separator />
                     <div class="flex justify-between items-center py-1">
-                      <span class="text-xs text-gray-600">Response</span>
-                      <span class="text-xs font-medium text-gray-900">{{ getResponseType() }}</span>
+                      <span class="body-sm text-muted-foreground">Response</span>
+                      <span class="body-sm font-medium text-foreground">{{
+                        getResponseType()
+                      }}</span>
                     </div>
                     <Separator />
-                    <div v-if="endpoint.dataSourceType" class="flex justify-between items-center py-1">
-                      <span class="text-xs text-gray-600">Data Source</span>
+                    <div
+                      v-if="endpoint.dataSourceType"
+                      class="flex justify-between items-center py-1"
+                    >
+                      <span class="body-sm text-muted-foreground">Data Source</span>
                       <router-link
                         :to="{
                           name: 'dataset-detail',
                           params: { slug: getDatasetSlug(endpoint.dataSourceType) },
                         }"
-                        class="text-xs font-medium text-purple-600 hover:text-purple-700 hover:underline"
+                        class="body-sm font-medium text-primary hover:text-primary/80 hover:underline"
                       >
                         {{ getDataSourceName(endpoint.dataSourceType) }}
                       </router-link>
                     </div>
                     <Separator v-if="endpoint.dataSourceType" />
                     <div v-if="endpoint.modelType" class="flex justify-between items-center py-1">
-                      <span class="text-xs text-gray-600">Model</span>
+                      <span class="body-sm text-muted-foreground">Model</span>
                       <router-link
-                        :to="{ name: 'model-detail', params: { slug: getModelSlug(endpoint.modelType) } }"
-                        class="text-xs font-medium text-purple-600 hover:text-purple-700 hover:underline"
+                        :to="{
+                          name: 'model-detail',
+                          params: { slug: getModelSlug(endpoint.modelType) },
+                        }"
+                        class="body-sm font-medium text-primary hover:text-primary/80 hover:underline"
                       >
                         {{ getModelName(endpoint.modelType) }}
                       </router-link>
@@ -243,9 +278,11 @@
                 </div>
 
                 <!-- Tags -->
-                <div class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm p-6">
-                  <h3 class="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <Tags class="h-4 w-4 text-gray-500" />
+                <div
+                  class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+                >
+                  <h3 class="body-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <Tags class="h-4 w-4 text-muted-foreground" />
                     Categories & Tags
                   </h3>
                   <div class="flex flex-wrap gap-2">
@@ -253,7 +290,7 @@
                       v-for="language in endpoint.languages"
                       :key="`lang-${language}`"
                       variant="outline"
-                      class="text-xs"
+                      class="body-sm"
                     >
                       {{ language }}
                     </Badge>
@@ -261,7 +298,7 @@
                       v-for="domain in endpoint.domains"
                       :key="`domain-${domain}`"
                       variant="outline"
-                      class="text-xs"
+                      class="body-sm"
                     >
                       {{ domain }}
                     </Badge>
@@ -271,7 +308,7 @@
                       )"
                       :key="tag"
                       variant="outline"
-                      class="text-xs"
+                      class="body-sm"
                     >
                       {{ tag }}
                     </Badge>
@@ -289,27 +326,16 @@
                 <CardContent class="p-6">
                   <div class="flex items-center justify-between">
                     <div>
-                      <p class="text-xs text-gray-600 mb-1">Total Revenue</p>
-                      <p class="text-2xl font-bold text-gray-900">{{ getEndpointRevenue().total }}</p>
-                      <p class="text-xs text-green-600 mt-1">{{ getEndpointRevenue().growth }} from last month</p>
+                      <p class="body-sm text-muted-foreground mb-1">Total Revenue</p>
+                      <p class="heading-1 text-foreground">
+                        {{ getEndpointRevenue().total }}
+                      </p>
+                      <p class="body-sm text-success mt-1">
+                        {{ getEndpointRevenue().growth }} from last month
+                      </p>
                     </div>
-                    <div class="p-3 rounded-lg bg-green-100">
-                      <DollarSign class="h-5 w-5 text-green-600" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent class="p-6">
-                  <div class="flex items-center justify-between">
-                    <div>
-                      <p class="text-xs text-gray-600 mb-1">Total Requests</p>
-                      <p class="text-2xl font-bold text-gray-900">{{ getRequestStats().totalRequests }}</p>
-                      <p class="text-xs text-gray-500 mt-1">{{ getRequestStats().successRate }} success rate</p>
-                    </div>
-                    <div class="p-3 rounded-lg bg-blue-100">
-                      <BarChart3 class="h-5 w-5 text-blue-600" />
+                    <div class="p-3 rounded-lg bg-primary/10">
+                      <DollarSign class="h-5 w-5 text-primary" />
                     </div>
                   </div>
                 </CardContent>
@@ -319,12 +345,16 @@
                 <CardContent class="p-6">
                   <div class="flex items-center justify-between">
                     <div>
-                      <p class="text-xs text-gray-600 mb-1">Active Users</p>
-                      <p class="text-2xl font-bold text-gray-900">{{ getRequestStats().activeUsers }}</p>
-                      <p class="text-xs text-gray-500 mt-1">{{ getEndpointRevenue().paidUsers }} paid</p>
+                      <p class="body-sm text-muted-foreground mb-1">Total Requests</p>
+                      <p class="heading-1 text-foreground">
+                        {{ getRequestStats().totalRequests }}
+                      </p>
+                      <p class="body-sm text-muted-foreground mt-1">
+                        {{ getRequestStats().successRate }} success rate
+                      </p>
                     </div>
-                    <div class="p-3 rounded-lg bg-purple-100">
-                      <Users class="h-5 w-5 text-purple-600" />
+                    <div class="p-3 rounded-lg bg-primary/10">
+                      <BarChart3 class="h-5 w-5 text-primary" />
                     </div>
                   </div>
                 </CardContent>
@@ -334,12 +364,35 @@
                 <CardContent class="p-6">
                   <div class="flex items-center justify-between">
                     <div>
-                      <p class="text-xs text-gray-600 mb-1">Avg per Request</p>
-                      <p class="text-2xl font-bold text-gray-900">{{ getEndpointRevenue().avgPerRequest }}</p>
-                      <p class="text-xs text-gray-500 mt-1">{{ getEndpointRevenue().conversionRate }} conversion</p>
+                      <p class="body-sm text-muted-foreground mb-1">Active Users</p>
+                      <p class="heading-1 text-foreground">
+                        {{ getRequestStats().activeUsers }}
+                      </p>
+                      <p class="body-sm text-muted-foreground mt-1">
+                        {{ getEndpointRevenue().paidUsers }} paid
+                      </p>
                     </div>
-                    <div class="p-3 rounded-lg bg-amber-100">
-                      <TrendingUp class="h-5 w-5 text-amber-600" />
+                    <div class="p-3 rounded-lg bg-primary/10">
+                      <Users class="h-5 w-5 text-primary" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent class="p-6">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <p class="body-sm text-muted-foreground mb-1">Avg per Request</p>
+                      <p class="heading-1 text-foreground">
+                        {{ getEndpointRevenue().avgPerRequest }}
+                      </p>
+                      <p class="body-sm text-muted-foreground mt-1">
+                        {{ getEndpointRevenue().conversionRate }} conversion
+                      </p>
+                    </div>
+                    <div class="p-3 rounded-lg bg-primary/10">
+                      <TrendingUp class="h-5 w-5 text-primary" />
                     </div>
                   </div>
                 </CardContent>
@@ -365,11 +418,15 @@
                 </div>
               </CardHeader>
               <CardContent>
-                <div class="h-64 flex items-center justify-center border border-dashed border-gray-300 rounded-lg bg-gray-50">
+                <div
+                  class="h-64 flex items-center justify-center border border-dashed border-border rounded-lg bg-muted/50"
+                >
                   <div class="text-center">
-                    <BarChart3 class="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                    <p class="text-gray-500 text-lg mb-1">{{ selectedPeriod }} Usage Analytics</p>
-                    <p class="text-gray-400 text-sm">Chart visualization coming soon</p>
+                    <BarChart3 class="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                    <p class="text-muted-foreground body-lg mb-1">
+                      {{ selectedPeriod }} Usage Analytics
+                    </p>
+                    <p class="text-muted-foreground body-sm">Chart visualization coming soon</p>
                   </div>
                 </div>
               </CardContent>
@@ -379,40 +436,40 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
-                  <CardTitle class="text-base">Request Breakdown</CardTitle>
+                  <CardTitle>Request Breakdown</CardTitle>
                 </CardHeader>
                 <CardContent class="space-y-3">
                   <div class="flex justify-between items-center">
-                    <span class="text-sm text-gray-600">Free Requests</span>
-                    <span class="text-sm font-medium">{{ getEndpointRevenue().freeRequests }}</span>
+                    <span class="body-sm text-muted-foreground">Free Requests</span>
+                    <span class="body-sm font-medium">{{ getEndpointRevenue().freeRequests }}</span>
                   </div>
                   <div class="flex justify-between items-center">
-                    <span class="text-sm text-gray-600">Paid Requests</span>
-                    <span class="text-sm font-medium">{{ getEndpointRevenue().paidRequests }}</span>
+                    <span class="body-sm text-muted-foreground">Paid Requests</span>
+                    <span class="body-sm font-medium">{{ getEndpointRevenue().paidRequests }}</span>
                   </div>
                   <div class="flex justify-between items-center">
-                    <span class="text-sm text-gray-600">This Month</span>
-                    <span class="text-sm font-medium">{{ getRequestStats().thisMonth }}</span>
+                    <span class="body-sm text-muted-foreground">This Month</span>
+                    <span class="body-sm font-medium">{{ getRequestStats().thisMonth }}</span>
                   </div>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader>
-                  <CardTitle class="text-base">Revenue Metrics</CardTitle>
+                  <CardTitle>Revenue Metrics</CardTitle>
                 </CardHeader>
                 <CardContent class="space-y-3">
                   <div class="flex justify-between items-center">
-                    <span class="text-sm text-gray-600">This Month</span>
-                    <span class="text-sm font-medium">{{ getEndpointRevenue().thisMonth }}</span>
+                    <span class="body-sm text-muted-foreground">This Month</span>
+                    <span class="body-sm font-medium">{{ getEndpointRevenue().thisMonth }}</span>
                   </div>
                   <div class="flex justify-between items-center">
-                    <span class="text-sm text-gray-600">Last Month</span>
-                    <span class="text-sm font-medium">{{ getEndpointRevenue().lastMonth }}</span>
+                    <span class="body-sm text-muted-foreground">Last Month</span>
+                    <span class="body-sm font-medium">{{ getEndpointRevenue().lastMonth }}</span>
                   </div>
                   <div class="flex justify-between items-center">
-                    <span class="text-sm text-gray-600">Revenue Rate</span>
-                    <span class="text-sm font-medium">{{ getEndpointRevenue().revenueRate }}</span>
+                    <span class="body-sm text-muted-foreground">Revenue Rate</span>
+                    <span class="body-sm font-medium">{{ getEndpointRevenue().revenueRate }}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -427,10 +484,10 @@
                 <CardContent class="p-4">
                   <div class="flex items-center justify-between">
                     <div>
-                      <p class="text-xs text-gray-600 mb-1">Status</p>
-                      <p class="text-lg font-semibold text-green-600">Healthy</p>
+                      <p class="body-sm text-muted-foreground mb-1">Status</p>
+                      <p class="heading-3 text-success">Healthy</p>
                     </div>
-                    <CheckCircle2 class="h-5 w-5 text-green-500" />
+                    <CheckCircle2 class="h-5 w-5 text-primary" />
                   </div>
                 </CardContent>
               </Card>
@@ -439,8 +496,8 @@
                 <CardContent class="p-4">
                   <div class="flex items-center justify-between">
                     <div>
-                      <p class="text-xs text-gray-600 mb-1">Uptime</p>
-                      <p class="text-lg font-semibold text-gray-900">99.98%</p>
+                      <p class="body-sm text-muted-foreground mb-1">Uptime</p>
+                      <p class="heading-3 text-foreground">99.98%</p>
                     </div>
                     <Clock class="h-5 w-5 text-blue-500" />
                   </div>
@@ -451,8 +508,8 @@
                 <CardContent class="p-4">
                   <div class="flex items-center justify-between">
                     <div>
-                      <p class="text-xs text-gray-600 mb-1">Response Time</p>
-                      <p class="text-lg font-semibold text-gray-900">142ms</p>
+                      <p class="body-sm text-muted-foreground mb-1">Response Time</p>
+                      <p class="heading-3 text-foreground">142ms</p>
                     </div>
                     <Zap class="h-5 w-5 text-amber-500" />
                   </div>
@@ -463,8 +520,8 @@
                 <CardContent class="p-4">
                   <div class="flex items-center justify-between">
                     <div>
-                      <p class="text-xs text-gray-600 mb-1">Error Rate</p>
-                      <p class="text-lg font-semibold text-gray-900">0.12%</p>
+                      <p class="body-sm text-muted-foreground mb-1">Error Rate</p>
+                      <p class="heading-3 text-foreground">0.12%</p>
                     </div>
                     <AlertCircle class="h-5 w-5 text-red-500" />
                   </div>
@@ -491,22 +548,28 @@
               </CardHeader>
               <CardContent>
                 <div class="space-y-2">
-                  <div v-for="i in 5" :key="i" class="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50">
-                    <div :class="[
-                      'w-2 h-2 rounded-full mt-1.5',
-                      i === 2 ? 'bg-red-500' : 'bg-green-500'
-                    ]"></div>
+                  <div
+                    v-for="i in 5"
+                    :key="i"
+                    class="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50"
+                  >
+                    <div
+                      :class="[
+                        'w-2 h-2 rounded-full mt-1.5',
+                        i === 2 ? 'bg-destructive' : 'bg-success',
+                      ]"
+                    ></div>
                     <div class="flex-1">
                       <div class="flex items-center justify-between mb-1">
-                        <span class="text-sm font-medium">
+                        <span class="body-sm font-medium">
                           {{ i === 2 ? 'Request Failed' : 'Request Successful' }}
                         </span>
-                        <span class="text-xs text-gray-500">{{ i * 2 }} min ago</span>
+                        <span class="body-sm text-muted-foreground">{{ i * 2 }} min ago</span>
                       </div>
-                      <p class="text-xs text-gray-600">
+                      <p class="body-sm text-muted-foreground">
                         {{ i === 2 ? 'Error: Rate limit exceeded' : `User: user${i}@example.com` }}
                       </p>
-                      <p class="text-xs text-gray-500 mt-1">
+                      <p class="body-sm text-muted-foreground mt-1">
                         Response time: {{ 100 + i * 20 }}ms
                       </p>
                     </div>
@@ -523,7 +586,7 @@
               <Card>
                 <CardHeader>
                   <CardTitle class="flex items-center gap-2">
-                    <Gauge class="h-5 w-5 text-green-600" />
+                    <Gauge class="h-5 w-5 text-primary" />
                     Rate Limiting
                   </CardTitle>
                   <CardDescription>Control request frequency</CardDescription>
@@ -531,32 +594,32 @@
                 <CardContent class="space-y-4">
                   <div class="border rounded-lg p-4 space-y-3">
                     <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium">Default Rule</span>
-                      <Badge variant="outline" class="text-xs">Active</Badge>
+                      <span class="body-sm font-medium">Default Rule</span>
+                      <Badge variant="outline" class="body-sm">Active</Badge>
                     </div>
-                    <div class="space-y-2 text-sm">
+                    <div class="space-y-2 body-sm">
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Limit:</span>
+                        <span class="text-muted-foreground">Limit:</span>
                         <span class="font-medium">100 req/min</span>
                       </div>
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Applies to:</span>
+                        <span class="text-muted-foreground">Applies to:</span>
                         <span class="font-medium">All users</span>
                       </div>
                     </div>
                   </div>
                   <div class="border rounded-lg p-4 space-y-3">
                     <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium">Premium Rule</span>
-                      <Badge variant="outline" class="text-xs">Active</Badge>
+                      <span class="body-sm font-medium">Premium Rule</span>
+                      <Badge variant="outline" class="body-sm">Active</Badge>
                     </div>
-                    <div class="space-y-2 text-sm">
+                    <div class="space-y-2 body-sm">
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Limit:</span>
+                        <span class="text-muted-foreground">Limit:</span>
                         <span class="font-medium">500 req/min</span>
                       </div>
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Applies to:</span>
+                        <span class="text-muted-foreground">Applies to:</span>
                         <span class="font-medium">*@openmined.org</span>
                       </div>
                     </div>
@@ -580,32 +643,32 @@
                 <CardContent class="space-y-4">
                   <div class="border rounded-lg p-4 space-y-3">
                     <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium">Standard Pricing</span>
-                      <Badge variant="outline" class="text-xs">Active</Badge>
+                      <span class="body-sm font-medium">Standard Pricing</span>
+                      <Badge variant="outline" class="body-sm">Active</Badge>
                     </div>
-                    <div class="space-y-2 text-sm">
+                    <div class="space-y-2 body-sm">
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Price:</span>
+                        <span class="text-muted-foreground">Price:</span>
                         <span class="font-medium">$0.005/request</span>
                       </div>
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Applies to:</span>
+                        <span class="text-muted-foreground">Applies to:</span>
                         <span class="font-medium">All users</span>
                       </div>
                     </div>
                   </div>
                   <div class="border rounded-lg p-4 space-y-3">
                     <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium">Educational</span>
-                      <Badge variant="outline" class="text-xs">Active</Badge>
+                      <span class="body-sm font-medium">Educational</span>
+                      <Badge variant="outline" class="body-sm">Active</Badge>
                     </div>
-                    <div class="space-y-2 text-sm">
+                    <div class="space-y-2 body-sm">
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Price:</span>
+                        <span class="text-muted-foreground">Price:</span>
                         <span class="font-medium">Free</span>
                       </div>
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Applies to:</span>
+                        <span class="text-muted-foreground">Applies to:</span>
                         <span class="font-medium">*.edu</span>
                       </div>
                     </div>
@@ -629,20 +692,20 @@
                 <CardContent class="space-y-4">
                   <div class="border rounded-lg p-4 space-y-3">
                     <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium">Educational Institutions</span>
-                      <Badge variant="outline" class="text-xs">Active</Badge>
+                      <span class="body-sm font-medium">Educational Institutions</span>
+                      <Badge variant="outline" class="body-sm">Active</Badge>
                     </div>
-                    <div class="space-y-2 text-sm">
+                    <div class="space-y-2 body-sm">
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Alert:</span>
+                        <span class="text-muted-foreground">Alert:</span>
                         <span class="font-medium">In-App Notification</span>
                       </div>
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Applies to:</span>
+                        <span class="text-muted-foreground">Applies to:</span>
                         <span class="font-medium">*.edu</span>
                       </div>
                       <div class="flex justify-between">
-                        <span class="text-gray-600">Timeout:</span>
+                        <span class="text-muted-foreground">Timeout:</span>
                         <span class="font-medium">24 hours</span>
                       </div>
                     </div>
@@ -666,31 +729,29 @@
                 <CardContent>
                   <div class="space-y-3">
                     <div class="flex items-center justify-between py-2">
-                      <span class="text-sm text-gray-600">Total Rules</span>
-                      <span class="text-sm font-medium">5 active</span>
+                      <span class="body-sm text-muted-foreground">Total Rules</span>
+                      <span class="body-sm font-medium">5 active</span>
                     </div>
                     <Separator />
                     <div class="flex items-center justify-between py-2">
-                      <span class="text-sm text-gray-600">Rate Limits</span>
-                      <span class="text-sm font-medium">2 rules</span>
+                      <span class="body-sm text-muted-foreground">Rate Limits</span>
+                      <span class="body-sm font-medium">2 rules</span>
                     </div>
                     <Separator />
                     <div class="flex items-center justify-between py-2">
-                      <span class="text-sm text-gray-600">Pricing Tiers</span>
-                      <span class="text-sm font-medium">2 tiers</span>
+                      <span class="body-sm text-muted-foreground">Pricing Tiers</span>
+                      <span class="body-sm font-medium">2 tiers</span>
                     </div>
                     <Separator />
                     <div class="flex items-center justify-between py-2">
-                      <span class="text-sm text-gray-600">Approval Rules</span>
-                      <span class="text-sm font-medium">1 rule</span>
+                      <span class="body-sm text-muted-foreground">Approval Rules</span>
+                      <span class="body-sm font-medium">1 rule</span>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
-
-          
         </Tabs>
       </div>
     </div>
@@ -701,22 +762,31 @@
     <DialogContent class="sm:max-w-[600px]">
       <div class="space-y-4">
         <div>
-          <h3 class="text-sm font-semibold text-red-600">Danger Zone</h3>
-          <p class="text-xs text-gray-600 mt-1">Permanently delete this endpoint and all associated data.</p>
+          <h3 class="body-sm font-semibold text-destructive">Danger Zone</h3>
+          <p class="body-sm text-muted-foreground mt-1">
+            Permanently delete this endpoint and all associated data.
+          </p>
         </div>
         <DialogHeader>
           <DialogTitle>Delete endpoint</DialogTitle>
           <DialogDescription>
             This action cannot be undone. Please type
-            <span class="font-medium text-gray-900"> {{ endpoint?.name }} </span>
+            <span class="font-medium text-foreground"> {{ endpoint?.name }} </span>
             to confirm deletion.
           </DialogDescription>
         </DialogHeader>
         <div class="space-y-2">
-          <Label class="text-xs text-gray-600">Confirm name</Label>
+          <Label class="body-sm text-muted-foreground">Confirm name</Label>
           <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'endpoint-name'" />
-          <p class="text-xs" :class="deleteNameConfirm === endpoint?.name ? 'text-green-600' : 'text-gray-500'">
-            {{ deleteNameConfirm === endpoint?.name ? 'Name matches' : 'Enter the endpoint name exactly' }}
+          <p
+            class="body-sm"
+            :class="deleteNameConfirm === endpoint?.name ? 'text-success' : 'text-muted-foreground'"
+          >
+            {{
+              deleteNameConfirm === endpoint?.name
+                ? 'Name matches'
+                : 'Enter the endpoint name exactly'
+            }}
           </p>
         </div>
         <DialogFooter>
@@ -771,12 +841,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -860,22 +925,22 @@ const getEndpointDataSources = () => {
       path: '/data/legal/contracts',
       fileCount: 1247,
       status: 'indexed',
-      summary: 'Commercial agreements, service contracts, and partnership documents'
+      summary: 'Commercial agreements, service contracts, and partnership documents',
     },
     {
       id: '2',
       path: '/data/legal/cases',
       fileCount: 856,
       status: 'processing',
-      summary: 'Court decisions, case law, and legal precedents from various jurisdictions'
+      summary: 'Court decisions, case law, and legal precedents from various jurisdictions',
     },
     {
       id: '3',
       path: '/data/legal/regulations',
       fileCount: 423,
       status: 'queued',
-      summary: 'Federal and state regulations, compliance guidelines, and regulatory updates'
-    }
+      summary: 'Federal and state regulations, compliance guidelines, and regulatory updates',
+    },
   ]
 }
 
