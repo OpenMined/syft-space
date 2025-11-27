@@ -11,6 +11,7 @@ import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
 import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
 import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
+import UpdatesPage from '../pages/UpdatesPage.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -78,6 +79,11 @@ const router = createRouter({
       path: '/create/model-endpoint',
       name: 'create-model-endpoint',
       component: CreateModelEndpointPage,
+    },
+    {
+      path: '/updates',
+      name: 'updates',
+      component: UpdatesPage,
     },
   ],
 })
