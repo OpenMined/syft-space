@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlmodel import select
 
-from syftai_space.components.datasets.entities import Dataset
+from syftai_space.components.datasets.entities import Dataset, ProvisionerState
 from syftai_space.components.shared.database import BaseRepository, Database
 
 
@@ -99,5 +99,18 @@ class DatasetRepository(BaseRepository[Dataset]):
         with self.db.get_session() as session:
             statement = select(Dataset).where(
                 Dataset.dtype == type_name, Dataset.tenant_id == tenant_id
+            )
+            return list(session.exec(statement).all())
+
+    def get_all_with_provisioners(self) -> list[Dataset]:
+        """Get all datasets that have provisioner state across all tenants.
+
+        Returns:
+            List of datasets with provisioner_state relationship
+        """
+        with self.db.get_session() as session:
+            # Join with provisioner_states table to get datasets with provisioners
+            statement = select(Dataset).join(
+                ProvisionerState, Dataset.id == ProvisionerState.dataset_id
             )
             return list(session.exec(statement).all())
