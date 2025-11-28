@@ -169,8 +169,11 @@ policy_repository = PolicyRepository(database)
 endpoint_repository = EndpointRepository(database)
 
 # Explicit type registration - no import side effects
+logger.info("Registering dataset types ...")
 register_dataset_types(DATASET_TYPE_REGISTRY)
+logger.info("Registering model types ...")
 register_model_types(MODEL_TYPE_REGISTRY)
+logger.info("Registering policy types ...")
 register_policy_types(POLICY_TYPE_REGISTRY)
 
 # Initialize handlers

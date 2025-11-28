@@ -16,7 +16,7 @@ class AppSettings(BaseSettings):
 
     # Database settings
     sqlite_db_path: Path = Path(
-        "~/.syai-server/app.db"
+        "~/.syai-space/app.db"
     ).expanduser()  # Default path for SQLite database
 
     # Application settings

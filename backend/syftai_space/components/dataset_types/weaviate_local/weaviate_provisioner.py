@@ -44,8 +44,8 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
         # Convert to lowercase to comply with Docker Compose naming requirements
         container_name = f"weaviate-{dataset_name}".lower()
 
-        # Setup environment for docker-compose
-        cls._setup_environment(http_port, grpc_port, query_limit)
+        # Get environment variables for docker-compose (thread-safe)
+        env = cls._get_environment(http_port, grpc_port, query_limit)
 
         docker_compose_file = Path(__file__).parent / "docker-compose.yml"
 
@@ -60,7 +60,9 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=True, env=env
+            )
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to start Weaviate container: {e.stderr}")
             raise RuntimeError(f"Failed to start Weaviate container: {e.stderr}") from e
@@ -202,21 +204,31 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
             return False
 
     @classmethod
-    def _setup_environment(
+    def _get_environment(
         cls, http_port: int, grpc_port: int, query_limit: int
-    ) -> None:
-        """Setup environment variables for docker-compose.
+    ) -> dict[str, str]:
+        """Get environment variables for docker-compose (thread-safe).
+
+        Returns a copy of the current environment with Weaviate-specific variables set.
+        This avoids race conditions when multiple provisioners start concurrently.
 
         Args:
             http_port: HTTP port
             grpc_port: gRPC port
             query_limit: Query limit
+
+        Returns:
+            Dictionary of environment variables to pass to subprocess
         """
         import os
 
-        os.environ["WEAVIATE_PORT"] = str(http_port)
-        os.environ["WEAVIATE_GRPC_PORT"] = str(grpc_port)
-        os.environ["QUERY_DEFAULTS_LIMIT"] = str(query_limit)
+        # Copy current environment to avoid modifying global state
+        env = os.environ.copy()
+        # Set Weaviate-specific variables
+        env["WEAVIATE_PORT"] = str(http_port)
+        env["WEAVIATE_GRPC_PORT"] = str(grpc_port)
+        env["QUERY_DEFAULTS_LIMIT"] = str(query_limit)
+        return env
 
     @classmethod
     def _get_docker_compose_command(cls) -> list[str]:

@@ -4118,7 +4118,7 @@ wheels = [
 ]
 
 [[package]]
-name = "syai-server"
+name = "syftai-space"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -4199,8 +4199,8 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.5" },
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.1.0" },
     { name = "sqlmodel", specifier = ">=0.0.14" },
-    { name = "syai-server", extras = ["dev", "libs"], marker = "extra == 'all'" },
-    { name = "syai-server", extras = ["libs", "test", "lint", "pre-commit"], marker = "extra == 'dev'" },
+    { name = "syftai-space", extras = ["dev", "libs"], marker = "extra == 'all'" },
+    { name = "syftai-space", extras = ["libs", "test", "lint", "pre-commit"], marker = "extra == 'dev'" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
     { name = "weaviate-client", marker = "extra == 'libs'", specifier = ">=4.17.0" },
 ]

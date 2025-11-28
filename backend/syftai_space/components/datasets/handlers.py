@@ -185,7 +185,9 @@ class DatasetHandler:
                     detail=f"Failed to provision '{request.dtype}' dataset: {str(e)}",
                 ) from e
 
-        return DatasetResponse.model_validate(created)
+        # Re-fetch with provisioner_state relationship eagerly loaded
+        created_with_state = self.repository.get_by_name(request.name, tenant.id)
+        return DatasetResponse.model_validate(created_with_state)
 
     def list_datasets(self, tenant: Tenant) -> list[DatasetListItem]:
         """List all datasets for a tenant.

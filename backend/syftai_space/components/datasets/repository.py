@@ -3,6 +3,7 @@
 from typing import Optional
 from uuid import UUID
 
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from syftai_space.components.datasets.entities import Dataset, ProvisionerState
@@ -49,12 +50,15 @@ class DatasetRepository(BaseRepository[Dataset]):
             )
             return session.exec(statement).first()
 
-    def get_by_name(self, name: str, tenant_id: UUID) -> Optional[Dataset]:
+    def get_by_name(
+        self, name: str, tenant_id: UUID, with_provisioner: bool = True
+    ) -> Optional[Dataset]:
         """Get a dataset by name within a tenant.
 
         Args:
             name: Dataset name
             tenant_id: Tenant ID
+            with_provisioner: Whether to eagerly load provisioner_state relationship
 
         Returns:
             Dataset if found, None otherwise
@@ -63,6 +67,8 @@ class DatasetRepository(BaseRepository[Dataset]):
             statement = select(Dataset).where(
                 Dataset.name == name, Dataset.tenant_id == tenant_id
             )
+            if with_provisioner:
+                statement = statement.options(selectinload(Dataset.provisioner_state))
             return session.exec(statement).first()
 
     def delete_by_name(self, name: str, tenant_id: UUID) -> bool:
