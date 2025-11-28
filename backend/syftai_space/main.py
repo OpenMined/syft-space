@@ -21,7 +21,13 @@ from syftai_space.components.dataset_types.registry import DATASET_TYPE_REGISTRY
 # Import handlers
 from syftai_space.components.datasets.handlers import DatasetHandler
 
+# Import provisioner manager
+from syftai_space.components.datasets.provisioner_manager import ProvisionerManager
+
 # Import repositories
+from syftai_space.components.datasets.provisioner_state_repository import (
+    ProvisionerStateRepository,
+)
 from syftai_space.components.datasets.repository import DatasetRepository
 
 # Import route builders
@@ -85,7 +91,22 @@ async def lifespan(app: FastAPI):
             logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
             logger.error("   Continuing without ngrok...\n")
 
+    # Startup: Start dataset provisioners in background (non-blocking)
+    provisioner_manager = getattr(app.state, "provisioner_manager", None)
+    if provisioner_manager:
+        try:
+            await provisioner_manager.startup()
+        except Exception as e:
+            logger.error(f"⚠️  Warning: Failed to start provisioners: {e}")
+
     yield  # Application runs here
+
+    # Shutdown: Stop all dataset provisioners gracefully
+    if provisioner_manager:
+        try:
+            await provisioner_manager.shutdown()
+        except Exception as e:
+            logger.error(f"⚠️  Warning: Error shutting down provisioners: {e}")
 
     # Shutdown: Clean up ngrok if it was started
     if listener:
@@ -142,17 +163,23 @@ else:
 
 # Initialize repositories
 dataset_repository = DatasetRepository(database)
+provisioner_state_repository = ProvisionerStateRepository(database)
 model_repository = ModelRepository(database)
 policy_repository = PolicyRepository(database)
 endpoint_repository = EndpointRepository(database)
 
 # Explicit type registration - no import side effects
+logger.info("Registering dataset types ...")
 register_dataset_types(DATASET_TYPE_REGISTRY)
+logger.info("Registering model types ...")
 register_model_types(MODEL_TYPE_REGISTRY)
+logger.info("Registering policy types ...")
 register_policy_types(POLICY_TYPE_REGISTRY)
 
 # Initialize handlers
-dataset_handler = DatasetHandler(DATASET_TYPE_REGISTRY, dataset_repository)
+dataset_handler = DatasetHandler(
+    DATASET_TYPE_REGISTRY, dataset_repository, provisioner_state_repository
+)
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 policy_handler = PolicyHandler(POLICY_TYPE_REGISTRY, policy_repository)
 endpoint_handler = EndpointHandler(
@@ -165,6 +192,10 @@ endpoint_handler = EndpointHandler(
     policy_registry=POLICY_TYPE_REGISTRY,
 )
 tenant_handler = TenantHandler(tenant_repository)
+
+# Initialize provisioner manager for lifecycle management
+provisioner_manager = ProvisionerManager(dataset_handler)
+app.state.provisioner_manager = provisioner_manager
 
 # Add tenant middleware (after CORS, before routes)
 app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)

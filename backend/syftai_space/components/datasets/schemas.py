@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from syftai_space.components.datasets.entities import ProvisionerStatus
 from syftai_space.components.shared.domain_types import HealthcheckStatus
 
 
@@ -53,6 +54,23 @@ class CreateDatasetRequest(BaseModel):
         }
 
 
+class ProvisionerStateResponse(BaseModel):
+    """Response model for provisioner state."""
+
+    status: ProvisionerStatus = Field(
+        default=ProvisionerStatus.STOPPED, description="Provisioner status"
+    )
+    state: Optional[dict[str, Any]] = Field(None, description="Provisioner state")
+    started_at: Optional[datetime] = Field(None, description="Start time")
+    stopped_at: Optional[datetime] = Field(None, description="Stop time")
+    error: Optional[str] = Field(None, description="Error message")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
 class DatasetResponse(BaseModel):
     """Response model for dataset details."""
 
@@ -62,7 +80,9 @@ class DatasetResponse(BaseModel):
     configuration: dict[str, Any] = Field(..., description="Configuration")
     summary: str = Field(..., description="Dataset summary")
     tags: str = Field(..., description="Comma-separated tags")
-    provisioner_state: dict[str, Any] = Field(..., description="Provisioner state")
+    provisioner_state: Optional[ProvisionerStateResponse] = Field(
+        None, description="Provisioner state"
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 

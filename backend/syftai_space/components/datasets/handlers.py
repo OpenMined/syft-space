@@ -7,7 +7,10 @@ from loguru import logger
 
 from syftai_space.components.dataset_types.interfaces import IngestFile, IngestRequest
 from syftai_space.components.dataset_types.registry import DatasetTypeRegistry
-from syftai_space.components.datasets.entities import Dataset
+from syftai_space.components.datasets.entities import Dataset, ProvisionerStatus
+from syftai_space.components.datasets.provisioner_state_repository import (
+    ProvisionerStateRepository,
+)
 from syftai_space.components.datasets.repository import DatasetRepository
 from syftai_space.components.datasets.schemas import (
     CreateDatasetRequest,
@@ -24,15 +27,22 @@ from syftai_space.components.tenants.entities import Tenant
 class DatasetHandler:
     """Handler for dataset business logic."""
 
-    def __init__(self, registry: DatasetTypeRegistry, repository: DatasetRepository):
+    def __init__(
+        self,
+        registry: DatasetTypeRegistry,
+        repository: DatasetRepository,
+        provisioner_state_repository: ProvisionerStateRepository,
+    ):
         """Initialize the dataset handler.
 
         Args:
             registry: Dataset type registry
             repository: Dataset repository
+            provisioner_state_repository: Provisioner state repository
         """
         self.registry = registry
         self.repository = repository
+        self.provisioner_state_repository = provisioner_state_repository
 
     def list_dataset_types(self) -> list[DatasetTypeInfoResponse]:
         """List all available dataset types.
@@ -122,41 +132,62 @@ class DatasetHandler:
                 status_code=409, detail=f"Dataset '{request.name}' already exists"
             )
 
-        # Start provisioner if available
-        provisioner_state = None
-        provisioner_cls = self.registry.get_provisioner(request.dtype)
-
-        if provisioner_cls is not None:
-            try:
-                # Add dataset_name to config for unique resource naming
-                logger.info(f"Starting provisioner: {request.configuration}")
-                provisioner_config = {
-                    **request.configuration,
-                    "dataset_name": request.name,
-                }
-                provisioner_state = provisioner_cls.start(provisioner_config)
-                logger.info(f"Provisioner started: {provisioner_state}")
-            except Exception as e:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to provision '{request.dtype}' dataset: {str(e)}",
-                ) from e
-
-        # Create dataset entity
+        # Create dataset entity (without provisioner state)
         dataset = Dataset(
             name=request.name,
             dtype=request.dtype,
             configuration=request.configuration,
             summary=request.summary,
             tags=request.tags,
-            provisioner_state=provisioner_state,
-            tenant_id=tenant.id,  # Set tenant_id explicitly
+            tenant_id=tenant.id,
         )
 
-        # Save to database
+        # Save to database first
         created = self.repository.create(dataset)
 
-        return DatasetResponse.model_validate(created)
+        # Start provisioner if available
+        provisioner_cls = self.registry.get_provisioner(request.dtype)
+        if provisioner_cls is not None:
+            # Add dataset_name to config for unique resource naming
+            logger.info(f"Starting provisioner: {request.configuration}")
+            provisioner_config = {
+                **request.configuration,
+                "dataset_name": request.name,
+            }
+
+            # Create initial state as STARTING (outside try - if this fails, let it propagate)
+            self.provisioner_state_repository.create(
+                dataset_id=created.id,
+                state={},
+                status=ProvisionerStatus.STARTING,
+            )
+
+            try:
+                # Start the provisioner
+                provisioner_state = provisioner_cls.start(provisioner_config)
+                logger.info(f"Provisioner started: {provisioner_state}")
+
+                # Update to RUNNING status with actual state
+                self.provisioner_state_repository.update(
+                    dataset_id=created.id,
+                    status=ProvisionerStatus.RUNNING,
+                    state=provisioner_state,
+                )
+            except Exception as e:
+                # Update to ERROR status (record exists since create succeeded above)
+                self.provisioner_state_repository.update(
+                    dataset_id=created.id,
+                    status=ProvisionerStatus.ERROR,
+                    error=str(e),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to provision '{request.dtype}' dataset: {str(e)}",
+                ) from e
+
+        # Re-fetch with provisioner_state relationship eagerly loaded
+        created_with_state = self.repository.get_by_name(request.name, tenant.id)
+        return DatasetResponse.model_validate(created_with_state)
 
     def list_datasets(self, tenant: Tenant) -> list[DatasetListItem]:
         """List all datasets for a tenant.
@@ -211,30 +242,39 @@ class DatasetHandler:
 
         provisioner_status = None
         provisioner_running = False
+        provisioner_state_dict = None
 
-        # Check provisioner status if provisioner state exists
-        if dataset.provisioner_state:
+        # Check provisioner state from separate table
+        provisioner_state = self.provisioner_state_repository.get_by_dataset_id(
+            dataset.id
+        )
+
+        if provisioner_state:
             provisioner_cls = self.registry.get_provisioner(dataset.dtype)
             if provisioner_cls is not None:
                 try:
                     provisioner_running = provisioner_cls.is_running(
-                        dataset.provisioner_state
+                        provisioner_state.state
                     )
-                    provisioner_status = provisioner_cls.status(
-                        dataset.provisioner_state
-                    )
+                    provisioner_status = provisioner_cls.status(provisioner_state.state)
                 except Exception as e:
-                    from loguru import logger
-
                     logger.error(f"Failed to check provisioner status: {e}")
                     provisioner_status = "error"
+
+            provisioner_state_dict = {
+                "status": provisioner_state.status,
+                "state": provisioner_state.state,
+                "started_at": provisioner_state.started_at,
+                "stopped_at": provisioner_state.stopped_at,
+                "error": provisioner_state.error,
+            }
 
         return {
             "name": dataset.name,
             "type": dataset.dtype,
             "provisioner_running": provisioner_running,
             "provisioner_status": provisioner_status,
-            "provisioner_state": dataset.provisioner_state,
+            "provisioner_state": provisioner_state_dict,
         }
 
     def delete_dataset(self, name: str, tenant: Tenant) -> dict:
@@ -255,19 +295,23 @@ class DatasetHandler:
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
-        # Stop provisioner if it exists and was provisioned
-        if dataset.provisioner_state:
+        # Stop provisioner if it exists
+        provisioner_state = self.provisioner_state_repository.get_by_dataset_id(
+            dataset.id
+        )
+        if provisioner_state:
             provisioner_cls = self.registry.get_provisioner(dataset.dtype)
             if provisioner_cls is not None:
                 try:
-                    provisioner_cls.stop(dataset.provisioner_state)
+                    provisioner_cls.stop(provisioner_state.state)
                 except Exception as e:
                     # Log but don't fail - we still want to delete the dataset
-                    from loguru import logger
-
                     logger.error(
                         f"Failed to stop provisioner for dataset '{name}': {e}"
                     )
+
+            # Delete provisioner state (will cascade when dataset is deleted anyway)
+            self.provisioner_state_repository.delete_by_dataset_id(dataset.id)
 
         # Delete from database
         deleted = self.repository.delete_by_name(name, tenant.id)
@@ -377,11 +421,13 @@ class DatasetHandler:
 
             message += f"Dataset type healthcheck: {healthcheck_response.message}. "
 
-            if dataset.provisioner_state is not None:
+            # Check provisioner state from separate table
+            provisioner_state = self.provisioner_state_repository.get_by_dataset_id(
+                dataset.id
+            )
+            if provisioner_state is not None:
                 try:
-                    provisioner_status = provisioner_cls.status(
-                        dataset.provisioner_state
-                    )
+                    provisioner_status = provisioner_cls.status(provisioner_state.state)
                     message += f"Provisioner status: {provisioner_status}. "
                 except Exception as e:
                     provisioner_status = HealthcheckStatus.UNHEALTHY
@@ -401,3 +447,127 @@ class DatasetHandler:
                 provisioner_status=None,
                 message=message,
             )
+
+    def get_all_datasets_with_provisioners(self) -> list[Dataset]:
+        """Get all datasets that have provisioners across all tenants.
+
+        Returns:
+            List of datasets with provisioner state
+        """
+        return self.repository.get_all_with_provisioners()
+
+    def start_provisioner_for_dataset(self, dataset: Dataset) -> None:
+        """Start provisioner for a specific dataset.
+
+        Args:
+            dataset: Dataset entity
+
+        Raises:
+            Exception: If provisioner fails to start
+        """
+        provisioner_cls = self.registry.get_provisioner(dataset.dtype)
+        if not provisioner_cls:
+            logger.warning(
+                f"No provisioner registered for dataset type '{dataset.dtype}'"
+            )
+            return
+
+        # Get existing provisioner state
+        existing_state = self.provisioner_state_repository.get_by_dataset_id(dataset.id)
+
+        # Check if already running
+        if existing_state and provisioner_cls.is_running(existing_state.state):
+            logger.info(f"Provisioner for dataset '{dataset.name}' is already running")
+            return
+
+        # Mark as STARTING using upsert (state might or might not exist - restart scenario)
+        # Outside try block - if this fails, let it propagate
+        self.provisioner_state_repository.upsert(
+            dataset_id=dataset.id,
+            state=existing_state.state if existing_state else {},
+            status=ProvisionerStatus.STARTING,
+        )
+
+        try:
+            # Start provisioner
+            logger.info(f"Starting provisioner for dataset '{dataset.name}'")
+            provisioner_config = {
+                **dataset.configuration,
+                "dataset_name": dataset.name,
+            }
+            new_state = provisioner_cls.start(provisioner_config)
+
+            # Update to RUNNING status (record exists since upsert succeeded above)
+            self.provisioner_state_repository.update(
+                dataset_id=dataset.id,
+                status=ProvisionerStatus.RUNNING,
+                state=new_state,
+            )
+
+            logger.info(
+                f"Successfully started provisioner for dataset '{dataset.name}'"
+            )
+        except Exception as e:
+            # Update to ERROR status (record exists since upsert succeeded above)
+            self.provisioner_state_repository.update(
+                dataset_id=dataset.id,
+                status=ProvisionerStatus.ERROR,
+                state=existing_state.state if existing_state else {},
+                error=str(e),
+            )
+            logger.error(
+                f"Failed to start provisioner for dataset '{dataset.name}': {e}"
+            )
+            raise
+
+    def stop_provisioner_for_dataset(self, dataset: Dataset) -> None:
+        """Stop provisioner for a specific dataset.
+
+        Args:
+            dataset: Dataset entity
+        """
+        provisioner_cls = self.registry.get_provisioner(dataset.dtype)
+        if not provisioner_cls:
+            logger.warning(
+                f"No provisioner registered for dataset type '{dataset.dtype}'"
+            )
+            return
+
+        # Get provisioner state
+        existing_state = self.provisioner_state_repository.get_by_dataset_id(dataset.id)
+        if not existing_state:
+            logger.info(
+                f"No provisioner state found for dataset '{dataset.name}', nothing to stop"
+            )
+            return
+
+        try:
+            # Mark as STOPPING (we know state exists - just fetched it)
+            self.provisioner_state_repository.update(
+                dataset_id=dataset.id,
+                status=ProvisionerStatus.STOPPING,
+            )
+
+            logger.info(f"Stopping provisioner for dataset '{dataset.name}'")
+            provisioner_cls.stop(existing_state.state)
+
+            # Mark as STOPPED (state exists)
+            self.provisioner_state_repository.update(
+                dataset_id=dataset.id,
+                status=ProvisionerStatus.STOPPED,
+            )
+
+            logger.info(
+                f"Successfully stopped provisioner for dataset '{dataset.name}'"
+            )
+        except Exception as e:
+            # Mark as ERROR but still consider it stopped (state exists)
+            self.provisioner_state_repository.update(
+                dataset_id=dataset.id,
+                status=ProvisionerStatus.ERROR,
+                error=str(e),
+            )
+            logger.error(
+                f"Failed to stop provisioner for dataset '{dataset.name}': {e}"
+            )
+            # Don't raise - best effort shutdown
