@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from syftai_space.components.dataset_types.interfaces import (
-    BaseDatasetType,
+    IngestableDatasetType,
     IngestFile,
     IngestRequest,
     SearchedDocument,
@@ -32,7 +32,7 @@ except ImportError:
 DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
 
-class WeaviateLocalDatasetType(BaseDatasetType):
+class WeaviateLocalDatasetType(IngestableDatasetType):
     """Weaviate is a vector database that allows you to store and query your data.
 
     It uses transformers to embed your data and then allows you to query it using

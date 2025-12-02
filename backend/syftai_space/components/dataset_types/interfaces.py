@@ -152,15 +152,6 @@ class BaseDatasetType(Protocol):
         """
         ...
 
-    def ingest(self, ctx: Context, request: IngestRequest) -> None:
-        """Ingest data into the dataset.
-
-        Args:
-            ctx: Request context with sender information
-            request: Ingest request with files to add
-        """
-        ...
-
     def healthcheck(self) -> HealthcheckResponse:
         """Check if the dataset type is healthy.
 
@@ -175,6 +166,23 @@ class BaseDatasetType(Protocol):
 
         Returns:
             True if enabled, False otherwise
+        """
+        ...
+
+
+class IngestableDatasetType(BaseDatasetType):
+    """Dataset type interface with ingestion capabilities.
+
+    Extends BaseDatasetType to add ingestion functionality.
+    Dataset types that support ingestion should implement this protocol.
+    """
+
+    def ingest(self, ctx: Context, request: IngestRequest) -> None:
+        """Ingest data into the dataset.
+
+        Args:
+            ctx: Request context with sender information
+            request: Ingest request with files to add
         """
         ...
 
