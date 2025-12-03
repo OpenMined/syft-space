@@ -1,13 +1,16 @@
 """Dataset API schemas for request/response models."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from syftai_space.components.datasets.entities import ProvisionerStatus
 from syftai_space.components.shared.domain_types import HealthcheckStatus
+
+if TYPE_CHECKING:
+    from syftai_space.components.datasets.entities import Dataset, ProvisionerState
 
 
 class DatasetTypeInfoResponse(BaseModel):
@@ -90,6 +93,39 @@ class DatasetResponse(BaseModel):
         """Pydantic config."""
 
         from_attributes = True
+
+    @classmethod
+    def from_dataset(
+        cls,
+        dataset: "Dataset",
+        provisioner_state: Optional["ProvisionerState"] = None,
+    ) -> "DatasetResponse":
+        """Create DatasetResponse from Dataset entity.
+
+        Args:
+            dataset: Dataset entity
+            provisioner_state: Optional ProvisionerState entity
+
+        Returns:
+            DatasetResponse with provisioner_state populated if provided
+        """
+        provisioner_state_response = None
+        if provisioner_state:
+            provisioner_state_response = ProvisionerStateResponse.model_validate(
+                provisioner_state
+            )
+
+        return cls(
+            id=dataset.id,
+            name=dataset.name,
+            dtype=dataset.dtype,
+            configuration=dataset.configuration,
+            summary=dataset.summary,
+            tags=dataset.tags,
+            provisioner_state=provisioner_state_response,
+            created_at=dataset.created_at,
+            updated_at=dataset.updated_at,
+        )
 
 
 class DatasetListItem(BaseModel):

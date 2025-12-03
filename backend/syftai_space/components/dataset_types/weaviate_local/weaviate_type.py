@@ -283,6 +283,21 @@ class WeaviateLocalDatasetType(IngestableDatasetType):
         """
         return enabled
 
+    @classmethod
+    def connection_fields(cls) -> list[str]:
+        """Return list of connection-related configuration fields.
+
+        These fields are shared across all datasets of this type.
+        - httpPort, grpcPort: Server connection settings
+        - useTLS: Connection security setting
+
+        Dataset-specific fields (not included):
+        - queryLimit: query limit setting
+        - collectionName: Each dataset has its own collection
+        - ingestFileTypeOptions: Per-dataset ingestion settings
+        """
+        return ["httpPort", "grpcPort", "useTLS"]
+
     def healthcheck(self) -> HealthcheckResponse:
         """Check if the dataset type is healthy.
 

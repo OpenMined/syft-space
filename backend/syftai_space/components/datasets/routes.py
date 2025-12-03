@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
 from syftai_space.components.datasets.handlers import DatasetHandler
 from syftai_space.components.datasets.schemas import (
@@ -186,5 +186,92 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             Healthcheck response
         """
         return handler.healthcheck(name, tenant)
+
+    # ============== Admin Provisioner Endpoints ==============
+
+    @router.get("/provisioners/", response_model=list[dict])
+    async def list_provisioners(
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> list[dict]:
+        """List all provisioners and their status.
+
+        Admin endpoint to view all provisioner states, their status,
+        and how many datasets are using each one.
+        """
+        return handler.list_provisioners()
+
+    @router.post("/provisioners/{dtype}/start", response_model=dict)
+    async def start_provisioner(
+        dtype: str,
+        config: dict[str, Any] = Body(default={}),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> dict:
+        """Start a provisioner for a specific dataset type.
+
+        Admin endpoint to manually start a provisioner.
+
+        Args:
+            dtype: Dataset type name (e.g., 'weaviate_local')
+            config: Optional configuration with connection settings (httpPort, grpcPort, etc.)
+
+        Returns:
+            Status dictionary with message and status
+        """
+        return handler.start_provisioner_by_dtype(dtype, config)
+
+    @router.post("/provisioners/{dtype}/stop", response_model=dict)
+    async def stop_provisioner(
+        dtype: str,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> dict:
+        """Stop a provisioner for a specific dataset type.
+
+        Admin endpoint to manually stop a provisioner.
+        The provisioner state record is kept for later restart.
+
+        Args:
+            dtype: Dataset type name (e.g., 'weaviate_local')
+
+        Returns:
+            Status dictionary with message and status
+        """
+        return handler.stop_provisioner_by_dtype(dtype)
+
+    @router.delete("/provisioners/{dtype}", response_model=dict)
+    async def delete_provisioner(
+        dtype: str,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> dict:
+        """Delete a provisioner for a specific dataset type.
+
+        Admin endpoint to stop and delete a provisioner state record.
+        Only succeeds if no datasets are attached to this provisioner.
+
+        Args:
+            dtype: Dataset type name (e.g., 'weaviate_local')
+
+        Returns:
+            Status dictionary with message and status
+
+        Raises:
+            409 Conflict: If datasets are still attached to the provisioner
+        """
+        return handler.delete_provisioner_by_dtype(dtype)
+
+    @router.get("/provisioners/{dtype}/status", response_model=dict)
+    async def get_provisioner_status(
+        dtype: str,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> dict:
+        """Get detailed status of a provisioner.
+
+        Args:
+            dtype: Dataset type name
+
+        Returns:
+            Detailed provisioner status including actual running status,
+            dataset count, connection config, timestamps, and any errors.
+        """
+        return handler.get_provisioner_status_by_dtype(dtype)
 
     return router

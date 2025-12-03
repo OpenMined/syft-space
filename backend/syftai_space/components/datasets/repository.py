@@ -3,10 +3,9 @@
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
-from syftai_space.components.datasets.entities import Dataset, ProvisionerState
+from syftai_space.components.datasets.entities import Dataset
 from syftai_space.components.shared.database import BaseRepository, Database
 
 
@@ -50,15 +49,12 @@ class DatasetRepository(BaseRepository[Dataset]):
             )
             return session.exec(statement).first()
 
-    def get_by_name(
-        self, name: str, tenant_id: UUID, with_provisioner: bool = True
-    ) -> Optional[Dataset]:
+    def get_by_name(self, name: str, tenant_id: UUID) -> Optional[Dataset]:
         """Get a dataset by name within a tenant.
 
         Args:
             name: Dataset name
             tenant_id: Tenant ID
-            with_provisioner: Whether to eagerly load provisioner_state relationship
 
         Returns:
             Dataset if found, None otherwise
@@ -67,8 +63,6 @@ class DatasetRepository(BaseRepository[Dataset]):
             statement = select(Dataset).where(
                 Dataset.name == name, Dataset.tenant_id == tenant_id
             )
-            if with_provisioner:
-                statement = statement.options(selectinload(Dataset.provisioner_state))
             return session.exec(statement).first()
 
     def delete_by_name(self, name: str, tenant_id: UUID) -> bool:
@@ -108,15 +102,12 @@ class DatasetRepository(BaseRepository[Dataset]):
             )
             return list(session.exec(statement).all())
 
-    def get_all_with_provisioners(self) -> list[Dataset]:
-        """Get all datasets that have provisioner state across all tenants.
+    def get_all_with_provisioner_state_id(self) -> list[Dataset]:
+        """Get all datasets that have a provisioner state ID set.
 
         Returns:
-            List of datasets with provisioner_state relationship
+            List of datasets with provisioner_state_id not null
         """
         with self.db.get_session() as session:
-            # Join with provisioner_states table to get datasets with provisioners
-            statement = select(Dataset).join(
-                ProvisionerState, Dataset.id == ProvisionerState.dataset_id
-            )
+            statement = select(Dataset).where(Dataset.provisioner_state_id.isnot(None))
             return list(session.exec(statement).all())

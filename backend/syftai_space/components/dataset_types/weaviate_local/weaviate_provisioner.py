@@ -35,14 +35,13 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
             State dict with container_name, http_port, grpc_port for re-discovery
         """
         # Extract config
-        http_port = config.get("httpPort", 8080)
+        http_port = config.get("httpPort", 8083)
         grpc_port = config.get("grpcPort", 50051)
         query_limit = config.get("queryLimit", 10)
-        dataset_name = config.get("dataset_name", "default")
 
-        # Use dataset name to create unique container name
-        # Convert to lowercase to comply with Docker Compose naming requirements
-        container_name = f"weaviate-{dataset_name}".lower()
+        # Use dtype-based container name for shared provisioner
+        # All datasets of this type share the same container
+        container_name = f"syftai-{cls.NAME}".replace("_", "-")
 
         # Get environment variables for docker-compose (thread-safe)
         env = cls._get_environment(http_port, grpc_port, query_limit)
@@ -73,11 +72,14 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
         cls._wait_for_healthy(http_port)
 
         # Return state for persistence
+        # Include connection fields with keys matching configuration_schema
         return {
             "container_name": container_name,
-            "http_port": http_port,
-            "grpc_port": grpc_port,
             "docker_compose_file": str(docker_compose_file),
+            # Connection fields (keys match configuration_schema)
+            "httpPort": http_port,
+            "grpcPort": grpc_port,
+            "useTLS": config.get("useTLS", False),
         }
 
     @classmethod
@@ -158,7 +160,7 @@ class WeaviateProvisioner(BaseDatasetTypeProvisioner):
             return "stopped"
 
         # Check health
-        http_port = state.get("http_port", 8080)
+        http_port = state.get("httpPort", 8083)
         if cls._check_health(http_port):
             return "healthy"
         else:

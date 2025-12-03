@@ -30,6 +30,7 @@ class Dataset(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_dataset_tenant_name"),
         Index("idx_dataset_tenant_name", "tenant_id", "name"),
+        Index("idx_dataset_provisioner_state_id", "provisioner_state_id"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
@@ -50,15 +51,20 @@ class Dataset(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
+    # Optional FK to shared provisioner state (many datasets can share one provisioner)
+    provisioner_state_id: Optional[UUID] = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("provisioner_states.id", ondelete="SET NULL"), nullable=True
+        ),
+        description="Reference to shared provisioner state (optional, for local types)",
+    )
+
     # Relationships
     tenant: "Tenant" = Relationship(back_populates="datasets")
     endpoints: list["Endpoint"] = Relationship(
         back_populates="dataset",
         sa_relationship_kwargs={"foreign_keys": "[Endpoint.dataset_id]"},
-    )
-    provisioner_state: Optional["ProvisionerState"] = Relationship(
-        back_populates="dataset",
-        sa_relationship_kwargs={"uselist": False, "cascade": "all, delete-orphan"},
     )
 
     class Config:
@@ -81,25 +87,29 @@ class Dataset(SQLModel, table=True):
 
 
 class ProvisionerState(SQLModel, table=True):
-    """Provisioner state tracking for dataset provisioners."""
+    """Provisioner state tracking for shared dataset provisioners.
+
+    One provisioner state per dtype - multiple datasets can share the same provisioner.
+    """
 
     __tablename__ = "provisioner_states"
-    __table_args__ = (Index("idx_provisioner_dataset_id", "dataset_id"),)
-
-    id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
-    dataset_id: UUID = Field(
-        ...,
-        sa_column=Column(
-            ForeignKey("datasets.id", ondelete="CASCADE"), unique=True, nullable=False
-        ),
-        description="Dataset this provisioner belongs to (one-to-one)",
+    __table_args__ = (
+        # Unique constraint on dtype ensures one provisioner per dataset type
+        UniqueConstraint("dtype", name="uq_provisioner_dtype"),
+        Index("idx_provisioner_dtype", "dtype"),
     )
 
-    # Flexible state for custom provisioners (container_id, process_id, image, ports, etc.)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
+
+    # Dtype-based identification (one provisioner per dtype)
+    dtype: str = Field(..., description="Dataset type this provisioner serves")
+
+    # Provisioner state including connection config and runtime state
+    # Connection fields (httpPort, grpcPort, etc.) are included with keys matching configuration_schema
     state: dict = Field(
         default_factory=dict,
         sa_column=Column(JSON),
-        description="Provisioner-specific state (container_id, pid, ports, etc.)",
+        description="Provisioner state including connection config and runtime info (container_id, ports, etc.)",
     )
 
     # Lifecycle tracking
@@ -120,5 +130,7 @@ class ProvisionerState(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Relationships
-    dataset: Dataset = Relationship(back_populates="provisioner_state")
+    # Relationship for reverse lookup (provisioner -> datasets)
+    datasets: list["Dataset"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[Dataset.provisioner_state_id]"}
+    )

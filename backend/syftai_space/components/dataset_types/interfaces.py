@@ -169,6 +169,24 @@ class BaseDatasetType(Protocol):
         """
         ...
 
+    @classmethod
+    def connection_fields(cls) -> list[str]:
+        """Return list of configuration field names that are connection-related.
+
+        Connection fields are shared across all datasets of this type when using
+        a shared provisioner. When a new dataset is created and a provisioner
+        is already running, these fields are overridden from the ProvisionerState.
+
+        Non-connection fields (dataset-specific) remain unique per dataset.
+
+        Returns:
+            List of field names from configuration_schema() that are connection-related.
+
+        Example for Weaviate:
+            ["httpPort", "grpcPort"]
+        """
+        ...
+
 
 class IngestableDatasetType(BaseDatasetType):
     """Dataset type interface with ingestion capabilities.
