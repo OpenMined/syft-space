@@ -23,67 +23,46 @@
 
     <!-- Data Sources List -->
     <div class="space-y-5">
-      <div
-        v-for="dataSource in filteredDataSources"
-        :key="dataSource.id"
+      <div v-for="dataSource in filteredDataSources" :key="dataSource.id"
         class="bg-card border border-border rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
-        @click="navigateToDetail(dataSource.name)"
-      >
+        @click="navigateToDetail(dataSource.name)">
         <div class="flex items-start justify-between">
           <div class="flex-1">
             <div class="flex items-start gap-4">
-              <div
-                :class="[
-                  'p-3.5 rounded-xl',
-                  dataSource.type === 'weaviate'
+              <div :class="[
+                'p-3.5 rounded-xl',
+                dataSource.type === 'weaviate'
+                  ? 'bg-primary/10'
+                  : dataSource.type === 'qdrant'
                     ? 'bg-primary/10'
-                    : dataSource.type === 'qdrant'
-                      ? 'bg-primary/10'
-                      : 'bg-primary/10',
-                ]"
-              >
+                    : 'bg-primary/10',
+              ]">
                 <Database class="h-6 w-6 text-foreground/60" />
               </div>
               <div class="flex-1">
                 <div class="flex items-center gap-3 mb-2">
                   <h3 class="heading-4 text-foreground">{{ dataSource.name }}</h3>
-                  <Badge
-                    variant="outline"
-                    :class="
-                      dataSource.status === 'running'
-                        ? 'bg-primary/10 text-primary border border-primary/20'
-                        : 'bg-muted text-muted-foreground border-border'
-                    "
-                    class="body-sm px-2.5 py-1 rounded-md"
-                  >
-                    <div
-                      :class="
-                        dataSource.status === 'running'
-                          ? 'w-2 h-2 bg-primary rounded-full mr-1'
-                          : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
-                      "
-                    ></div>
+                  <Badge variant="outline" :class="dataSource.status === 'running'
+                      ? 'bg-primary/10 text-primary border border-primary/20'
+                      : 'bg-muted text-muted-foreground border-border'
+                    " class="body-sm px-2.5 py-1 rounded-md">
+                    <div :class="dataSource.status === 'running'
+                        ? 'w-2 h-2 bg-primary rounded-full mr-1'
+                        : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
+                      "></div>
                     {{ dataSource.status }}
                   </Badge>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger as-child>
-                        <Badge
-                          variant="outline"
-                          :class="
-                            dataSource.endpointCount > 0
-                              ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
-                              : 'bg-muted text-muted-foreground border border-border'
-                          "
-                          class="body-sm px-2.5 py-1 rounded-md"
-                        >
-                          <Link
-                            :class="
-                              dataSource.endpointCount > 0
-                                ? 'w-3.5 h-3.5 mr-1.5'
-                                : 'w-3.5 h-3.5 mr-1.5 opacity-40'
-                            "
-                          />
+                        <Badge variant="outline" :class="dataSource.endpointCount > 0
+                            ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
+                            : 'bg-muted text-muted-foreground border border-border'
+                          " class="body-sm px-2.5 py-1 rounded-md">
+                          <Link :class="dataSource.endpointCount > 0
+                              ? 'w-3.5 h-3.5 mr-1.5'
+                              : 'w-3.5 h-3.5 mr-1.5 opacity-40'
+                            " />
                           {{
                             dataSource.endpointCount === 0
                               ? 'No endpoints'
@@ -95,11 +74,8 @@
                         <div class="space-y-1">
                           <p class="font-medium body-sm">Connected Endpoints:</p>
                           <ul class="space-y-1">
-                            <li
-                              v-for="endpointName in getEndpointNamesForDataset(dataSource.id)"
-                              :key="endpointName"
-                              class="body-sm"
-                            >
+                            <li v-for="endpointName in getEndpointNamesForDataset(dataSource.id)" :key="endpointName"
+                              class="body-sm">
                               • {{ endpointName }}
                             </li>
                           </ul>
@@ -121,10 +97,8 @@
                     📂 <span class="italic">Custom dataset - manually configured</span>
                   </div>
 
-                  <div
-                    v-else-if="!dataSource.watchedPaths || dataSource.watchedPaths.length === 0"
-                    class="body-sm text-muted-foreground"
-                  >
+                  <div v-else-if="!dataSource.watchedPaths || dataSource.watchedPaths.length === 0"
+                    class="body-sm text-muted-foreground">
                     📂 <span class="italic">No paths configured</span>
                   </div>
 
@@ -133,17 +107,12 @@
                       📂 <span class="font-medium">Files & Folders:</span>
                     </div>
                     <div class="ml-6 space-y-1 py-1">
-                      <div
-                        v-for="path in getPathsPreview(dataSource).paths"
-                        :key="path"
-                        class="body-sm font-mono text-muted-foreground opacity-75"
-                      >
+                      <div v-for="path in getPathsPreview(dataSource).paths" :key="path"
+                        class="body-sm font-mono text-muted-foreground opacity-75">
                         {{ path }}
                       </div>
-                      <div
-                        v-if="getPathsPreview(dataSource).hasMore"
-                        class="body-sm text-muted-foreground opacity-60 italic"
-                      >
+                      <div v-if="getPathsPreview(dataSource).hasMore"
+                        class="body-sm text-muted-foreground opacity-60 italic">
                         +{{ getPathsPreview(dataSource).totalCount - 3 }} more...
                       </div>
                     </div>
@@ -151,12 +120,7 @@
                 </div>
 
                 <div class="flex gap-2">
-                  <Badge
-                    v-for="tag in dataSource.tags"
-                    :key="tag"
-                    variant="outline"
-                    class="body-sm"
-                  >
+                  <Badge v-for="tag in dataSource.tags" :key="tag" variant="outline" class="body-sm">
                     {{ tag }}
                   </Badge>
                 </div>
@@ -168,12 +132,8 @@
               <Edit class="h-4 w-4 mr-2" />
               Edit
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              class="text-destructive hover:text-destructive"
-              @click.stop="handleDeleteDataset(dataSource)"
-            >
+            <Button variant="outline" size="sm" class="text-destructive hover:text-destructive"
+              @click.stop="handleDeleteDataset(dataSource)">
               <Trash2 class="h-4 w-4 mr-2" />
               Delete
             </Button>
@@ -212,13 +172,9 @@
   </div>
 
   <!-- Create Dataset Dialog -->
-  <CreateDatasetDialog
-    v-model:open="showCreateDataSourceDialog"
-    :dataset="editingDataset"
-    @dataset-created="handleDatasetCreated"
-    @dataset-updated="handleDatasetUpdated"
-    @update:open="!$event && handleDialogClose()"
-  />
+  <CreateDatasetDialogSimple v-model:open="showCreateDataSourceDialog" :dataset="editingDataset"
+    @dataset-created="handleDatasetCreated" @dataset-updated="handleDatasetUpdated"
+    @update:open="!$event && handleDialogClose()" />
 
   <!-- Delete Confirmation Dialog -->
   <Dialog v-model:open="showDeleteDialog">
@@ -245,22 +201,13 @@
                 </p>
                 <p class="text-destructive/80 body-sm mb-3">Check each endpoint to confirm deletion</p>
                 <div class="space-y-2">
-                  <div
-                    v-for="endpointName in getEndpointNamesForDataset(datasetToDelete.id)"
-                    :key="endpointName"
-                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20"
-                  >
-                    <input
-                      type="checkbox"
-                      :id="`endpoint-${endpointName}`"
-                      :checked="checkedEndpoints.includes(endpointName)"
-                      @change="() => toggleEndpoint(endpointName)"
-                      class="w-4 h-4 text-destructive bg-background border-destructive/40 rounded focus:ring-destructive/50 focus:ring-2"
-                    />
-                    <label
-                      :for="`endpoint-${endpointName}`"
-                      class="flex-1 cursor-pointer flex items-center justify-between"
-                    >
+                  <div v-for="endpointName in getEndpointNamesForDataset(datasetToDelete.id)" :key="endpointName"
+                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20">
+                    <input type="checkbox" :id="`endpoint-${endpointName}`"
+                      :checked="checkedEndpoints.includes(endpointName)" @change="() => toggleEndpoint(endpointName)"
+                      class="w-4 h-4 text-destructive bg-background border-destructive/40 rounded focus:ring-destructive/50 focus:ring-2" />
+                    <label :for="`endpoint-${endpointName}`"
+                      class="flex-1 cursor-pointer flex items-center justify-between">
                       <span class="body-sm font-medium text-foreground">
                         {{ endpointName }}
                       </span>
@@ -276,14 +223,11 @@
 
       <DialogFooter>
         <Button variant="outline" @click="cancelDeleteDataset"> Cancel </Button>
-        <Button
-          variant="destructive"
-          @click="confirmDeleteDataset"
-          :disabled="!allEndpointsChecked"
-        >
+        <Button variant="destructive" @click="confirmDeleteDataset" :disabled="!allEndpointsChecked">
           {{
             datasetToDelete && datasetToDelete.endpointCount && datasetToDelete.endpointCount > 0
-              ? `Delete Dataset & ${datasetToDelete.endpointCount} Endpoint${datasetToDelete.endpointCount !== 1 ? 's' : ''}`
+              ? `Delete Dataset & ${datasetToDelete.endpointCount} Endpoint${datasetToDelete.endpointCount !== 1 ? 's' :
+                ''}`
               : 'Delete Dataset'
           }}
         </Button>
@@ -308,7 +252,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import CreateDatasetDialog from '@/components/CreateDatasetDialog.vue'
+import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
 
 interface DataSource {
   id: string
