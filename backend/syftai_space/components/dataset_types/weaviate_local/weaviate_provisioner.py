@@ -11,13 +11,13 @@ from loguru import logger
 from syftai_space.components.dataset_types.interfaces import BaseDatasetTypeProvisioner
 
 
-class WeaviateProvisioner(BaseDatasetTypeProvisioner):
+class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
     """Provisioner for Weaviate - manages Docker container lifecycle.
 
     All methods are classmethods. State is tracked via Docker container names.
     """
 
-    NAME = "weaviate_local"
+    NAME = "local_file"
 
     @classmethod
     def name(cls) -> str:
