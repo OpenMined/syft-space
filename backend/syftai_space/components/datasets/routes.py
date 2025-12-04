@@ -11,6 +11,8 @@ from syftai_space.components.datasets.schemas import (
     DatasetResponse,
     DatasetTypeInfoResponse,
     HealthcheckResponse,
+    ProvisionerActionResponse,
+    ProvisionerInfoResponse,
 )
 from syftai_space.components.tenants.dependency import get_tenant_dependency
 from syftai_space.components.tenants.entities import Tenant
@@ -158,10 +160,10 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
 
     # ============== Admin Provisioner Endpoints ==============
 
-    @router.get("/provisioners/", response_model=list[dict])
+    @router.get("/provisioners/", response_model=list[ProvisionerInfoResponse])
     async def list_provisioners(
         handler: DatasetHandler = Depends(get_handler),
-    ) -> list[dict]:
+    ) -> list[ProvisionerInfoResponse]:
         """List all provisioners and their status.
 
         Admin endpoint to view all provisioner states, their status,
@@ -169,12 +171,14 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
         """
         return handler.list_provisioners()
 
-    @router.post("/provisioners/{dtype}/start", response_model=dict)
+    @router.post(
+        "/provisioners/{dtype}/start", response_model=ProvisionerActionResponse
+    )
     async def start_provisioner(
         dtype: str,
         config: dict[str, Any] = Body(default={}),
         handler: DatasetHandler = Depends(get_handler),
-    ) -> dict:
+    ) -> ProvisionerActionResponse:
         """Start a provisioner for a specific dataset type.
 
         Admin endpoint to manually start a provisioner.
@@ -184,15 +188,15 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             config: Optional configuration with connection settings (httpPort, grpcPort, etc.)
 
         Returns:
-            Status dictionary with message and status
+            Action response with message and status
         """
         return handler.start_provisioner_by_dtype(dtype, config)
 
-    @router.post("/provisioners/{dtype}/stop", response_model=dict)
+    @router.post("/provisioners/{dtype}/stop", response_model=ProvisionerActionResponse)
     async def stop_provisioner(
         dtype: str,
         handler: DatasetHandler = Depends(get_handler),
-    ) -> dict:
+    ) -> ProvisionerActionResponse:
         """Stop a provisioner for a specific dataset type.
 
         Admin endpoint to manually stop a provisioner.
@@ -202,15 +206,15 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             dtype: Dataset type name (e.g., 'weaviate_local')
 
         Returns:
-            Status dictionary with message and status
+            Action response with message and status
         """
         return handler.stop_provisioner_by_dtype(dtype)
 
-    @router.delete("/provisioners/{dtype}", response_model=dict)
+    @router.delete("/provisioners/{dtype}", response_model=ProvisionerActionResponse)
     async def delete_provisioner(
         dtype: str,
         handler: DatasetHandler = Depends(get_handler),
-    ) -> dict:
+    ) -> ProvisionerActionResponse:
         """Delete a provisioner for a specific dataset type.
 
         Admin endpoint to stop and delete a provisioner state record.
@@ -220,18 +224,18 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             dtype: Dataset type name (e.g., 'weaviate_local')
 
         Returns:
-            Status dictionary with message and status
+            Action response with message and status
 
         Raises:
             409 Conflict: If datasets are still attached to the provisioner
         """
         return handler.delete_provisioner_by_dtype(dtype)
 
-    @router.get("/provisioners/{dtype}/status", response_model=dict)
+    @router.get("/provisioners/{dtype}/status", response_model=ProvisionerInfoResponse)
     async def get_provisioner_status(
         dtype: str,
         handler: DatasetHandler = Depends(get_handler),
-    ) -> dict:
+    ) -> ProvisionerInfoResponse:
         """Get detailed status of a provisioner.
 
         Args:

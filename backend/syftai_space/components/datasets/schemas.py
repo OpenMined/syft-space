@@ -162,3 +162,85 @@ class HealthcheckResponse(BaseModel):
         None, description="Provisioner health status"
     )
     message: str = Field(..., description="Health message")
+
+
+# ============== Admin Provisioner Schemas ==============
+
+
+class ProvisionerInfoResponse(BaseModel):
+    """Response model for provisioner information (admin endpoints).
+
+    Used by list_provisioners() and get_provisioner_status_by_dtype().
+    Extends ProvisionerStateResponse with additional computed fields.
+    """
+
+    id: UUID = Field(..., description="Provisioner state ID")
+    dtype: str = Field(..., description="Dataset type this provisioner serves")
+    status: str = Field(
+        ..., description="Database status (starting/running/stopped/error)"
+    )
+    actual_status: Optional[str] = Field(
+        None, description="Live status from provisioner (e.g., container running)"
+    )
+    dataset_count: int = Field(
+        ..., description="Number of datasets using this provisioner"
+    )
+    state: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Provisioner state (ports, container_id, etc.)",
+    )
+    started_at: Optional[datetime] = Field(
+        None, description="When provisioner was started"
+    )
+    stopped_at: Optional[datetime] = Field(
+        None, description="When provisioner was stopped"
+    )
+    error: Optional[str] = Field(None, description="Error message if status is ERROR")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+    @classmethod
+    def from_state(
+        cls,
+        state: "ProvisionerState",
+        actual_status: Optional[str],
+        dataset_count: int,
+    ) -> "ProvisionerInfoResponse":
+        """Create ProvisionerInfoResponse from ProvisionerState entity.
+
+        Args:
+            state: ProvisionerState entity
+            actual_status: Live status from provisioner (computed)
+            dataset_count: Number of datasets using this provisioner (computed)
+
+        Returns:
+            ProvisionerInfoResponse with all fields populated
+        """
+        return cls(
+            id=state.id,
+            dtype=state.dtype,
+            status=state.status,
+            actual_status=actual_status,
+            dataset_count=dataset_count,
+            state=state.state,
+            started_at=state.started_at,
+            stopped_at=state.stopped_at,
+            error=state.error,
+        )
+
+
+class ProvisionerActionResponse(BaseModel):
+    """Response model for provisioner actions (start/stop/delete).
+
+    Used by start_provisioner_by_dtype(), stop_provisioner_by_dtype(),
+    and delete_provisioner_by_dtype().
+    """
+
+    message: str = Field(..., description="Human-readable result message")
+    status: str = Field(
+        ...,
+        description="Action result status (running/stopped/deleted/not_found/error)",
+    )

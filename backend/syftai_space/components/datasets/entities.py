@@ -23,6 +23,27 @@ class ProvisionerStatus(str, Enum):
     ERROR = "error"
 
 
+class ProvisionerBusyError(Exception):
+    """Raised when provisioner is busy (STARTING/STOPPING) and cannot accept new operations."""
+
+    def __init__(self, dtype: str, current_status: str):
+        self.dtype = dtype
+        self.current_status = current_status
+        super().__init__(f"Provisioner for '{dtype}' is busy ({current_status})")
+
+
+class InvalidProvisionerTransitionError(Exception):
+    """Raised when an invalid status transition is attempted."""
+
+    def __init__(self, dtype: str, from_status: Optional[str], to_status: str):
+        self.dtype = dtype
+        self.from_status = from_status
+        self.to_status = to_status
+        super().__init__(
+            f"Cannot transition provisioner for '{dtype}' from {from_status} to {to_status}"
+        )
+
+
 class Dataset(SQLModel, table=True):
     """Dataset entity representing a configured dataset instance."""
 
