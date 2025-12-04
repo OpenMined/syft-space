@@ -1,9 +1,8 @@
 """Dataset API routes."""
 
-import json
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Body, Depends
 
 from syftai_space.components.datasets.handlers import DatasetHandler
 from syftai_space.components.datasets.schemas import (
@@ -12,7 +11,6 @@ from syftai_space.components.datasets.schemas import (
     DatasetResponse,
     DatasetTypeInfoResponse,
     HealthcheckResponse,
-    IngestFileResponse,
 )
 from syftai_space.components.tenants.dependency import get_tenant_dependency
 from syftai_space.components.tenants.entities import Tenant
@@ -123,35 +121,6 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             Dataset details including configuration
         """
         return handler.get_dataset(name, tenant)
-
-    @router.post("/{name}/ingest", response_model=IngestFileResponse)
-    async def ingest_file(
-        name: str,
-        file: UploadFile = File(...),
-        metadata: str = Form("{}"),
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: DatasetHandler = Depends(get_handler),
-    ) -> IngestFileResponse:
-        """Ingest a single file into dataset.
-
-        Args:
-            name: Dataset name
-            file: Uploaded file
-            metadata: JSON string with custom metadata
-            tenant: Current tenant (injected)
-
-        Returns:
-            Ingestion result with file details
-        """
-        # Parse and enrich metadata
-        metadata_dict = json.loads(metadata)
-        metadata_dict["filename"] = file.filename
-        metadata_dict["content_type"] = file.content_type
-        metadata_dict["file_size"] = file.size
-
-        # TODO: Get sender_email from auth context when auth is implemented
-        sender_email = "admin@example.com"
-        return handler.ingest_file(name, file, metadata_dict, sender_email, tenant)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_dataset(

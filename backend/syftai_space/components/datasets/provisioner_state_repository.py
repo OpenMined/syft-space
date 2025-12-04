@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
+from sqlalchemy import or_
 from sqlmodel import select
 
 from syftai_space.components.datasets.entities import (
@@ -77,12 +78,15 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
             dtype: Dataset type name
 
         Returns:
-            Running ProvisionerState if found, None otherwise
+            Running or starting ProvisionerState if found, None otherwise
         """
         with self.db.get_session() as session:
             statement = select(ProvisionerState).where(
                 ProvisionerState.dtype == dtype,
-                ProvisionerState.status == ProvisionerStatus.RUNNING.value,
+                or_(
+                    ProvisionerState.status == ProvisionerStatus.RUNNING.value,
+                    ProvisionerState.status == ProvisionerStatus.STARTING.value,
+                ),
             )
             return session.exec(statement).first()
 

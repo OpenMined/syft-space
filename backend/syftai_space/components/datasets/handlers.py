@@ -2,10 +2,9 @@
 
 from typing import Any
 
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException
 from loguru import logger
 
-from syftai_space.components.dataset_types.interfaces import IngestFile, IngestRequest
 from syftai_space.components.dataset_types.registry import DatasetTypeRegistry
 from syftai_space.components.datasets.entities import Dataset, ProvisionerStatus
 from syftai_space.components.datasets.provisioner_state_repository import (
@@ -18,9 +17,8 @@ from syftai_space.components.datasets.schemas import (
     DatasetResponse,
     DatasetTypeInfoResponse,
     HealthcheckResponse,
-    IngestFileResponse,
 )
-from syftai_space.components.shared.domain_types import Context, HealthcheckStatus
+from syftai_space.components.shared.domain_types import HealthcheckStatus
 from syftai_space.components.tenants.entities import Tenant
 
 
@@ -371,81 +369,6 @@ class DatasetHandler:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
         return {"message": f"Successfully deleted dataset '{name}'"}
-
-    def ingest_file(
-        self,
-        name: str,
-        file: UploadFile,
-        metadata: dict[str, Any],
-        sender_email: str,
-        tenant: Tenant,
-    ) -> IngestFileResponse:
-        """Ingest a file into dataset.
-
-        Converts FastAPI UploadFile to framework-agnostic IngestFile,
-        then delegates to dataset type's ingest method.
-
-        Args:
-            name: Dataset name
-            file: Uploaded file
-            metadata: Enriched metadata dictionary
-            sender_email: Email of the user performing ingestion
-            tenant: Tenant context
-
-        Returns:
-            Ingestion response with file details
-
-        Raises:
-            HTTPException: If dataset not found or ingestion fails
-        """
-        # Get dataset
-        dataset = self.repository.get_by_name(name, tenant.id)
-        if not dataset:
-            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
-
-        # Get dataset type
-        try:
-            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
-        except KeyError:
-            raise HTTPException(
-                status_code=500, detail=f"Dataset type '{dataset.dtype}' not registered"
-            ) from None
-
-        # Check if enabled
-        if not dataset_type_cls.enabled():
-            raise HTTPException(
-                status_code=503,
-                detail=f"Dataset type '{dataset.dtype}' is not enabled. Install required dependencies.",
-            )
-
-        # Create dataset type instance
-        dataset_instance = dataset_type_cls(dataset.configuration)
-
-        # Convert to domain model (framework-agnostic)
-        ingest_file_obj = IngestFile(
-            file_handle=file.file,
-            filename=file.filename,
-            content_type=file.content_type,
-            file_size=file.size,
-            metadata=metadata,
-        )
-
-        # Create domain request
-        ingest_request = IngestRequest(files=[ingest_file_obj])
-
-        # Perform ingestion
-        ctx = Context(sender=sender_email)
-        try:
-            dataset_instance.ingest(ctx, ingest_request)
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Ingestion failed: {str(e)}"
-            ) from e
-
-        return IngestFileResponse(
-            filename=file.filename,
-            message=f"Successfully ingested file into dataset '{name}'",
-        )
 
     def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
         """Check the health of a dataset.
