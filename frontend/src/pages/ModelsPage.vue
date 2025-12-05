@@ -60,12 +60,12 @@
               <div class="flex items-center gap-3 mb-2">
                 <h3 class="heading-4 text-foreground">{{ model.name }}</h3>
                 <Badge variant="outline" :class="model.status === 'running'
-                    ? 'bg-primary/10 text-primary border border-primary/20'
-                    : 'bg-muted text-muted-foreground border border-border'
+                  ? 'bg-primary/10 text-primary border border-primary/20'
+                  : 'bg-muted text-muted-foreground border border-border'
                   " class="body-sm px-2.5 py-1 rounded-md">
                   <div :class="model.status === 'running'
-                      ? 'w-2 h-2 bg-primary rounded-full mr-1'
-                      : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
+                    ? 'w-2 h-2 bg-primary rounded-full mr-1'
+                    : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
                     "></div>
                   {{ model.status }}
                 </Badge>
@@ -73,12 +73,12 @@
                   <Tooltip>
                     <TooltipTrigger as-child>
                       <Badge variant="outline" :class="model.endpointCount > 0
-                          ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
-                          : 'bg-muted text-muted-foreground border border-border'
+                        ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
+                        : 'bg-muted text-muted-foreground border border-border'
                         " class="body-sm px-2.5 py-1 rounded-md">
                         <div :class="model.endpointCount > 0
-                            ? 'w-2 h-2 bg-secondary rounded-full mr-1'
-                            : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
+                          ? 'w-2 h-2 bg-secondary rounded-full mr-1'
+                          : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
                           "></div>
                         {{
                           model.endpointCount === 0
@@ -158,8 +158,9 @@
   </div>
 
   <!-- Create Model Dialog -->
-  <CreateModelDialog v-model:open="showCreateModelDialog" :model="editingModel" @model-created="handleModelCreated"
-    @model-updated="handleModelUpdated" @update:open="!$event && handleDialogClose()" />
+  <CreateModelDialogSimple v-model:open="showCreateModelDialog" :model="editingModel"
+    @model-created="handleModelCreated" @model-updated="handleModelUpdated"
+    @update:open="!$event && handleDialogClose()" />
 
   <!-- Delete Confirmation Dialog -->
   <Dialog v-model:open="showDeleteDialog">
@@ -239,7 +240,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
-import CreateModelDialog from '@/components/CreateModelDialog.vue'
+import CreateModelDialogSimple from '@/components/CreateModelDialogSimple.vue'
 
 import { mockModels, type Model } from '@/stores/models'
 

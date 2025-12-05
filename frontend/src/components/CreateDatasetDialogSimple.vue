@@ -58,6 +58,18 @@
           </div>
         </div>
 
+        <!-- Summary -->
+        <div class="space-y-2">
+          <Label for="summary" class="text-sm font-medium">
+            Summary (Optional)
+          </Label>
+          <Input id="summary" v-model="formData.summary"
+            placeholder="Describe what this dataset contains and how it can be used..." class="w-full" />
+          <p class="text-sm text-muted-foreground">
+            A brief description of your dataset's contents
+          </p>
+        </div>
+
         <!-- Topics & Categories -->
         <div class="space-y-2">
           <Label for="topics" class="text-sm font-medium">
@@ -152,6 +164,7 @@ const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'ne
 // Form data
 const formData = ref({
   name: '',
+  summary: '',
   selectedFiles: [] as string[],
   tags: [] as string[],
 })
@@ -232,6 +245,7 @@ const handleCreate = () => {
 const resetForm = () => {
   formData.value = {
     name: '',
+    summary: '',
     selectedFiles: [],
     tags: [],
   }
