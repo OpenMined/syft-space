@@ -6,7 +6,7 @@
         <Database class="h-6 w-6 text-primary" />
         <h1 class="heading-3">Your Datasets</h1>
       </div>
-      <p class="body-lg text-muted-foreground md:max-w-[50%]">
+      <p class="body-lg text-muted-foreground md:max-w-[60%]">
         Datasets are local data sources only you can see and use. Power AI workflows and queries
         locally; share access later via endpoints.
       </p>
@@ -43,12 +43,12 @@
                 <div class="flex items-center gap-3 mb-2">
                   <h3 class="heading-4 text-foreground">{{ dataSource.name }}</h3>
                   <Badge variant="outline" :class="dataSource.status === 'running'
-                      ? 'bg-primary/10 text-primary border border-primary/20'
-                      : 'bg-muted text-muted-foreground border-border'
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'bg-muted text-muted-foreground border-border'
                     " class="body-sm px-2.5 py-1 rounded-md">
                     <div :class="dataSource.status === 'running'
-                        ? 'w-2 h-2 bg-primary rounded-full mr-1'
-                        : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
+                      ? 'w-2 h-2 bg-primary rounded-full mr-1'
+                      : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
                       "></div>
                     {{ dataSource.status }}
                   </Badge>
@@ -56,12 +56,12 @@
                     <Tooltip>
                       <TooltipTrigger as-child>
                         <Badge variant="outline" :class="dataSource.endpointCount > 0
-                            ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
-                            : 'bg-muted text-muted-foreground border border-border'
+                          ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
+                          : 'bg-muted text-muted-foreground border border-border'
                           " class="body-sm px-2.5 py-1 rounded-md">
                           <Link :class="dataSource.endpointCount > 0
-                              ? 'w-3.5 h-3.5 mr-1.5'
-                              : 'w-3.5 h-3.5 mr-1.5 opacity-40'
+                            ? 'w-3.5 h-3.5 mr-1.5'
+                            : 'w-3.5 h-3.5 mr-1.5 opacity-40'
                             " />
                           {{
                             dataSource.endpointCount === 0

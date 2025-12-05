@@ -3,7 +3,7 @@
     <div class="flex items-start justify-between">
       <div class="flex-1">
         <div class="flex items-center gap-3 mb-2">
-          <h3 class="heading-3 text-foreground">{{ endpoint.name }}</h3>
+          <h3 class="heading-4 text-foreground">{{ endpoint.name }}</h3>
           <Badge
             :variant="endpoint.status === 'published' ? 'default' : 'secondary'"
             :class="
@@ -58,7 +58,7 @@
             <TooltipProvider v-if="endpoint.dataSourceType">
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <Badge variant="outline" class="flex items-center gap-1 cursor-help">
+                  <Badge variant="outline" class="body-sm flex items-center gap-1 cursor-help">
                     <IntegrationIcon :name="endpoint.dataSourceType" class="h-3 w-3" />
                     {{ getDataSourceName(endpoint.dataSourceType) }}
                   </Badge>
@@ -71,7 +71,7 @@
             <TooltipProvider v-if="endpoint.modelType">
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <Badge variant="outline" class="flex items-center gap-1 cursor-help">
+                  <Badge variant="outline" class="body-sm flex items-center gap-1 cursor-help">
                     <IntegrationIcon :name="endpoint.modelType" class="h-3 w-3" />
                     {{ getModelName(endpoint.modelType) }}
                   </Badge>
