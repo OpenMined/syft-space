@@ -99,8 +99,17 @@ class LocalFileDatasetType(IngestableDatasetType):
                     "uniqueItems": True,
                     "default": [".pdf"],
                 },
+                "filePaths": {
+                    "type": "array",
+                    "title": "File Paths",
+                    "items": {
+                        "type": "string",
+                    },
+                    "uniqueItems": True,
+                    "default": [],
+                },
             },
-            "required": ["collectionName", "ingestFileTypeOptions"],
+            "required": ["collectionName", "ingestFileTypeOptions", "filePaths"],
         }
 
     @classmethod
@@ -125,9 +134,10 @@ class LocalFileDatasetType(IngestableDatasetType):
                 "and spaces are not allowed."
             ) from None
 
-        # Check if path exists
-        if not Path(configuration["path"]).exists():
-            raise ValueError("path does not exist")
+        # Check if filePaths exist
+        for filePath in configuration["filePaths"]:
+            if not Path(filePath).exists():
+                raise ValueError(f"filePaths does not exist: {filePath}")
 
     def _parse_document(self, file: IngestFile) -> dict[str, Any]:
         """Parse the document into a dictionary.
