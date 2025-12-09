@@ -4,23 +4,52 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy import func, or_
 from sqlmodel import select
 
 from syftai_space.components.datasets.entities import (
+    Dataset,
+    InvalidProvisionerTransitionError,
+    ProvisionerBusyError,
     ProvisionerState,
     ProvisionerStatus,
 )
 from syftai_space.components.shared.database import BaseRepository, Database
 
+# Valid status transitions
+# from_status -> [allowed_to_statuses]
+ALLOWED_TRANSITIONS: dict[Optional[str], list[ProvisionerStatus]] = {
+    None: [ProvisionerStatus.STARTING],  # Create new
+    ProvisionerStatus.STARTING.value: [
+        ProvisionerStatus.RUNNING,
+        ProvisionerStatus.ERROR,
+    ],
+    ProvisionerStatus.RUNNING.value: [ProvisionerStatus.STOPPING],
+    ProvisionerStatus.STOPPING.value: [
+        ProvisionerStatus.STOPPED,
+        ProvisionerStatus.ERROR,
+    ],
+    ProvisionerStatus.STOPPED.value: [ProvisionerStatus.STARTING],
+    ProvisionerStatus.ERROR.value: [
+        ProvisionerStatus.STARTING,
+        ProvisionerStatus.STOPPED,
+    ],
+}
+
 
 class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
     """Repository for ProvisionerState CRUD operations.
 
-    Provides three distinct methods for state management:
-    - create(): For new datasets, fails if state already exists
-    - update(): For existing states, returns None if not found
-    - upsert(): Atomic create-or-update for uncertain scenarios (e.g., restart)
+    Provisioner states are dtype-based (one per dataset type). Multiple datasets
+    can share the same provisioner state.
+
+    Key methods:
+    - get_by_dtype(): Primary lookup (one provisioner per dtype)
+    - get_running_by_dtype(): Find running/starting provisioner
+    - get_all(): Get all provisioner states
+    - upsert_status(): Create or update with status transition guards
+    - count_datasets_by_provisioner(): Count attached datasets
+    - delete_by_dtype(): Delete provisioner state
     """
 
     def __init__(self, db: Database):
@@ -31,231 +60,177 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
         """
         super().__init__(db, ProvisionerState)
 
-    def _compute_timestamps(
-        self, status: ProvisionerStatus, now: datetime
-    ) -> tuple[Optional[datetime], Optional[datetime]]:
-        """Compute started_at and stopped_at based on status transition.
+    def get_by_dtype(self, dtype: str) -> Optional[ProvisionerState]:
+        """Get provisioner state by dtype.
+
+        Primary lookup method - there's at most one provisioner per dtype.
 
         Args:
-            status: Target status
-            now: Current timestamp
-
-        Returns:
-            Tuple of (started_at, stopped_at)
-        """
-        if status == ProvisionerStatus.STARTING:
-            return (now, None)
-        elif status in (ProvisionerStatus.STOPPED, ProvisionerStatus.ERROR):
-            return (None, now)  # started_at unchanged, stopped_at set
-        return (None, None)  # No timestamp changes
-
-    def get_by_dataset_id(self, dataset_id: UUID) -> Optional[ProvisionerState]:
-        """Get provisioner state by dataset ID.
-
-        Args:
-            dataset_id: Dataset ID
+            dtype: Dataset type name
 
         Returns:
             ProvisionerState if found, None otherwise
         """
         with self.db.get_session() as session:
+            statement = select(ProvisionerState).where(ProvisionerState.dtype == dtype)
+            return session.exec(statement).first()
+
+    def get_running_by_dtype(self, dtype: str) -> Optional[ProvisionerState]:
+        """Get running provisioner state by dtype.
+
+        Args:
+            dtype: Dataset type name
+
+        Returns:
+            Running or starting ProvisionerState if found, None otherwise
+        """
+        with self.db.get_session() as session:
             statement = select(ProvisionerState).where(
-                ProvisionerState.dataset_id == dataset_id
+                ProvisionerState.dtype == dtype,
+                or_(
+                    ProvisionerState.status == ProvisionerStatus.RUNNING.value,
+                    ProvisionerState.status == ProvisionerStatus.STARTING.value,
+                ),
             )
             return session.exec(statement).first()
 
-    def get_all_by_status(self, status: ProvisionerStatus) -> list[ProvisionerState]:
-        """Get all provisioner states by status.
-
-        Args:
-            status: Provisioner status to filter by
+    def get_all(self) -> list[ProvisionerState]:
+        """Get all provisioner states.
 
         Returns:
-            List of provisioner states with matching status
+            List of all ProvisionerState records
         """
         with self.db.get_session() as session:
-            statement = select(ProvisionerState).where(
-                ProvisionerState.status == status.value
-            )
+            statement = select(ProvisionerState)
             return list(session.exec(statement).all())
 
-    def create(
+    def upsert_status(
         self,
-        dataset_id: UUID,
-        state: dict,
-        status: ProvisionerStatus,
-        error: Optional[str] = None,
-    ) -> ProvisionerState:
-        """Create new provisioner state for a dataset.
-
-        Use this when you KNOW the state doesn't exist (e.g., new dataset creation).
-        Raises IntegrityError if state already exists for dataset_id.
-
-        Args:
-            dataset_id: Dataset ID
-            state: Provisioner state dictionary
-            status: Initial status
-            error: Optional error message
-
-        Returns:
-            Created ProvisionerState
-
-        Raises:
-            sqlalchemy.exc.IntegrityError: If state already exists for dataset_id
-        """
-        now = datetime.now(timezone.utc)
-        started_at, stopped_at = self._compute_timestamps(status, now)
-
-        provisioner_state = ProvisionerState(
-            dataset_id=dataset_id,
-            state=state,
-            status=status.value,
-            error=error,
-            started_at=started_at,
-            stopped_at=stopped_at,
-        )
-
-        with self.db.get_session() as session:
-            session.add(provisioner_state)
-            session.commit()
-            session.refresh(provisioner_state)
-            return provisioner_state
-
-    def update(
-        self,
-        dataset_id: UUID,
+        dtype: str,
         status: ProvisionerStatus,
         state: Optional[dict] = None,
         error: Optional[str] = None,
-    ) -> Optional[ProvisionerState]:
-        """Update existing provisioner state for a dataset.
-
-        Use this when you KNOW the state exists (e.g., after checking or creating).
-        Returns None if state doesn't exist.
-
-        Args:
-            dataset_id: Dataset ID
-            status: New status
-            state: Optional new state dictionary (None = keep existing)
-            error: Optional error message
-
-        Returns:
-            Updated ProvisionerState if found, None otherwise
-        """
-        with self.db.get_session() as session:
-            provisioner_state = session.exec(
-                select(ProvisionerState).where(
-                    ProvisionerState.dataset_id == dataset_id
-                )
-            ).first()
-
-            if not provisioner_state:
-                return None
-
-            now = datetime.now(timezone.utc)
-
-            # Update fields
-            provisioner_state.status = status.value
-            provisioner_state.error = error
-            provisioner_state.updated_at = now
-
-            if state is not None:
-                provisioner_state.state = state
-
-            # Update timestamps based on status
-            if status == ProvisionerStatus.STARTING:
-                provisioner_state.started_at = now
-                provisioner_state.stopped_at = None
-            elif status in (ProvisionerStatus.STOPPED, ProvisionerStatus.ERROR):
-                provisioner_state.stopped_at = now
-
-            session.add(provisioner_state)
-            session.commit()
-            session.refresh(provisioner_state)
-            return provisioner_state
-
-    def upsert(
-        self,
-        dataset_id: UUID,
-        state: dict,
-        status: ProvisionerStatus,
-        error: Optional[str] = None,
     ) -> ProvisionerState:
-        """Atomic create-or-update provisioner state for a dataset.
+        """Create or update provisioner state with status transition guards.
 
-        Use this when you DON'T KNOW if state exists (e.g., restart scenarios).
-        This is race-condition safe using SQLite's INSERT ON CONFLICT.
+        This is the single method for all provisioner state changes. It enforces
+        valid status transitions to prevent race conditions.
+
+        Valid transitions:
+            None     -> STARTING (create new)
+            STARTING -> RUNNING, ERROR
+            RUNNING  -> STOPPING
+            STOPPING -> STOPPED, ERROR
+            STOPPED  -> STARTING (restart)
+            ERROR    -> STARTING (retry), STOPPED (cleanup)
 
         Args:
-            dataset_id: Dataset ID
-            state: Provisioner state dictionary
+            dtype: Dataset type name
             status: Target status
-            error: Optional error message
+            state: Optional state dict (typically set when transitioning to RUNNING)
+            error: Optional error message (typically set when transitioning to ERROR)
 
         Returns:
             Created or updated ProvisionerState
+
+        Raises:
+            ProvisionerBusyError: If provisioner is busy (STARTING/STOPPING)
+            InvalidProvisionerTransitionError: If transition is not allowed
         """
-        now = datetime.now(timezone.utc)
-        started_at, stopped_at = self._compute_timestamps(status, now)
-
         with self.db.get_session() as session:
-            # Build the upsert statement
-            stmt = insert(ProvisionerState).values(
-                id=uuid4(),
-                dataset_id=dataset_id,
-                state=state,
-                status=status.value,
-                error=error,
-                started_at=started_at,
-                stopped_at=stopped_at,
-                created_at=now,
-                updated_at=now,
-            )
-
-            # On conflict (dataset_id is unique), update the existing record
-            update_dict = {
-                "state": state,
-                "status": status.value,
-                "error": error,
-                "updated_at": now,
-            }
-
-            # Conditionally update timestamps
-            if status == ProvisionerStatus.STARTING:
-                update_dict["started_at"] = now
-                update_dict["stopped_at"] = None
-            elif status in (ProvisionerStatus.STOPPED, ProvisionerStatus.ERROR):
-                update_dict["stopped_at"] = now
-
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["dataset_id"],
-                set_=update_dict,
-            )
-
-            session.execute(stmt)
-            session.commit()
-
-            # Fetch and return the record
-            return session.exec(
-                select(ProvisionerState).where(
-                    ProvisionerState.dataset_id == dataset_id
-                )
+            # Check for existing record
+            existing = session.exec(
+                select(ProvisionerState).where(ProvisionerState.dtype == dtype)
             ).first()
 
-    def delete_by_dataset_id(self, dataset_id: UUID) -> bool:
-        """Delete provisioner state by dataset ID.
+            current_status = existing.status if existing else None
+
+            # Validate transition
+            allowed = ALLOWED_TRANSITIONS.get(current_status, [])
+            if status not in allowed:
+                if current_status in (
+                    ProvisionerStatus.STARTING.value,
+                    ProvisionerStatus.STOPPING.value,
+                ):
+                    raise ProvisionerBusyError(dtype, current_status)
+                raise InvalidProvisionerTransitionError(
+                    dtype, current_status, status.value
+                )
+
+            now = datetime.now(timezone.utc)
+
+            if existing:
+                # Update existing record
+                existing.status = status.value
+                existing.updated_at = now
+                existing.error = error if status == ProvisionerStatus.ERROR else None
+
+                if state is not None:
+                    existing.state = state
+
+                # Update timestamps based on status
+                if status == ProvisionerStatus.STARTING:
+                    existing.started_at = now
+                    existing.stopped_at = None
+                elif status in (ProvisionerStatus.STOPPED, ProvisionerStatus.ERROR):
+                    existing.stopped_at = now
+
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return existing
+            else:
+                # Create new record
+                provisioner_state = ProvisionerState(
+                    id=uuid4(),
+                    dtype=dtype,
+                    state=state or {},
+                    status=status.value,
+                    error=error,
+                    started_at=now if status == ProvisionerStatus.STARTING else None,
+                    stopped_at=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+
+                session.add(provisioner_state)
+                session.commit()
+                session.refresh(provisioner_state)
+                return provisioner_state
+
+    def count_datasets_by_provisioner(self, state_id: UUID) -> int:
+        """Count datasets using a specific provisioner state.
 
         Args:
-            dataset_id: Dataset ID
+            state_id: ProvisionerState ID
+
+        Returns:
+            Number of datasets attached to this provisioner
+        """
+        with self.db.get_session() as session:
+            statement = (
+                select(func.count())
+                .select_from(Dataset)
+                .where(Dataset.provisioner_state_id == state_id)
+            )
+            result = session.exec(statement).first()
+            return result or 0
+
+    def delete_by_dtype(self, dtype: str) -> bool:
+        """Delete provisioner state by dtype.
+
+        Warning: This does not check for attached datasets. Use
+        count_datasets_by_provisioner() first to verify it's safe to delete.
+
+        Args:
+            dtype: Dataset type name
 
         Returns:
             True if deleted, False if not found
         """
         with self.db.get_session() as session:
             provisioner_state = session.exec(
-                select(ProvisionerState).where(
-                    ProvisionerState.dataset_id == dataset_id
-                )
+                select(ProvisionerState).where(ProvisionerState.dtype == dtype)
             ).first()
 
             if provisioner_state:
