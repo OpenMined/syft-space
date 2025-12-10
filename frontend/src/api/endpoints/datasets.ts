@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { BrowseResponse } from '../types'
+import type { BrowseResponse, CreateDatasetRequest, DatasetResponse } from '../types'
 
 export const datasetsApi = {
   browse: async (path = '~', showHidden = false): Promise<BrowseResponse> => {
@@ -9,6 +9,11 @@ export const datasetsApi = {
         show_hidden: showHidden,
       },
     })
+    return response.data
+  },
+
+  create: async (dataset: CreateDatasetRequest): Promise<DatasetResponse> => {
+    const response = await apiClient.post<DatasetResponse>('/datasets/', dataset)
     return response.data
   },
 }

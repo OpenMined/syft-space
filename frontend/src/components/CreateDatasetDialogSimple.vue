@@ -114,7 +114,7 @@
           Cancel
         </Button>
         <Button @click="handleCreate" :disabled="!isFormValid">
-          Create Dataset
+          {{ isCreating ? 'Creating...' : 'Create Dataset' }}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -137,6 +137,8 @@ import { Badge } from '@/components/ui/badge'
 import { FileText, Plus, X } from 'lucide-vue-next'
 import FileExplorer from '@/components/FileExplorer.vue'
 import { toast } from 'vue-sonner'
+import { datasetsApi } from '@/api/endpoints/datasets'
+import type { CreateDatasetRequest } from '@/api/types'
 
 interface DataSource {
   id: string
@@ -171,6 +173,7 @@ const formData = ref({
 
 const tagInput = ref('')
 const fileDescriptions = ref<Record<string, string>>({})
+const isCreating = ref(false)
 
 // Computed properties
 const isOpen = computed({
@@ -179,8 +182,18 @@ const isOpen = computed({
 })
 
 const isFormValid = computed(() => {
-  return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
+  return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0 && !isCreating.value
 })
+
+// Utility function to generate collection name
+const generateCollectionName = (name: string): string => {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '') // Remove non-alphanumeric characters except spaces
+    .replace(/\s+/g, '_') // Replace spaces with underscores
+    .replace(/_{2,}/g, '_') // Replace multiple underscores with single
+    .replace(/^_|_$/g, '') // Remove leading/trailing underscores
+}
 
 // Methods
 const getFileName = (path: string) => {
@@ -224,22 +237,42 @@ const handleCancel = () => {
   isOpen.value = false
 }
 
-const handleCreate = () => {
+const handleCreate = async () => {
   if (!isFormValid.value) return
 
-  const datasetName = formData.value.name
+  isCreating.value = true
 
-  // Emit create event
-  if (props.dataset) {
-    emit('dataset-updated')
-    toast.success(`Dataset "${datasetName}" updated successfully`)
-  } else {
-    emit('dataset-created')
-    toast.success(`Dataset "${datasetName}" created successfully`)
+  try {
+    const createRequest: CreateDatasetRequest = {
+      dtype: 'local_file',
+      name: formData.value.name.trim(),
+      summary: formData.value.summary.trim() || '',
+      tags: formData.value.tags.join(','),
+      configuration: {
+        collectionName: generateCollectionName(formData.value.name.trim()),
+        filePaths: formData.value.selectedFiles,
+      },
+    }
+
+    await datasetsApi.create(createRequest)
+
+    if (props.dataset) {
+      emit('dataset-updated')
+      toast.success(`Dataset "${createRequest.name}" updated successfully`)
+    } else {
+      emit('dataset-created')
+      toast.success(`Dataset "${createRequest.name}" created successfully`)
+    }
+
+    resetForm()
+    isOpen.value = false
+  } catch (error) {
+    console.error('Failed to create dataset:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+    toast.error(`Failed to create dataset: ${errorMessage}`)
+  } finally {
+    isCreating.value = false
   }
-
-  resetForm()
-  isOpen.value = false
 }
 
 const resetForm = () => {
