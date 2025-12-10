@@ -34,3 +34,12 @@ export interface DatasetResponse {
   created_at: string
   updated_at: string
 }
+
+export interface DatasetListItem {
+  id: string
+  name: string
+  dtype: string
+  summary: string
+  tags: string
+  created_at: string
+}

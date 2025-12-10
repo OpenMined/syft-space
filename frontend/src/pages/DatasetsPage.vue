@@ -21,8 +21,44 @@
       </Button>
     </div>
 
+    <!-- Loading State -->
+    <div v-if="loading" class="space-y-5">
+      <div v-for="i in 3" :key="`skeleton-${i}`"
+        class="bg-card border border-border rounded-xl p-6 animate-pulse">
+        <div class="flex items-start justify-between">
+          <div class="flex-1 flex gap-4">
+            <div class="w-14 h-14 bg-muted rounded-xl"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-6 bg-muted rounded w-1/3"></div>
+              <div class="h-4 bg-muted rounded w-1/2"></div>
+              <div class="h-4 bg-muted rounded w-2/3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error State -->
+    <div v-else-if="error" class="text-center py-8">
+      <div class="text-destructive mb-2">Failed to load datasets</div>
+      <Button @click="loadDatasets" variant="outline">Try Again</Button>
+    </div>
+
+    <!-- Empty State -->
+    <div v-else-if="datasets.length === 0" class="text-center py-8">
+      <Database class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+      <h3 class="heading-3 text-foreground mb-2">No datasets yet</h3>
+      <p class="body-sm text-muted-foreground mb-4">
+        Start by adding or connecting your first dataset
+      </p>
+      <Button @click="showCreateDataSourceDialog = true">
+        <Plus class="h-4 w-4 mr-2" />
+        Add Dataset
+      </Button>
+    </div>
+
     <!-- Data Sources List -->
-    <div class="space-y-5">
+    <div v-else class="space-y-5">
       <div v-for="dataSource in filteredDataSources" :key="dataSource.id"
         class="bg-card border border-border rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
         @click="navigateToDetail(dataSource.name)">
@@ -142,33 +178,6 @@
       </div>
     </div>
 
-    <!-- DEMO: Empty State Section -->
-    <div class="mt-16">
-      <!-- Divider with centered text -->
-      <div class="relative">
-        <div class="absolute inset-0 flex items-center">
-          <div class="w-full border-t border-border"></div>
-        </div>
-        <div class="relative flex justify-center body-sm">
-          <span class="px-4 bg-background text-muted-foreground font-medium">
-            Demo: Empty State (shown when no datasets exist)
-          </span>
-        </div>
-      </div>
-
-      <!-- Empty state content -->
-      <div class="mt-8 bg-card rounded-lg shadow border border-border p-8 text-center">
-        <Database class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-        <h3 class="heading-3 text-foreground mb-2">No datasets yet</h3>
-        <p class="body-sm text-muted-foreground mb-4">
-          Start by adding or connecting your first dataset
-        </p>
-        <Button @click="showCreateDataSourceDialog = true">
-          <Plus class="h-4 w-4 mr-2" />
-          Add Dataset
-        </Button>
-      </div>
-    </div>
   </div>
 
   <!-- Create Dataset Dialog -->
@@ -237,7 +246,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Database, Plus, Edit, Trash2, Link } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -253,6 +262,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import { useDatasets } from '@/composables/useDatasets'
+import { toast } from 'vue-sonner'
 
 interface DataSource {
   id: string
@@ -266,93 +277,35 @@ interface DataSource {
   isCustom?: boolean
 }
 
-interface Endpoint {
-  id: string
-  name: string
-  datasetIds: string[]
-}
-
-// Mock endpoints data
-const mockEndpoints: Endpoint[] = [
-  {
-    id: 'endpoint-1',
-    name: 'Legal Document Analysis API',
-    datasetIds: ['1'],
-  },
-  {
-    id: 'endpoint-2',
-    name: 'Contract Review Assistant',
-    datasetIds: ['1'],
-  },
-  {
-    id: 'endpoint-3',
-    name: 'Legal Research Helper',
-    datasetIds: ['1'],
-  },
-  {
-    id: 'endpoint-4',
-    name: 'Customer Insights API',
-    datasetIds: ['2'],
-  },
-]
 
 const router = useRouter()
 
-// Mock data sources
-const dataSources = ref<DataSource[]>([
-  {
-    id: '1',
-    name: 'Legal Documents Store',
-    type: 'weaviate',
-    description: 'Vector database for legal document analysis and retrieval',
-    tags: ['legal', 'documents', 'analysis'],
-    status: 'running',
-    endpointCount: 3,
-    watchedPaths: [
-      '/data/legal/contracts',
-      '/data/legal/cases',
-      '/data/legal/regulations',
-      '/data/legal/archived',
-    ],
-    isCustom: false,
-  },
-  {
-    id: '2',
-    name: 'Customer Analytics Store',
-    type: 'qdrant',
-    description: 'Vector database for customer behavior analysis and segmentation',
-    tags: ['customer', 'analytics', 'segmentation'],
-    status: 'running',
-    endpointCount: 1,
-    watchedPaths: ['/data/analytics/surveys', '/data/analytics/feedback'],
-    isCustom: false,
-  },
-  {
-    id: '3',
-    name: 'Research Database',
-    type: 'chroma',
-    description: 'Knowledge base for research papers and scientific literature',
-    tags: ['research', 'papers', 'knowledge'],
-    status: 'stopped',
-    endpointCount: 0,
-    isCustom: true,
-  },
-])
+// Use datasets composable
+const { datasets, loading, error, loadDatasets, deleteDataset, refreshDatasets, transformDataset } = useDatasets()
+
+// Transform API datasets to match component interface
+const dataSources = computed(() => {
+  return datasets.value.map(transformDataset)
+})
 
 const showCreateDataSourceDialog = ref(false)
 const searchQuery = ref('')
-const activeTab = ref('all')
 const editingDataset = ref<DataSource | null>(null)
 const showDeleteDialog = ref(false)
 const datasetToDelete = ref<DataSource | null>(null)
 const checkedEndpoints = ref<string[]>([])
 
 // Function to get endpoint names connected to a dataset
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const getEndpointNamesForDataset = (datasetId: string): string[] => {
-  return mockEndpoints
-    .filter((endpoint) => endpoint.datasetIds.includes(datasetId))
-    .map((endpoint) => endpoint.name)
+  // TODO: Replace with actual endpoint API call when endpoints are integrated
+  return []
 }
+
+// Load datasets on mount
+onMounted(() => {
+  loadDatasets()
+})
 
 const filteredDataSources = computed(() => {
   return dataSources.value.filter((dataSource) => {
@@ -368,20 +321,14 @@ const filteredDataSources = computed(() => {
       }
     }
 
-    // Tab filter
-    if (activeTab.value === 'running' && dataSource.status !== 'running') {
-      return false
-    }
-    if (activeTab.value === 'stopped' && dataSource.status !== 'stopped') {
-      return false
-    }
 
     return true
   })
 })
 
 const handleDatasetCreated = () => {
-  console.log('Dataset created successfully')
+  // Refresh the dataset list after creation
+  refreshDatasets()
 }
 
 const handleEditDataset = (dataset: DataSource) => {
@@ -390,7 +337,8 @@ const handleEditDataset = (dataset: DataSource) => {
 }
 
 const handleDatasetUpdated = () => {
-  console.log('Dataset updated successfully')
+  // Refresh the dataset list after update
+  refreshDatasets()
   editingDataset.value = null
 }
 
@@ -405,16 +353,16 @@ const handleDeleteDataset = (dataset: DataSource) => {
   showDeleteDialog.value = true
 }
 
-const confirmDeleteDataset = () => {
+const confirmDeleteDataset = async () => {
   if (datasetToDelete.value) {
-    console.log('Deleting dataset:', datasetToDelete.value.name)
-    // In a real app, this would call an API to delete the dataset
-    const index = dataSources.value.findIndex((ds) => ds.id === datasetToDelete.value!.id)
-    if (index > -1) {
-      dataSources.value.splice(index, 1)
+    const success = await deleteDataset(datasetToDelete.value.name)
+    if (success) {
+      toast.success(`Dataset "${datasetToDelete.value.name}" deleted successfully`)
+      showDeleteDialog.value = false
+      datasetToDelete.value = null
+    } else {
+      toast.error(error.value || 'Failed to delete dataset')
     }
-    showDeleteDialog.value = false
-    datasetToDelete.value = null
   }
 }
 

@@ -267,7 +267,6 @@ const handleCreate = async () => {
     resetForm()
     isOpen.value = false
   } catch (error) {
-    console.error('Failed to create dataset:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
     toast.error(`Failed to create dataset: ${errorMessage}`)
   } finally {
