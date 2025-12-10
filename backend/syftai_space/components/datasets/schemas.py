@@ -119,6 +119,18 @@ class EndpointListItem(BaseModel):
         from_attributes = True
 
 
+class ProvisionerStatusResponse(BaseModel):
+    """Response model for dataset provisioner status."""
+
+    status: ProvisionerStatus = Field(..., description="Provisioner status")
+    error: Optional[str] = Field(None, description="Error message")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
 class DatasetResponse(BaseModel):
     """Response model for dataset details."""
 
@@ -189,7 +201,7 @@ class DatasetListItem(BaseModel):
     connected_endpoints: list[EndpointListItem] = Field(
         ..., description="Connected endpoints"
     )
-    provisioner_status: Optional[ProvisionerStateResponse] = Field(
+    provisioner_status: Optional[ProvisionerStatusResponse] = Field(
         None, description="Provisioner status"
     )
 
@@ -200,9 +212,9 @@ class DatasetListItem(BaseModel):
         provisioner_state: Optional["ProvisionerState"] = None,
     ) -> "DatasetListItem":
         """Create DatasetListItem from Dataset entity."""
-        provisioner_state_response = None
+        provisioner_status_response = None
         if provisioner_state:
-            provisioner_state_response = ProvisionerStateResponse.model_validate(
+            provisioner_status_response = ProvisionerStatusResponse.model_validate(
                 provisioner_state
             )
 
@@ -214,7 +226,7 @@ class DatasetListItem(BaseModel):
             tags=dataset.tags,
             created_at=dataset.created_at,
             connected_endpoints=dataset.endpoints,
-            provisioner_status=provisioner_state_response,
+            provisioner_status=provisioner_status_response,
         )
 
 
