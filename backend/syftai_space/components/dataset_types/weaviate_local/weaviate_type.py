@@ -126,9 +126,10 @@ class LocalFileDatasetType(IngestableDatasetType):
     def watched_paths(self) -> list[str]:
         """Get the paths that are being watched for changes."""
         return [
-            file_path_item.get("path")
+            path
             for file_path_item in self.config.get("filePaths", [])
             if isinstance(file_path_item, dict)
+            and (path := file_path_item.get("path")) is not None
         ]
 
     @classmethod

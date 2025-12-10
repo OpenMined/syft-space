@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from syftai_space.components.datasets.entities import ProvisionerStatus
 from syftai_space.components.shared.domain_types import HealthcheckStatus
@@ -53,6 +53,38 @@ class CreateDatasetRequest(BaseModel):
                 },
                 "summary": "Legal documents for RAG analysis",
                 "tags": "legal,documents,analysis",
+            }
+        }
+
+
+class UpdateDatasetRequest(BaseModel):
+    """Request model for updating a dataset (partial update)."""
+
+    name: Optional[str] = Field(
+        None, description="New dataset name (must be unique per tenant)"
+    )
+    summary: Optional[str] = Field(None, description="Updated summary")
+    tags: Optional[str] = Field(
+        None, description="Updated tags (e.g., 'legal,documents')"
+    )
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(self) -> "UpdateDatasetRequest":
+        """Ensure at least one field is provided for update."""
+        if self.name is None and self.summary is None and self.tags is None:
+            raise ValueError(
+                "At least one field (name, summary, or tags) must be provided"
+            )
+        return self
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "name": "legal-docs-updated",
+                "summary": "Updated legal documents for RAG analysis",
+                "tags": "legal,documents,analysis,updated",
             }
         }
 
