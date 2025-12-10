@@ -29,6 +29,7 @@ from syftai_space.components.datasets.schemas import (
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
+    UpdateDatasetRequest,
 )
 from syftai_space.components.shared.domain_types import HealthcheckStatus
 from syftai_space.components.tenants.entities import Tenant
@@ -377,7 +378,15 @@ class DatasetHandler:
             List of datasets
         """
         datasets = self.repository.get_all(tenant.id)
-        return [DatasetListItem.model_validate(ds) for ds in datasets]
+        return [
+            DatasetListItem.from_dataset(
+                ds,
+                self.provisioner_state_repository.get_by_id(ds.provisioner_state_id)
+                if ds.provisioner_state_id
+                else None,
+            )
+            for ds in datasets
+        ]
 
     def get_dataset(self, name: str, tenant: Tenant) -> DatasetResponse:
         """Get a specific dataset by name within a tenant.
@@ -403,6 +412,48 @@ class DatasetHandler:
             )
 
         return DatasetResponse.from_dataset(dataset, provisioner_state)
+
+    def update_dataset(
+        self, name: str, request: UpdateDatasetRequest, tenant: Tenant
+    ) -> DatasetResponse:
+        """Update a dataset by name within a tenant.
+
+        Args:
+            name: Current dataset name
+            request: Update request with fields to update
+            tenant: Tenant context
+
+        Returns:
+            Updated dataset details
+
+        Raises:
+            HTTPException: If dataset not found or name already exists
+            ValidationError: If no fields provided (handled by FastAPI/Pydantic)
+        """
+        # Update dataset
+        try:
+            updated_dataset = self.repository.update_by_name(
+                name,
+                tenant.id,
+                name_new=request.name,
+                summary=request.summary,
+                tags=request.tags,
+            )
+        except ValueError as e:
+            # Name conflict or constraint violation
+            raise HTTPException(status_code=409, detail=str(e)) from e
+
+        if not updated_dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        # Get provisioner state if exists
+        provisioner_state = None
+        if updated_dataset.provisioner_state_id:
+            provisioner_state = self.provisioner_state_repository.get_by_dtype(
+                updated_dataset.dtype
+            )
+
+        return DatasetResponse.from_dataset(updated_dataset, provisioner_state)
 
     def delete_dataset(self, name: str, tenant: Tenant) -> dict:
         """Delete a dataset by name within a tenant.

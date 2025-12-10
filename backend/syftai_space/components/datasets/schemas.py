@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from syftai_space.components.datasets.entities import ProvisionerStatus
 from syftai_space.components.shared.domain_types import HealthcheckStatus
@@ -57,6 +57,38 @@ class CreateDatasetRequest(BaseModel):
         }
 
 
+class UpdateDatasetRequest(BaseModel):
+    """Request model for updating a dataset (partial update)."""
+
+    name: Optional[str] = Field(
+        None, description="New dataset name (must be unique per tenant)"
+    )
+    summary: Optional[str] = Field(None, description="Updated summary")
+    tags: Optional[str] = Field(
+        None, description="Updated tags (e.g., 'legal,documents')"
+    )
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(self) -> "UpdateDatasetRequest":
+        """Ensure at least one field is provided for update."""
+        if self.name is None and self.summary is None and self.tags is None:
+            raise ValueError(
+                "At least one field (name, summary, or tags) must be provided"
+            )
+        return self
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "name": "legal-docs-updated",
+                "summary": "Updated legal documents for RAG analysis",
+                "tags": "legal,documents,analysis,updated",
+            }
+        }
+
+
 class ProvisionerStateResponse(BaseModel):
     """Response model for provisioner state."""
 
@@ -66,6 +98,31 @@ class ProvisionerStateResponse(BaseModel):
     state: Optional[dict[str, Any]] = Field(None, description="Provisioner state")
     started_at: Optional[datetime] = Field(None, description="Start time")
     stopped_at: Optional[datetime] = Field(None, description="Stop time")
+    error: Optional[str] = Field(None, description="Error message")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class EndpointListItem(BaseModel):
+    """Response model for endpoint in list view."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Endpoint name")
+    slug: str = Field(..., description="Unique URL slug")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class ProvisionerStatusResponse(BaseModel):
+    """Response model for dataset provisioner status."""
+
+    status: ProvisionerStatus = Field(..., description="Provisioner status")
     error: Optional[str] = Field(None, description="Error message")
 
     class Config:
@@ -88,6 +145,9 @@ class DatasetResponse(BaseModel):
     )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
+    connected_endpoints: list[EndpointListItem] = Field(
+        ..., description="Connected endpoints"
+    )
 
     class Config:
         """Pydantic config."""
@@ -125,6 +185,7 @@ class DatasetResponse(BaseModel):
             provisioner_state=provisioner_state_response,
             created_at=dataset.created_at,
             updated_at=dataset.updated_at,
+            connected_endpoints=dataset.endpoints,
         )
 
 
@@ -137,11 +198,36 @@ class DatasetListItem(BaseModel):
     summary: str = Field(..., description="Dataset summary")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
+    connected_endpoints: list[EndpointListItem] = Field(
+        ..., description="Connected endpoints"
+    )
+    provisioner_status: Optional[ProvisionerStatusResponse] = Field(
+        None, description="Provisioner status"
+    )
 
-    class Config:
-        """Pydantic config."""
+    @classmethod
+    def from_dataset(
+        cls,
+        dataset: "Dataset",
+        provisioner_state: Optional["ProvisionerState"] = None,
+    ) -> "DatasetListItem":
+        """Create DatasetListItem from Dataset entity."""
+        provisioner_status_response = None
+        if provisioner_state:
+            provisioner_status_response = ProvisionerStatusResponse.model_validate(
+                provisioner_state
+            )
 
-        from_attributes = True
+        return cls(
+            id=dataset.id,
+            name=dataset.name,
+            dtype=dataset.dtype,
+            summary=dataset.summary,
+            tags=dataset.tags,
+            created_at=dataset.created_at,
+            connected_endpoints=dataset.endpoints,
+            provisioner_status=provisioner_status_response,
+        )
 
 
 class IngestFileResponse(BaseModel):

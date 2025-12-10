@@ -204,6 +204,10 @@ class IngestableDatasetType(BaseDatasetType):
         """
         ...
 
+    def watched_paths(self) -> list[str]:
+        """Get the paths that are being watched for changes."""
+        ...
+
 
 class BaseDatasetTypeProvisioner(Protocol):
     """Base dataset type provisioner interface.

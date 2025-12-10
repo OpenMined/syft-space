@@ -14,6 +14,7 @@ from syftai_space.components.datasets.schemas import (
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
+    UpdateDatasetRequest,
 )
 from syftai_space.components.tenants.dependency import get_tenant_dependency
 from syftai_space.components.tenants.entities import Tenant
@@ -148,6 +149,32 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             Dataset details including configuration
         """
         return handler.get_dataset(name, tenant)
+
+    @router.patch("/{name}", response_model=DatasetResponse)
+    async def update_dataset(
+        name: str,
+        request: UpdateDatasetRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> DatasetResponse:
+        """Update a dataset (partial update).
+
+        Allows updating name, summary, and/or tags. Name must remain unique per tenant.
+
+        Args:
+            name: Current dataset name
+            request: Update request with fields to update
+            tenant: Current tenant (injected)
+
+        Returns:
+            Updated dataset details
+
+        Raises:
+            422 Unprocessable Entity: If no fields provided (Pydantic validation)
+            404 Not Found: If dataset not found
+            409 Conflict: If new name already exists
+        """
+        return handler.update_dataset(name, request, tenant)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_dataset(
