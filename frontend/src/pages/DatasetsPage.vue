@@ -232,12 +232,13 @@
 
       <DialogFooter>
         <Button variant="outline" @click="cancelDeleteDataset"> Cancel </Button>
-        <Button variant="destructive" @click="confirmDeleteDataset" :disabled="!allEndpointsChecked">
+        <Button variant="destructive" @click="confirmDeleteDataset" :disabled="!allEndpointsChecked || isDeleting">
           {{
-            datasetToDelete && datasetToDelete.endpointCount && datasetToDelete.endpointCount > 0
-              ? `Delete Dataset & ${datasetToDelete.endpointCount} Endpoint${datasetToDelete.endpointCount !== 1 ? 's' :
-                ''}`
-              : 'Delete Dataset'
+            isDeleting
+              ? 'Deleting...'
+              : datasetToDelete && datasetToDelete.endpointCount && datasetToDelete.endpointCount > 0
+                ? `Delete Dataset & ${datasetToDelete.endpointCount} Endpoint${datasetToDelete.endpointCount !== 1 ? 's' : ''}`
+                : 'Delete Dataset'
           }}
         </Button>
       </DialogFooter>
@@ -294,6 +295,7 @@ const editingDataset = ref<DataSource | null>(null)
 const showDeleteDialog = ref(false)
 const datasetToDelete = ref<DataSource | null>(null)
 const checkedEndpoints = ref<string[]>([])
+const isDeleting = ref(false)
 
 // Function to get endpoint names connected to a dataset
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -354,15 +356,18 @@ const handleDeleteDataset = (dataset: DataSource) => {
 }
 
 const confirmDeleteDataset = async () => {
-  if (datasetToDelete.value) {
+  if (datasetToDelete.value && !isDeleting.value) {
+    isDeleting.value = true
     const success = await deleteDataset(datasetToDelete.value.name)
     if (success) {
       toast.success(`Dataset "${datasetToDelete.value.name}" deleted successfully`)
       showDeleteDialog.value = false
       datasetToDelete.value = null
+      checkedEndpoints.value = []
     } else {
       toast.error(error.value || 'Failed to delete dataset')
     }
+    isDeleting.value = false
   }
 }
 
