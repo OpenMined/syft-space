@@ -74,6 +74,19 @@ class ProvisionerStateResponse(BaseModel):
         from_attributes = True
 
 
+class EndpointListItem(BaseModel):
+    """Response model for endpoint in list view."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Endpoint name")
+    slug: str = Field(..., description="Unique URL slug")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
 class DatasetResponse(BaseModel):
     """Response model for dataset details."""
 
@@ -88,6 +101,9 @@ class DatasetResponse(BaseModel):
     )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
+    connected_endpoints: list[EndpointListItem] = Field(
+        ..., description="Connected endpoints"
+    )
 
     class Config:
         """Pydantic config."""
@@ -125,6 +141,7 @@ class DatasetResponse(BaseModel):
             provisioner_state=provisioner_state_response,
             created_at=dataset.created_at,
             updated_at=dataset.updated_at,
+            connected_endpoints=dataset.endpoints,
         )
 
 
@@ -137,11 +154,36 @@ class DatasetListItem(BaseModel):
     summary: str = Field(..., description="Dataset summary")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
+    connected_endpoints: list[EndpointListItem] = Field(
+        ..., description="Connected endpoints"
+    )
+    provisioner_status: Optional[ProvisionerStateResponse] = Field(
+        None, description="Provisioner status"
+    )
 
-    class Config:
-        """Pydantic config."""
+    @classmethod
+    def from_dataset(
+        cls,
+        dataset: "Dataset",
+        provisioner_state: Optional["ProvisionerState"] = None,
+    ) -> "DatasetListItem":
+        """Create DatasetListItem from Dataset entity."""
+        provisioner_state_response = None
+        if provisioner_state:
+            provisioner_state_response = ProvisionerStateResponse.model_validate(
+                provisioner_state
+            )
 
-        from_attributes = True
+        return cls(
+            id=dataset.id,
+            name=dataset.name,
+            dtype=dataset.dtype,
+            summary=dataset.summary,
+            tags=dataset.tags,
+            created_at=dataset.created_at,
+            connected_endpoints=dataset.endpoints,
+            provisioner_status=provisioner_state_response,
+        )
 
 
 class IngestFileResponse(BaseModel):

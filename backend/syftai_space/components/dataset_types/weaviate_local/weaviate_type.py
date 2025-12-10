@@ -97,13 +97,24 @@ class LocalFileDatasetType(IngestableDatasetType):
                         "enum": [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"],
                     },
                     "uniqueItems": True,
-                    "default": [".pdf"],
+                    "default": [".pdf", ".html", ".xlsx", ".docx", ".md"],
                 },
                 "filePaths": {
                     "type": "array",
                     "title": "File Paths",
                     "items": {
-                        "type": "string",
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "title": "File Path",
+                            },
+                            "description": {
+                                "type": "string",
+                                "title": "Description",
+                            },
+                        },
+                        "required": ["path", "description"],
                     },
                     "uniqueItems": True,
                     "default": [],
@@ -111,6 +122,14 @@ class LocalFileDatasetType(IngestableDatasetType):
             },
             "required": ["collectionName", "ingestFileTypeOptions", "filePaths"],
         }
+
+    def watched_paths(self) -> list[str]:
+        """Get the paths that are being watched for changes."""
+        return [
+            file_path_item.get("path")
+            for file_path_item in self.config.get("filePaths", [])
+            if isinstance(file_path_item, dict)
+        ]
 
     @classmethod
     def validate_configuration(cls, configuration: dict[str, Any]) -> None:
@@ -135,9 +154,25 @@ class LocalFileDatasetType(IngestableDatasetType):
             ) from None
 
         # Check if filePaths exist
-        for filePath in configuration["filePaths"]:
-            if not Path(filePath).exists():
-                raise ValueError(f"filePaths does not exist: {filePath}")
+        for file_path_item in configuration["filePaths"]:
+            # Handle both old format (string) and new format (object with path and description)
+            if isinstance(file_path_item, str):
+                file_path = file_path_item
+            elif isinstance(file_path_item, dict):
+                file_path = file_path_item.get("path")
+                if not file_path:
+                    raise ValueError("filePaths item must have a 'path' property")
+                if "description" not in file_path_item:
+                    raise ValueError(
+                        "filePaths item must have a 'description' property"
+                    )
+            else:
+                raise ValueError(
+                    f"filePaths item must be a string or object with 'path' and 'description' properties, got {type(file_path_item)}"
+                )
+
+            if not Path(file_path).exists():
+                raise ValueError(f"filePaths does not exist: {file_path}")
 
     def _parse_document(self, file: IngestFile) -> dict[str, Any]:
         """Parse the document into a dictionary.

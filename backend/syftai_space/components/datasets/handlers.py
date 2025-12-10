@@ -377,7 +377,15 @@ class DatasetHandler:
             List of datasets
         """
         datasets = self.repository.get_all(tenant.id)
-        return [DatasetListItem.model_validate(ds) for ds in datasets]
+        return [
+            DatasetListItem.from_dataset(
+                ds,
+                self.provisioner_state_repository.get_by_id(ds.provisioner_state_id)
+                if ds.provisioner_state_id
+                else None,
+            )
+            for ds in datasets
+        ]
 
     def get_dataset(self, name: str, tenant: Tenant) -> DatasetResponse:
         """Get a specific dataset by name within a tenant.
