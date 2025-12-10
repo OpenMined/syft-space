@@ -1,5 +1,7 @@
 # Claude Code Instructions
 
+**Important**: For detailed design guidelines, color schemes, and UI patterns, refer to `DESIGN_STANDARDS.md` in this directory.
+
 ## UI Component Library
 
 This project uses **shadcn/ui** as the primary component library. When implementing UI features, ALWAYS prefer shadcn/ui components over custom implementations.
@@ -91,6 +93,81 @@ bun add -D <package-name>     # Install dev dependencies
 bun install                   # Install all dependencies
 bun remove <package-name>     # Remove dependencies
 ```
+
+## API Integration
+
+### Folder Structure
+```
+src/
+├── api/
+│   ├── client.ts          # Axios configuration
+│   ├── types/
+│   │   └── index.ts       # TypeScript interfaces matching backend schemas
+│   └── endpoints/
+│       ├── datasets.ts    # Dataset-related API calls
+│       ├── models.ts      # Model-related API calls
+│       └── endpoints.ts   # Endpoint-related API calls
+├── composables/
+│   └── useFeatureName.ts  # Reactive API hooks with loading/error states
+└── stores/
+    └── featureName.ts     # Pinia stores using API calls
+```
+
+### Integration Steps
+
+1. **Define Types** - Match backend Pydantic schemas:
+   ```typescript
+   // src/api/types/index.ts
+   export interface BrowseResponse {
+     path: string
+     parent?: string
+     items: FileItem[]
+   }
+   ```
+
+2. **Create API Module**:
+   ```typescript
+   // src/api/endpoints/datasets.ts
+   import { apiClient } from '../client'
+   import type { BrowseResponse } from '../types'
+   
+   export const datasetsApi = {
+     browse: async (path = '~'): Promise<BrowseResponse> => {
+       const response = await apiClient.get('/datasets/browse', { params: { path } })
+       return response.data
+     }
+   }
+   ```
+
+3. **Create Composable** for complex features:
+   ```typescript
+   // src/composables/useDatasetBrowser.ts
+   export function useDatasetBrowser() {
+     const data = ref([])
+     const loading = ref(false)
+     const error = ref(null)
+     
+     const load = async () => {
+       loading.value = true
+       try {
+         data.value = await datasetsApi.browse()
+       } catch (e) {
+         error.value = e
+       } finally {
+         loading.value = false
+       }
+     }
+     
+     return { data, loading, error, load }
+   }
+   ```
+
+4. **Update Components** to use the composable or store
+
+### API Configuration
+- Base URL: `http://localhost:8080/api/v1` (configured in `.env`)
+- Uses axios with interceptors for auth and error handling
+- CORS is enabled on backend for `http://localhost:5173`
 
 ## Testing Commands
 
