@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
-import type { DatasetListItem } from '@/api/types'
+import type { DatasetListItem, DatasetResponse, UpdateDatasetRequest } from '@/api/types'
 
 export function useDatasets() {
   const datasets = ref<DatasetListItem[]>([])
@@ -33,6 +33,28 @@ export function useDatasets() {
     }
   }
 
+  const getDataset = async (name: string): Promise<DatasetResponse | null> => {
+    try {
+      const dataset = await datasetsApi.get(name)
+      return dataset
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to get dataset'
+      return null
+    }
+  }
+
+  const updateDataset = async (name: string, updateData: UpdateDatasetRequest): Promise<boolean> => {
+    try {
+      await datasetsApi.update(name, updateData)
+      // Refresh the dataset list after update
+      await loadDatasets()
+      return true
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to update dataset'
+      return false
+    }
+  }
+
   const refreshDatasets = () => {
     return loadDatasets()
   }
@@ -57,6 +79,8 @@ export function useDatasets() {
     loading,
     error,
     loadDatasets,
+    getDataset,
+    updateDataset,
     deleteDataset,
     refreshDatasets,
     transformDataset,

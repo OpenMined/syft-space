@@ -282,7 +282,7 @@ interface DataSource {
 const router = useRouter()
 
 // Use datasets composable
-const { datasets, loading, error, loadDatasets, deleteDataset, refreshDatasets, transformDataset } = useDatasets()
+const { datasets, loading, error, loadDatasets, getDataset, deleteDataset, refreshDatasets, transformDataset } = useDatasets()
 
 // Transform API datasets to match component interface
 const dataSources = computed(() => {
@@ -291,7 +291,13 @@ const dataSources = computed(() => {
 
 const showCreateDataSourceDialog = ref(false)
 const searchQuery = ref('')
-const editingDataset = ref<DataSource | null>(null)
+const editingDataset = ref<{
+  id: string
+  name: string
+  summary: string
+  tags: string[]
+  filePaths: string[]
+} | null>(null)
 const showDeleteDialog = ref(false)
 const datasetToDelete = ref<DataSource | null>(null)
 const checkedEndpoints = ref<string[]>([])
@@ -333,9 +339,24 @@ const handleDatasetCreated = () => {
   refreshDatasets()
 }
 
-const handleEditDataset = (dataset: DataSource) => {
-  editingDataset.value = dataset
-  showCreateDataSourceDialog.value = true
+const handleEditDataset = async (dataset: DataSource) => {
+  try {
+    const fullDataset = await getDataset(dataset.name)
+    if (fullDataset) {
+      editingDataset.value = {
+        id: fullDataset.id,
+        name: fullDataset.name,
+        summary: fullDataset.summary,
+        tags: fullDataset.tags ? fullDataset.tags.split(',').map(tag => tag.trim()).filter(Boolean) : [],
+        filePaths: Array.isArray(fullDataset.configuration?.filePaths) ? fullDataset.configuration.filePaths : [],
+      }
+      showCreateDataSourceDialog.value = true
+    } else {
+      toast.error('Failed to load dataset details for editing')
+    }
+  } catch {
+    toast.error('Failed to load dataset details')
+  }
 }
 
 const handleDatasetUpdated = () => {

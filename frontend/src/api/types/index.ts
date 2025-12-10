@@ -43,3 +43,12 @@ export interface DatasetListItem {
   tags: string
   created_at: string
 }
+
+export interface UpdateDatasetRequest {
+  name: string
+  summary: string
+  tags: string
+  configuration: {
+    filePaths: string[]
+  }
+}
