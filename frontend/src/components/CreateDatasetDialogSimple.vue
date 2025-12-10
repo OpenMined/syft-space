@@ -2,7 +2,7 @@
   <Dialog v-model:open="isOpen">
     <DialogContent class="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle class="heading-3">Create Dataset</DialogTitle>
+        <DialogTitle class="heading-3">{{ props.dataset ? 'Edit Dataset' : 'Create Dataset' }}</DialogTitle>
       </DialogHeader>
 
       <div class="space-y-6 mt-6">
@@ -18,7 +18,7 @@
         </div>
 
         <!-- File Explorer -->
-        <div class="space-y-4">
+        <div v-if="!props.dataset" class="space-y-4">
           <FileExplorer v-model="formData.selectedFiles" :show-hidden="false" :allow-multiple="true" />
 
           <!-- Selected Items with Descriptions -->
@@ -27,7 +27,7 @@
               <h4 class="text-sm font-medium text-foreground">
                 Selected Items ({{ formData.selectedFiles.length }})
               </h4>
-              <Button @click="clearAllFiles" variant="ghost" size="sm"
+              <Button v-if="!props.dataset" @click="clearAllFiles" variant="ghost" size="sm"
                 class="text-muted-foreground hover:text-foreground">
                 Clear all
               </Button>
@@ -41,7 +41,7 @@
                   <div class="flex-1 min-w-0 space-y-2">
                     <div class="flex items-center justify-between gap-2">
                       <p class="text-sm font-medium text-foreground truncate">{{ getFileName(file) }}</p>
-                      <Button @click="removeFile(formData.selectedFiles.indexOf(file))" variant="ghost" size="sm"
+                      <Button v-if="!props.dataset" @click="removeFile(formData.selectedFiles.indexOf(file))" variant="ghost" size="sm"
                         class="h-6 w-6 p-0 hover:text-destructive">
                         <X class="h-3 w-3" />
                       </Button>
@@ -51,6 +51,29 @@
                       <Input v-model="fileDescriptions[file]" placeholder="Brief description of this item's content..."
                         class="text-sm" />
                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Files in Edit Mode (Read-only) -->
+        <div v-if="props.dataset && formData.selectedFiles.length > 0" class="space-y-4">
+          <h4 class="text-sm font-medium text-foreground">
+            Selected Files ({{ formData.selectedFiles.length }})
+          </h4>
+          <div class="space-y-3">
+            <div v-for="file in formData.selectedFiles" :key="file"
+              class="p-3 bg-muted/50 border border-border rounded-lg">
+              <div class="flex items-start gap-3">
+                <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                <div class="flex-1 min-w-0 space-y-2">
+                  <p class="text-sm font-medium text-foreground">{{ getFileName(file) }}</p>
+                  <div class="space-y-1">
+                    <Label class="text-sm text-muted-foreground">Description (Optional)</Label>
+                    <Input v-model="fileDescriptions[file]" placeholder="Brief description of this item's content..."
+                      class="text-sm" />
                   </div>
                 </div>
               </div>
@@ -114,7 +137,7 @@
           Cancel
         </Button>
         <Button @click="handleCreate" :disabled="!isFormValid">
-          Create Dataset
+          {{ isCreating ? (props.dataset ? 'Updating...' : 'Creating...') : (props.dataset ? 'Update Dataset' : 'Create Dataset') }}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -122,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import {
   Dialog,
   DialogContent,
@@ -137,19 +160,20 @@ import { Badge } from '@/components/ui/badge'
 import { FileText, Plus, X } from 'lucide-vue-next'
 import FileExplorer from '@/components/FileExplorer.vue'
 import { toast } from 'vue-sonner'
+import { datasetsApi } from '@/api/endpoints/datasets'
+import type { CreateDatasetRequest, UpdateDatasetRequest } from '@/api/types'
 
-interface DataSource {
+interface EditDataset {
   id: string
   name: string
-  type: string
-  description: string
+  summary: string
   tags: string[]
-  status: 'running' | 'stopped'
+  filePaths: string[]
 }
 
 const props = defineProps<{
   open: boolean
-  dataset?: DataSource | null
+  dataset?: EditDataset | null
 }>()
 
 const emit = defineEmits<{
@@ -171,6 +195,8 @@ const formData = ref({
 
 const tagInput = ref('')
 const fileDescriptions = ref<Record<string, string>>({})
+const isCreating = ref(false)
+const isInitialized = ref(false)
 
 // Computed properties
 const isOpen = computed({
@@ -179,8 +205,22 @@ const isOpen = computed({
 })
 
 const isFormValid = computed(() => {
+  if (isCreating.value) return false
+  
+  // For editing mode, only name is required
+  if (props.dataset) {
+    return formData.value.name.trim() !== ''
+  }
+  
+  // For creation mode, both name and files are required
   return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
 })
+
+// Utility function to generate collection name using UUID hex
+const generateCollectionName = (): string => {
+  // Generate a random UUID and return its hex representation without dashes
+  return crypto.randomUUID().replace(/-/g, '')
+}
 
 // Methods
 const getFileName = (path: string) => {
@@ -224,22 +264,53 @@ const handleCancel = () => {
   isOpen.value = false
 }
 
-const handleCreate = () => {
+const handleCreate = async () => {
   if (!isFormValid.value) return
 
-  const datasetName = formData.value.name
+  isCreating.value = true
 
-  // Emit create event
-  if (props.dataset) {
-    emit('dataset-updated')
-    toast.success(`Dataset "${datasetName}" updated successfully`)
-  } else {
-    emit('dataset-created')
-    toast.success(`Dataset "${datasetName}" created successfully`)
+  try {
+    if (props.dataset) {
+      // Update existing dataset
+      const updateRequest: UpdateDatasetRequest = {
+        name: formData.value.name.trim(),
+        summary: formData.value.summary.trim() || '',
+        tags: formData.value.tags.join(','),
+        configuration: {
+          filePaths: formData.value.selectedFiles,
+        },
+      }
+
+      await datasetsApi.update(props.dataset.name, updateRequest)
+      emit('dataset-updated')
+      toast.success(`Dataset "${props.dataset.name}" updated successfully`)
+    } else {
+      // Create new dataset
+      const createRequest: CreateDatasetRequest = {
+        dtype: 'local_file',
+        name: formData.value.name.trim(),
+        summary: formData.value.summary.trim() || '',
+        tags: formData.value.tags.join(','),
+        configuration: {
+          collectionName: generateCollectionName(),
+          filePaths: formData.value.selectedFiles,
+        },
+      }
+
+      await datasetsApi.create(createRequest)
+      emit('dataset-created')
+      toast.success(`Dataset "${createRequest.name}" created successfully`)
+    }
+
+    resetForm()
+    isOpen.value = false
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+    const action = props.dataset ? 'update' : 'create'
+    toast.error(`Failed to ${action} dataset: ${errorMessage}`)
+  } finally {
+    isCreating.value = false
   }
-
-  resetForm()
-  isOpen.value = false
 }
 
 const resetForm = () => {
@@ -251,11 +322,29 @@ const resetForm = () => {
   }
   tagInput.value = ''
   fileDescriptions.value = {}
+  isInitialized.value = false
 }
 
-// Initialize form data if editing
-if (props.dataset) {
-  formData.value.name = props.dataset.name
-  formData.value.tags = [...props.dataset.tags]
-}
+// Initialize form data when dialog opens with dataset (for editing)
+watch(
+  () => [props.open, props.dataset] as const,
+  async ([open, dataset]) => {
+    if (open && dataset && !isInitialized.value) {
+      await nextTick()
+      formData.value = {
+        name: dataset.name,
+        summary: dataset.summary || '',
+        selectedFiles: [...(dataset.filePaths || [])],
+        tags: [...dataset.tags],
+      }
+      isInitialized.value = true
+    } else if (open && !dataset) {
+      isInitialized.value = false
+      resetForm()
+    } else if (!open) {
+      isInitialized.value = false
+    }
+  },
+  { immediate: true }
+)
 </script>
