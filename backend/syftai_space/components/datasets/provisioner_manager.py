@@ -10,11 +10,8 @@ from syftai_space.components.datasets.handlers import DatasetHandler
 class ProvisionerManager:
     """Lightweight manager for shared dataset provisioner lifecycle.
 
-    Orchestrates startup and shutdown of provisioners.
-    Key behavior:
-    - Startup: Starts provisioners that have at least one dataset attached
-    - Shutdown: Stops all running provisioners
-    - All business logic is delegated to DatasetHandler
+    Manages startup and shutdown of dataset provisioners (e.g., Weaviate collections).
+    All business logic is delegated to DatasetHandler.
     """
 
     def __init__(self, dataset_handler: DatasetHandler):
@@ -27,19 +24,13 @@ class ProvisionerManager:
         self._shutdown_event = asyncio.Event()
 
     async def startup(self) -> None:
-        """Start all provisioners that have datasets attached.
-
-        Only starts provisioners that have at least one dataset - orphaned
-        provisioner states (with no datasets) are not started automatically.
-        """
+        """Start all provisioners that have at least one dataset."""
         if self._shutdown_event.is_set():
-            logger.warning("Shutdown already initiated, skipping provisioner startup")
+            logger.warning("Shutdown already initiated, skipping startup")
             return
 
         logger.info("Starting shared provisioners...")
-
         try:
-            # Run blocking startup in thread pool
             await asyncio.to_thread(self.dataset_handler.startup_all_provisioners)
             logger.info("Provisioner startup complete")
         except Exception as e:
@@ -50,9 +41,7 @@ class ProvisionerManager:
         self._shutdown_event.set()
 
         logger.info("Shutting down shared provisioners...")
-
         try:
-            # Run blocking shutdown in thread pool
             await asyncio.to_thread(self.dataset_handler.shutdown_all_provisioners)
             logger.info("Provisioner shutdown complete")
         except Exception as e:

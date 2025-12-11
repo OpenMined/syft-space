@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from syftai_space.components.dataset_types.interfaces import (
-    IngestableDatasetType,
+    FileIngestableDatasetType,
     IngestFile,
     IngestRequest,
     SearchedDocument,
@@ -34,10 +34,11 @@ DEFAULT_HTTP_PORT = 8083
 DEFAULT_GRPC_PORT = 50051
 
 
-class LocalFileDatasetType(IngestableDatasetType):
+class LocalFileDatasetType(FileIngestableDatasetType):
     """Local file dataset type that allows you to store and query your data.
 
     It uses the weaviate vector database to store and query your data.
+    Implements FileIngestableDatasetType for watch-based file ingestion.
     """
 
     NAME = "local_file"
@@ -124,13 +125,29 @@ class LocalFileDatasetType(IngestableDatasetType):
         }
 
     def watched_paths(self) -> list[str]:
-        """Get the paths that are being watched for changes."""
+        """Get the paths to watch for new files.
+
+        Extracts paths from the filePaths configuration.
+
+        Returns:
+            List of absolute directory/file paths to monitor.
+        """
         return [
             path
             for file_path_item in self.config.get("filePaths", [])
             if isinstance(file_path_item, dict)
             and (path := file_path_item.get("path")) is not None
         ]
+
+    def allowed_extensions(self) -> set[str]:
+        """Get the allowed file extensions for ingestion.
+
+        Extracts extensions from the ingestFileTypeOptions configuration.
+
+        Returns:
+            Set of extensions including the dot (e.g., {".pdf", ".txt"}).
+        """
+        return set(self.config.get("ingestFileTypeOptions", []))
 
     @classmethod
     def validate_configuration(cls, configuration: dict[str, Any]) -> None:
