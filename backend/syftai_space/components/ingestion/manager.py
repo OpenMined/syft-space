@@ -1,6 +1,5 @@
 """Ingestion manager for watch-based file ingestion."""
 
-import os
 import threading
 from io import BytesIO
 from pathlib import Path
@@ -33,7 +32,6 @@ class DatasetFileEventHandler(FileSystemEventHandler):
         self,
         dataset_id: UUID,
         tenant_id: UUID,
-        allowed_extensions: set[str],
         ingestion_manager: "IngestionManager",
     ):
         """Initialize the event handler.
@@ -41,21 +39,12 @@ class DatasetFileEventHandler(FileSystemEventHandler):
         Args:
             dataset_id: Dataset UUID
             tenant_id: Tenant UUID
-            allowed_extensions: Set of allowed file extensions (e.g., {".pdf", ".txt"})
             ingestion_manager: Parent IngestionManager for callbacks
         """
         super().__init__()
         self.dataset_id = dataset_id
         self.tenant_id = tenant_id
-        self.allowed_extensions = allowed_extensions
         self.ingestion_manager = ingestion_manager
-
-    def _should_process(self, path: Path) -> bool:
-        """Check if file should be processed based on extension."""
-        if path.is_dir():
-            return False
-        ext = path.suffix.lower()
-        return ext in self.allowed_extensions
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Handle file created event.
@@ -70,11 +59,11 @@ class DatasetFileEventHandler(FileSystemEventHandler):
             return
 
         src_path = Path(event.src_path)
-        if self._should_process(src_path):
-            logger.debug(f"File created: {src_path}")
-            self.ingestion_manager.schedule_file_job(
-                self.dataset_id, self.tenant_id, src_path
-            )
+
+        logger.debug(f"File created: {src_path}")
+        self.ingestion_manager.schedule_file_job(
+            self.dataset_id, self.tenant_id, src_path
+        )
 
     def on_deleted(self, event: FileSystemEvent) -> None:
         """Handle file deleted event.
@@ -83,9 +72,10 @@ class DatasetFileEventHandler(FileSystemEventHandler):
         """
         if event.is_directory:
             return
-        if self._should_process(event.src_path):
-            logger.debug(f"File deleted: {event.src_path}")
-            self.ingestion_manager.handle_file_deleted(self.dataset_id, event.src_path)
+
+        src_path = Path(event.src_path)
+        logger.debug(f"File deleted: {src_path}")
+        self.ingestion_manager.handle_file_deleted(self.dataset_id, src_path)
 
 
 class IngestionManager:
@@ -139,7 +129,6 @@ class IngestionManager:
 
         FileIngestableDatasetType extends IngestableDatasetType with:
         - watched_paths(): Returns list of paths to monitor
-        - allowed_extensions(): Returns set of allowed file extensions
         """
         try:
             dataset_type_cls = self._registry.get_dataset_type(dtype)
@@ -149,8 +138,6 @@ class IngestionManager:
                 and callable(getattr(dataset_type_cls, "ingest", None))
                 and hasattr(dataset_type_cls, "watched_paths")
                 and callable(getattr(dataset_type_cls, "watched_paths", None))
-                and hasattr(dataset_type_cls, "allowed_extensions")
-                and callable(getattr(dataset_type_cls, "allowed_extensions", None))
             )
         except KeyError:
             return False
@@ -185,7 +172,6 @@ class IngestionManager:
 
         # Use interface methods instead of config keys
         file_paths = dataset_type.watched_paths()
-        allowed_extensions = dataset_type.allowed_extensions()
 
         count = 0
         for path_str in file_paths:
@@ -196,17 +182,11 @@ class IngestionManager:
 
             if path.is_file():
                 # Single file
-                if path.suffix.lower() in allowed_extensions:
-                    count += self._create_job_for_file(
-                        dataset.id, dataset.tenant_id, path
-                    )
+                count += self._create_job_for_file(dataset.id, dataset.tenant_id, path)
             elif path.is_dir():
                 # Directory - scan recursively
                 for file_path in path.rglob("*"):
-                    if (
-                        file_path.is_file()
-                        and file_path.suffix.lower() in allowed_extensions
-                    ):
+                    if file_path.is_file():
                         count += self._create_job_for_file(
                             dataset.id, dataset.tenant_id, file_path
                         )
@@ -253,6 +233,7 @@ class IngestionManager:
             tenant_id: Tenant UUID
             file_path: Path object
         """
+        logger.debug(f"Scheduling file job for {file_path}")
         self._create_job_for_file(dataset_id, tenant_id, file_path)
         # Signal worker that new job is available
         self._job_available_event.set()
@@ -301,13 +282,11 @@ class IngestionManager:
 
             # Use interface methods instead of config keys
             file_paths = dataset_type.watched_paths()
-            allowed_extensions = dataset_type.allowed_extensions()
 
             # Create event handler
             handler = DatasetFileEventHandler(
                 dataset_id=dataset.id,
                 tenant_id=dataset.tenant_id,
-                allowed_extensions=allowed_extensions,
                 ingestion_manager=self,
             )
             self._handlers[dataset.id] = handler
@@ -409,6 +388,22 @@ class IngestionManager:
             job: IngestionJob to process
         """
 
+        file_path = Path(job.file_path)
+        if not file_path.exists():
+            logger.warning(f"File does not exist: {file_path}")
+            self._ingestion_repository.update_status(
+                job.id, IngestionJobStatus.CANCELLED, "File does not exist"
+            )
+            return
+
+        if not file_path.is_file():
+            logger.warning(f"File is not a file: {file_path}")
+            self._ingestion_repository.update_status(
+                job.id, IngestionJobStatus.CANCELLED, "File is not a file"
+            )
+            return
+
+        logger.debug(f"Processing ingestion job {job.id} {file_path}")
         # Update status to IN_PROGRESS
         self._ingestion_repository.update_status(job.id, IngestionJobStatus.IN_PROGRESS)
 
@@ -422,19 +417,11 @@ class IngestionManager:
                 )
                 return
 
-            # Check if file still exists
-            if not os.path.exists(job.file_path):
-                logger.warning(f"File no longer exists: {job.file_path}")
-                self._ingestion_repository.update_status(
-                    job.id, IngestionJobStatus.CANCELLED, "File no longer exists"
-                )
-                return
-
             # Verify fingerprint (file may have changed while queued)
             try:
-                current_size, current_mtime = self._get_file_fingerprint(job.file_path)
+                current_size, current_mtime = self._get_file_fingerprint(file_path)
             except OSError as e:
-                logger.warning(f"Cannot stat file {job.file_path}: {e}")
+                logger.warning(f"Cannot stat file {file_path}: {e}")
                 self._ingestion_repository.update_status(
                     job.id, IngestionJobStatus.FAILED, f"Cannot read file: {e}"
                 )
@@ -442,11 +429,11 @@ class IngestionManager:
 
             if current_size != job.file_size or current_mtime != job.file_mtime_ns:
                 # File changed, create new job with updated fingerprint
-                logger.info(f"File changed during processing: {job.file_path}")
+                logger.info(f"File changed during processing: {file_path}")
                 self._ingestion_repository.upsert_by_path(
                     tenant_id=job.tenant_id,
                     dataset_id=job.dataset_id,
-                    file_path=job.file_path,
+                    file_path=str(file_path),
                     file_name=job.file_name,
                     file_size=current_size,
                     file_mtime_ns=current_mtime,
@@ -463,12 +450,11 @@ class IngestionManager:
             dataset_type = dataset_type_cls(dataset.configuration)
 
             # Create IngestFile and IngestRequest
-            with open(job.file_path, "rb") as f:
-                content = f.read()
-                file_handle = BytesIO(content)
+            with file_path.open("rb") as f:
+                file_handle = BytesIO(f.read())
 
                 # Detect content type from extension
-                ext = Path(job.file_path).suffix.lower()
+                ext = file_path.suffix.lower()
 
                 ingest_file = IngestFile(
                     file_handle=file_handle,
@@ -477,14 +463,14 @@ class IngestionManager:
                     file_size=job.file_size,
                     metadata={
                         "dataset_id": dataset.id,
-                        "file_path": job.file_path,
+                        "file_path": str(file_path),
                     },
                 )
 
                 ingest_request = IngestRequest(files=[ingest_file])
 
                 # Create context (use system context for background ingestion)
-                ctx = Context(sender="system@local")
+                ctx = Context(sender="system@openmined.org")
 
                 # Call ingest
                 dataset_type.ingest(ctx, ingest_request)
@@ -496,7 +482,7 @@ class IngestionManager:
             logger.info(f"Successfully ingested: {job.file_path}")
 
         except Exception as e:
-            logger.error(f"Failed to ingest {job.file_path}: {e}")
+            logger.error(f"Failed to ingest {job.file_path}: {str(e)}")
             self._ingestion_repository.update_status(
                 job.id, IngestionJobStatus.FAILED, str(e)
             )

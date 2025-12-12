@@ -33,6 +33,8 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.5
 DEFAULT_HTTP_PORT = 8083
 DEFAULT_GRPC_PORT = 50051
 
+DEFAULT_INGEST_FILE_TYPE_OPTIONS = [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"]
+
 
 class LocalFileDatasetType(FileIngestableDatasetType):
     """Local file dataset type that allows you to store and query your data.
@@ -98,7 +100,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
                         "enum": [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"],
                     },
                     "uniqueItems": True,
-                    "default": [".pdf", ".html", ".xlsx", ".docx", ".md"],
+                    "default": [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"],
                 },
                 "filePaths": {
                     "type": "array",
@@ -121,7 +123,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
                     "default": [],
                 },
             },
-            "required": ["collectionName", "ingestFileTypeOptions", "filePaths"],
+            "required": ["collectionName", "filePaths"],
         }
 
     def watched_paths(self) -> list[str]:
@@ -147,7 +149,9 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         Returns:
             Set of extensions including the dot (e.g., {".pdf", ".txt"}).
         """
-        return set(self.config.get("ingestFileTypeOptions", []))
+        return set(
+            self.config.get("ingestFileTypeOptions", DEFAULT_INGEST_FILE_TYPE_OPTIONS)
+        )
 
     @classmethod
     def validate_configuration(cls, configuration: dict[str, Any]) -> None:
@@ -240,12 +244,10 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         ) as client:
             collection = client.collections.get(self.config["collectionName"])
             for file in request.files:
-                if file.content_type not in self.config["ingestFileTypeOptions"]:
-                    file_extension = Path(file.filename).suffix
-                    if file_extension not in self.config["ingestFileTypeOptions"]:
-                        raise ValueError(
-                            f"Unsupported file type: {file_extension}"
-                        ) from None
+                if file.content_type not in self.allowed_extensions():
+                    raise ValueError(
+                        f"Unsupported file type: {file.content_type}"
+                    ) from None
                 parsed_document = self._parse_document(file)
                 collection.data.insert(parsed_document)
 
