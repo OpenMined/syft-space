@@ -218,7 +218,6 @@ tenant_handler = TenantHandler(tenant_repository)
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
-    database=database,
     dataset_repository=dataset_repository,
     ingestion_repository=ingestion_job_repository,
     registry=DATASET_TYPE_REGISTRY,
@@ -240,7 +239,7 @@ app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
 router = APIRouter(prefix="/api/v1")
 
 # Include all routes
-router.include_router(build_dataset_routes(dataset_handler))
+router.include_router(build_dataset_routes(dataset_handler, ingestion_manager))
 router.include_router(build_model_routes(model_handler))
 router.include_router(build_policy_routes(policy_handler))
 router.include_router(build_endpoint_routes(endpoint_handler))

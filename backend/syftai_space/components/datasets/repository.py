@@ -60,12 +60,36 @@ class DatasetRepository(BaseRepository[Dataset]):
             )
             return list(session.exec(statement).all())
 
-    def get_by_id(self, id: int, tenant_id: UUID) -> Optional[Dataset]:
+    def get_by_id(self, id: UUID, tenant_id: UUID) -> Optional[Dataset]:
         """Get a dataset by ID within a tenant.
 
+        Includes tenant_id check for authorization - use this for API handlers.
+        For internal/background processing without tenant context, use get_by_id_internal().
+
         Args:
-            id: Dataset ID
-            tenant_id: Tenant ID
+            id: Dataset UUID
+            tenant_id: Tenant UUID (authorization check)
+
+        Returns:
+            Dataset with endpoints eagerly loaded if found or unauthorized, None otherwise
+        """
+        with self.db.get_session() as session:
+            statement = (
+                select(Dataset)
+                .where(Dataset.id == id, Dataset.tenant_id == tenant_id)
+                .options(selectinload(Dataset.endpoints))
+            )
+            return session.exec(statement).first()
+
+    def get_by_id_internal(self, id: UUID) -> Optional[Dataset]:
+        """Get a dataset by ID without tenant filtering.
+
+        WARNING: Only use for internal/background processing where tenant
+        context is unavailable (e.g., background worker threads).
+        For API handlers, always use get_by_id() with tenant_id.
+
+        Args:
+            id: Dataset UUID
 
         Returns:
             Dataset with endpoints eagerly loaded if found, None otherwise
@@ -73,7 +97,7 @@ class DatasetRepository(BaseRepository[Dataset]):
         with self.db.get_session() as session:
             statement = (
                 select(Dataset)
-                .where(Dataset.id == id, Dataset.tenant_id == tenant_id)
+                .where(Dataset.id == id)
                 .options(selectinload(Dataset.endpoints))
             )
             return session.exec(statement).first()
