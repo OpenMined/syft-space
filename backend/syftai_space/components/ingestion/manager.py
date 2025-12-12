@@ -535,7 +535,8 @@ class IngestionManager:
 
         Called during app shutdown:
         1. Signal worker to stop
-        2. Stop observer
+        2. Stop all watchers (unschedules watches)
+        3. Stop observer
         """
         logger.info("Shutting down ingestion manager...")
 
@@ -547,13 +548,20 @@ class IngestionManager:
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=10.0)
 
-        # Stop observer
+        # Stop all watchers (unschedules all watches)
+        # This is critical to prevent semaphore leaks on macOS where watchdog
+        # uses multiprocessing internally
         if self._observer:
+            # Iterate over a copy of keys since stop_watcher pops from _watches
+            for dataset_id in list(self._watches.keys()):
+                self.stop_watcher(dataset_id)
+
+            # Stop observer after all watches are unscheduled
             self._observer.stop()
             self._observer.join(timeout=5.0)
             self._observer = None
 
-        # Clear state
+        # Clear state (should already be empty, but ensure cleanup)
         self._watches.clear()
         self._handlers.clear()
 
