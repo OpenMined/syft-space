@@ -204,6 +204,7 @@ class DatasetListItem(BaseModel):
     provisioner_status: Optional[ProvisionerStatusResponse] = Field(
         None, description="Provisioner status"
     )
+    configuration: dict[str, Any] = Field(..., description="Dataset configuration")
 
     @classmethod
     def from_dataset(
@@ -227,6 +228,7 @@ class DatasetListItem(BaseModel):
             created_at=dataset.created_at,
             connected_endpoints=dataset.endpoints,
             provisioner_status=provisioner_status_response,
+            configuration=dataset.configuration,
         )
 
 
