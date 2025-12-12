@@ -381,9 +381,11 @@ class DatasetHandler:
         return [
             DatasetListItem.from_dataset(
                 ds,
-                self.provisioner_state_repository.get_by_id(ds.provisioner_state_id)
-                if ds.provisioner_state_id
-                else None,
+                (
+                    self.provisioner_state_repository.get_by_id(ds.provisioner_state_id)
+                    if ds.provisioner_state_id
+                    else None
+                ),
             )
             for ds in datasets
         ]

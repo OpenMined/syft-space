@@ -191,8 +191,10 @@ class BaseDatasetType(Protocol):
 class IngestableDatasetType(BaseDatasetType):
     """Dataset type interface with ingestion capabilities.
 
-    Extends BaseDatasetType to add ingestion functionality.
-    Dataset types that support ingestion should implement this protocol.
+    Extends BaseDatasetType to add generic ingestion functionality.
+    Dataset types that support any form of ingestion should implement this protocol.
+
+    For file-based ingestion with watching, see FileIngestableDatasetType.
     """
 
     def ingest(self, ctx: Context, request: IngestRequest) -> None:
@@ -204,8 +206,36 @@ class IngestableDatasetType(BaseDatasetType):
         """
         ...
 
+
+class FileIngestableDatasetType(IngestableDatasetType):
+    """Dataset type interface for file-based ingestion with watching.
+
+    Extends IngestableDatasetType with file-specific methods for:
+    - Discovering paths to watch for new files
+    - Filtering files by allowed extensions
+
+    Use this interface for dataset types that:
+    - Monitor local directories for new files
+    - Need file extension filtering
+    - Support the watch-based ingestion system
+    """
+
     def watched_paths(self) -> list[str]:
-        """Get the paths that are being watched for changes."""
+        """Get the paths to watch for new files.
+
+        Returns:
+            List of absolute directory/file paths to monitor.
+            Directories will be watched recursively.
+        """
+        ...
+
+    def allowed_extensions(self) -> set[str]:
+        """Get the allowed file extensions for ingestion.
+
+        Returns:
+            Set of extensions including the dot (e.g., {".pdf", ".txt", ".md"}).
+            Only files with these extensions will be ingested.
+        """
         ...
 
 

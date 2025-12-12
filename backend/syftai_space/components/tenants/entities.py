@@ -1,6 +1,6 @@
 """Tenant database entities."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
@@ -40,8 +40,8 @@ class Tenant(SQLModel, table=True):
         sa_column=Column(JSON),
         description="Additional metadata (billing, limits, etc.)",
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Reverse relationships
     datasets: list["Dataset"] = Relationship(back_populates="tenant")

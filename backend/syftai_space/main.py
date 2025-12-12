@@ -35,6 +35,12 @@ from syftai_space.components.datasets.routes import build_dataset_routes
 from syftai_space.components.endpoints.handlers import EndpointHandler
 from syftai_space.components.endpoints.repository import EndpointRepository
 from syftai_space.components.endpoints.routes import build_endpoint_routes
+
+# Import ingestion components
+from syftai_space.components.ingestion.handlers import IngestionHandler
+from syftai_space.components.ingestion.manager import IngestionManager
+from syftai_space.components.ingestion.repository import IngestionJobRepository
+from syftai_space.components.ingestion.routes import build_ingestion_routes
 from syftai_space.components.model_types import (
     register_builtin_types as register_model_types,
 )
@@ -91,22 +97,38 @@ async def lifespan(app: FastAPI):
             logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
             logger.error("   Continuing without ngrok...\n")
 
-    # Startup: Start dataset provisioners in background (non-blocking)
-    provisioner_manager = getattr(app.state, "provisioner_manager", None)
+    # Startup order: provisioners first, then ingestion
+    provisioner_manager: ProvisionerManager = getattr(
+        app.state, "provisioner_manager", None
+    )
+    ingestion_manager: IngestionManager = getattr(app.state, "ingestion_manager", None)
+
     if provisioner_manager:
         try:
             await provisioner_manager.startup()
         except Exception as e:
-            logger.error(f"⚠️  Warning: Failed to start provisioners: {e}")
+            logger.error(f"Failed to start provisioners: {e}")
+
+    if ingestion_manager:
+        try:
+            await ingestion_manager.startup()
+        except Exception as e:
+            logger.error(f"Failed to start ingestion manager: {e}")
 
     yield  # Application runs here
 
-    # Shutdown: Stop all dataset provisioners gracefully
+    # Shutdown order: ingestion first, then provisioners
+    if ingestion_manager:
+        try:
+            await ingestion_manager.shutdown()
+        except Exception as e:
+            logger.error(f"Error shutting down ingestion manager: {e}")
+
     if provisioner_manager:
         try:
             await provisioner_manager.shutdown()
         except Exception as e:
-            logger.error(f"⚠️  Warning: Error shutting down provisioners: {e}")
+            logger.error(f"Error shutting down provisioners: {e}")
 
     # Shutdown: Clean up ngrok if it was started
     if listener:
@@ -167,6 +189,7 @@ provisioner_state_repository = ProvisionerStateRepository(database)
 model_repository = ModelRepository(database)
 policy_repository = PolicyRepository(database)
 endpoint_repository = EndpointRepository(database)
+ingestion_job_repository = IngestionJobRepository(database)
 
 # Explicit type registration - no import side effects
 logger.info("Registering dataset types ...")
@@ -193,9 +216,21 @@ endpoint_handler = EndpointHandler(
 )
 tenant_handler = TenantHandler(tenant_repository)
 
-# Initialize provisioner manager for lifecycle management
+# Initialize ingestion manager and handler
+ingestion_manager = IngestionManager(
+    dataset_repository=dataset_repository,
+    ingestion_repository=ingestion_job_repository,
+    registry=DATASET_TYPE_REGISTRY,
+)
+ingestion_handler = IngestionHandler(
+    ingestion_manager=ingestion_manager,
+    dataset_repository=dataset_repository,
+)
+
+# Initialize lifecycle managers (independent, ordered in lifespan)
 provisioner_manager = ProvisionerManager(dataset_handler)
 app.state.provisioner_manager = provisioner_manager
+app.state.ingestion_manager = ingestion_manager
 
 # Add tenant middleware (after CORS, before routes)
 app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
@@ -204,11 +239,12 @@ app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
 router = APIRouter(prefix="/api/v1")
 
 # Include all routes
-router.include_router(build_dataset_routes(dataset_handler))
+router.include_router(build_dataset_routes(dataset_handler, ingestion_manager))
 router.include_router(build_model_routes(model_handler))
 router.include_router(build_policy_routes(policy_handler))
 router.include_router(build_endpoint_routes(endpoint_handler))
 router.include_router(build_tenant_routes(tenant_handler))
+router.include_router(build_ingestion_routes(ingestion_handler))
 
 
 @router.get("/health", tags=["system"])

@@ -60,15 +60,17 @@ class DatasetRepository(BaseRepository[Dataset]):
             )
             return list(session.exec(statement).all())
 
-    def get_by_id(self, id: int, tenant_id: UUID) -> Optional[Dataset]:
+    def get_by_id(self, id: UUID, tenant_id: UUID) -> Optional[Dataset]:
         """Get a dataset by ID within a tenant.
 
+        Includes tenant_id check for authorization - use this for API handlers.
+
         Args:
-            id: Dataset ID
-            tenant_id: Tenant ID
+            id: Dataset UUID
+            tenant_id: Tenant UUID (authorization check)
 
         Returns:
-            Dataset with endpoints eagerly loaded if found, None otherwise
+            Dataset with endpoints eagerly loaded if found or unauthorized, None otherwise
         """
         with self.db.get_session() as session:
             statement = (

@@ -292,8 +292,10 @@ class EndpointHandler:
         Raises:
             HTTPException: If search fails
         """
-        # Get dataset
-        dataset = self.dataset_repository.get_by_id(endpoint.dataset_id)
+        # Get dataset (use endpoint's tenant_id for authorization)
+        dataset = self.dataset_repository.get_by_id(
+            endpoint.dataset_id, endpoint.tenant_id
+        )
         if not dataset:
             raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -367,8 +369,8 @@ class EndpointHandler:
         Raises:
             HTTPException: If chat fails
         """
-        # Get model
-        model = self.model_repository.get_by_id(endpoint.model_id)
+        # Get model (use endpoint's tenant_id for authorization)
+        model = self.model_repository.get_by_id(endpoint.model_id, endpoint.tenant_id)
         if not model:
             raise HTTPException(status_code=500, detail="Model not found")
 

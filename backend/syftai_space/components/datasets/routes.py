@@ -1,6 +1,6 @@
 """Dataset API routes."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, Body, Depends
 
@@ -19,12 +19,19 @@ from syftai_space.components.datasets.schemas import (
 from syftai_space.components.tenants.dependency import get_tenant_dependency
 from syftai_space.components.tenants.entities import Tenant
 
+if TYPE_CHECKING:
+    from syftai_space.components.ingestion.manager import IngestionManager
 
-def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
+
+def build_dataset_routes(
+    handler: DatasetHandler,
+    ingestion_manager: Optional["IngestionManager"] = None,
+) -> APIRouter:
     """Build the dataset routes.
 
     Args:
         handler: Dataset handler instance
+        ingestion_manager: Optional ingestion manager for auto-starting ingestion
 
     Returns:
         Configured API router
@@ -109,6 +116,9 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
     ) -> DatasetResponse:
         """Create a new dataset.
 
+        For FileIngestableDatasetType, automatically starts ingestion
+        (scans existing files and starts watcher).
+
         Args:
             request: Dataset creation request with configuration
             tenant: Current tenant (injected)
@@ -116,7 +126,13 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
         Returns:
             Created dataset details
         """
-        return handler.create_dataset(request, tenant)
+        response = handler.create_dataset(request, tenant)
+
+        # Auto-start ingestion for FileIngestableDatasetType
+        if ingestion_manager:
+            ingestion_manager.start_ingestion_by_id(response.id, tenant.id)
+
+        return response
 
     @router.get("/", response_model=list[DatasetListItem])
     async def list_datasets(

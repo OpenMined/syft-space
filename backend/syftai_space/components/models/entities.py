@@ -1,6 +1,6 @@
 """Model database entities."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -36,8 +36,8 @@ class Model(SQLModel, table=True):
     )
     summary: str = Field(default="", description="Brief summary of the model")
     tags: str = Field(default="", description="Comma-separated tags")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Relationships
     tenant: "Tenant" = Relationship(back_populates="models")
