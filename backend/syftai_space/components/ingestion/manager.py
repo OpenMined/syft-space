@@ -15,6 +15,7 @@ from syftai_space.components.dataset_types.registry import DatasetTypeRegistry
 from syftai_space.components.datasets.entities import Dataset
 from syftai_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
 from syftai_space.components.ingestion.repository import IngestionJobRepository
+from syftai_space.components.ingestion.utils import rglob_visible
 from syftai_space.components.shared.domain_types import Context
 
 if TYPE_CHECKING:
@@ -185,7 +186,7 @@ class IngestionManager:
                 count += self._create_job_for_file(dataset.id, dataset.tenant_id, path)
             elif path.is_dir():
                 # Directory - scan recursively
-                for file_path in path.rglob("*"):
+                for file_path in rglob_visible(path):
                     if file_path.is_file():
                         count += self._create_job_for_file(
                             dataset.id, dataset.tenant_id, file_path
