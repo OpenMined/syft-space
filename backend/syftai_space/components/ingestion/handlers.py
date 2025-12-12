@@ -74,10 +74,6 @@ class IngestionHandler:
 
         stats = self.ingestion_manager.get_ingestion_stats(dataset.id, tenant.id)
 
-        progress = 0.0
-        if stats["total"] > 0:
-            progress = (stats["completed"] / stats["total"]) * 100
-
         is_watching = self.ingestion_manager.is_watching(dataset.id)
 
         return IngestionStatusResponse(
@@ -90,7 +86,6 @@ class IngestionHandler:
             completed=stats["completed"],
             failed=stats["failed"],
             cancelled=stats["cancelled"],
-            progress_percent=round(progress, 2),
         )
 
     def list_ingestion_jobs(

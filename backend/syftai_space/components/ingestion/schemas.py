@@ -41,7 +41,6 @@ class IngestionStatusResponse(BaseModel):
     completed: int = Field(..., description="Completed jobs count")
     failed: int = Field(..., description="Failed jobs count")
     cancelled: int = Field(..., description="Cancelled jobs count")
-    progress_percent: float = Field(..., description="Completion percentage (0-100)")
 
 
 class IngestionJobListResponse(BaseModel):
