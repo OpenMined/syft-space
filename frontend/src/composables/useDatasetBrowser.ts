@@ -27,14 +27,14 @@ export function useDatasetBrowser() {
       } else {
         loadingPaths.value.add(path)
       }
-      
+
       error.value = null
       const response = await datasetsApi.browse(path, false)
-      
+
       if (!response || !Array.isArray(response.items)) {
         throw new Error('Invalid response from server')
       }
-      
+
       // Convert API response to FileNode format
       const nodes: FileNode[] = response.items.map((item: FileItem) => ({
         name: item.name,
@@ -45,7 +45,7 @@ export function useDatasetBrowser() {
         children: item.is_dir ? [] : undefined,
         hasLoaded: false,
       }))
-      
+
       loadedPaths.value.add(path)
       return nodes
     } catch (err) {

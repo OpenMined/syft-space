@@ -296,9 +296,7 @@
                 <span class="body-sm text-muted-foreground">Connection Status</span>
                 <div class="flex items-center gap-3">
                   <div class="w-2.5 h-2.5 bg-primary rounded-full"></div>
-                  <span class="body-sm font-medium text-primary"
-                    >Connected</span
-                  >
+                  <span class="body-sm font-medium text-primary">Connected</span>
                 </div>
               </div>
             </div>
@@ -370,9 +368,7 @@
                 class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
               >
                 <div class="flex items-center gap-4">
-                  <div
-                    class="p-3 bg-primary/10 rounded-xl"
-                  >
+                  <div class="p-3 bg-primary/10 rounded-xl">
                     <Globe class="h-5 w-5 text-primary" />
                   </div>
                   <div>
@@ -405,9 +401,7 @@
           <!-- Access Trends Chart -->
           <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
             <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-3 text-foreground flex items-center gap-2">
-                Access Trends
-              </h2>
+              <h2 class="heading-3 text-foreground flex items-center gap-2">Access Trends</h2>
               <div class="flex items-center gap-2">
                 <Button
                   v-for="period in ['Daily', 'Weekly', 'Monthly']"
@@ -479,9 +473,7 @@
         <TabsContent value="logs" class="space-y-6">
           <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
             <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-3 text-foreground flex items-center gap-2">
-                Weaviate Logs
-              </h2>
+              <h2 class="heading-3 text-foreground flex items-center gap-2">Weaviate Logs</h2>
               <div class="flex items-center gap-3">
                 <Button
                   variant="outline"

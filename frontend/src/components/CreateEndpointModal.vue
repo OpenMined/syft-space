@@ -14,8 +14,12 @@
         <!-- Option Cards with guidance -->
         <div class="space-y-4 mb-8">
           <!-- Help text for different personas -->
-          <div class="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-6">
-            <h4 class="font-medium text-amber-900 dark:text-amber-100 mb-3">💡 Not sure which to choose?</h4>
+          <div
+            class="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-6"
+          >
+            <h4 class="font-medium text-amber-900 dark:text-amber-100 mb-3">
+              💡 Not sure which to choose?
+            </h4>
             <div class="space-y-2 text-sm text-amber-800 dark:text-amber-200">
               <div class="flex items-start gap-2">
                 <span class="text-amber-600 dark:text-amber-400">•</span>
@@ -68,16 +72,20 @@
                 <div class="mb-3">
                   <p class="text-xs text-muted-foreground mb-2">Popular for:</p>
                   <div class="flex flex-wrap gap-2">
-                    <span class="px-2 py-1 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium"
+                    <span
+                      class="px-2 py-1 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium"
                       >News archives</span
                     >
-                    <span class="px-2 py-1 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium"
+                    <span
+                      class="px-2 py-1 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium"
                       >Research papers</span
                     >
-                    <span class="px-2 py-1 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium"
+                    <span
+                      class="px-2 py-1 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium"
                       >Books & reports</span
                     >
-                    <span class="px-2 py-1 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium"
+                    <span
+                      class="px-2 py-1 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium"
                       >Lab data</span
                     >
                   </div>
@@ -85,8 +93,12 @@
                 <div class="flex flex-wrap gap-2">
                   <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs">PDF</span>
                   <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs">CSV</span>
-                  <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs">Markdown</span>
-                  <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs">Database</span>
+                  <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs"
+                    >Markdown</span
+                  >
+                  <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs"
+                    >Database</span
+                  >
                 </div>
               </div>
               <ChevronRight
@@ -149,8 +161,12 @@
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs">vLLM</span>
-                  <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs">Ollama</span>
-                  <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs">Custom</span>
+                  <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs"
+                    >Ollama</span
+                  >
+                  <span class="px-2 py-1 bg-muted text-muted-foreground rounded text-xs"
+                    >Custom</span
+                  >
                 </div>
               </div>
               <ChevronRight

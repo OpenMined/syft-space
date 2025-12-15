@@ -52,8 +52,14 @@
 
     <!-- Children -->
     <div v-if="node.type === 'directory' && isExpanded" class="ml-2">
-      <div v-if="node.isLoading" class="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground" :style="{ paddingLeft: `${(depth + 1) * 20}px` }">
-        <div class="w-4 h-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent"></div>
+      <div
+        v-if="node.isLoading"
+        class="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground"
+        :style="{ paddingLeft: `${(depth + 1) * 20}px` }"
+      >
+        <div
+          class="w-4 h-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent"
+        ></div>
         Loading...
       </div>
       <TreeNode

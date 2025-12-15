@@ -17,7 +17,8 @@
       <!-- Tabs -->
       <Tabs v-model="activeTab" class="w-auto">
         <TabsList
-          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]">
+          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]"
+        >
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="running">Running</TabsTrigger>
           <TabsTrigger value="stopped">Stopped</TabsTrigger>
@@ -27,8 +28,14 @@
       <!-- Search bar and Create button -->
       <div class="flex items-center gap-4">
         <div class="relative w-80">
-          <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-          <Input v-model="searchQuery" placeholder="Find models, tags, types..." class="pl-10 pr-4 py-2.5 w-full" />
+          <Search
+            class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
+          />
+          <Input
+            v-model="searchQuery"
+            placeholder="Find models, tags, types..."
+            class="pl-10 pr-4 py-2.5 w-full"
+          />
         </div>
 
         <!-- Add Model Button -->
@@ -41,45 +48,66 @@
 
     <!-- Models List -->
     <div class="space-y-5">
-      <div v-for="model in filteredModels" :key="model.id"
+      <div
+        v-for="model in filteredModels"
+        :key="model.id"
         class="bg-card border border-border rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
-        @click="navigateToDetail(model.name)">
+        @click="navigateToDetail(model.name)"
+      >
         <div class="flex items-start justify-between">
           <div class="flex items-start gap-4">
-            <div :class="[
-              'p-3.5 rounded-xl',
-              model.type === 'vllm'
-                ? 'bg-primary/10'
-                : model.type === 'ollama'
+            <div
+              :class="[
+                'p-3.5 rounded-xl',
+                model.type === 'vllm'
                   ? 'bg-primary/10'
-                  : 'bg-primary/10',
-            ]">
+                  : model.type === 'ollama'
+                    ? 'bg-primary/10'
+                    : 'bg-primary/10',
+              ]"
+            >
               <IntegrationIcon :name="model.type" class="h-6 w-6" />
             </div>
             <div class="flex-1">
               <div class="flex items-center gap-3 mb-2">
                 <h3 class="heading-4 text-foreground">{{ model.name }}</h3>
-                <Badge variant="outline" :class="model.status === 'running'
-                  ? 'bg-primary/10 text-primary border border-primary/20'
-                  : 'bg-muted text-muted-foreground border border-border'
-                  " class="body-sm px-2.5 py-1 rounded-md">
-                  <div :class="model.status === 'running'
-                    ? 'w-2 h-2 bg-primary rounded-full mr-1'
-                    : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
-                    "></div>
+                <Badge
+                  variant="outline"
+                  :class="
+                    model.status === 'running'
+                      ? 'bg-primary/10 text-primary border border-primary/20'
+                      : 'bg-muted text-muted-foreground border border-border'
+                  "
+                  class="body-sm px-2.5 py-1 rounded-md"
+                >
+                  <div
+                    :class="
+                      model.status === 'running'
+                        ? 'w-2 h-2 bg-primary rounded-full mr-1'
+                        : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
+                    "
+                  ></div>
                   {{ model.status }}
                 </Badge>
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger as-child>
-                      <Badge variant="outline" :class="model.endpointCount > 0
-                        ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
-                        : 'bg-muted text-muted-foreground border border-border'
-                        " class="body-sm px-2.5 py-1 rounded-md">
-                        <div :class="model.endpointCount > 0
-                          ? 'w-2 h-2 bg-secondary rounded-full mr-1'
-                          : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
-                          "></div>
+                      <Badge
+                        variant="outline"
+                        :class="
+                          model.endpointCount > 0
+                            ? 'bg-primary/10 text-primary border border-primary/20 cursor-help'
+                            : 'bg-muted text-muted-foreground border border-border'
+                        "
+                        class="body-sm px-2.5 py-1 rounded-md"
+                      >
+                        <div
+                          :class="
+                            model.endpointCount > 0
+                              ? 'w-2 h-2 bg-secondary rounded-full mr-1'
+                              : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
+                          "
+                        ></div>
                         {{
                           model.endpointCount === 0
                             ? 'No endpoints'
@@ -91,8 +119,11 @@
                       <div class="space-y-1">
                         <p class="font-medium body-sm">Connected Endpoints:</p>
                         <ul class="space-y-1">
-                          <li v-for="endpointName in getEndpointNamesForModel(model.id)" :key="endpointName"
-                            class="body-sm">
+                          <li
+                            v-for="endpointName in getEndpointNamesForModel(model.id)"
+                            :key="endpointName"
+                            class="body-sm"
+                          >
                             • {{ endpointName }}
                           </li>
                         </ul>
@@ -115,13 +146,21 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" class="text-muted-foreground hover:text-foreground"
-              @click.stop="handleEditModel(model)">
+            <Button
+              variant="outline"
+              size="sm"
+              class="text-muted-foreground hover:text-foreground"
+              @click.stop="handleEditModel(model)"
+            >
               <Edit class="h-4 w-4 mr-2" />
               Edit
             </Button>
-            <Button variant="outline" size="sm" class="text-destructive hover:text-destructive"
-              @click.stop="handleDeleteModel(model)">
+            <Button
+              variant="outline"
+              size="sm"
+              class="text-destructive hover:text-destructive"
+              @click.stop="handleDeleteModel(model)"
+            >
               <Trash2 class="h-4 w-4 mr-2" />
               Delete
             </Button>
@@ -158,9 +197,13 @@
   </div>
 
   <!-- Create Model Dialog -->
-  <CreateModelDialogSimple v-model:open="showCreateModelDialog" :model="editingModel"
-    @model-created="handleModelCreated" @model-updated="handleModelUpdated"
-    @update:open="!$event && handleDialogClose()" />
+  <CreateModelDialogSimple
+    v-model:open="showCreateModelDialog"
+    :model="editingModel"
+    @model-created="handleModelCreated"
+    @model-updated="handleModelUpdated"
+    @update:open="!$event && handleDialogClose()"
+  />
 
   <!-- Delete Confirmation Dialog -->
   <Dialog v-model:open="showDeleteDialog">
@@ -188,13 +231,22 @@
                   Check each endpoint to confirm deletion
                 </p>
                 <div class="space-y-2">
-                  <div v-for="endpointName in getEndpointNamesForModel(modelToDelete.id)" :key="endpointName"
-                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20">
-                    <input type="checkbox" :id="`endpoint-${endpointName}`"
-                      :checked="checkedEndpoints.includes(endpointName)" @change="() => toggleEndpoint(endpointName)"
-                      class="w-4 h-4 text-destructive bg-background border-destructive rounded focus:ring-destructive focus:ring-2" />
-                    <label :for="`endpoint-${endpointName}`"
-                      class="flex-1 cursor-pointer flex items-center justify-between">
+                  <div
+                    v-for="endpointName in getEndpointNamesForModel(modelToDelete.id)"
+                    :key="endpointName"
+                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20"
+                  >
+                    <input
+                      type="checkbox"
+                      :id="`endpoint-${endpointName}`"
+                      :checked="checkedEndpoints.includes(endpointName)"
+                      @change="() => toggleEndpoint(endpointName)"
+                      class="w-4 h-4 text-destructive bg-background border-destructive rounded focus:ring-destructive focus:ring-2"
+                    />
+                    <label
+                      :for="`endpoint-${endpointName}`"
+                      class="flex-1 cursor-pointer flex items-center justify-between"
+                    >
                       <span class="body-sm font-medium text-foreground">
                         {{ endpointName }}
                       </span>

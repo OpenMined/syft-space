@@ -20,7 +20,7 @@ apiClient.interceptors.request.use(
   },
   (error) => {
     return Promise.reject(error)
-  }
+  },
 )
 
 apiClient.interceptors.response.use(
@@ -33,5 +33,5 @@ apiClient.interceptors.response.use(
       window.location.href = '/login'
     }
     return Promise.reject(error)
-  }
+  },
 )

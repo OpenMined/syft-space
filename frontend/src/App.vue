@@ -7,7 +7,9 @@ import { Toaster } from '@/components/ui/sonner'
 import 'vue-sonner/style.css'
 
 const route = useRoute()
-const showNavbar = computed(() => route.name !== 'create' && !route.path.startsWith('/create/') && route.name !== 'updates')
+const showNavbar = computed(
+  () => route.name !== 'create' && !route.path.startsWith('/create/') && route.name !== 'updates',
+)
 
 // Initialize theme support
 useTheme()
@@ -20,7 +22,7 @@ useTheme()
     <main>
       <router-view />
     </main>
-    
+
     <Toaster position="top-center" />
   </div>
 </template>

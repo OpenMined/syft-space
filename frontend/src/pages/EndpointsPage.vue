@@ -43,7 +43,8 @@
         <!-- Tabs -->
         <Tabs v-model="activeTab" class="w-auto">
           <TabsList
-            class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]">
+            class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]"
+          >
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="published">Published</TabsTrigger>
             <TabsTrigger value="draft">Draft</TabsTrigger>
@@ -53,8 +54,14 @@
         <!-- Search -->
         <div class="flex items-center gap-4">
           <div class="relative w-80">
-            <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <Input v-model="searchQuery" placeholder="Search endpoints..." class="pl-10 pr-4 py-2.5 w-full" />
+            <Search
+              class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
+            />
+            <Input
+              v-model="searchQuery"
+              placeholder="Search endpoints..."
+              class="pl-10 pr-4 py-2.5 w-full"
+            />
           </div>
           <Button @click="showCreateEndpointModal = true">
             <Plus class="h-4 w-4 mr-2" />
@@ -86,7 +93,9 @@
       <!-- Empty state content -->
       <div class="mt-8 bg-card rounded-lg shadow border border-border p-8">
         <div class="text-center py-12">
-          <div class="mx-auto w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-6">
+          <div
+            class="mx-auto w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-6"
+          >
             <Server class="w-7 h-7 text-muted-foreground" />
           </div>
           <h3 class="heading-2 text-foreground mb-3">No endpoints yet</h3>

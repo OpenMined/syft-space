@@ -99,8 +99,12 @@
               <div class="flex flex-wrap gap-2">
                 <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm">PDF</span>
                 <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm">CSV</span>
-                <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm">Markdown</span>
-                <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm">Database</span>
+                <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm"
+                  >Markdown</span
+                >
+                <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm"
+                  >Database</span
+                >
               </div>
             </div>
             <ChevronRight

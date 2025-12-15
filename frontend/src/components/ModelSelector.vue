@@ -68,7 +68,9 @@
             </div>
             <div class="flex-1">
               <span class="font-medium">Create New Model</span>
-              <p class="text-sm text-muted-foreground mt-1">Set up a new AI model for your endpoint</p>
+              <p class="text-sm text-muted-foreground mt-1">
+                Set up a new AI model for your endpoint
+              </p>
             </div>
           </div>
         </div>

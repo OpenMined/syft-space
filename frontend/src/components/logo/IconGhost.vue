@@ -76,6 +76,6 @@ interface IconGhostProps {
 withDefaults(defineProps<IconGhostProps>(), {
   width: '100%',
   height: '100%',
-  className: ''
+  className: '',
 })
 </script>

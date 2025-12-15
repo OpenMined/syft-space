@@ -375,19 +375,27 @@
             </div>
 
             <div class="space-y-3">
-              <div class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg">
+              <div
+                class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg"
+              >
                 <span class="body-sm text-muted-foreground">Average per Request</span>
                 <span class="body-sm font-medium text-foreground">$0.053</span>
               </div>
-              <div class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg">
+              <div
+                class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg"
+              >
                 <span class="body-sm text-muted-foreground">Peak Hour Revenue</span>
                 <span class="body-sm font-medium text-foreground">$127.40/hr</span>
               </div>
-              <div class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg">
+              <div
+                class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg"
+              >
                 <span class="body-sm text-muted-foreground">Total Tokens Processed</span>
                 <span class="body-sm font-medium text-primary">2.4M</span>
               </div>
-              <div class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg">
+              <div
+                class="flex justify-between items-center py-3 px-4 bg-muted/50 border border-border rounded-lg"
+              >
                 <span class="body-sm text-muted-foreground">Cost per Token</span>
                 <span class="body-sm font-medium text-foreground">$0.00012</span>
               </div>

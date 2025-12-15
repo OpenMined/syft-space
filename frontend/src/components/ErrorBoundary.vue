@@ -1,6 +1,8 @@
 <template>
   <div v-if="hasError" class="error-boundary">
-    <div class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg p-6">
+    <div
+      class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg p-6"
+    >
       <div class="flex items-start">
         <AlertCircle class="h-5 w-5 text-red-400 dark:text-red-500 mt-0.5 mr-3 flex-shrink-0" />
         <div class="flex-1">
@@ -13,12 +15,15 @@
 
           <!-- Error details (only in development) -->
           <details v-if="showDetails && errorDetails" class="mb-4">
-            <summary class="text-xs text-red-600 dark:text-red-400 cursor-pointer hover:text-red-800 dark:hover:text-red-200">
+            <summary
+              class="text-xs text-red-600 dark:text-red-400 cursor-pointer hover:text-red-800 dark:hover:text-red-200"
+            >
               Show technical details
             </summary>
-            <pre class="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/30 p-2 rounded overflow-auto font-mono">{{
-              errorDetails
-            }}</pre>
+            <pre
+              class="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/30 p-2 rounded overflow-auto font-mono"
+              >{{ errorDetails }}</pre
+            >
           </details>
 
           <div class="flex flex-wrap gap-2">

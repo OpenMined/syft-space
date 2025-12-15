@@ -10,7 +10,7 @@ export function useDatasets() {
   const loadDatasets = async () => {
     loading.value = true
     error.value = null
-    
+
     try {
       const data = await datasetsApi.list()
       datasets.value = data
@@ -25,7 +25,7 @@ export function useDatasets() {
     try {
       await datasetsApi.delete(name)
       // Remove from local state
-      datasets.value = datasets.value.filter(dataset => dataset.name !== name)
+      datasets.value = datasets.value.filter((dataset) => dataset.name !== name)
       return true
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to delete dataset'
@@ -43,7 +43,10 @@ export function useDatasets() {
     }
   }
 
-  const updateDataset = async (name: string, updateData: UpdateDatasetRequest): Promise<boolean> => {
+  const updateDataset = async (
+    name: string,
+    updateData: UpdateDatasetRequest,
+  ): Promise<boolean> => {
     try {
       await datasetsApi.update(name, updateData)
       // Refresh the dataset list after update
@@ -66,7 +69,12 @@ export function useDatasets() {
       name: dataset.name,
       type: dataset.dtype,
       description: dataset.summary || 'No description provided',
-      tags: dataset.tags ? dataset.tags.split(',').map(tag => tag.trim()).filter(Boolean) : [],
+      tags: dataset.tags
+        ? dataset.tags
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+        : [],
       status: 'running' as 'running' | 'stopped', // Default status since API doesn't provide this
       endpointCount: 0, // Default endpoint count since API doesn't provide this
       watchedPaths: [], // Default empty paths since API doesn't provide this

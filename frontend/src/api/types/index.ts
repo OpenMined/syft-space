@@ -13,6 +13,11 @@ export interface BrowseResponse {
   items: FileItem[]
 }
 
+export interface FilePathItem {
+  path: string
+  description: string
+}
+
 export interface CreateDatasetRequest {
   dtype: string
   name: string
@@ -20,7 +25,7 @@ export interface CreateDatasetRequest {
   tags: string
   configuration: {
     collectionName: string
-    filePaths: string[]
+    filePaths: FilePathItem[]
   }
 }
 
@@ -45,10 +50,7 @@ export interface DatasetListItem {
 }
 
 export interface UpdateDatasetRequest {
-  name: string
-  summary: string
-  tags: string
-  configuration: {
-    filePaths: string[]
-  }
+  name?: string
+  summary?: string
+  tags?: string
 }

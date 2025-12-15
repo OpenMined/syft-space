@@ -74,7 +74,9 @@
         <div v-if="currentStep === 'type-selection'" class="flex flex-col h-full">
           <!-- Search Input (only for models, not datasets) -->
           <div v-if="resourceConfig.singularName !== 'dataset'" class="relative mb-4">
-            <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Search
+              class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
+            />
             <Input
               v-model="searchQuery"
               :placeholder="`Search ${resourceConfig.pluralName}...`"
@@ -436,7 +438,10 @@
                   />
                 </div>
                 <div class="space-y-2">
-                  <Label for="weaviate-dimensions" class="text-sm font-medium text-muted-foreground">
+                  <Label
+                    for="weaviate-dimensions"
+                    class="text-sm font-medium text-muted-foreground"
+                  >
                     Vector Dimensions
                   </Label>
                   <Input

@@ -130,8 +130,11 @@ const formatTimestamp = (date: Date) => {
       <div class="flex items-center gap-3 mb-3">
         <Inbox class="h-6 w-6 text-primary" />
         <h1 class="heading-3">Your Inbox</h1>
-        <Badge v-if="inboxStore.unreadCount > 0" variant="secondary"
-          class="bg-primary/10 text-primary border-primary/20 px-2.5 py-1 rounded-md">
+        <Badge
+          v-if="inboxStore.unreadCount > 0"
+          variant="secondary"
+          class="bg-primary/10 text-primary border-primary/20 px-2.5 py-1 rounded-md"
+        >
           {{ inboxStore.unreadCount }} new
         </Badge>
       </div>
@@ -144,7 +147,8 @@ const formatTimestamp = (date: Date) => {
     <!-- Tabs -->
     <Tabs v-model="activeTab" class="w-full mb-8">
       <TabsList
-        class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]">
+        class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]"
+      >
         <TabsTrigger value="all">All</TabsTrigger>
         <TabsTrigger value="unread">Unread</TabsTrigger>
         <TabsTrigger value="read">Read</TabsTrigger>
@@ -162,10 +166,15 @@ const formatTimestamp = (date: Date) => {
 
     <!-- Inbox Items -->
     <div v-else class="space-y-5">
-      <Card v-for="item in activeItems" :key="item.id"
-        class="cursor-pointer hover:shadow-lg transition-all border border-border rounded-xl" :class="{
+      <Card
+        v-for="item in activeItems"
+        :key="item.id"
+        class="cursor-pointer hover:shadow-lg transition-all border border-border rounded-xl"
+        :class="{
           'border-primary/20 bg-primary/10': !item.read,
-        }" @click="openItemDialog(item)">
+        }"
+        @click="openItemDialog(item)"
+      >
         <CardHeader class="pb-3">
           <div class="flex items-start justify-between gap-4">
             <div class="flex items-start gap-3 flex-1">
@@ -178,7 +187,10 @@ const formatTimestamp = (date: Date) => {
                   <span class="body-sm text-muted-foreground">
                     {{ item.timestamp.toLocaleString() }}
                   </span>
-                  <div v-if="!item.read" class="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                  <div
+                    v-if="!item.read"
+                    class="w-2 h-2 bg-primary rounded-full animate-pulse"
+                  ></div>
                 </div>
                 <CardTitle class="body-base">{{ item.title }}</CardTitle>
                 <CardDescription class="mt-1">{{ item.summary }}</CardDescription>
@@ -187,12 +199,21 @@ const formatTimestamp = (date: Date) => {
             <div class="flex items-center gap-2">
               <!-- Action Buttons -->
               <div v-if="item.actions" class="flex items-center gap-2">
-                <Button v-if="item.actions.positive" size="sm" variant="outline"
-                  @click.stop="handlePositiveAction(item)">
+                <Button
+                  v-if="item.actions.positive"
+                  size="sm"
+                  variant="outline"
+                  @click.stop="handlePositiveAction(item)"
+                >
                   {{ item.actions.positive.label }}
                 </Button>
-                <Button v-if="item.actions.negative" size="sm" variant="outline"
-                  class="text-destructive hover:text-destructive" @click.stop="handleNegativeAction(item)">
+                <Button
+                  v-if="item.actions.negative"
+                  size="sm"
+                  variant="outline"
+                  class="text-destructive hover:text-destructive"
+                  @click.stop="handleNegativeAction(item)"
+                >
                   {{ item.actions.negative.label }}
                 </Button>
               </div>
@@ -208,7 +229,10 @@ const formatTimestamp = (date: Date) => {
 
     <!-- Item Detail Dialog -->
     <Dialog v-model:open="dialogOpen">
-      <DialogContent v-if="selectedItem" class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl">
+      <DialogContent
+        v-if="selectedItem"
+        class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl"
+      >
         <!-- Header with background -->
         <div class="flex-shrink-0 border-b bg-muted/50">
           <DialogHeader class="p-6 pb-4">
@@ -220,7 +244,10 @@ const formatTimestamp = (date: Date) => {
                 <div>
                   <div class="flex items-center gap-2 mb-1">
                     <Badge variant="outline" class="body-sm">{{ selectedItem.source }}</Badge>
-                    <div v-if="!selectedItem.read" class="flex items-center gap-1 body-sm text-primary">
+                    <div
+                      v-if="!selectedItem.read"
+                      class="flex items-center gap-1 body-sm text-primary"
+                    >
                       <div class="w-2 h-2 bg-primary rounded-full"></div>
                       <span>New</span>
                     </div>
@@ -241,7 +268,8 @@ const formatTimestamp = (date: Date) => {
           <div class="p-6">
             <div
               class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-primary prose-code:font-mono prose-pre:bg-muted prose-pre:border prose-pre:font-mono prose-li:text-muted-foreground dark:prose-invert"
-              v-html="markdownToHtml(selectedItem.longDescription)" />
+              v-html="markdownToHtml(selectedItem.longDescription)"
+            />
           </div>
         </div>
 
@@ -250,23 +278,36 @@ const formatTimestamp = (date: Date) => {
           <DialogFooter class="p-6 pt-4">
             <div class="flex items-center justify-between w-full">
               <div class="flex items-center gap-4">
-                <Button variant="ghost" size="default" class="text-muted-foreground hover:text-foreground" @click="
-                  () => {
-                    selectedItem && dismissItem(selectedItem)
-                    dialogOpen = false
-                  }
-                ">
+                <Button
+                  variant="ghost"
+                  size="default"
+                  class="text-muted-foreground hover:text-foreground"
+                  @click="
+                    () => {
+                      selectedItem && dismissItem(selectedItem)
+                      dialogOpen = false
+                    }
+                  "
+                >
                   <Trash2 class="h-4 w-4 mr-2" />
                   Dismiss
                 </Button>
               </div>
               <div class="flex items-center gap-3">
-                <Button v-if="selectedItem.actions?.negative" variant="outline" size="default"
-                  @click="selectedItem && handleNegativeAction(selectedItem)">
+                <Button
+                  v-if="selectedItem.actions?.negative"
+                  variant="outline"
+                  size="default"
+                  @click="selectedItem && handleNegativeAction(selectedItem)"
+                >
                   {{ selectedItem.actions.negative.label }}
                 </Button>
-                <Button v-if="selectedItem.actions?.positive" variant="default" size="default"
-                  @click="selectedItem && handlePositiveAction(selectedItem)">
+                <Button
+                  v-if="selectedItem.actions?.positive"
+                  variant="default"
+                  size="default"
+                  @click="selectedItem && handlePositiveAction(selectedItem)"
+                >
                   {{ selectedItem.actions.positive.label }}
                 </Button>
               </div>

@@ -58,10 +58,17 @@
         </div>
 
         <!-- Right Panel: Selection Preview -->
-        <div class="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex flex-col h-full">
+        <div
+          class="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex flex-col h-full"
+        >
           <div class="flex items-center justify-between mb-4 flex-shrink-0">
-            <h4 class="text-sm font-medium text-blue-900 dark:text-blue-100">Selected Files & Directories</h4>
-            <Badge variant="secondary" class="bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200">
+            <h4 class="text-sm font-medium text-blue-900 dark:text-blue-100">
+              Selected Files & Directories
+            </h4>
+            <Badge
+              variant="secondary"
+              class="bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200"
+            >
               {{ selectedFiles.length }} item{{ selectedFiles.length !== 1 ? 's' : '' }}
             </Badge>
           </div>
@@ -84,7 +91,9 @@
           </div>
 
           <div v-else class="flex-1 flex flex-col items-center justify-center text-center">
-            <div class="w-16 h-16 bg-blue-100 dark:bg-blue-950/50 rounded-full flex items-center justify-center mb-4">
+            <div
+              class="w-16 h-16 bg-blue-100 dark:bg-blue-950/50 rounded-full flex items-center justify-center mb-4"
+            >
               <HardDrive class="w-8 h-8 text-blue-400" />
             </div>
             <h5 class="text-blue-900 dark:text-blue-100 font-medium mb-2">No files selected</h5>
@@ -128,7 +137,8 @@ const selectedFiles = computed({
 const expandedDirs = ref<Set<string>>(new Set())
 
 const { getFileIcon, getFileIconColor } = useFileIcon()
-const { rootNodes, error, isInitialLoading, loadRootDirectory, loadSubdirectory } = useDatasetBrowser()
+const { rootNodes, error, isInitialLoading, loadRootDirectory, loadSubdirectory } =
+  useDatasetBrowser()
 
 // Load initial data on mount
 onMounted(async () => {

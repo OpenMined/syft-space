@@ -1,5 +1,11 @@
 import { apiClient } from '../client'
-import type { BrowseResponse, CreateDatasetRequest, DatasetResponse, DatasetListItem, UpdateDatasetRequest } from '../types'
+import type {
+  BrowseResponse,
+  CreateDatasetRequest,
+  DatasetResponse,
+  DatasetListItem,
+  UpdateDatasetRequest,
+} from '../types'
 
 export const datasetsApi = {
   browse: async (path = '~', showHidden = false): Promise<BrowseResponse> => {
@@ -32,10 +38,8 @@ export const datasetsApi = {
     return response.data
   },
 
-  update: async (_name: string, _dataset: UpdateDatasetRequest): Promise<DatasetResponse> => {
-    // TODO: Replace with actual PUT endpoint when backend implements it
-    // For now, return a mock response to prevent errors
-    console.warn('Update endpoint not yet implemented in backend')
-    return Promise.reject(new Error('Update functionality not yet available'))
+  update: async (name: string, dataset: UpdateDatasetRequest): Promise<DatasetResponse> => {
+    const response = await apiClient.patch<DatasetResponse>(`/datasets/${name}`, dataset)
+    return response.data
   },
 }
