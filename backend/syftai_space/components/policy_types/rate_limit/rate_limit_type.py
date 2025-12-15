@@ -202,7 +202,7 @@ class EndpointRateLimitPolicy(BasePolicyType):
         remaining, reset_seconds = get_rate_limit_stats(key, count, window_seconds)
 
         # Add metadata about rate limit status
-        context.metadata["rate_limit"] = {
+        context.metadata[self.NAME] = {
             "limit": self.config.limit,
             "requests_in_window": current_count,
             "max_requests": count,
