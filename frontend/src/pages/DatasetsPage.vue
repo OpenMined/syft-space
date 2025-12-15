@@ -155,13 +155,9 @@
                 </p>
 
                 <!-- Watched Paths Preview -->
-                <div class="mb-4 space-y-2 pl-2">
-                  <div v-if="dataSource.isCustom" class="body-sm text-muted-foreground">
-                    📂 <span class="italic">Custom dataset - manually configured</span>
-                  </div>
-
+                <div v-if="!dataSource.isCustom" class="mb-4 space-y-2 pl-2">
                   <div
-                    v-else-if="!dataSource.watchedPaths || dataSource.watchedPaths.length === 0"
+                    v-if="!dataSource.watchedPaths || dataSource.watchedPaths.length === 0"
                     class="body-sm text-muted-foreground"
                   >
                     📂 <span class="italic">No paths configured</span>
@@ -339,6 +335,8 @@ interface DataSource {
   endpointCount: number
   watchedPaths?: string[]
   isCustom?: boolean
+  configuration?: Record<string, unknown>
+  connected_endpoints: Array<{ id: string; name: string; slug: string }>
 }
 
 const router = useRouter()
@@ -375,10 +373,11 @@ const checkedEndpoints = ref<string[]>([])
 const isDeleting = ref(false)
 
 // Function to get endpoint names connected to a dataset
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const getEndpointNamesForDataset = (datasetId: string): string[] => {
-  // TODO: Replace with actual endpoint API call when endpoints are integrated
-  return []
+  const dataset = dataSources.value.find(ds => ds.id === datasetId)
+  if (!dataset || !dataset.connected_endpoints) return []
+  
+  return dataset.connected_endpoints.map(endpoint => endpoint.name)
 }
 
 // Load datasets on mount
@@ -499,18 +498,8 @@ const toggleEndpoint = (endpointName: string) => {
 
 // Get preview paths for dataset card
 const getPathsPreview = (dataSource: DataSource) => {
-  if (dataSource.isCustom) {
-    return {
-      isCustom: true,
-      paths: [],
-      hasMore: false,
-      totalCount: 0,
-    }
-  }
-
   if (!dataSource.watchedPaths || dataSource.watchedPaths.length === 0) {
     return {
-      isCustom: false,
       paths: [],
       hasMore: false,
       totalCount: 0,
@@ -522,7 +511,6 @@ const getPathsPreview = (dataSource: DataSource) => {
   const hasMore = dataSource.watchedPaths.length > 3
 
   return {
-    isCustom: false,
     paths: pathsToShow,
     hasMore,
     totalCount: dataSource.watchedPaths.length,

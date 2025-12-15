@@ -40,6 +40,17 @@ export interface DatasetResponse {
   updated_at: string
 }
 
+export interface EndpointListItem {
+  id: string
+  name: string
+  slug: string
+}
+
+export interface ProvisionerStatusResponse {
+  status: string
+  error?: string
+}
+
 export interface DatasetListItem {
   id: string
   name: string
@@ -47,6 +58,9 @@ export interface DatasetListItem {
   summary: string
   tags: string
   created_at: string
+  configuration: Record<string, unknown>
+  connected_endpoints: EndpointListItem[]
+  provisioner_status?: ProvisionerStatusResponse
 }
 
 export interface UpdateDatasetRequest {

@@ -64,6 +64,23 @@ export function useDatasets() {
 
   // Transform API data to match the existing component interface
   const transformDataset = (dataset: DatasetListItem) => {
+    // Extract watched paths from configuration for local_file datasets
+    let watchedPaths: string[] = []
+    if (dataset.dtype === 'local_file' && dataset.configuration?.filePaths) {
+      // filePaths is an array of {path: string, description: string}
+      watchedPaths = (dataset.configuration.filePaths as Array<{ path: string; description: string }>)
+        .map(item => item.path)
+    }
+    
+    // Determine status from provisioner_status
+    let status: 'running' | 'stopped' = 'stopped'
+    if (dataset.provisioner_status) {
+      const provStatus = dataset.provisioner_status.status.toLowerCase()
+      if (provStatus === 'running' || provStatus === 'starting') {
+        status = 'running'
+      }
+    }
+    
     return {
       id: dataset.id,
       name: dataset.name,
@@ -75,10 +92,12 @@ export function useDatasets() {
             .map((tag) => tag.trim())
             .filter(Boolean)
         : [],
-      status: 'running' as 'running' | 'stopped', // Default status since API doesn't provide this
-      endpointCount: 0, // Default endpoint count since API doesn't provide this
-      watchedPaths: [], // Default empty paths since API doesn't provide this
+      status, // Use actual provisioner status
+      endpointCount: dataset.connected_endpoints?.length || 0, // Use actual endpoint count
+      watchedPaths, // Extract from configuration.filePaths for local_file datasets
       isCustom: dataset.dtype !== 'local_file', // Consider non-local_file as custom
+      configuration: dataset.configuration, // Pass through full configuration
+      connected_endpoints: dataset.connected_endpoints || [], // Include endpoints for later use
     }
   }
 
