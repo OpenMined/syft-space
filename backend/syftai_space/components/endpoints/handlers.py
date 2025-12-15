@@ -214,7 +214,7 @@ class EndpointHandler:
                 )
 
         # Get policies for this endpoint
-        policies = self.policy_repository.get_by_endpoint_id(endpoint.id)
+        policies = self.policy_repository.get_by_endpoint_id(endpoint.id, tenant.id)
 
         # Create policy context
         policy_context = PolicyContext(
