@@ -103,3 +103,18 @@ class BasePolicyType(Protocol):
             True if enabled, False otherwise
         """
         ...
+
+    @classmethod
+    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+        """Validate and normalize configuration.
+
+        Args:
+            config: Configuration dictionary to validate
+
+        Returns:
+            Validated configuration dictionary
+
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        ...

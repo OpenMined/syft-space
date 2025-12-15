@@ -1,5 +1,6 @@
 """Policy handlers for business logic."""
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -11,6 +12,7 @@ from syftai_space.components.policies.schemas import (
     PolicyListItem,
     PolicyResponse,
     PolicyTypeInfoResponse,
+    UpdatePolicyRequest,
 )
 from syftai_space.components.policy_types.registry import PolicyTypeRegistry
 from syftai_space.components.tenants.entities import Tenant
@@ -92,23 +94,29 @@ class PolicyHandler:
             Created policy
 
         Raises:
-            HTTPException: If policy type not found
+            HTTPException: If policy type not found or config invalid
         """
         # Verify policy type exists
         try:
-            self.registry.get_policy_type(request.policy_type)
+            policy_type_cls = self.registry.get_policy_type(request.policy_type)
         except KeyError:
             raise HTTPException(
                 status_code=400, detail=f"Policy type '{request.policy_type}' not found"
             ) from None
 
+        # Validate configuration against policy type schema
+        try:
+            validated_config = policy_type_cls.validate_config(request.configuration)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
         # TODO: Verify endpoint exists when endpoint repository is available
 
-        # Create policy entity
+        # Create policy entity with validated config
         policy = Policy(
             name=request.name,
             policy_type=request.policy_type,
-            configuration=request.configuration,
+            configuration=validated_config,
             endpoint_id=request.endpoint_id,
             tenant_id=tenant.id,  # Set tenant_id explicitly
         )
@@ -150,6 +158,58 @@ class PolicyHandler:
             )
 
         return PolicyResponse.model_validate(policy)
+
+    def update_policy(
+        self, policy_id: UUID, request: UpdatePolicyRequest, tenant: Tenant
+    ) -> PolicyResponse:
+        """Update a policy (partial update).
+
+        Args:
+            policy_id: Policy UUID
+            request: Update request with optional fields
+            tenant: Tenant context
+
+        Returns:
+            Updated policy
+
+        Raises:
+            HTTPException: If policy not found or validation fails
+        """
+        # Get existing policy
+        policy = self.repository.get_by_id(policy_id, tenant.id)
+        if not policy:
+            raise HTTPException(
+                status_code=404, detail=f"Policy '{policy_id}' not found"
+            )
+
+        # Update name if provided
+        if request.name is not None:
+            policy.name = request.name
+
+        # Merge and validate configuration if provided
+        if request.configuration is not None:
+            # Shallow merge: update keys override existing
+            merged_config = {**policy.configuration, **request.configuration}
+
+            # Validate against policy type schema
+            try:
+                policy_type_cls = self.registry.get_policy_type(policy.policy_type)
+                validated_config = policy_type_cls.validate_config(merged_config)
+                policy.configuration = validated_config
+            except KeyError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Policy type '{policy.policy_type}' not found",
+                ) from None
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from None
+
+        # Update timestamp
+        policy.updated_at = datetime.now(timezone.utc)
+
+        # Save updates
+        updated = self.repository.update(policy)
+        return PolicyResponse.model_validate(updated)
 
     def delete_policy(self, policy_id: UUID, tenant: Tenant) -> dict:
         """Delete a policy by ID within a tenant.

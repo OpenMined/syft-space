@@ -237,6 +237,25 @@ class EndpointRateLimitPolicy(BasePolicyType):
         """
         return True
 
+    @classmethod
+    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+        """Validate configuration against RateLimitConfig schema.
+
+        Args:
+            config: Configuration dictionary to validate
+
+        Returns:
+            Validated configuration dictionary
+
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        try:
+            validated = RateLimitConfig(**config)
+            return validated.model_dump()
+        except Exception as e:
+            raise ValueError(f"Invalid rate limit config: {e}") from e
+
     def _applies_to_user(self, user_email: str) -> bool:
         """Check if the rate limit applies to a given user by
         matching the user email against the applied_to patterns

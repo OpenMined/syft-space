@@ -1,7 +1,7 @@
 """Policy API schemas for request/response models."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -42,6 +42,20 @@ class CreatePolicyRequest(BaseModel):
                 "endpoint_id": "123e4567-e89b-12d3-a456-426614174000",
             }
         }
+
+
+class UpdatePolicyRequest(BaseModel):
+    """Request model for updating a policy (PATCH)."""
+
+    name: Optional[str] = Field(default=None, description="New name for the policy")
+    configuration: Optional[dict[str, Any]] = Field(
+        default=None, description="Partial configuration to merge with existing"
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {"example": {"configuration": {"limit": "100/m"}}}
 
 
 class PolicyResponse(BaseModel):

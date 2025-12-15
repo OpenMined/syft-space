@@ -133,6 +133,25 @@ class EndpointAccessPolicy(BasePolicyType):
         """
         return True
 
+    @classmethod
+    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+        """Validate configuration against AccessPolicyConfig schema.
+
+        Args:
+            config: Configuration dictionary to validate
+
+        Returns:
+            Validated configuration dictionary
+
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        try:
+            validated = AccessPolicyConfig(**config)
+            return validated.model_dump()
+        except Exception as e:
+            raise ValueError(f"Invalid access policy config: {e}") from e
+
     def _check_access(self, user_email: str) -> tuple[bool, str]:
         """Check if a user has access.
 

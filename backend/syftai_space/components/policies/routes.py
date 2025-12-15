@@ -11,6 +11,7 @@ from syftai_space.components.policies.schemas import (
     PolicyListItem,
     PolicyResponse,
     PolicyTypeInfoResponse,
+    UpdatePolicyRequest,
 )
 from syftai_space.components.tenants.dependency import get_tenant_dependency
 from syftai_space.components.tenants.entities import Tenant
@@ -121,6 +122,25 @@ def build_policy_routes(handler: PolicyHandler) -> APIRouter:
             Policy details including configuration
         """
         return handler.get_policy(policy_id, tenant)
+
+    @router.patch("/{policy_id}", response_model=PolicyResponse)
+    async def update_policy(
+        policy_id: UUID,
+        request: UpdatePolicyRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PolicyHandler = Depends(get_handler),
+    ) -> PolicyResponse:
+        """Update a policy (partial update).
+
+        Args:
+            policy_id: Policy UUID
+            request: Update request with optional name and configuration
+            tenant: Current tenant (injected)
+
+        Returns:
+            Updated policy details
+        """
+        return handler.update_policy(policy_id, request, tenant)
 
     @router.delete("/{policy_id}", response_model=dict[str, str])
     async def delete_policy(
