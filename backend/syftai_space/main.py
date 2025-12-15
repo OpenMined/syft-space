@@ -54,6 +54,12 @@ from syftai_space.components.policies.routes import build_policy_routes
 from syftai_space.components.policy_types import (
     register_builtin_types as register_policy_types,
 )
+from syftai_space.components.policy_types.rate_limit.limiter import (
+    InMemoryRateLimitStorage,
+)
+from syftai_space.components.policy_types.rate_limit.limiter import (
+    set_storage as set_rate_limit_storage,
+)
 from syftai_space.components.policy_types.registry import POLICY_TYPE_REGISTRY
 
 # Import database
@@ -198,6 +204,10 @@ logger.info("Registering model types ...")
 register_model_types(MODEL_TYPE_REGISTRY)
 logger.info("Registering policy types ...")
 register_policy_types(POLICY_TYPE_REGISTRY)
+
+# Configure rate limiter storage (in-memory, can swap to Redis later)
+logger.info("Initializing rate limiter storage ...")
+set_rate_limit_storage(InMemoryRateLimitStorage())
 
 # Initialize handlers
 dataset_handler = DatasetHandler(
