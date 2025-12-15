@@ -2,32 +2,37 @@
 
 from typing import Any
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 from syftai_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
 )
-from syftai_space.components.shared.utils import ConfigSchemaGenerator
+from syftai_space.components.shared.utils import (
+    ConfigSchemaGenerator,
+    matches_any_pattern,
+)
 
 
 class AccessPolicyConfig(BaseModel):
     """Configuration schema for access policy.
 
     Access control logic:
-    1. If user is in denied_users -> DENY (blacklist takes priority)
+    1. If user matches denied_users pattern -> DENY (blacklist takes priority)
     2. If allowed_users is empty -> ALLOW (open to everyone except denied)
-    3. If user is in allowed_users -> ALLOW
+    3. If user matches allowed_users pattern -> ALLOW
     4. Otherwise -> DENY
+
+    Supports glob patterns: `*` (all), `*@company.com` (domain), `admin-*@*` (prefix).
     """
 
-    allowed_users: list[EmailStr] = Field(
+    allowed_users: list[str] = Field(
         default_factory=list,
-        description="List of user emails allowed to access. Empty means everyone is allowed (except denied users).",
+        description="Glob patterns for allowed users. Examples: '*@company.com', 'admin-*@*', '*'. Empty means everyone allowed.",
     )
-    denied_users: list[EmailStr] = Field(
+    denied_users: list[str] = Field(
         default_factory=list,
-        description="List of user emails explicitly denied access. Takes priority over allowed_users.",
+        description="Glob patterns for denied users. Takes priority over allowed_users. Examples: 'banned@*', '*@competitor.com'.",
     )
 
 
@@ -137,22 +142,17 @@ class EndpointAccessPolicy(BasePolicyType):
         Returns:
             Tuple of (is_allowed, reason)
         """
-        # Normalize email for comparison
-        user_email_lower = user_email.lower()
-        denied_lower = [str(e).lower() for e in self.config.denied_users]
-        allowed_lower = [str(e).lower() for e in self.config.allowed_users]
-
         # Rule 1: Blacklist takes priority
-        if user_email_lower in denied_lower:
-            return False, "User is in denied list"
+        if matches_any_pattern(user_email, self.config.denied_users):
+            return False, "User matches denied pattern"
 
         # Rule 2: If allowed_users is empty, everyone is allowed (except denied)
         if not self.config.allowed_users:
             return True, "Open access (no whitelist configured)"
 
-        # Rule 3: Check if user is in whitelist
-        if user_email_lower in allowed_lower:
-            return True, "User is in allowed list"
+        # Rule 3: Check if user matches whitelist pattern
+        if matches_any_pattern(user_email, self.config.allowed_users):
+            return True, "User matches allowed pattern"
 
-        # Rule 4: User not in whitelist
-        return False, "User is not in allowed list"
+        # Rule 4: User doesn't match whitelist
+        return False, "User does not match any allowed pattern"

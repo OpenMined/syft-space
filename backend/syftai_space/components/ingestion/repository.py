@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
+from loguru import logger
 from sqlalchemy import func
 from sqlmodel import select
 
@@ -79,6 +80,9 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                     and existing.status == IngestionJobStatus.COMPLETED.value
                 ):
                     # No change needed, file already ingested with same fingerprint
+                    logger.info(
+                        f"File {file_path} already ingested with same fingerprint"
+                    )
                     return existing
 
                 # Fingerprint changed or not completed - reset to pending

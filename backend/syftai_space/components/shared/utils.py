@@ -1,8 +1,37 @@
 """Shared utilities for the application."""
 
+import fnmatch
 from typing import Any
 
 from pydantic.json_schema import GenerateJsonSchema
+
+
+def matches_any_pattern(value: str, patterns: list[str]) -> bool:
+    """Check if value matches any of the glob patterns.
+
+    Uses Unix shell-style wildcards:
+    - `*` matches everything
+    - `?` matches single character
+    - `[seq]` matches any char in seq
+    - `[!seq]` matches any char not in seq
+
+    Examples:
+        - `*` matches all
+        - `*@company.com` matches all users from company.com
+        - `admin-*@*` matches admin users from any domain
+        - `user@test.com` matches exact email
+
+    Args:
+        value: The value to check (e.g., email address)
+        patterns: List of glob patterns to match against
+
+    Returns:
+        True if value matches any pattern
+    """
+    if not patterns:
+        return False
+    value_lower = value.lower()
+    return any(fnmatch.fnmatch(value_lower, p.lower()) for p in patterns)
 
 
 class ConfigSchemaGenerator(GenerateJsonSchema):

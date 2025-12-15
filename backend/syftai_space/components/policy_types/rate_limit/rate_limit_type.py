@@ -14,7 +14,10 @@ from syftai_space.components.policy_types.rate_limit.limiter import (
     check_rate_limit,
     get_rate_limit_stats,
 )
-from syftai_space.components.shared.utils import ConfigSchemaGenerator
+from syftai_space.components.shared.utils import (
+    ConfigSchemaGenerator,
+    matches_any_pattern,
+)
 
 
 class LimitScope(str, Enum):
@@ -235,14 +238,15 @@ class EndpointRateLimitPolicy(BasePolicyType):
         return True
 
     def _applies_to_user(self, user_email: str) -> bool:
-        """Check if the rate limit applies to a given user.
+        """Check if the rate limit applies to a given user by
+        matching the user email against the applied_to patterns
+        using the matches_any_pattern function.
 
         Args:
             user_email: Email of the user
 
         Returns:
-            True if the rate limit applies to this user
+            True if the rate limit applies to this user by
+            matching the user email against the applied_to patterns
         """
-        if "*" in self.config.applied_to:
-            return True
-        return user_email in self.config.applied_to
+        return matches_any_pattern(user_email, self.config.applied_to)
