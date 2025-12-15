@@ -374,10 +374,10 @@ const isDeleting = ref(false)
 
 // Function to get endpoint names connected to a dataset
 const getEndpointNamesForDataset = (datasetId: string): string[] => {
-  const dataset = dataSources.value.find(ds => ds.id === datasetId)
+  const dataset = dataSources.value.find((ds) => ds.id === datasetId)
   if (!dataset || !dataset.connected_endpoints) return []
-  
-  return dataset.connected_endpoints.map(endpoint => endpoint.name)
+
+  return dataset.connected_endpoints.map((endpoint) => endpoint.name)
 }
 
 // Load datasets on mount

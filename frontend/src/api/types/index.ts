@@ -29,6 +29,14 @@ export interface CreateDatasetRequest {
   }
 }
 
+export interface ProvisionerStateResponse {
+  status: string
+  state?: Record<string, unknown>
+  started_at?: string
+  stopped_at?: string
+  error?: string
+}
+
 export interface DatasetResponse {
   id: string
   name: string
@@ -36,8 +44,16 @@ export interface DatasetResponse {
   configuration: Record<string, unknown>
   summary: string
   tags: string
+  provisioner_state?: ProvisionerStateResponse
   created_at: string
   updated_at: string
+  connected_endpoints: EndpointListItem[]
+}
+
+export interface HealthcheckResponse {
+  dataset_type_status: string
+  provisioner_status?: string
+  message: string
 }
 
 export interface EndpointListItem {
@@ -61,6 +77,63 @@ export interface DatasetListItem {
   configuration: Record<string, unknown>
   connected_endpoints: EndpointListItem[]
   provisioner_status?: ProvisionerStatusResponse
+}
+
+export interface DatasetTypeInfoResponse {
+  name: string
+  description: string
+  config_schema: Record<string, unknown>
+  icon: string
+  enabled: boolean
+}
+
+// Ingestion API types
+export interface IngestionJobResponse {
+  id: string
+  file_path: string
+  file_name: string
+  file_size: number
+  status: string
+  error_message?: string
+  retry_count: number
+  created_at: string
+  started_at?: string
+  completed_at?: string
+}
+
+export interface IngestionStatusResponse {
+  dataset_id: string
+  dataset_name: string
+  is_watching: boolean
+  total_jobs: number
+  pending: number
+  in_progress: number
+  completed: number
+  failed: number
+  cancelled: number
+}
+
+export interface IngestionJobListResponse {
+  jobs: IngestionJobResponse[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface StartIngestionResponse {
+  message: string
+  jobs_created: number
+  is_watching: boolean
+}
+
+export interface StopIngestionResponse {
+  message: string
+  jobs_cancelled: number
+}
+
+export interface RetryIngestionResponse {
+  message: string
+  jobs_reset: number
 }
 
 export interface UpdateDatasetRequest {

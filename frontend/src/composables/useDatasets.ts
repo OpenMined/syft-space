@@ -68,10 +68,11 @@ export function useDatasets() {
     let watchedPaths: string[] = []
     if (dataset.dtype === 'local_file' && dataset.configuration?.filePaths) {
       // filePaths is an array of {path: string, description: string}
-      watchedPaths = (dataset.configuration.filePaths as Array<{ path: string; description: string }>)
-        .map(item => item.path)
+      watchedPaths = (
+        dataset.configuration.filePaths as Array<{ path: string; description: string }>
+      ).map((item) => item.path)
     }
-    
+
     // Determine status from provisioner_status
     let status: 'running' | 'stopped' = 'stopped'
     if (dataset.provisioner_status) {
@@ -80,7 +81,7 @@ export function useDatasets() {
         status = 'running'
       }
     }
-    
+
     return {
       id: dataset.id,
       name: dataset.name,

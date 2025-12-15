@@ -85,7 +85,6 @@
           </div>
         </div>
 
-
         <!-- Summary -->
         <div class="space-y-2">
           <Label for="summary" class="text-sm font-medium"> Summary (Optional) </Label>

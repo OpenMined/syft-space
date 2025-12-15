@@ -5,6 +5,8 @@ import type {
   DatasetResponse,
   DatasetListItem,
   UpdateDatasetRequest,
+  HealthcheckResponse,
+  DatasetTypeInfoResponse,
 } from '../types'
 
 export const datasetsApi = {
@@ -40,6 +42,21 @@ export const datasetsApi = {
 
   update: async (name: string, dataset: UpdateDatasetRequest): Promise<DatasetResponse> => {
     const response = await apiClient.patch<DatasetResponse>(`/datasets/${name}`, dataset)
+    return response.data
+  },
+
+  healthcheck: async (name: string): Promise<HealthcheckResponse> => {
+    const response = await apiClient.get<HealthcheckResponse>(`/datasets/${name}/health`)
+    return response.data
+  },
+
+  listTypes: async (): Promise<DatasetTypeInfoResponse[]> => {
+    const response = await apiClient.get<DatasetTypeInfoResponse[]>('/datasets/types/')
+    return response.data
+  },
+
+  getType: async (name: string): Promise<DatasetTypeInfoResponse> => {
+    const response = await apiClient.get<DatasetTypeInfoResponse>(`/datasets/types/${name}`)
     return response.data
   },
 }

@@ -1,11 +1,12 @@
 <template>
   <component v-if="isLucideIcon" :is="lucideIcon" :class="lucideIconClass" v-bind="$attrs" />
-  <img v-else :src="iconSrc" :alt="`${name} icon`" v-bind="$attrs" />
+  <img v-else-if="iconSrc" :src="iconSrc" :alt="`${name} icon`" v-bind="$attrs" />
+  <Database v-else class="text-muted-foreground" v-bind="$attrs" />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { FolderOpen } from 'lucide-vue-next'
+import { FolderOpen, Database } from 'lucide-vue-next'
 
 // Import all icon images
 import weaviateIcon from '@/assets/icons/weaviate.png'
