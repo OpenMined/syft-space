@@ -142,6 +142,8 @@ import {
 } from '@/components/ui/select'
 import { Plus, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
+import { modelsApi } from '@/api/endpoints/models'
+import type { CreateModelRequest } from '@/api/types'
 
 interface Model {
   id: string
@@ -251,22 +253,47 @@ const handleCancel = () => {
   isOpen.value = false
 }
 
-const handleCreate = () => {
+const handleCreate = async () => {
   if (!isFormValid.value) return
 
   const modelName = formData.value.name
 
-  // Emit create event
-  if (props.model) {
-    emit('model-updated')
-    toast.success(`Model "${modelName}" updated successfully`)
-  } else {
-    emit('model-created')
-    toast.success(`Model "${modelName}" created successfully`)
-  }
+  try {
+    // Prepare the request data
+    const createRequest: CreateModelRequest = {
+      name: formData.value.name,
+      dtype: 'openai',
+      configuration: {
+        api_key: formData.value.apiKey,
+        model: formData.value.model,
+        base_url: formData.value.provider === 'openai'
+          ? 'https://api.openai.com/v1'
+          : 'https://openrouter.ai/api/v1',
+        system_prompt: '' // Default empty system prompt
+      },
+      summary: formData.value.summary || '',
+      tags: formData.value.tags.join(', ')
+    }
 
-  resetForm()
-  isOpen.value = false
+    // Call the API
+    await modelsApi.create(createRequest)
+
+    // Emit create event
+    if (props.model) {
+      emit('model-updated')
+      toast.success(`Model "${modelName}" updated successfully`)
+    } else {
+      emit('model-created')
+      toast.success(`Model "${modelName}" created successfully`)
+    }
+
+    resetForm()
+    isOpen.value = false
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+    const action = props.model ? 'update' : 'create'
+    toast.error(`Failed to ${action} model: ${errorMessage}`)
+  }
 }
 
 const resetForm = () => {
