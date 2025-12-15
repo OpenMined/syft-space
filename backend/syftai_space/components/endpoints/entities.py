@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 from pydantic import field_validator
 from sqlalchemy import Index, UniqueConstraint
-from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
+from sqlmodel import Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from components.datasets.entities import Dataset
@@ -57,11 +57,6 @@ class Endpoint(SQLModel, table=True):
         default=ResponseType.BOTH.value,
         description="Type of response (raw/summary/both)",
     )
-    visibility: list = Field(
-        default_factory=lambda: ["*"],
-        sa_column=Column(JSON),
-        description="List of allowed emails/patterns (* for public)",
-    )
     published: bool = Field(default=False, description="Whether endpoint is published")
     tags: str = Field(default="", description="Comma-separated tags")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -109,7 +104,6 @@ class Endpoint(SQLModel, table=True):
                 "dataset_id": "123e4567-e89b-12d3-a456-426614174000",
                 "model_id": "223e4567-e89b-12d3-a456-426614174000",
                 "response_type": "both",
-                "visibility": ["*"],
                 "published": True,
                 "tags": "legal,qa,documents",
             }

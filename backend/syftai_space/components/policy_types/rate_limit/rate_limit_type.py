@@ -1,8 +1,6 @@
-"""Rate limit policy type implementation."""
+"""Endpoint rate limit policy type implementation."""
 
 import re
-from collections import defaultdict
-from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -12,12 +10,25 @@ from syftai_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
 )
+from syftai_space.components.policy_types.rate_limit.limiter import (
+    check_rate_limit,
+    get_rate_limit_stats,
+)
+from syftai_space.components.shared.utils import (
+    ConfigSchemaGenerator,
+    matches_any_pattern,
+)
 
 
 class LimitScope(str, Enum):
-    """Scope of the rate limit."""
+    """Scope of the rate limit.
+
+    PER_USER: Each user has their own rate limit counter
+    GLOBAL: All users share the same rate limit counter for the endpoint
+    """
 
     PER_USER = "per_user"
+    GLOBAL = "global"
 
 
 class RateLimitConfig(BaseModel):
@@ -30,7 +41,7 @@ class RateLimitConfig(BaseModel):
     )
     scope: LimitScope = Field(
         default=LimitScope.PER_USER,
-        description="Scope of the rate limit",
+        description="Scope: per_user (each user has own limit) or global (shared across all users)",
     )
     applied_to: list[str] = Field(
         default_factory=lambda: ["*"],
@@ -105,18 +116,16 @@ class RateLimitConfig(BaseModel):
         return f"{count} requests per {time_str}"
 
 
-class RateLimitPolicyType(BasePolicyType):
-    """Rate limit policy type.
+class EndpointRateLimitPolicy(BasePolicyType):
+    """Endpoint rate limit policy type.
 
     Limits the number of requests that can be made within a time window.
-    Supports per-user scoping and selective application to specific users.
+    Supports per-user and global scoping with selective application to specific users.
+
+    This policy is stateless - rate limit history is managed by the limiter module.
     """
 
     NAME = "rate_limit"
-
-    # TODO: Think about how we can use a more persistent storage for this.
-    # In-memory storage for rate limiting (key: (endpoint_slug, user_email), value: list of timestamps)
-    _request_history: dict[tuple[str, str], list[datetime]] = defaultdict(list)
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize the rate limit policy.
@@ -149,9 +158,9 @@ class RateLimitPolicyType(BasePolicyType):
         """Return configuration schema required by this policy type.
 
         Returns:
-            JSON schema for RateLimitConfig
+            Clean JSON schema with properties and required fields only
         """
-        return RateLimitConfig.model_json_schema()
+        return RateLimitConfig.model_json_schema(schema_generator=ConfigSchemaGenerator)
 
     def pre_hook(self, context: PolicyContext) -> PolicyContext:
         """Pre-hook to enforce rate limiting.
@@ -165,7 +174,6 @@ class RateLimitPolicyType(BasePolicyType):
         Raises:
             Exception: If rate limit is exceeded
         """
-        # Check if this user should be rate limited
         user_email = str(context.sender_email)
 
         # Check if policy applies to this user
@@ -175,41 +183,36 @@ class RateLimitPolicyType(BasePolicyType):
         # Get rate limit parameters
         count, window_seconds = self.config.parse_limit()
 
-        # Get the key for tracking this user's requests
+        # Build key based on scope
         if self.config.scope == LimitScope.PER_USER:
-            key = (context.endpoint_slug, user_email)
-        else:
-            # Future: support other scopes (e.g., global)
-            key = (context.endpoint_slug, user_email)
+            key = f"{context.endpoint_slug}:{user_email}"
+        else:  # GLOBAL
+            key = context.endpoint_slug
 
-        # Clean up old requests outside the time window
-        now = datetime.now(timezone.utc)
-        window_start = now - timedelta(seconds=window_seconds)
+        # Check and record using module-level limiter
+        is_allowed, current_count = check_rate_limit(key, count, window_seconds)
 
-        # Get request history for this key
-        history = self._request_history[key]
-
-        # Remove requests outside the window
-        history[:] = [ts for ts in history if ts > window_start]
-
-        # Check if rate limit is exceeded
-        if len(history) >= count:
-            # Rate limit exceeded
+        if not is_allowed:
             friendly_limit = self.config.get_friendly_description()
+            remaining, reset_seconds = get_rate_limit_stats(key, count, window_seconds)
             raise Exception(
                 f"Rate limit exceeded: {friendly_limit}. "
-                f"Current requests in window: {len(history)}"
+                f"Requests in window: {current_count}. "
+                f"Try again in {reset_seconds}s."
             )
 
-        # Add current request to history
-        history.append(now)
+        # Get stats for metadata
+        remaining, reset_seconds = get_rate_limit_stats(key, count, window_seconds)
 
         # Add metadata about rate limit status
-        context.metadata["rate_limit"] = {
+        context.metadata[self.NAME] = {
             "limit": self.config.limit,
-            "requests_in_window": len(history),
+            "requests_in_window": current_count,
             "max_requests": count,
+            "remaining": remaining,
+            "reset_seconds": reset_seconds,
             "window_seconds": window_seconds,
+            "scope": self.config.scope.value,
         }
 
         return context
@@ -234,15 +237,35 @@ class RateLimitPolicyType(BasePolicyType):
         """
         return True
 
+    @classmethod
+    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+        """Validate configuration against RateLimitConfig schema.
+
+        Args:
+            config: Configuration dictionary to validate
+
+        Returns:
+            Validated configuration dictionary
+
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        try:
+            validated = RateLimitConfig(**config)
+            return validated.model_dump()
+        except Exception as e:
+            raise ValueError(f"Invalid rate limit config: {e}") from e
+
     def _applies_to_user(self, user_email: str) -> bool:
-        """Check if the rate limit applies to a given user.
+        """Check if the rate limit applies to a given user by
+        matching the user email against the applied_to patterns
+        using the matches_any_pattern function.
 
         Args:
             user_email: Email of the user
 
         Returns:
-            True if the rate limit applies to this user
+            True if the rate limit applies to this user by
+            matching the user email against the applied_to patterns
         """
-        if "*" in self.config.applied_to:
-            return True
-        return user_email in self.config.applied_to
+        return matches_any_pattern(user_email, self.config.applied_to)

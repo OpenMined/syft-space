@@ -118,7 +118,6 @@ class EndpointHandler:
             dataset_id=request.dataset_id,
             model_id=request.model_id,
             response_type=request.response_type,
-            visibility=request.visibility,
             published=request.published,
             tags=request.tags,
             tenant_id=tenant.id,  # Set tenant_id explicitly
@@ -203,15 +202,6 @@ class EndpointHandler:
         # Check if published
         if not endpoint.published:
             raise HTTPException(status_code=403, detail="Endpoint is not published")
-
-        # Check visibility (TODO: implement proper email pattern matching)
-        if "*" not in endpoint.visibility:
-            # For now, just check if user_email is in the list
-            if request.user_email not in endpoint.visibility:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Access denied - user not in visibility list",
-                )
 
         # Get policies for this endpoint
         policies = self.policy_repository.get_by_endpoint_id(endpoint.id, tenant.id)

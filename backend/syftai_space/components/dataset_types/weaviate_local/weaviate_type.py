@@ -21,7 +21,6 @@ from syftai_space.components.shared.domain_types import (
 
 try:
     import weaviate
-    from docling.document_converter import DocumentConverter, DocumentStream
     from weaviate.classes.config import Configure
     from weaviate.classes.query import MetadataQuery
 
@@ -51,6 +50,8 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         Args:
             config: Configuration dictionary with connection settings
         """
+        from docling.document_converter import DocumentConverter
+
         self.config = config
         self.config["httpPort"] = config.get("httpPort", DEFAULT_HTTP_PORT)
         self.config["grpcPort"] = config.get("grpcPort", DEFAULT_GRPC_PORT)
@@ -205,6 +206,8 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         Returns:
             Dictionary with parsed document content and metadata
         """
+        from docling.document_converter import DocumentStream
+
         # Convert the file to a document stream
         stream = BytesIO(file.file_handle.read())
         document_stream = DocumentStream(name=file.filename, stream=stream)
