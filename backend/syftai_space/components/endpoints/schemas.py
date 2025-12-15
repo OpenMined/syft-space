@@ -22,9 +22,6 @@ class CreateEndpointRequest(BaseModel):
         default=ResponseType.BOTH.value,
         description="Type of response (raw/summary/both)",
     )
-    visibility: list[str] = Field(
-        default=["*"], description="List of allowed emails/patterns (* for public)"
-    )
     published: bool = Field(default=False, description="Whether endpoint is published")
     tags: str = Field(default="", description="Comma-separated tags")
 
@@ -40,7 +37,6 @@ class CreateEndpointRequest(BaseModel):
                 "dataset_id": "123e4567-e89b-12d3-a456-426614174000",
                 "model_id": "223e4567-e89b-12d3-a456-426614174000",
                 "response_type": "both",
-                "visibility": ["*"],
                 "published": True,
                 "tags": "legal,qa,documents",
             }
@@ -58,7 +54,6 @@ class EndpointResponse(BaseModel):
     dataset_id: Optional[UUID] = Field(..., description="Linked dataset ID")
     model_id: Optional[UUID] = Field(..., description="Linked model ID")
     response_type: str = Field(..., description="Type of response")
-    visibility: list[str] = Field(..., description="Allowed emails/patterns")
     published: bool = Field(..., description="Whether published")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
