@@ -26,6 +26,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Build dependencies
+build = [
+    "pyinstaller>=6.17.0",
+]
+
 # Testing dependencies
 test = [
     "pytest>=7.0",
@@ -54,7 +59,7 @@ libs = [
 
 # All development dependencies (includes test, lint, pre-commit)
 dev = [
-    "syftai_space[libs,test,lint,pre-commit]",
+    "syftai_space[build,libs,test,lint,pre-commit]",
 ]
 
 # All dependencies (includes dev and libs)

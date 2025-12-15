@@ -11,48 +11,50 @@
           <Label for="model-name" class="text-sm font-medium">
             Model Name <span class="text-red-500">*</span>
           </Label>
-          <Input
-            id="model-name"
-            v-model="formData.name"
-            placeholder="e.g., Legal AI Assistant"
-            class="w-full"
-          />
+          <Input id="model-name" v-model="formData.name" placeholder="e.g., Legal AI Assistant" class="w-full" />
           <p class="text-sm text-muted-foreground">Give your model a descriptive name</p>
         </div>
 
-        <!-- Provider -->
-        <div class="space-y-2">
-          <Label for="provider" class="text-sm font-medium">
-            Provider <span class="text-red-500">*</span>
-          </Label>
-          <Select v-model="formData.provider">
-            <SelectTrigger id="provider" class="w-full">
-              <SelectValue placeholder="Select a provider" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="openai">OpenAI</SelectItem>
-              <SelectItem value="openrouter">OpenRouter</SelectItem>
-            </SelectContent>
-          </Select>
-          <p class="text-sm text-muted-foreground">Choose your AI model provider</p>
-        </div>
+        <!-- Provider and Model Side by Side -->
+        <div class="grid grid-cols-2 gap-4">
+          <!-- Provider -->
+          <div class="space-y-2">
+            <Label for="provider" class="text-sm font-medium">
+              Provider <span class="text-red-500">*</span>
+            </Label>
+            <Select v-model="formData.provider">
+              <SelectTrigger id="provider" class="w-full">
+                <SelectValue placeholder="Select a provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai">OpenAI</SelectItem>
+                <SelectItem value="openrouter">OpenRouter</SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-sm text-muted-foreground">
+              Choose your AI model provider
+            </p>
+          </div>
 
-        <!-- Model -->
-        <div class="space-y-2">
-          <Label for="model" class="text-sm font-medium">
-            Model <span class="text-red-500">*</span>
-          </Label>
-          <Select v-model="formData.model" :disabled="!formData.provider">
-            <SelectTrigger id="model" class="w-full">
-              <SelectValue placeholder="Select a model" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="model in availableModels" :key="model.value" :value="model.value">
-                {{ model.label }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <p class="text-sm text-muted-foreground">Select the specific model to use</p>
+          <!-- Model -->
+          <div class="space-y-2">
+            <Label for="model" class="text-sm font-medium">
+              Model <span class="text-red-500">*</span>
+            </Label>
+            <Select v-model="formData.model" :disabled="!formData.provider">
+              <SelectTrigger id="model" class="w-full">
+                <SelectValue placeholder="Select a model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="model in availableModels" :key="model.value" :value="model.value">
+                  {{ model.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-sm text-muted-foreground">
+              Select the specific model to use
+            </p>
+          </div>
         </div>
 
         <!-- API Key -->
@@ -60,25 +62,16 @@
           <Label for="api-key" class="text-sm font-medium">
             API Key <span class="text-red-500">*</span>
           </Label>
-          <Input
-            id="api-key"
-            v-model="formData.apiKey"
-            type="password"
-            placeholder="Enter your API key"
-            class="w-full"
-          />
+          <Input id="api-key" v-model="formData.apiKey" type="password" placeholder="Enter your API key"
+            class="w-full" />
           <p class="text-sm text-muted-foreground">Your API key for authentication</p>
         </div>
 
         <!-- Summary -->
         <div class="space-y-2">
           <Label for="summary" class="text-sm font-medium"> Summary (Optional) </Label>
-          <Input
-            id="summary"
-            v-model="formData.summary"
-            placeholder="Describe what this model does and how it can be used..."
-            class="w-full"
-          />
+          <Input id="summary" v-model="formData.summary"
+            placeholder="Describe what this model does and how it can be used..." class="w-full" />
           <p class="text-sm text-muted-foreground">
             A brief description of your model's capabilities
           </p>
@@ -89,13 +82,8 @@
           <Label for="topics" class="text-sm font-medium"> Topics & Categories (Optional) </Label>
           <div class="space-y-2">
             <div class="flex gap-2">
-              <Input
-                id="topics"
-                v-model="tagInput"
-                @keydown.enter.prevent="addTag"
-                placeholder="Add keywords like: legal, medical, research, finance"
-                class="flex-1"
-              />
+              <Input id="topics" v-model="tagInput" @keydown.enter.prevent="addTag"
+                placeholder="Add keywords like: legal, medical, research, finance" class="flex-1" />
               <Button @click="addTag" variant="outline" :disabled="!tagInput.trim()">
                 <Plus class="h-4 w-4" />
               </Button>
@@ -104,32 +92,17 @@
             <!-- Popular Tags Suggestions -->
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-xs text-muted-foreground">Popular:</span>
-              <Button
-                v-for="suggestion in popularTags"
-                :key="suggestion"
-                @click="addSuggestedTag(suggestion)"
-                variant="ghost"
-                size="sm"
-                class="h-6 px-2 text-xs"
-                :disabled="formData.tags.includes(suggestion)"
-              >
+              <Button v-for="suggestion in popularTags" :key="suggestion" @click="addSuggestedTag(suggestion)"
+                variant="ghost" size="sm" class="h-6 px-2 text-xs" :disabled="formData.tags.includes(suggestion)">
                 {{ suggestion }}
               </Button>
             </div>
 
             <!-- Selected Tags -->
             <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-3">
-              <Badge
-                v-for="(tag, index) in formData.tags"
-                :key="index"
-                variant="secondary"
-                class="px-3 py-1"
-              >
+              <Badge v-for="(tag, index) in formData.tags" :key="index" variant="secondary" class="px-3 py-1">
                 {{ tag }}
-                <button
-                  @click="removeTag(index)"
-                  class="ml-2 hover:text-destructive transition-colors"
-                >
+                <button @click="removeTag(index)" class="ml-2 hover:text-destructive transition-colors">
                   <X class="h-3 w-3" />
                 </button>
               </Badge>
