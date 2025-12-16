@@ -300,6 +300,47 @@ Consider upgrading your plan or optimizing your API usage patterns to avoid inte
         },
       },
     },
+    {
+      id: '9',
+      source: 'Collective Membership',
+      title: 'Request to join Harvard',
+      summary: 'Harvard has invited you to become a member',
+      longDescription: `## Join Collective Request
+
+**Collective:** Harvard  
+**Domain:** irina.harvard.syftbox.net  
+**Time:** ${new Date(Date.now() - 1000 * 60 * 30).toLocaleString()}
+
+### About This Collective
+Harvard is a collective of academic institutions and research organizations sharing datasets and models for collaborative research purposes.
+
+### Benefits
+- **Shared Infrastructure**: Host endpoints on collective infrastructure
+- **Collective Discovery**: Your endpoints will be discoverable through the collective endpoint
+- **Better Terms**: Access to collective pricing and access terms
+- **Collaborative Curation**: Work with other members to organize and index data
+
+### What Happens Next
+If you accept, you'll be able to:
+- Attach endpoints to this collective
+- Use collective hosting infrastructure
+- Benefit from collective terms and discovery
+
+You can leave the collective at any time.`,
+      timestamp: new Date(Date.now() - 1000 * 60 * 30),
+      read: false,
+      dismissed: false,
+      actions: {
+        positive: {
+          label: 'Accept',
+          handler: () => console.log('Accepted join request'),
+        },
+        negative: {
+          label: 'Reject',
+          handler: () => console.log('Rejected join request'),
+        },
+      },
+    },
   ])
 
   const activeItems = computed(() => {

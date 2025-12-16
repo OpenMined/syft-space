@@ -128,7 +128,7 @@
                 </div>
               </div>
 
-              <!-- Step 3 -->
+              <!-- Step 3: Associate with Collective -->
               <div class="flex items-start gap-4">
                 <div
                   :class="[
@@ -147,9 +147,9 @@
                       currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
                     ]"
                   >
-                    Who can access it?
+                    Associate with Collective
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">Control who can use your content</p>
+                  <p class="body-sm text-muted-foreground mt-1">Choose collective and hosting</p>
                   <div
                     v-if="currentSubStep > 3"
                     class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
@@ -165,7 +165,7 @@
                 </div>
               </div>
 
-              <!-- Step 4 -->
+              <!-- Step 4: Who can access it? -->
               <div class="flex items-start gap-4">
                 <div
                   :class="[
@@ -184,9 +184,9 @@
                       currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
                     ]"
                   >
-                    Tell us more about it
+                    Who can access it?
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">Name and describe your endpoint</p>
+                  <p class="body-sm text-muted-foreground mt-1">Control who can use your content</p>
                   <div
                     v-if="currentSubStep > 4"
                     class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
@@ -202,7 +202,7 @@
                 </div>
               </div>
 
-              <!-- Step 5 -->
+              <!-- Step 5: Tell us more about it -->
               <div class="flex items-start gap-4">
                 <div
                   :class="[
@@ -221,9 +221,9 @@
                       currentSubStep >= 5 ? 'text-foreground' : 'text-muted-foreground',
                     ]"
                   >
-                    Review & Publish
+                    Tell us more about it
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
+                  <p class="body-sm text-muted-foreground mt-1">Name and describe your endpoint</p>
                   <div
                     v-if="currentSubStep > 5"
                     class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
@@ -232,6 +232,43 @@
                   </div>
                   <div
                     v-else-if="currentSubStep === 5"
+                    class="mt-2 body-sm text-primary font-medium"
+                  >
+                    Current step
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 6: Review & Publish -->
+              <div class="flex items-start gap-4">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    currentSubStep >= 6
+                      ? 'bg-primary text-white'
+                      : 'bg-muted text-muted-foreground',
+                  ]"
+                >
+                  {{ currentSubStep > 6 ? '✓' : '6' }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h3
+                    :class="[
+                      'font-medium body-sm',
+                      currentSubStep >= 6 ? 'text-foreground' : 'text-muted-foreground',
+                    ]"
+                  >
+                    Review & Publish
+                  </h3>
+                  <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
+                  <div
+                    v-if="currentSubStep > 6"
+                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
+                  >
+                    ✓ Completed
+                  </div>
+                  <div
+                    v-else-if="currentSubStep === 6"
                     class="mt-2 body-sm text-primary font-medium"
                   >
                     Current step
@@ -736,8 +773,109 @@
             </div>
           </div>
 
-          <!-- Step 3: Who can access it? -->
+          <!-- Step 3: Associate with Collective -->
           <div v-if="currentSubStep === 3" class="space-y-6">
+            <div class="bg-card rounded-lg shadow-sm border border-border p-6 space-y-6">
+              <!-- Collective Association -->
+              <div class="space-y-4">
+                <div>
+                  <h3 class="text-lg font-semibold text-foreground mb-2">
+                    Associate with Collective
+                  </h3>
+                  <p class="text-sm text-muted-foreground">
+                    Attach this endpoint to a collective for unified discovery and shared benefits
+                  </p>
+                </div>
+
+                <div class="space-y-2">
+                  <Label for="collective-select" class="text-sm font-medium text-foreground">
+                    Select Collective (Optional)
+                  </Label>
+                  <Select v-model="formData.selectedCollective">
+                    <SelectTrigger class="w-full">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="harvard">Harvard (irina.harvard.syftbox.net)</SelectItem>
+                      <SelectItem value="tcp-collective">TCP Collective (irina.tcp-collective.syftbox.net)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p class="text-xs text-muted-foreground">
+                    If you select a collective, your endpoint will be discoverable through the collective endpoint
+                  </p>
+                </div>
+
+                <!-- Hosting Selection (shown when collective is selected and supports hosting) -->
+                <div
+                  v-if="formData.selectedCollective && selectedCollectiveSupportsHosting"
+                  class="space-y-4 pt-4 border-t border-border"
+                >
+                  <div>
+                    <h4 class="text-base font-semibold text-foreground mb-2">Hosting Location</h4>
+                    <p class="text-sm text-muted-foreground">
+                      Choose where to host this endpoint
+                    </p>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Self-hosted -->
+                    <Card
+                      :class="[
+                        'cursor-pointer transition-all duration-200 border-2',
+                        formData.hostingLocation === 'self-hosted'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/30',
+                      ]"
+                      @click="formData.hostingLocation = 'self-hosted'"
+                    >
+                      <CardContent class="p-6">
+                        <div class="flex flex-col items-center text-center">
+                          <div
+                            class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3"
+                          >
+                            <Server class="w-6 h-6 text-primary" />
+                          </div>
+                          <h4 class="font-semibold text-foreground mb-2">Launch locally</h4>
+                          <p class="text-sm text-muted-foreground">Use your local compute</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <!-- Collective-hosted -->
+                    <Card
+                      :class="[
+                        'cursor-pointer transition-all duration-200 border-2',
+                        formData.hostingLocation === 'collective-hosted'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/30',
+                      ]"
+                      @click="formData.hostingLocation = 'collective-hosted'"
+                    >
+                      <CardContent class="p-6">
+                        <div class="flex flex-col items-center text-center">
+                          <div
+                            class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3"
+                          >
+                            <Cloud class="w-6 h-6 text-primary" />
+                          </div>
+                          <h4 class="font-semibold text-foreground mb-2">
+                            Host on collective infrastructure
+                          </h4>
+                          <p class="text-sm text-muted-foreground">
+                            Domain: {{ getCollectiveDomain(formData.selectedCollective) }}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4: Who can access it? -->
+          <div v-if="currentSubStep === 4" class="space-y-6">
             <!-- Policy Configuration -->
             <div class="space-y-6">
               <div
@@ -824,7 +962,43 @@
                     <div v-if="rule.isEditing" class="space-y-3">
                       <!-- Authorization Policy Form -->
                       <div v-if="policy.id === 'authorization'">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <!-- Collective Access Terms (shown when collective is selected) -->
+                        <div
+                          v-if="selectedCollectiveSupportsHosting"
+                          class="mb-4 p-4 bg-muted/30 rounded-lg border border-border"
+                        >
+                          <Label class="body-sm font-medium text-foreground mb-2 block"
+                            >Collective Access Terms</Label
+                          >
+                          <Select v-model="formData.collectiveAccessTerms">
+                            <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="use-collective"
+                                >Use collective's access rules</SelectItem
+                              >
+                              <SelectItem value="use-own">Define my own access rules</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p class="text-xs text-muted-foreground mt-2">
+                            <span v-if="formData.collectiveAccessTerms === 'use-collective'">
+                              Access will be managed by the collective's default authorization policy.
+                            </span>
+                            <span v-else>
+                              You can define custom access rules for this endpoint.
+                            </span>
+                          </p>
+                        </div>
+
+                        <!-- Custom Authorization Rules (shown when using own or no collective) -->
+                        <div
+                          v-if="
+                            !selectedCollectiveSupportsHosting ||
+                            formData.collectiveAccessTerms === 'use-own'
+                          "
+                        >
+                          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium"
                               >Rule Type</Label
@@ -852,13 +1026,14 @@
                             />
                           </div>
                         </div>
-                        <div class="space-y-1 mt-3">
-                          <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                          <Input
-                            v-model="authorizationForm.users"
-                            placeholder="user1@example.com, user2@example.com"
-                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                          />
+                          <div class="space-y-1 mt-3">
+                            <Label class="body-sm text-muted-foreground font-medium">Users</Label>
+                            <Input
+                              v-model="authorizationForm.users"
+                              placeholder="user1@example.com, user2@example.com"
+                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
+                            />
+                          </div>
                         </div>
                       </div>
 
@@ -924,7 +1099,43 @@
 
                       <!-- Pricing Policy Form -->
                       <div v-if="policy.id === 'pricing'">
-                        <div class="grid grid-cols-2 gap-3 mb-3">
+                        <!-- Collective Pricing Terms (shown when collective is selected) -->
+                        <div
+                          v-if="selectedCollectiveSupportsHosting"
+                          class="mb-4 p-4 bg-muted/30 rounded-lg border border-border"
+                        >
+                          <Label class="body-sm font-medium text-foreground mb-2 block"
+                            >Collective Pricing Terms</Label
+                          >
+                          <Select v-model="formData.collectivePricingTerms">
+                            <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="use-collective"
+                                >Use collective's pricing model</SelectItem
+                              >
+                              <SelectItem value="use-own">Define my own pricing</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p class="text-xs text-muted-foreground mt-2">
+                            <span v-if="formData.collectivePricingTerms === 'use-collective'">
+                              Pricing will follow the collective's default pricing policy.
+                            </span>
+                            <span v-else>
+                              You can define custom pricing for this endpoint.
+                            </span>
+                          </p>
+                        </div>
+
+                        <!-- Custom Pricing Rules (shown when using own or no collective) -->
+                        <div
+                          v-if="
+                            !selectedCollectiveSupportsHosting ||
+                            formData.collectivePricingTerms === 'use-own'
+                          "
+                        >
+                          <div class="grid grid-cols-2 gap-3 mb-3">
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Type</Label>
                             <Select v-model="pricingForm.pricingType">
@@ -989,6 +1200,7 @@
                               class="h-9 rounded-lg border-border bg-card body-sm"
                             />
                           </div>
+                        </div>
                         </div>
                       </div>
 
@@ -1075,9 +1287,9 @@
             </div>
           </div>
 
-          <!-- Step 4: Tell us more about it -->
+          <!-- Step 5: Tell us more about it -->
           <div
-            v-if="currentSubStep === 4"
+            v-if="currentSubStep === 5"
             class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
           >
             <!-- Interactive examples -->
@@ -1260,8 +1472,8 @@
             </div>
           </div>
 
-          <!-- Step 5: Review & Publish -->
-          <div v-if="currentSubStep === 5" class="space-y-6">
+          <!-- Step 6: Review & Publish -->
+          <div v-if="currentSubStep === 6" class="space-y-6">
             <!-- Header -->
             <div
               class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
@@ -1480,7 +1692,7 @@
               :disabled="!isCurrentStepValid"
               class="bg-primary hover:bg-blue-700 text-white px-8"
             >
-              {{ currentSubStep === 5 ? 'Publish Now' : 'Continue' }}
+              {{ currentSubStep === 6 ? 'Publish Now' : 'Continue' }}
               <ArrowRight class="ml-2 h-4 w-4" />
             </Button>
           </div>
@@ -1512,6 +1724,9 @@ import {
   DollarSign,
   UserCheck,
   Lightbulb,
+  Users,
+  Server,
+  Cloud,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1691,6 +1906,7 @@ const policyTypes: PolicyType[] = [
 const stepTitles = [
   'What do you want to share?',
   'How should it work?',
+  'Associate with Collective',
   'Who can access it?',
   'Tell us more about it',
   'Review & Publish',
@@ -1699,6 +1915,7 @@ const stepTitles = [
 const stepDescriptions = [
   'Add files or connect to your existing database',
   'Decide the format of the response users can receive from this content. Search provides most accuracy, while AI assistant answers are more nuanced.',
+  'Attach this endpoint to a collective and choose hosting location',
   'Control who can access your content and whether to charge for it',
   "Give your content a name and description so others know what you're sharing",
   'Final review and go live',
@@ -1713,6 +1930,10 @@ const formData = ref({
   selectedDataSource: '',
   responseType: 'both', // Default to Search + AI
   aiModel: 'code-assistant', // Default to the running Ollama model
+  selectedCollective: 'none' as string, // Collective association
+  hostingLocation: 'self-hosted' as string, // Hosting location when collective is selected
+  collectivePricingTerms: 'use-own' as string, // Whether to use collective pricing or own
+  collectiveAccessTerms: 'use-own' as string, // Whether to use collective access or own
 })
 
 // Data source selection
@@ -1720,6 +1941,17 @@ const selectedDataSourceType = ref('')
 const selectedFiles = ref<string[]>([]) // Start with empty selection for FileExplorer
 const fileDescriptions = ref({} as Record<string, string>)
 const existingDataSourcesCount = ref(2) // Mock count
+
+// Collective helpers
+const selectedCollectiveSupportsHosting = computed(() => {
+  return formData.value.selectedCollective !== 'none' && formData.value.selectedCollective !== ''
+})
+
+const getCollectiveDomain = (collectiveId: string) => {
+  if (collectiveId === 'harvard') return 'irina.harvard.syftbox.net'
+  if (collectiveId === 'tcp-collective') return 'irina.tcp-collective.syftbox.net'
+  return ''
+}
 
 // Computed properties
 const canSaveDraft = computed(() => formData.value.endpointName.trim().length > 0)
@@ -1735,9 +1967,12 @@ const isCurrentStepValid = computed(() => {
     return formData.value.responseType !== ''
   }
   if (currentSubStep.value === 3) {
-    return true // Access rules are optional
+    return true // Collective association is optional
   }
   if (currentSubStep.value === 4) {
+    return true // Access rules are optional
+  }
+  if (currentSubStep.value === 5) {
     const basicFieldsValid =
       formData.value.endpointName.trim() !== '' && formData.value.summary.trim() !== ''
 
@@ -1785,10 +2020,10 @@ const selectVectorDB = (dbType: string) => {
 }
 
 const nextStep = () => {
-  if (isCurrentStepValid.value && currentSubStep.value < 5) {
+  if (isCurrentStepValid.value && currentSubStep.value < 6) {
     currentSubStep.value++
-  } else if (currentSubStep.value === 5) {
-    // Publish the endpoint
+  } else if (currentSubStep.value === 6) {
+    // Publish the endpoint and navigate to endpoints page
     router.push({ name: 'endpoints' })
   }
 }

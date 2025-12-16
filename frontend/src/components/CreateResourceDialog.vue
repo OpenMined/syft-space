@@ -394,6 +394,26 @@
             />
           </div>
 
+          <!-- Host Collective (Optional) -->
+          <div class="space-y-2">
+            <Label for="host-collective" class="text-sm font-medium text-muted-foreground">
+              Host Collective (Optional)
+            </Label>
+            <Select v-model="selectedCollective">
+              <SelectTrigger class="w-full">
+                <SelectValue placeholder="Select collective" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="harvard">Harvard (irina.harvard.syftbox.net)</SelectItem>
+                <SelectItem value="tcp-collective">TCP Collective (irina.tcp-collective.syftbox.net)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-xs text-muted-foreground">
+              Choose a collective to host this {{ resourceConfig.singularName }} under their infrastructure
+            </p>
+          </div>
+
           <!-- File System Configuration -->
           <div v-if="dataSourceType === 'filesystem'" class="space-y-4">
             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -719,6 +739,7 @@ const dataSourceType = ref<string | null>(null)
 // Form data
 const datasetName = ref('')
 const selectedFiles = ref<string[]>([])
+const selectedCollective = ref('none')
 
 // Database configuration
 const databaseConfig = ref({
@@ -852,6 +873,7 @@ const resetDialog = () => {
   dataSourceType.value = null
   datasetName.value = ''
   selectedFiles.value = []
+  selectedCollective.value = 'none'
   databaseConfig.value = {
     // Filesystem fields
     watchPath: '',

@@ -4,15 +4,13 @@
     <div class="min-h-screen bg-background">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
         <!-- Hero Section -->
-        <div class="text-center mb-16">
+        <div class="text-left mb-16">
           <h1 class="heading-1 font-light text-foreground mb-4">
             Welcome to your
             <span class="font-medium text-primary">SyftAI Space</span>
           </h1>
-          <p class="body-lg text-muted-foreground max-w-2xl mx-auto">
-            A Space where you can turn data and models into shareable workflows — exposing them
-            through secure endpoints under your own rules for privacy, payments, and human
-            oversight.
+          <p class="body-lg text-muted-foreground max-w-2xl">
+            A Space where you can turn data and models into secure endpoints under your own rules for access, privacy, payments, and oversight.
           </p>
         </div>
 

@@ -80,6 +80,49 @@
         </div>
       </div>
 
+      <!-- Collectives Section -->
+      <div class="bg-card border border-border rounded-xl p-6">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="p-2 bg-primary/10 rounded-md">
+            <Users class="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h3 class="text-lg font-medium text-foreground">Collectives</h3>
+            <p class="text-sm text-muted-foreground">
+              Collectives you are a member of
+            </p>
+          </div>
+        </div>
+
+        <!-- Collectives List -->
+        <div v-if="collectives.length > 0" class="space-y-3">
+          <div
+            v-for="collective in collectives"
+            :key="collective.id"
+            class="flex items-center justify-between p-4 bg-muted/50 rounded-lg border border-border"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Users class="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h4 class="font-medium text-foreground">{{ collective.name }}</h4>
+                <p class="text-sm text-muted-foreground">{{ collective.domain }}</p>
+              </div>
+            </div>
+            <Badge :variant="collective.role === 'admin' ? 'default' : 'secondary'">
+              {{ collective.role }}
+            </Badge>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div v-else class="text-center py-8 border-2 border-dashed border-border rounded-lg">
+          <Users class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+          <p class="text-sm text-muted-foreground">You are not a member of any collectives yet</p>
+        </div>
+      </div>
+
       <!-- Save Button -->
       <div class="mt-8 flex justify-end">
         <Button> Save Changes </Button>
@@ -89,11 +132,29 @@
 </template>
 
 <script setup lang="ts">
-import { Settings, Shield, AlertCircle, Copy } from 'lucide-vue-next'
+import { Settings, Shield, AlertCircle, Copy, Users } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { useUserStore } from '@/stores/user'
+import { ref } from 'vue'
 
 const userStore = useUserStore()
+
+// Mock collectives data - in real app, this would come from an API
+const collectives = ref([
+  {
+    id: '1',
+    name: 'Harvard',
+    domain: 'irina.harvard.syftbox.net',
+    role: 'member',
+  },
+  {
+    id: '2',
+    name: 'TCP Collective',
+    domain: 'irina.tcp-collective.syftbox.net',
+    role: 'admin',
+  },
+])
 </script>

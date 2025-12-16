@@ -79,6 +79,7 @@ const getSourceIcon = (source: string) => {
   if (source.includes('Rate Limiting')) return Gauge
   if (source === 'Accounting Policy') return Calculator
   if (source === 'OpenTelemetry Observability Policy') return Activity
+  if (source === 'Collective Membership') return Users
 
   // Other source icons
   if (source.includes('Security')) return AlertCircle
@@ -94,6 +95,8 @@ const getSourceColor = (source: string) => {
   if (source === 'Accounting Policy')
     return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/50'
   if (source === 'OpenTelemetry Observability Policy') return 'text-primary bg-primary/10'
+  if (source === 'Collective Membership')
+    return 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/50'
 
   // Other source colors using semantic tokens
   if (source.includes('Security')) return 'text-destructive bg-destructive/10'
