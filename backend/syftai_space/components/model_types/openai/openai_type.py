@@ -230,7 +230,7 @@ class OpenAIModelType(BaseModelType):
         try:
             # Try to make a simple API call to check connectivity
             # Use a minimal request to test the connection
-            self.client.models.list(limit=1)
+            self.client.models.list()
             return HealthcheckResponse(
                 status=HealthcheckStatus.HEALTHY,
                 message="OpenAI API is accessible",
