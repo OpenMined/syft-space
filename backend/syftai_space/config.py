@@ -48,6 +48,12 @@ class AppSettings(BaseSettings):
         description="Default tenant name (used when multi-tenancy is disabled)",
     )
 
+    # Admin authentication
+    admin_api_key: str = Field(
+        default="",
+        description="Admin API key for protected endpoints. If empty, no auth is enforced (dev mode).",
+    )
+
 
 # Global settings instance
 app_settings = AppSettings()
