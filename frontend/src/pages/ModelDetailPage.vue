@@ -22,7 +22,9 @@
     <!-- Loading State -->
     <div v-if="loading" class="flex justify-center items-center py-16">
       <div class="text-center">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+        <div
+          class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"
+        ></div>
         <p class="text-muted-foreground">Loading model details...</p>
       </div>
     </div>
@@ -84,94 +86,107 @@
 
       <!-- Model Details Content -->
       <div class="space-y-6">
-          <!-- Model Summary -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-8">
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Type</p>
-                <p class="body-sm font-medium text-foreground">
-                  {{ model.dtype }}
-                </p>
-              </div>
+        <!-- Model Summary -->
+        <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-8">
+            <div class="text-center">
+              <p class="body-sm text-muted-foreground mb-1">Type</p>
+              <p class="body-sm font-medium text-foreground">
+                {{ model.dtype }}
+              </p>
+            </div>
 
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Created</p>
-                <p class="body-sm font-medium text-foreground">{{ formatDate(new Date(model.created_at)) }}</p>
-              </div>
+            <div class="text-center">
+              <p class="body-sm text-muted-foreground mb-1">Created</p>
+              <p class="body-sm font-medium text-foreground">
+                {{ formatDate(new Date(model.created_at)) }}
+              </p>
+            </div>
 
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Updated</p>
-                <p class="body-sm font-medium text-foreground">{{ formatDate(new Date(model.updated_at)) }}</p>
-              </div>
+            <div class="text-center">
+              <p class="body-sm text-muted-foreground mb-1">Updated</p>
+              <p class="body-sm font-medium text-foreground">
+                {{ formatDate(new Date(model.updated_at)) }}
+              </p>
             </div>
           </div>
+        </div>
 
-          <!-- Model Configuration -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-3">Model Configuration</h2>
-            </div>
-
-            <!-- Basic Settings -->
-            <div class="space-y-6">
-              <div class="flex justify-between items-center py-4 border-b border-border">
-                <span class="body-sm text-muted-foreground">Base URL</span>
-                <span class="body-sm font-medium text-foreground">{{ model.configuration.base_url || 'Not configured' }}</span>
-              </div>
-              <div class="flex justify-between items-center py-4 border-b border-border">
-                <span class="body-sm text-muted-foreground">Model</span>
-                <span class="body-sm font-medium text-foreground">{{ model.configuration.model || 'Not specified' }}</span>
-              </div>
-              <div class="flex justify-between items-center py-4 border-b border-border">
-                <span class="body-sm text-muted-foreground">API Key</span>
-                <span class="body-sm font-medium text-foreground">{{ model.configuration.api_key ? '••••••••' : 'Not configured' }}</span>
-              </div>
-              <div v-if="model.configuration.system_prompt" class="flex justify-between items-center py-4">
-                <span class="body-sm text-muted-foreground">System Prompt</span>
-                <span class="body-sm font-medium text-foreground">{{ model.configuration.system_prompt || 'Default' }}</span>
-              </div>
-            </div>
-
+        <!-- Model Configuration -->
+        <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+          <div class="flex items-center justify-between mb-8">
+            <h2 class="heading-3">Model Configuration</h2>
           </div>
 
-          <!-- Connected Endpoints -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <h2 class="heading-3 mb-4">Connected Endpoints ({{ connectedEndpoints.length }})</h2>
-            <div v-if="connectedEndpoints.length > 0" class="space-y-4">
-              <div
-                v-for="endpoint in connectedEndpoints"
-                :key="endpoint.id"
-                class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
-              >
-                <div class="flex items-center gap-4">
-                  <div class="p-3 bg-primary/10 border border-primary/20 rounded-xl">
-                    <Globe class="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
-                    <p class="body-sm text-muted-foreground mt-1">
-                      {{ endpoint.description || 'API endpoint' }}
-                    </p>
-                  </div>
+          <!-- Basic Settings -->
+          <div class="space-y-6">
+            <div class="flex justify-between items-center py-4 border-b border-border">
+              <span class="body-sm text-muted-foreground">Base URL</span>
+              <span class="body-sm font-medium text-foreground">{{
+                model.configuration.base_url || 'Not configured'
+              }}</span>
+            </div>
+            <div class="flex justify-between items-center py-4 border-b border-border">
+              <span class="body-sm text-muted-foreground">Model</span>
+              <span class="body-sm font-medium text-foreground">{{
+                model.configuration.model || 'Not specified'
+              }}</span>
+            </div>
+            <div class="flex justify-between items-center py-4 border-b border-border">
+              <span class="body-sm text-muted-foreground">API Key</span>
+              <span class="body-sm font-medium text-foreground">{{
+                model.configuration.api_key ? '••••••••' : 'Not configured'
+              }}</span>
+            </div>
+            <div
+              v-if="model.configuration.system_prompt"
+              class="flex justify-between items-center py-4"
+            >
+              <span class="body-sm text-muted-foreground">System Prompt</span>
+              <span class="body-sm font-medium text-foreground">{{
+                model.configuration.system_prompt || 'Default'
+              }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connected Endpoints -->
+        <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+          <h2 class="heading-3 mb-4">Connected Endpoints ({{ connectedEndpoints.length }})</h2>
+          <div v-if="connectedEndpoints.length > 0" class="space-y-4">
+            <div
+              v-for="endpoint in connectedEndpoints"
+              :key="endpoint.id"
+              class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
+            >
+              <div class="flex items-center gap-4">
+                <div class="p-3 bg-primary/10 border border-primary/20 rounded-xl">
+                  <Globe class="h-5 w-5 text-primary" />
                 </div>
-                <Button variant="outline" size="sm">
-                  <ExternalLink class="h-4 w-4" />
-                </Button>
+                <div>
+                  <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
+                  <p class="body-sm text-muted-foreground mt-1">
+                    {{ endpoint.description || 'API endpoint' }}
+                  </p>
+                </div>
               </div>
-            </div>
-            <div v-else class="text-center py-16">
-              <Globe class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p class="text-muted-foreground body-sm mb-4">No endpoints connected to this model</p>
-              <Button size="sm" @click="navigateToCreateEndpoint">
-                <Plus class="h-4 w-4 mr-2" />
-                Create Endpoint
+              <Button variant="outline" size="sm">
+                <ExternalLink class="h-4 w-4" />
               </Button>
             </div>
           </div>
+          <div v-else class="text-center py-16">
+            <Globe class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <p class="text-muted-foreground body-sm mb-4">No endpoints connected to this model</p>
+            <Button size="sm" @click="navigateToCreateEndpoint">
+              <Plus class="h-4 w-4 mr-2" />
+              Create Endpoint
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
-
 
   <!-- Delete Confirmation Dialog -->
   <DeleteConfirmationDialog
@@ -188,14 +203,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  Brain,
-  ChevronRight,
-  Trash2,
-  Globe,
-  Plus,
-  ExternalLink,
-} from 'lucide-vue-next'
+import { Brain, ChevronRight, Trash2, Globe, Plus, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
@@ -264,20 +272,19 @@ const navigateToCreateEndpoint = () => {
   router.push({ name: 'create-model-endpoint' })
 }
 
-
 const loadModel = async (name: string) => {
   try {
     loading.value = true
     error.value = false
 
     const modelResponse = await modelsApi.get(name)
-    
+
     // Parse the model and convert tags string to array
     const parsedModel: ParsedModel = {
       ...modelResponse,
       tags: modelResponse.tags ? modelResponse.tags.split(',').map((tag) => tag.trim()) : [],
       status: 'stopped' as const, // Mock status for now
-      endpointCount: 0 // Mock endpoint count for now
+      endpointCount: 0, // Mock endpoint count for now
     }
 
     model.value = parsedModel
@@ -290,7 +297,6 @@ const loadModel = async (name: string) => {
       console.error('Failed to load model type info:', typeErr)
       modelTypeInfo.value = null
     }
-
   } catch (err) {
     console.error('Failed to load model:', err)
     error.value = true
@@ -303,5 +309,4 @@ onMounted(async () => {
   const modelSlug = route.params.slug as string
   await loadModel(modelSlug)
 })
-
 </script>

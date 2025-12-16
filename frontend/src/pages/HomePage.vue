@@ -23,7 +23,7 @@
 
         <!-- Action Cards -->
         <div class="mb-12">
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
@@ -58,7 +58,7 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button
-                    @click="$router.push('/datasets')"
+                    @click="$router.push({ name: 'datasets' })"
                     class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1"
                   >
                     <div class="flex flex-col items-start space-y-3">
@@ -84,7 +84,7 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button
-                    @click="$router.push('/models')"
+                    @click="$router.push({ name: 'models' })"
                     class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1"
                   >
                     <div class="flex flex-col items-start space-y-3">
@@ -107,56 +107,130 @@
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <button
-                    @click="$router.push('/inbox')"
-                    class="group bg-card hover:bg-muted rounded-xl p-6 text-left transition-all duration-200 border border-border hover:border-muted-foreground/20 hover:shadow-lg hover:-translate-y-1 relative"
-                  >
-                    <div class="flex flex-col items-start space-y-3">
-                      <div
-                        class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/20 transition-colors"
-                      >
-                        <ShieldCheck class="w-6 h-6 text-orange-600 dark:text-orange-400" />
-                      </div>
-                      <div>
-                        <div class="font-medium text-foreground">Review usage & requests</div>
-                        <div class="body-sm text-muted-foreground mt-1">
-                          {{ inboxStore.unreadCount }} pending
-                        </div>
-                      </div>
-                    </div>
-                    <div
-                      v-if="inboxStore.unreadCount > 0"
-                      class="absolute -top-2 -right-2 w-3 h-3 bg-destructive rounded-full animate-pulse"
-                    ></div>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Review usage and access requests</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           </div>
         </div>
 
         <!-- Compact Overview -->
         <div
-          class="bg-card/80 backdrop-blur-sm rounded-xl border border-border p-4 mb-10 shadow-sm"
+          class="bg-card/80 backdrop-blur-sm rounded-xl border border-border p-4 sm:p-6 mb-10 shadow-sm"
         >
-          <div class="flex items-center justify-center gap-8">
+          <!-- Small Mobile: Grid Layout -->
+          <div class="grid grid-cols-2 gap-3 md:hidden">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button
-                    @click="$router.push('/datasets')"
-                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors"
+                    @click="$router.push({ name: 'datasets' })"
+                    class="group flex flex-col items-center gap-1.5 p-3 rounded-lg hover:bg-muted transition-colors min-h-0"
                   >
-                    <Database class="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    <span class="text-2xl font-light text-foreground">12</span>
-                    <span class="body-sm text-muted-foreground">Datasets</span>
+                    <div class="flex items-center gap-1.5">
+                      <Database
+                        class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 flex-shrink-0"
+                      />
+                      <span class="text-lg font-light text-foreground">{{ datasetCount }}</span>
+                    </div>
+                    <span class="text-xs text-muted-foreground text-center leading-tight"
+                      >Datasets</span
+                    >
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>View all datasets</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    @click="$router.push({ name: 'models' })"
+                    class="group flex flex-col items-center gap-1.5 p-3 rounded-lg hover:bg-muted transition-colors min-h-0"
+                  >
+                    <div class="flex items-center gap-1.5">
+                      <Brain
+                        class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 flex-shrink-0"
+                      />
+                      <span class="text-lg font-light text-foreground">{{ modelCount }}</span>
+                    </div>
+                    <span class="text-xs text-muted-foreground text-center leading-tight"
+                      >Models</span
+                    >
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Manage AI models</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    @click="$router.push({ name: 'endpoints' })"
+                    class="group flex flex-col items-center gap-1.5 p-3 rounded-lg hover:bg-muted transition-colors min-h-0"
+                  >
+                    <div class="flex items-center gap-1.5">
+                      <Server
+                        class="w-3.5 h-3.5 text-orange-600 dark:text-orange-400 flex-shrink-0"
+                      />
+                      <span class="text-lg font-light text-foreground">{{ endpointCount }}</span>
+                    </div>
+                    <span class="text-xs text-muted-foreground text-center leading-tight"
+                      >Endpoints</span
+                    >
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>View all endpoints</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    @click="revenueDialogOpen = true"
+                    class="group flex flex-col items-center gap-1.5 p-3 rounded-lg hover:bg-muted transition-colors min-h-0"
+                  >
+                    <div class="flex items-center gap-1.5">
+                      <TrendingUp
+                        class="w-3.5 h-3.5 text-green-600 dark:text-green-400 flex-shrink-0"
+                      />
+                      <span class="text-lg font-light text-foreground truncate"
+                        >${{ getTotalRevenue().total }}</span
+                      >
+                    </div>
+                    <span class="text-xs text-muted-foreground text-center leading-tight"
+                      >Revenue</span
+                    >
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>View detailed revenue analytics</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+
+          <!-- Medium and up: Horizontal Layout -->
+          <div class="hidden md:flex items-center justify-center gap-4 lg:gap-6 xl:gap-8">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    @click="$router.push({ name: 'datasets' })"
+                    class="group flex items-center gap-2 px-2 lg:px-3 py-2 rounded-lg hover:bg-muted transition-colors"
+                  >
+                    <Database class="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                    <span class="text-xl lg:text-2xl font-light text-foreground">{{
+                      datasetCount
+                    }}</span>
+                    <span class="text-sm lg:body-sm text-muted-foreground whitespace-nowrap"
+                      >Datasets</span
+                    >
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -171,12 +245,16 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button
-                    @click="$router.push('/models')"
-                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors"
+                    @click="$router.push({ name: 'models' })"
+                    class="group flex items-center gap-2 px-2 lg:px-3 py-2 rounded-lg hover:bg-muted transition-colors"
                   >
-                    <Brain class="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                    <span class="text-2xl font-light text-foreground">7</span>
-                    <span class="body-sm text-muted-foreground">Models</span>
+                    <Brain class="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                    <span class="text-xl lg:text-2xl font-light text-foreground">{{
+                      modelCount
+                    }}</span>
+                    <span class="text-sm lg:body-sm text-muted-foreground whitespace-nowrap"
+                      >Models</span
+                    >
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -191,18 +269,20 @@
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button
-                    @click="$router.push('/inbox')"
-                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors"
+                    @click="$router.push({ name: 'endpoints' })"
+                    class="group flex items-center gap-2 px-2 lg:px-3 py-2 rounded-lg hover:bg-muted transition-colors"
                   >
-                    <ShieldCheck class="w-4 h-4 text-orange-600 dark:text-orange-400" />
-                    <span class="text-2xl font-light text-foreground">{{
-                      inboxStore.unreadCount
+                    <Server class="w-4 h-4 text-orange-600 dark:text-orange-400 flex-shrink-0" />
+                    <span class="text-xl lg:text-2xl font-light text-foreground">{{
+                      endpointCount
                     }}</span>
-                    <span class="body-sm text-muted-foreground">Requests</span>
+                    <span class="text-sm lg:body-sm text-muted-foreground whitespace-nowrap"
+                      >Endpoints</span
+                    >
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Review pending requests</p>
+                  <p>View all endpoints</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -214,13 +294,15 @@
                 <TooltipTrigger as-child>
                   <button
                     @click="revenueDialogOpen = true"
-                    class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors"
+                    class="group flex items-center gap-2 px-2 lg:px-3 py-2 rounded-lg hover:bg-muted transition-colors"
                   >
-                    <TrendingUp class="w-4 h-4 text-green-600 dark:text-green-400" />
-                    <span class="text-2xl font-light text-foreground"
+                    <TrendingUp class="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                    <span class="text-xl lg:text-2xl font-light text-foreground"
                       >${{ getTotalRevenue().total }}</span
                     >
-                    <span class="body-sm text-muted-foreground">Revenue</span>
+                    <span class="text-sm lg:body-sm text-muted-foreground whitespace-nowrap"
+                      >Revenue</span
+                    >
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -228,75 +310,6 @@
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-          </div>
-        </div>
-
-        <!-- Recent Activity -->
-        <div class="bg-card rounded-xl border border-border p-6 mb-10 shadow-sm">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="heading-3">Recent Activity</h2>
-            <Button
-              @click="$router.push('/inbox')"
-              variant="ghost"
-              size="sm"
-              class="body-sm text-primary hover:text-primary/80"
-            >
-              View all →
-            </Button>
-          </div>
-
-          <div v-if="inboxStore.unreadCount === 0" class="text-center py-8">
-            <p class="body-sm text-muted-foreground">No pending requests</p>
-          </div>
-
-          <div v-else class="space-y-3 max-h-64 overflow-y-auto">
-            <div
-              v-for="item in inboxStore.activeItems.slice(0, 3)"
-              :key="item.id"
-              class="flex items-start gap-3 p-4 rounded-lg bg-muted hover:bg-muted/80 cursor-pointer transition-colors"
-              @click="openItemDialog(item)"
-            >
-              <div
-                :class="`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${getSourceColor(item.source)}`"
-              >
-                <component :is="getSourceIcon(item.source)" class="w-4 h-4" />
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-start justify-between gap-2">
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2 mb-1">
-                      <span class="body-sm font-medium text-foreground truncate">{{
-                        item.source
-                      }}</span>
-                      <div v-if="!item.read" class="w-2 h-2 bg-primary rounded-full"></div>
-                    </div>
-                    <p class="body-sm text-foreground truncate mb-1">{{ item.title }}</p>
-                    <p class="body-sm font-light text-muted-foreground">
-                      {{ formatTimestamp(item.timestamp) }}
-                    </p>
-                  </div>
-                  <div v-if="item.actions" class="flex items-center gap-1" @click.stop>
-                    <Button
-                      v-if="item.actions.positive"
-                      size="sm"
-                      variant="outline"
-                      @click="handlePositiveAction(item)"
-                    >
-                      {{ item.actions.positive.label }}
-                    </Button>
-                    <Button
-                      v-if="item.actions.negative"
-                      size="sm"
-                      variant="outline"
-                      class="text-destructive hover:text-destructive"
-                      @click="handleNegativeAction(item)"
-                    >
-                      {{ item.actions.negative.label }}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -453,7 +466,7 @@ import {
   Trash2,
   FolderOpen,
   Settings,
-  ShieldCheck,
+  Server,
   TrendingUp,
   FileText,
   Zap,
@@ -475,21 +488,15 @@ import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import CreateEndpointModal from '@/components/CreateEndpointModal.vue'
 import RevenueDetailsDialog from '@/components/RevenueDetailsDialog.vue'
 import { getTotalRevenue } from '@/composables/useRevenue'
+import { useDashboardStats } from '@/composables/useDashboardStats'
 
 const inboxStore = useInboxStore()
+const { datasetCount, modelCount, endpointCount } = useDashboardStats()
 
 const selectedItem = ref<InboxItem | null>(null)
 const dialogOpen = ref(false)
 const revenueDialogOpen = ref(false)
 const showCreateEndpointModal = ref(false)
-
-const openItemDialog = (item: InboxItem) => {
-  selectedItem.value = item
-  dialogOpen.value = true
-  if (!item.read) {
-    inboxStore.markAsRead(item.id)
-  }
-}
 
 const dismissItem = (item: InboxItem) => {
   inboxStore.dismissItem(item.id)

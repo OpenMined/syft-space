@@ -33,21 +33,27 @@
     <!-- Loading State -->
     <div v-if="isLoading" class="flex justify-center items-center py-12">
       <div class="text-center">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+        <div
+          class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"
+        ></div>
         <p class="text-muted-foreground">Loading models...</p>
       </div>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="bg-destructive/10 border border-destructive/20 rounded-lg p-6 text-center">
+    <div
+      v-else-if="error"
+      class="bg-destructive/10 border border-destructive/20 rounded-lg p-6 text-center"
+    >
       <p class="text-destructive mb-4">{{ error }}</p>
-      <Button @click="fetchModels" variant="outline">
-        Try Again
-      </Button>
+      <Button @click="fetchModels" variant="outline"> Try Again </Button>
     </div>
 
     <!-- Empty State (when no models exist) -->
-    <div v-else-if="models.length === 0" class="bg-card rounded-lg shadow border border-border p-8 text-center">
+    <div
+      v-else-if="models.length === 0"
+      class="bg-card rounded-lg shadow border border-border p-8 text-center"
+    >
       <Brain class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
       <h3 class="heading-3 text-foreground mb-2">No models yet</h3>
       <p class="text-muted-foreground mb-4">Start by adding or connecting your first AI model</p>
@@ -123,7 +129,12 @@
                 {{ model.summary }}
               </p>
               <div v-if="model.tags" class="flex gap-2">
-                <Badge v-for="tag in model.tags.split(',').filter(t => t.trim())" :key="tag" variant="outline" class="body-sm">
+                <Badge
+                  v-for="tag in model.tags.split(',').filter((t) => t.trim())"
+                  :key="tag"
+                  variant="outline"
+                  class="body-sm"
+                >
                   {{ tag.trim() }}
                 </Badge>
               </div>
@@ -143,7 +154,6 @@
         </div>
       </div>
     </div>
-
   </div>
 
   <!-- Create Model Dialog -->
@@ -297,13 +307,13 @@ onMounted(async () => {
 const fetchModels = async () => {
   isLoading.value = true
   error.value = null
-  
+
   try {
     const response = await modelsApi.list()
     // Transform API response to include UI-specific properties
-    models.value = response.map(model => ({
+    models.value = response.map((model) => ({
       ...model,
-      endpointCount: mockEndpoints.filter(e => e.modelIds.includes(model.id)).length
+      endpointCount: mockEndpoints.filter((e) => e.modelIds.includes(model.id)).length,
     }))
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load models'
