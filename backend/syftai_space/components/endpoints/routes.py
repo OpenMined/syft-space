@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends
 
+from syftai_space.components.auth.public import public_route
 from syftai_space.components.endpoints.handlers import EndpointHandler
 from syftai_space.components.endpoints.schemas import (
     CreateEndpointRequest,
@@ -78,6 +79,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """
         return handler.get_endpoint(slug, tenant)
 
+    @public_route
     @router.post("/{slug}/query", response_model=QueryEndpointResponse)
     async def query_endpoint(
         slug: str,
@@ -85,7 +87,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
     ) -> QueryEndpointResponse:
-        """Query an endpoint - main RAG flow.
+        """Query an endpoint - main RAG flow (PUBLIC, no auth required).
 
         This is the core endpoint that orchestrates:
         - Dataset search (if configured)

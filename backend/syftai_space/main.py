@@ -10,6 +10,10 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+# Import auth components
+from syftai_space.components.auth.middleware import AdminKeyMiddleware
+from syftai_space.components.auth.public import public_route
+
 # Import explicit registration functions
 from syftai_space.components.dataset_types import (
     register_builtin_types as register_dataset_types,
@@ -245,6 +249,10 @@ app.state.ingestion_manager = ingestion_manager
 # Add tenant middleware (after CORS, before routes)
 app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
 
+# Add admin key middleware (runs before tenant middleware)
+# Middleware execution order is reverse of registration order
+app.add_middleware(AdminKeyMiddleware)
+
 # Create main API router
 router = APIRouter(prefix="/api/v1")
 
@@ -257,9 +265,10 @@ router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 
 
+@public_route
 @router.get("/health", tags=["system"])
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint (PUBLIC, no auth required)."""
     return {"status": "healthy", "version": "0.1.0"}
 
 
