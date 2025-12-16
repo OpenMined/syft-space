@@ -14,7 +14,16 @@
 
     <!-- Actions Bar -->
     <div class="flex items-center justify-between mb-8">
-      <Input v-model="searchQuery" placeholder="Search datasets..." class="w-64" />
+      <div class="relative w-64">
+        <Search
+          class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
+        />
+        <Input
+          v-model="searchQuery"
+          placeholder="Search datasets..."
+          class="pl-10 pr-4 py-2.5 w-full"
+        />
+      </div>
       <Button @click="showCreateDataSourceDialog = true">
         <Plus class="h-4 w-4 mr-2" />
         Add Dataset
@@ -308,7 +317,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Database, Plus, Edit, Trash2, Link } from 'lucide-vue-next'
+import { Database, Plus, Edit, Trash2, Link, Search } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'

@@ -1,12 +1,12 @@
 <template>
   <component v-if="isLucideIcon" :is="lucideIcon" :class="lucideIconClass" v-bind="$attrs" />
   <img v-else-if="iconSrc" :src="iconSrc" :alt="`${name} icon`" v-bind="$attrs" />
-  <Database v-else class="text-muted-foreground" v-bind="$attrs" />
+  <component v-else :is="defaultIcon" class="text-muted-foreground" v-bind="$attrs" />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { FolderOpen, Database } from 'lucide-vue-next'
+import { FolderOpen, Database, Brain } from 'lucide-vue-next'
 
 // Import all icon images
 import weaviateIcon from '@/assets/icons/weaviate.png'
@@ -18,6 +18,7 @@ import huggingfaceIcon from '@/assets/icons/huggingface.png'
 
 const props = defineProps<{
   name: string
+  context?: 'models' | 'datasets'
 }>()
 
 interface IconConfig {
@@ -46,6 +47,10 @@ const lucideIcon = computed(() => currentIcon.value?.component)
 const lucideIconClass = computed(() => currentIcon.value?.class || '')
 
 const iconSrc = computed(() => currentIcon.value?.src || '')
+
+const defaultIcon = computed(() => {
+  return props.context === 'models' ? Brain : Database
+})
 </script>
 
 <style scoped>
