@@ -11,7 +11,12 @@
           <Label for="model-name" class="text-sm font-medium">
             Model Name <span class="text-red-500">*</span>
           </Label>
-          <Input id="model-name" v-model="formData.name" placeholder="e.g., Legal AI Assistant" class="w-full" />
+          <Input
+            id="model-name"
+            v-model="formData.name"
+            placeholder="e.g., Legal AI Assistant"
+            class="w-full"
+          />
           <p class="text-sm text-muted-foreground">Give your model a descriptive name</p>
         </div>
 
@@ -31,9 +36,7 @@
                 <SelectItem value="openrouter">OpenRouter</SelectItem>
               </SelectContent>
             </Select>
-            <p class="text-sm text-muted-foreground">
-              Choose your AI model provider
-            </p>
+            <p class="text-sm text-muted-foreground">Choose your AI model provider</p>
           </div>
 
           <!-- Model -->
@@ -46,14 +49,16 @@
                 <SelectValue placeholder="Select a model" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem v-for="model in availableModels" :key="model.value" :value="model.value">
+                <SelectItem
+                  v-for="model in availableModels"
+                  :key="model.value"
+                  :value="model.value"
+                >
                   {{ model.label }}
                 </SelectItem>
               </SelectContent>
             </Select>
-            <p class="text-sm text-muted-foreground">
-              Select the specific model to use
-            </p>
+            <p class="text-sm text-muted-foreground">Select the specific model to use</p>
           </div>
         </div>
 
@@ -62,16 +67,25 @@
           <Label for="api-key" class="text-sm font-medium">
             API Key <span class="text-red-500">*</span>
           </Label>
-          <Input id="api-key" v-model="formData.apiKey" type="password" placeholder="Enter your API key"
-            class="w-full" />
+          <Input
+            id="api-key"
+            v-model="formData.apiKey"
+            type="password"
+            placeholder="Enter your API key"
+            class="w-full"
+          />
           <p class="text-sm text-muted-foreground">Your API key for authentication</p>
         </div>
 
         <!-- Summary -->
         <div class="space-y-2">
           <Label for="summary" class="text-sm font-medium"> Summary (Optional) </Label>
-          <Input id="summary" v-model="formData.summary"
-            placeholder="Describe what this model does and how it can be used..." class="w-full" />
+          <Input
+            id="summary"
+            v-model="formData.summary"
+            placeholder="Describe what this model does and how it can be used..."
+            class="w-full"
+          />
           <p class="text-sm text-muted-foreground">
             A brief description of your model's capabilities
           </p>
@@ -82,8 +96,13 @@
           <Label for="topics" class="text-sm font-medium"> Topics & Categories (Optional) </Label>
           <div class="space-y-2">
             <div class="flex gap-2">
-              <Input id="topics" v-model="tagInput" @keydown.enter.prevent="addTag"
-                placeholder="Add keywords like: legal, medical, research, finance" class="flex-1" />
+              <Input
+                id="topics"
+                v-model="tagInput"
+                @keydown.enter.prevent="addTag"
+                placeholder="Add keywords like: legal, medical, research, finance"
+                class="flex-1"
+              />
               <Button @click="addTag" variant="outline" :disabled="!tagInput.trim()">
                 <Plus class="h-4 w-4" />
               </Button>
@@ -92,17 +111,32 @@
             <!-- Popular Tags Suggestions -->
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-xs text-muted-foreground">Popular:</span>
-              <Button v-for="suggestion in popularTags" :key="suggestion" @click="addSuggestedTag(suggestion)"
-                variant="ghost" size="sm" class="h-6 px-2 text-xs" :disabled="formData.tags.includes(suggestion)">
+              <Button
+                v-for="suggestion in popularTags"
+                :key="suggestion"
+                @click="addSuggestedTag(suggestion)"
+                variant="ghost"
+                size="sm"
+                class="h-6 px-2 text-xs"
+                :disabled="formData.tags.includes(suggestion)"
+              >
                 {{ suggestion }}
               </Button>
             </div>
 
             <!-- Selected Tags -->
             <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-3">
-              <Badge v-for="(tag, index) in formData.tags" :key="index" variant="secondary" class="px-3 py-1">
+              <Badge
+                v-for="(tag, index) in formData.tags"
+                :key="index"
+                variant="secondary"
+                class="px-3 py-1"
+              >
                 {{ tag }}
-                <button @click="removeTag(index)" class="ml-2 hover:text-destructive transition-colors">
+                <button
+                  @click="removeTag(index)"
+                  class="ml-2 hover:text-destructive transition-colors"
+                >
                   <X class="h-3 w-3" />
                 </button>
               </Badge>
@@ -142,6 +176,8 @@ import {
 } from '@/components/ui/select'
 import { Plus, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
+import { modelsApi } from '@/api/endpoints/models'
+import type { CreateModelRequest } from '@/api/types'
 
 interface Model {
   id: string
@@ -251,22 +287,48 @@ const handleCancel = () => {
   isOpen.value = false
 }
 
-const handleCreate = () => {
+const handleCreate = async () => {
   if (!isFormValid.value) return
 
   const modelName = formData.value.name
 
-  // Emit create event
-  if (props.model) {
-    emit('model-updated')
-    toast.success(`Model "${modelName}" updated successfully`)
-  } else {
-    emit('model-created')
-    toast.success(`Model "${modelName}" created successfully`)
-  }
+  try {
+    // Prepare the request data
+    const createRequest: CreateModelRequest = {
+      name: formData.value.name,
+      dtype: 'openai',
+      configuration: {
+        api_key: formData.value.apiKey,
+        model: formData.value.model,
+        base_url:
+          formData.value.provider === 'openai'
+            ? 'https://api.openai.com/v1'
+            : 'https://openrouter.ai/api/v1',
+        system_prompt: '', // Default empty system prompt
+      },
+      summary: formData.value.summary || '',
+      tags: formData.value.tags.join(', '),
+    }
 
-  resetForm()
-  isOpen.value = false
+    // Call the API
+    await modelsApi.create(createRequest)
+
+    // Emit create event
+    if (props.model) {
+      emit('model-updated')
+      toast.success(`Model "${modelName}" updated successfully`)
+    } else {
+      emit('model-created')
+      toast.success(`Model "${modelName}" created successfully`)
+    }
+
+    resetForm()
+    isOpen.value = false
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+    const action = props.model ? 'update' : 'create'
+    toast.error(`Failed to ${action} model: ${errorMessage}`)
+  }
 }
 
 const resetForm = () => {

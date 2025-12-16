@@ -733,7 +733,7 @@ const toggleEndpoint = (endpointName: string) => {
 
 const editDataset = async () => {
   if (!dataset.value) return
-  
+
   try {
     editingDataset.value = {
       id: dataset.value.id,

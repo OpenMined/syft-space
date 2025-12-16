@@ -141,3 +141,40 @@ export interface UpdateDatasetRequest {
   summary?: string
   tags?: string
 }
+
+// Model API types
+export interface CreateModelRequest {
+  name: string
+  dtype: string
+  configuration: Record<string, unknown>
+  summary?: string
+  tags?: string
+}
+
+export interface ModelResponse {
+  id: string
+  name: string
+  dtype: string
+  configuration: Record<string, unknown>
+  summary: string
+  tags: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ModelListItem {
+  id: string
+  name: string
+  dtype: string
+  summary: string
+  tags: string
+  created_at: string
+}
+
+export interface ModelTypeInfoResponse {
+  name: string
+  description: string
+  config_schema: Record<string, unknown>
+  icon: string
+  enabled: boolean
+}

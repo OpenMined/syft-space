@@ -12,42 +12,59 @@
       </p>
     </div>
 
-    <!-- Header with tabs and search bar -->
-    <div class="flex items-center justify-between gap-4 mb-8">
-      <!-- Tabs -->
-      <Tabs v-model="activeTab" class="w-auto">
-        <TabsList
-          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]"
-        >
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="running">Running</TabsTrigger>
-          <TabsTrigger value="stopped">Stopped</TabsTrigger>
-        </TabsList>
-      </Tabs>
+    <!-- Actions Bar -->
+    <div class="flex items-center justify-between mb-8">
+      <div class="relative w-64">
+        <Search
+          class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
+        />
+        <Input
+          v-model="searchQuery"
+          placeholder="Search models..."
+          class="pl-10 pr-4 py-2.5 w-full"
+        />
+      </div>
+      <Button @click="showCreateModelDialog = true">
+        <Plus class="h-4 w-4 mr-2" />
+        Add Model
+      </Button>
+    </div>
 
-      <!-- Search bar and Create button -->
-      <div class="flex items-center gap-4">
-        <div class="relative w-80">
-          <Search
-            class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
-          />
-          <Input
-            v-model="searchQuery"
-            placeholder="Find models, tags, types..."
-            class="pl-10 pr-4 py-2.5 w-full"
-          />
-        </div>
-
-        <!-- Add Model Button -->
-        <Button @click="showCreateModelDialog = true">
-          <Plus class="h-4 w-4 mr-2" />
-          Add Model
-        </Button>
+    <!-- Loading State -->
+    <div v-if="isLoading" class="flex justify-center items-center py-12">
+      <div class="text-center">
+        <div
+          class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"
+        ></div>
+        <p class="text-muted-foreground">Loading models...</p>
       </div>
     </div>
 
+    <!-- Error State -->
+    <div
+      v-else-if="error"
+      class="bg-destructive/10 border border-destructive/20 rounded-lg p-6 text-center"
+    >
+      <p class="text-destructive mb-4">{{ error }}</p>
+      <Button @click="fetchModels" variant="outline"> Try Again </Button>
+    </div>
+
+    <!-- Empty State (when no models exist) -->
+    <div
+      v-else-if="models.length === 0"
+      class="bg-card rounded-lg shadow border border-border p-8 text-center"
+    >
+      <Brain class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+      <h3 class="heading-3 text-foreground mb-2">No models yet</h3>
+      <p class="text-muted-foreground mb-4">Start by adding or connecting your first AI model</p>
+      <Button @click="showCreateModelDialog = true">
+        <Plus class="h-4 w-4 mr-2" />
+        Add Model
+      </Button>
+    </div>
+
     <!-- Models List -->
-    <div class="space-y-5">
+    <div v-else class="space-y-5">
       <div
         v-for="model in filteredModels"
         :key="model.id"
@@ -56,39 +73,12 @@
       >
         <div class="flex items-start justify-between">
           <div class="flex items-start gap-4">
-            <div
-              :class="[
-                'p-3.5 rounded-xl',
-                model.type === 'vllm'
-                  ? 'bg-primary/10'
-                  : model.type === 'ollama'
-                    ? 'bg-primary/10'
-                    : 'bg-primary/10',
-              ]"
-            >
-              <IntegrationIcon :name="model.type" class="h-6 w-6" />
+            <div class="p-3.5 rounded-xl bg-primary/10">
+              <IntegrationIcon :name="model.dtype" context="models" class="h-6 w-6" />
             </div>
             <div class="flex-1">
               <div class="flex items-center gap-3 mb-2">
                 <h3 class="heading-4 text-foreground">{{ model.name }}</h3>
-                <Badge
-                  variant="outline"
-                  :class="
-                    model.status === 'running'
-                      ? 'bg-primary/10 text-primary border border-primary/20'
-                      : 'bg-muted text-muted-foreground border border-border'
-                  "
-                  class="body-sm px-2.5 py-1 rounded-md"
-                >
-                  <div
-                    :class="
-                      model.status === 'running'
-                        ? 'w-2 h-2 bg-primary rounded-full mr-1'
-                        : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
-                    "
-                  ></div>
-                  {{ model.status }}
-                </Badge>
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger as-child>
@@ -136,25 +126,21 @@
                 </TooltipProvider>
               </div>
               <p class="body-sm text-muted-foreground mb-4">
-                {{ model.description }}
+                {{ model.summary }}
               </p>
-              <div class="flex gap-2">
-                <Badge v-for="tag in model.tags" :key="tag" variant="outline" class="body-sm">
-                  {{ tag }}
+              <div v-if="model.tags" class="flex gap-2">
+                <Badge
+                  v-for="tag in model.tags.split(',').filter((t) => t.trim())"
+                  :key="tag"
+                  variant="outline"
+                  class="body-sm"
+                >
+                  {{ tag.trim() }}
                 </Badge>
               </div>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              class="text-muted-foreground hover:text-foreground"
-              @click.stop="handleEditModel(model)"
-            >
-              <Edit class="h-4 w-4 mr-2" />
-              Edit
-            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -168,38 +154,11 @@
         </div>
       </div>
     </div>
-
-    <!-- DEMO: Empty State Section -->
-    <div class="mt-16">
-      <!-- Divider with centered text -->
-      <div class="relative">
-        <div class="absolute inset-0 flex items-center">
-          <div class="w-full border-t border-border"></div>
-        </div>
-        <div class="relative flex justify-center body-sm">
-          <span class="px-4 bg-background text-muted-foreground font-medium">
-            Demo: Empty State (shown when no models exist)
-          </span>
-        </div>
-      </div>
-
-      <!-- Empty state content -->
-      <div class="mt-8 bg-card rounded-lg shadow border border-border p-8 text-center">
-        <Brain class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-        <h3 class="heading-3 text-foreground mb-2">No models yet</h3>
-        <p class="text-muted-foreground mb-4">Start by adding or connecting your first AI model</p>
-        <Button @click="showCreateModelDialog = true">
-          <Plus class="h-4 w-4 mr-2" />
-          Add Model
-        </Button>
-      </div>
-    </div>
   </div>
 
   <!-- Create Model Dialog -->
   <CreateModelDialogSimple
     v-model:open="showCreateModelDialog"
-    :model="editingModel"
     @model-created="handleModelCreated"
     @model-updated="handleModelUpdated"
     @update:open="!$event && handleDialogClose()"
@@ -275,13 +234,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Brain, Plus, Edit, Trash2, Search } from 'lucide-vue-next'
+import { Brain, Plus, Trash2, Search } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
@@ -293,8 +251,14 @@ import {
 } from '@/components/ui/dialog'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateModelDialogSimple from '@/components/CreateModelDialogSimple.vue'
+import { modelsApi } from '@/api/endpoints/models'
+import type { ModelListItem } from '@/api/types'
+import { toast } from 'vue-sonner'
 
-import { mockModels, type Model } from '@/stores/models'
+// Extended interface for UI-specific properties
+interface ModelWithUI extends ModelListItem {
+  endpointCount: number // Mock endpoint count
+}
 
 interface Endpoint {
   id: string
@@ -302,7 +266,7 @@ interface Endpoint {
   modelIds: string[]
 }
 
-// Mock endpoints data
+// Mock endpoints data (temporary until endpoints API is integrated)
 const mockEndpoints: Endpoint[] = [
   {
     id: 'endpoint-1',
@@ -323,16 +287,42 @@ const mockEndpoints: Endpoint[] = [
 
 const router = useRouter()
 
-// Use shared models data
-const models = ref<Model[]>(mockModels)
+// API data state
+const models = ref<ModelWithUI[]>([])
+const isLoading = ref(false)
+const error = ref<string | null>(null)
 
 const showCreateModelDialog = ref(false)
 const searchQuery = ref('')
-const activeTab = ref('all')
-const editingModel = ref<Model | null>(null)
 const showDeleteDialog = ref(false)
-const modelToDelete = ref<Model | null>(null)
+const modelToDelete = ref<ModelWithUI | null>(null)
 const checkedEndpoints = ref<string[]>([])
+
+// Fetch models on component mount
+onMounted(async () => {
+  await fetchModels()
+})
+
+// Fetch models from API
+const fetchModels = async () => {
+  isLoading.value = true
+  error.value = null
+
+  try {
+    const response = await modelsApi.list()
+    // Transform API response to include UI-specific properties
+    models.value = response.map((model) => ({
+      ...model,
+      endpointCount: mockEndpoints.filter((e) => e.modelIds.includes(model.id)).length,
+    }))
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to load models'
+    toast.error('Failed to load models')
+    console.error('Failed to fetch models:', err)
+  } finally {
+    isLoading.value = false
+  }
+}
 
 const filteredModels = computed(() => {
   return models.value.filter((model) => {
@@ -341,37 +331,25 @@ const filteredModels = computed(() => {
       const query = searchQuery.value.toLowerCase()
       if (
         !model.name.toLowerCase().includes(query) &&
-        !model.description.toLowerCase().includes(query) &&
-        !model.tags.some((tag) => tag.toLowerCase().includes(query))
+        !model.summary.toLowerCase().includes(query) &&
+        !model.tags.toLowerCase().includes(query)
       ) {
         return false
       }
-    }
-
-    // Tab filter
-    if (activeTab.value === 'running' && model.status !== 'running') {
-      return false
-    }
-    if (activeTab.value === 'stopped' && model.status !== 'stopped') {
-      return false
     }
 
     return true
   })
 })
 
-const handleModelCreated = () => {
+const handleModelCreated = async () => {
   console.log('Model created successfully')
+  await fetchModels() // Refresh the list
 }
 
-const handleEditModel = (model: Model) => {
-  editingModel.value = model
-  showCreateModelDialog.value = true
-}
-
-const handleModelUpdated = () => {
+const handleModelUpdated = async () => {
   console.log('Model updated successfully')
-  editingModel.value = null
+  await fetchModels() // Refresh the list
 }
 
 // Function to get endpoint names connected to a model
@@ -381,27 +359,30 @@ const getEndpointNamesForModel = (modelId: string): string[] => {
     .map((endpoint) => endpoint.name)
 }
 
-// Reset editing state when dialog closes
+// Reset state when dialog closes
 const handleDialogClose = () => {
-  editingModel.value = null
+  // Nothing to reset for now
 }
 
-const handleDeleteModel = (model: Model) => {
+const handleDeleteModel = (model: ModelWithUI) => {
   modelToDelete.value = model
   checkedEndpoints.value = []
   showDeleteDialog.value = true
 }
 
-const confirmDeleteModel = () => {
+const confirmDeleteModel = async () => {
   if (modelToDelete.value) {
-    console.log('Deleting model:', modelToDelete.value.name)
-    // In a real app, this would call an API to delete the model
-    const index = models.value.findIndex((m) => m.id === modelToDelete.value!.id)
-    if (index > -1) {
-      models.value.splice(index, 1)
+    try {
+      await modelsApi.delete(modelToDelete.value.name)
+      toast.success(`Model "${modelToDelete.value.name}" deleted successfully`)
+      await fetchModels() // Refresh the list
+      showDeleteDialog.value = false
+      modelToDelete.value = null
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete model'
+      toast.error(errorMessage)
+      console.error('Failed to delete model:', err)
     }
-    showDeleteDialog.value = false
-    modelToDelete.value = null
   }
 }
 
