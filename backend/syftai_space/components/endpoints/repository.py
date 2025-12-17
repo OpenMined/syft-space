@@ -3,6 +3,7 @@
 from typing import Optional
 from uuid import UUID
 
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from syftai_space.components.endpoints.entities import Endpoint
@@ -30,7 +31,11 @@ class EndpointRepository(BaseRepository[Endpoint]):
             List of endpoints
         """
         with self.db.get_session() as session:
-            statement = select(Endpoint).where(Endpoint.tenant_id == tenant_id)
+            statement = (
+                select(Endpoint)
+                .where(Endpoint.tenant_id == tenant_id)
+                .options(selectinload(Endpoint.model), selectinload(Endpoint.dataset))
+            )
             return list(session.exec(statement).all())
 
     def get_by_id(self, id: int, tenant_id: UUID) -> Optional[Endpoint]:
@@ -60,8 +65,10 @@ class EndpointRepository(BaseRepository[Endpoint]):
             Endpoint if found, None otherwise
         """
         with self.db.get_session() as session:
-            statement = select(Endpoint).where(
-                Endpoint.slug == slug, Endpoint.tenant_id == tenant_id
+            statement = (
+                select(Endpoint)
+                .where(Endpoint.slug == slug, Endpoint.tenant_id == tenant_id)
+                .options(selectinload(Endpoint.model), selectinload(Endpoint.dataset))
             )
             return session.exec(statement).first()
 

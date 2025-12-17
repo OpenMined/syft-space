@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends
 from syftai_space.components.endpoints.handlers import EndpointHandler
 from syftai_space.components.endpoints.schemas import (
     CreateEndpointRequest,
+    EndpointCreateResponse,
+    EndpointDetailResponse,
     EndpointListItem,
-    EndpointResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
 )
@@ -29,12 +30,12 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """Dependency to get the endpoint handler."""
         return handler
 
-    @router.post("/", response_model=EndpointResponse, status_code=201)
+    @router.post("/", response_model=EndpointCreateResponse, status_code=201)
     async def create_endpoint(
         request: CreateEndpointRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
-    ) -> EndpointResponse:
+    ) -> EndpointCreateResponse:
         """Create a new endpoint.
 
         Args:
@@ -61,12 +62,12 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """
         return handler.list_endpoints(tenant)
 
-    @router.get("/{slug}", response_model=EndpointResponse)
+    @router.get("/{slug}", response_model=EndpointDetailResponse)
     async def get_endpoint(
         slug: str,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
-    ) -> EndpointResponse:
+    ) -> EndpointDetailResponse:
         """Get details of a specific endpoint.
 
         Args:

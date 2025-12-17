@@ -43,6 +43,34 @@ class CreateEndpointRequest(BaseModel):
         }
 
 
+class AttachedModel(BaseModel):
+    """Response model for attached model."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Model name")
+    dtype: str = Field(..., description="Model type name")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class AttachedDataset(BaseModel):
+    """Response model for attached dataset."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Dataset name")
+    summary: str = Field(..., description="Dataset summary")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
 class EndpointResponse(BaseModel):
     """Response model for endpoint details."""
 
@@ -51,8 +79,6 @@ class EndpointResponse(BaseModel):
     slug: str = Field(..., description="Unique URL slug")
     description: str = Field(..., description="Markdown description")
     summary: str = Field(..., description="Brief summary")
-    dataset_id: Optional[UUID] = Field(..., description="Linked dataset ID")
-    model_id: Optional[UUID] = Field(..., description="Linked model ID")
     response_type: str = Field(..., description="Type of response")
     published: bool = Field(..., description="Whether published")
     tags: str = Field(..., description="Comma-separated tags")
@@ -63,6 +89,22 @@ class EndpointResponse(BaseModel):
         """Pydantic config."""
 
         from_attributes = True
+
+
+class EndpointCreateResponse(EndpointResponse):
+    """Response model for creating an endpoint."""
+
+    model_id: Optional[UUID] = Field(default=None, description="Model ID")
+    dataset_id: Optional[UUID] = Field(default=None, description="Dataset ID")
+
+
+class EndpointDetailResponse(EndpointResponse):
+    """Response model for endpoint details."""
+
+    model: Optional[AttachedModel] = Field(default=None, description="Attached model")
+    dataset: Optional[AttachedDataset] = Field(
+        default=None, description="Attached dataset"
+    )
 
 
 class EndpointListItem(BaseModel):
@@ -76,6 +118,11 @@ class EndpointListItem(BaseModel):
     published: bool = Field(..., description="Whether published")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
+
+    model: Optional[AttachedModel] = Field(default=None, description="Attached model")
+    dataset: Optional[AttachedDataset] = Field(
+        default=None, description="Attached dataset"
+    )
 
     class Config:
         """Pydantic config."""

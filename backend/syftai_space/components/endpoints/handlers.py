@@ -12,8 +12,9 @@ from syftai_space.components.endpoints.repository import EndpointRepository
 from syftai_space.components.endpoints.schemas import (
     CreateEndpointRequest,
     DocumentResponse,
+    EndpointCreateResponse,
+    EndpointDetailResponse,
     EndpointListItem,
-    EndpointResponse,
     MessageResponse,
     ProviderInfo,
     QueryEndpointRequest,
@@ -66,7 +67,7 @@ class EndpointHandler:
 
     def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
-    ) -> EndpointResponse:
+    ) -> EndpointCreateResponse:
         """Create a new endpoint.
 
         Args:
@@ -126,7 +127,7 @@ class EndpointHandler:
         # Save to database
         created = self.endpoint_repository.create(endpoint)
 
-        return EndpointResponse.model_validate(created)
+        return EndpointCreateResponse.model_validate(created)
 
     def list_endpoints(self, tenant: Tenant) -> list[EndpointListItem]:
         """List all endpoints for a tenant.
@@ -140,7 +141,7 @@ class EndpointHandler:
         endpoints = self.endpoint_repository.get_all(tenant.id)
         return [EndpointListItem.model_validate(ep) for ep in endpoints]
 
-    def get_endpoint(self, slug: str, tenant: Tenant) -> EndpointResponse:
+    def get_endpoint(self, slug: str, tenant: Tenant) -> EndpointDetailResponse:
         """Get a specific endpoint by slug within a tenant.
 
         Args:
@@ -157,7 +158,7 @@ class EndpointHandler:
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
-        return EndpointResponse.model_validate(endpoint)
+        return EndpointDetailResponse.model_validate(endpoint)
 
     def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
         """Delete an endpoint by slug within a tenant.
