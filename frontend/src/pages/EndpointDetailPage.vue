@@ -283,7 +283,7 @@
                 >
                   <h3 class="body-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                     <Tags class="h-4 w-4 text-muted-foreground" />
-                    Categories & Tags
+                    Tags
                   </h3>
                   <div class="flex flex-wrap gap-2">
                     <Badge

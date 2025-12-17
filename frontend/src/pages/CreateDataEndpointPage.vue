@@ -1,22 +1,14 @@
 <!-- eslint-disable vue/no-parsing-error -->
 <template>
-  <ErrorBoundary
-    :can-retry="true"
-    :show-details="true"
-    custom-title="Endpoint Creation Error"
-    custom-message="There was a problem with the endpoint creation form. Please try again."
-    @retry="refreshForm"
-  >
+  <ErrorBoundary :can-retry="true" :show-details="true" custom-title="Endpoint Creation Error"
+    custom-message="There was a problem with the endpoint creation form. Please try again." @retry="refreshForm">
     <div class="min-h-screen bg-muted/50">
       <!-- Header -->
       <div class="bg-card border-b border-border">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div class="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              @click="handleBack"
-              class="flex items-center text-muted-foreground hover:text-foreground"
-            >
+            <Button variant="ghost" @click="handleBack"
+              class="flex items-center text-muted-foreground hover:text-foreground">
               <ArrowLeft class="w-5 h-5 mr-2" />
               Back to Endpoints
             </Button>
@@ -25,12 +17,8 @@
               <Tooltip :delayDuration="0">
                 <TooltipTrigger as-child>
                   <span>
-                    <Button
-                      @click="saveDraft"
-                      :disabled="!canSaveDraft"
-                      variant="outline"
-                      class="flex items-center gap-2"
-                    >
+                    <Button @click="saveDraft" :disabled="!canSaveDraft" variant="outline"
+                      class="flex items-center gap-2">
                       <Save class="w-4 h-4" />
                       Save Draft
                     </Button>
@@ -56,36 +44,28 @@
             <div class="space-y-6">
               <!-- Step 1 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 1
-                      ? 'bg-primary text-white'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 1
+                    ? 'bg-primary text-white'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 1 ? '✓' : '1' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 1 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 1 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     What do you want to share?
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">Add files or connect database</p>
-                  <div
-                    v-if="currentSubStep > 1"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <p class="body-sm text-muted-foreground mt-1">
+                    {{ existingDataSourcesCount > 0 ? 'Add files or connect database' : 'Select files to share' }}
+                  </p>
+                  <div v-if="currentSubStep > 1" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 1"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 1" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -93,36 +73,26 @@
 
               <!-- Step 2 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 2
-                      ? 'bg-primary text-white'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 2
+                    ? 'bg-primary text-white'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 2 ? '✓' : '2' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 2 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 2 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     How should it work?
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Configure output and AI settings</p>
-                  <div
-                    v-if="currentSubStep > 2"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <div v-if="currentSubStep > 2" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 2"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 2" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -130,36 +100,26 @@
 
               <!-- Step 3 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 3
-                      ? 'bg-primary text-white'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 3
+                    ? 'bg-primary text-white'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 3 ? '✓' : '3' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     Who can access it?
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Control who can use your content</p>
-                  <div
-                    v-if="currentSubStep > 3"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <div v-if="currentSubStep > 3" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 3"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 3" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -167,36 +127,26 @@
 
               <!-- Step 4 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 4
-                      ? 'bg-primary text-white'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 4
+                    ? 'bg-primary text-white'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 4 ? '✓' : '4' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     Tell us more about it
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Name and describe your endpoint</p>
-                  <div
-                    v-if="currentSubStep > 4"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <div v-if="currentSubStep > 4" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 4"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 4" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -204,36 +154,26 @@
 
               <!-- Step 5 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 5
-                      ? 'bg-primary text-white'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 5
+                    ? 'bg-primary text-white'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 5 ? '✓' : '5' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 5 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 5 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     Review & Publish
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
-                  <div
-                    v-if="currentSubStep > 5"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <div v-if="currentSubStep > 5" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 5"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 5" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -256,23 +196,21 @@
 
           <!-- Step 1: Choose Data Source -->
           <div v-if="currentSubStep === 1" class="space-y-6">
-            <!-- Data source selection cards -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Data source selection cards - only show if there are existing datasets -->
+            <div v-if="existingDataSourcesCount > 0" :class="[
+              'grid gap-6',
+              existingDataSourcesCount > 0 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
+            ]">
               <!-- Add Files Card -->
-              <Card
-                :class="[
-                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-primary/30 hover:bg-gradient-to-br hover:from-primary/5 hover:to-primary/10',
-                  selectedDataSourceType === 'filesystem'
-                    ? 'border-primary bg-gradient-to-br from-primary/5 to-primary/10'
-                    : 'border-border bg-card',
-                ]"
-                @click="selectDataSourceType('filesystem')"
-              >
-                <CardContent class="p-6">
-                  <div class="flex flex-col items-center text-center">
-                    <div
-                      class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4"
-                    >
+              <Card :class="[
+                'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-primary/30 hover:bg-gradient-to-br hover:from-primary/5 hover:to-primary/10',
+                selectedDataSourceType === 'filesystem'
+                  ? 'border-primary bg-gradient-to-br from-primary/5 to-primary/10'
+                  : 'border-border bg-card',
+              ]" @click="selectDataSourceType('filesystem')">
+                <CardContent class="p-6 h-full">
+                  <div class="flex flex-col items-center text-center h-full">
+                    <div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                       <FileText class="w-7 h-7 text-primary" />
                     </div>
 
@@ -281,7 +219,7 @@
                       Add documents, spreadsheets, or text files from your computer
                     </p>
 
-                    <div class="space-y-2 body-sm text-muted-foreground mb-4">
+                    <div class="space-y-2 body-sm text-muted-foreground mb-4 flex-grow">
                       <div class="flex items-center gap-1">
                         <span>📄</span>
                         <span>PDF, Word, PowerPoint documents</span>
@@ -296,75 +234,57 @@
                       </div>
                     </div>
 
-                    <div class="flex items-center gap-1">
-                      <span
-                        class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium"
-                        >Easy</span
-                      >
+                    <div class="flex items-center gap-1 mt-auto">
+                      <span class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">Easy</span>
                       <span class="body-sm text-muted-foreground">2 minute setup</span>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <!-- Existing Sources Card -->
-              <Card
-                :class="[
-                  'transition-all duration-200 border-2',
-                  existingDataSourcesCount > 0
-                    ? 'cursor-pointer hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 bg-card'
-                    : 'cursor-not-allowed opacity-60 bg-muted/50',
-                  selectedDataSourceType === 'existing'
-                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
-                    : existingDataSourcesCount > 0
-                      ? 'border-border'
-                      : 'border-border/50',
-                ]"
-                @click="existingDataSourcesCount > 0 ? selectDataSourceType('existing') : null"
-              >
-                <CardContent class="p-6">
-                  <div class="flex flex-col items-center text-center">
-                    <div
-                      class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4"
-                    >
+              <!-- Existing Sources Card - Only show if there are existing datasets -->
+              <Card v-if="existingDataSourcesCount > 0" :class="[
+                'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 bg-card',
+                selectedDataSourceType === 'existing'
+                  ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                  : 'border-border',
+              ]" @click="selectDataSourceType('existing')">
+                <CardContent class="p-6 h-full">
+                  <div class="flex flex-col items-center text-center h-full">
+                    <div class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
                       <FolderOpen class="w-7 h-7 text-green-600" />
                     </div>
 
                     <h3 class="heading-3 text-foreground mb-2">Existing Sources</h3>
                     <p class="body-sm text-muted-foreground mb-4">
-                      Choose from data you've already connected
+                      Choose from data you've already connected<br /><br />
                     </p>
 
-                    <div v-if="existingDataSourcesCount > 0" class="space-y-2 mb-4">
-                      <div class="flex items-center gap-2 body-sm">
-                        <div class="w-2 h-2 bg-primary/100 rounded-full"></div>
-                        <span class="text-muted-foreground">Legal Documents Store</span>
-                      </div>
-                      <div class="flex items-center gap-2 body-sm">
+                    <!-- Loading state -->
+                    <div v-if="loadingDatasets" class="space-y-2 mb-4 flex-grow flex items-center justify-center">
+                      <span class="body-sm text-muted-foreground">Loading datasets...</span>
+                    </div>
+
+                    <!-- Error state -->
+                    <div v-else-if="datasetsError" class="space-y-2 mb-4 flex-grow flex items-center justify-center">
+                      <span class="body-sm text-red-600">Failed to load datasets</span>
+                    </div>
+
+                    <!-- Dataset list -->
+                    <div v-else class="space-y-2 mb-4 flex-grow">
+                      <div v-for="dataset in displayedDatasets" :key="dataset.name"
+                        class="flex items-center gap-2 body-sm">
                         <div class="w-2 h-2 bg-primary rounded-full"></div>
-                        <span class="text-muted-foreground">Research Papers Collection</span>
+                        <span class="text-muted-foreground truncate">{{ dataset.name }}</span>
                       </div>
-                      <div
-                        v-if="existingDataSourcesCount > 2"
-                        class="body-sm text-muted-foreground"
-                      >
-                        +{{ existingDataSourcesCount - 2 }} more sources...
+                      <div v-if="remainingDatasetsCount > 0" class="body-sm text-muted-foreground">
+                        ...and {{ remainingDatasetsCount }} more
                       </div>
                     </div>
 
-                    <div v-else class="mb-4 body-sm text-muted-foreground">
-                      No existing data sources found
-                    </div>
-
-                    <div class="flex items-center gap-1">
-                      <span
-                        :class="
-                          existingDataSourcesCount > 0
-                            ? 'body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium'
-                            : 'body-sm bg-muted text-muted-foreground px-2 py-1 rounded-full'
-                        "
-                      >
-                        {{ existingDataSourcesCount > 0 ? 'Quick' : 'None available' }}
+                    <div class="flex items-center gap-1 mt-auto">
+                      <span class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                        Quick
                       </span>
                     </div>
                   </div>
@@ -372,201 +292,78 @@
               </Card>
             </div>
 
-            <!-- Advanced Options (Collapsible) -->
-            <div class="border border-border rounded-lg bg-card">
-              <button
-                @click="showAdvancedDataSource = !showAdvancedDataSource"
-                class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-muted/50 transition-colors"
-              >
-                >
-                <div>
-                  <h4 class="font-medium text-foreground flex items-center gap-2">
-                    <Settings class="w-5 h-5 text-muted-foreground" />
-                    Advanced
-                  </h4>
-                  <p class="body-sm text-muted-foreground mt-1">
-                    Connect to external databases and vector stores
-                  </p>
-                </div>
-                <ChevronRight
-                  :class="[
-                    'w-5 h-5 text-muted-foreground transition-transform',
-                    showAdvancedDataSource ? 'rotate-90' : '',
-                  ]"
-                />
-              </button>
+            <!-- Dataset Selection (shown when existing is selected) -->
+            <div v-if="selectedDataSourceType === 'existing'" class="mt-6">
+              <Card class="bg-card border-border">
+                <CardContent class="p-6">
+                  <div class="space-y-4">
+                    <h3 class="heading-3 text-foreground mb-4">Available Data Sources</h3>
 
-              <div
-                v-if="showAdvancedDataSource"
-                class="px-6 pb-6 border-t border-border bg-muted/50"
-              >
-                <div class="pt-4">
-                  <!-- Bring Your Own VectorDB Card -->
-                  <Card
-                    :class="[
-                      'transition-all duration-200 border-2 cursor-pointer',
-                      selectedDataSourceType === 'vector'
-                        ? 'border-yellow-500 bg-gradient-to-br from-yellow-50 to-amber-50'
-                        : 'border-border bg-card hover:shadow-lg hover:border-yellow-300 hover:bg-gradient-to-br hover:from-yellow-50 hover:to-amber-50',
-                    ]"
-                    @click="toggleVectorDBOptions"
-                  >
-                    <CardContent class="p-6">
-                      <div class="flex items-center justify-between">
-                        <div class="flex items-start gap-4">
-                          <div
-                            class="w-12 h-12 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0"
-                          >
-                            <Database class="w-6 h-6 text-yellow-600" />
+                    <!-- Loading state -->
+                    <div v-if="loadingDatasets" class="flex items-center justify-center py-8">
+                      <span class="body-sm text-muted-foreground">Loading datasets...</span>
+                    </div>
+
+                    <!-- Error state -->
+                    <div v-else-if="datasetsError" class="flex items-center justify-center py-8">
+                      <span class="body-sm text-red-600">Failed to load datasets: {{ datasetsError }}</span>
+                    </div>
+
+                    <!-- Dataset list -->
+                    <div v-else-if="existingDatasets.length > 0" class="space-y-3">
+                      <div v-for="dataset in existingDatasets" :key="dataset.name"
+                        class="flex items-center space-x-3 p-4 border rounded-lg transition-colors" :class="[
+                          formData.selectedDataSource === dataset.name ? 'border-primary bg-primary/5' : 'border-border',
+                          isDatasetSelectable(dataset) ? 'cursor-pointer hover:bg-muted/50' : 'cursor-not-allowed opacity-60'
+                        ]" @click="isDatasetSelectable(dataset) ? formData.selectedDataSource = dataset.name : null">
+                        <div class="flex items-center gap-3 flex-1">
+                          <div class="p-2 bg-primary/10 rounded">
+                            <Database class="h-5 w-5 text-primary" />
                           </div>
                           <div class="flex-1">
-                            <h4 class="font-medium text-foreground mb-2">Connect Database</h4>
-                            <p class="body-sm text-muted-foreground">
-                              Connect to an existing vector database or service
-                            </p>
-
-                            <div class="flex items-center gap-1 mt-3">
-                              <span
-                                class="body-sm bg-orange-100 text-orange-700 px-2 py-1 rounded-full font-medium"
-                                >Advanced</span
-                              >
-                              <span class="body-sm text-muted-foreground"
-                                >Requires technical setup</span
-                              >
+                            <div class="flex items-center gap-2">
+                              <span class="font-medium text-foreground">{{ dataset.name }}</span>
+                              <Badge variant="secondary" class="body-sm">{{ dataset.dtype }}</Badge>
+                              <Badge variant="outline"
+                                :class="getStatusBadgeClasses(dataset.provisioner_status?.status)" class="body-sm">
+                                {{ getStatusText(dataset.provisioner_status?.status) }}
+                              </Badge>
                             </div>
+                            <p class="body-sm text-muted-foreground mt-1">
+                              {{ dataset.summary || 'No description available' }}
+                            </p>
                           </div>
                         </div>
-                        <ChevronRight
-                          :class="[
-                            'w-5 h-5 text-muted-foreground transition-transform',
-                            showVectorDBOptions ? 'rotate-90' : '',
-                          ]"
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <!-- Vector DB Options (shown when Bring Your Own VectorDB is selected) -->
-                  <div v-if="showVectorDBOptions" class="mt-4 space-y-4">
-                    <div class="space-y-2">
-                      <Label class="body-sm font-medium text-foreground">
-                        Choose Database Type <span class="text-red-500">*</span>
-                      </Label>
-                      <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
-                        <!-- Weaviate -->
-                        <div
-                          @click="selectVectorDB('weaviate')"
-                          :class="[
-                            'cursor-pointer transition-all duration-200 border rounded-lg p-4 text-center',
-                            selectedVectorDB === 'weaviate'
-                              ? 'border-purple-500 bg-purple-50'
-                              : 'border-border hover:border-border/80 hover:bg-muted/50',
-                          ]"
-                        >
-                          <div class="w-8 h-8 mx-auto mb-2 flex items-center justify-center">
-                            <Database
-                              :class="[
-                                'h-8 w-8',
-                                selectedVectorDB === 'weaviate'
-                                  ? 'text-purple-600'
-                                  : 'text-muted-foreground',
-                              ]"
-                            />
-                          </div>
-                          <span
-                            :class="[
-                              'body-sm font-medium',
-                              selectedVectorDB === 'weaviate'
-                                ? 'text-purple-900'
-                                : 'text-foreground',
-                            ]"
-                          >
-                            Weaviate
-                          </span>
-                        </div>
-
-                        <!-- Qdrant -->
-                        <div
-                          @click="selectVectorDB('qdrant')"
-                          :class="[
-                            'cursor-pointer transition-all duration-200 border rounded-lg p-4 text-center',
-                            selectedVectorDB === 'qdrant'
-                              ? 'border-blue-500 bg-primary/10'
-                              : 'border-border hover:border-border/80 hover:bg-muted/50',
-                          ]"
-                        >
-                          <div class="w-8 h-8 mx-auto mb-2 flex items-center justify-center">
-                            <Database
-                              :class="[
-                                'h-8 w-8',
-                                selectedVectorDB === 'qdrant'
-                                  ? 'text-primary'
-                                  : 'text-muted-foreground',
-                              ]"
-                            />
-                          </div>
-                          <span
-                            :class="[
-                              'body-sm font-medium',
-                              selectedVectorDB === 'qdrant' ? 'text-blue-900' : 'text-foreground',
-                            ]"
-                          >
-                            Qdrant
-                          </span>
-                        </div>
-
-                        <!-- Chroma -->
-                        <div
-                          @click="selectVectorDB('chroma')"
-                          :class="[
-                            'cursor-pointer transition-all duration-200 border rounded-lg p-4 text-center',
-                            selectedVectorDB === 'chroma'
-                              ? 'border-green-500 bg-green-50'
-                              : 'border-border hover:border-border/80 hover:bg-muted/50',
-                          ]"
-                        >
-                          <div class="w-8 h-8 mx-auto mb-2 flex items-center justify-center">
-                            <Database
-                              :class="[
-                                'h-8 w-8',
-                                selectedVectorDB === 'chroma'
-                                  ? 'text-green-600'
-                                  : 'text-muted-foreground',
-                              ]"
-                            />
-                          </div>
-                          <span
-                            :class="[
-                              'body-sm font-medium',
-                              selectedVectorDB === 'chroma' ? 'text-green-900' : 'text-foreground',
-                            ]"
-                          >
-                            Chroma
-                          </span>
+                        <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center" :class="formData.selectedDataSource === dataset.name
+                          ? 'border-primary bg-primary'
+                          : 'border-muted-foreground'">
+                          <div v-if="formData.selectedDataSource === dataset.name"
+                            class="w-2 h-2 rounded-full bg-white"></div>
                         </div>
                       </div>
                     </div>
+
+                    <!-- Empty state -->
+                    <div v-else class="flex items-center justify-center py-8">
+                      <span class="body-sm text-muted-foreground">No datasets available</span>
+                    </div>
                   </div>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             </div>
 
             <!-- File Explorer (shown when filesystem is selected) -->
             <div v-if="selectedDataSourceType === 'filesystem'" class="mt-6">
               <Card class="bg-card border-border">
                 <CardContent class="p-6">
-                  <FileExplorer
-                    v-model="selectedFiles"
-                    :show-hidden="false"
-                    :allow-multiple="true"
-                  />
+                  <FileExplorer v-model="selectedFiles" :show-hidden="false" :allow-multiple="true" />
                 </CardContent>
               </Card>
 
               <!-- File descriptions for selected files -->
               <div v-if="selectedFiles.length > 0" class="mt-4">
                 <h4 class="font-medium text-foreground mb-3">
-                  Selected Files ({{ selectedFiles.length }})
+                  Selected Paths ({{ selectedFiles.length }})
                 </h4>
                 <div class="space-y-2">
                   <Card v-for="file in selectedFiles" :key="file" class="bg-muted/50 border-border">
@@ -574,16 +371,17 @@
                       <div class="flex items-start gap-3">
                         <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                         <div class="min-w-0 flex-1 space-y-1">
-                          <p class="body-sm font-medium text-foreground truncate">{{ file }}</p>
+                          <div class="flex items-center justify-between gap-2">
+                            <p class="body-sm font-medium text-foreground truncate">{{ file }}</p>
+                            <Button @click="removeFile(selectedFiles.indexOf(file))" variant="ghost" size="sm"
+                              class="h-6 w-6 p-0 hover:text-destructive">
+                              <X class="h-3 w-3" />
+                            </Button>
+                          </div>
                           <div class="space-y-2">
-                            <Label class="body-sm text-muted-foreground"
-                              >Description (Optional)</Label
-                            >
-                            <Input
-                              v-model="fileDescriptions[file]"
-                              placeholder="Brief description of this file's content..."
-                              class="body-sm"
-                            />
+                            <Label class="body-sm text-muted-foreground">Description (Optional)</Label>
+                            <Input v-model="fileDescriptions[file]"
+                              placeholder="Brief description of this file's content..." class="body-sm" />
                           </div>
                         </div>
                       </div>
@@ -602,23 +400,18 @@
                 <!-- Raw Document Chunks Card -->
                 <Card
                   class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border-2 bg-card"
-                  :class="
-                    formData.responseType === 'raw'
-                      ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50'
-                      : 'border-border'
-                  "
-                  @click="selectResponseType('raw')"
-                >
+                  :class="formData.responseType === 'raw'
+                    ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50'
+                    : 'border-border'
+                    " @click="selectResponseType('raw')">
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
-                      <div
-                        class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mb-4"
-                      >
-                        <FileType class="w-6 h-6 text-primary" />
+                      <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                        <FileType class="w-6 h-6 text-blue-600" />
                       </div>
 
                       <h3 class="heading-3 text-foreground mb-2">Search & Quote</h3>
-                      <p class="body-sm font-medium mb-3 text-primary">Return exact text matches</p>
+                      <p class="body-sm font-medium mb-3 text-blue-600">Return exact text matches</p>
 
                       <p class="body-sm text-muted-foreground mb-4 text-balance leading-relaxed">
                         Users search your content and get back the exact matching text
@@ -634,18 +427,13 @@
                 <!-- AI-Generated Summary Card -->
                 <Card
                   class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-purple-300 hover:bg-gradient-to-br hover:from-purple-50 hover:to-pink-50 border-2 bg-card"
-                  :class="
-                    formData.responseType === 'summary'
-                      ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
-                      : 'border-border'
-                  "
-                  @click="selectResponseType('summary')"
-                >
+                  :class="formData.responseType === 'summary'
+                    ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
+                    : 'border-border'
+                    " @click="selectResponseType('summary')">
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
-                      <div
-                        class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center mb-4"
-                      >
+                      <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center mb-4">
                         <Sparkles class="w-6 h-6 text-purple-600" />
                       </div>
 
@@ -668,18 +456,18 @@
                 <!-- Both Raw and Summary Card -->
                 <Card
                   class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border-2 bg-card relative"
-                  :class="
-                    formData.responseType === 'both'
-                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
-                      : 'border-border'
-                  "
-                  @click="selectResponseType('both')"
-                >
+                  :class="formData.responseType === 'both'
+                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                    : 'border-border'
+                    " @click="selectResponseType('both')">
+                  <!-- Recommended Badge -->
+                  <div
+                    class="absolute -top-2 -right-2 bg-green-600 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-md">
+                    Recommended
+                  </div>
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
-                      <div
-                        class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mb-4"
-                      >
+                      <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mb-4">
                         <GitMerge class="w-6 h-6 text-green-600" />
                       </div>
 
@@ -699,37 +487,27 @@
               </div>
 
               <!-- Advanced AI Model Selection (collapsible) -->
-              <div
-                v-if="formData.responseType === 'summary' || formData.responseType === 'both'"
-                class="bg-card rounded-lg shadow-sm border border-border"
-              >
-                <button
-                  @click="showAdvancedOptions = !showAdvancedOptions"
-                  class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-muted/50"
-                >
+              <div v-if="formData.responseType === 'summary' || formData.responseType === 'both'"
+                class="bg-card rounded-lg shadow-sm border border-border">
+                <button @click="showAdvancedOptions = !showAdvancedOptions"
+                  class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-muted/50">
                   <div>
                     <h4 class="font-medium text-foreground">Advanced - Choose Local AI Model</h4>
                     <p class="body-sm text-muted-foreground mt-1">
                       Customize AI settings and model selection
                     </p>
                   </div>
-                  <ChevronRight
-                    :class="[
-                      'w-5 h-5 text-muted-foreground transition-transform',
-                      showAdvancedOptions ? 'rotate-90' : '',
-                    ]"
-                  />
+                  <ChevronRight :class="[
+                    'w-5 h-5 text-muted-foreground transition-transform',
+                    showAdvancedOptions ? 'rotate-90' : '',
+                  ]" />
                 </button>
 
                 <div v-if="showAdvancedOptions" class="px-6 pb-6 border-t border-border">
                   <div class="pt-4">
-                    <ModelSelector
-                      v-model="formData.aiModel"
-                      title="AI Model"
-                      description="Ollama is pre-selected for local, private AI processing"
-                      id-prefix="step2-advanced"
-                      @create-model="handleStep3CreateModel"
-                    />
+                    <ModelSelector v-model="formData.aiModel" title="AI Model"
+                      description="Ollama is pre-selected for local, private AI processing" id-prefix="step2-advanced"
+                      @create-model="handleStep3CreateModel" />
                   </div>
                 </div>
               </div>
@@ -740,35 +518,27 @@
           <div v-if="currentSubStep === 3" class="space-y-6">
             <!-- Policy Configuration -->
             <div class="space-y-6">
-              <div
-                v-for="policy in policyTypes"
-                :key="policy.id"
-                class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6"
-              >
+              <div v-for="policy in policyTypes" :key="policy.id"
+                class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
                 <!-- Policy Header -->
                 <div class="flex items-center justify-between mb-3">
                   <div class="flex items-center gap-3">
-                    <div
-                      :class="[
-                        'p-2 rounded-lg',
-                        policy.color === 'blue' ? 'bg-blue-100' : '',
-                        policy.color === 'green' ? 'bg-green-100' : '',
-                        policy.color === 'yellow' ? 'bg-yellow-100' : '',
-                        policy.color === 'purple' ? 'bg-purple-100' : '',
-                        policy.color === 'red' ? 'bg-red-100' : '',
-                      ]"
-                    >
-                      <component
-                        :is="policy.icon"
-                        :class="[
-                          'h-5 w-5',
-                          policy.color === 'blue' ? 'text-primary' : '',
-                          policy.color === 'green' ? 'text-green-600' : '',
-                          policy.color === 'yellow' ? 'text-yellow-600' : '',
-                          policy.color === 'purple' ? 'text-purple-600' : '',
-                          policy.color === 'red' ? 'text-red-600' : '',
-                        ]"
-                      />
+                    <div :class="[
+                      'p-2 rounded-lg',
+                      policy.color === 'blue' ? 'bg-blue-100' : '',
+                      policy.color === 'green' ? 'bg-green-100' : '',
+                      policy.color === 'yellow' ? 'bg-yellow-100' : '',
+                      policy.color === 'purple' ? 'bg-purple-100' : '',
+                      policy.color === 'red' ? 'bg-red-100' : '',
+                    ]">
+                      <component :is="policy.icon" :class="[
+                        'h-5 w-5',
+                        policy.color === 'blue' ? 'text-primary' : '',
+                        policy.color === 'green' ? 'text-green-600' : '',
+                        policy.color === 'yellow' ? 'text-yellow-600' : '',
+                        policy.color === 'purple' ? 'text-purple-600' : '',
+                        policy.color === 'red' ? 'text-red-600' : '',
+                      ]" />
                     </div>
                     <div class="flex-1">
                       <h3 class="font-medium text-foreground">{{ policy.label }}</h3>
@@ -786,28 +556,17 @@
                   <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
                     <p class="body-sm text-green-700">
                       <strong class="font-medium">Default: </strong>
-                      <span v-if="policy.id === 'authorization'"
-                        >Open access - everyone can use your endpoint</span
-                      >
-                      <span v-else-if="policy.id === 'ratelimiter'"
-                        >No rate limits - unlimited usage</span
-                      >
-                      <span v-else-if="policy.id === 'pricing'"
-                        >Free access - no charges applied</span
-                      >
-                      <span v-else-if="policy.id === 'manual-approval'"
-                        >Automatic approval - no manual review required</span
-                      >
+                      <span v-if="policy.id === 'authorization'">Open access - everyone can use your endpoint</span>
+                      <span v-else-if="policy.id === 'ratelimiter'">No rate limits - unlimited usage</span>
+                      <span v-else-if="policy.id === 'pricing'">Free access - no charges applied</span>
                       <span v-else>Open access - most permissive settings</span>
                     </p>
                   </div>
                 </div>
 
                 <!-- Empty State -->
-                <div
-                  v-if="policyRules[policy.id]?.length === 0"
-                  class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/50/20"
-                >
+                <div v-if="policyRules[policy.id]?.length === 0"
+                  class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/50/20">
                   <p class="text-muted-foreground body-sm">
                     No {{ policy.name.toLowerCase() }} rule added yet
                   </p>
@@ -815,90 +574,62 @@
 
                 <!-- Policy Rules -->
                 <div v-if="policyRules[policy.id]?.length > 0" class="space-y-3">
-                  <div
-                    v-for="rule in policyRules[policy.id] || []"
-                    :key="rule.id"
-                    class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4"
-                  >
+                  <div v-for="(rule, ruleIndex) in policyRules[policy.id] || []" :key="rule.id"
+                    class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4">
                     <!-- Rule in Edit Mode (Expanded) -->
                     <div v-if="rule.isEditing" class="space-y-3">
                       <!-- Authorization Policy Form -->
                       <div v-if="policy.id === 'authorization'">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium"
-                              >Rule Type</Label
-                            >
+                            <Label class="body-sm text-muted-foreground font-medium">Rule Type</Label>
                             <Select v-model="authorizationForm.ruleType">
                               <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
                                 <SelectValue placeholder="Select rule type" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="allow" class="body-sm"
-                                  >Allow specific users</SelectItem
-                                >
-                                <SelectItem value="deny" class="body-sm"
-                                  >Deny specific users</SelectItem
-                                >
+                                <SelectItem value="allow" class="body-sm">Allow specific users</SelectItem>
+                                <SelectItem value="deny" class="body-sm">Deny specific users</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="authorizationForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                            />
+                            <Input v-model="authorizationForm.note" placeholder="Optional description"
+                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground" />
                           </div>
                         </div>
                         <div class="space-y-1 mt-3">
                           <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                          <Input
-                            v-model="authorizationForm.users"
-                            placeholder="user1@example.com, user2@example.com"
-                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                          />
+                          <Input v-model="authorizationForm.users" placeholder="user1@example.com, user2@example.com"
+                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground" />
+                          <p class="text-xs text-muted-foreground">Comma-separated list. Wildcard supported (e.g.,
+                            *@company.com, *.edu, *@contractors.org)</p>
                         </div>
                       </div>
 
                       <!-- Rate Limiter Policy Form -->
                       <div v-if="policy.id === 'ratelimiter'">
-                        <div class="grid grid-cols-3 gap-3 mb-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
-                            <Input
-                              v-model="rateLimiterForm.limit"
-                              type="number"
-                              placeholder="100"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
+                            <div class="flex">
+                              <Input v-model="rateLimiterForm.limit" type="number" placeholder="100"
+                                class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm" />
+                              <Select v-model="rateLimiterForm.windowUnit">
+                                <SelectTrigger
+                                  class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="second">requests per second</SelectItem>
+                                  <SelectItem value="minute">requests per minute</SelectItem>
+                                  <SelectItem value="hour">requests per hour</SelectItem>
+                                  <SelectItem value="day">requests per day</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Window</Label>
-                            <Input
-                              v-model="rateLimiterForm.windowValue"
-                              type="number"
-                              placeholder="1"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Unit</Label>
-                            <Select v-model="rateLimiterForm.windowUnit">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="second">Second</SelectItem>
-                                <SelectItem value="minute">Minute</SelectItem>
-                                <SelectItem value="hour">Hour</SelectItem>
-                                <SelectItem value="day">Day</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Scope</Label>
                             <Select v-model="rateLimiterForm.scope">
@@ -906,143 +637,71 @@
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="per user">Per User</SelectItem>
-                                <SelectItem value="global">Global</SelectItem>
+                                <SelectItem value="per user">For Each User</SelectItem>
+                                <SelectItem value="global">For This Endpoint</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="rateLimiterForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
+                            <Input v-model="rateLimiterForm.note" placeholder="Optional description"
+                              class="h-9 rounded-lg border-border bg-card body-sm" />
                           </div>
                         </div>
                       </div>
 
                       <!-- Pricing Policy Form -->
                       <div v-if="policy.id === 'pricing'">
-                        <div class="grid grid-cols-2 gap-3 mb-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Type</Label>
-                            <Select v-model="pricingForm.pricingType">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue placeholder="Select type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="per_call">Per Call</SelectItem>
-                                <SelectItem value="per_token">Per Token</SelectItem>
-                              </SelectContent>
-                            </Select>
+                        <div class="space-y-3">
+                          <!-- Price and Note side-by-side -->
+                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="space-y-1">
+                              <Label class="body-sm text-muted-foreground font-medium">Price per query ($)</Label>
+                              <Input v-model="pricingForm.price" type="number" step="any" placeholder="0.01"
+                                class="h-9 rounded-lg border-border bg-card body-sm" />
+                            </div>
+                            <div class="space-y-1">
+                              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
+                              <Input v-model="pricingForm.note" placeholder="Optional description"
+                                class="h-9 rounded-lg border-border bg-card body-sm" />
+                            </div>
                           </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium"
-                              >Apply To</Label
-                            >
-                            <Select v-model="pricingForm.userType">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">All Users</SelectItem>
-                                <SelectItem value="specific">Specific Users</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <div
-                          v-if="
-                            pricingForm.pricingType === 'per_call' ||
-                            pricingForm.pricingType === 'per_token'
-                          "
-                          class="mb-3"
-                        >
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium"
-                              >Price ($)</Label
-                            >
-                            <Input
-                              v-model="pricingForm.price"
-                              type="number"
-                              step="0.01"
-                              placeholder="0.01"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
-                          </div>
-                        </div>
-                        <div class="grid grid-cols-1 gap-3">
-                          <div v-if="pricingForm.userType === 'specific'" class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                            <Input
-                              v-model="pricingForm.users"
-                              placeholder="user1@example.com, user2@example.com"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="pricingForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
+                          <!-- Apply To and Users row -->
+                          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                            <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
+                              <Label class="body-sm text-muted-foreground font-medium">Apply To</Label>
+                              <Select v-model="pricingForm.userType">
+                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="all">All Users</SelectItem>
+                                  <SelectItem value="specific">Specific Users</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div v-if="pricingForm.userType === 'specific'" class="space-y-1 flex-1">
+                              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
+                              <Input v-model="pricingForm.users" placeholder="user1@example.com, user2@example.com"
+                                class="h-9 rounded-lg border-border bg-card body-sm" />
+                              <p class="text-xs text-muted-foreground">Comma-separated list. Wildcard supported (e.g.,
+                                *@company.com, *.edu, *@contractors.org)</p>
+                            </div>
                           </div>
                         </div>
                       </div>
 
-                      <!-- Manual Approval Policy Form -->
-                      <div v-if="policy.id === 'manual-approval'">
-                        <div class="space-y-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium"
-                              >Apply To</Label
-                            >
-                            <Select v-model="manualApprovalForm.userType">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">All Users</SelectItem>
-                                <SelectItem value="specific">Specific Users</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div v-if="manualApprovalForm.userType === 'specific'" class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                            <Input
-                              v-model="manualApprovalForm.users"
-                              placeholder="user1@example.com, user2@example.com"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="manualApprovalForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
-                          </div>
-                        </div>
-                      </div>
 
                       <!-- Form Action Buttons -->
                       <div class="flex gap-2 pt-3 border-t border-border">
-                        <Button
-                          @click="savePolicy(policy.id, rule.id)"
-                          size="sm"
-                          class="rounded-lg body-sm font-medium px-3 py-2"
-                        >
+                        <Button @click="savePolicy(policy.id, rule.id)" size="sm"
+                          class="rounded-lg body-sm font-medium px-3 py-2">
                           Save
                         </Button>
-                        <Button
-                          @click="cancelEditPolicy(policy.id, rule.id)"
-                          variant="outline"
-                          size="sm"
-                          class="rounded-lg border-border body-sm font-medium px-3 py-2"
-                        >
+                        <Button @click="cancelEditPolicy(policy.id, rule.id)" variant="outline" size="sm"
+                          class="rounded-lg border-border body-sm font-medium px-3 py-2">
                           Cancel
                         </Button>
                       </div>
@@ -1052,19 +711,15 @@
                     <div v-else class="flex items-start justify-between">
                       <div class="flex-1">
                         <h4 class="body-sm font-medium text-foreground">
-                          {{ rule.config.note || `${policy.name} Rule` }}
+                          {{ rule.config.note || `${policy.name} Rule #${ruleIndex + 1}` }}
                         </h4>
-                        <p class="body-sm text-muted-foreground mt-1">Rule summary</p>
+                        <p class="body-sm text-muted-foreground mt-1">{{ getRuleSummary(policy.id, rule.config) }}</p>
                       </div>
                       <div class="flex gap-2">
                         <Button variant="outline" size="sm" @click="editPolicy(policy.id, rule.id)">
                           Edit
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          @click="deletePolicy(policy.id, rule.id)"
-                        >
+                        <Button variant="outline" size="sm" @click="deletePolicy(policy.id, rule.id)">
                           Delete
                         </Button>
                       </div>
@@ -1076,10 +731,7 @@
           </div>
 
           <!-- Step 4: Tell us more about it -->
-          <div
-            v-if="currentSubStep === 4"
-            class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
-          >
+          <div v-if="currentSubStep === 4" class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8">
             <!-- Interactive examples -->
             <div class="mb-8 bg-primary/10 border border-blue-200 rounded-lg p-4">
               <h4 class="font-medium text-blue-900 mb-3 flex items-center gap-2">
@@ -1088,29 +740,23 @@
               </h4>
               <p class="body-sm text-primary/80 mb-4">Click any example to auto-fill the form</p>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4 body-sm">
-                <button
-                  @click="fillExampleData('news')"
-                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
-                >
+                <button @click="fillExampleData('news')"
+                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left">
                   <p class="font-medium text-foreground">📰 News Archive</p>
                   <p class="text-muted-foreground mt-1">
                     "Herald Tribune Archives 2010-2024" - Historical articles and investigative
                     reports
                   </p>
                 </button>
-                <button
-                  @click="fillExampleData('research')"
-                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
-                >
+                <button @click="fillExampleData('research')"
+                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left">
                   <p class="font-medium text-foreground">🔬 Research Data</p>
                   <p class="text-muted-foreground mt-1">
                     "Cancer Research Publications" - Peer-reviewed papers and clinical studies
                   </p>
                 </button>
-                <button
-                  @click="fillExampleData('library')"
-                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
-                >
+                <button @click="fillExampleData('library')"
+                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left">
                   <p class="font-medium text-foreground">📚 Document Library</p>
                   <p class="text-muted-foreground mt-1">
                     "Technical Manuals Collection" - Product guides and documentation
@@ -1125,14 +771,13 @@
                 <Label for="endpoint-name" class="body-sm font-medium text-foreground">
                   Name <span class="text-red-500">*</span>
                 </Label>
-                <Input
-                  id="endpoint-name"
-                  v-model="formData.endpointName"
-                  placeholder="e.g., herald-tribune-archives"
-                  class="w-full font-mono body-sm"
-                />
+                <Input id="endpoint-name" v-model="formData.endpointName" placeholder="e.g., herald-tribune-archives"
+                  pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                  @input="formData.endpointName = formData.endpointName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')"
+                  class="w-full font-mono body-sm" />
                 <p class="body-sm text-muted-foreground">
-                  This appears when people discover it. Keep it simple, no spaces
+                  This appears when people discover it. Use lowercase letters, numbers, and hyphens only (e.g.,
+                  my-data-source)
                 </p>
               </div>
 
@@ -1141,12 +786,8 @@
                 <Label for="summary" class="body-sm font-medium text-foreground">
                   Short Description <span class="text-red-500">*</span>
                 </Label>
-                <Input
-                  id="summary"
-                  v-model="formData.summary"
-                  placeholder="e.g., Historical news articles from 2010-2024"
-                  class="w-full"
-                />
+                <Input id="summary" v-model="formData.summary"
+                  placeholder="e.g., Historical news articles from 2010-2024" class="w-full" />
                 <p class="body-sm text-muted-foreground">
                   This appears when people browse available content
                 </p>
@@ -1155,30 +796,32 @@
               <!-- Tags -->
               <div class="space-y-2">
                 <Label for="tags" class="body-sm font-medium text-foreground">
-                  Topics & Categories (Optional)
+                  Tags (Optional)
                 </Label>
                 <div class="space-y-2">
                   <div class="flex gap-2">
-                    <Input
-                      id="tags"
-                      v-model="tagInput"
-                      @keydown.enter.prevent="addTag"
-                      placeholder="Add keywords like: news, research, medical, finance, books"
-                      class="flex-1"
-                    />
-                    <Button @click="addTag" variant="outline" size="sm">
+                    <Input id="tags" v-model="tagInput" @keydown.enter.prevent="addTag"
+                      placeholder="Add keywords like: legal, medical, research, finance" class="flex-1" />
+                    <Button @click="addTag" variant="outline" size="sm" :disabled="!tagInput.trim()">
                       <Plus class="h-4 w-4" />
                     </Button>
                   </div>
-                  <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-2">
-                    <Badge
-                      v-for="(tag, index) in formData.tags"
-                      :key="index"
-                      variant="secondary"
-                      class="px-3 py-1"
-                    >
+                  <p class="body-sm text-muted-foreground">Tags help others discover your content</p>
+
+                  <!-- Popular Tags Suggestions -->
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-xs text-muted-foreground">Popular:</span>
+                    <Button v-for="suggestion in popularTags" :key="suggestion" @click="addSuggestedTag(suggestion)"
+                      variant="ghost" size="sm" class="h-6 px-2 text-xs" :disabled="formData.tags.includes(suggestion)">
+                      {{ suggestion }}
+                    </Button>
+                  </div>
+
+                  <!-- Selected Tags -->
+                  <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-3">
+                    <Badge v-for="(tag, index) in formData.tags" :key="index" variant="secondary" class="px-3 py-1">
                       {{ tag }}
-                      <button @click="removeTag(index)" class="ml-2 hover:text-foreground">
+                      <button @click="removeTag(index)" class="ml-2 hover:text-destructive transition-colors">
                         <X class="h-3 w-3" />
                       </button>
                     </Badge>
@@ -1187,38 +830,17 @@
               </div>
 
               <!-- Watched Paths Descriptions -->
-              <div
-                v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0"
-                class="space-y-3"
-              >
-                <Label class="body-sm font-medium text-foreground"
-                  >Watched Paths Descriptions <span class="text-red-500">*</span></Label
-                >
+              <div v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0" class="space-y-3">
+                <Label class="body-sm font-medium text-foreground">Watched Paths Descriptions (Optional)</Label>
                 <div class="space-y-2">
-                  <div
-                    v-for="file in selectedFiles"
-                    :key="file"
-                    class="flex items-start gap-3 p-3 bg-muted/50 border border-border rounded-lg"
-                  >
+                  <div v-for="file in selectedFiles" :key="file"
+                    class="flex items-start gap-3 p-3 bg-muted/50 border border-border rounded-lg">
                     <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                     <div class="flex-1 min-w-0">
                       <p class="body-sm font-medium text-foreground truncate mb-1">{{ file }}</p>
-                      <Input
-                        v-model="fileDescriptions[file]"
-                        placeholder="Brief description of what this file contains..."
-                        :class="[
-                          'body-sm',
-                          !fileDescriptions[file] || fileDescriptions[file].trim() === ''
-                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                            : '',
-                        ]"
-                      />
-                      <p
-                        v-if="!fileDescriptions[file] || fileDescriptions[file].trim() === ''"
-                        class="body-sm text-red-600 mt-1"
-                      >
-                        Description is required
-                      </p>
+                      <Input v-model="fileDescriptions[file]"
+                        placeholder="Brief description of what this file contains..." 
+                        class="body-sm" />
                     </div>
                   </div>
                 </div>
@@ -1226,16 +848,12 @@
 
               <!-- Add More Details Toggle -->
               <div class="border-t pt-4">
-                <button
-                  @click="showAdvancedDetails = !showAdvancedDetails"
-                  class="flex items-center gap-2 body-sm text-primary hover:text-primary/80 transition-colors"
-                >
-                  <ChevronRight
-                    :class="[
-                      'w-4 h-4 transition-transform',
-                      showAdvancedDetails ? 'rotate-90' : '',
-                    ]"
-                  />
+                <button @click="showAdvancedDetails = !showAdvancedDetails"
+                  class="flex items-center gap-2 body-sm text-primary hover:text-primary/80 transition-colors">
+                  <ChevronRight :class="[
+                    'w-4 h-4 transition-transform',
+                    showAdvancedDetails ? 'rotate-90' : '',
+                  ]" />
                   Add more details (optional)
                 </button>
               </div>
@@ -1246,15 +864,10 @@
                   <Label for="description" class="body-sm font-medium text-foreground">
                     Description
                   </Label>
-                  <MdEditor
-                    :model-value="formData.description || defaultDescriptionTemplate"
-                    @update:model-value="formData.description = $event"
-                    :height="200"
-                    :toolbars-exclude="['github']"
-                    :preview-theme="'github'"
-                    :code-theme="'github'"
-                    language="en-US"
-                  />
+                  <MdEditor :model-value="formData.description || defaultDescriptionTemplate"
+                    @update:model-value="formData.description = $event" :height="200" 
+                    :toolbars="['bold', 'italic', 'title', 'strikeThrough', 'unorderedList', 'orderedList', 'link', 'code', 'codeRow']"
+                    :preview-theme="'github'" :code-theme="'github'" language="en-US" />
                 </div>
               </div>
             </div>
@@ -1263,24 +876,10 @@
           <!-- Step 5: Review & Publish -->
           <div v-if="currentSubStep === 5" class="space-y-6">
             <!-- Header -->
-            <div
-              class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
-            >
-              <div
-                class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"
-              >
-                <svg
-                  class="w-8 h-8 text-green-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M5 13l4 4L19 7"
-                  ></path>
+            <div class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center">
+              <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                 </svg>
               </div>
               <h2 class="heading-1 text-foreground mb-2">Ready to Publish!</h2>
@@ -1307,35 +906,18 @@
                   <div>
                     <p class="body-sm font-medium text-muted-foreground mb-2">Data Source</p>
                     <div class="flex items-center gap-2">
-                      <div
-                        v-if="selectedDataSourceType === 'filesystem'"
-                        class="flex items-center gap-2"
-                      >
+                      <div v-if="selectedDataSourceType === 'filesystem'" class="flex items-center gap-2">
                         <FolderOpen class="w-4 h-4 text-primary" />
                         <span class="text-foreground">File System</span>
-                        <span class="body-sm text-muted-foreground"
-                          >({{ selectedFiles.length }}
-                          {{ selectedFiles.length === 1 ? 'file' : 'files' }})</span
-                        >
+                        <span class="body-sm text-muted-foreground">({{ selectedFiles.length }}
+                          {{ selectedFiles.length === 1 ? 'file' : 'files' }})</span>
                       </div>
-                      <div
-                        v-else-if="selectedDataSourceType === 'vector'"
-                        class="flex items-center gap-2"
-                      >
-                        <Database class="w-4 h-4 text-purple-600" />
-                        <span class="text-foreground">Vector Database</span>
-                        <span v-if="selectedVectorDB" class="body-sm text-muted-foreground"
-                          >({{
-                            selectedVectorDB.charAt(0).toUpperCase() + selectedVectorDB.slice(1)
-                          }})</span
-                        >
-                      </div>
-                      <div
-                        v-else-if="selectedDataSourceType === 'existing'"
-                        class="flex items-center gap-2"
-                      >
+                      <div v-else-if="selectedDataSourceType === 'existing'" class="flex items-center gap-2">
                         <Database class="w-4 h-4 text-green-600" />
                         <span class="text-foreground">Existing Source</span>
+                        <span v-if="formData.selectedDataSource" class="body-sm text-muted-foreground">
+                          ({{ formData.selectedDataSource }})
+                        </span>
                       </div>
                       <span v-else class="text-muted-foreground italic">Not configured</span>
                     </div>
@@ -1343,38 +925,38 @@
                 </div>
 
                 <div>
-                  <p class="body-sm font-medium text-muted-foreground mb-2">Description</p>
+                  <p class="body-sm font-medium text-muted-foreground mb-2">Summary</p>
                   <p class="text-foreground leading-relaxed">
                     {{ formData.summary || 'Not specified' }}
                   </p>
                 </div>
 
+                <!-- Detailed Description Preview -->
+                <div v-if="formData.description && formData.description.trim()" class="mt-6">
+                  <p class="body-sm font-medium text-muted-foreground mb-3">Detailed Description</p>
+                  <div class="bg-muted/30 border border-border rounded-lg p-4">
+                    <MdPreview :model-value="formData.description" 
+                      :preview-theme="'github'" 
+                      :code-theme="'github'" 
+                      language="en-US" />
+                  </div>
+                </div>
+
                 <div v-if="formData.tags.length > 0" class="mt-6">
                   <p class="body-sm font-medium text-muted-foreground mb-3">Tags</p>
                   <div class="flex flex-wrap gap-2">
-                    <Badge
-                      v-for="tag in formData.tags"
-                      :key="tag"
-                      variant="outline"
-                      class="bg-primary/10 text-blue-700 border-blue-200 px-3 py-1"
-                      >{{ tag }}</Badge
-                    >
+                    <Badge v-for="tag in formData.tags" :key="tag" variant="outline"
+                      class="bg-primary/10 text-primary border-primary px-3 py-1">{{ tag }}</Badge>
                   </div>
                 </div>
               </div>
 
               <!-- Configured Files Detail -->
-              <div
-                v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0"
-                class="border-t pt-6"
-              >
+              <div v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0" class="border-t pt-6">
                 <p class="body-sm font-medium text-muted-foreground mb-3">Selected Files</p>
                 <div class="space-y-3">
-                  <div
-                    v-for="file in selectedFiles"
-                    :key="file"
-                    class="flex items-start gap-3 p-3 bg-muted/50 rounded-lg"
-                  >
+                  <div v-for="file in selectedFiles" :key="file"
+                    class="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
                     <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                     <div class="min-w-0 flex-1">
                       <p class="body-sm font-medium text-foreground truncate">{{ file }}</p>
@@ -1400,10 +982,7 @@
                         </p>
                       </div>
                     </div>
-                    <div
-                      v-else-if="formData.responseType === 'summary'"
-                      class="flex items-start gap-3"
-                    >
+                    <div v-else-if="formData.responseType === 'summary'" class="flex items-start gap-3">
                       <Sparkles class="w-4 h-4 text-purple-600 mt-0.5" />
                       <div>
                         <span class="font-medium text-foreground">AI Assistant</span>
@@ -1412,10 +991,7 @@
                         </p>
                       </div>
                     </div>
-                    <div
-                      v-else-if="formData.responseType === 'both'"
-                      class="flex items-start gap-3"
-                    >
+                    <div v-else-if="formData.responseType === 'both'" class="flex items-start gap-3">
                       <GitMerge class="w-4 h-4 text-green-600 mt-0.5" />
                       <div>
                         <span class="font-medium text-foreground">Search + AI</span>
@@ -1427,43 +1003,48 @@
                     <p v-else class="text-muted-foreground italic">Not configured</p>
 
                     <!-- Show AI Model if selected -->
-                    <div
-                      v-if="
-                        (formData.responseType === 'summary' || formData.responseType === 'both') &&
-                        formData.aiModel
-                      "
-                      class="mt-3 pt-3 border-t border-border"
-                    >
+                    <div v-if="
+                      (formData.responseType === 'summary' || formData.responseType === 'both') &&
+                      formData.aiModel
+                    " class="mt-3 pt-3 border-t border-border">
                       <span class="body-sm text-muted-foreground">AI Model: </span>
                       <span class="body-sm font-medium text-foreground">{{
-                        formData.aiModel
-                      }}</span>
+                        getModelName(formData.aiModel) || formData.aiModel
+                        }}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               <!-- Access Policies Summary -->
-              <div
-                v-if="Object.values(policyRules).some((rules) => rules.length > 0)"
-                class="border-t pt-6"
-              >
+              <div v-if="Object.values(policyRules).some((rules) => rules.length > 0)" class="border-t pt-6">
                 <p class="body-sm font-medium text-muted-foreground mb-3">Access Policies</p>
-                <div class="space-y-2">
+                <div class="space-y-4">
                   <div v-for="policyType in policyTypes" :key="policyType.id">
-                    <div
-                      v-if="policyRules[policyType.id]?.length > 0"
-                      class="bg-muted/50 rounded-lg p-3"
-                    >
-                      <div class="flex items-center gap-2">
+                    <div v-if="policyRules[policyType.id]?.length > 0" class="bg-muted/50 rounded-lg p-4">
+                      <div class="flex items-center gap-2 mb-3">
                         <component :is="policyType.icon" class="w-4 h-4 text-muted-foreground" />
                         <span class="body-sm font-medium text-foreground">{{
                           policyType.name
-                        }}</span>
+                          }}</span>
                         <Badge variant="secondary" class="body-sm">
                           {{ policyRules[policyType.id].length }}
                           {{ policyRules[policyType.id].length === 1 ? 'rule' : 'rules' }}
                         </Badge>
+                      </div>
+                      <!-- Rule Details -->
+                      <div class="space-y-2">
+                        <div v-for="(rule, index) in policyRules[policyType.id]" :key="rule.id"
+                          class="bg-card/50 border border-border/50 rounded-lg p-3">
+                          <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                              <h4 class="body-sm font-medium text-foreground mb-1">
+                                {{ rule.config.note || `${policyType.name} Rule #${index + 1}` }}
+                              </h4>
+                              <p class="body-sm text-muted-foreground">{{ getRuleSummary(policyType.id, rule.config) }}</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1474,12 +1055,11 @@
 
           <!-- Navigation Buttons -->
           <div class="flex justify-between mt-8 pt-6 border-t border-border">
-            <Button variant="outline" @click="handleBack"> Cancel </Button>
-            <Button
-              @click="nextStep"
-              :disabled="!isCurrentStepValid"
-              class="bg-primary hover:bg-blue-700 text-white px-8"
-            >
+            <Button variant="outline" @click="currentSubStep === 1 ? handleBack() : previousStep()">
+              {{ currentSubStep === 1 ? 'Cancel' : 'Back' }}
+            </Button>
+            <Button @click="nextStep" :disabled="!isCurrentStepValid"
+              class="bg-primary hover:bg-primary/90 text-white px-8">
               {{ currentSubStep === 5 ? 'Publish Now' : 'Continue' }}
               <ArrowRight class="ml-2 h-4 w-4" />
             </Button>
@@ -1491,7 +1071,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -1500,7 +1080,6 @@ import {
   FileText,
   FolderOpen,
   Database,
-  Settings,
   ChevronRight,
   Plus,
   X,
@@ -1529,8 +1108,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
-import { MdEditor } from 'md-editor-v3'
+import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
+import { datasetsApi } from '@/api/endpoints/datasets'
+import { modelsApi } from '@/api/endpoints/models'
+import type { DatasetListItem, ModelListItem } from '@/api/types'
 
 const router = useRouter()
 
@@ -1538,14 +1120,14 @@ const router = useRouter()
 const currentSubStep = ref(1)
 
 // Progressive disclosure
-const showAdvancedDataSource = ref(false)
 const showAdvancedOptions = ref(false)
-const showVectorDBOptions = ref(false)
 const showAdvancedDetails = ref(false)
-const selectedVectorDB = ref('')
 
 // Tag input
 const tagInput = ref('')
+
+// Popular tag suggestions
+const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
 
 // Description template inspired by Kaggle data cards
 const defaultDescriptionTemplate = `## Dataset Overview
@@ -1579,7 +1161,7 @@ Brief summary of what this dataset contains and its primary purpose...
 How to properly cite or credit this dataset when used...`
 
 // Policy configurations
-type PolicyTypeId = 'authorization' | 'ratelimiter' | 'pricing' | 'manual-approval'
+type PolicyTypeId = 'authorization' | 'ratelimiter' | 'pricing'
 
 interface PolicyConfig {
   id: string
@@ -1607,7 +1189,6 @@ const policyRules = ref<PolicyRulesRecord>({
   authorization: [],
   ratelimiter: [],
   pricing: [],
-  'manual-approval': [],
 })
 
 // Currently editing rule ID for each policy type
@@ -1615,7 +1196,6 @@ const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
   authorization: null,
   ratelimiter: null,
   pricing: null,
-  'manual-approval': null,
 })
 
 // Policy form data
@@ -1627,7 +1207,6 @@ const authorizationForm = ref({
 
 const rateLimiterForm = ref({
   limit: '',
-  windowValue: '1',
   windowUnit: 'minute',
   scope: 'per user',
   type: 'sliding window',
@@ -1637,19 +1216,12 @@ const rateLimiterForm = ref({
 })
 
 const pricingForm = ref({
-  pricingType: 'request',
   price: '',
-  quantity: '1',
   userType: 'all',
   users: '',
   note: '',
 })
 
-const manualApprovalForm = ref({
-  userType: 'all',
-  users: '',
-  note: '',
-})
 
 // Policy types definition
 const policyTypes: PolicyType[] = [
@@ -1677,14 +1249,6 @@ const policyTypes: PolicyType[] = [
     icon: DollarSign,
     color: 'yellow',
   },
-  {
-    id: 'manual-approval',
-    name: 'Manual approval',
-    label: 'Review each request',
-    description: 'Approve or deny each query manually (recommended for sensitive data)',
-    icon: UserCheck,
-    color: 'purple',
-  },
 ]
 
 // Step titles and descriptions
@@ -1693,16 +1257,18 @@ const stepTitles = [
   'How should it work?',
   'Who can access it?',
   'Tell us more about it',
-  'Review & Publish',
+  '',
 ]
 
-const stepDescriptions = [
-  'Add files or connect to your existing database',
+const stepDescriptions = computed(() => [
+  existingDataSourcesCount.value > 0
+    ? 'Add files or connect to your existing database'
+    : 'Browse and select the files you want to share. You can select multiple files and add descriptions for each one.',
   'Decide the format of the response users can receive from this content. Search provides most accuracy, while AI assistant answers are more nuanced.',
   'Control who can access your content and whether to charge for it',
   "Give your content a name and description so others know what you're sharing",
-  'Final review and go live',
-]
+  '',
+])
 
 // Form data
 const formData = ref({
@@ -1710,7 +1276,7 @@ const formData = ref({
   summary: '',
   description: '',
   tags: [] as string[],
-  selectedDataSource: '',
+  selectedDataSource: '', // For existing dataset selection
   responseType: 'both', // Default to Search + AI
   aiModel: 'code-assistant', // Default to the running Ollama model
 })
@@ -1719,17 +1285,44 @@ const formData = ref({
 const selectedDataSourceType = ref('')
 const selectedFiles = ref<string[]>([]) // Start with empty selection for FileExplorer
 const fileDescriptions = ref({} as Record<string, string>)
-const existingDataSourcesCount = ref(2) // Mock count
+const existingDatasets = ref<DatasetListItem[]>([])
+const loadingDatasets = ref(false)
+const datasetsError = ref<string | null>(null)
+
+// Models state
+const availableModels = ref<ModelListItem[]>([])
+
+// Computed properties for dataset display
+const existingDataSourcesCount = computed(() => existingDatasets.value.length)
+const displayedDatasets = computed(() => {
+  // If we have more than 3 datasets, show only 2 so we can add "...and X more" as the 3rd line
+  const maxToShow = existingDatasets.value.length > 3 ? 2 : 3
+  return existingDatasets.value.slice(0, maxToShow)
+})
+const remainingDatasetsCount = computed(() => {
+  // If we have more than 3 datasets, remaining count is based on showing only 2
+  return existingDatasets.value.length > 3 ? existingDatasets.value.length - 2 : 0
+})
+
+// Helper function to validate slug format
+const isValidSlug = (slug: string): boolean => {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)
+}
 
 // Computed properties
-const canSaveDraft = computed(() => formData.value.endpointName.trim().length > 0)
+const canSaveDraft = computed(() => {
+  const slug = formData.value.endpointName.trim()
+  return slug.length > 0 && isValidSlug(slug)
+})
 
 const isCurrentStepValid = computed(() => {
   if (currentSubStep.value === 1) {
-    return (
-      selectedDataSourceType.value !== '' &&
-      (selectedDataSourceType.value !== 'filesystem' || selectedFiles.value.length > 0)
-    )
+    if (selectedDataSourceType.value === 'filesystem') {
+      return selectedFiles.value.length > 0
+    } else if (selectedDataSourceType.value === 'existing') {
+      return formData.value.selectedDataSource !== ''
+    }
+    return selectedDataSourceType.value !== ''
   }
   if (currentSubStep.value === 2) {
     return formData.value.responseType !== ''
@@ -1738,16 +1331,11 @@ const isCurrentStepValid = computed(() => {
     return true // Access rules are optional
   }
   if (currentSubStep.value === 4) {
+    const slug = formData.value.endpointName.trim()
     const basicFieldsValid =
-      formData.value.endpointName.trim() !== '' && formData.value.summary.trim() !== ''
+      slug !== '' && isValidSlug(slug) && formData.value.summary.trim() !== ''
 
-    // If using filesystem, check that all selected files have descriptions
-    if (selectedDataSourceType.value === 'filesystem' && selectedFiles.value.length > 0) {
-      const allDescriptionsProvided = selectedFiles.value.every(
-        (file) => fileDescriptions.value[file] && fileDescriptions.value[file].trim() !== '',
-      )
-      return basicFieldsValid && allDescriptionsProvided
-    }
+    // Descriptions are now optional, so no need to validate them
 
     return basicFieldsValid
   }
@@ -1771,18 +1359,6 @@ const selectDataSourceType = (type: string) => {
   selectedDataSourceType.value = type
 }
 
-// Vector DB selection functions
-const toggleVectorDBOptions = () => {
-  showVectorDBOptions.value = !showVectorDBOptions.value
-  if (showVectorDBOptions.value) {
-    selectedDataSourceType.value = 'vector'
-  }
-}
-
-const selectVectorDB = (dbType: string) => {
-  selectedVectorDB.value = dbType
-  selectedDataSourceType.value = 'vector'
-}
 
 const nextStep = () => {
   if (isCurrentStepValid.value && currentSubStep.value < 5) {
@@ -1793,6 +1369,12 @@ const nextStep = () => {
   }
 }
 
+const previousStep = () => {
+  if (currentSubStep.value > 1) {
+    currentSubStep.value--
+  }
+}
+
 // Select response type
 const selectResponseType = (type: 'raw' | 'summary' | 'both') => {
   formData.value.responseType = type
@@ -1800,16 +1382,89 @@ const selectResponseType = (type: 'raw' | 'summary' | 'both') => {
 
 // Add tag
 const addTag = () => {
-  const tag = tagInput.value.trim()
+  const tag = tagInput.value.trim().toLowerCase()
   if (tag && !formData.value.tags.includes(tag)) {
     formData.value.tags.push(tag)
     tagInput.value = ''
   }
 }
 
+// Add suggested tag
+const addSuggestedTag = (tag: string) => {
+  if (!formData.value.tags.includes(tag)) {
+    formData.value.tags.push(tag)
+  }
+}
+
 // Remove tag
 const removeTag = (index: number) => {
   formData.value.tags.splice(index, 1)
+}
+
+// Remove file
+const removeFile = (index: number) => {
+  const file = selectedFiles.value[index]
+  selectedFiles.value.splice(index, 1)
+  // Also remove the description
+  if (file && fileDescriptions.value[file]) {
+    delete fileDescriptions.value[file]
+  }
+}
+
+// Generate rule summary based on policy type and configuration
+const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {
+  switch (policyId) {
+    case 'authorization':
+      if (!config.users) return 'No users configured'
+      const ruleType = config.ruleType === 'allow' ? 'Allow' : 'Deny'
+      const userList = (config.users as string).split(',').map(u => u.trim()).filter(u => u)
+      if (userList.length === 0) {
+        return 'No users configured'
+      }
+      // Show all patterns
+      return `${ruleType} access for ${userList.join(', ')}`
+
+    case 'ratelimiter':
+      if (!config.limit) return 'No limit configured'
+      const scope = config.scope === 'global' ? 'for this endpoint' : 'per user'
+      return `${config.limit} requests per ${config.windowUnit} ${scope}`
+
+    case 'pricing':
+      if (config.price === undefined || config.price === null || config.price === '') return 'No price configured'
+      const price = parseFloat(config.price as string)
+
+      // Check for invalid number
+      if (isNaN(price)) return 'Invalid price configured'
+
+      // Handle free pricing
+      if (price === 0) {
+        if (config.userType === 'all') {
+          return 'Free for all users'
+        } else {
+          const userList = config.users ? (config.users as string).split(',').map(u => u.trim()).filter(u => u) : []
+          if (userList.length === 0) {
+            return 'Free for specific users (none configured)'
+          }
+          return `Free for ${userList.join(', ')}`
+        }
+      }
+
+      // Handle paid pricing
+      // Format price dynamically, showing up to 8 decimal places with trailing zeros removed
+      const formattedPrice = price.toFixed(8).replace(/\.?0+$/, '')
+      if (config.userType === 'all') {
+        return `$${formattedPrice} per query for all users`
+      } else {
+        const userList = config.users ? (config.users as string).split(',').map(u => u.trim()).filter(u => u) : []
+        if (userList.length === 0) {
+          return `$${formattedPrice} per query for specific users (none configured)`
+        }
+        return `$${formattedPrice} per query for ${userList.join(', ')}`
+      }
+
+    default:
+      return 'Rule configured'
+  }
 }
 
 // Fill example data
@@ -1891,7 +1546,6 @@ const resetFormData = (policyId: PolicyTypeId) => {
     case 'ratelimiter':
       rateLimiterForm.value = {
         limit: '',
-        windowValue: '1',
         windowUnit: 'minute',
         scope: 'per user',
         type: 'sliding window',
@@ -1902,16 +1556,7 @@ const resetFormData = (policyId: PolicyTypeId) => {
       break
     case 'pricing':
       pricingForm.value = {
-        pricingType: 'request',
         price: '',
-        quantity: '1',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-    case 'manual-approval':
-      manualApprovalForm.value = {
         userType: 'all',
         users: '',
         note: '',
@@ -1932,7 +1577,6 @@ const loadRuleIntoForm = (policyId: PolicyTypeId, config: PolicyConfig) => {
     case 'ratelimiter':
       rateLimiterForm.value = {
         limit: (config.limit as string) || '',
-        windowValue: (config.windowValue as string) || '1',
         windowUnit: (config.windowUnit as string) || 'minute',
         scope: (config.scope as string) || 'per user',
         type: (config.type as string) || 'sliding window',
@@ -1943,16 +1587,7 @@ const loadRuleIntoForm = (policyId: PolicyTypeId, config: PolicyConfig) => {
       break
     case 'pricing':
       pricingForm.value = {
-        pricingType: (config.pricingType as string) || 'request',
         price: config.price !== undefined ? String(config.price) : '',
-        quantity: (config.quantity as string) || '1',
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-    case 'manual-approval':
-      manualApprovalForm.value = {
         userType: (config.userType as string) || 'all',
         users: (config.users as string) || '',
         note: (config.note as string) || '',
@@ -1972,13 +1607,10 @@ const savePolicy = (policyId: PolicyTypeId, ruleId: string) => {
       formData = authorizationForm.value
       break
     case 'ratelimiter':
-      formData = rateLimiterForm.value
+      formData = { ...rateLimiterForm.value, windowValue: '1' }
       break
     case 'pricing':
-      formData = pricingForm.value
-      break
-    case 'manual-approval':
-      formData = manualApprovalForm.value
+      formData = { ...pricingForm.value, pricingType: 'per_call' }
       break
     default:
       return
@@ -2019,5 +1651,85 @@ const handleStep3CreateModel = () => {
 const refreshForm = () => {
   // Form refresh function for error boundary retry
   console.log('Refreshing form...')
+}
+
+// Load existing datasets
+const loadExistingDatasets = async () => {
+  loadingDatasets.value = true
+  datasetsError.value = null
+
+  try {
+    const datasets = await datasetsApi.list()
+    existingDatasets.value = datasets
+  } catch (error) {
+    console.error('Failed to load existing datasets:', error)
+    datasetsError.value = error instanceof Error ? error.message : 'Failed to load datasets'
+    existingDatasets.value = []
+  } finally {
+    loadingDatasets.value = false
+  }
+}
+
+// Load available models
+const loadAvailableModels = async () => {
+  try {
+    const models = await modelsApi.list()
+    availableModels.value = models
+  } catch (error) {
+    console.error('Failed to load available models:', error)
+  }
+}
+
+// Get model name by ID
+const getModelName = (modelId: string): string | null => {
+  const model = availableModels.value.find(m => m.id === modelId)
+  return model?.name || null
+}
+
+// Load datasets and models when component mounts
+onMounted(async () => {
+  await Promise.all([
+    loadExistingDatasets(),
+    loadAvailableModels()
+  ])
+
+  // Auto-select filesystem if no existing datasets are available
+  if (existingDataSourcesCount.value === 0 && !selectedDataSourceType.value) {
+    selectedDataSourceType.value = 'filesystem'
+  }
+})
+
+// Helper functions for dataset status display
+const getStatusText = (status: string | undefined): string => {
+  if (!status) return 'unknown'
+  return status.toLowerCase()
+}
+
+const getStatusBadgeClasses = (status: string | undefined): string => {
+  if (!status) return 'bg-muted text-muted-foreground border-muted'
+
+  switch (status.toLowerCase()) {
+    case 'running':
+    case 'ready':
+    case 'active':
+      return 'bg-green-50 text-green-700 border-green-200'
+    case 'stopped':
+    case 'inactive':
+      return 'bg-red-50 text-red-700 border-red-200'
+    case 'starting':
+    case 'loading':
+      return 'bg-yellow-50 text-yellow-700 border-yellow-200'
+    case 'error':
+    case 'failed':
+      return 'bg-red-50 text-red-700 border-red-200'
+    default:
+      return 'bg-muted text-muted-foreground border-muted'
+  }
+}
+
+const isDatasetSelectable = (dataset: DatasetListItem): boolean => {
+  const status = dataset.provisioner_status?.status?.toLowerCase()
+  // Allow selection if no status (assume ready) or if status indicates it's ready/running
+  return !status || ['running', 'ready', 'active'].includes(status)
 }
 </script>

@@ -1,21 +1,13 @@
 <template>
-  <ErrorBoundary
-    :can-retry="true"
-    :show-details="true"
-    custom-title="Endpoint Creation Error"
-    custom-message="There was a problem with the endpoint creation form. Please try again."
-    @retry="refreshForm"
-  >
+  <ErrorBoundary :can-retry="true" :show-details="true" custom-title="Endpoint Creation Error"
+    custom-message="There was a problem with the endpoint creation form. Please try again." @retry="refreshForm">
     <div class="min-h-screen bg-muted/30">
       <!-- Header -->
       <div class="bg-card border-b border-border">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div class="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              @click="handleBack"
-              class="flex items-center text-muted-foreground hover:text-foreground"
-            >
+            <Button variant="ghost" @click="handleBack"
+              class="flex items-center text-muted-foreground hover:text-foreground">
               <ArrowLeft class="w-5 h-5 mr-2" />
               Back to Endpoints
             </Button>
@@ -24,12 +16,8 @@
               <Tooltip :delayDuration="0">
                 <TooltipTrigger as-child>
                   <span>
-                    <Button
-                      @click="saveDraft"
-                      :disabled="!canSaveDraft"
-                      variant="outline"
-                      class="flex items-center gap-2"
-                    >
+                    <Button @click="saveDraft" :disabled="!canSaveDraft" variant="outline"
+                      class="flex items-center gap-2">
                       <Save class="w-4 h-4" />
                       Save Draft
                     </Button>
@@ -55,36 +43,26 @@
             <div class="space-y-6">
               <!-- Step 1 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 1
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 1
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 1 ? '✓' : '1' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 1 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 1 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     What model are you sharing?
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Choose your AI model source</p>
-                  <div
-                    v-if="currentSubStep > 1"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <div v-if="currentSubStep > 1" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 1"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 1" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -92,38 +70,28 @@
 
               <!-- Step 2 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 2
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 2
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 2 ? '✓' : '2' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 2 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 2 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     Set Rules & Pricing
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">
                     Configure policies and access controls
                   </p>
-                  <div
-                    v-if="currentSubStep > 2"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <div v-if="currentSubStep > 2" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 2"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 2" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -131,36 +99,26 @@
 
               <!-- Step 3 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 3
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 3
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 3 ? '✓' : '3' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     Add details & publish
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Name and describe your model</p>
-                  <div
-                    v-if="currentSubStep > 3"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <div v-if="currentSubStep > 3" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 3"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 3" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -168,36 +126,26 @@
 
               <!-- Step 4 -->
               <div class="flex items-start gap-4">
-                <div
-                  :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                    currentSubStep >= 4
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground',
-                  ]"
-                >
+                <div :class="[
+                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                  currentSubStep >= 4
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground',
+                ]">
                   {{ currentSubStep > 4 ? '✓' : '4' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3
-                    :class="[
-                      'font-medium body-sm',
-                      currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
-                    ]"
-                  >
+                  <h3 :class="[
+                    'font-medium body-sm',
+                    currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
+                  ]">
                     Review
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
-                  <div
-                    v-if="currentSubStep > 4"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
+                  <div v-if="currentSubStep > 4" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
                     ✓ Completed
                   </div>
-                  <div
-                    v-else-if="currentSubStep === 4"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
+                  <div v-else-if="currentSubStep === 4" class="mt-2 body-sm text-primary font-medium">
                     Current step
                   </div>
                 </div>
@@ -226,18 +174,13 @@
                 <!-- Add New Model Card -->
                 <Card
                   class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-primary hover:bg-gradient-to-br hover:from-primary/10 hover:to-primary/5 border-2 bg-card"
-                  :class="
-                    selectedModelSourceType === 'create-new'
-                      ? 'border-primary bg-gradient-to-br from-primary/10 to-primary/5'
-                      : 'border-border'
-                  "
-                  @click="selectModelSourceType('create-new')"
-                >
+                  :class="selectedModelSourceType === 'create-new'
+                    ? 'border-primary bg-gradient-to-br from-primary/10 to-primary/5'
+                    : 'border-border'
+                    " @click="selectModelSourceType('create-new')">
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
-                      <div
-                        class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4"
-                      >
+                      <div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                         <Plus class="w-7 h-7 text-primary" />
                       </div>
 
@@ -257,18 +200,13 @@
                 <!-- Select Existing Model Card -->
                 <Card
                   class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border-2 bg-card"
-                  :class="
-                    selectedModelSourceType === 'existing'
-                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
-                      : 'border-border'
-                  "
-                  @click="selectModelSourceType('existing')"
-                >
+                  :class="selectedModelSourceType === 'existing'
+                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                    : 'border-border'
+                    " @click="selectModelSourceType('existing')">
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
-                      <div
-                        class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4"
-                      >
+                      <div class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
                         <FolderOpen class="w-7 h-7 text-green-600" />
                       </div>
 
@@ -290,10 +228,8 @@
               <!-- Content based on selection -->
               <div v-if="selectedModelSourceType">
                 <!-- Add New Model Inline Form -->
-                <div
-                  v-if="selectedModelSourceType === 'create-new'"
-                  class="bg-card rounded-lg shadow-sm border border-border p-8"
-                >
+                <div v-if="selectedModelSourceType === 'create-new'"
+                  class="bg-card rounded-lg shadow-sm border border-border p-8">
                   <div class="space-y-6">
                     <div>
                       <h3 class="heading-3 text-foreground mb-2">Add New AI Model</h3>
@@ -304,33 +240,22 @@
 
                     <!-- Search Input -->
                     <div class="relative">
-                      <Search
-                        class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
-                      />
-                      <Input
-                        v-model="searchQuery"
-                        placeholder="Search AI models..."
-                        class="pl-10 pr-4"
-                      />
+                      <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input v-model="searchQuery" placeholder="Search AI models..." class="pl-10 pr-4" />
                     </div>
 
                     <!-- Model Options Grid -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <div
-                        v-for="model in filteredModels"
-                        :key="model.id"
-                        @click="
-                          model.isCustom ? openCustomSDKDocs() : (selectedNewModelType = model.id)
-                        "
-                        :class="[
+                      <div v-for="model in filteredModels" :key="model.id" @click="
+                        model.isCustom ? openCustomSDKDocs() : (selectedNewModelType = model.id)
+                        " :class="[
                           'flex flex-col items-center justify-center p-6 rounded-lg border cursor-pointer transition-all group h-40',
                           model.isCustom
                             ? 'border-purple-200 bg-gradient-to-r from-purple-50 to-blue-50 hover:border-purple-300 hover:bg-gradient-to-r hover:from-purple-100 hover:to-blue-100'
                             : selectedNewModelType === model.id
                               ? 'border-primary bg-primary/10'
                               : 'border-border hover:bg-muted/50',
-                        ]"
-                      >
+                        ]">
                         <div v-if="model.isCustom" class="transition-all duration-200 mb-2">
                           <div class="p-2 bg-purple-100 rounded-md group-hover:hidden">
                             <Code class="h-6 w-6 text-purple-600" />
@@ -339,20 +264,11 @@
                             <ExternalLink class="h-6 w-6 text-purple-600" />
                           </div>
                         </div>
-                        <IntegrationIcon
-                          v-else
-                          :name="model.id"
-                          class="h-12 w-12 mb-3"
-                          :class="
-                            selectedNewModelType === model.id
-                              ? 'text-primary'
-                              : 'text-muted-foreground'
-                          "
-                        />
-                        <div
-                          v-if="model.isCustom"
-                          class="text-center transition-all duration-200 min-h-[1.25rem]"
-                        >
+                        <IntegrationIcon v-else :name="model.id" class="h-12 w-12 mb-3" :class="selectedNewModelType === model.id
+                          ? 'text-primary'
+                          : 'text-muted-foreground'
+                          " />
+                        <div v-if="model.isCustom" class="text-center transition-all duration-200 min-h-[1.25rem]">
                           <span class="font-medium text-purple-800 group-hover:hidden">
                             {{ model.name }}
                           </span>
@@ -360,23 +276,13 @@
                             View documentation
                           </span>
                         </div>
-                        <span
-                          v-else
-                          class="font-medium text-center"
-                          :class="
-                            selectedNewModelType === model.id ? 'text-primary' : 'text-foreground'
-                          "
-                        >
+                        <span v-else class="font-medium text-center" :class="selectedNewModelType === model.id ? 'text-primary' : 'text-foreground'
+                          ">
                           {{ model.name }}
                         </span>
-                        <div
-                          v-if="model.isCustom"
-                          class="text-center transition-all duration-200 min-h-[1rem]"
-                        >
+                        <div v-if="model.isCustom" class="text-center transition-all duration-200 min-h-[1rem]">
                           <span class="text-xs text-purple-600 group-hover:hidden">Using SDK</span>
-                          <span class="hidden group-hover:block text-xs text-purple-600"
-                            >Opens in a new tab</span
-                          >
+                          <span class="hidden group-hover:block text-xs text-purple-600">Opens in a new tab</span>
                         </div>
                       </div>
                     </div>
@@ -390,8 +296,7 @@
                         Set up your {{ selectedNewModelName }} model integration settings
                       </p>
                       <div
-                        class="min-h-[100px] flex items-center justify-center border-2 border-dashed rounded-lg bg-card"
-                      >
+                        class="min-h-[100px] flex items-center justify-center border-2 border-dashed rounded-lg bg-card">
                         <p class="text-muted-foreground">
                           Configuration form for {{ selectedNewModelName }} will be implemented here
                         </p>
@@ -401,39 +306,26 @@
                 </div>
 
                 <!-- Existing Models List -->
-                <div
-                  v-if="selectedModelSourceType === 'existing'"
-                  class="bg-card rounded-lg shadow-sm border border-border p-6"
-                >
+                <div v-if="selectedModelSourceType === 'existing'"
+                  class="bg-card rounded-lg shadow-sm border border-border p-6">
                   <div class="space-y-4">
                     <h3 class="heading-3 text-foreground mb-4">Available AI Models</h3>
 
                     <RadioGroup v-model="formData.aiModel">
                       <div class="space-y-3">
-                        <div
-                          v-for="model in mockModels"
-                          :key="model.id"
+                        <div v-for="model in mockModels" :key="model.id"
                           class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
-                          :class="
-                            formData.aiModel === model.id
-                              ? 'border-green-500 bg-green-50'
-                              : 'border-border'
-                          "
-                          @click="formData.aiModel = model.id"
-                        >
+                          :class="formData.aiModel === model.id
+                            ? 'border-green-500 bg-green-50'
+                            : 'border-border'
+                            " @click="formData.aiModel = model.id">
                           <RadioGroupItem :value="model.id" :id="model.id" />
-                          <Label
-                            :for="model.id"
-                            class="flex items-center gap-3 cursor-pointer flex-1"
-                          >
-                            <div
-                              class="p-2 rounded"
-                              :class="{
-                                'bg-purple-100': model.type === 'vllm',
-                                'bg-orange-100': model.type === 'ollama',
-                                'bg-primary/10': model.type === 'huggingface',
-                              }"
-                            >
+                          <Label :for="model.id" class="flex items-center gap-3 cursor-pointer flex-1">
+                            <div class="p-2 rounded" :class="{
+                              'bg-purple-100': model.type === 'vllm',
+                              'bg-orange-100': model.type === 'ollama',
+                              'bg-primary/10': model.type === 'huggingface',
+                            }">
                               <IntegrationIcon :name="model.type" class="h-5 w-5" />
                             </div>
                             <div class="flex-1">
@@ -456,33 +348,25 @@
             <div v-if="currentSubStep === 2" class="space-y-6">
               <!-- Policy Configuration -->
               <div class="space-y-6">
-                <div
-                  v-for="policy in policyTypes"
-                  :key="policy.id"
-                  class="bg-card/60 backdrop-blur-sm border border-border rounded-2xl p-6"
-                >
+                <div v-for="policy in policyTypes" :key="policy.id"
+                  class="bg-card/60 backdrop-blur-sm border border-border rounded-2xl p-6">
                   <!-- Policy Header -->
                   <div class="flex items-center justify-between mb-3">
                     <div class="flex items-center gap-3">
-                      <div
-                        :class="{
-                          'p-2 rounded-lg bg-primary/10': policy.color === 'blue',
-                          'p-2 rounded-lg bg-green-100': policy.color === 'green',
-                          'p-2 rounded-lg bg-yellow-100': policy.color === 'yellow',
-                          'p-2 rounded-lg bg-purple-100': policy.color === 'purple',
-                          'p-2 rounded-lg bg-red-100': policy.color === 'red',
-                        }"
-                      >
-                        <component
-                          :is="policy.icon"
-                          :class="{
-                            'h-5 w-5 text-primary': policy.color === 'blue',
-                            'h-5 w-5 text-green-600': policy.color === 'green',
-                            'h-5 w-5 text-yellow-600': policy.color === 'yellow',
-                            'h-5 w-5 text-purple-600': policy.color === 'purple',
-                            'h-5 w-5 text-red-600': policy.color === 'red',
-                          }"
-                        />
+                      <div :class="{
+                        'p-2 rounded-lg bg-primary/10': policy.color === 'blue',
+                        'p-2 rounded-lg bg-green-100': policy.color === 'green',
+                        'p-2 rounded-lg bg-yellow-100': policy.color === 'yellow',
+                        'p-2 rounded-lg bg-purple-100': policy.color === 'purple',
+                        'p-2 rounded-lg bg-red-100': policy.color === 'red',
+                      }">
+                        <component :is="policy.icon" :class="{
+                          'h-5 w-5 text-primary': policy.color === 'blue',
+                          'h-5 w-5 text-green-600': policy.color === 'green',
+                          'h-5 w-5 text-yellow-600': policy.color === 'yellow',
+                          'h-5 w-5 text-purple-600': policy.color === 'purple',
+                          'h-5 w-5 text-red-600': policy.color === 'red',
+                        }" />
                       </div>
                       <div class="flex-1">
                         <h3 class="font-medium text-foreground">{{ policy.label }}</h3>
@@ -500,28 +384,17 @@
                     <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
                       <p class="text-sm text-green-700">
                         <strong class="font-medium">Default: </strong>
-                        <span v-if="policy.id === 'authorization'"
-                          >Open access - everyone can use your endpoint</span
-                        >
-                        <span v-else-if="policy.id === 'ratelimiter'"
-                          >No rate limits - unlimited usage</span
-                        >
-                        <span v-else-if="policy.id === 'pricing'"
-                          >Free access - no charges applied</span
-                        >
-                        <span v-else-if="policy.id === 'manual-approval'"
-                          >Automatic approval - no manual review required</span
-                        >
+                        <span v-if="policy.id === 'authorization'">Open access - everyone can use your endpoint</span>
+                        <span v-else-if="policy.id === 'ratelimiter'">No rate limits - unlimited usage</span>
+                        <span v-else-if="policy.id === 'pricing'">Free access - no charges applied</span>
                         <span v-else>Open access - most permissive settings</span>
                       </p>
                     </div>
                   </div>
 
                   <!-- Empty State -->
-                  <div
-                    v-if="policyRules[policy.id]?.length === 0"
-                    class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/20"
-                  >
+                  <div v-if="policyRules[policy.id]?.length === 0"
+                    class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/20">
                     <p class="text-muted-foreground body-sm">
                       No {{ policy.name.toLowerCase() }} rule added yet
                     </p>
@@ -529,92 +402,62 @@
 
                   <!-- Policy Rules -->
                   <div v-if="(policyRules[policy.id] || []).length > 0" class="space-y-3">
-                    <div
-                      v-for="rule in policyRules[policy.id] || []"
-                      :key="rule.id"
-                      class="bg-muted/30 border border-border/50 rounded-xl p-4"
-                    >
+                    <div v-for="rule in policyRules[policy.id] || []" :key="rule.id"
+                      class="bg-muted/30 border border-border/50 rounded-xl p-4">
                       <!-- Rule in Edit Mode (Expanded) -->
                       <div v-if="rule.isEditing" class="space-y-3">
                         <!-- Authorization Policy Form -->
                         <div v-if="policy.id === 'authorization'">
                           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Rule Type</Label
-                              >
+                              <Label class="body-sm text-muted-foreground font-medium">Rule Type</Label>
                               <Select v-model="authorizationForm.ruleType">
                                 <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
                                   <SelectValue placeholder="Select rule type" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="allow" class="text-sm"
-                                    >Allow specific users</SelectItem
-                                  >
-                                  <SelectItem value="deny" class="text-sm"
-                                    >Deny specific users</SelectItem
-                                  >
+                                  <SelectItem value="allow" class="text-sm">Allow specific users</SelectItem>
+                                  <SelectItem value="deny" class="text-sm">Deny specific users</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
                             <div class="space-y-1">
                               <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input
-                                v-model="authorizationForm.note"
-                                placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                              />
+                              <Input v-model="authorizationForm.note" placeholder="Optional description"
+                                class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground" />
                             </div>
                           </div>
                           <div class="space-y-1 mt-3">
                             <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                            <Input
-                              v-model="authorizationForm.users"
-                              placeholder="user1@example.com, user2@example.com"
-                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                            />
+                            <Input v-model="authorizationForm.users" placeholder="user1@example.com, user2@example.com"
+                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground" />
+                            <p class="text-xs text-muted-foreground">Comma-separated list. Wildcard supported (e.g.,
+                              *@company.com, *.edu, *@contractors.org)</p>
                           </div>
                         </div>
 
                         <!-- Rate Limiter Policy Form -->
                         <div v-if="policy.id === 'ratelimiter'">
-                          <div class="grid grid-cols-3 gap-3 mb-3">
+                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                             <div class="space-y-1">
                               <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
-                              <Input
-                                v-model="rateLimiterForm.limit"
-                                type="number"
-                                placeholder="100"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
+                              <div class="flex">
+                                <Input v-model="rateLimiterForm.limit" type="number" placeholder="100"
+                                  class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm" />
+                                <Select v-model="rateLimiterForm.windowUnit">
+                                  <SelectTrigger
+                                    class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="second">requests per second</SelectItem>
+                                    <SelectItem value="minute">requests per minute</SelectItem>
+                                    <SelectItem value="hour">requests per hour</SelectItem>
+                                    <SelectItem value="day">requests per day</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
                             </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Window</Label
-                              >
-                              <Input
-                                v-model="rateLimiterForm.windowValue"
-                                type="number"
-                                placeholder="1"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Unit</Label>
-                              <Select v-model="rateLimiterForm.windowUnit">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="second">Second</SelectItem>
-                                  <SelectItem value="minute">Minute</SelectItem>
-                                  <SelectItem value="hour">Hour</SelectItem>
-                                  <SelectItem value="day">Day</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div class="space-y-1">
                               <Label class="body-sm text-muted-foreground font-medium">Scope</Label>
                               <Select v-model="rateLimiterForm.scope">
@@ -622,146 +465,71 @@
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="per user">Per User</SelectItem>
-                                  <SelectItem value="global">Global</SelectItem>
+                                  <SelectItem value="per user">For Each User</SelectItem>
+                                  <SelectItem value="global">For This Endpoint</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
+                          </div>
+                          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div class="space-y-1">
                               <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input
-                                v-model="rateLimiterForm.note"
-                                placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
+                              <Input v-model="rateLimiterForm.note" placeholder="Optional description"
+                                class="h-9 rounded-lg border-border bg-card body-sm" />
                             </div>
                           </div>
                         </div>
 
                         <!-- Pricing Policy Form -->
                         <div v-if="policy.id === 'pricing'">
-                          <div class="grid grid-cols-2 gap-3 mb-3">
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Type</Label>
-                              <Select v-model="pricingForm.pricingType">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                  <SelectValue placeholder="Select type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="per_call">Per Call</SelectItem>
-                                  <SelectItem value="per_token">Per Token</SelectItem>
-                                </SelectContent>
-                              </Select>
+                          <div class="space-y-3">
+                            <!-- Price and Note side-by-side -->
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div class="space-y-1">
+                                <Label class="body-sm text-muted-foreground font-medium">Price per query ($)</Label>
+                                <Input v-model="pricingForm.price" type="number" step="0.01" placeholder="0.01"
+                                  class="h-9 rounded-lg border-border bg-card body-sm" />
+                              </div>
+                              <div class="space-y-1">
+                                <Label class="body-sm text-muted-foreground font-medium">Note</Label>
+                                <Input v-model="pricingForm.note" placeholder="Optional description"
+                                  class="h-9 rounded-lg border-border bg-card body-sm" />
+                              </div>
                             </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Apply To</Label
-                              >
-                              <Select v-model="pricingForm.userType">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All Users</SelectItem>
-                                  <SelectItem value="specific">Specific Users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <div
-                            v-if="
-                              pricingForm.pricingType === 'per_call' ||
-                              pricingForm.pricingType === 'per_token'
-                            "
-                            class="mb-3"
-                          >
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Price ($)</Label
-                              >
-                              <Input
-                                v-model="pricingForm.price"
-                                type="number"
-                                step="0.01"
-                                placeholder="0.01"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                          </div>
-                          <div class="grid grid-cols-1 gap-3">
-                            <div v-if="pricingForm.userType === 'specific'" class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                              <Input
-                                v-model="pricingForm.users"
-                                placeholder="user1@example.com, user2@example.com"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input
-                                v-model="pricingForm.note"
-                                placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
+                            <!-- Apply To and Users row -->
+                            <div class="flex flex-col sm:flex-row gap-3">
+                              <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
+                                <Label class="body-sm text-muted-foreground font-medium">Apply To</Label>
+                                <Select v-model="pricingForm.userType">
+                                  <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="all">All Users</SelectItem>
+                                    <SelectItem value="specific">Specific Users</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div v-if="pricingForm.userType === 'specific'" class="space-y-1 flex-1">
+                                <Label class="body-sm text-muted-foreground font-medium">Users</Label>
+                                <Input v-model="pricingForm.users" placeholder="user1@example.com, user2@example.com"
+                                  class="h-9 rounded-lg border-border bg-card body-sm" />
+                                <p class="text-xs text-muted-foreground">Comma-separated list. Wildcard supported (e.g.,
+                                  *@company.com, *.edu, *@contractors.org)</p>
+                              </div>
                             </div>
                           </div>
                         </div>
 
-                        <!-- Manual Approval Policy Form -->
-                        <div v-if="policy.id === 'manual-approval'">
-                          <div class="space-y-3">
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Apply To</Label
-                              >
-                              <Select v-model="manualApprovalForm.userType">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All Users</SelectItem>
-                                  <SelectItem value="specific">Specific Users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div
-                              v-if="manualApprovalForm.userType === 'specific'"
-                              class="space-y-1"
-                            >
-                              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                              <Input
-                                v-model="manualApprovalForm.users"
-                                placeholder="user1@example.com, user2@example.com"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input
-                                v-model="manualApprovalForm.note"
-                                placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                          </div>
-                        </div>
 
                         <!-- Form Action Buttons -->
                         <div class="flex gap-2 pt-3 border-t border-border">
-                          <Button
-                            @click="savePolicy(policy.id, rule.id)"
-                            size="sm"
-                            class="rounded-lg body-sm font-medium px-3 py-2"
-                          >
+                          <Button @click="savePolicy(policy.id, rule.id)" size="sm"
+                            class="rounded-lg body-sm font-medium px-3 py-2">
                             Save
                           </Button>
-                          <Button
-                            @click="cancelEditPolicy(policy.id, rule.id)"
-                            variant="outline"
-                            size="sm"
-                            class="rounded-lg border-border body-sm font-medium px-3 py-2"
-                          >
+                          <Button @click="cancelEditPolicy(policy.id, rule.id)" variant="outline" size="sm"
+                            class="rounded-lg border-border body-sm font-medium px-3 py-2">
                             Cancel
                           </Button>
                         </div>
@@ -776,18 +544,10 @@
                           <p class="body-sm text-muted-foreground mt-1">Rule summary</p>
                         </div>
                         <div class="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            @click="editPolicy(policy.id, rule.id)"
-                          >
+                          <Button variant="outline" size="sm" @click="editPolicy(policy.id, rule.id)">
                             Edit
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            @click="deletePolicy(policy.id, rule.id)"
-                          >
+                          <Button variant="outline" size="sm" @click="deletePolicy(policy.id, rule.id)">
                             Delete
                           </Button>
                         </div>
@@ -799,10 +559,7 @@
             </div>
 
             <!-- Step 3: Add details & publish -->
-            <div
-              v-if="currentSubStep === 3"
-              class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
-            >
+            <div v-if="currentSubStep === 3" class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8">
               <!-- Interactive examples -->
               <div class="mb-8 bg-primary/10 border border-primary rounded-lg p-4">
                 <h4 class="font-medium text-primary mb-3 flex items-center gap-2">
@@ -811,28 +568,22 @@
                 </h4>
                 <p class="body-sm text-primary mb-4">Click any example to auto-fill the form</p>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 body-sm">
-                  <button
-                    @click="fillExampleData('code')"
-                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
-                  >
+                  <button @click="fillExampleData('code')"
+                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left">
                     <p class="font-medium text-foreground">💻 Code Assistant</p>
                     <p class="text-muted-foreground mt-1">
                       "GPT-4 Code Helper" - Helps with programming tasks and debugging
                     </p>
                   </button>
-                  <button
-                    @click="fillExampleData('chat')"
-                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
-                  >
+                  <button @click="fillExampleData('chat')"
+                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left">
                     <p class="font-medium text-foreground">💬 Chat Assistant</p>
                     <p class="text-muted-foreground mt-1">
                       "Conversational AI" - General purpose chat and question answering
                     </p>
                   </button>
-                  <button
-                    @click="fillExampleData('analysis')"
-                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
-                  >
+                  <button @click="fillExampleData('analysis')"
+                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left">
                     <p class="font-medium text-foreground">📈 Data Analysis</p>
                     <p class="text-muted-foreground mt-1">
                       "Research Assistant" - Specialized for data analysis and insights
@@ -847,12 +598,8 @@
                   <Label for="endpoint-name" class="body-sm font-medium text-foreground">
                     Name <span class="text-red-500">*</span>
                   </Label>
-                  <Input
-                    id="endpoint-name"
-                    v-model="formData.endpointName"
-                    placeholder="e.g., gpt-4-code-helper"
-                    class="w-full font-mono body-sm"
-                  />
+                  <Input id="endpoint-name" v-model="formData.endpointName" placeholder="e.g., gpt-4-code-helper"
+                    class="w-full font-mono body-sm" />
                   <p class="body-sm text-muted-foreground">
                     This appears when people discover it. Keep it simple, no spaces
                   </p>
@@ -863,12 +610,8 @@
                   <Label for="summary" class="body-sm font-medium text-foreground">
                     Summary <span class="text-red-500">*</span>
                   </Label>
-                  <Input
-                    id="summary"
-                    v-model="formData.summary"
-                    placeholder="Brief description of what your model does"
-                    class="w-full"
-                  />
+                  <Input id="summary" v-model="formData.summary" placeholder="Brief description of what your model does"
+                    class="w-full" />
                   <p class="body-sm text-muted-foreground">
                     A short summary that will appear in model listings
                   </p>
@@ -879,15 +622,9 @@
                   <Label for="description" class="body-sm font-medium text-foreground">
                     Description
                   </Label>
-                  <MdEditor
-                    v-model="formData.description"
-                    :height="200"
-                    :toolbars-exclude="['github']"
-                    :preview-theme="'github'"
-                    :code-theme="'github'"
-                    language="en-US"
-                    placeholder="Detailed description of your model (supports Markdown)"
-                  />
+                  <MdEditor v-model="formData.description" :height="200" :toolbars-exclude="['github']"
+                    :preview-theme="'github'" :code-theme="'github'" language="en-US"
+                    placeholder="Detailed description of your model (supports Markdown)" />
                   <p class="body-sm text-muted-foreground">
                     Provide a detailed description using the WYSIWYG markdown editor above.
                   </p>
@@ -898,24 +635,14 @@
                   <Label for="tags" class="body-sm font-medium text-foreground"> Tags </Label>
                   <div class="space-y-2">
                     <div class="flex gap-2">
-                      <Input
-                        id="tags"
-                        v-model="tagInput"
-                        @keydown.enter.prevent="addTag"
-                        placeholder="Add tags to help users find your model"
-                        class="flex-1"
-                      />
+                      <Input id="tags" v-model="tagInput" @keydown.enter.prevent="addTag"
+                        placeholder="Add tags to help users find your model" class="flex-1" />
                       <Button @click="addTag" variant="outline" size="sm">
                         <Plus class="h-4 w-4" />
                       </Button>
                     </div>
                     <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-2">
-                      <Badge
-                        v-for="(tag, index) in formData.tags"
-                        :key="index"
-                        variant="secondary"
-                        class="px-3 py-1"
-                      >
+                      <Badge v-for="(tag, index) in formData.tags" :key="index" variant="secondary" class="px-3 py-1">
                         {{ tag }}
                         <button @click="removeTag(index)" class="ml-2 hover:text-muted-foreground">
                           <X class="h-3 w-3" />
@@ -954,24 +681,15 @@
                       <div v-if="formData.description" class="space-y-2">
                         <p class="font-medium">Description:</p>
                         <div class="border border-border rounded-lg p-2">
-                          <MdPreview
-                            :model-value="formData.description"
-                            :preview-theme="'github'"
-                            :code-theme="'github'"
-                            language="en-US"
-                          />
+                          <MdPreview :model-value="formData.description" :preview-theme="'github'"
+                            :code-theme="'github'" language="en-US" />
                         </div>
                       </div>
                       <div v-if="formData.tags.length > 0">
                         <span class="font-medium">Tags:</span>
                         <span class="ml-2">
-                          <Badge
-                            v-for="tag in formData.tags"
-                            :key="tag"
-                            variant="outline"
-                            class="mr-1"
-                            >{{ tag }}</Badge
-                          >
+                          <Badge v-for="tag in formData.tags" :key="tag" variant="outline" class="mr-1">{{ tag }}
+                          </Badge>
                         </span>
                       </div>
                     </div>
@@ -988,11 +706,8 @@
                           <p><span class="font-medium">Provider:</span> vLLM</p>
                           <p>
                             <span class="font-medium">Status:</span>
-                            <Badge
-                              variant="outline"
-                              class="bg-muted/50 text-muted-foreground border-border body-sm"
-                              >Stopped</Badge
-                            >
+                            <Badge variant="outline" class="bg-muted/50 text-muted-foreground border-border body-sm">
+                              Stopped</Badge>
                           </p>
                         </div>
                         <div v-else-if="formData.aiModel === 'code-assistant'">
@@ -1001,11 +716,8 @@
                           <p><span class="font-medium">Provider:</span> Ollama</p>
                           <p>
                             <span class="font-medium">Status:</span>
-                            <Badge
-                              variant="outline"
-                              class="bg-green-50 text-green-700 border-green-200 body-sm"
-                              >Running</Badge
-                            >
+                            <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 body-sm">Running
+                            </Badge>
                           </p>
                         </div>
                         <p v-else>Not selected</p>
@@ -1028,72 +740,50 @@
                   <div class="border-l-4 border-orange-500 pl-4">
                     <h3 class="font-medium text-foreground mb-2">Applied Policies</h3>
                     <div class="body-sm space-y-2">
-                      <div
-                        v-if="Object.keys(getAppliedPoliciesGrouped()).length > 0"
-                        class="space-y-6"
-                      >
-                        <div
-                          v-for="(policyGroup, policyType) in getAppliedPoliciesGrouped()"
-                          :key="policyType"
-                          class="space-y-3"
-                        >
+                      <div v-if="Object.keys(getAppliedPoliciesGrouped()).length > 0" class="space-y-6">
+                        <div v-for="(policyGroup, policyType) in getAppliedPoliciesGrouped()" :key="policyType"
+                          class="space-y-3">
                           <!-- Policy Type Header -->
                           <div class="flex items-center gap-3">
-                            <div
-                              :class="[
-                                'p-2 rounded-lg',
-                                policyGroup.color === 'blue' ? 'bg-primary/10' : '',
-                                policyGroup.color === 'green' ? 'bg-green-100' : '',
-                                policyGroup.color === 'yellow' ? 'bg-yellow-100' : '',
-                                policyGroup.color === 'purple' ? 'bg-purple-100' : '',
-                                policyGroup.color === 'red' ? 'bg-red-100' : '',
-                              ]"
-                            >
-                              <component
-                                :is="policyGroup.icon"
-                                :class="[
-                                  'h-4 w-4',
-                                  policyGroup.color === 'blue' ? 'text-primary' : '',
-                                  policyGroup.color === 'green' ? 'text-green-600' : '',
-                                  policyGroup.color === 'yellow' ? 'text-yellow-600' : '',
-                                  policyGroup.color === 'purple' ? 'text-purple-600' : '',
-                                  policyGroup.color === 'red' ? 'text-red-600' : '',
-                                ]"
-                              />
+                            <div :class="[
+                              'p-2 rounded-lg',
+                              policyGroup.color === 'blue' ? 'bg-primary/10' : '',
+                              policyGroup.color === 'green' ? 'bg-green-100' : '',
+                              policyGroup.color === 'yellow' ? 'bg-yellow-100' : '',
+                              policyGroup.color === 'purple' ? 'bg-purple-100' : '',
+                              policyGroup.color === 'red' ? 'bg-red-100' : '',
+                            ]">
+                              <component :is="policyGroup.icon" :class="[
+                                'h-4 w-4',
+                                policyGroup.color === 'blue' ? 'text-primary' : '',
+                                policyGroup.color === 'green' ? 'text-green-600' : '',
+                                policyGroup.color === 'yellow' ? 'text-yellow-600' : '',
+                                policyGroup.color === 'purple' ? 'text-purple-600' : '',
+                                policyGroup.color === 'red' ? 'text-red-600' : '',
+                              ]" />
                             </div>
                             <h4 class="font-semibold text-foreground">{{ policyType }}</h4>
-                            <span class="body-sm text-muted-foreground"
-                              >({{ policyGroup.rules.length }} rule{{
-                                policyGroup.rules.length !== 1 ? 's' : ''
-                              }})</span
-                            >
+                            <span class="body-sm text-muted-foreground">({{ policyGroup.rules.length }} rule{{
+                              policyGroup.rules.length !== 1 ? 's' : ''
+                            }})</span>
                           </div>
 
                           <!-- Policy Rules -->
                           <div class="space-y-3 ml-6">
-                            <div
-                              v-for="rule in policyGroup.rules"
-                              :key="rule.id"
-                              class="bg-muted/50 border border-border rounded-lg p-4"
-                            >
+                            <div v-for="rule in policyGroup.rules" :key="rule.id"
+                              class="bg-muted/50 border border-border rounded-lg p-4">
                               <h5 class="font-medium text-foreground mb-3">{{ rule.name }}</h5>
                               <div class="space-y-2 body-sm text-muted-foreground">
                                 <!-- Authorization Policy Display -->
                                 <div v-if="rule.config.ruleType">
                                   <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Type:</span
-                                    >
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Type:</span>
                                     <span>{{
                                       rule.config.ruleType === 'allow' ? 'Allow-list' : 'Deny-list'
-                                    }}</span>
+                                      }}</span>
                                   </p>
                                   <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Users:</span>
                                     <span>{{ rule.config.users || 'Not specified' }}</span>
                                   </p>
                                 </div>
@@ -1101,210 +791,74 @@
                                 <!-- Rate Limiter Policy Display -->
                                 <div v-if="rule.config.limit">
                                   <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Limit:</span
-                                    >
-                                    <span
-                                      >{{ rule.config.limit }} requests per
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Limit:</span>
+                                    <span>{{ rule.config.limit }} requests per
                                       {{ rule.config.windowValue }}
-                                      {{ rule.config.windowUnit }}(s)</span
-                                    >
+                                      {{ rule.config.windowUnit }}(s)</span>
                                   </p>
                                   <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Scope:</span
-                                    >
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Scope:</span>
                                     <span>{{ rule.config.scope || 'Per user' }}</span>
                                   </p>
-                                  <p
-                                    v-if="rule.config.userType === 'only' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
+                                  <p v-if="rule.config.userType === 'only' && rule.config.users"
+                                    class="flex items-start">
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Users:</span>
                                     <span>Only {{ rule.config.users }}</span>
                                   </p>
-                                  <p
-                                    v-if="rule.config.userType === 'except' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
+                                  <p v-if="rule.config.userType === 'except' && rule.config.users"
+                                    class="flex items-start">
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Users:</span>
                                     <span>All except {{ rule.config.users }}</span>
                                   </p>
                                 </div>
 
                                 <!-- Pricing Policy Display -->
-                                <div
-                                  v-if="
-                                    rule.config.price !== undefined &&
-                                    rule.config.price !== null &&
-                                    rule.config.price !== ''
-                                  "
-                                >
+                                <div v-if="
+                                  rule.config.price !== undefined &&
+                                  rule.config.price !== null &&
+                                  rule.config.price !== ''
+                                ">
                                   <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Price:</span
-                                    >
-                                    <span
-                                      >${{ rule.config.price }} per {{ rule.config.quantity }}
-                                      {{ rule.config.pricingType }}(s)</span
-                                    >
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Price:</span>
+                                    <span>${{ rule.config.price }} per call</span>
                                   </p>
-                                  <p
-                                    v-if="rule.config.userType === 'only' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
+                                  <p v-if="rule.config.userType === 'only' && rule.config.users"
+                                    class="flex items-start">
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Users:</span>
                                     <span>Only {{ rule.config.users }}</span>
                                   </p>
-                                  <p
-                                    v-if="rule.config.userType === 'except' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
+                                  <p v-if="rule.config.userType === 'except' && rule.config.users"
+                                    class="flex items-start">
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Users:</span>
                                     <span>All except {{ rule.config.users }}</span>
                                   </p>
                                 </div>
 
-                                <!-- Manual Approval Policy Display -->
-                                <div v-if="rule.config.destination">
-                                  <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Alert:</span
-                                    >
-                                    <span class="capitalize">{{
-                                      rule.config.destination === 'inbox'
-                                        ? 'In-app notification'
-                                        : rule.config.destination
-                                    }}</span>
-                                  </p>
-                                  <p
-                                    v-if="
-                                      rule.config.destination === 'email' &&
-                                      rule.config.emailAddresses
-                                    "
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Email:</span
-                                    >
-                                    <span>{{ rule.config.emailAddresses }}</span>
-                                  </p>
-                                  <p
-                                    v-if="
-                                      rule.config.destination === 'slack' &&
-                                      rule.config.slackWebhookUrl
-                                    "
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Webhook:</span
-                                    >
-                                    <span
-                                      class="body-sm font-mono bg-muted/50 px-2 py-1 rounded break-all"
-                                      >{{ rule.config.slackWebhookUrl }}</span
-                                    >
-                                  </p>
-                                  <p
-                                    v-if="
-                                      rule.config.destination === 'whatsapp' &&
-                                      rule.config.whatsappNumber
-                                    "
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Number:</span
-                                    >
-                                    <span>{{ rule.config.whatsappNumber }}</span>
-                                  </p>
-                                  <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Timeout:</span
-                                    >
-                                    <span
-                                      >{{ rule.config.timeoutValue }}
-                                      {{ rule.config.timeoutUnit }}(s)</span
-                                    >
-                                  </p>
-                                  <p
-                                    v-if="rule.config.userType === 'only' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>Only {{ rule.config.users }}</span>
-                                  </p>
-                                  <p
-                                    v-if="rule.config.userType === 'except' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>All except {{ rule.config.users }}</span>
-                                  </p>
-                                </div>
 
                                 <!-- AI Filters Policy Display -->
                                 <div v-if="rule.config.modelId">
                                   <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Model:</span
-                                    >
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Model:</span>
                                     <span>{{
                                       mockModels.find((m) => m.id === rule.config.modelId)?.name ||
                                       rule.config.modelId
-                                    }}</span>
+                                      }}</span>
                                   </p>
                                   <div v-if="rule.config.prompt" class="mt-2">
                                     <p class="font-medium text-muted-foreground mb-2">Prompt:</p>
                                     <div
-                                      class="body-sm bg-card border rounded px-3 py-2 font-mono max-h-32 overflow-y-auto whitespace-pre-wrap"
-                                    >
+                                      class="body-sm bg-card border rounded px-3 py-2 font-mono max-h-32 overflow-y-auto whitespace-pre-wrap">
                                       {{ rule.config.prompt }}
                                     </div>
                                   </div>
-                                  <p
-                                    v-if="rule.config.userType === 'only' && rule.config.users"
-                                    class="flex items-start mt-2"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
+                                  <p v-if="rule.config.userType === 'only' && rule.config.users"
+                                    class="flex items-start mt-2">
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Users:</span>
                                     <span>Only {{ rule.config.users }}</span>
                                   </p>
-                                  <p
-                                    v-if="rule.config.userType === 'except' && rule.config.users"
-                                    class="flex items-start mt-2"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
+                                  <p v-if="rule.config.userType === 'except' && rule.config.users"
+                                    class="flex items-start mt-2">
+                                    <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Users:</span>
                                     <span>All except {{ rule.config.users }}</span>
                                   </p>
                                 </div>
@@ -1333,21 +887,13 @@
                     <!-- Public Endpoint -->
                     <div
                       class="flex items-center space-x-3 p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:bg-muted/50"
-                      :class="
-                        endpointVisibility === 'public'
-                          ? 'border-green-500 bg-green-50'
-                          : 'border-border'
-                      "
-                      @click="endpointVisibility = 'public'"
-                    >
-                      <input
-                        type="radio"
-                        id="public-endpoint"
-                        name="endpoint-visibility"
-                        value="public"
+                      :class="endpointVisibility === 'public'
+                        ? 'border-green-500 bg-green-50'
+                        : 'border-border'
+                        " @click="endpointVisibility = 'public'">
+                      <input type="radio" id="public-endpoint" name="endpoint-visibility" value="public"
                         v-model="endpointVisibility"
-                        class="w-4 h-4 text-green-600 border-border focus:ring-green-500"
-                      />
+                        class="w-4 h-4 text-green-600 border-border focus:ring-green-500" />
                       <div class="p-2 rounded-full bg-green-100">
                         <Globe class="w-5 h-5 text-green-600" />
                       </div>
@@ -1364,21 +910,12 @@
                     <!-- Private Endpoint -->
                     <div
                       class="flex items-center space-x-3 p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:bg-muted/50"
-                      :class="
-                        endpointVisibility === 'private'
-                          ? 'border-primary bg-primary/10'
-                          : 'border-border'
-                      "
-                      @click="endpointVisibility = 'private'"
-                    >
-                      <input
-                        type="radio"
-                        id="private-endpoint"
-                        name="endpoint-visibility"
-                        value="private"
-                        v-model="endpointVisibility"
-                        class="w-4 h-4 text-primary border-border focus:ring-blue-500"
-                      />
+                      :class="endpointVisibility === 'private'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-border'
+                        " @click="endpointVisibility = 'private'">
+                      <input type="radio" id="private-endpoint" name="endpoint-visibility" value="private"
+                        v-model="endpointVisibility" class="w-4 h-4 text-primary border-border focus:ring-blue-500" />
                       <div class="p-2 rounded-full bg-primary/10">
                         <Lock class="w-5 h-5 text-primary" />
                       </div>
@@ -1406,40 +943,23 @@
                     </div>
 
                     <div class="flex gap-2">
-                      <Input
-                        v-model="allowedUserInput"
-                        @keydown.enter.prevent="addAllowedUser"
-                        placeholder="user@example.com"
-                        :class="[
+                      <Input v-model="allowedUserInput" @keydown.enter.prevent="addAllowedUser"
+                        placeholder="user@example.com" :class="[
                           'flex-1',
                           hasInputError
                             ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
                             : '',
-                        ]"
-                        type="text"
-                        autocomplete="new-password"
-                        autocapitalize="off"
-                        autocorrect="off"
-                        spellcheck="false"
-                        data-1p-ignore
-                        data-lpignore="true"
-                        data-bwignore
-                        data-protonpass-ignore
-                        data-dashlane-ignore
-                        data-form-type="other"
-                        data-password-manager="false"
-                        role="textbox"
-                      />
+                        ]" type="text" autocomplete="new-password" autocapitalize="off" autocorrect="off"
+                        spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-protonpass-ignore
+                        data-dashlane-ignore data-form-type="other" data-password-manager="false" role="textbox" />
                       <Button @click="addAllowedUser" variant="outline" size="default" class="px-4">
                         <Plus class="h-4 w-4" />
                       </Button>
                     </div>
 
                     <!-- Error message -->
-                    <div
-                      v-if="allowedUserError"
-                      class="body-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2"
-                    >
+                    <div v-if="allowedUserError"
+                      class="body-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2">
                       {{ allowedUserError }}
                     </div>
 
@@ -1450,17 +970,10 @@
 
                     <!-- Display added users -->
                     <div v-if="allowedUsers.length > 0" class="flex flex-wrap gap-2">
-                      <Badge
-                        v-for="(user, index) in allowedUsers"
-                        :key="index"
-                        variant="secondary"
-                        class="px-3 py-1 flex items-center gap-2"
-                      >
+                      <Badge v-for="(user, index) in allowedUsers" :key="index" variant="secondary"
+                        class="px-3 py-1 flex items-center gap-2">
                         {{ user }}
-                        <button
-                          @click="removeAllowedUser(index)"
-                          class="hover:text-muted-foreground transition-colors"
-                        >
+                        <button @click="removeAllowedUser(index)" class="hover:text-muted-foreground transition-colors">
                           <X class="h-3 w-3" />
                         </button>
                       </Badge>
@@ -1477,11 +990,8 @@
                 Previous
               </Button>
 
-              <Button
-                @click="handleNext"
-                :disabled="!isCurrentStepValid"
-                class="bg-primary hover:bg-primary/90 text-primary-foreground px-8 ml-auto"
-              >
+              <Button @click="handleNext" :disabled="!isCurrentStepValid"
+                class="bg-primary hover:bg-primary/90 text-primary-foreground px-8 ml-auto">
                 {{
                   currentSubStep === APP_LIMITS.TOTAL_MODEL_ENDPOINT_CREATION_STEPS
                     ? 'Publish Endpoint'
@@ -1501,7 +1011,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -1620,7 +1130,6 @@ const policyRules = ref<Record<string, PolicyRule[]>>({
   authorization: [] as PolicyRule[],
   ratelimiter: [] as PolicyRule[],
   pricing: [] as PolicyRule[],
-  'manual-approval': [] as PolicyRule[],
   'ai-filters': [] as PolicyRule[],
 })
 
@@ -1629,7 +1138,6 @@ const editingRuleId = ref<Record<string, string | null>>({
   authorization: null as string | null,
   ratelimiter: null as string | null,
   pricing: null as string | null,
-  'manual-approval': null as string | null,
   'ai-filters': null as string | null,
 })
 
@@ -1642,7 +1150,6 @@ const authorizationForm = ref({
 
 const rateLimiterForm = ref({
   limit: '',
-  windowValue: '1',
   windowUnit: 'minute',
   scope: 'per user',
   type: 'sliding window',
@@ -1652,22 +1159,8 @@ const rateLimiterForm = ref({
 })
 
 const pricingForm = ref({
-  pricingType: 'request',
   price: '',
-  quantity: '1',
   userType: 'all',
-  users: '',
-  note: '',
-})
-
-const manualApprovalForm = ref({
-  destination: 'inbox' as string,
-  emailAddresses: '',
-  slackWebhookUrl: '',
-  whatsappNumber: '',
-  timeoutValue: UI_CONSTANTS.DEFAULT_MANUAL_APPROVAL_TIMEOUT as string,
-  timeoutUnit: 'hour' as string,
-  userType: 'all' as string,
   users: '',
   note: '',
 })
@@ -1715,14 +1208,6 @@ const policyTypes: PolicyType[] = [
     description: 'Set fixed per-request pricing and/or token-based pricing',
     icon: DollarSign,
     color: 'yellow',
-  },
-  {
-    id: 'manual-approval',
-    name: 'Manual approval',
-    label: 'Need approval first?',
-    description: 'Require human approval for sensitive operations and decisions',
-    icon: UserCheck,
-    color: 'purple',
   },
   {
     id: 'ai-filters',
@@ -1894,20 +1379,17 @@ const addPolicy = (policyId: string) => {
 }
 
 const savePolicy = (policyId: string, ruleId: string) => {
-  let config = { id: ruleId }
+  let config: PolicyConfig = { id: ruleId }
 
   switch (policyId) {
     case 'authorization':
       config = { ...config, ...authorizationForm.value }
       break
     case 'ratelimiter':
-      config = { ...config, ...rateLimiterForm.value }
+      config = { ...config, ...rateLimiterForm.value, windowValue: '1' }
       break
     case 'pricing':
-      config = { ...config, ...pricingForm.value }
-      break
-    case 'manual-approval':
-      config = { ...config, ...manualApprovalForm.value }
+      config = { ...config, ...pricingForm.value, pricingType: 'per_call' }
       break
     case 'ai-filters':
       config = { ...config, ...aiFiltersForm.value }
@@ -1969,7 +1451,6 @@ const resetFormData = (policyId: string) => {
     case 'ratelimiter':
       rateLimiterForm.value = {
         limit: '',
-        windowValue: '1',
         windowUnit: 'minute',
         scope: 'per user',
         type: 'sliding window',
@@ -1980,22 +1461,7 @@ const resetFormData = (policyId: string) => {
       break
     case 'pricing':
       pricingForm.value = {
-        pricingType: 'request',
         price: '',
-        quantity: '1',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-    case 'manual-approval':
-      manualApprovalForm.value = {
-        destination: 'inbox',
-        emailAddresses: '',
-        slackWebhookUrl: '',
-        whatsappNumber: '',
-        timeoutValue: '24',
-        timeoutUnit: 'hour',
         userType: 'all',
         users: '',
         note: '',
@@ -2019,7 +1485,6 @@ const loadRuleIntoForm = (policyId: string, config: PolicyConfig) => {
     case 'ratelimiter':
       rateLimiterForm.value = {
         limit: (config.limit as string) || '',
-        windowValue: (config.windowValue as string) || '1',
         windowUnit: (config.windowUnit as string) || 'minute',
         scope: (config.scope as string) || 'per user',
         type: (config.type as string) || 'sliding window',
@@ -2030,22 +1495,7 @@ const loadRuleIntoForm = (policyId: string, config: PolicyConfig) => {
       break
     case 'pricing':
       pricingForm.value = {
-        pricingType: (config.pricingType as string) || 'request',
         price: config.price !== undefined ? String(config.price) : '',
-        quantity: (config.quantity as string) || (config.pricingType === 'token' ? '1000' : '1'),
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-    case 'manual-approval':
-      manualApprovalForm.value = {
-        destination: (config.destination as string) || 'inbox',
-        emailAddresses: (config.emailAddresses as string) || '',
-        slackWebhookUrl: (config.slackWebhookUrl as string) || '',
-        whatsappNumber: (config.whatsappNumber as string) || '',
-        timeoutValue: config.timeoutValue ? String(config.timeoutValue) : '24',
-        timeoutUnit: (config.timeoutUnit as string) || 'hour',
         userType: (config.userType as string) || 'all',
         users: (config.users as string) || '',
         note: (config.note as string) || '',
@@ -2102,17 +1552,6 @@ const openCustomSDKDocs = () => {
   window.open('https://docs.openmined.org/custom-models', '_blank')
 }
 
-// Watch for pricing type changes to update default quantity
-watch(
-  () => pricingForm.value.pricingType,
-  (newType) => {
-    if (newType === 'token' && pricingForm.value.quantity === '1') {
-      pricingForm.value.quantity = '1000'
-    } else if (newType === 'request' && pricingForm.value.quantity === '1000') {
-      pricingForm.value.quantity = '1'
-    }
-  },
-)
 
 // Allowed users management
 const addAllowedUser = () => {

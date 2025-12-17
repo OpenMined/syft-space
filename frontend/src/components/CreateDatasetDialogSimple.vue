@@ -99,9 +99,9 @@
           </p>
         </div>
 
-        <!-- Topics & Categories -->
+        <!-- Tags -->
         <div class="space-y-2">
-          <Label for="topics" class="text-sm font-medium"> Topics & Categories (Optional) </Label>
+          <Label for="topics" class="text-sm font-medium"> Tags (Optional) </Label>
           <div class="space-y-2">
             <div class="flex gap-2">
               <Input
@@ -115,6 +115,7 @@
                 <Plus class="h-4 w-4" />
               </Button>
             </div>
+            <p class="text-sm text-muted-foreground">Tags help others discover your dataset</p>
 
             <!-- Popular Tags Suggestions -->
             <div class="flex items-center gap-2 flex-wrap">
@@ -150,7 +151,6 @@
               </Badge>
             </div>
           </div>
-          <p class="text-sm text-muted-foreground">Tags help others discover your dataset</p>
         </div>
       </div>
 
