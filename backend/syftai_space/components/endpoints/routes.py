@@ -9,6 +9,8 @@ from syftai_space.components.endpoints.schemas import (
     EndpointCreateResponse,
     EndpointDetailResponse,
     EndpointListItem,
+    PublishEndpointRequest,
+    PublishEndpointResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
 )
@@ -104,6 +106,25 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
             Query response with summary and/or references
         """
         return handler.query_endpoint(slug, request, tenant)
+
+    @router.post("/{slug}/publish", response_model=PublishEndpointResponse)
+    async def publish_endpoint(
+        slug: str,
+        request: PublishEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> PublishEndpointResponse:
+        """Publish an endpoint to one or more marketplaces.
+
+        Args:
+            slug: Endpoint slug
+            request: Publish request with marketplace IDs
+            tenant: Current tenant (injected)
+
+        Returns:
+            Publish results for each marketplace
+        """
+        return handler.publish_endpoint(slug, request.marketplace_ids, tenant)
 
     @router.delete("/{slug}", response_model=dict[str, str])
     async def delete_endpoint(

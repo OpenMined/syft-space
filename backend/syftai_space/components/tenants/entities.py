@@ -1,7 +1,7 @@
 """Tenant database entities."""
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
@@ -9,6 +9,7 @@ from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 if TYPE_CHECKING:
     from components.datasets.entities import Dataset
     from components.endpoints.entities import Endpoint
+    from components.marketplaces.entities import Marketplace
     from components.models.entities import Model
     from components.policies.entities import Policy
 
@@ -28,7 +29,7 @@ class Tenant(SQLModel, table=True):
     display_name: str = Field(
         ..., description="Display name (e.g., 'ACME Corporation')"
     )
-    domain: Optional[str] = Field(
+    domain: str | None = Field(
         default=None,
         unique=True,
         index=True,
@@ -48,6 +49,7 @@ class Tenant(SQLModel, table=True):
     models: list["Model"] = Relationship(back_populates="tenant")
     endpoints: list["Endpoint"] = Relationship(back_populates="tenant")
     policies: list["Policy"] = Relationship(back_populates="tenant")
+    marketplaces: list["Marketplace"] = Relationship(back_populates="tenant")
 
     class Config:
         """Pydantic config."""

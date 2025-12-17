@@ -1,0 +1,87 @@
+"""Marketplace API schemas for request/response models."""
+
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
+
+
+class CreateMarketplaceRequest(BaseModel):
+    """Request model for creating a marketplace."""
+
+    name: str = Field(..., description="Marketplace display name (unique per tenant)")
+    url: HttpUrl = Field(..., description="Marketplace base URL (unique per tenant)")
+    email: EmailStr = Field(..., description="Login email for marketplace")
+    password: str = Field(..., description="Login password for marketplace")
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "name": "My Marketplace",
+                "url": "https://marketplace.example.com",
+                "email": "user@example.com",
+                "password": "secret123",
+            }
+        }
+
+
+class UpdateMarketplaceRequest(BaseModel):
+    """Request model for updating a marketplace (partial update)."""
+
+    name: str | None = Field(
+        None, description="New marketplace name (must be unique per tenant)"
+    )
+    url: HttpUrl | None = Field(
+        None, description="New marketplace URL (must be unique per tenant)"
+    )
+    email: EmailStr | None = Field(None, description="Updated login email")
+    password: str | None = Field(None, description="Updated login password")
+    is_active: bool | None = Field(
+        None, description="Whether the marketplace can be used for publishing"
+    )
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(self) -> "UpdateMarketplaceRequest":
+        """Ensure at least one field is provided for update."""
+        if all(
+            v is None
+            for v in [self.name, self.url, self.email, self.password, self.is_active]
+        ):
+            raise ValueError("At least one field must be provided for update")
+        return self
+
+
+class MarketplaceResponse(BaseModel):
+    """Response model for marketplace details."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Marketplace display name")
+    url: str = Field(..., description="Marketplace base URL")
+    email: str = Field(..., description="Login email")
+    # Note: password is NOT returned for security
+    is_default: bool = Field(..., description="Is this the default marketplace")
+    is_active: bool = Field(..., description="Can be used for publishing")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class MarketplaceListItem(BaseModel):
+    """Response model for marketplace in list view."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Marketplace display name")
+    url: str = Field(..., description="Marketplace base URL")
+    is_default: bool = Field(..., description="Is this the default marketplace")
+    is_active: bool = Field(..., description="Can be used for publishing")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True

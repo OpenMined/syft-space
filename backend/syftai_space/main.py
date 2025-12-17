@@ -45,6 +45,10 @@ from syftai_space.components.ingestion.handlers import IngestionHandler
 from syftai_space.components.ingestion.manager import IngestionManager
 from syftai_space.components.ingestion.repository import IngestionJobRepository
 from syftai_space.components.ingestion.routes import build_ingestion_routes
+from syftai_space.components.marketplaces.entities import Marketplace
+from syftai_space.components.marketplaces.handlers import MarketplaceHandler
+from syftai_space.components.marketplaces.repository import MarketplaceRepository
+from syftai_space.components.marketplaces.routes import build_marketplace_routes
 from syftai_space.components.model_types import (
     register_builtin_types as register_model_types,
 )
@@ -193,7 +197,29 @@ if not default_tenant:
 else:
     logger.info(f"Default tenant already exists: {default_tenant.name}")
 
-# Initialize repositories
+# Initialize repositories (marketplace first for pre-seeding)
+marketplace_repository = MarketplaceRepository(database)
+
+# Pre-seed SyftHub marketplace for default tenant
+syfthub = marketplace_repository.get_by_name("SyftHub", default_tenant.id)
+if not syfthub:
+    logger.info("Creating default marketplace: SyftHub")
+    syfthub = marketplace_repository.create(
+        Marketplace(
+            tenant_id=default_tenant.id,
+            name="SyftHub",
+            url="https://syftbox.openmined.org",
+            email="",  # User must configure
+            password="",  # User must configure
+            is_default=True,
+            is_active=False,  # Inactive until credentials configured
+        )
+    )
+    logger.info(f"SyftHub marketplace created with ID: {syfthub.id}")
+else:
+    logger.info("SyftHub marketplace already exists")
+
+# Initialize repositories (marketplace_repository already initialized above for pre-seeding)
 dataset_repository = DatasetRepository(database)
 provisioner_state_repository = ProvisionerStateRepository(database)
 model_repository = ModelRepository(database)
@@ -227,8 +253,10 @@ endpoint_handler = EndpointHandler(
     dataset_registry=DATASET_TYPE_REGISTRY,
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
+    marketplace_repository=marketplace_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
+marketplace_handler = MarketplaceHandler(marketplace_repository)
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -263,6 +291,7 @@ router.include_router(build_policy_routes(policy_handler))
 router.include_router(build_endpoint_routes(endpoint_handler))
 router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
+router.include_router(build_marketplace_routes(marketplace_handler))
 
 
 @public_route

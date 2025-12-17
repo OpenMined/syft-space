@@ -1,6 +1,6 @@
 """Endpoint handlers for business logic."""
 
-from typing import Optional
+from uuid import UUID
 
 from fastapi import HTTPException
 
@@ -17,12 +17,16 @@ from syftai_space.components.endpoints.schemas import (
     EndpointListItem,
     MessageResponse,
     ProviderInfo,
+    PublishEndpointResponse,
+    PublishResult,
     QueryEndpointRequest,
     QueryEndpointResponse,
     ReferencesResponse,
     SummaryResponse,
     TokenUsage,
 )
+from syftai_space.components.marketplaces.entities import Marketplace
+from syftai_space.components.marketplaces.repository import MarketplaceRepository
 from syftai_space.components.model_types.interfaces import ChatMessage, ChatParameters
 from syftai_space.components.model_types.registry import ModelTypeRegistry
 from syftai_space.components.models.repository import ModelRepository
@@ -45,6 +49,7 @@ class EndpointHandler:
         dataset_registry: DatasetTypeRegistry,
         model_registry: ModelTypeRegistry,
         policy_registry: PolicyTypeRegistry,
+        marketplace_repository: MarketplaceRepository | None = None,
     ):
         """Initialize the endpoint handler.
 
@@ -56,6 +61,7 @@ class EndpointHandler:
             dataset_registry: Dataset type registry
             model_registry: Model type registry
             policy_registry: Policy type registry
+            marketplace_repository: Marketplace repository (optional, for publish)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -64,6 +70,7 @@ class EndpointHandler:
         self.dataset_registry = dataset_registry
         self.model_registry = model_registry
         self.policy_registry = policy_registry
+        self.marketplace_repository = marketplace_repository
 
     def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
@@ -229,8 +236,8 @@ class EndpointHandler:
                 ) from e
 
         # Execute query based on response_type
-        references: Optional[ReferencesResponse] = None
-        summary: Optional[SummaryResponse] = None
+        references: ReferencesResponse | None = None
+        summary: SummaryResponse | None = None
 
         response_type = ResponseType(endpoint.response_type)
 
@@ -345,7 +352,7 @@ class EndpointHandler:
         self,
         endpoint: Endpoint,
         request: QueryEndpointRequest,
-        references: Optional[ReferencesResponse],
+        references: ReferencesResponse | None,
     ) -> SummaryResponse:
         """Chat with the model.
 
@@ -438,3 +445,152 @@ class EndpointHandler:
             cost=0.0,  # TODO: Implement cost tracking
             provider_info=ProviderInfo(api_version="v1"),
         )
+
+    def publish_endpoint(
+        self,
+        slug: str,
+        marketplace_ids: list[UUID],
+        tenant: Tenant,
+    ) -> PublishEndpointResponse:
+        """Publish an endpoint to one or more marketplaces.
+
+        Args:
+            slug: Endpoint slug
+            marketplace_ids: List of marketplace IDs to publish to
+            tenant: Tenant context
+
+        Returns:
+            Publish results for each marketplace
+
+        Raises:
+            HTTPException: If endpoint not found or marketplace repository not configured
+        """
+        if not self.marketplace_repository:
+            raise HTTPException(
+                status_code=500,
+                detail="Marketplace publishing is not configured",
+            )
+
+        # Get endpoint
+        endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        # Get marketplaces by IDs
+        marketplaces = self.marketplace_repository.get_by_ids(
+            marketplace_ids, tenant.id
+        )
+        found_ids = {m.id for m in marketplaces}
+
+        # Check for missing marketplaces
+        missing_ids = set(marketplace_ids) - found_ids
+        if missing_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Marketplaces not found: {[str(id) for id in missing_ids]}",
+            )
+
+        # Publish to each marketplace
+        results: list[PublishResult] = []
+        for marketplace in marketplaces:
+            result = self._publish_to_marketplace(endpoint, marketplace)
+            results.append(result)
+
+        return PublishEndpointResponse(
+            endpoint_slug=slug,
+            results=results,
+        )
+
+    def _publish_to_marketplace(
+        self,
+        endpoint: Endpoint,
+        marketplace: Marketplace,
+    ) -> PublishResult:
+        """Publish endpoint info to a marketplace using SDK.
+
+        Args:
+            endpoint: Endpoint to publish
+            marketplace: Target marketplace
+
+        Returns:
+            Publish result
+
+        TODO: Integrate with actual SDK when available.
+        """
+        # Validate marketplace is active
+        if not marketplace.is_active:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error="Marketplace is not active",
+            )
+
+        # Validate marketplace has credentials
+        if not marketplace.email or not marketplace.password:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error="Marketplace credentials not configured",
+            )
+
+        from syfthub_sdk import Connection, EndpointType, Policy, SyftHubClient
+
+        client = SyftHubClient(base_url=marketplace.url)
+
+        client.auth.login(email=marketplace.email, password=marketplace.password)
+
+        endpoint_type = (
+            EndpointType.MODEL
+            if endpoint.model_id is not None
+            else EndpointType.DATA_SOURCE
+        )
+        connection_config = {
+            "host": "localhost:8080",
+            "path": f"/api/v1/endpoints/{endpoint.slug}/query",
+        }
+        policies = []
+        for policy in endpoint.policies:
+            Policy(
+                type=policy.policy_type,
+                enabled=True,
+                description=policy.name,
+                config=policy.configuration,
+            )
+            policies.append(policy)
+
+        client.my_endpoints.create(
+            name=endpoint.name,
+            type=endpoint_type,
+            slug=endpoint.slug,
+            description=endpoint.summary,
+            readme=endpoint.description,
+            tags=endpoint.tags,
+            policies=policies,
+            connect=[
+                Connection(
+                    type="https", enabled=True, description="", config=connection_config
+                )
+            ],
+        )
+
+        try:
+            # Record the publication in endpoint's published_to list
+            self.endpoint_repository.add_publication(
+                endpoint.id, marketplace.id, endpoint.tenant_id
+            )
+
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=True,
+                message="Published successfully (SDK integration pending)",
+            )
+        except Exception as e:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=str(e),
+            )
