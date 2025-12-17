@@ -453,7 +453,6 @@
                                     <SelectItem value="second">requests per second</SelectItem>
                                     <SelectItem value="minute">requests per minute</SelectItem>
                                     <SelectItem value="hour">requests per hour</SelectItem>
-                                    <SelectItem value="day">requests per day</SelectItem>
                                   </SelectContent>
                                 </Select>
                               </div>

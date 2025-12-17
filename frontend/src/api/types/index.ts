@@ -178,3 +178,57 @@ export interface ModelTypeInfoResponse {
   icon: string
   enabled: boolean
 }
+
+// Endpoint API types
+export interface CreateEndpointRequest {
+  name: string
+  slug: string
+  description?: string
+  summary?: string
+  dataset_id?: string
+  model_id?: string
+  response_type?: string
+  published?: boolean
+  tags?: string
+}
+
+export interface EndpointResponse {
+  id: string
+  name: string
+  slug: string
+  description: string
+  summary: string
+  dataset_id?: string
+  model_id?: string
+  response_type: string
+  published: boolean
+  tags: string
+  created_at: string
+  updated_at: string
+}
+
+// Policy API types
+export interface CreatePolicyRequest {
+  name: string
+  policy_type: string
+  configuration: Record<string, unknown>
+  endpoint_id: string
+}
+
+export interface PolicyResponse {
+  id: string
+  name: string
+  policy_type: string
+  configuration: Record<string, unknown>
+  endpoint_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PolicyListItem {
+  id: string
+  name: string
+  policy_type: string
+  endpoint_id: string
+  created_at: string
+}

@@ -313,9 +313,9 @@
                     <div v-else-if="existingDatasets.length > 0" class="space-y-3">
                       <div v-for="dataset in existingDatasets" :key="dataset.name"
                         class="flex items-center space-x-3 p-4 border rounded-lg transition-colors" :class="[
-                          formData.selectedDataSource === dataset.name ? 'border-primary bg-primary/5' : 'border-border',
+                          formData.selectedDataSource === dataset.id ? 'border-primary bg-primary/5' : 'border-border',
                           isDatasetSelectable(dataset) ? 'cursor-pointer hover:bg-muted/50' : 'cursor-not-allowed opacity-60'
-                        ]" @click="isDatasetSelectable(dataset) ? formData.selectedDataSource = dataset.name : null">
+                        ]" @click="isDatasetSelectable(dataset) ? formData.selectedDataSource = dataset.id : null">
                         <div class="flex items-center gap-3 flex-1">
                           <div class="p-2 bg-primary/10 rounded">
                             <Database class="h-5 w-5 text-primary" />
@@ -334,10 +334,10 @@
                             </p>
                           </div>
                         </div>
-                        <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center" :class="formData.selectedDataSource === dataset.name
+                        <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center" :class="formData.selectedDataSource === dataset.id
                           ? 'border-primary bg-primary'
                           : 'border-muted-foreground'">
-                          <div v-if="formData.selectedDataSource === dataset.name"
+                          <div v-if="formData.selectedDataSource === dataset.id"
                             class="w-2 h-2 rounded-full bg-white"></div>
                         </div>
                       </div>
@@ -556,8 +556,8 @@
                   <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
                     <p class="body-sm text-green-700">
                       <strong class="font-medium">Default: </strong>
-                      <span v-if="policy.id === 'authorization'">Open access - everyone can use your endpoint</span>
-                      <span v-else-if="policy.id === 'ratelimiter'">No rate limits - unlimited usage</span>
+                      <span v-if="policy.id === 'access'">Open access - everyone can use your endpoint</span>
+                      <span v-else-if="policy.id === 'rate_limit'">No rate limits - unlimited usage</span>
                       <span v-else-if="policy.id === 'pricing'">Free access - no charges applied</span>
                       <span v-else>Open access - most permissive settings</span>
                     </p>
@@ -579,7 +579,7 @@
                     <!-- Rule in Edit Mode (Expanded) -->
                     <div v-if="rule.isEditing" class="space-y-3">
                       <!-- Authorization Policy Form -->
-                      <div v-if="policy.id === 'authorization'">
+                      <div v-if="policy.id === 'access'">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Rule Type</Label>
@@ -609,7 +609,7 @@
                       </div>
 
                       <!-- Rate Limiter Policy Form -->
-                      <div v-if="policy.id === 'ratelimiter'">
+                      <div v-if="policy.id === 'rate_limit'">
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
@@ -625,7 +625,6 @@
                                   <SelectItem value="second">requests per second</SelectItem>
                                   <SelectItem value="minute">requests per minute</SelectItem>
                                   <SelectItem value="hour">requests per hour</SelectItem>
-                                  <SelectItem value="day">requests per day</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -889,6 +888,20 @@
               </p>
             </div>
 
+            <!-- Creation Progress -->
+            <div v-if="isCreating" class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center">
+              <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                <svg class="w-8 h-8 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+              <h3 class="heading-2 text-foreground mb-2">Creating Endpoint...</h3>
+              <p class="text-muted-foreground">
+                {{ creationStep || 'Setting up your data endpoint...' }}
+              </p>
+            </div>
+
             <!-- Summary -->
             <div class="bg-card border border-border rounded-2xl p-8 space-y-6">
               <!-- Basic Information -->
@@ -915,8 +928,8 @@
                       <div v-else-if="selectedDataSourceType === 'existing'" class="flex items-center gap-2">
                         <Database class="w-4 h-4 text-green-600" />
                         <span class="text-foreground">Existing Source</span>
-                        <span v-if="formData.selectedDataSource" class="body-sm text-muted-foreground">
-                          ({{ formData.selectedDataSource }})
+                        <span v-if="selectedDatasetName" class="body-sm text-muted-foreground">
+                          ({{ selectedDatasetName }})
                         </span>
                       </div>
                       <span v-else class="text-muted-foreground italic">Not configured</span>
@@ -1053,15 +1066,32 @@
             </div>
           </div>
 
+          <!-- Error Display (only in step 5) -->
+          <div v-if="creationError && currentSubStep === 5" class="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div class="flex items-start gap-3">
+              <X class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div class="flex-1">
+                <h4 class="font-medium text-red-900 mb-1">Failed to create endpoint</h4>
+                <p class="text-sm text-red-700">{{ creationError }}</p>
+              </div>
+            </div>
+          </div>
+
           <!-- Navigation Buttons -->
           <div class="flex justify-between mt-8 pt-6 border-t border-border">
-            <Button variant="outline" @click="currentSubStep === 1 ? handleBack() : previousStep()">
+            <Button variant="outline" @click="currentSubStep === 1 ? handleBack() : previousStep()" 
+              :disabled="isCreating">
               {{ currentSubStep === 1 ? 'Cancel' : 'Back' }}
             </Button>
-            <Button @click="nextStep" :disabled="!isCurrentStepValid"
+            <Button @click="nextStep" :disabled="!isCurrentStepValid || isCreating"
               class="bg-primary hover:bg-primary/90 text-white px-8">
-              {{ currentSubStep === 5 ? 'Publish Now' : 'Continue' }}
-              <ArrowRight class="ml-2 h-4 w-4" />
+              <template v-if="currentSubStep === 5 && isCreating">
+                {{ creationStep || 'Publishing...' }}
+              </template>
+              <template v-else>
+                {{ currentSubStep === 5 ? 'Publish Now' : 'Continue' }}
+              </template>
+              <ArrowRight v-if="!isCreating" class="ml-2 h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -1112,9 +1142,13 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { modelsApi } from '@/api/endpoints/models'
+import { useEndpointCreation } from '@/composables/useEndpointCreation'
 import type { DatasetListItem, ModelListItem } from '@/api/types'
 
 const router = useRouter()
+
+// Endpoint creation composable
+const { isCreating, creationError, creationStep, createEndpointWithData, reset } = useEndpointCreation()
 
 // Sub-step navigation
 const currentSubStep = ref(1)
@@ -1161,7 +1195,7 @@ Brief summary of what this dataset contains and its primary purpose...
 How to properly cite or credit this dataset when used...`
 
 // Policy configurations
-type PolicyTypeId = 'authorization' | 'ratelimiter' | 'pricing'
+type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
 
 interface PolicyConfig {
   id: string
@@ -1186,15 +1220,15 @@ interface PolicyType {
 type PolicyRulesRecord = Record<PolicyTypeId, PolicyRule[]>
 
 const policyRules = ref<PolicyRulesRecord>({
-  authorization: [],
-  ratelimiter: [],
+  access: [],
+  rate_limit: [],
   pricing: [],
 })
 
 // Currently editing rule ID for each policy type
 const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
-  authorization: null,
-  ratelimiter: null,
+  access: null,
+  rate_limit: null,
   pricing: null,
 })
 
@@ -1226,7 +1260,7 @@ const pricingForm = ref({
 // Policy types definition
 const policyTypes: PolicyType[] = [
   {
-    id: 'authorization',
+    id: 'access',
     name: 'Authorization',
     label: 'Who can access?',
     description: 'Control who can use your content - everyone, specific users, or by invitation',
@@ -1234,7 +1268,7 @@ const policyTypes: PolicyType[] = [
     color: 'blue',
   },
   {
-    id: 'ratelimiter',
+    id: 'rate_limit',
     name: 'Rate Limiter',
     label: 'Prevent overuse',
     description: 'Limit how many queries each user can make per day or hour',
@@ -1282,7 +1316,7 @@ const formData = ref({
 })
 
 // Data source selection
-const selectedDataSourceType = ref('')
+const selectedDataSourceType = ref<'filesystem' | 'existing' | ''>('')
 const selectedFiles = ref<string[]>([]) // Start with empty selection for FileExplorer
 const fileDescriptions = ref({} as Record<string, string>)
 const existingDatasets = ref<DatasetListItem[]>([])
@@ -1302,6 +1336,14 @@ const displayedDatasets = computed(() => {
 const remainingDatasetsCount = computed(() => {
   // If we have more than 3 datasets, remaining count is based on showing only 2
   return existingDatasets.value.length > 3 ? existingDatasets.value.length - 2 : 0
+})
+
+const selectedDatasetName = computed(() => {
+  if (selectedDataSourceType.value === 'existing' && formData.value.selectedDataSource) {
+    const dataset = existingDatasets.value.find(d => d.id === formData.value.selectedDataSource)
+    return dataset?.name || formData.value.selectedDataSource
+  }
+  return ''
 })
 
 // Helper function to validate slug format
@@ -1355,22 +1397,40 @@ const saveDraft = () => {
   // Add save logic here
 }
 
-const selectDataSourceType = (type: string) => {
+const selectDataSourceType = (type: 'filesystem' | 'existing') => {
   selectedDataSourceType.value = type
 }
 
 
-const nextStep = () => {
+const nextStep = async () => {
   if (isCurrentStepValid.value && currentSubStep.value < 5) {
     currentSubStep.value++
   } else if (currentSubStep.value === 5) {
-    // Publish the endpoint
-    router.push({ name: 'endpoints' })
+    // Publish the endpoint using the composable
+    const endpointData = {
+      selectedDataSourceType: selectedDataSourceType.value,
+      selectedFiles: selectedFiles.value,
+      fileDescriptions: fileDescriptions.value,
+      selectedDataSource: formData.value.selectedDataSource,
+      responseType: formData.value.responseType,
+      aiModel: formData.value.aiModel,
+      policyRules: policyRules.value,
+      endpointName: formData.value.endpointName,
+      summary: formData.value.summary,
+      description: formData.value.description,
+      tags: formData.value.tags
+    }
+    
+    await createEndpointWithData(endpointData)
   }
 }
 
 const previousStep = () => {
   if (currentSubStep.value > 1) {
+    // Clear creation errors when navigating away from step 5
+    if (currentSubStep.value === 5) {
+      reset()
+    }
     currentSubStep.value--
   }
 }
@@ -1414,7 +1474,7 @@ const removeFile = (index: number) => {
 // Generate rule summary based on policy type and configuration
 const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {
   switch (policyId) {
-    case 'authorization':
+    case 'access':
       if (!config.users) return 'No users configured'
       const ruleType = config.ruleType === 'allow' ? 'Allow' : 'Deny'
       const userList = (config.users as string).split(',').map(u => u.trim()).filter(u => u)
@@ -1424,7 +1484,7 @@ const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string =>
       // Show all patterns
       return `${ruleType} access for ${userList.join(', ')}`
 
-    case 'ratelimiter':
+    case 'rate_limit':
       if (!config.limit) return 'No limit configured'
       const scope = config.scope === 'global' ? 'for this endpoint' : 'per user'
       return `${config.limit} requests per ${config.windowUnit} ${scope}`
@@ -1540,10 +1600,10 @@ const deletePolicy = (policyId: PolicyTypeId, ruleId: string) => {
 
 const resetFormData = (policyId: PolicyTypeId) => {
   switch (policyId) {
-    case 'authorization':
+    case 'access':
       authorizationForm.value = { ruleType: 'allow', users: '', note: '' }
       break
-    case 'ratelimiter':
+    case 'rate_limit':
       rateLimiterForm.value = {
         limit: '',
         windowUnit: 'minute',
@@ -1567,14 +1627,14 @@ const resetFormData = (policyId: PolicyTypeId) => {
 
 const loadRuleIntoForm = (policyId: PolicyTypeId, config: PolicyConfig) => {
   switch (policyId) {
-    case 'authorization':
+    case 'access':
       authorizationForm.value = {
         ruleType: (config.ruleType as string) || 'allow',
         users: (config.users as string) || '',
         note: (config.note as string) || '',
       }
       break
-    case 'ratelimiter':
+    case 'rate_limit':
       rateLimiterForm.value = {
         limit: (config.limit as string) || '',
         windowUnit: (config.windowUnit as string) || 'minute',
@@ -1603,10 +1663,10 @@ const savePolicy = (policyId: PolicyTypeId, ruleId: string) => {
   // Get the form data based on policy type
   let formData
   switch (policyId) {
-    case 'authorization':
+    case 'access':
       formData = authorizationForm.value
       break
-    case 'ratelimiter':
+    case 'rate_limit':
       formData = { ...rateLimiterForm.value, windowValue: '1' }
       break
     case 'pricing':
