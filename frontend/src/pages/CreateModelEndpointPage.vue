@@ -709,7 +709,7 @@
                               Stopped</Badge>
                           </p>
                         </div>
-                        <div v-else-if="formData.aiModel === 'code-assistant'">
+                        <div v-else-if="formData.aiModel === 'local-llama'">
                           <p><span class="font-medium">Source:</span> Existing Model</p>
                           <p><span class="font-medium">Model:</span> Code Assistant Model</p>
                           <p><span class="font-medium">Provider:</span> Ollama</p>
@@ -764,7 +764,7 @@
                             <h4 class="font-semibold text-foreground">{{ policyType }}</h4>
                             <span class="body-sm text-muted-foreground">({{ policyGroup.rules.length }} rule{{
                               policyGroup.rules.length !== 1 ? 's' : ''
-                            }})</span>
+                              }})</span>
                           </div>
 
                           <!-- Policy Rules -->
@@ -779,7 +779,7 @@
                                     <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Type:</span>
                                     <span>{{
                                       rule.config.ruleType === 'allow' ? 'Allow-list' : 'Deny-list'
-                                      }}</span>
+                                    }}</span>
                                   </p>
                                   <p class="flex items-start">
                                     <span class="font-medium text-muted-foreground w-20 flex-shrink-0">Users:</span>
@@ -841,7 +841,7 @@
                                     <span>{{
                                       mockModels.find((m) => m.id === rule.config.modelId)?.name ||
                                       rule.config.modelId
-                                      }}</span>
+                                    }}</span>
                                   </p>
                                   <div v-if="rule.config.prompt" class="mt-2">
                                     <p class="font-medium text-muted-foreground mb-2">Prompt:</p>

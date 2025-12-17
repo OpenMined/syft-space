@@ -131,7 +131,7 @@ export function useEndpointCreation() {
       tags: data.tags.join(','),
       response_type: data.responseType,
       dataset_id: datasetId || (data.selectedDataSourceType === 'existing' ? data.selectedDataSource : undefined),
-      model_id: data.aiModel,
+      model_id: data.responseType === 'raw' ? undefined : data.aiModel,
       published: true
     }
 

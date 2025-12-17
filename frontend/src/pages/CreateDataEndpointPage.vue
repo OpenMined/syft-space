@@ -337,8 +337,8 @@
                         <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center" :class="formData.selectedDataSource === dataset.id
                           ? 'border-primary bg-primary'
                           : 'border-muted-foreground'">
-                          <div v-if="formData.selectedDataSource === dataset.id"
-                            class="w-2 h-2 rounded-full bg-white"></div>
+                          <div v-if="formData.selectedDataSource === dataset.id" class="w-2 h-2 rounded-full bg-white">
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -838,8 +838,7 @@
                     <div class="flex-1 min-w-0">
                       <p class="body-sm font-medium text-foreground truncate mb-1">{{ file }}</p>
                       <Input v-model="fileDescriptions[file]"
-                        placeholder="Brief description of what this file contains..." 
-                        class="body-sm" />
+                        placeholder="Brief description of what this file contains..." class="body-sm" />
                     </div>
                   </div>
                 </div>
@@ -864,7 +863,7 @@
                     Description
                   </Label>
                   <MdEditor :model-value="formData.description || defaultDescriptionTemplate"
-                    @update:model-value="formData.description = $event" :height="200" 
+                    @update:model-value="formData.description = $event" :height="200"
                     :toolbars="['bold', 'italic', 'title', 'strikeThrough', 'unorderedList', 'orderedList', 'link', 'code', 'codeRow']"
                     :preview-theme="'github'" :code-theme="'github'" language="en-US" />
                 </div>
@@ -889,11 +888,15 @@
             </div>
 
             <!-- Creation Progress -->
-            <div v-if="isCreating" class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center">
-              <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <div v-if="isCreating"
+              class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center">
+              <div
+                class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
                 <svg class="w-8 h-8 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <path class="opacity-75" fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                  </path>
                 </svg>
               </div>
               <h3 class="heading-2 text-foreground mb-2">Creating Endpoint...</h3>
@@ -948,9 +951,7 @@
                 <div v-if="formData.description && formData.description.trim()" class="mt-6">
                   <p class="body-sm font-medium text-muted-foreground mb-3">Detailed Description</p>
                   <div class="bg-muted/30 border border-border rounded-lg p-4">
-                    <MdPreview :model-value="formData.description" 
-                      :preview-theme="'github'" 
-                      :code-theme="'github'" 
+                    <MdPreview :model-value="formData.description" :preview-theme="'github'" :code-theme="'github'"
                       language="en-US" />
                   </div>
                 </div>
@@ -1054,7 +1055,8 @@
                               <h4 class="body-sm font-medium text-foreground mb-1">
                                 {{ rule.config.note || `${policyType.name} Rule #${index + 1}` }}
                               </h4>
-                              <p class="body-sm text-muted-foreground">{{ getRuleSummary(policyType.id, rule.config) }}</p>
+                              <p class="body-sm text-muted-foreground">{{ getRuleSummary(policyType.id, rule.config) }}
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -1079,7 +1081,7 @@
 
           <!-- Navigation Buttons -->
           <div class="flex justify-between mt-8 pt-6 border-t border-border">
-            <Button variant="outline" @click="currentSubStep === 1 ? handleBack() : previousStep()" 
+            <Button variant="outline" @click="currentSubStep === 1 ? handleBack() : previousStep()"
               :disabled="isCreating">
               {{ currentSubStep === 1 ? 'Cancel' : 'Back' }}
             </Button>
@@ -1312,7 +1314,7 @@ const formData = ref({
   tags: [] as string[],
   selectedDataSource: '', // For existing dataset selection
   responseType: 'both', // Default to Search + AI
-  aiModel: 'code-assistant', // Default to the running Ollama model
+  aiModel: '', // Will be set to 'local-llama' only when AI is needed
 })
 
 // Data source selection
@@ -1420,7 +1422,7 @@ const nextStep = async () => {
       description: formData.value.description,
       tags: formData.value.tags
     }
-    
+
     await createEndpointWithData(endpointData)
   }
 }
@@ -1438,6 +1440,13 @@ const previousStep = () => {
 // Select response type
 const selectResponseType = (type: 'raw' | 'summary' | 'both') => {
   formData.value.responseType = type
+
+  // Set default AI model only when AI is needed
+  if ((type === 'summary' || type === 'both') && !formData.value.aiModel) {
+    formData.value.aiModel = 'local-llama'
+  } else if (type === 'raw') {
+    formData.value.aiModel = '' // Clear AI model for raw response type
+  }
 }
 
 // Add tag
