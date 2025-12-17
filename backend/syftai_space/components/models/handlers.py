@@ -138,7 +138,7 @@ class ModelHandler:
             List of models
         """
         models = self.repository.get_all(tenant.id)
-        return [ModelListItem.model_validate(m) for m in models]
+        return [ModelListItem.model_validate(model) for model in models]
 
     def get_model(self, name: str, tenant: Tenant) -> ModelResponseWithEndpoints:
         """Get a specific model by name within a tenant.

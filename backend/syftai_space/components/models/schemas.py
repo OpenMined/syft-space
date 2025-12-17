@@ -76,6 +76,11 @@ class EndpointListItem(BaseModel):
     name: str = Field(..., description="Endpoint name")
     slug: str = Field(..., description="Unique URL slug")
 
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
 
 class ModelResponse(BaseModel):
     """Response model for model details."""
