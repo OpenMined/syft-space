@@ -355,22 +355,18 @@
               <div
                 v-for="endpoint in connectedEndpoints"
                 :key="endpoint.id"
-                class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
+                class="flex items-center gap-4 py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all cursor-pointer"
+                @click="navigateToEndpoint(endpoint.slug)"
               >
-                <div class="flex items-center gap-4">
-                  <div class="p-3 bg-primary/10 rounded-xl">
-                    <Globe class="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
-                    <p class="body-sm text-muted-foreground mt-1">
-                      {{ endpoint.slug || 'API endpoint' }}
-                    </p>
-                  </div>
+                <div class="p-3 bg-primary/10 rounded-xl">
+                  <Globe class="h-5 w-5 text-primary" />
                 </div>
-                <Button variant="outline" size="sm">
-                  <ExternalLink class="h-4 w-4" />
-                </Button>
+                <div class="flex-1">
+                  <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
+                  <p class="body-sm text-muted-foreground mt-1">
+                    {{ endpoint.slug || 'API endpoint' }}
+                  </p>
+                </div>
               </div>
             </div>
             <div v-else class="text-center py-16">
@@ -594,7 +590,6 @@ import {
   Trash2,
   Globe,
   Plus,
-  ExternalLink,
   BarChart3,
   RefreshCw,
   ChevronDown,
@@ -847,6 +842,10 @@ const confirmDelete = async () => {
 const cancelDelete = () => {
   showDeleteDialog.value = false
   checkedEndpoints.value = []
+}
+
+const navigateToEndpoint = (endpointSlug: string) => {
+  router.push({ name: 'endpoint-detail', params: { slug: endpointSlug } })
 }
 
 // Dataset management type - check if dataset has file ingestion paths

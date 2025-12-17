@@ -71,13 +71,37 @@
       </div>
     </div>
 
+    <!-- Loading state -->
+    <div v-if="endpointsStore.isLoading" class="flex justify-center py-12">
+      <div class="flex items-center gap-3">
+        <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+        <span class="text-muted-foreground">Loading endpoints...</span>
+      </div>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="endpointsStore.error" class="text-center py-8">
+      <div class="bg-destructive/10 text-destructive rounded-lg p-4 max-w-md mx-auto">
+        <p class="font-medium">Failed to load endpoints</p>
+        <p class="text-sm mt-1">{{ endpointsStore.error }}</p>
+        <Button variant="outline" size="sm" class="mt-3" @click="endpointsStore.fetchEndpoints()">
+          Try again
+        </Button>
+      </div>
+    </div>
+
     <!-- Endpoint cards -->
-    <div class="space-y-5">
+    <div v-else-if="filteredEndpoints.length > 0" class="space-y-5">
       <EndpointCard v-for="endpoint in filteredEndpoints" :key="endpoint.id" :endpoint="endpoint" />
     </div>
 
+    <!-- No results state -->
+    <div v-else-if="!endpointsStore.isLoading && searchQuery" class="text-center py-12">
+      <p class="text-muted-foreground">No endpoints found matching "{{ searchQuery }}"</p>
+    </div>
+
     <!-- DEMO: Empty State Section -->
-    <div class="mt-16">
+    <div v-if="!endpointsStore.isLoading && !endpointsStore.error && endpointsStore.endpoints.length === 0 && !searchQuery" class="mt-16">
       <!-- Divider with centered text -->
       <div class="relative">
         <div class="absolute inset-0 flex items-center">
@@ -119,7 +143,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Search, Plus, Server, HelpCircle } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -131,6 +155,11 @@ import { useEndpointsStore } from '@/stores/endpoints'
 import type { EndpointItem } from '@/stores/endpoints'
 
 const endpointsStore = useEndpointsStore()
+
+// Fetch endpoints on mount
+onMounted(() => {
+  endpointsStore.fetchEndpoints()
+})
 
 const searchQuery = ref('')
 const activeTab = ref('all')
@@ -150,10 +179,10 @@ const filteredEndpoints = computed(() => {
     }
 
     // Tab filter
-    if (activeTab.value === 'published' && endpoint.status !== 'published') {
+    if (activeTab.value === 'published' && !endpoint.published) {
       return false
     }
-    if (activeTab.value === 'draft' && endpoint.status !== 'draft') {
+    if (activeTab.value === 'draft' && endpoint.published) {
       return false
     }
 

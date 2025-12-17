@@ -82,6 +82,7 @@ import { Save, ArrowLeft, Plus, X } from 'lucide-vue-next'
 - Prefer TypeScript for type safety
 - Use reactive refs and computed properties appropriately
 - Follow the existing file structure and naming conventions
+- **NEVER leave historical comments or leftover code** - code should be self-explanatory without needing to know previous context or implementation history. Git history exists for tracking changes.
 
 ## Package Management
 

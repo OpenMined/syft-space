@@ -52,21 +52,21 @@
                 <p class="body-lg text-muted-foreground mb-4">{{ endpoint.summary }}</p>
                 <div class="flex flex-wrap items-center gap-2">
                   <Badge
-                    :variant="endpoint.status === 'published' ? 'default' : 'outline'"
+                    :variant="endpoint.published ? 'default' : 'outline'"
                     :class="
-                      endpoint.status === 'published'
+                      endpoint.published
                         ? 'bg-primary/10 text-primary border border-primary/20'
                         : 'bg-muted text-muted-foreground border border-border'
                     "
                   >
                     <div
                       :class="
-                        endpoint.status === 'published'
+                        endpoint.published
                           ? 'w-2 h-2 bg-primary rounded-full mr-2 animate-pulse'
                           : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
                       "
                     ></div>
-                    {{ endpoint.status === 'published' ? 'Live' : 'Draft' }}
+                    {{ endpoint.published ? 'Live' : 'Draft' }}
                   </Badge>
                   <Badge
                     v-if="endpoint.mcpCompatible"
@@ -87,7 +87,7 @@
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger as-child>
-                    <Button v-if="endpoint.status === 'draft'" variant="default">
+                    <Button v-if="!endpoint.published" variant="default">
                       <Send class="h-4 w-4 mr-2" />
                       Publish
                     </Button>

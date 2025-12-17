@@ -60,6 +60,11 @@ export interface EndpointListItem {
   id: string
   name: string
   slug: string
+  summary: string
+  response_type: string
+  published: boolean
+  tags: string
+  created_at: string
 }
 
 export interface ProvisionerStatusResponse {
