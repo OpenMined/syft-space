@@ -4,11 +4,11 @@ import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
-import type { 
-  CreateDatasetRequest, 
-  CreateEndpointRequest, 
+import type {
+  CreateDatasetRequest,
+  CreateEndpointRequest,
   CreatePolicyRequest,
-  PolicyResponse
+  PolicyResponse,
 } from '@/api/types'
 
 export interface PolicyRule {
@@ -29,14 +29,14 @@ export interface EndpointCreationData {
   selectedFiles: string[]
   fileDescriptions: Record<string, string>
   selectedDataSource: string // For existing dataset selection
-  
+
   // Step 2: Response configuration
   responseType: string
   aiModel: string
-  
+
   // Step 3: Policies
   policyRules: PolicyRules
-  
+
   // Step 4: Metadata
   endpointName: string
   summary: string
@@ -46,7 +46,7 @@ export interface EndpointCreationData {
 
 export function useEndpointCreation() {
   const router = useRouter()
-  
+
   // State
   const isCreating = ref(false)
   const creationError = ref<string | null>(null)
@@ -58,7 +58,7 @@ export function useEndpointCreation() {
     endpointSlug?: string
     policyIds: string[]
   }>({
-    policyIds: []
+    policyIds: [],
   })
 
   // Computed
@@ -71,19 +71,18 @@ export function useEndpointCreation() {
 
   const getPolicyDisplayName = (policyType: string): string => {
     const displayNames = {
-      'access': 'Authorization',
-      'rate_limit': 'Rate Limiter',
-      'pricing': 'Pricing'
+      access: 'Authorization',
+      rate_limit: 'Rate Limiter',
+      pricing: 'Pricing',
     }
     return displayNames[policyType as keyof typeof displayNames] || policyType
   }
 
-
   const generatePolicyName = (
-    policyType: string, 
-    ruleIndex: number, 
-    ruleConfig: Record<string, unknown>, 
-    endpointName: string
+    policyType: string,
+    ruleIndex: number,
+    ruleConfig: Record<string, unknown>,
+    endpointName: string,
   ): string => {
     const baseName = ruleConfig.note || `${getPolicyDisplayName(policyType)} Rule #${ruleIndex + 1}`
     return `${baseName} for ${endpointName}`
@@ -96,10 +95,10 @@ export function useEndpointCreation() {
     }
 
     creationStep.value = 'Creating dataset...'
-    
-    const filePathsWithDescriptions = data.selectedFiles.map(filePath => ({
+
+    const filePathsWithDescriptions = data.selectedFiles.map((filePath) => ({
       path: filePath,
-      description: data.fileDescriptions[filePath] || ''
+      description: data.fileDescriptions[filePath] || '',
     }))
 
     const createRequest: CreateDatasetRequest = {
@@ -109,8 +108,8 @@ export function useEndpointCreation() {
       tags: data.tags.join(','),
       configuration: {
         collectionName: generateCollectionName(),
-        filePaths: filePathsWithDescriptions
-      }
+        filePaths: filePathsWithDescriptions,
+      },
     }
 
     const response = await datasetsApi.create(createRequest)
@@ -120,9 +119,12 @@ export function useEndpointCreation() {
   }
 
   // Step 2: Create endpoint
-  const createEndpoint = async (data: EndpointCreationData, datasetId?: string): Promise<string> => {
+  const createEndpoint = async (
+    data: EndpointCreationData,
+    datasetId?: string,
+  ): Promise<string> => {
     creationStep.value = 'Creating endpoint...'
-    
+
     const createRequest: CreateEndpointRequest = {
       name: data.endpointName,
       slug: data.endpointName,
@@ -130,9 +132,11 @@ export function useEndpointCreation() {
       description: data.description || '',
       tags: data.tags.join(','),
       response_type: data.responseType,
-      dataset_id: datasetId || (data.selectedDataSourceType === 'existing' ? data.selectedDataSource : undefined),
+      dataset_id:
+        datasetId ||
+        (data.selectedDataSourceType === 'existing' ? data.selectedDataSource : undefined),
       model_id: data.responseType === 'raw' ? undefined : data.aiModel,
-      published: true
+      published: true,
     }
 
     const response = await endpointsApi.create(createRequest)
@@ -142,42 +146,48 @@ export function useEndpointCreation() {
   }
 
   // Step 3: Create policies
-  const createPolicies = async (data: EndpointCreationData, endpointId: string): Promise<string[]> => {
+  const createPolicies = async (
+    data: EndpointCreationData,
+    endpointId: string,
+  ): Promise<string[]> => {
     creationStep.value = 'Applying policies...'
-    
+
     const policyRequests: CreatePolicyRequest[] = []
-    
+
     // Convert frontend policy rules to backend format
     // Only process implemented policy types (access, rate_limit)
     const implementedPolicies = ['access', 'rate_limit']
-    
+
     Object.entries(data.policyRules).forEach(([policyType, rules]) => {
       // Skip pricing policy for now since it's not implemented
       if (!implementedPolicies.includes(policyType)) {
         console.log(`Skipping ${policyType} policy - not implemented yet`)
         return
       }
-      
+
       rules.forEach((rule: PolicyRule, index: number) => {
         const policyName = generatePolicyName(policyType, index, rule.config, data.endpointName)
-        
+
         // Transform frontend form data to backend configuration format
         let configuration: Record<string, unknown>
-        
+
         if (policyType === 'access') {
           // Transform access policy configuration
-          const userList = (rule.config.users as string || '').split(',').map(u => u.trim()).filter(u => u.length > 0)
+          const userList = ((rule.config.users as string) || '')
+            .split(',')
+            .map((u) => u.trim())
+            .filter((u) => u.length > 0)
           const ruleType = rule.config.ruleType as string
-          
+
           if (ruleType === 'allow') {
             configuration = {
               allowed_users: userList,
-              denied_users: []
+              denied_users: [],
             }
           } else {
             configuration = {
               allowed_users: [],
-              denied_users: userList
+              denied_users: userList,
             }
           }
         } else if (policyType === 'rate_limit') {
@@ -185,41 +195,41 @@ export function useEndpointCreation() {
           const limit = rule.config.limit as string
           const windowUnit = rule.config.windowUnit as string
           const scope = rule.config.scope as string
-          
+
           // Convert windowUnit to backend format
           const unitMap: Record<string, string> = {
-            'second': 's',
-            'minute': 'm', 
-            'hour': 'h'
+            second: 's',
+            minute: 'm',
+            hour: 'h',
           }
-          
+
           const backendUnit = unitMap[windowUnit] || 'm'
           const formattedLimit = `${limit}/${backendUnit}`
-          
+
           // Convert scope to backend format
           const backendScope = scope === 'per user' ? 'per_user' : 'global'
-          
+
           configuration = {
             limit: formattedLimit,
-            scope: backendScope
+            scope: backendScope,
           }
         } else {
           // Fallback for other policy types
           configuration = rule.config
         }
-        
+
         policyRequests.push({
           name: policyName,
           policy_type: policyType,
           configuration: configuration,
-          endpoint_id: endpointId
+          endpoint_id: endpointId,
         })
       })
     })
 
     // Create all policies - fail fast on any failure
     const createdPolicies: PolicyResponse[] = []
-    
+
     for (const policyRequest of policyRequests) {
       try {
         const response = await policiesApi.create(policyRequest)
@@ -228,17 +238,19 @@ export function useEndpointCreation() {
       } catch (error) {
         console.error(`Failed to create policy: ${policyRequest.name}`, error)
         // Fail fast - throw error to trigger rollback
-        throw new Error(`Failed to create policy "${policyRequest.name}": ${error instanceof Error ? error.message : 'Unknown error'}`)
+        throw new Error(
+          `Failed to create policy "${policyRequest.name}": ${error instanceof Error ? error.message : 'Unknown error'}`,
+        )
       }
     }
 
-    return createdPolicies.map(p => p.id)
+    return createdPolicies.map((p) => p.id)
   }
 
   // Rollback function to clean up created resources
   const rollback = async () => {
     creationStep.value = 'Cleaning up...'
-    
+
     try {
       // Delete policies first (in reverse order)
       for (const policyId of [...createdResources.value.policyIds].reverse()) {
@@ -278,12 +290,12 @@ export function useEndpointCreation() {
   const createEndpointWithData = async (data: EndpointCreationData): Promise<boolean> => {
     isCreating.value = true
     creationError.value = null
-    createdResources.value = { 
+    createdResources.value = {
       policyIds: [],
       datasetId: undefined,
       datasetName: undefined,
       endpointId: undefined,
-      endpointSlug: undefined
+      endpointSlug: undefined,
     }
 
     try {
@@ -299,18 +311,18 @@ export function useEndpointCreation() {
       // Success!
       creationStep.value = 'Complete!'
       toast.success(`Endpoint "${data.endpointName}" created successfully`)
-      
+
       // Navigate to the endpoint details page
       router.push({ name: 'endpoints' })
-      
+
       return true
     } catch (error) {
       console.error('Endpoint creation failed:', error)
       creationError.value = error instanceof Error ? error.message : 'Unknown error occurred'
-      
+
       // Attempt rollback
       await rollback()
-      
+
       toast.error(`Failed to create endpoint: ${creationError.value}`)
       return false
     } finally {
@@ -324,12 +336,12 @@ export function useEndpointCreation() {
     isCreating.value = false
     creationError.value = null
     creationStep.value = ''
-    createdResources.value = { 
+    createdResources.value = {
       policyIds: [],
       datasetId: undefined,
       datasetName: undefined,
       endpointId: undefined,
-      endpointSlug: undefined
+      endpointSlug: undefined,
     }
   }
 
@@ -341,6 +353,6 @@ export function useEndpointCreation() {
 
     // Methods
     createEndpointWithData,
-    reset
+    reset,
   }
 }

@@ -2,7 +2,9 @@
   <Dialog v-model:open="isOpen">
     <DialogContent class="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle class="heading-3">Create Model</DialogTitle>
+        <DialogTitle class="heading-3">{{
+          props.model ? 'Edit Model' : 'Create Model'
+        }}</DialogTitle>
       </DialogHeader>
 
       <div class="space-y-6 mt-6">
@@ -20,8 +22,8 @@
           <p class="text-sm text-muted-foreground">Give your model a descriptive name</p>
         </div>
 
-        <!-- Provider and Model Side by Side -->
-        <div class="grid grid-cols-2 gap-4">
+        <!-- Provider and Model Side by Side (only show when creating) -->
+        <div v-if="!props.model" class="grid grid-cols-2 gap-4">
           <!-- Provider -->
           <div class="space-y-2">
             <Label for="provider" class="text-sm font-medium">
@@ -62,8 +64,8 @@
           </div>
         </div>
 
-        <!-- API Key -->
-        <div class="space-y-2">
+        <!-- API Key (only show when creating) -->
+        <div v-if="!props.model" class="space-y-2">
           <Label for="api-key" class="text-sm font-medium">
             API Key <span class="text-red-500">*</span>
           </Label>
@@ -148,7 +150,9 @@
 
       <DialogFooter class="mt-8">
         <Button variant="outline" @click="handleCancel"> Cancel </Button>
-        <Button @click="handleCreate" :disabled="!isFormValid"> Create Model </Button>
+        <Button @click="handleCreate" :disabled="!isFormValid">
+          {{ props.model ? 'Update Model' : 'Create Model' }}
+        </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -182,10 +186,14 @@ import type { CreateModelRequest } from '@/api/types'
 interface Model {
   id: string
   name: string
-  type: string
-  description: string
-  tags: string[]
-  status: 'running' | 'stopped'
+  summary: string
+  tags: string | string[]
+  dtype: string
+  type?: string
+  description?: string
+  status?: 'running' | 'stopped'
+  endpointCount?: number
+  [key: string]: unknown
 }
 
 const props = defineProps<{
@@ -247,6 +255,11 @@ const availableModels = computed(() => {
 })
 
 const isFormValid = computed(() => {
+  if (props.model) {
+    // For editing, only name is required
+    return formData.value.name.trim() !== ''
+  }
+  // For creating, all fields are required
   return (
     formData.value.name.trim() !== '' &&
     formData.value.provider !== '' &&
@@ -293,31 +306,36 @@ const handleCreate = async () => {
   const modelName = formData.value.name
 
   try {
-    // Prepare the request data
-    const createRequest: CreateModelRequest = {
-      name: formData.value.name,
-      dtype: 'openai',
-      configuration: {
-        api_key: formData.value.apiKey,
-        model: formData.value.model,
-        base_url:
-          formData.value.provider === 'openai'
-            ? 'https://api.openai.com/v1'
-            : 'https://openrouter.ai/api/v1',
-        system_prompt: '', // Default empty system prompt
-      },
-      summary: formData.value.summary || '',
-      tags: formData.value.tags.join(', '),
-    }
-
-    // Call the API
-    await modelsApi.create(createRequest)
-
-    // Emit create event
     if (props.model) {
+      // Update existing model
+      const updateRequest = {
+        name: formData.value.name,
+        summary: formData.value.summary || '',
+        tags: formData.value.tags.join(', '),
+      }
+
+      await modelsApi.update(props.model.name, updateRequest)
       emit('model-updated')
       toast.success(`Model "${modelName}" updated successfully`)
     } else {
+      // Create new model
+      const createRequest: CreateModelRequest = {
+        name: formData.value.name,
+        dtype: 'openai',
+        configuration: {
+          api_key: formData.value.apiKey,
+          model: formData.value.model,
+          base_url:
+            formData.value.provider === 'openai'
+              ? 'https://api.openai.com/v1'
+              : 'https://openrouter.ai/api/v1',
+          system_prompt: '', // Default empty system prompt
+        },
+        summary: formData.value.summary || '',
+        tags: formData.value.tags.join(', '),
+      }
+
+      await modelsApi.create(createRequest)
       emit('model-created')
       toast.success(`Model "${modelName}" created successfully`)
     }
@@ -343,9 +361,27 @@ const resetForm = () => {
   tagInput.value = ''
 }
 
-// Initialize form data if editing
-if (props.model) {
-  formData.value.name = props.model.name
-  formData.value.tags = [...props.model.tags]
-}
+// Watch for model prop changes to populate edit form
+watch(
+  () => props.model,
+  (model) => {
+    if (model) {
+      formData.value.name = model.name
+      formData.value.summary = model.summary || ''
+      formData.value.tags =
+        typeof model.tags === 'string'
+          ? model.tags
+              .split(',')
+              .map((tag: string) => tag.trim())
+              .filter(Boolean)
+          : Array.isArray(model.tags)
+            ? model.tags
+            : []
+      // For editing, we don't need to populate provider/model/apiKey as these are typically not editable
+    } else {
+      resetForm()
+    }
+  },
+  { immediate: true },
+)
 </script>
