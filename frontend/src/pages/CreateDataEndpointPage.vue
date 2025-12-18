@@ -20,27 +20,6 @@
               <ArrowLeft class="w-5 h-5 mr-2" />
               Back to Endpoints
             </Button>
-
-            <TooltipProvider>
-              <Tooltip :delayDuration="0">
-                <TooltipTrigger as-child>
-                  <span>
-                    <Button
-                      @click="saveDraft"
-                      :disabled="!canSaveDraft"
-                      variant="outline"
-                      class="flex items-center gap-2"
-                    >
-                      <Save class="w-4 h-4" />
-                      Save Draft
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent v-if="!canSaveDraft">
-                  <p>Add endpoint name to enable</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           </div>
         </div>
       </div>
@@ -55,13 +34,21 @@
             <!-- Vertical step list -->
             <div class="space-y-6">
               <!-- Step 1 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(1),
+                  'cursor-not-allowed': !isStepClickable(1),
+                }"
+                @click="navigateToStep(1)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 1
                       ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(1) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 1 ? '✓' : '1' }}
@@ -69,8 +56,9 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 1 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(1) ? 'hover:text-primary' : '',
                     ]"
                   >
                     What do you want to share?
@@ -98,13 +86,21 @@
               </div>
 
               <!-- Step 2 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(2),
+                  'cursor-not-allowed': !isStepClickable(2),
+                }"
+                @click="navigateToStep(2)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 2
                       ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(2) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 2 ? '✓' : '2' }}
@@ -112,8 +108,9 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 2 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(2) ? 'hover:text-primary' : '',
                     ]"
                   >
                     How should it work?
@@ -135,13 +132,21 @@
               </div>
 
               <!-- Step 3 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(3),
+                  'cursor-not-allowed': !isStepClickable(3),
+                }"
+                @click="navigateToStep(3)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 3
                       ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(3) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 3 ? '✓' : '3' }}
@@ -149,8 +154,9 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(3) ? 'hover:text-primary' : '',
                     ]"
                   >
                     Who can access it?
@@ -172,13 +178,21 @@
               </div>
 
               <!-- Step 4 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(4),
+                  'cursor-not-allowed': !isStepClickable(4),
+                }"
+                @click="navigateToStep(4)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 4
                       ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(4) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 4 ? '✓' : '4' }}
@@ -186,8 +200,9 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(4) ? 'hover:text-primary' : '',
                     ]"
                   >
                     Tell us more about it
@@ -209,13 +224,21 @@
               </div>
 
               <!-- Step 5 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(5),
+                  'cursor-not-allowed': !isStepClickable(5),
+                }"
+                @click="navigateToStep(5)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 5
                       ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(5) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 5 ? '✓' : '5' }}
@@ -223,8 +246,9 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 5 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(5) ? 'hover:text-primary' : '',
                     ]"
                   >
                     Review & Publish
@@ -1012,21 +1036,44 @@
                 <Label for="endpoint-name" class="body-sm font-medium text-foreground">
                   Name <span class="text-red-500">*</span>
                 </Label>
-                <Input
-                  id="endpoint-name"
-                  v-model="formData.endpointName"
-                  placeholder="e.g., herald-tribune-archives"
-                  pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$"
-                  @input="
-                    formData.endpointName = formData.endpointName
-                      .toLowerCase()
-                      .replace(/[^a-z0-9-]/g, '-')
-                      .replace(/-+/g, '-')
-                      .replace(/^-|-$/g, '')
-                  "
-                  class="w-full font-mono body-sm"
-                />
-                <p class="body-sm text-muted-foreground">
+                <div class="relative">
+                  <Input
+                    id="endpoint-name"
+                    v-model="formData.endpointName"
+                    placeholder="e.g., herald-tribune-archives"
+                    class="w-full font-mono body-sm pr-10"
+                    :class="[
+                      endpointNameError ? 'border-red-500 focus:ring-red-500' : '',
+                      nameAvailabilityResult === 'available'
+                        ? 'border-green-500 focus:ring-green-500'
+                        : '',
+                    ]"
+                    @input="handleEndpointNameInput"
+                  />
+                  <!-- Loading, success, or error indicator -->
+                  <div
+                    class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none"
+                  >
+                    <Loader2
+                      v-if="isCheckingNameAvailability"
+                      class="h-4 w-4 text-muted-foreground animate-spin"
+                    />
+                    <Check
+                      v-else-if="nameAvailabilityResult === 'available'"
+                      class="h-4 w-4 text-green-600"
+                    />
+                  </div>
+                </div>
+                <p v-if="endpointNameError" class="body-sm text-red-600">
+                  {{ endpointNameError }}
+                </p>
+                <p
+                  v-else-if="nameAvailabilityResult === 'available'"
+                  class="body-sm text-green-600"
+                >
+                  ✓ This name is available
+                </p>
+                <p v-else class="body-sm text-muted-foreground">
                   This appears when people discover it. Use lowercase letters, numbers, and hyphens
                   only (e.g., my-data-source)
                 </p>
@@ -1493,12 +1540,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
   ArrowRight,
-  Save,
   FileText,
   FolderOpen,
   Database,
@@ -1513,6 +1559,8 @@ import {
   DollarSign,
   UserCheck,
   Lightbulb,
+  Loader2,
+  Check,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1526,7 +1574,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
@@ -1534,6 +1581,7 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { modelsApi } from '@/api/endpoints/models'
+import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useEndpointCreation } from '@/composables/useEndpointCreation'
 import type { DatasetListItem, ModelListItem } from '@/api/types'
 
@@ -1546,12 +1594,23 @@ const { isCreating, creationError, creationStep, createEndpointWithData, reset }
 // Sub-step navigation
 const currentSubStep = ref(1)
 
+// Track completed steps - only allow navigation to completed steps
+const completedSteps = ref<Set<number>>(new Set())
+
 // Progressive disclosure
 const showAdvancedOptions = ref(false)
 const showAdvancedDetails = ref(false)
 
 // Tag input
 const tagInput = ref('')
+
+// Track user input for validation timing
+const hasTypedEndpointName = ref(false)
+
+// Name validation state
+const isCheckingNameAvailability = ref(false)
+const nameAvailabilityResult = ref<'available' | 'taken' | null>(null)
+const nameCheckDebounceTimer = ref<number | null>(null)
 
 // Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
@@ -1742,10 +1801,66 @@ const isValidSlug = (slug: string): boolean => {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)
 }
 
-// Computed properties
-const canSaveDraft = computed(() => {
-  const slug = formData.value.endpointName.trim()
-  return slug.length > 0 && isValidSlug(slug)
+// Check name availability with the API
+const checkNameAvailability = async (name: string) => {
+  if (!name || !isValidSlug(name)) {
+    nameAvailabilityResult.value = null
+    return
+  }
+
+  isCheckingNameAvailability.value = true
+  nameAvailabilityResult.value = null
+
+  try {
+    await endpointsApi.get(name)
+    // If we get here, the endpoint exists, so the name is taken
+    nameAvailabilityResult.value = 'taken'
+  } catch (error) {
+    // If we get a 404, the name is available
+    if (
+      error &&
+      typeof error === 'object' &&
+      'response' in error &&
+      (error as { response?: { status?: number } }).response?.status === 404
+    ) {
+      nameAvailabilityResult.value = 'available'
+    } else {
+      // Other errors, reset the state
+      nameAvailabilityResult.value = null
+      console.error('Error checking name availability:', error)
+    }
+  } finally {
+    isCheckingNameAvailability.value = false
+  }
+}
+
+// Debounced name checking
+const debouncedCheckNameAvailability = (name: string) => {
+  if (nameCheckDebounceTimer.value) {
+    clearTimeout(nameCheckDebounceTimer.value)
+  }
+
+  nameCheckDebounceTimer.value = setTimeout(() => {
+    checkNameAvailability(name)
+  }, 500) // 500ms debounce
+}
+
+const endpointNameError = computed(() => {
+  if (!hasTypedEndpointName.value) {
+    return null
+  }
+
+  const name = formData.value.endpointName.trim()
+  if (!name) {
+    return 'Name is required'
+  }
+  if (!isValidSlug(name)) {
+    return 'Name must contain only lowercase letters and numbers, with hyphens as word separators (e.g., my-data-source)'
+  }
+  if (nameAvailabilityResult.value === 'taken') {
+    return 'This name is already taken. Please choose a different name.'
+  }
+  return null
 })
 
 const isCurrentStepValid = computed(() => {
@@ -1766,9 +1881,11 @@ const isCurrentStepValid = computed(() => {
   if (currentSubStep.value === 4) {
     const slug = formData.value.endpointName.trim()
     const basicFieldsValid =
-      slug !== '' && isValidSlug(slug) && formData.value.summary.trim() !== ''
-
-    // Descriptions are now optional, so no need to validate them
+      slug !== '' &&
+      isValidSlug(slug) &&
+      formData.value.summary.trim() !== '' &&
+      nameAvailabilityResult.value === 'available' &&
+      !isCheckingNameAvailability.value
 
     return basicFieldsValid
   }
@@ -1783,9 +1900,18 @@ const handleBack = () => {
   router.push({ name: 'endpoints' })
 }
 
-const saveDraft = () => {
-  console.log('Saving draft...', formData.value)
-  // Add save logic here
+// Handle endpoint name input changes
+const handleEndpointNameInput = () => {
+  hasTypedEndpointName.value = true
+  const name = formData.value.endpointName.trim()
+
+  // Reset availability state when name changes
+  nameAvailabilityResult.value = null
+
+  // Only check availability if the name is valid format
+  if (name && isValidSlug(name)) {
+    debouncedCheckNameAvailability(name)
+  }
 }
 
 const selectDataSourceType = (type: 'filesystem' | 'existing') => {
@@ -1794,6 +1920,8 @@ const selectDataSourceType = (type: 'filesystem' | 'existing') => {
 
 const nextStep = async () => {
   if (isCurrentStepValid.value && currentSubStep.value < 5) {
+    // Mark current step as completed when moving to the next step
+    completedSteps.value.add(currentSubStep.value)
     currentSubStep.value++
   } else if (currentSubStep.value === 5) {
     // Publish the endpoint using the composable
@@ -1868,6 +1996,28 @@ const removeFile = (index: number) => {
   }
 }
 
+// Navigate to a specific step (only if it's completed, current, or next available step)
+const navigateToStep = (targetStep: number) => {
+  // Allow navigation to completed steps, current step, or the next step after the highest completed step
+  const highestCompletedStep = Math.max(0, ...Array.from(completedSteps.value))
+  const allowedStep = targetStep <= Math.max(highestCompletedStep + 1, currentSubStep.value)
+
+  if (allowedStep) {
+    currentSubStep.value = targetStep
+
+    // Clear creation errors when navigating away from step 5
+    if (targetStep !== 5) {
+      reset()
+    }
+  }
+}
+
+// Check if a step is clickable (completed, current, or next available step)
+const isStepClickable = (stepNumber: number) => {
+  const highestCompletedStep = Math.max(0, ...Array.from(completedSteps.value))
+  return stepNumber <= Math.max(highestCompletedStep + 1, currentSubStep.value)
+}
+
 // Generate rule summary based on policy type and configuration
 const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {
   switch (policyId) {
@@ -1940,6 +2090,8 @@ const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string =>
 
 // Fill example data
 const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
+  hasTypedEndpointName.value = true // Mark as user input for validation
+
   switch (exampleType) {
     case 'news':
       formData.value.endpointName = 'herald-tribune-archives'
@@ -1958,6 +2110,12 @@ const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
       formData.value.summary = 'Product guides and technical documentation'
       formData.value.tags = ['documentation', 'technical', 'manuals', 'api', 'guides']
       break
+  }
+
+  // Trigger name availability check for the filled name
+  const name = formData.value.endpointName
+  if (name && isValidSlug(name)) {
+    debouncedCheckNameAvailability(name)
   }
 }
 
@@ -2162,6 +2320,13 @@ onMounted(async () => {
   // Auto-select filesystem if no existing datasets are available
   if (existingDataSourcesCount.value === 0 && !selectedDataSourceType.value) {
     selectedDataSourceType.value = 'filesystem'
+  }
+})
+
+// Cleanup debounce timer when component unmounts
+onUnmounted(() => {
+  if (nameCheckDebounceTimer.value) {
+    clearTimeout(nameCheckDebounceTimer.value)
   }
 })
 

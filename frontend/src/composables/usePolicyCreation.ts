@@ -48,7 +48,7 @@ export function usePolicyCreation() {
     policyType: string,
     formData: PolicyFormData,
     endpointName: string,
-    ruleIndex: number = 1
+    ruleIndex: number = 1,
   ): string => {
     const baseName = formData.note || `${getPolicyDisplayName(policyType)} Rule #${ruleIndex}`
     return `${baseName} for ${endpointName}`
@@ -66,7 +66,7 @@ export function usePolicyCreation() {
     formData: AuthorizationFormData,
     endpointId: string,
     endpointName: string,
-    ruleIndex: number = 1
+    ruleIndex: number = 1,
   ) => {
     const userList = processUserList(formData.users)
     const policyName = generatePolicyName('access', formData, endpointName, ruleIndex)
@@ -98,7 +98,7 @@ export function usePolicyCreation() {
     formData: RateLimitFormData,
     endpointId: string,
     endpointName: string,
-    ruleIndex: number = 1
+    ruleIndex: number = 1,
   ) => {
     const policyName = generatePolicyName('rate_limit', formData, endpointName, ruleIndex)
 
@@ -134,7 +134,7 @@ export function usePolicyCreation() {
     formData: PricingFormData,
     endpointId: string,
     endpointName: string,
-    ruleIndex: number = 1
+    ruleIndex: number = 1,
   ) => {
     // Note: Pricing policies are not fully implemented in backend yet
     // This method is provided for future use
@@ -167,7 +167,7 @@ export function usePolicyCreation() {
     formData: PolicyFormData,
     endpointId: string,
     endpointName: string,
-    ruleIndex: number = 1
+    ruleIndex: number = 1,
   ) => {
     isCreating.value = true
     creationError.value = null
@@ -180,7 +180,7 @@ export function usePolicyCreation() {
             formData as AuthorizationFormData,
             endpointId,
             endpointName,
-            ruleIndex
+            ruleIndex,
           )
           break
         case 'rate_limit':
@@ -188,7 +188,7 @@ export function usePolicyCreation() {
             formData as RateLimitFormData,
             endpointId,
             endpointName,
-            ruleIndex
+            ruleIndex,
           )
           break
         case 'pricing':
@@ -196,7 +196,7 @@ export function usePolicyCreation() {
             formData as PricingFormData,
             endpointId,
             endpointName,
-            ruleIndex
+            ruleIndex,
           )
           break
         default:
@@ -213,8 +213,10 @@ export function usePolicyCreation() {
 
   // Transform frontend policy rules to backend format for batch creation
   const transformPolicyRules = (
-    policyRules: Record<string, Array<{ id: string; config: Record<string, unknown> }>> | PolicyRules,
-    endpointName: string
+    policyRules:
+      | Record<string, Array<{ id: string; config: Record<string, unknown> }>>
+      | PolicyRules,
+    endpointName: string,
   ): CreatePolicyRequest[] => {
     const policyRequests: CreatePolicyRequest[] = []
 
@@ -228,7 +230,12 @@ export function usePolicyCreation() {
       }
 
       rules.forEach((rule: { id: string; config: Record<string, unknown> }, index: number) => {
-        const policyName = generatePolicyName(policyType, rule.config as unknown as PolicyFormData, endpointName, index + 1)
+        const policyName = generatePolicyName(
+          policyType,
+          rule.config as unknown as PolicyFormData,
+          endpointName,
+          index + 1,
+        )
 
         let configuration: Record<string, unknown>
 

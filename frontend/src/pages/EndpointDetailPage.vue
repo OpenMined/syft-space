@@ -306,18 +306,21 @@
           <TabsContent value="access" class="space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
               <!-- Authorization Policies -->
-              <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <Card
+                class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col"
+              >
                 <CardHeader>
                   <CardTitle class="flex items-center gap-2">
                     <UserCheck class="h-5 w-5 text-muted-foreground" />
                     Authorization
                   </CardTitle>
-                  <CardDescription>
-                    Control who can access this endpoint
-                  </CardDescription>
+                  <CardDescription> Control who can access this endpoint </CardDescription>
                 </CardHeader>
                 <CardContent class="space-y-3 flex-1">
-                  <div v-if="getAuthorizationPolicies().length === 0" class="text-sm text-muted-foreground">
+                  <div
+                    v-if="getAuthorizationPolicies().length === 0"
+                    class="text-sm text-muted-foreground"
+                  >
                     No authorization policies configured
                   </div>
                   <div v-else class="space-y-2">
@@ -332,15 +335,23 @@
                             {{ policy.name }}
                           </h4>
                           <p class="body-sm text-muted-foreground">
-                            <template v-if="Array.isArray(policy.configuration?.allowed_users) && policy.configuration.allowed_users.length">
+                            <template
+                              v-if="
+                                Array.isArray(policy.configuration?.allowed_users) &&
+                                policy.configuration.allowed_users.length
+                              "
+                            >
                               Allow access for {{ policy.configuration.allowed_users.join(', ') }}
                             </template>
-                            <template v-else-if="Array.isArray(policy.configuration?.denied_users) && policy.configuration.denied_users.length">
+                            <template
+                              v-else-if="
+                                Array.isArray(policy.configuration?.denied_users) &&
+                                policy.configuration.denied_users.length
+                              "
+                            >
                               Deny access for {{ policy.configuration.denied_users.join(', ') }}
                             </template>
-                            <template v-else>
-                              Authorization rule configured
-                            </template>
+                            <template v-else> Authorization rule configured </template>
                           </p>
                         </div>
                         <Button
@@ -356,10 +367,16 @@
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     class="w-full"
-                    @click="() => { selectedPolicyType = 'access'; resetPolicyForm('access'); showAddPolicyDialog = true }"
+                    @click="
+                      () => {
+                        selectedPolicyType = 'access'
+                        resetPolicyForm('access')
+                        showAddPolicyDialog = true
+                      }
+                    "
                   >
                     <Plus class="h-4 w-4 mr-2" />
                     Add Authorization Rule
@@ -368,18 +385,21 @@
               </Card>
 
               <!-- Rate Limiting Policies -->
-              <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <Card
+                class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col"
+              >
                 <CardHeader>
                   <CardTitle class="flex items-center gap-2">
                     <Gauge class="h-5 w-5 text-muted-foreground" />
                     Rate Limiting
                   </CardTitle>
-                  <CardDescription>
-                    Manage request frequency limits
-                  </CardDescription>
+                  <CardDescription> Manage request frequency limits </CardDescription>
                 </CardHeader>
                 <CardContent class="space-y-3 flex-1">
-                  <div v-if="getRateLimitPolicies().length === 0" class="text-sm text-muted-foreground">
+                  <div
+                    v-if="getRateLimitPolicies().length === 0"
+                    class="text-sm text-muted-foreground"
+                  >
                     No rate limiting policies configured
                   </div>
                   <div v-else class="space-y-2">
@@ -394,15 +414,20 @@
                             {{ policy.name }}
                           </h4>
                           <p class="body-sm text-muted-foreground">
-                            <template v-if="policy.configuration?.limit && typeof policy.configuration?.scope === 'string'">
-                              {{ policy.configuration.limit }} requests per {{ policy.configuration.windowUnit || 'minute' }} {{ policy.configuration.scope.replace('_', ' ') }}
+                            <template
+                              v-if="
+                                policy.configuration?.limit &&
+                                typeof policy.configuration?.scope === 'string'
+                              "
+                            >
+                              {{ policy.configuration.limit }} requests per
+                              {{ policy.configuration.windowUnit || 'minute' }}
+                              {{ policy.configuration.scope.replace('_', ' ') }}
                             </template>
                             <template v-else-if="policy.configuration?.limit">
                               Limit: {{ policy.configuration.limit }}
                             </template>
-                            <template v-else>
-                              Rate limiting configured
-                            </template>
+                            <template v-else> Rate limiting configured </template>
                           </p>
                         </div>
                         <Button
@@ -418,10 +443,16 @@
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     class="w-full"
-                    @click="() => { selectedPolicyType = 'rate_limit'; resetPolicyForm('rate_limit'); showAddPolicyDialog = true }"
+                    @click="
+                      () => {
+                        selectedPolicyType = 'rate_limit'
+                        resetPolicyForm('rate_limit')
+                        showAddPolicyDialog = true
+                      }
+                    "
                   >
                     <Plus class="h-4 w-4 mr-2" />
                     Add Rate Limiting Rule
@@ -430,18 +461,21 @@
               </Card>
 
               <!-- Pricing Policies -->
-              <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <Card
+                class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col"
+              >
                 <CardHeader>
                   <CardTitle class="flex items-center gap-2">
                     <DollarSign class="h-5 w-5 text-muted-foreground" />
                     Pricing
                   </CardTitle>
-                  <CardDescription>
-                    Set pricing for endpoint usage
-                  </CardDescription>
+                  <CardDescription> Set pricing for endpoint usage </CardDescription>
                 </CardHeader>
                 <CardContent class="space-y-3 flex-1">
-                  <div v-if="getPricingPolicies().length === 0" class="text-sm text-muted-foreground">
+                  <div
+                    v-if="getPricingPolicies().length === 0"
+                    class="text-sm text-muted-foreground"
+                  >
                     No pricing policies configured
                   </div>
                   <div v-else class="space-y-2">
@@ -457,13 +491,21 @@
                           </h4>
                           <p class="body-sm text-muted-foreground">
                             <template v-if="policy.configuration?.price !== undefined">
-                              ${{ policy.configuration.price }} per {{ policy.configuration?.unit || 'request' }}
-                              <template v-if="Array.isArray(policy.configuration?.applied_to) && policy.configuration.applied_to.length"> for {{ policy.configuration.applied_to.join(', ') }}</template>
-                              <template v-else-if="policy.configuration?.userType === 'all'"> for all users</template>
+                              ${{ policy.configuration.price }} per
+                              {{ policy.configuration?.unit || 'request' }}
+                              <template
+                                v-if="
+                                  Array.isArray(policy.configuration?.applied_to) &&
+                                  policy.configuration.applied_to.length
+                                "
+                              >
+                                for {{ policy.configuration.applied_to.join(', ') }}</template
+                              >
+                              <template v-else-if="policy.configuration?.userType === 'all'">
+                                for all users</template
+                              >
                             </template>
-                            <template v-else>
-                              Pricing rule configured
-                            </template>
+                            <template v-else> Pricing rule configured </template>
                           </p>
                         </div>
                         <Button
@@ -479,10 +521,16 @@
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     class="w-full"
-                    @click="() => { selectedPolicyType = 'pricing'; resetPolicyForm('pricing'); showAddPolicyDialog = true }"
+                    @click="
+                      () => {
+                        selectedPolicyType = 'pricing'
+                        resetPolicyForm('pricing')
+                        showAddPolicyDialog = true
+                      }
+                    "
                   >
                     <Plus class="h-4 w-4 mr-2" />
                     Add Pricing Rule
@@ -491,35 +539,43 @@
               </Card>
 
               <!-- Access Summary -->
-              <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <Card
+                class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col"
+              >
                 <CardHeader>
                   <CardTitle class="flex items-center gap-2">
                     <Shield class="h-5 w-5 text-muted-foreground" />
                     Access Summary
                   </CardTitle>
-                  <CardDescription>
-                    Overview of all access controls
-                  </CardDescription>
+                  <CardDescription> Overview of all access controls </CardDescription>
                 </CardHeader>
                 <CardContent class="space-y-3 flex-1">
                   <div class="flex justify-between items-center py-1">
                     <span class="body-sm text-muted-foreground">Total Policies</span>
-                    <span class="body-sm font-medium text-foreground">{{ getTotalPoliciesCount() }}</span>
+                    <span class="body-sm font-medium text-foreground">{{
+                      getTotalPoliciesCount()
+                    }}</span>
                   </div>
                   <Separator />
                   <div class="flex justify-between items-center py-1">
                     <span class="body-sm text-muted-foreground">Authorization</span>
-                    <span class="body-sm font-medium text-foreground">{{ getAuthorizationPolicies().length }}</span>
+                    <span class="body-sm font-medium text-foreground">{{
+                      getAuthorizationPolicies().length
+                    }}</span>
                   </div>
                   <Separator />
                   <div class="flex justify-between items-center py-1">
                     <span class="body-sm text-muted-foreground">Rate Limiting</span>
-                    <span class="body-sm font-medium text-foreground">{{ getRateLimitPolicies().length }}</span>
+                    <span class="body-sm font-medium text-foreground">{{
+                      getRateLimitPolicies().length
+                    }}</span>
                   </div>
                   <Separator />
                   <div class="flex justify-between items-center py-1">
                     <span class="body-sm text-muted-foreground">Pricing</span>
-                    <span class="body-sm font-medium text-foreground">{{ getPricingPolicies().length }}</span>
+                    <span class="body-sm font-medium text-foreground">{{
+                      getPricingPolicies().length
+                    }}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -582,14 +638,13 @@
       <DialogHeader>
         <DialogTitle>Delete Policy</DialogTitle>
         <DialogDescription>
-          Are you sure you want to delete "{{ policyToDelete?.name }}"? This action cannot be undone.
+          Are you sure you want to delete "{{ policyToDelete?.name }}"? This action cannot be
+          undone.
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>
         <Button variant="outline" @click="cancelDeletePolicy">Cancel</Button>
-        <Button variant="destructive" @click="confirmDeletePolicy">
-          Delete Policy
-        </Button>
+        <Button variant="destructive" @click="confirmDeletePolicy"> Delete Policy </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -600,10 +655,12 @@
       <DialogHeader>
         <DialogTitle>Add {{ getPolicyTypeLabel(selectedPolicyType) }} Rule</DialogTitle>
         <DialogDescription>
-          Create a new {{ selectedPolicyType === 'access' ? 'authorization' : selectedPolicyType }} policy for this endpoint.
+          Create a new
+          {{ selectedPolicyType === 'access' ? 'authorization' : selectedPolicyType }} policy for
+          this endpoint.
         </DialogDescription>
       </DialogHeader>
-      
+
       <div class="space-y-4">
         <!-- Authorization Policy Form -->
         <div v-if="selectedPolicyType === 'access'" class="space-y-4">
@@ -637,7 +694,8 @@
               class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
             />
             <p class="text-xs text-muted-foreground">
-              Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu, *@contractors.org)
+              Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
+              *@contractors.org)
             </p>
           </div>
         </div>
@@ -655,7 +713,9 @@
                   class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
                 />
                 <Select v-model="rateLimiterForm.windowUnit">
-                  <SelectTrigger class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0">
+                  <SelectTrigger
+                    class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -732,15 +792,18 @@
                 class="h-9 rounded-lg border-border bg-card body-sm"
               />
               <p class="text-xs text-muted-foreground">
-                Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu, *@contractors.org)
+                Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
+                *@contractors.org)
               </p>
             </div>
           </div>
         </div>
       </div>
-      
+
       <DialogFooter>
-        <Button variant="outline" @click="showAddPolicyDialog = false" :disabled="policyCreating">Cancel</Button>
+        <Button variant="outline" @click="showAddPolicyDialog = false" :disabled="policyCreating"
+          >Cancel</Button
+        >
         <Button @click="handleAddPolicy" :disabled="policyCreating || !isCurrentPolicyFormValid">
           <div v-if="policyCreating" class="flex items-center gap-2">
             <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -775,7 +838,14 @@ import {
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
@@ -802,7 +872,11 @@ import { policiesApi } from '@/api/policies/policies'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
 import type { EndpointResponse } from '@/api/types'
 import type { IngestionStatusResponse, IngestionJobListResponse } from '@/api/types'
-import type { AuthorizationFormData, RateLimitFormData, PricingFormData } from '@/composables/usePolicyCreation'
+import type {
+  AuthorizationFormData,
+  RateLimitFormData,
+  PricingFormData,
+} from '@/composables/usePolicyCreation'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
@@ -993,15 +1067,15 @@ const getStatusLabel = (status: string) => {
 
 // Get policies by type
 const getAuthorizationPolicies = () => {
-  return endpoint.value?.policies?.filter(p => p.policy_type === 'access') || []
+  return endpoint.value?.policies?.filter((p) => p.policy_type === 'access') || []
 }
 
 const getRateLimitPolicies = () => {
-  return endpoint.value?.policies?.filter(p => p.policy_type === 'rate_limit') || []
+  return endpoint.value?.policies?.filter((p) => p.policy_type === 'rate_limit') || []
 }
 
 const getPricingPolicies = () => {
-  return endpoint.value?.policies?.filter(p => p.policy_type === 'pricing') || []
+  return endpoint.value?.policies?.filter((p) => p.policy_type === 'pricing') || []
 }
 
 const getTotalPoliciesCount = () => {
@@ -1060,12 +1134,14 @@ const confirmDeletePolicy = async () => {
   try {
     // Call the delete policy API
     await policiesApi.delete(policyToDelete.value.id)
-    
+
     // Remove from local state immediately for better UX
     if (endpoint.value.policies) {
-      endpoint.value.policies = endpoint.value.policies.filter(p => p.id !== policyToDelete.value!.id)
+      endpoint.value.policies = endpoint.value.policies.filter(
+        (p) => p.id !== policyToDelete.value!.id,
+      )
     }
-    
+
     showDeletePolicyDialog.value = false
     policyToDelete.value = null
   } catch (error) {
@@ -1077,10 +1153,14 @@ const confirmDeletePolicy = async () => {
 // Policy type label helper
 const getPolicyTypeLabel = (type: string) => {
   switch (type) {
-    case 'access': return 'Authorization'
-    case 'rate_limit': return 'Rate Limiting'
-    case 'pricing': return 'Pricing'
-    default: return 'Policy'
+    case 'access':
+      return 'Authorization'
+    case 'rate_limit':
+      return 'Rate Limiting'
+    case 'pricing':
+      return 'Pricing'
+    default:
+      return 'Policy'
   }
 }
 
@@ -1112,14 +1192,13 @@ const resetPolicyForm = (policyType: string) => {
 // Add policy handler
 const handleAddPolicy = async () => {
   if (!endpoint.value?.id || !endpoint.value?.name) return
-  
+
   const formData = getFormDataForType(selectedPolicyType.value)
   if (!formData) return
 
   // Calculate the correct rule index based on existing policies of this type
-  const existingPoliciesOfType = endpoint.value.policies?.filter(
-    p => p.policy_type === selectedPolicyType.value
-  ) || []
+  const existingPoliciesOfType =
+    endpoint.value.policies?.filter((p) => p.policy_type === selectedPolicyType.value) || []
   const ruleIndex = existingPoliciesOfType.length + 1
 
   try {
@@ -1129,19 +1208,19 @@ const handleAddPolicy = async () => {
       formData,
       endpoint.value.id,
       endpoint.value.name,
-      ruleIndex
+      ruleIndex,
     )
-    
+
     // Add the new policy to the local state immediately for better UX
     if (endpoint.value.policies) {
       endpoint.value.policies.push({
         id: newPolicy.id,
         name: newPolicy.name,
         policy_type: newPolicy.policy_type,
-        configuration: newPolicy.configuration
+        configuration: newPolicy.configuration,
       })
     }
-    
+
     // Close the dialog and reset forms
     showAddPolicyDialog.value = false
     resetPolicyForm(selectedPolicyType.value)

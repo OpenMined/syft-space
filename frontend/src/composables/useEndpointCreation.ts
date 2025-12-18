@@ -5,11 +5,7 @@ import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
 import { usePolicyCreation } from './usePolicyCreation'
-import type {
-  CreateDatasetRequest,
-  CreateEndpointRequest,
-  PolicyResponse,
-} from '@/api/types'
+import type { CreateDatasetRequest, CreateEndpointRequest, PolicyResponse } from '@/api/types'
 
 export interface PolicyRule {
   id: string
@@ -136,9 +132,9 @@ export function useEndpointCreation() {
 
     // Transform frontend policy rules to backend format using the composable
     const policyRequests = transformPolicyRules(data.policyRules, data.endpointName)
-    
+
     // Set the endpoint_id for each request
-    policyRequests.forEach(request => {
+    policyRequests.forEach((request) => {
       request.endpoint_id = endpointId
     })
 
