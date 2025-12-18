@@ -397,6 +397,18 @@
                       type="password"
                       :placeholder="apiKeyPlaceholder"
                       class="w-full"
+                      autocomplete="new-password"
+                      autocorrect="off"
+                      autocapitalize="off"
+                      spellcheck="false"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-form-type="other"
+                      data-bwignore
+                      data-bitwarden-watching="false"
+                      role="textbox"
+                      aria-label="API Key Input"
+                      name="api-key-input"
                     />
                     <p class="body-sm text-muted-foreground">Your API key for authentication</p>
                   </div>
