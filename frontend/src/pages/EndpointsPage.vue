@@ -37,38 +37,22 @@
 
     <!-- Moved analytics summary to Analytics page -->
 
-    <!-- Filters Bar (match Models styling) -->
-    <div class="mb-8">
-      <div class="flex items-center justify-between gap-4">
-        <!-- Tabs -->
-        <Tabs v-model="activeTab" class="w-auto">
-          <TabsList
-            class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 lg:w-[400px]"
-          >
-            <TabsTrigger value="all">All</TabsTrigger>
-            <TabsTrigger value="published">Published</TabsTrigger>
-            <TabsTrigger value="draft">Draft</TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        <!-- Search -->
-        <div class="flex items-center gap-4">
-          <div class="relative w-80">
-            <Search
-              class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
-            />
-            <Input
-              v-model="searchQuery"
-              placeholder="Search endpoints..."
-              class="pl-10 pr-4 py-2.5 w-full"
-            />
-          </div>
-          <Button @click="showCreateEndpointModal = true">
-            <Plus class="h-4 w-4 mr-2" />
-            Add Endpoint
-          </Button>
-        </div>
+    <!-- Actions Bar -->
+    <div class="flex items-center justify-between mb-8">
+      <div class="relative w-64">
+        <Search
+          class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
+        />
+        <Input
+          v-model="searchQuery"
+          placeholder="Search endpoints..."
+          class="pl-10 pr-4 py-2.5 w-full"
+        />
       </div>
+      <Button @click="showCreateEndpointModal = true">
+        <Plus class="h-4 w-4 mr-2" />
+        Add Endpoint
+      </Button>
     </div>
 
     <!-- Loading state -->
@@ -201,7 +185,6 @@ import { Search, Plus, Server, HelpCircle } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
@@ -225,7 +208,6 @@ onMounted(() => {
 })
 
 const searchQuery = ref('')
-const activeTab = ref('all')
 const showCreateEndpointModal = ref(false)
 const showDeleteDialog = ref(false)
 const endpointToDelete = ref<EndpointItem | null>(null)
@@ -243,14 +225,6 @@ const filteredEndpoints = computed(() => {
       ) {
         return false
       }
-    }
-
-    // Tab filter
-    if (activeTab.value === 'published' && !endpoint.published) {
-      return false
-    }
-    if (activeTab.value === 'draft' && endpoint.published) {
-      return false
     }
 
     return true
