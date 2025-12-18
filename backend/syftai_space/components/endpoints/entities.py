@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from pydantic import field_validator
-from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import JSON, Index, UniqueConstraint
 from sqlmodel import Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -43,12 +43,12 @@ class Endpoint(SQLModel, table=True):
     slug: str = Field(..., description="URL slug (unique per tenant)")
     description: str = Field(default="", description="Markdown description")
     summary: str = Field(default="", description="Brief summary")
-    dataset_id: Optional[UUID] = Field(
+    dataset_id: UUID | None = Field(
         default=None,
         sa_column=Column(ForeignKey("datasets.id", ondelete="SET NULL")),
         description="ID of linked dataset (optional)",
     )
-    model_id: Optional[UUID] = Field(
+    model_id: UUID | None = Field(
         default=None,
         sa_column=Column(ForeignKey("models.id", ondelete="SET NULL")),
         description="ID of linked model (optional)",
@@ -59,6 +59,11 @@ class Endpoint(SQLModel, table=True):
     )
     published: bool = Field(default=False, description="Whether endpoint is published")
     tags: str = Field(default="", description="Comma-separated tags")
+    published_to: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON),
+        description="List of marketplace IDs this endpoint is published to",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

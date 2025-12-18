@@ -2,12 +2,15 @@
 
 from fastapi import APIRouter, Depends
 
+from syftai_space.components.auth.public import public_route
 from syftai_space.components.endpoints.handlers import EndpointHandler
 from syftai_space.components.endpoints.schemas import (
     CreateEndpointRequest,
     EndpointCreateResponse,
     EndpointDetailResponse,
     EndpointListItem,
+    PublishEndpointRequest,
+    PublishEndpointResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
 )
@@ -79,6 +82,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """
         return handler.get_endpoint(slug, tenant)
 
+    @public_route
     @router.post("/{slug}/query", response_model=QueryEndpointResponse)
     async def query_endpoint(
         slug: str,
@@ -86,7 +90,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
     ) -> QueryEndpointResponse:
-        """Query an endpoint - main RAG flow.
+        """Query an endpoint - main RAG flow (PUBLIC, no auth required).
 
         This is the core endpoint that orchestrates:
         - Dataset search (if configured)
@@ -102,6 +106,25 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
             Query response with summary and/or references
         """
         return handler.query_endpoint(slug, request, tenant)
+
+    @router.post("/{slug}/publish", response_model=PublishEndpointResponse)
+    async def publish_endpoint(
+        slug: str,
+        request: PublishEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> PublishEndpointResponse:
+        """Publish an endpoint to one or more marketplaces.
+
+        Args:
+            slug: Endpoint slug
+            request: Publish request with marketplace IDs
+            tenant: Current tenant (injected)
+
+        Returns:
+            Publish results for each marketplace
+        """
+        return handler.publish_endpoint(slug, request.marketplace_ids, tenant)
 
     @router.delete("/{slug}", response_model=dict[str, str])
     async def delete_endpoint(

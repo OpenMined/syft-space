@@ -1,6 +1,6 @@
 """Endpoint repository for database operations."""
 
-from typing import Optional
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import selectinload
@@ -38,7 +38,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
             )
             return list(session.exec(statement).all())
 
-    def get_by_id(self, id: int, tenant_id: UUID) -> Optional[Endpoint]:
+    def get_by_id(self, id: int, tenant_id: UUID) -> Endpoint | None:
         """Get an endpoint by ID within a tenant.
 
         Args:
@@ -54,7 +54,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
             )
             return session.exec(statement).first()
 
-    def get_by_slug(self, slug: str, tenant_id: UUID) -> Optional[Endpoint]:
+    def get_by_slug(self, slug: str, tenant_id: UUID) -> Endpoint | None:
         """Get an endpoint by slug within a tenant.
 
         Args:
@@ -128,3 +128,67 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 Endpoint.model_id == model_id, Endpoint.tenant_id == tenant_id
             )
             return list(session.exec(statement).all())
+
+    def add_publication(
+        self, endpoint_id: UUID, marketplace_id: UUID, tenant_id: UUID
+    ) -> Endpoint | None:
+        """Add a marketplace ID to endpoint's published_to list.
+
+        Args:
+            endpoint_id: Endpoint ID
+            marketplace_id: Marketplace ID to add
+            tenant_id: Tenant ID
+
+        Returns:
+            Updated endpoint if found, None otherwise
+        """
+        with self.db.get_session() as session:
+            statement = select(Endpoint).where(
+                Endpoint.id == endpoint_id, Endpoint.tenant_id == tenant_id
+            )
+            endpoint = session.exec(statement).first()
+            if not endpoint:
+                return None
+
+            marketplace_id_str = str(marketplace_id)
+            if marketplace_id_str not in endpoint.published_to:
+                endpoint.published_to = [*endpoint.published_to, marketplace_id_str]
+                endpoint.updated_at = datetime.now(timezone.utc)
+                session.add(endpoint)
+                session.commit()
+                session.refresh(endpoint)
+
+            return endpoint
+
+    def remove_publication(
+        self, endpoint_id: UUID, marketplace_id: UUID, tenant_id: UUID
+    ) -> Endpoint | None:
+        """Remove a marketplace ID from endpoint's published_to list.
+
+        Args:
+            endpoint_id: Endpoint ID
+            marketplace_id: Marketplace ID to remove
+            tenant_id: Tenant ID
+
+        Returns:
+            Updated endpoint if found, None otherwise
+        """
+        with self.db.get_session() as session:
+            statement = select(Endpoint).where(
+                Endpoint.id == endpoint_id, Endpoint.tenant_id == tenant_id
+            )
+            endpoint = session.exec(statement).first()
+            if not endpoint:
+                return None
+
+            marketplace_id_str = str(marketplace_id)
+            if marketplace_id_str in endpoint.published_to:
+                endpoint.published_to = [
+                    mid for mid in endpoint.published_to if mid != marketplace_id_str
+                ]
+                endpoint.updated_at = datetime.now(timezone.utc)
+                session.add(endpoint)
+                session.commit()
+                session.refresh(endpoint)
+
+            return endpoint

@@ -10,7 +10,7 @@ authors = [
     {name = "OpenMined", email = "support@openmined.org"}
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi==0.116.2",
     "uvicorn[standard]==0.35.0",
@@ -23,6 +23,8 @@ dependencies = [
     "openai>=2.7.2",
     "ngrok>=1.4.0",
     "watchdog>=4.0.0",
+    "syfthub-sdk",
+    "syft-accounting-sdk",
 ]
 
 [project.optional-dependencies]
@@ -69,14 +71,14 @@ all = [
 
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
@@ -115,3 +117,7 @@ skips = [
 [tool.setuptools.packages.find]
 where = ["."]  # Find packages in current directory (backend/)
 include = ["syftai_space*"]  # Include syftai_space and sub-packages
+
+[tool.uv.sources]
+syfthub-sdk = { git = "https://github.com/OpenMined/syfthub.git", subdirectory = "sdk/python", rev = "main" }
+syft-accounting-sdk = { git = "https://github.com/OpenMined/accounting-sdk.git", rev = "main" }

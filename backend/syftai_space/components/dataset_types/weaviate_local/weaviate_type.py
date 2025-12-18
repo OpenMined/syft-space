@@ -3,7 +3,7 @@
 import re
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from syftai_space.components.dataset_types.interfaces import (
     FileIngestableDatasetType,
@@ -235,9 +235,9 @@ class LocalFileDatasetType(FileIngestableDatasetType):
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
             # Ensure collection exists
-            if not client.collections.exists(self.config["collectionName"]):
+            if not client.collections.exists(self.collection_name):
                 client.collections.create(
-                    self.config["collectionName"],
+                    self.collection_name,
                     vectorizer_config=Configure.Vectorizer.text2vec_transformers(),
                 )
 
@@ -245,7 +245,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         with weaviate.connect_to_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
-            collection = client.collections.get(self.config["collectionName"])
+            collection = client.collections.get(self.collection_name)
             for file in request.files:
                 if file.content_type not in self.allowed_extensions():
                     raise ValueError(
@@ -254,8 +254,13 @@ class LocalFileDatasetType(FileIngestableDatasetType):
                 parsed_document = self._parse_document(file)
                 collection.data.insert(parsed_document)
 
+    @property
+    def collection_name(self) -> str:
+        """Get the name of the collection."""
+        return f"Collection_{self.config["collectionName"]}"
+
     def search(
-        self, ctx: Context, query: str, params: Optional[SearchParameters] = None
+        self, ctx: Context, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
         """Search the dataset for the given query.
 
@@ -284,7 +289,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         with weaviate.connect_to_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
-            collection = client.collections.get(self.config["collectionName"])
+            collection = client.collections.get(self.collection_name)
 
             results = collection.query.near_text(
                 query=query,

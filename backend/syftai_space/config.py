@@ -48,6 +48,22 @@ class AppSettings(BaseSettings):
         description="Default tenant name (used when multi-tenancy is disabled)",
     )
 
+    # Admin authentication
+    admin_api_key: str = Field(
+        default="",
+        description="Admin API key for protected endpoints. If empty, no auth is enforced (dev mode).",
+    )
+
+    # External service URLs
+    default_accounting_url: str = Field(
+        default="https://syftaccounting.centralus.cloudapp.azure.com/",
+        description="Default URL for the accounting service",
+    )
+    default_marketplace_url: str = Field(
+        default="https://syfthub.openmined.org",
+        description="Default URL for the marketplace service",
+    )
+
 
 # Global settings instance
 app_settings = AppSettings()
