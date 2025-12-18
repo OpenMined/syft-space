@@ -10,7 +10,10 @@ from syftai_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
 )
-from syftai_space.components.shared.utils import ConfigSchemaGenerator
+from syftai_space.components.shared.utils import (
+    ConfigSchemaGenerator,
+    matches_any_pattern,
+)
 
 
 class PricingMode(str, Enum):
@@ -34,6 +37,10 @@ class AccountingConfig(BaseModel):
     pricing_mode: PricingMode = Field(
         default=PricingMode.PER_CALL,
         description="Pricing mode: per_call (fixed per request) or per_token (based on token usage)",
+    )
+    applied_to: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="List of user emails or glob patterns (e.g., '*@company.com'). Use '*' for all users.",
     )
 
 
@@ -105,6 +112,17 @@ class AccountingPolicy(BasePolicyType):
             schema_generator=ConfigSchemaGenerator
         )
 
+    def _applies_to_user(self, user_email: str) -> bool:
+        """Check if the policy applies to the given user.
+
+        Args:
+            user_email: Email of the user
+
+        Returns:
+            True if the policy applies to this user
+        """
+        return matches_any_pattern(user_email, self.config.applied_to)
+
     def pre_hook(self, context: PolicyContext) -> PolicyContext:
         """Pre-hook to create a delegated transaction before endpoint execution.
 
@@ -116,6 +134,12 @@ class AccountingPolicy(BasePolicyType):
         Returns:
             Context with transaction_id and transaction_amount in metadata
         """
+        user_email = str(context.sender_email)
+
+        # Skip if policy doesn't apply to this user
+        if not self._applies_to_user(user_email):
+            return context
+
         accounting_credentials = AccountingCredentials.from_context(context)
 
         if self.config.pricing_mode != PricingMode.PER_CALL:
@@ -163,6 +187,12 @@ class AccountingPolicy(BasePolicyType):
         Returns:
             Unmodified context
         """
+        user_email = str(context.sender_email)
+
+        # Skip if policy doesn't apply to this user
+        if not self._applies_to_user(user_email):
+            return context
+
         if self.config.price == 0:
             # No transaction needed for free requests
             return context
