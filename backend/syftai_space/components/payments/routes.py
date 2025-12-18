@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Depends, Request
 
-from syftai_space.components.payment_services.handlers import PaymentServiceHandler
-from syftai_space.components.payment_services.schemas import (
+from syftai_space.components.payments.handlers import PaymentServiceHandler
+from syftai_space.components.payments.schemas import (
     PaymentServiceResponse,
     UpdatePaymentServiceRequest,
 )
@@ -20,7 +20,7 @@ def build_payment_service_routes(handler: PaymentServiceHandler) -> APIRouter:
     Returns:
         Configured API router
     """
-    router = APIRouter(prefix="/payment-service", tags=["payment-service"])
+    router = APIRouter(prefix="/payments", tags=["payments"])
 
     @router.get(
         "",

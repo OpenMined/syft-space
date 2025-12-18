@@ -2,8 +2,8 @@
 
 from fastapi import HTTPException
 
-from syftai_space.components.payment_services.repository import PaymentServiceRepository
-from syftai_space.components.payment_services.schemas import (
+from syftai_space.components.payments.repository import PaymentServiceRepository
+from syftai_space.components.payments.schemas import (
     PaymentServiceResponse,
     UpdatePaymentServiceRequest,
 )

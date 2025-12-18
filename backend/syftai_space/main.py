@@ -57,9 +57,9 @@ from syftai_space.components.models.repository import ModelRepository
 from syftai_space.components.models.routes import build_model_routes
 
 # Import payment service components
-from syftai_space.components.payment_services.handlers import PaymentServiceHandler
-from syftai_space.components.payment_services.repository import PaymentServiceRepository
-from syftai_space.components.payment_services.routes import build_payment_service_routes
+from syftai_space.components.payments.handlers import PaymentServiceHandler
+from syftai_space.components.payments.repository import PaymentServiceRepository
+from syftai_space.components.payments.routes import build_payment_service_routes
 from syftai_space.components.policies.handlers import PolicyHandler
 from syftai_space.components.policies.repository import PolicyRepository
 from syftai_space.components.policies.routes import build_policy_routes

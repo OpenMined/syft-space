@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from components.endpoints.entities import Endpoint
     from components.marketplaces.entities import Marketplace
     from components.models.entities import Model
-    from components.payment_services.entities import PaymentService
+    from components.payments.entities import PaymentService
     from components.policies.entities import Policy
 
 

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlmodel import select
 
-from syftai_space.components.payment_services.entities import PaymentService
+from syftai_space.components.payments.entities import PaymentService
 from syftai_space.components.shared.database import BaseRepository, Database
 
 
