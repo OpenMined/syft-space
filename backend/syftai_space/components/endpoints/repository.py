@@ -68,7 +68,11 @@ class EndpointRepository(BaseRepository[Endpoint]):
             statement = (
                 select(Endpoint)
                 .where(Endpoint.slug == slug, Endpoint.tenant_id == tenant_id)
-                .options(selectinload(Endpoint.model), selectinload(Endpoint.dataset))
+                .options(
+                    selectinload(Endpoint.model),
+                    selectinload(Endpoint.dataset),
+                    selectinload(Endpoint.policies),
+                )
             )
             return session.exec(statement).first()
 

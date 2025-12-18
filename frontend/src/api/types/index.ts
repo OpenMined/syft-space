@@ -230,6 +230,13 @@ export interface CreateEndpointRequest {
   tags?: string
 }
 
+export interface AttachedPolicy {
+  id: string
+  name: string
+  policy_type: string
+  configuration: Record<string, unknown>
+}
+
 export interface EndpointResponse {
   id: string
   name: string
@@ -243,6 +250,21 @@ export interface EndpointResponse {
   tags: string
   created_at: string
   updated_at: string
+  // Fields included in detail response
+  model?: {
+    id: string
+    name: string
+    dtype: string
+    configuration: Record<string, unknown>
+  }
+  dataset?: {
+    id: string
+    name: string
+    summary: string
+    dtype: string
+    configuration: Record<string, unknown>
+  }
+  policies?: AttachedPolicy[]
 }
 
 // Policy API types

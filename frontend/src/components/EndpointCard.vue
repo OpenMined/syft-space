@@ -57,34 +57,20 @@
       </div>
 
       <div class="ml-4 text-right">
-        <div class="flex flex-col gap-2">
-          <template v-if="!endpoint.published">
-            <Button variant="outline" size="sm" class="w-full" @click.stop>
-              <Send class="h-4 w-4 mr-2" />
-              Publish
-            </Button>
-            <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" @click.stop>
-                <Edit class="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                class="text-destructive hover:text-destructive"
-                @click.stop
-              >
-                <Trash2 class="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-            </div>
-          </template>
-          <template v-else>
-            <Button variant="outline" size="sm" @click.stop>
-              <EyeOff class="h-4 w-4 mr-2" />
-              Unpublish
-            </Button>
-          </template>
+        <div class="flex items-center gap-2">
+          <Button variant="outline" size="sm" @click.stop>
+            <Edit class="h-4 w-4 mr-2" />
+            Edit
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="text-destructive hover:text-destructive"
+            @click.stop="handleDeleteEndpoint"
+          >
+            <Trash2 class="h-4 w-4 mr-2" />
+            Delete
+          </Button>
         </div>
       </div>
     </div>
@@ -93,7 +79,7 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Edit, Trash2, Send, EyeOff } from 'lucide-vue-next'
+import { Edit, Trash2 } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -105,8 +91,16 @@ const props = defineProps<{
   endpoint: EndpointItem
 }>()
 
+const emit = defineEmits<{
+  delete: [endpoint: EndpointItem]
+}>()
+
 const handleCardClick = () => {
   router.push({ name: 'endpoint-detail', params: { slug: props.endpoint.name } })
+}
+
+const handleDeleteEndpoint = () => {
+  emit('delete', props.endpoint)
 }
 
 // Get preview paths for endpoint card

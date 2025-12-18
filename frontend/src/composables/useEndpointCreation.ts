@@ -4,12 +4,8 @@ import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
-import type {
-  CreateDatasetRequest,
-  CreateEndpointRequest,
-  CreatePolicyRequest,
-  PolicyResponse,
-} from '@/api/types'
+import { usePolicyCreation } from './usePolicyCreation'
+import type { CreateDatasetRequest, CreateEndpointRequest, PolicyResponse } from '@/api/types'
 
 export interface PolicyRule {
   id: string
@@ -46,6 +42,7 @@ export interface EndpointCreationData {
 
 export function useEndpointCreation() {
   const router = useRouter()
+  const { transformPolicyRules } = usePolicyCreation()
 
   // State
   const isCreating = ref(false)
@@ -67,25 +64,6 @@ export function useEndpointCreation() {
   // Helper functions
   const generateCollectionName = (): string => {
     return crypto.randomUUID().replace(/-/g, '')
-  }
-
-  const getPolicyDisplayName = (policyType: string): string => {
-    const displayNames = {
-      access: 'Authorization',
-      rate_limit: 'Rate Limiter',
-      pricing: 'Pricing',
-    }
-    return displayNames[policyType as keyof typeof displayNames] || policyType
-  }
-
-  const generatePolicyName = (
-    policyType: string,
-    ruleIndex: number,
-    ruleConfig: Record<string, unknown>,
-    endpointName: string,
-  ): string => {
-    const baseName = ruleConfig.note || `${getPolicyDisplayName(policyType)} Rule #${ruleIndex + 1}`
-    return `${baseName} for ${endpointName}`
   }
 
   // Step 1: Create dataset (if filesystem source)
@@ -152,79 +130,12 @@ export function useEndpointCreation() {
   ): Promise<string[]> => {
     creationStep.value = 'Applying policies...'
 
-    const policyRequests: CreatePolicyRequest[] = []
+    // Transform frontend policy rules to backend format using the composable
+    const policyRequests = transformPolicyRules(data.policyRules, data.endpointName)
 
-    // Convert frontend policy rules to backend format
-    // Only process implemented policy types (access, rate_limit)
-    const implementedPolicies = ['access', 'rate_limit']
-
-    Object.entries(data.policyRules).forEach(([policyType, rules]) => {
-      // Skip pricing policy for now since it's not implemented
-      if (!implementedPolicies.includes(policyType)) {
-        console.log(`Skipping ${policyType} policy - not implemented yet`)
-        return
-      }
-
-      rules.forEach((rule: PolicyRule, index: number) => {
-        const policyName = generatePolicyName(policyType, index, rule.config, data.endpointName)
-
-        // Transform frontend form data to backend configuration format
-        let configuration: Record<string, unknown>
-
-        if (policyType === 'access') {
-          // Transform access policy configuration
-          const userList = ((rule.config.users as string) || '')
-            .split(',')
-            .map((u) => u.trim())
-            .filter((u) => u.length > 0)
-          const ruleType = rule.config.ruleType as string
-
-          if (ruleType === 'allow') {
-            configuration = {
-              allowed_users: userList,
-              denied_users: [],
-            }
-          } else {
-            configuration = {
-              allowed_users: [],
-              denied_users: userList,
-            }
-          }
-        } else if (policyType === 'rate_limit') {
-          // Transform rate limit policy configuration
-          const limit = rule.config.limit as string
-          const windowUnit = rule.config.windowUnit as string
-          const scope = rule.config.scope as string
-
-          // Convert windowUnit to backend format
-          const unitMap: Record<string, string> = {
-            second: 's',
-            minute: 'm',
-            hour: 'h',
-          }
-
-          const backendUnit = unitMap[windowUnit] || 'm'
-          const formattedLimit = `${limit}/${backendUnit}`
-
-          // Convert scope to backend format
-          const backendScope = scope === 'per user' ? 'per_user' : 'global'
-
-          configuration = {
-            limit: formattedLimit,
-            scope: backendScope,
-          }
-        } else {
-          // Fallback for other policy types
-          configuration = rule.config
-        }
-
-        policyRequests.push({
-          name: policyName,
-          policy_type: policyType,
-          configuration: configuration,
-          endpoint_id: endpointId,
-        })
-      })
+    // Set the endpoint_id for each request
+    policyRequests.forEach((request) => {
+      request.endpoint_id = endpointId
     })
 
     // Create all policies - fail fast on any failure
