@@ -1650,7 +1650,7 @@
             </Button>
             <Button
               @click="nextStep"
-              :disabled="!isCurrentStepValid || isCreating"
+              :disabled="!isCurrentStepValid || isCreating || (currentSubStep === 3 && isAnyRuleFormOpen)"
               class="bg-primary hover:bg-primary/90 text-white px-8"
             >
               <template v-if="currentSubStep === 5 && isCreating">
@@ -1818,6 +1818,11 @@ const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
   access: null,
   rate_limit: null,
   pricing: null,
+})
+
+// Check if any rule form is currently open
+const isAnyRuleFormOpen = computed(() => {
+  return Object.values(editingRuleId.value).some(id => id !== null)
 })
 
 // Policy form data
