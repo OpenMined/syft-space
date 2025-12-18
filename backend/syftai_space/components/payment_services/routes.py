@@ -1,12 +1,14 @@
 """PaymentService API routes."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from syftai_space.components.payment_services.handlers import PaymentServiceHandler
 from syftai_space.components.payment_services.schemas import (
     PaymentServiceResponse,
     UpdatePaymentServiceRequest,
 )
+from syftai_space.components.tenants.dependency import get_tenant_dependency
+from syftai_space.components.tenants.entities import Tenant
 
 
 def build_payment_service_routes(handler: PaymentServiceHandler) -> APIRouter:
@@ -27,9 +29,11 @@ def build_payment_service_routes(handler: PaymentServiceHandler) -> APIRouter:
         description="Get payment service configuration for the current tenant. "
         "Auto-creates if not exists.",
     )
-    async def get_payment_service(request: Request) -> PaymentServiceResponse:
+    async def get_payment_service(
+        request: Request, tenant: Tenant = Depends(get_tenant_dependency)
+    ) -> PaymentServiceResponse:
         """Get payment service config."""
-        return handler.get_payment_service(request.state.tenant)
+        return handler.get_payment_service(tenant)
 
     @router.patch(
         "",
@@ -38,9 +42,11 @@ def build_payment_service_routes(handler: PaymentServiceHandler) -> APIRouter:
         description="Update payment service configuration for the current tenant.",
     )
     async def update_payment_service(
-        request: Request, body: UpdatePaymentServiceRequest
+        request: Request,
+        body: UpdatePaymentServiceRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
     ) -> PaymentServiceResponse:
         """Update payment service config."""
-        return handler.update_payment_service(body, request.state.tenant)
+        return handler.update_payment_service(body, tenant)
 
     return router
