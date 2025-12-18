@@ -227,12 +227,17 @@
                       <span class="body-sm text-muted-foreground">Type</span>
                       <span class="body-sm font-medium text-foreground">{{ getEndpointType }}</span>
                     </div>
-                    <Separator />
-                    <div class="flex justify-between items-center py-1">
-                      <span class="body-sm text-muted-foreground">Response</span>
-                      <span class="body-sm font-medium text-foreground">{{ getResponseType }}</span>
-                    </div>
-                    <Separator />
+                    <!-- Only show Response type for Data endpoints, not AI Model endpoints -->
+                    <template v-if="getEndpointType !== 'AI Model Endpoint'">
+                      <Separator />
+                      <div class="flex justify-between items-center py-1">
+                        <span class="body-sm text-muted-foreground">Response</span>
+                        <span class="body-sm font-medium text-foreground">{{
+                          getResponseType
+                        }}</span>
+                      </div>
+                      <Separator />
+                    </template>
                     <div v-if="endpoint.dataset" class="flex justify-between items-center py-1">
                       <span class="body-sm text-muted-foreground">Data Source</span>
                       <router-link

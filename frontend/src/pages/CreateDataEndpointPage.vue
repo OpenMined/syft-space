@@ -393,8 +393,12 @@
                         <div class="w-2 h-2 bg-primary rounded-full"></div>
                         <span class="text-muted-foreground truncate">{{ dataset.name }}</span>
                       </div>
-                      <div v-if="remainingDatasetsCount > 0" class="body-sm text-muted-foreground">
-                        ...and {{ remainingDatasetsCount }} more
+                      <div
+                        v-if="remainingDatasetsCount > 0"
+                        class="flex items-center gap-2 body-sm text-muted-foreground"
+                      >
+                        <div class="w-2 h-2"></div>
+                        <span>...and {{ remainingDatasetsCount }} more</span>
                       </div>
                     </div>
 
@@ -1582,14 +1586,14 @@ import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { modelsApi } from '@/api/endpoints/models'
 import { endpointsApi } from '@/api/endpoints/endpoints'
-import { useEndpointCreation } from '@/composables/useEndpointCreation'
+import { useDataEndpointCreation } from '@/composables/useDataEndpointCreation'
 import type { DatasetListItem, ModelListItem } from '@/api/types'
 
 const router = useRouter()
 
-// Endpoint creation composable
-const { isCreating, creationError, creationStep, createEndpointWithData, reset } =
-  useEndpointCreation()
+// Data endpoint creation composable
+const { isCreating, creationError, creationStep, createDataEndpointWithData, reset } =
+  useDataEndpointCreation()
 
 // Sub-step navigation
 const currentSubStep = ref(1)
@@ -1939,7 +1943,7 @@ const nextStep = async () => {
       tags: formData.value.tags,
     }
 
-    await createEndpointWithData(endpointData)
+    await createDataEndpointWithData(endpointData)
   }
 }
 

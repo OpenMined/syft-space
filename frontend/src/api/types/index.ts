@@ -185,6 +185,7 @@ export interface ModelListItem {
   id: string
   name: string
   dtype: string
+  configuration: Record<string, unknown>
   summary: string
   tags: string
   created_at: string

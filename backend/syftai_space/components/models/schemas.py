@@ -121,6 +121,7 @@ class ModelListItem(BaseModel):
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(..., description="Model name")
     dtype: str = Field(..., description="Model type name")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
     summary: str = Field(..., description="Model summary")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")

@@ -62,7 +62,7 @@
                         clip-rule="evenodd"
                       />
                     </svg>
-                    ~2 mins setup
+                    ~3 mins setup
                   </div>
                 </div>
                 <p class="text-sm text-muted-foreground mb-3">
@@ -122,7 +122,7 @@
                 <div class="flex items-center justify-between mb-1">
                   <h3 class="text-lg font-semibold text-foreground">AI Models</h3>
                   <div
-                    class="flex items-center gap-1 text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-full"
+                    class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/50 px-2 py-1 rounded-full"
                   >
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                       <path
@@ -131,7 +131,7 @@
                         clip-rule="evenodd"
                       />
                     </svg>
-                    ~10 mins setup
+                    ~2 mins setup
                   </div>
                 </div>
                 <p class="text-sm text-muted-foreground mb-3">

@@ -11,6 +11,7 @@ import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
 import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
 import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
+import CreateModelEndpointPageOld from '../pages/CreateModelEndpointPageOld.vue'
 import UpdatesPage from '../pages/UpdatesPage.vue'
 
 const router = createRouter({
@@ -84,6 +85,11 @@ const router = createRouter({
       path: '/updates',
       name: 'updates',
       component: UpdatesPage,
+    },
+    {
+      path: '/create/model-endpoint-old',
+      name: 'create-model-endpoint-old',
+      component: CreateModelEndpointPageOld,
     },
   ],
 })

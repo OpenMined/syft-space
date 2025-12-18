@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-parsing-error -->
 <template>
   <ErrorBoundary
     :can-retry="true"
@@ -6,7 +7,7 @@
     custom-message="There was a problem with the endpoint creation form. Please try again."
     @retry="refreshForm"
   >
-    <div class="min-h-screen bg-muted/30">
+    <div class="min-h-screen bg-muted/50">
       <!-- Header -->
       <div class="bg-card border-b border-border">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -19,27 +20,6 @@
               <ArrowLeft class="w-5 h-5 mr-2" />
               Back to Endpoints
             </Button>
-
-            <TooltipProvider>
-              <Tooltip :delayDuration="0">
-                <TooltipTrigger as-child>
-                  <span>
-                    <Button
-                      @click="saveDraft"
-                      :disabled="!canSaveDraft"
-                      variant="outline"
-                      class="flex items-center gap-2"
-                    >
-                      <Save class="w-4 h-4" />
-                      Save Draft
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent v-if="!canSaveDraft">
-                  <p>Add endpoint name to enable</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           </div>
         </div>
       </div>
@@ -49,18 +29,26 @@
         <!-- Left sidebar with steps -->
         <div class="w-80 flex-shrink-0">
           <div class="sticky top-8">
-            <h2 class="heading-3 mb-6">Setup Progress</h2>
+            <h2 class="heading-3 text-foreground mb-6">Setup Progress</h2>
 
             <!-- Vertical step list -->
             <div class="space-y-6">
               <!-- Step 1 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(1),
+                  'cursor-not-allowed': !isStepClickable(1),
+                }"
+                @click="navigateToStep(1)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 1
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(1) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 1 ? '✓' : '1' }}
@@ -68,8 +56,9 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 1 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(1) ? 'hover:text-primary' : '',
                     ]"
                   >
                     What model are you sharing?
@@ -91,13 +80,21 @@
               </div>
 
               <!-- Step 2 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(2),
+                  'cursor-not-allowed': !isStepClickable(2),
+                }"
+                @click="navigateToStep(2)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 2
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(2) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 2 ? '✓' : '2' }}
@@ -105,15 +102,14 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 2 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(2) ? 'hover:text-primary' : '',
                     ]"
                   >
-                    Set Rules & Pricing
+                    Who can access it?
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">
-                    Configure policies and access controls
-                  </p>
+                  <p class="body-sm text-muted-foreground mt-1">Control who can use your content</p>
                   <div
                     v-if="currentSubStep > 2"
                     class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
@@ -130,13 +126,21 @@
               </div>
 
               <!-- Step 3 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(3),
+                  'cursor-not-allowed': !isStepClickable(3),
+                }"
+                @click="navigateToStep(3)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 3
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(3) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 3 ? '✓' : '3' }}
@@ -144,13 +148,14 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(3) ? 'hover:text-primary' : '',
                     ]"
                   >
-                    Add details & publish
+                    Tell us more about it
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">Name and describe your model</p>
+                  <p class="body-sm text-muted-foreground mt-1">Name and describe your endpoint</p>
                   <div
                     v-if="currentSubStep > 3"
                     class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
@@ -167,13 +172,21 @@
               </div>
 
               <!-- Step 4 -->
-              <div class="flex items-start gap-4">
+              <div
+                class="flex items-start gap-4"
+                :class="{
+                  'cursor-pointer': isStepClickable(4),
+                  'cursor-not-allowed': !isStepClickable(4),
+                }"
+                @click="navigateToStep(4)"
+              >
                 <div
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 4
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-primary text-white'
                       : 'bg-muted text-muted-foreground',
+                    isStepClickable(4) ? 'hover:scale-105' : '',
                   ]"
                 >
                   {{ currentSubStep > 4 ? '✓' : '4' }}
@@ -181,11 +194,12 @@
                 <div class="flex-1 min-w-0">
                   <h3
                     :class="[
-                      'font-medium body-sm',
+                      'font-medium body-sm transition-colors',
                       currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
+                      isStepClickable(4) ? 'hover:text-primary' : '',
                     ]"
                   >
-                    Review
+                    Review & Publish
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
                   <div
@@ -218,1175 +232,1092 @@
             </p>
           </div>
 
-          <div>
-            <!-- Step 1: What model are you sharing? -->
-            <div v-if="currentSubStep === 1" class="space-y-8">
-              <!-- Model Source Selection Cards -->
-              <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <!-- Add New Model Card -->
-                <Card
-                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-primary hover:bg-gradient-to-br hover:from-primary/10 hover:to-primary/5 border-2 bg-card"
-                  :class="
-                    selectedModelSourceType === 'create-new'
-                      ? 'border-primary bg-gradient-to-br from-primary/10 to-primary/5'
-                      : 'border-border'
-                  "
-                  @click="selectModelSourceType('create-new')"
-                >
-                  <CardContent class="p-6">
-                    <div class="flex flex-col items-center text-center">
+          <!-- Step 1: What model are you sharing? -->
+          <div v-if="currentSubStep === 1" class="space-y-8">
+            <!-- Model Source Selection Cards - only show if there are existing models -->
+            <div v-if="existingModelsCount > 0" class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <!-- Add New Model Card -->
+              <Card
+                class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-primary hover:bg-gradient-to-br hover:from-primary/10 hover:to-primary/5 border-2 bg-card"
+                :class="
+                  selectedModelSourceType === 'create-new'
+                    ? 'border-primary bg-gradient-to-br from-primary/10 to-primary/5'
+                    : 'border-border'
+                "
+                @click="selectModelSourceType('create-new')"
+              >
+                <CardContent class="p-6">
+                  <div class="flex flex-col items-center text-center">
+                    <div
+                      class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4"
+                    >
+                      <Plus class="w-7 h-7 text-primary" />
+                    </div>
+
+                    <h3 class="heading-3 text-foreground mb-2">Add New Model</h3>
+
+                    <p class="body-sm text-muted-foreground mb-3">Set up a new AI model</p>
+
+                    <p class="body-sm text-muted-foreground">OpenAI, Groq, OpenRouter, and more</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <!-- Select Existing Model Card -->
+              <Card
+                class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border-2 bg-card"
+                :class="
+                  selectedModelSourceType === 'existing'
+                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                    : 'border-border'
+                "
+                @click="selectModelSourceType('existing')"
+              >
+                <CardContent class="p-6 h-full">
+                  <div class="flex flex-col items-center text-center h-full">
+                    <div
+                      class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4"
+                    >
+                      <FolderOpen class="w-7 h-7 text-green-600" />
+                    </div>
+
+                    <h3 class="heading-3 text-foreground mb-2">Use Existing Model</h3>
+
+                    <p class="body-sm text-muted-foreground mb-4">
+                      Select an AI model you already configured
+                    </p>
+
+                    <!-- Loading state -->
+                    <div
+                      v-if="loadingModels"
+                      class="space-y-2 mb-4 flex-grow flex items-center justify-center"
+                    >
+                      <span class="body-sm text-muted-foreground">Loading models...</span>
+                    </div>
+
+                    <!-- Error state -->
+                    <div
+                      v-else-if="modelsError"
+                      class="space-y-2 mb-4 flex-grow flex items-center justify-center"
+                    >
+                      <span class="body-sm text-red-600">Failed to load models</span>
+                    </div>
+
+                    <!-- Model list -->
+                    <div v-else class="space-y-2 mb-4 flex-grow">
                       <div
-                        class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4"
-                      >
-                        <Plus class="w-7 h-7 text-primary" />
-                      </div>
-
-                      <h3 class="heading-3 text-foreground mb-2">Add New Model</h3>
-
-                      <p class="body-sm text-muted-foreground mb-3">
-                        Set up and configure a new AI model
-                      </p>
-
-                      <p class="body-sm text-muted-foreground">
-                        vLLM, Ollama, Hugging Face, and more
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <!-- Select Existing Model Card -->
-                <Card
-                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border-2 bg-card"
-                  :class="
-                    selectedModelSourceType === 'existing'
-                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
-                      : 'border-border'
-                  "
-                  @click="selectModelSourceType('existing')"
-                >
-                  <CardContent class="p-6">
-                    <div class="flex flex-col items-center text-center">
-                      <div
-                        class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4"
-                      >
-                        <FolderOpen class="w-7 h-7 text-green-600" />
-                      </div>
-
-                      <h3 class="heading-3 text-foreground mb-2">Use Existing Model</h3>
-
-                      <p class="body-sm text-muted-foreground mb-3">
-                        Select from your configured AI models
-                      </p>
-
-                      <p class="body-sm text-muted-foreground">
-                        {{ existingModelsCount }} model{{ existingModelsCount !== 1 ? 's' : '' }}
-                        available
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <!-- Content based on selection -->
-              <div v-if="selectedModelSourceType">
-                <!-- Add New Model Inline Form -->
-                <div
-                  v-if="selectedModelSourceType === 'create-new'"
-                  class="bg-card rounded-lg shadow-sm border border-border p-8"
-                >
-                  <div class="space-y-6">
-                    <div>
-                      <h3 class="heading-3 text-foreground mb-2">Add New AI Model</h3>
-                      <p class="body-sm text-muted-foreground">
-                        Configure a new AI model for your endpoint
-                      </p>
-                    </div>
-
-                    <!-- Search Input -->
-                    <div class="relative">
-                      <Search
-                        class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
-                      />
-                      <Input
-                        v-model="searchQuery"
-                        placeholder="Search AI models..."
-                        class="pl-10 pr-4"
-                      />
-                    </div>
-
-                    <!-- Model Options Grid -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <div
-                        v-for="model in filteredModels"
+                        v-for="model in displayedModels"
                         :key="model.id"
-                        @click="
-                          model.isCustom ? openCustomSDKDocs() : (selectedNewModelType = model.id)
-                        "
-                        :class="[
-                          'flex flex-col items-center justify-center p-6 rounded-lg border cursor-pointer transition-all group h-40',
-                          model.isCustom
-                            ? 'border-purple-200 bg-gradient-to-r from-purple-50 to-blue-50 hover:border-purple-300 hover:bg-gradient-to-r hover:from-purple-100 hover:to-blue-100'
-                            : selectedNewModelType === model.id
-                              ? 'border-primary bg-primary/10'
-                              : 'border-border hover:bg-muted/50',
-                        ]"
+                        class="flex items-center gap-2 body-sm"
                       >
-                        <div v-if="model.isCustom" class="transition-all duration-200 mb-2">
-                          <div class="p-2 bg-purple-100 rounded-md group-hover:hidden">
-                            <Code class="h-6 w-6 text-purple-600" />
-                          </div>
-                          <div class="hidden group-hover:block p-2 bg-purple-100 rounded-md">
-                            <ExternalLink class="h-6 w-6 text-purple-600" />
-                          </div>
-                        </div>
-                        <IntegrationIcon
-                          v-else
-                          :name="model.id"
-                          class="h-12 w-12 mb-3"
-                          :class="
-                            selectedNewModelType === model.id
-                              ? 'text-primary'
-                              : 'text-muted-foreground'
-                          "
-                        />
-                        <div
-                          v-if="model.isCustom"
-                          class="text-center transition-all duration-200 min-h-[1.25rem]"
-                        >
-                          <span class="font-medium text-purple-800 group-hover:hidden">
-                            {{ model.name }}
-                          </span>
-                          <span class="hidden group-hover:block font-medium text-purple-800">
-                            View documentation
-                          </span>
-                        </div>
-                        <span
-                          v-else
-                          class="font-medium text-center"
-                          :class="
-                            selectedNewModelType === model.id ? 'text-primary' : 'text-foreground'
-                          "
-                        >
-                          {{ model.name }}
-                        </span>
-                        <div
-                          v-if="model.isCustom"
-                          class="text-center transition-all duration-200 min-h-[1rem]"
-                        >
-                          <span class="text-xs text-purple-600 group-hover:hidden">Using SDK</span>
-                          <span class="hidden group-hover:block text-xs text-purple-600"
-                            >Opens in a new tab</span
-                          >
-                        </div>
+                        <div class="w-2 h-2 bg-primary rounded-full"></div>
+                        <span class="text-muted-foreground truncate">{{ model.name }}</span>
                       </div>
-                    </div>
-
-                    <!-- Configuration Form -->
-                    <div v-if="selectedNewModelType" class="mt-6 p-4 bg-muted/50 rounded-lg">
-                      <h4 class="font-medium text-foreground mb-2">
-                        Configure {{ selectedNewModelName }}
-                      </h4>
-                      <p class="body-sm text-muted-foreground mb-4">
-                        Set up your {{ selectedNewModelName }} model integration settings
-                      </p>
                       <div
-                        class="min-h-[100px] flex items-center justify-center border-2 border-dashed rounded-lg bg-card"
+                        v-if="remainingModelsCount > 0"
+                        class="flex items-center gap-2 body-sm text-muted-foreground"
                       >
-                        <p class="text-muted-foreground">
-                          Configuration form for {{ selectedNewModelName }} will be implemented here
-                        </p>
+                        <div class="w-2 h-2"></div>
+                        <span>...and {{ remainingModelsCount }} more</span>
                       </div>
                     </div>
                   </div>
-                </div>
+                </CardContent>
+              </Card>
+            </div>
 
-                <!-- Existing Models List -->
-                <div
-                  v-if="selectedModelSourceType === 'existing'"
-                  class="bg-card rounded-lg shadow-sm border border-border p-6"
-                >
-                  <div class="space-y-4">
-                    <h3 class="heading-3 text-foreground mb-4">Available AI Models</h3>
+            <!-- Content based on selection -->
+            <div v-if="selectedModelSourceType || existingModelsCount === 0">
+              <!-- Add New Model Inline Form -->
+              <div
+                v-if="selectedModelSourceType === 'create-new' || existingModelsCount === 0"
+                class="bg-card rounded-lg shadow-sm border border-border p-8"
+              >
+                <div class="space-y-6">
+                  <div>
+                    <h3 class="heading-3 text-foreground mb-2">Add New AI Model</h3>
+                    <p class="body-sm text-muted-foreground">
+                      Configure a new AI model for your endpoint
+                    </p>
+                  </div>
 
-                    <RadioGroup v-model="formData.aiModel">
-                      <div class="space-y-3">
-                        <div
-                          v-for="model in mockModels"
-                          :key="model.id"
-                          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
-                          :class="
-                            formData.aiModel === model.id
-                              ? 'border-green-500 bg-green-50'
-                              : 'border-border'
-                          "
-                          @click="formData.aiModel = model.id"
-                        >
-                          <RadioGroupItem :value="model.id" :id="model.id" />
-                          <Label
-                            :for="model.id"
-                            class="flex items-center gap-3 cursor-pointer flex-1"
+                  <!-- Provider and Model Side by Side -->
+                  <div class="grid grid-cols-2 gap-4">
+                    <!-- Provider -->
+                    <div class="space-y-2">
+                      <Label for="provider" class="body-sm font-medium">
+                        Provider <span class="text-red-500">*</span>
+                      </Label>
+                      <Select v-model="newModelForm.provider">
+                        <SelectTrigger id="provider" class="w-full">
+                          <SelectValue placeholder="Select a provider" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="openai">OpenAI</SelectItem>
+                          <SelectItem value="groq">Groq</SelectItem>
+                          <SelectItem value="openrouter">OpenRouter</SelectItem>
+                          <SelectItem value="together">Together AI</SelectItem>
+                          <SelectItem value="perplexity">Perplexity</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p class="body-sm text-muted-foreground">Choose your AI model provider</p>
+                    </div>
+
+                    <!-- Model -->
+                    <div class="space-y-2">
+                      <Label for="model" class="body-sm font-medium">
+                        Model <span class="text-red-500">*</span>
+                      </Label>
+                      <Select v-model="newModelForm.model" :disabled="!newModelForm.provider">
+                        <SelectTrigger id="model" class="w-full">
+                          <SelectValue placeholder="Select a model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem
+                            v-for="model in availableNewModels"
+                            :key="model.value"
+                            :value="model.value"
                           >
-                            <div
-                              class="p-2 rounded"
-                              :class="{
-                                'bg-purple-100': model.type === 'vllm',
-                                'bg-orange-100': model.type === 'ollama',
-                                'bg-primary/10': model.type === 'huggingface',
-                              }"
-                            >
-                              <IntegrationIcon :name="model.type" class="h-5 w-5" />
-                            </div>
-                            <div class="flex-1">
-                              <div class="flex items-center gap-2">
-                                <span class="font-medium">{{ model.name }}</span>
-                                <Badge variant="outline" class="text-xs">{{ model.type }}</Badge>
-                              </div>
-                              <p class="body-sm text-muted-foreground">{{ model.description }}</p>
-                            </div>
-                          </Label>
+                            {{ model.label }}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p class="body-sm text-muted-foreground">Select the specific model to use</p>
+                    </div>
+                  </div>
+
+                  <!-- API Key -->
+                  <div class="space-y-2">
+                    <Label for="api-key" class="body-sm font-medium">
+                      {{ apiKeyLabel }} <span class="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="api-key"
+                      v-model="newModelForm.apiKey"
+                      type="password"
+                      :placeholder="apiKeyPlaceholder"
+                      class="w-full"
+                    />
+                    <p class="body-sm text-muted-foreground">Your API key for authentication</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Existing Models List -->
+              <div
+                v-if="selectedModelSourceType === 'existing'"
+                class="bg-card rounded-lg shadow-sm border border-border p-6"
+              >
+                <div class="space-y-4">
+                  <h3 class="heading-3 text-foreground mb-4">Available AI Models</h3>
+
+                  <!-- Loading state -->
+                  <div v-if="loadingModels" class="flex items-center justify-center py-8">
+                    <div class="flex items-center gap-2">
+                      <Loader2 class="h-4 w-4 animate-spin" />
+                      <span class="body-sm text-muted-foreground">Loading models...</span>
+                    </div>
+                  </div>
+
+                  <!-- Error state -->
+                  <div v-else-if="modelsError" class="flex items-center justify-center py-8">
+                    <span class="body-sm text-red-600"
+                      >Failed to load models: {{ modelsError }}</span
+                    >
+                  </div>
+
+                  <!-- Models list -->
+                  <div v-else-if="availableModels.length > 0" class="space-y-3">
+                    <div
+                      v-for="model in availableModels"
+                      :key="model.id"
+                      class="flex items-center space-x-3 p-4 border rounded-lg transition-colors"
+                      :class="[
+                        formData.aiModel === model.id
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border',
+                        'cursor-pointer hover:bg-muted/50',
+                      ]"
+                      @click="formData.aiModel = model.id"
+                    >
+                      <div class="flex items-center gap-3 flex-1">
+                        <div class="p-2 bg-primary/10 rounded">
+                          <Brain class="h-5 w-5 text-primary" />
+                        </div>
+                        <div class="flex-1">
+                          <div class="flex items-center gap-2">
+                            <span class="font-medium text-foreground">{{ model.name }}</span>
+                            <Badge variant="secondary" class="body-sm"
+                              >{{ model.configuration?.model || model.dtype }}
+                            </Badge>
+                          </div>
+                          <p class="body-sm text-muted-foreground mt-1">
+                            {{ model.summary || 'No description available' }}
+                          </p>
                         </div>
                       </div>
-                    </RadioGroup>
+                      <div
+                        class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
+                        :class="
+                          formData.aiModel === model.id
+                            ? 'border-primary bg-primary'
+                            : 'border-muted-foreground'
+                        "
+                      >
+                        <div
+                          v-if="formData.aiModel === model.id"
+                          class="w-2 h-2 rounded-full bg-white"
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Empty state -->
+                  <div v-else class="flex items-center justify-center py-8">
+                    <span class="body-sm text-muted-foreground">No models available</span>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
 
-            <!-- Step 2: Set Rules & Pricing -->
-            <div v-if="currentSubStep === 2" class="space-y-6">
-              <!-- Policy Configuration -->
-              <div class="space-y-6">
-                <div
-                  v-for="policy in policyTypes"
-                  :key="policy.id"
-                  class="bg-card/60 backdrop-blur-sm border border-border rounded-2xl p-6"
-                >
-                  <!-- Policy Header -->
-                  <div class="flex items-center justify-between mb-3">
-                    <div class="flex items-center gap-3">
-                      <div
-                        :class="{
-                          'p-2 rounded-lg bg-primary/10': policy.color === 'blue',
-                          'p-2 rounded-lg bg-green-100': policy.color === 'green',
-                          'p-2 rounded-lg bg-yellow-100': policy.color === 'yellow',
-                          'p-2 rounded-lg bg-purple-100': policy.color === 'purple',
-                          'p-2 rounded-lg bg-red-100': policy.color === 'red',
-                        }"
+          <!-- Step 2: Who can access it? -->
+          <div v-if="currentSubStep === 2" class="space-y-6">
+            <!-- Policy Configuration -->
+            <div class="space-y-6">
+              <div
+                v-for="policy in policyTypes"
+                :key="policy.id"
+                class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6"
+              >
+                <!-- Policy Header -->
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center gap-3">
+                    <div
+                      :class="[
+                        'p-2 rounded-lg',
+                        policy.color === 'blue' ? 'bg-blue-100' : '',
+                        policy.color === 'green' ? 'bg-green-100' : '',
+                        policy.color === 'yellow' ? 'bg-yellow-100' : '',
+                        policy.color === 'purple' ? 'bg-purple-100' : '',
+                        policy.color === 'red' ? 'bg-red-100' : '',
+                      ]"
+                    >
+                      <component
+                        :is="policy.icon"
+                        :class="[
+                          'h-5 w-5',
+                          policy.color === 'blue' ? 'text-primary' : '',
+                          policy.color === 'green' ? 'text-green-600' : '',
+                          policy.color === 'yellow' ? 'text-yellow-600' : '',
+                          policy.color === 'purple' ? 'text-purple-600' : '',
+                          policy.color === 'red' ? 'text-red-600' : '',
+                        ]"
+                      />
+                    </div>
+                    <div class="flex-1">
+                      <h3 class="font-medium text-foreground">{{ policy.label }}</h3>
+                      <p class="body-sm text-muted-foreground">{{ policy.description }}</p>
+                    </div>
+                  </div>
+                  <Button @click="addPolicy(policy.id)" variant="outline" size="sm">
+                    <Plus class="h-4 w-4 mr-2" />
+                    Add {{ policy.name }} rule
+                  </Button>
+                </div>
+
+                <!-- Default Policy Message -->
+                <div v-if="policyRules[policy.id]?.length === 0" class="mb-3">
+                  <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
+                    <p class="body-sm text-green-700">
+                      <strong class="font-medium">Default: </strong>
+                      <span v-if="policy.id === 'access'"
+                        >Open access - everyone can use your endpoint</span
                       >
-                        <component
-                          :is="policy.icon"
-                          :class="{
-                            'h-5 w-5 text-primary': policy.color === 'blue',
-                            'h-5 w-5 text-green-600': policy.color === 'green',
-                            'h-5 w-5 text-yellow-600': policy.color === 'yellow',
-                            'h-5 w-5 text-purple-600': policy.color === 'purple',
-                            'h-5 w-5 text-red-600': policy.color === 'red',
-                          }"
-                        />
-                      </div>
-                      <div class="flex-1">
-                        <h3 class="font-medium text-foreground">{{ policy.label }}</h3>
-                        <p class="body-sm text-muted-foreground">{{ policy.description }}</p>
-                      </div>
-                    </div>
-                    <Button @click="addPolicy(policy.id)" variant="outline" size="sm">
-                      <Plus class="h-4 w-4 mr-2" />
-                      Add {{ policy.name }} rule
-                    </Button>
-                  </div>
-
-                  <!-- Default Policy Message -->
-                  <div v-if="policyRules[policy.id]?.length === 0" class="mb-3">
-                    <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
-                      <p class="text-sm text-green-700">
-                        <strong class="font-medium">Default: </strong>
-                        <span v-if="policy.id === 'authorization'"
-                          >Open access - everyone can use your endpoint</span
-                        >
-                        <span v-else-if="policy.id === 'ratelimiter'"
-                          >No rate limits - unlimited usage</span
-                        >
-                        <span v-else-if="policy.id === 'pricing'"
-                          >Free access - no charges applied</span
-                        >
-                        <span v-else>Open access - most permissive settings</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <!-- Empty State -->
-                  <div
-                    v-if="policyRules[policy.id]?.length === 0"
-                    class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/20"
-                  >
-                    <p class="text-muted-foreground body-sm">
-                      No {{ policy.name.toLowerCase() }} rule added yet
+                      <span v-else-if="policy.id === 'rate_limit'"
+                        >No rate limits - unlimited usage</span
+                      >
+                      <span v-else-if="policy.id === 'pricing'"
+                        >Free access - no charges applied</span
+                      >
+                      <span v-else>Open access - most permissive settings</span>
                     </p>
                   </div>
+                </div>
 
-                  <!-- Policy Rules -->
-                  <div v-if="(policyRules[policy.id] || []).length > 0" class="space-y-3">
-                    <div
-                      v-for="rule in policyRules[policy.id] || []"
-                      :key="rule.id"
-                      class="bg-muted/30 border border-border/50 rounded-xl p-4"
-                    >
-                      <!-- Rule in Edit Mode (Expanded) -->
-                      <div v-if="rule.isEditing" class="space-y-3">
-                        <!-- Authorization Policy Form -->
-                        <div v-if="policy.id === 'authorization'">
-                          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Rule Type</Label
-                              >
-                              <Select v-model="authorizationForm.ruleType">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                  <SelectValue placeholder="Select rule type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="allow" class="text-sm"
-                                    >Allow specific users</SelectItem
-                                  >
-                                  <SelectItem value="deny" class="text-sm"
-                                    >Deny specific users</SelectItem
-                                  >
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input
-                                v-model="authorizationForm.note"
-                                placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                              />
-                            </div>
+                <!-- Empty State -->
+                <div
+                  v-if="policyRules[policy.id]?.length === 0"
+                  class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/50/20"
+                >
+                  <p class="text-muted-foreground body-sm">
+                    No {{ policy.name.toLowerCase() }} rule added yet
+                  </p>
+                </div>
+
+                <!-- Policy Rules -->
+                <div v-if="policyRules[policy.id]?.length > 0" class="space-y-3">
+                  <div
+                    v-for="(rule, ruleIndex) in policyRules[policy.id] || []"
+                    :key="rule.id"
+                    class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4"
+                  >
+                    <!-- Rule in Edit Mode (Expanded) -->
+                    <div v-if="rule.isEditing" class="space-y-3">
+                      <!-- Authorization Policy Form -->
+                      <div v-if="policy.id === 'access'">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div class="space-y-1">
+                            <Label class="body-sm text-muted-foreground font-medium"
+                              >Rule Type</Label
+                            >
+                            <Select v-model="authorizationForm.ruleType">
+                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                                <SelectValue placeholder="Select rule type" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="allow" class="body-sm"
+                                  >Allow specific users</SelectItem
+                                >
+                                <SelectItem value="deny" class="body-sm"
+                                  >Deny specific users</SelectItem
+                                >
+                              </SelectContent>
+                            </Select>
                           </div>
-                          <div class="space-y-1 mt-3">
-                            <Label class="body-sm text-muted-foreground font-medium">Users</Label>
+                          <div class="space-y-1">
+                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
                             <Input
-                              v-model="authorizationForm.users"
-                              placeholder="user1@example.com, user2@example.com"
+                              v-model="authorizationForm.note"
+                              placeholder="Optional description"
                               class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
                             />
-                            <p class="text-xs text-muted-foreground">
-                              Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-                              *@contractors.org)
-                            </p>
                           </div>
                         </div>
+                        <div class="space-y-1 mt-3">
+                          <Label class="body-sm text-muted-foreground font-medium">Users</Label>
+                          <Input
+                            v-model="authorizationForm.users"
+                            placeholder="user1@example.com, user2@example.com"
+                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
+                          />
+                          <p class="text-xs text-muted-foreground">
+                            Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
+                            *@contractors.org)
+                          </p>
+                        </div>
+                      </div>
 
-                        <!-- Rate Limiter Policy Form -->
-                        <div v-if="policy.id === 'ratelimiter'">
-                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
-                              <div class="flex">
-                                <Input
-                                  v-model="rateLimiterForm.limit"
-                                  type="number"
-                                  placeholder="100"
-                                  class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
-                                />
-                                <Select v-model="rateLimiterForm.windowUnit">
-                                  <SelectTrigger
-                                    class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0"
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="second">requests per second</SelectItem>
-                                    <SelectItem value="minute">requests per minute</SelectItem>
-                                    <SelectItem value="hour">requests per hour</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Scope</Label>
-                              <Select v-model="rateLimiterForm.scope">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                      <!-- Rate Limiter Policy Form -->
+                      <div v-if="policy.id === 'rate_limit'">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                          <div class="space-y-1">
+                            <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
+                            <div class="flex">
+                              <Input
+                                v-model="rateLimiterForm.limit"
+                                type="number"
+                                placeholder="100"
+                                class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
+                              />
+                              <Select v-model="rateLimiterForm.windowUnit">
+                                <SelectTrigger
+                                  class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0"
+                                >
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="per user">For Each User</SelectItem>
-                                  <SelectItem value="global">For This Endpoint</SelectItem>
+                                  <SelectItem value="second">requests per second</SelectItem>
+                                  <SelectItem value="minute">requests per minute</SelectItem>
+                                  <SelectItem value="hour">requests per hour</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
                           </div>
-                          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div class="space-y-1">
+                            <Label class="body-sm text-muted-foreground font-medium">Scope</Label>
+                            <Select v-model="rateLimiterForm.scope">
+                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="per user">For Each User</SelectItem>
+                                <SelectItem value="global">For This Endpoint</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div class="space-y-1">
+                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
+                            <Input
+                              v-model="rateLimiterForm.note"
+                              placeholder="Optional description"
+                              class="h-9 rounded-lg border-border bg-card body-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Pricing Policy Form -->
+                      <div v-if="policy.id === 'pricing'">
+                        <div class="space-y-3">
+                          <!-- Price and Note side-by-side -->
+                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="space-y-1">
+                              <Label class="body-sm text-muted-foreground font-medium"
+                                >Price per query ($)</Label
+                              >
+                              <Input
+                                v-model="pricingForm.price"
+                                type="number"
+                                step="any"
+                                placeholder="0.01"
+                                class="h-9 rounded-lg border-border bg-card body-sm"
+                              />
+                            </div>
                             <div class="space-y-1">
                               <Label class="body-sm text-muted-foreground font-medium">Note</Label>
                               <Input
-                                v-model="rateLimiterForm.note"
+                                v-model="pricingForm.note"
                                 placeholder="Optional description"
                                 class="h-9 rounded-lg border-border bg-card body-sm"
                               />
                             </div>
                           </div>
-                        </div>
-
-                        <!-- Pricing Policy Form -->
-                        <div v-if="policy.id === 'pricing'">
-                          <div class="space-y-3">
-                            <!-- Price and Note side-by-side -->
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div class="space-y-1">
-                                <Label class="body-sm text-muted-foreground font-medium"
-                                  >Price per query ($)</Label
-                                >
-                                <Input
-                                  v-model="pricingForm.price"
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="0.01"
-                                  class="h-9 rounded-lg border-border bg-card body-sm"
-                                />
-                              </div>
-                              <div class="space-y-1">
-                                <Label class="body-sm text-muted-foreground font-medium"
-                                  >Note</Label
-                                >
-                                <Input
-                                  v-model="pricingForm.note"
-                                  placeholder="Optional description"
-                                  class="h-9 rounded-lg border-border bg-card body-sm"
-                                />
-                              </div>
-                            </div>
-                            <!-- Apply To and Users row -->
-                            <div class="flex flex-col sm:flex-row gap-3">
-                              <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
-                                <Label class="body-sm text-muted-foreground font-medium"
-                                  >Apply To</Label
-                                >
-                                <Select v-model="pricingForm.userType">
-                                  <SelectTrigger
-                                    class="h-9 rounded-lg border-border bg-card body-sm"
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="all">All Users</SelectItem>
-                                    <SelectItem value="specific">Specific Users</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div
-                                v-if="pricingForm.userType === 'specific'"
-                                class="space-y-1 flex-1"
+                          <!-- Apply To and Users row -->
+                          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                            <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
+                              <Label class="body-sm text-muted-foreground font-medium"
+                                >Apply To</Label
                               >
-                                <Label class="body-sm text-muted-foreground font-medium"
-                                  >Users</Label
-                                >
-                                <Input
-                                  v-model="pricingForm.users"
-                                  placeholder="user1@example.com, user2@example.com"
-                                  class="h-9 rounded-lg border-border bg-card body-sm"
-                                />
-                                <p class="text-xs text-muted-foreground">
-                                  Comma-separated list. Wildcard supported (e.g., *@company.com,
-                                  *.edu, *@contractors.org)
-                                </p>
-                              </div>
+                              <Select v-model="pricingForm.userType">
+                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="all">All Users</SelectItem>
+                                  <SelectItem value="specific">Specific Users</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div
+                              v-if="pricingForm.userType === 'specific'"
+                              class="space-y-1 flex-1"
+                            >
+                              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
+                              <Input
+                                v-model="pricingForm.users"
+                                placeholder="user1@example.com, user2@example.com"
+                                class="h-9 rounded-lg border-border bg-card body-sm"
+                              />
+                              <p class="text-xs text-muted-foreground">
+                                Comma-separated list. Wildcard supported (e.g., *@company.com,
+                                *.edu, *@contractors.org)
+                              </p>
                             </div>
                           </div>
                         </div>
-
-                        <!-- Form Action Buttons -->
-                        <div class="flex gap-2 pt-3 border-t border-border">
-                          <Button
-                            @click="savePolicy(policy.id, rule.id)"
-                            size="sm"
-                            class="rounded-lg body-sm font-medium px-3 py-2"
-                          >
-                            Save
-                          </Button>
-                          <Button
-                            @click="cancelEditPolicy(policy.id, rule.id)"
-                            variant="outline"
-                            size="sm"
-                            class="rounded-lg border-border body-sm font-medium px-3 py-2"
-                          >
-                            Cancel
-                          </Button>
-                        </div>
                       </div>
 
-                      <!-- Rule in Collapsed Mode -->
-                      <div v-else class="flex items-start justify-between">
-                        <div class="flex-1">
-                          <h4 class="body-sm font-medium text-foreground">
-                            {{ rule.config.note || `${policy.name} Rule` }}
-                          </h4>
-                          <p class="body-sm text-muted-foreground mt-1">Rule summary</p>
-                        </div>
-                        <div class="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            @click="editPolicy(policy.id, rule.id)"
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            @click="deletePolicy(policy.id, rule.id)"
-                          >
-                            Delete
-                          </Button>
-                        </div>
+                      <!-- Form Action Buttons -->
+                      <div class="flex gap-2 pt-3 border-t border-border">
+                        <Button
+                          @click="savePolicy(policy.id, rule.id)"
+                          size="sm"
+                          class="rounded-lg body-sm font-medium px-3 py-2"
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          @click="cancelEditPolicy(policy.id, rule.id)"
+                          variant="outline"
+                          size="sm"
+                          class="rounded-lg border-border body-sm font-medium px-3 py-2"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+
+                    <!-- Rule in Collapsed Mode -->
+                    <div v-else class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <h4 class="body-sm font-medium text-foreground">
+                          {{ rule.config.note || `${policy.name} Rule #${ruleIndex + 1}` }}
+                        </h4>
+                        <p class="body-sm text-muted-foreground mt-1">
+                          {{ getRuleSummary(policy.id, rule.config) }}
+                        </p>
+                      </div>
+                      <div class="flex gap-2">
+                        <Button variant="outline" size="sm" @click="editPolicy(policy.id, rule.id)">
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          @click="deletePolicy(policy.id, rule.id)"
+                        >
+                          Delete
+                        </Button>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
 
-            <!-- Step 3: Add details & publish -->
-            <div
-              v-if="currentSubStep === 3"
-              class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
-            >
-              <!-- Interactive examples -->
-              <div class="mb-8 bg-primary/10 border border-primary rounded-lg p-4">
-                <h4 class="font-medium text-primary mb-3 flex items-center gap-2">
-                  <Lightbulb class="w-4 h-4" />
-                  Popular examples to get you started
-                </h4>
-                <p class="body-sm text-primary mb-4">Click any example to auto-fill the form</p>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 body-sm">
-                  <button
-                    @click="fillExampleData('code')"
-                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
-                  >
-                    <p class="font-medium text-foreground">💻 Code Assistant</p>
-                    <p class="text-muted-foreground mt-1">
-                      "GPT-4 Code Helper" - Helps with programming tasks and debugging
-                    </p>
-                  </button>
-                  <button
-                    @click="fillExampleData('chat')"
-                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
-                  >
-                    <p class="font-medium text-foreground">💬 Chat Assistant</p>
-                    <p class="text-muted-foreground mt-1">
-                      "Conversational AI" - General purpose chat and question answering
-                    </p>
-                  </button>
-                  <button
-                    @click="fillExampleData('analysis')"
-                    class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
-                  >
-                    <p class="font-medium text-foreground">📈 Data Analysis</p>
-                    <p class="text-muted-foreground mt-1">
-                      "Research Assistant" - Specialized for data analysis and insights
-                    </p>
-                  </button>
-                </div>
+          <!-- Step 3: Tell us more about it -->
+          <div
+            v-if="currentSubStep === 3"
+            class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
+          >
+            <!-- Interactive examples -->
+            <div class="mb-8 bg-primary/10 border border-blue-200 rounded-lg p-4">
+              <h4 class="font-medium text-blue-900 mb-3 flex items-center gap-2">
+                <Lightbulb class="w-4 h-4" />
+                Popular examples to get you started
+              </h4>
+              <p class="body-sm text-primary mb-4">Click any example to auto-fill the form</p>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 body-sm">
+                <button
+                  @click="fillExampleData('code')"
+                  class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
+                >
+                  <p class="font-medium text-foreground">💻 Code Assistant</p>
+                  <p class="text-muted-foreground mt-1">
+                    "GPT-4 Code Helper" - Helps with programming tasks and debugging
+                  </p>
+                </button>
+                <button
+                  @click="fillExampleData('chat')"
+                  class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
+                >
+                  <p class="font-medium text-foreground">💬 Chat Assistant</p>
+                  <p class="text-muted-foreground mt-1">
+                    "Conversational AI" - General purpose chat and question answering
+                  </p>
+                </button>
+                <button
+                  @click="fillExampleData('analysis')"
+                  class="bg-card p-3 rounded border hover:border-primary hover:shadow-sm transition-all text-left"
+                >
+                  <p class="font-medium text-foreground">📈 Data Analysis</p>
+                  <p class="text-muted-foreground mt-1">
+                    "Research Assistant" - Specialized for data analysis and insights
+                  </p>
+                </button>
               </div>
+            </div>
 
-              <div class="space-y-6">
-                <!-- Endpoint Name -->
-                <div class="space-y-2">
-                  <Label for="endpoint-name" class="body-sm font-medium text-foreground">
-                    Name <span class="text-red-500">*</span>
-                  </Label>
+            <div class="space-y-6">
+              <!-- Endpoint Name -->
+              <div class="space-y-2">
+                <Label for="endpoint-name" class="body-sm font-medium text-foreground">
+                  Name <span class="text-red-500">*</span>
+                </Label>
+                <div class="relative">
                   <Input
                     id="endpoint-name"
                     v-model="formData.endpointName"
                     placeholder="e.g., gpt-4-code-helper"
-                    class="w-full font-mono body-sm"
+                    class="w-full font-mono body-sm pr-10"
+                    :class="[
+                      endpointNameError ? 'border-red-500 focus:ring-red-500' : '',
+                      nameAvailabilityResult === 'available'
+                        ? 'border-green-500 focus:ring-green-500'
+                        : '',
+                    ]"
+                    @input="handleEndpointNameInput"
                   />
-                  <p class="body-sm text-muted-foreground">
-                    This appears when people discover it. Keep it simple, no spaces
-                  </p>
+                  <!-- Loading, success, or error indicator -->
+                  <div
+                    class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none"
+                  >
+                    <Loader2
+                      v-if="isCheckingNameAvailability"
+                      class="h-4 w-4 text-muted-foreground animate-spin"
+                    />
+                    <Check
+                      v-else-if="nameAvailabilityResult === 'available'"
+                      class="h-4 w-4 text-green-600"
+                    />
+                  </div>
                 </div>
+                <p v-if="endpointNameError" class="body-sm text-red-600">
+                  {{ endpointNameError }}
+                </p>
+                <p
+                  v-else-if="nameAvailabilityResult === 'available'"
+                  class="body-sm text-green-600"
+                >
+                  ✓ This name is available
+                </p>
+                <p v-else class="body-sm text-muted-foreground">
+                  This appears when people discover it. Use lowercase letters, numbers, and hyphens
+                  only (e.g., my-data-source)
+                </p>
+              </div>
 
-                <!-- Summary -->
+              <!-- Summary -->
+              <div class="space-y-2">
+                <Label for="summary" class="body-sm font-medium text-foreground">
+                  Short Description <span class="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="summary"
+                  v-model="formData.summary"
+                  placeholder="e.g., GPT-4 powered coding assistant for development tasks"
+                  class="w-full"
+                />
+                <p class="body-sm text-muted-foreground">
+                  This appears when people browse available content
+                </p>
+              </div>
+
+              <!-- Tags -->
+              <div class="space-y-2">
+                <Label for="tags" class="body-sm font-medium text-foreground">
+                  Tags (Optional)
+                </Label>
                 <div class="space-y-2">
-                  <Label for="summary" class="body-sm font-medium text-foreground">
-                    Summary <span class="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="summary"
-                    v-model="formData.summary"
-                    placeholder="Brief description of what your model does"
-                    class="w-full"
-                  />
+                  <div class="flex gap-2">
+                    <Input
+                      id="tags"
+                      v-model="tagInput"
+                      @keydown.enter.prevent="addTag"
+                      placeholder="Add keywords like: legal, medical, research, finance"
+                      class="flex-1"
+                    />
+                    <Button
+                      @click="addTag"
+                      variant="outline"
+                      size="sm"
+                      :disabled="!tagInput.trim()"
+                    >
+                      <Plus class="h-4 w-4" />
+                    </Button>
+                  </div>
                   <p class="body-sm text-muted-foreground">
-                    A short summary that will appear in model listings
+                    Tags help others discover your content
                   </p>
-                </div>
 
-                <!-- Description -->
+                  <!-- Popular Tags Suggestions -->
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-xs text-muted-foreground">Popular:</span>
+                    <Button
+                      v-for="suggestion in popularTags"
+                      :key="suggestion"
+                      @click="addSuggestedTag(suggestion)"
+                      variant="ghost"
+                      size="sm"
+                      class="h-6 px-2 text-xs"
+                      :disabled="formData.tags.includes(suggestion)"
+                    >
+                      {{ suggestion }}
+                    </Button>
+                  </div>
+
+                  <!-- Selected Tags -->
+                  <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-3">
+                    <Badge
+                      v-for="(tag, index) in formData.tags"
+                      :key="index"
+                      variant="secondary"
+                      class="px-3 py-1"
+                    >
+                      {{ tag }}
+                      <button
+                        @click="removeTag(index)"
+                        class="ml-2 hover:text-destructive transition-colors"
+                      >
+                        <X class="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Add More Details Toggle -->
+              <div class="border-t pt-4">
+                <button
+                  @click="showAdvancedDetails = !showAdvancedDetails"
+                  class="flex items-center gap-2 body-sm text-primary hover:text-primary/80 transition-colors"
+                >
+                  <ChevronRight
+                    :class="[
+                      'w-4 h-4 transition-transform',
+                      showAdvancedDetails ? 'rotate-90' : '',
+                    ]"
+                  />
+                  Add more details (optional)
+                </button>
+              </div>
+
+              <!-- Advanced Details -->
+              <div v-if="showAdvancedDetails" class="space-y-4 pl-6 border-l-2 border-border/50">
                 <div class="space-y-2">
                   <Label for="description" class="body-sm font-medium text-foreground">
                     Description
                   </Label>
                   <MdEditor
-                    v-model="formData.description"
+                    :model-value="formData.description || defaultDescriptionTemplate"
+                    @update:model-value="formData.description = $event"
                     :height="200"
-                    :toolbars-exclude="['github']"
+                    :toolbars="[
+                      'bold',
+                      'italic',
+                      'title',
+                      'strikeThrough',
+                      'unorderedList',
+                      'orderedList',
+                      'link',
+                      'code',
+                      'codeRow',
+                    ]"
                     :preview-theme="'github'"
                     :code-theme="'github'"
                     language="en-US"
-                    placeholder="Detailed description of your model (supports Markdown)"
                   />
-                  <p class="body-sm text-muted-foreground">
-                    Provide a detailed description using the WYSIWYG markdown editor above.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4: Review & Publish -->
+          <div v-if="currentSubStep === 4" class="space-y-6">
+            <!-- Header -->
+            <div
+              class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
+            >
+              <div
+                class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"
+              >
+                <svg
+                  class="w-8 h-8 text-green-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 13l4 4L19 7"
+                  ></path>
+                </svg>
+              </div>
+              <h2 class="heading-1 text-foreground mb-2">Ready to Publish!</h2>
+              <p class="text-muted-foreground max-w-md mx-auto">
+                Your model endpoint is configured and ready to go. Review the summary below and
+                publish when you're ready.
+              </p>
+            </div>
+
+            <!-- Creation Progress -->
+            <div
+              v-if="isCreating"
+              class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
+            >
+              <div
+                class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"
+              >
+                <svg class="w-8 h-8 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  ></circle>
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+              </div>
+              <h3 class="heading-2 text-foreground mb-2">Creating Endpoint...</h3>
+              <p class="text-muted-foreground">
+                {{ creationStep || 'Setting up your model endpoint...' }}
+              </p>
+            </div>
+
+            <!-- Summary -->
+            <div class="bg-card border border-border rounded-2xl p-8 space-y-6">
+              <!-- Basic Information -->
+              <div>
+                <h3 class="heading-2 text-foreground mb-6">Summary</h3>
+
+                <div class="mb-6">
+                  <div>
+                    <p class="body-sm font-medium text-muted-foreground mb-2">Name</p>
+                    <p class="text-foreground font-medium">
+                      {{ formData.endpointName || 'Not specified' }}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <p class="body-sm font-medium text-muted-foreground mb-2">Summary</p>
+                  <p class="text-foreground leading-relaxed">
+                    {{ formData.summary || 'Not specified' }}
                   </p>
                 </div>
 
-                <!-- Tags -->
-                <div class="space-y-2">
-                  <Label for="tags" class="body-sm font-medium text-foreground"> Tags </Label>
-                  <div class="space-y-2">
-                    <div class="flex gap-2">
-                      <Input
-                        id="tags"
-                        v-model="tagInput"
-                        @keydown.enter.prevent="addTag"
-                        placeholder="Add tags to help users find your model"
-                        class="flex-1"
-                      />
-                      <Button @click="addTag" variant="outline" size="sm">
-                        <Plus class="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-2">
-                      <Badge
-                        v-for="(tag, index) in formData.tags"
-                        :key="index"
-                        variant="secondary"
-                        class="px-3 py-1"
-                      >
-                        {{ tag }}
-                        <button @click="removeTag(index)" class="ml-2 hover:text-muted-foreground">
-                          <X class="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    </div>
+                <!-- Detailed Description Preview -->
+                <div v-if="formData.description && formData.description.trim()" class="mt-6">
+                  <p class="body-sm font-medium text-muted-foreground mb-3">Detailed Description</p>
+                  <div class="bg-muted/30 border border-border rounded-lg p-4">
+                    <MdPreview
+                      :model-value="formData.description"
+                      :preview-theme="'github'"
+                      :code-theme="'github'"
+                      language="en-US"
+                    />
+                  </div>
+                </div>
+
+                <div v-if="formData.tags.length > 0" class="mt-6">
+                  <p class="body-sm font-medium text-muted-foreground mb-3">Tags</p>
+                  <div class="flex flex-wrap gap-2">
+                    <Badge
+                      v-for="tag in formData.tags"
+                      :key="tag"
+                      variant="outline"
+                      class="bg-primary/10 text-primary border-primary px-3 py-1"
+                      >{{ tag }}</Badge
+                    >
                   </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Step 4: Review -->
-            <div v-if="currentSubStep === 4" class="space-y-8">
-              <!-- Endpoint Summary -->
-              <div class="bg-card rounded-lg shadow-sm border border-border p-8">
-                <div class="space-y-6">
-                  <div>
-                    <h2 class="heading-2 text-foreground mb-2">Endpoint Summary</h2>
-                    <p class="text-sm text-muted-foreground">
-                      Review your model endpoint configuration before deployment
-                    </p>
-                  </div>
-
-                  <!-- Basic Information -->
-                  <div class="border-l-4 border-primary pl-4">
-                    <h3 class="font-medium text-foreground mb-2">Basic Information</h3>
-                    <div class="space-y-1 body-sm">
-                      <p>
-                        <span class="font-medium">Name:</span>
-                        {{ formData.endpointName || 'Not specified' }}
-                      </p>
-                      <p>
-                        <span class="font-medium">Summary:</span>
-                        {{ formData.summary || 'Not specified' }}
-                      </p>
-                      <div v-if="formData.description" class="space-y-2">
-                        <p class="font-medium">Description:</p>
-                        <div class="border border-border rounded-lg p-2">
-                          <MdPreview
-                            :model-value="formData.description"
-                            :preview-theme="'github'"
-                            :code-theme="'github'"
-                            language="en-US"
-                          />
-                        </div>
-                      </div>
-                      <div v-if="formData.tags.length > 0">
-                        <span class="font-medium">Tags:</span>
-                        <span class="ml-2">
-                          <Badge
-                            v-for="tag in formData.tags"
-                            :key="tag"
-                            variant="outline"
-                            class="mr-1"
-                            >{{ tag }}
-                          </Badge>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- AI Model -->
-                  <div class="border-l-4 border-purple-500 pl-4">
-                    <h3 class="font-medium text-foreground mb-2">AI Model</h3>
-                    <div class="body-sm space-y-1">
-                      <div v-if="selectedModelSourceType === 'existing'">
-                        <div v-if="formData.aiModel === 'nlp-engine'">
-                          <p><span class="font-medium">Source:</span> Existing Model</p>
-                          <p><span class="font-medium">Model:</span> NLP Processing Engine</p>
-                          <p><span class="font-medium">Provider:</span> vLLM</p>
-                          <p>
-                            <span class="font-medium">Status:</span>
-                            <Badge
-                              variant="outline"
-                              class="bg-muted/50 text-muted-foreground border-border body-sm"
-                            >
-                              Stopped</Badge
-                            >
-                          </p>
-                        </div>
-                        <div v-else-if="formData.aiModel === 'local-llama'">
-                          <p><span class="font-medium">Source:</span> Existing Model</p>
-                          <p><span class="font-medium">Model:</span> Code Assistant Model</p>
-                          <p><span class="font-medium">Provider:</span> Ollama</p>
-                          <p>
-                            <span class="font-medium">Status:</span>
-                            <Badge
-                              variant="outline"
-                              class="bg-green-50 text-green-700 border-green-200 body-sm"
-                              >Running
+              <!-- Model Configuration -->
+              <div class="border-t pt-6">
+                <p class="body-sm font-medium text-muted-foreground mb-3">
+                  Model Configuration
+                  <span v-if="selectedModelSourceType === 'existing'" class="text-green-600"
+                    >(Existing Model)</span
+                  >
+                  <span v-else-if="selectedModelSourceType === 'create-new'" class="text-blue-600"
+                    >(New Model)</span
+                  >
+                </p>
+                <div class="bg-muted/50 rounded-lg p-4">
+                  <div class="body-sm space-y-3">
+                    <!-- Existing Model Display -->
+                    <div
+                      v-if="selectedModelSourceType === 'existing' && formData.aiModel"
+                      class="space-y-3"
+                    >
+                      <div class="flex items-start gap-3">
+                        <Brain class="w-4 h-4 text-green-600 mt-0.5" />
+                        <div class="flex-1">
+                          <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-foreground">{{
+                              getSelectedModelDetails()?.name || 'Selected Model'
+                            }}</span>
+                            <Badge variant="secondary" class="body-sm">
+                              {{
+                                getSelectedModelDetails()?.configuration?.model ||
+                                getSelectedModelDetails()?.dtype ||
+                                'AI Model'
+                              }}
                             </Badge>
+                          </div>
+                          <p class="text-muted-foreground body-sm">
+                            {{
+                              getSelectedModelDetails()?.summary ||
+                              'AI model for intelligent responses and conversations'
+                            }}
                           </p>
                         </div>
-                        <p v-else>Not selected</p>
                       </div>
-                      <div v-else-if="selectedModelSourceType === 'create-new'">
-                        <p><span class="font-medium">Source:</span> New Model</p>
-                        <p v-if="selectedNewModelType">
-                          <span class="font-medium">Type:</span> {{ selectedNewModelName }}
-                        </p>
-                        <p v-if="selectedNewModelType" class="text-muted-foreground">
-                          Configuration will be completed during deployment
-                        </p>
-                        <p v-else>Not configured</p>
-                      </div>
-                      <p v-else>Not configured</p>
                     </div>
-                  </div>
 
-                  <!-- Applied Policies -->
-                  <div class="border-l-4 border-orange-500 pl-4">
-                    <h3 class="font-medium text-foreground mb-2">Applied Policies</h3>
-                    <div class="body-sm space-y-2">
-                      <div
-                        v-if="Object.keys(getAppliedPoliciesGrouped()).length > 0"
-                        class="space-y-6"
-                      >
-                        <div
-                          v-for="(policyGroup, policyType) in getAppliedPoliciesGrouped()"
-                          :key="policyType"
-                          class="space-y-3"
-                        >
-                          <!-- Policy Type Header -->
-                          <div class="flex items-center gap-3">
-                            <div
-                              :class="[
-                                'p-2 rounded-lg',
-                                policyGroup.color === 'blue' ? 'bg-primary/10' : '',
-                                policyGroup.color === 'green' ? 'bg-green-100' : '',
-                                policyGroup.color === 'yellow' ? 'bg-yellow-100' : '',
-                                policyGroup.color === 'purple' ? 'bg-purple-100' : '',
-                                policyGroup.color === 'red' ? 'bg-red-100' : '',
-                              ]"
-                            >
-                              <component
-                                :is="policyGroup.icon"
-                                :class="[
-                                  'h-4 w-4',
-                                  policyGroup.color === 'blue' ? 'text-primary' : '',
-                                  policyGroup.color === 'green' ? 'text-green-600' : '',
-                                  policyGroup.color === 'yellow' ? 'text-yellow-600' : '',
-                                  policyGroup.color === 'purple' ? 'text-purple-600' : '',
-                                  policyGroup.color === 'red' ? 'text-red-600' : '',
-                                ]"
-                              />
-                            </div>
-                            <h4 class="font-semibold text-foreground">{{ policyType }}</h4>
-                            <span class="body-sm text-muted-foreground"
-                              >({{ policyGroup.rules.length }} rule{{
-                                policyGroup.rules.length !== 1 ? 's' : ''
-                              }})</span
-                            >
+                    <!-- New Model Display -->
+                    <div
+                      v-else-if="
+                        selectedModelSourceType === 'create-new' &&
+                        newModelForm.provider &&
+                        newModelForm.model
+                      "
+                      class="space-y-3"
+                    >
+                      <div class="flex items-start gap-3">
+                        <Plus class="w-4 h-4 text-primary mt-0.5" />
+                        <div class="flex-1">
+                          <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-foreground">{{
+                              getDerivedModelName()
+                            }}</span>
+                            <Badge variant="secondary" class="body-sm">
+                              {{ getSelectedNewModelLabel() || newModelForm.model }}
+                            </Badge>
                           </div>
-
-                          <!-- Policy Rules -->
-                          <div class="space-y-3 ml-6">
-                            <div
-                              v-for="rule in policyGroup.rules"
-                              :key="rule.id"
-                              class="bg-muted/50 border border-border rounded-lg p-4"
-                            >
-                              <h5 class="font-medium text-foreground mb-3">{{ rule.name }}</h5>
-                              <div class="space-y-2 body-sm text-muted-foreground">
-                                <!-- Authorization Policy Display -->
-                                <div v-if="rule.config.ruleType">
-                                  <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Type:</span
-                                    >
-                                    <span>{{
-                                      rule.config.ruleType === 'allow' ? 'Allow-list' : 'Deny-list'
-                                    }}</span>
-                                  </p>
-                                  <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>{{ rule.config.users || 'Not specified' }}</span>
-                                  </p>
-                                </div>
-
-                                <!-- Rate Limiter Policy Display -->
-                                <div v-if="rule.config.limit">
-                                  <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Limit:</span
-                                    >
-                                    <span
-                                      >{{ rule.config.limit }} requests per
-                                      {{ rule.config.windowValue }}
-                                      {{ rule.config.windowUnit }}(s)</span
-                                    >
-                                  </p>
-                                  <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Scope:</span
-                                    >
-                                    <span>{{ rule.config.scope || 'Per user' }}</span>
-                                  </p>
-                                  <p
-                                    v-if="rule.config.userType === 'only' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>Only {{ rule.config.users }}</span>
-                                  </p>
-                                  <p
-                                    v-if="rule.config.userType === 'except' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>All except {{ rule.config.users }}</span>
-                                  </p>
-                                </div>
-
-                                <!-- Pricing Policy Display -->
-                                <div
-                                  v-if="
-                                    rule.config.price !== undefined &&
-                                    rule.config.price !== null &&
-                                    rule.config.price !== ''
-                                  "
-                                >
-                                  <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Price:</span
-                                    >
-                                    <span>${{ rule.config.price }} per call</span>
-                                  </p>
-                                  <p
-                                    v-if="rule.config.userType === 'only' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>Only {{ rule.config.users }}</span>
-                                  </p>
-                                  <p
-                                    v-if="rule.config.userType === 'except' && rule.config.users"
-                                    class="flex items-start"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>All except {{ rule.config.users }}</span>
-                                  </p>
-                                </div>
-
-                                <!-- AI Filters Policy Display -->
-                                <div v-if="rule.config.modelId">
-                                  <p class="flex items-start">
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Model:</span
-                                    >
-                                    <span>{{
-                                      mockModels.find((m) => m.id === rule.config.modelId)?.name ||
-                                      rule.config.modelId
-                                    }}</span>
-                                  </p>
-                                  <div v-if="rule.config.prompt" class="mt-2">
-                                    <p class="font-medium text-muted-foreground mb-2">Prompt:</p>
-                                    <div
-                                      class="body-sm bg-card border rounded px-3 py-2 font-mono max-h-32 overflow-y-auto whitespace-pre-wrap"
-                                    >
-                                      {{ rule.config.prompt }}
-                                    </div>
-                                  </div>
-                                  <p
-                                    v-if="rule.config.userType === 'only' && rule.config.users"
-                                    class="flex items-start mt-2"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>Only {{ rule.config.users }}</span>
-                                  </p>
-                                  <p
-                                    v-if="rule.config.userType === 'except' && rule.config.users"
-                                    class="flex items-start mt-2"
-                                  >
-                                    <span
-                                      class="font-medium text-muted-foreground w-20 flex-shrink-0"
-                                      >Users:</span
-                                    >
-                                    <span>All except {{ rule.config.users }}</span>
-                                  </p>
-                                </div>
-                              </div>
+                          <p class="text-muted-foreground body-sm mb-2">
+                            {{ getDerivedModelDescription() }}
+                          </p>
+                          <div class="grid grid-cols-2 gap-3 body-sm">
+                            <div>
+                              <span class="text-muted-foreground">Provider:</span>
+                              <span class="ml-2 font-medium text-foreground">{{
+                                newModelForm.provider.charAt(0).toUpperCase() +
+                                newModelForm.provider.slice(1)
+                              }}</span>
+                            </div>
+                            <div>
+                              <span class="text-muted-foreground">Model:</span>
+                              <span class="ml-2 font-medium text-foreground">{{
+                                getSelectedNewModelLabel() || newModelForm.model
+                              }}</span>
+                            </div>
+                            <div class="col-span-2">
+                              <span class="text-muted-foreground">API Key:</span>
+                              <span class="ml-2 font-medium text-foreground">{{
+                                newModelForm.apiKey
+                                  ? '•'.repeat(8) + newModelForm.apiKey.slice(-4)
+                                  : 'Not provided'
+                              }}</span>
                             </div>
                           </div>
                         </div>
                       </div>
-                      <p v-else class="text-muted-foreground">No policies applied</p>
+                    </div>
+
+                    <!-- No Model Selected -->
+                    <div v-else class="flex items-start gap-3">
+                      <Sparkles class="w-4 h-4 text-muted-foreground mt-0.5" />
+                      <div>
+                        <span class="font-medium text-muted-foreground">No model selected</span>
+                        <p class="text-muted-foreground body-sm mt-1">
+                          Please complete Step 1 to configure your AI model
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Endpoint Visibility Card -->
-              <div class="bg-card rounded-lg shadow-sm border border-border p-8">
-                <div class="space-y-6">
-                  <div>
-                    <h2 class="heading-2 text-foreground mb-2">Endpoint Visibility</h2>
-                    <p class="text-sm text-muted-foreground">
-                      Configure who can discover your endpoint
-                    </p>
-                  </div>
-
-                  <div class="space-y-4">
-                    <!-- Public Endpoint -->
-                    <div
-                      class="flex items-center space-x-3 p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:bg-muted/50"
-                      :class="
-                        endpointVisibility === 'public'
-                          ? 'border-green-500 bg-green-50'
-                          : 'border-border'
-                      "
-                      @click="endpointVisibility = 'public'"
-                    >
-                      <input
-                        type="radio"
-                        id="public-endpoint"
-                        name="endpoint-visibility"
-                        value="public"
-                        v-model="endpointVisibility"
-                        class="w-4 h-4 text-green-600 border-border focus:ring-green-500"
-                      />
-                      <div class="p-2 rounded-full bg-green-100">
-                        <Globe class="w-5 h-5 text-green-600" />
-                      </div>
-                      <div class="flex-1">
-                        <label for="public-endpoint" class="cursor-pointer">
-                          <h4 class="font-medium text-foreground">Public Endpoint</h4>
-                          <p class="text-sm text-muted-foreground">
-                            Anyone can discover this endpoint.
-                          </p>
-                        </label>
-                      </div>
-                    </div>
-
-                    <!-- Private Endpoint -->
-                    <div
-                      class="flex items-center space-x-3 p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:bg-muted/50"
-                      :class="
-                        endpointVisibility === 'private'
-                          ? 'border-primary bg-primary/10'
-                          : 'border-border'
-                      "
-                      @click="endpointVisibility = 'private'"
-                    >
-                      <input
-                        type="radio"
-                        id="private-endpoint"
-                        name="endpoint-visibility"
-                        value="private"
-                        v-model="endpointVisibility"
-                        class="w-4 h-4 text-primary border-border focus:ring-blue-500"
-                      />
-                      <div class="p-2 rounded-full bg-primary/10">
-                        <Lock class="w-5 h-5 text-primary" />
-                      </div>
-                      <div class="flex-1">
-                        <label for="private-endpoint" class="cursor-pointer">
-                          <h4 class="font-medium text-foreground">Private Endpoint</h4>
-                          <p class="text-sm text-muted-foreground">
-                            Only selected users can discover this endpoint.
-                          </p>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Allowed Users (shown when private is selected) -->
-                  <div v-if="endpointVisibility === 'private'" class="space-y-4">
-                    <div>
-                      <h3 class="text-lg font-medium text-foreground mb-1">
-                        Allowed Users (Optional)
-                      </h3>
-                      <p class="text-sm text-muted-foreground mb-4">
-                        Add email addresses of users who can discover this endpoint. You can leave
-                        this empty and add users later from the endpoint details page.
-                      </p>
-                    </div>
-
-                    <div class="flex gap-2">
-                      <Input
-                        v-model="allowedUserInput"
-                        @keydown.enter.prevent="addAllowedUser"
-                        placeholder="user@example.com"
-                        :class="[
-                          'flex-1',
-                          hasInputError
-                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                            : '',
-                        ]"
-                        type="text"
-                        autocomplete="new-password"
-                        autocapitalize="off"
-                        autocorrect="off"
-                        spellcheck="false"
-                        data-1p-ignore
-                        data-lpignore="true"
-                        data-bwignore
-                        data-protonpass-ignore
-                        data-dashlane-ignore
-                        data-form-type="other"
-                        data-password-manager="false"
-                        role="textbox"
-                      />
-                      <Button @click="addAllowedUser" variant="outline" size="default" class="px-4">
-                        <Plus class="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    <!-- Error message -->
-                    <div
-                      v-if="allowedUserError"
-                      class="body-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2"
-                    >
-                      {{ allowedUserError }}
-                    </div>
-
-                    <p class="body-sm text-muted-foreground">
-                      Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-                      *@contractors.org)
-                    </p>
-
-                    <!-- Display added users -->
-                    <div v-if="allowedUsers.length > 0" class="flex flex-wrap gap-2">
-                      <Badge
-                        v-for="(user, index) in allowedUsers"
-                        :key="index"
-                        variant="secondary"
-                        class="px-3 py-1 flex items-center gap-2"
-                      >
-                        {{ user }}
-                        <button
-                          @click="removeAllowedUser(index)"
-                          class="hover:text-muted-foreground transition-colors"
-                        >
-                          <X class="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Navigation Buttons -->
-            <div class="flex justify-between mt-8">
-              <Button @click="handlePrevious" variant="outline" class="px-8">
-                <ArrowLeft class="mr-2 h-4 w-4" />
-                Previous
-              </Button>
-
-              <Button
-                @click="handleNext"
-                :disabled="!isCurrentStepValid"
-                class="bg-primary hover:bg-primary/90 text-primary-foreground px-8 ml-auto"
+              <!-- Access Policies Summary -->
+              <div
+                v-if="Object.values(policyRules).some((rules) => rules.length > 0)"
+                class="border-t pt-6"
               >
-                {{
-                  currentSubStep === APP_LIMITS.TOTAL_MODEL_ENDPOINT_CREATION_STEPS
-                    ? 'Publish Endpoint'
-                    : 'Next'
-                }}
-                <ArrowRight class="ml-2 h-4 w-4" />
-              </Button>
+                <p class="body-sm font-medium text-muted-foreground mb-3">Access Policies</p>
+                <div class="space-y-4">
+                  <div v-for="policyType in policyTypes" :key="policyType.id">
+                    <div
+                      v-if="policyRules[policyType.id]?.length > 0"
+                      class="bg-muted/50 rounded-lg p-4"
+                    >
+                      <div class="flex items-center gap-2 mb-3">
+                        <component :is="policyType.icon" class="w-4 h-4 text-muted-foreground" />
+                        <span class="body-sm font-medium text-foreground">{{
+                          policyType.name
+                        }}</span>
+                        <Badge variant="secondary" class="body-sm">
+                          {{ policyRules[policyType.id].length }}
+                          {{ policyRules[policyType.id].length === 1 ? 'rule' : 'rules' }}
+                        </Badge>
+                      </div>
+                      <!-- Rule Details -->
+                      <div class="space-y-2">
+                        <div
+                          v-for="(rule, index) in policyRules[policyType.id]"
+                          :key="rule.id"
+                          class="bg-card/50 border border-border/50 rounded-lg p-3"
+                        >
+                          <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                              <h4 class="body-sm font-medium text-foreground mb-1">
+                                {{ rule.config.note || `${policyType.name} Rule #${index + 1}` }}
+                              </h4>
+                              <p class="body-sm text-muted-foreground">
+                                {{ getRuleSummary(policyType.id, rule.config) }}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
+
+          <!-- Error Display (only in step 4) -->
+          <div
+            v-if="creationError && currentSubStep === 4"
+            class="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg"
+          >
+            <div class="flex items-start gap-3">
+              <X class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div class="flex-1">
+                <h4 class="font-medium text-red-900 mb-1">Failed to create endpoint</h4>
+                <p class="text-sm text-red-700">{{ creationError }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Navigation Buttons -->
+          <div class="flex justify-between mt-8 pt-6 border-t border-border">
+            <Button
+              variant="outline"
+              @click="currentSubStep === 1 ? handleBack() : previousStep()"
+              :disabled="isCreating"
+            >
+              {{ currentSubStep === 1 ? 'Cancel' : 'Back' }}
+            </Button>
+            <Button
+              @click="nextStep"
+              :disabled="!isCurrentStepValid || isCreating"
+              class="bg-primary hover:bg-primary/90 text-white px-8"
+            >
+              <template v-if="currentSubStep === 4 && isCreating">
+                {{ creationStep || 'Publishing...' }}
+              </template>
+              <template v-else>
+                {{ currentSubStep === 4 ? 'Publish Now' : 'Continue' }}
+              </template>
+              <ArrowRight v-if="!isCreating" class="ml-2 h-4 w-4" />
+            </Button>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- Create Model Dialog -->
-    <CreateModelDialog v-model:open="showCreateModelDialog" @model-created="handleModelCreated" />
   </ErrorBoundary>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
+  ArrowRight,
+  FolderOpen,
+  Brain,
+  ChevronRight,
   Plus,
   X,
-  ArrowRight,
-  Save,
-  FolderOpen,
-  Code,
-  ExternalLink,
-  Search,
+  Sparkles,
   Shield,
   Gauge,
   DollarSign,
   UserCheck,
-  Filter as FilterIcon,
-  Globe,
-  Lock,
   Lightbulb,
+  Loader2,
+  Check,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   Select,
   SelectContent,
@@ -1394,44 +1325,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
-import IntegrationIcon from '@/components/IntegrationIcons.vue'
-import CreateModelDialog from '@/components/CreateModelDialog.vue'
-import { mockModels } from '@/stores/models'
-import { APP_LIMITS, UI_CONSTANTS } from '@/lib/constants'
-import ErrorBoundary from '@/components/ErrorBoundary.vue'
+import { modelsApi } from '@/api/endpoints/models'
+import { endpointsApi } from '@/api/endpoints/endpoints'
+import { useModelEndpointCreation } from '@/composables/useModelEndpointCreation'
+import type { ModelListItem } from '@/api/types'
 
 const router = useRouter()
+
+// Model endpoint creation composable
+const { isCreating, creationError, creationStep, createModelEndpointWithData, reset } =
+  useModelEndpointCreation()
 
 // Sub-step navigation
 const currentSubStep = ref(1)
 
-// Step titles and descriptions
-const stepTitles = [
-  'What model are you sharing?',
-  'Set rules & pricing',
-  'Add details & publish',
-  'Review',
-]
+// Track completed steps - only allow navigation to completed steps
+const completedSteps = ref<Set<number>>(new Set())
 
-const stepDescriptions = [
-  'Choose to add a new model or use an existing one',
-  'Control access, set rate limits, pricing, and approval policies',
-  'Provide basic details about your model endpoint',
-  'Review and deploy your model endpoint',
-]
-
-// Form data
-const formData = ref({
-  endpointName: '',
-  summary: '',
-  description: '',
-  tags: [] as string[],
-  aiModel: '',
-  policies: {} as Record<string, boolean>,
-})
+const showAdvancedDetails = ref(false)
 
 // Tag input
 const tagInput = ref('')
@@ -1439,19 +1353,178 @@ const tagInput = ref('')
 // Model source selection
 const selectedModelSourceType = ref<string | null>(null)
 const selectedNewModelType = ref<string | null>(null)
-const searchQuery = ref('')
 
-// Dialog states
-const showCreateModelDialog = ref(false)
+// New model form data
+const newModelForm = ref({
+  provider: '',
+  model: '',
+  apiKey: '',
+})
 
-// Endpoint visibility
-const endpointVisibility = ref<string>('')
-const allowedUsers = ref<string[]>([])
-const allowedUserInput = ref('')
-const allowedUserError = ref('')
-const hasInputError = ref(false)
+// Track user input for validation timing
+const hasTypedEndpointName = ref(false)
+
+// Name validation state
+const isCheckingNameAvailability = ref(false)
+const nameAvailabilityResult = ref<'available' | 'taken' | null>(null)
+const nameCheckDebounceTimer = ref<number | null>(null)
+
+// Popular tag suggestions
+const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
+
+// Description template for model documentation
+const defaultDescriptionTemplate = `## Model Overview
+Brief summary of what this model does and its primary capabilities...
+
+## Model Details
+- **Type**: Text generation, code assistance, analysis, etc.
+- **Base model**: Foundation model or architecture used
+- **Specialization**: Domain-specific training or fine-tuning
+- **Languages**: Supported programming/natural languages
+
+## Capabilities
+- **Primary functions**: Main tasks the model excels at
+- **Input format**: Text, code, structured data, etc.
+- **Output format**: Generated text, code, analysis results
+- **Performance**: Response time and accuracy expectations
+
+## Use Cases
+- Development and coding assistance
+- Content generation and writing
+- Data analysis and insights
+- Educational and research applications
+
+## Model Limitations
+- **Scope**: Tasks the model may not handle well
+- **Accuracy**: Known limitations or edge cases
+- **Biases**: Potential response biases or skews
+- **Ethical considerations**: Usage guidelines and restrictions
+
+## Attribution & Usage
+How to properly credit this model when used in projects or research...`
+
+// Model options for different providers
+const openaiModels = [
+  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+  { value: 'gpt-4', label: 'GPT-4' },
+  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+  { value: 'o1-preview', label: 'o1 Preview' },
+  { value: 'o1-mini', label: 'o1 Mini' },
+  { value: 'gpt-4-turbo-preview', label: 'GPT-4 Turbo Preview' },
+]
+
+const groqModels = [
+  { value: 'llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct' },
+  { value: 'llama-3.2-90b-vision-instruct', label: 'Llama 3.2 90B Vision' },
+  { value: 'llama-3.2-11b-vision-instruct', label: 'Llama 3.2 11B Vision' },
+  { value: 'llama-3.1-70b-instruct', label: 'Llama 3.1 70B Instruct' },
+  { value: 'llama-3.1-8b-instruct', label: 'Llama 3.1 8B Instruct' },
+  { value: 'mixtral-8x7b-instruct', label: 'Mixtral 8x7B Instruct' },
+  { value: 'gemma2-9b-it', label: 'Gemma 2 9B IT' },
+  { value: 'gemma-7b-it', label: 'Gemma 7B IT' },
+]
+
+const openrouterModels = [
+  { value: 'openai/gpt-4o', label: 'GPT-4o' },
+  { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini' },
+  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+  { value: 'anthropic/claude-3-opus', label: 'Claude 3 Opus' },
+  { value: 'meta-llama/llama-3.2-90b-vision-instruct', label: 'Llama 3.2 90B Vision' },
+  { value: 'google/gemini-2.0-flash-exp:free', label: 'Gemini 2.0 Flash (Free)' },
+  { value: 'google/gemini-pro-1.5', label: 'Gemini Pro 1.5' },
+  { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
+  { value: 'mistralai/mistral-large', label: 'Mistral Large' },
+  { value: 'mistralai/codestral', label: 'Codestral' },
+  { value: 'qwen/qwen-2.5-72b-instruct', label: 'Qwen 2.5 72B' },
+]
+
+const togetherModels = [
+  { value: 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo', label: 'Llama 3.1 405B Turbo' },
+  { value: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo', label: 'Llama 3.1 70B Turbo' },
+  { value: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', label: 'Llama 3.1 8B Turbo' },
+  { value: 'meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo', label: 'Llama 3.2 90B Vision Turbo' },
+  { value: 'mistralai/Mixtral-8x22B-Instruct', label: 'Mixtral 8x22B Instruct' },
+  { value: 'mistralai/Mixtral-8x7B-Instruct', label: 'Mixtral 8x7B Instruct' },
+  { value: 'deepseek-ai/deepseek-coder-33b-instruct', label: 'DeepSeek Coder 33B' },
+  { value: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen 2.5 72B Instruct' },
+  { value: 'Qwen/Qwen2.5-Coder-32B-Instruct', label: 'Qwen 2.5 Coder 32B' },
+]
+
+const perplexityModels = [
+  { value: 'llama-3.1-sonar-huge-128k-online', label: 'Sonar Huge 128k (Online)' },
+  { value: 'llama-3.1-sonar-large-128k-online', label: 'Sonar Large 128k (Online)' },
+  { value: 'llama-3.1-sonar-small-128k-online', label: 'Sonar Small 128k (Online)' },
+  { value: 'llama-3.1-sonar-large-128k', label: 'Sonar Large 128k' },
+  { value: 'llama-3.1-sonar-small-128k', label: 'Sonar Small 128k' },
+  { value: 'llama-3.1-8b-instruct', label: 'Llama 3.1 8B Instruct' },
+  { value: 'llama-3.1-70b-instruct', label: 'Llama 3.1 70B Instruct' },
+]
+
+// Computed properties for model display
+const existingModelsCount = computed(() => availableModels.value.length)
+
+const displayedModels = computed(() => {
+  // If we have more than 3 models, show only 2 so we can add "...and X more" as the 3rd line
+  const maxToShow = availableModels.value.length > 3 ? 2 : 3
+  return availableModels.value.slice(0, maxToShow)
+})
+
+const remainingModelsCount = computed(() => {
+  // If we have more than 3 models, remaining count is based on showing only 2
+  return availableModels.value.length > 3 ? availableModels.value.length - 2 : 0
+})
+
+// Available models based on selected provider
+const availableNewModels = computed(() => {
+  switch (newModelForm.value.provider) {
+    case 'openai':
+      return openaiModels
+    case 'groq':
+      return groqModels
+    case 'openrouter':
+      return openrouterModels
+    case 'together':
+      return togetherModels
+    case 'perplexity':
+      return perplexityModels
+    default:
+      return []
+  }
+})
+
+// API Key label based on selected provider
+const apiKeyLabel = computed(() => {
+  const providerNames = {
+    openai: 'OpenAI',
+    groq: 'Groq',
+    openrouter: 'OpenRouter',
+    together: 'Together AI',
+    perplexity: 'Perplexity',
+  }
+
+  const providerName = providerNames[newModelForm.value.provider as keyof typeof providerNames]
+  return providerName ? `${providerName} API Key` : 'API Key'
+})
+
+// API Key placeholder based on selected provider
+const apiKeyPlaceholder = computed(() => {
+  const providerNames = {
+    openai: 'OpenAI',
+    groq: 'Groq',
+    openrouter: 'OpenRouter',
+    together: 'Together AI',
+    perplexity: 'Perplexity',
+  }
+
+  const providerName = providerNames[newModelForm.value.provider as keyof typeof providerNames]
+  return providerName ? `Enter your ${providerName} API key` : 'Enter your API key'
+})
 
 // Policy configurations
+type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
+
 interface PolicyConfig {
   id: string
   [key: string]: string | number
@@ -1463,31 +1536,28 @@ interface PolicyRule {
   isEditing: boolean
 }
 
-// Grouped policy interface for the review section
-interface GroupedPolicy {
-  type: string
-  icon: typeof Shield | typeof Gauge | typeof DollarSign | typeof UserCheck | typeof FilterIcon
+interface PolicyType {
+  id: PolicyTypeId
+  name: string
+  label: string
+  description: string
+  icon: typeof Shield | typeof Gauge | typeof DollarSign | typeof UserCheck
   color: string
-  rules: {
-    id: string
-    name: string
-    config: PolicyConfig
-  }[]
 }
 
-const policyRules = ref<Record<string, PolicyRule[]>>({
-  authorization: [] as PolicyRule[],
-  ratelimiter: [] as PolicyRule[],
-  pricing: [] as PolicyRule[],
-  'ai-filters': [] as PolicyRule[],
+type PolicyRulesRecord = Record<PolicyTypeId, PolicyRule[]>
+
+const policyRules = ref<PolicyRulesRecord>({
+  access: [],
+  rate_limit: [],
+  pricing: [],
 })
 
 // Currently editing rule ID for each policy type
-const editingRuleId = ref<Record<string, string | null>>({
-  authorization: null as string | null,
-  ratelimiter: null as string | null,
-  pricing: null as string | null,
-  'ai-filters': null as string | null,
+const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
+  access: null,
+  rate_limit: null,
+  pricing: null,
 })
 
 // Policy form data
@@ -1513,135 +1583,230 @@ const pricingForm = ref({
   note: '',
 })
 
-const aiFiltersForm = ref({
-  modelId: '',
-  prompt: '',
-  userType: 'all',
-  users: '',
-  note: '',
-})
-
-// Policy type interface
-interface PolicyType {
-  id: string
-  name: string
-  label: string
-  description: string
-  icon: typeof Shield | typeof Gauge | typeof DollarSign | typeof UserCheck | typeof FilterIcon
-  color: string
-}
-
 // Policy types definition
 const policyTypes: PolicyType[] = [
   {
-    id: 'authorization',
+    id: 'access',
     name: 'Authorization',
-    label: 'Who can use this?',
-    description: 'Allow or deny specific users from accessing this endpoint',
+    label: 'Who can access?',
+    description: 'Control who can use your content - everyone, specific users, or by invitation',
     icon: Shield,
     color: 'blue',
   },
   {
-    id: 'ratelimiter',
+    id: 'rate_limit',
     name: 'Rate Limiter',
-    label: 'Handle traffic',
-    description: 'Control request rates to prevent abuse and ensure fair resource usage',
+    label: 'Prevent overuse',
+    description: 'Limit how many queries each user can make per day or hour',
     icon: Gauge,
     color: 'green',
   },
   {
     id: 'pricing',
     name: 'Pricing',
-    label: 'Charge for usage',
-    description: 'Set fixed per-request pricing and/or token-based pricing',
+    label: 'Set your price',
+    description: 'Charge per query or make it free - you decide',
     icon: DollarSign,
     color: 'yellow',
   },
-  {
-    id: 'ai-filters',
-    name: 'AI filters',
-    label: 'AI safety filters',
-    description: 'Filter or redact responses using an AI before sending them back.',
-    icon: FilterIcon,
-    color: 'red',
-  },
 ]
 
-// Model options (from CreateModelDialog)
-const modelOptions = [
-  { id: 'vllm', name: 'vLLM', type: 'Model' },
-  { id: 'ollama', name: 'Ollama', type: 'Model' },
-  { id: 'huggingface', name: 'Hugging Face', type: 'Model' },
-  { id: 'custom', name: 'Custom', type: 'Model', isCustom: true },
+// Step titles and descriptions
+const stepTitles = [
+  'What model are you sharing?',
+  'Who can access it?',
+  'Tell us more about it',
+  '',
 ]
 
-// Count of existing models
-const existingModelsCount = computed(() => mockModels.length)
+const stepDescriptions = computed(() => [
+  existingModelsCount.value > 0
+    ? 'Choose to add a new model or use an existing one'
+    : 'Set up a new AI model from one of our supported providers',
+  'Control who can access your model and whether to charge for it',
+  "Give your model a name and description so others know what you're sharing",
+  '',
+])
 
-// Filtered models for search
-const filteredModels = computed(() => {
-  if (!searchQuery.value) return modelOptions
-  return modelOptions.filter((model) =>
-    model.name.toLowerCase().includes(searchQuery.value.toLowerCase()),
-  )
+// Form data
+const formData = ref({
+  endpointName: '',
+  summary: '',
+  description: '',
+  tags: [] as string[],
+  aiModel: '',
 })
 
-// Selected new model name
-const selectedNewModelName = computed(() => {
-  const model = modelOptions.find((m) => m.id === selectedNewModelType.value)
-  return model?.name || 'Model'
-})
+// Models state
+const availableModels = ref<ModelListItem[]>([])
+const loadingModels = ref(false)
+const modelsError = ref<string | null>(null)
 
-// Step validation
-const isStep1Valid = computed(() => {
-  // Step 1: Model selection
-  if (selectedModelSourceType.value === 'existing') {
-    return formData.value.aiModel !== ''
-  } else if (selectedModelSourceType.value === 'create-new') {
-    return selectedNewModelType.value !== null
-  }
-  return false
-})
+// Helper function to validate slug format
+const isValidSlug = (slug: string): boolean => {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)
+}
 
-// Can save draft when we have name (from step 3)
-const canSaveDraft = computed(() => formData.value.endpointName.trim() !== '')
-
-const isStep2Valid = computed(() => {
-  // Step 2: Policies are always optional
-  return true
-})
-
-const isStep3Valid = computed(() => {
-  // Step 3: Basic details - require endpoint name
-  return formData.value.endpointName.trim() !== ''
-})
-
-const isStep4Valid = computed(() => {
-  // Review step requires endpoint visibility to be selected
-  if (endpointVisibility.value === '') return false
-
-  // If private is selected, require at least one user
-  if (endpointVisibility.value === 'private') {
-    return allowedUsers.value.length > 0
+// Check name availability with the API
+const checkNameAvailability = async (name: string) => {
+  if (!name || !isValidSlug(name)) {
+    nameAvailabilityResult.value = null
+    return
   }
 
-  // For public, just need visibility selected
-  return true
+  isCheckingNameAvailability.value = true
+  nameAvailabilityResult.value = null
+
+  try {
+    await endpointsApi.get(name)
+    // If we get here, the endpoint exists, so the name is taken
+    nameAvailabilityResult.value = 'taken'
+  } catch (error) {
+    // If we get a 404, the name is available
+    if (
+      error &&
+      typeof error === 'object' &&
+      'response' in error &&
+      (error as { response?: { status?: number } }).response?.status === 404
+    ) {
+      nameAvailabilityResult.value = 'available'
+    } else {
+      // Other errors, reset the state
+      nameAvailabilityResult.value = null
+      console.error('Error checking name availability:', error)
+    }
+  } finally {
+    isCheckingNameAvailability.value = false
+  }
+}
+
+// Debounced name checking
+const debouncedCheckNameAvailability = (name: string) => {
+  if (nameCheckDebounceTimer.value) {
+    clearTimeout(nameCheckDebounceTimer.value)
+  }
+
+  nameCheckDebounceTimer.value = setTimeout(() => {
+    checkNameAvailability(name)
+  }, 500) // 500ms debounce
+}
+
+const endpointNameError = computed(() => {
+  if (!hasTypedEndpointName.value) {
+    return null
+  }
+
+  const name = formData.value.endpointName.trim()
+  if (!name) {
+    return 'Name is required'
+  }
+  if (!isValidSlug(name)) {
+    return 'Name must contain only lowercase letters and numbers, with hyphens as word separators (e.g., my-data-source)'
+  }
+  if (nameAvailabilityResult.value === 'taken') {
+    return 'This name is already taken. Please choose a different name.'
+  }
+  return null
 })
 
 const isCurrentStepValid = computed(() => {
-  if (currentSubStep.value === 1) return isStep1Valid.value
-  if (currentSubStep.value === 2) return isStep2Valid.value
-  if (currentSubStep.value === 3) return isStep3Valid.value
-  return isStep4Valid.value
+  if (currentSubStep.value === 1) {
+    // Step 1: Model selection
+    if (selectedModelSourceType.value === 'existing') {
+      return formData.value.aiModel !== ''
+    } else if (selectedModelSourceType.value === 'create-new') {
+      return (
+        newModelForm.value.provider !== '' &&
+        newModelForm.value.model !== '' &&
+        newModelForm.value.apiKey.trim() !== ''
+      )
+    }
+    return false
+  }
+  if (currentSubStep.value === 2) {
+    return true // Access rules are optional
+  }
+  if (currentSubStep.value === 3) {
+    const slug = formData.value.endpointName.trim()
+    const basicFieldsValid =
+      slug !== '' &&
+      isValidSlug(slug) &&
+      formData.value.summary.trim() !== '' &&
+      nameAvailabilityResult.value === 'available' &&
+      !isCheckingNameAvailability.value
+
+    return basicFieldsValid
+  }
+  if (currentSubStep.value === 4) {
+    return true // Review step
+  }
+  return true
 })
+
+// Methods
+const handleBack = () => {
+  router.push({ name: 'endpoints' })
+}
+
+// Handle endpoint name input changes
+const handleEndpointNameInput = () => {
+  hasTypedEndpointName.value = true
+  const name = formData.value.endpointName.trim()
+
+  // Reset availability state when name changes
+  nameAvailabilityResult.value = null
+
+  // Only check availability if the name is valid format
+  if (name && isValidSlug(name)) {
+    debouncedCheckNameAvailability(name)
+  }
+}
+
+const nextStep = async () => {
+  if (isCurrentStepValid.value && currentSubStep.value < 4) {
+    // Mark current step as completed when moving to the next step
+    completedSteps.value.add(currentSubStep.value)
+    currentSubStep.value++
+  } else if (currentSubStep.value === 4) {
+    // Publish the model endpoint using the composable
+    const modelEndpointData = {
+      selectedModelSourceType: selectedModelSourceType.value as 'create-new' | 'existing' | '',
+      newModelForm: newModelForm.value,
+      selectedModelId: formData.value.aiModel,
+      policyRules: policyRules.value,
+      endpointName: formData.value.endpointName,
+      summary: formData.value.summary,
+      description: formData.value.description,
+      tags: formData.value.tags,
+    }
+
+    await createModelEndpointWithData(modelEndpointData)
+  }
+}
+
+const previousStep = () => {
+  if (currentSubStep.value > 1) {
+    // Clear creation errors when navigating away from step 4
+    if (currentSubStep.value === 4) {
+      reset()
+    }
+    currentSubStep.value--
+  }
+}
 
 // Add tag
 const addTag = () => {
-  const tag = tagInput.value.trim()
+  const tag = tagInput.value.trim().toLowerCase()
   if (tag && !formData.value.tags.includes(tag)) {
     formData.value.tags.push(tag)
     tagInput.value = ''
+  }
+}
+
+// Add suggested tag
+const addSuggestedTag = (tag: string) => {
+  if (!formData.value.tags.includes(tag)) {
+    formData.value.tags.push(tag)
   }
 }
 
@@ -1650,73 +1815,146 @@ const removeTag = (index: number) => {
   formData.value.tags.splice(index, 1)
 }
 
-// Select model source type
-const selectModelSourceType = (type: string) => {
-  selectedModelSourceType.value = type
-  // Reset selections when changing type
-  if (type !== 'existing') {
-    formData.value.aiModel = ''
-  }
-  if (type !== 'create-new') {
-    selectedNewModelType.value = null
-  }
-}
+// Navigate to a specific step (only if it's completed, current, or next available step)
+const navigateToStep = (targetStep: number) => {
+  // Allow navigation to completed steps, current step, or the next step after the highest completed step
+  const highestCompletedStep = Math.max(0, ...Array.from(completedSteps.value))
+  const allowedStep = targetStep <= Math.max(highestCompletedStep + 1, currentSubStep.value)
 
-// Handle model created
-const handleModelCreated = () => {
-  // In a real app, this would update the model list and select the new model
-  console.log('Model created')
-  // If we're in the AI filters context, we could auto-select the new model
-  // For now, just reset to empty so user can select from the updated list
-  if (aiFiltersForm.value.modelId === 'create-new') {
-    aiFiltersForm.value.modelId = ''
-  }
-}
+  if (allowedStep) {
+    currentSubStep.value = targetStep
 
-// Get applied policies grouped by type for review
-const getAppliedPoliciesGrouped = (): Record<string, GroupedPolicy> => {
-  const groupedPolicies: Record<string, GroupedPolicy> = {}
-  for (const [policyId, rules] of Object.entries(policyRules.value)) {
-    if (rules.length > 0) {
-      const policyType = policyTypes.find((p) => p.id === policyId)
-      if (policyType) {
-        const savedRules = rules.filter((rule) => !rule.isEditing)
-        if (savedRules.length > 0) {
-          groupedPolicies[policyType.name] = {
-            type: policyType.name,
-            icon: policyType.icon,
-            color: policyType.color,
-            rules: savedRules.map((rule, index) => ({
-              id: rule.id,
-              name: String(rule.config.note || `${policyType.name} rule #${index + 1}`),
-              config: rule.config,
-            })),
-          }
-        }
-      }
+    // Clear creation errors when navigating away from step 4
+    if (targetStep !== 4) {
+      reset()
     }
   }
-  return groupedPolicies
 }
 
-// Parse config strings into key-value pairs
+// Check if a step is clickable (completed, current, or next available step)
+const isStepClickable = (stepNumber: number) => {
+  const highestCompletedStep = Math.max(0, ...Array.from(completedSteps.value))
+  return stepNumber <= Math.max(highestCompletedStep + 1, currentSubStep.value)
+}
+
+// Generate rule summary based on policy type and configuration
+const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {
+  switch (policyId) {
+    case 'access':
+      if (!config.users) return 'No users configured'
+      const ruleType = config.ruleType === 'allow' ? 'Allow' : 'Deny'
+      const userList = (config.users as string)
+        .split(',')
+        .map((u) => u.trim())
+        .filter((u) => u)
+      if (userList.length === 0) {
+        return 'No users configured'
+      }
+      // Show all patterns
+      return `${ruleType} access for ${userList.join(', ')}`
+
+    case 'rate_limit':
+      if (!config.limit) return 'No limit configured'
+      const scope = config.scope === 'global' ? 'for this endpoint' : 'per user'
+      return `${config.limit} requests per ${config.windowUnit} ${scope}`
+
+    case 'pricing':
+      if (config.price === undefined || config.price === null || config.price === '')
+        return 'No price configured'
+      const price = parseFloat(config.price as string)
+
+      // Check for invalid number
+      if (isNaN(price)) return 'Invalid price configured'
+
+      // Handle free pricing
+      if (price === 0) {
+        if (config.userType === 'all') {
+          return 'Free for all users'
+        } else {
+          const userList = config.users
+            ? (config.users as string)
+                .split(',')
+                .map((u) => u.trim())
+                .filter((u) => u)
+            : []
+          if (userList.length === 0) {
+            return 'Free for specific users (none configured)'
+          }
+          return `Free for ${userList.join(', ')}`
+        }
+      }
+
+      // Handle paid pricing
+      // Format price dynamically, showing up to 8 decimal places with trailing zeros removed
+      const formattedPrice = price.toFixed(8).replace(/\.?0+$/, '')
+      if (config.userType === 'all') {
+        return `$${formattedPrice} per query for all users`
+      } else {
+        const userList = config.users
+          ? (config.users as string)
+              .split(',')
+              .map((u) => u.trim())
+              .filter((u) => u)
+          : []
+        if (userList.length === 0) {
+          return `$${formattedPrice} per query for specific users (none configured)`
+        }
+        return `$${formattedPrice} per query for ${userList.join(', ')}`
+      }
+
+    default:
+      return 'Rule configured'
+  }
+}
+
+// Fill example data
+const fillExampleData = (exampleType: 'code' | 'chat' | 'analysis') => {
+  hasTypedEndpointName.value = true // Mark as user input for validation
+
+  switch (exampleType) {
+    case 'code':
+      formData.value.endpointName = 'gpt-4-code-helper'
+      formData.value.summary = 'GPT-4 powered coding assistant for development tasks'
+      formData.value.description =
+        'A powerful coding assistant that helps with programming tasks, debugging, code reviews, and technical problem-solving. Specialized in multiple programming languages and frameworks.'
+      formData.value.tags = ['coding', 'development', 'gpt-4', 'assistant']
+      break
+
+    case 'chat':
+      formData.value.endpointName = 'conversational-ai'
+      formData.value.summary = 'General purpose conversational AI assistant'
+      formData.value.description =
+        'A versatile AI assistant for general conversations, question answering, creative writing, and everyday tasks. Designed to be helpful, harmless, and honest.'
+      formData.value.tags = ['conversation', 'chat', 'general', 'assistant']
+      break
+
+    case 'analysis':
+      formData.value.endpointName = 'research-assistant'
+      formData.value.summary = 'AI model specialized in data analysis and research'
+      formData.value.description =
+        'Advanced AI assistant focused on data analysis, research tasks, report generation, and analytical thinking. Perfect for academic and business research needs.'
+      formData.value.tags = ['research', 'analysis', 'data', 'academic']
+      break
+  }
+
+  // Trigger name availability check for the filled name
+  const name = formData.value.endpointName
+  if (name && isValidSlug(name)) {
+    debouncedCheckNameAvailability(name)
+  }
+}
 
 // Policy helper functions
 const generateRuleId = () => {
   return 'rule_' + Math.random().toString(36).substr(2, 9)
 }
 
-const addPolicy = (policyId: string) => {
+const addPolicy = (policyId: PolicyTypeId) => {
   const ruleId = generateRuleId()
   editingRuleId.value[policyId] = ruleId
 
   // Reset form data
   resetFormData(policyId)
-
-  // Initialize array if not exists
-  if (!policyRules.value[policyId]) {
-    policyRules.value[policyId] = []
-  }
 
   // Add new rule in editing state
   policyRules.value[policyId].push({
@@ -1726,62 +1964,25 @@ const addPolicy = (policyId: string) => {
   })
 }
 
-const savePolicy = (policyId: string, ruleId: string) => {
-  let config: PolicyConfig = { id: ruleId }
-
-  switch (policyId) {
-    case 'authorization':
-      config = { ...config, ...authorizationForm.value }
-      break
-    case 'ratelimiter':
-      config = { ...config, ...rateLimiterForm.value, windowValue: '1' }
-      break
-    case 'pricing':
-      config = { ...config, ...pricingForm.value, pricingType: 'per_call' }
-      break
-    case 'ai-filters':
-      config = { ...config, ...aiFiltersForm.value }
-      break
-  }
-
-  // Find and update the rule
-  const rule = policyRules.value[policyId]?.find((r) => r.id === ruleId)
-  if (rule) {
-    rule.config = config as PolicyConfig
-    rule.isEditing = false
-  }
-
-  editingRuleId.value[policyId] = null
-}
-
-const cancelEditPolicy = (policyId: string, ruleId: string) => {
-  // Find and cancel editing for the rule
-  const rule = policyRules.value[policyId]?.find((r) => r.id === ruleId)
-  if (rule) {
-    rule.isEditing = false
-  }
-  editingRuleId.value[policyId] = null
-}
-
-const editPolicy = (policyId: string, ruleId: string) => {
+const editPolicy = (policyId: PolicyTypeId, ruleId: string) => {
   // Set other rules to not editing
-  policyRules.value[policyId]?.forEach((rule) => {
+  policyRules.value[policyId].forEach((rule) => {
     rule.isEditing = rule.id === ruleId
   })
 
   editingRuleId.value[policyId] = ruleId
 
   // Load rule data into form
-  const rule = policyRules.value[policyId]?.find((r) => r.id === ruleId)
+  const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
   if (rule) {
     loadRuleIntoForm(policyId, rule.config)
   }
 }
 
-const deletePolicy = (policyId: string, ruleId: string) => {
+const deletePolicy = (policyId: PolicyTypeId, ruleId: string) => {
   // Remove rule from array
-  const index = policyRules.value[policyId]?.findIndex((r) => r.id === ruleId) ?? -1
-  if (index > -1 && policyRules.value[policyId]) {
+  const index = policyRules.value[policyId].findIndex((r) => r.id === ruleId)
+  if (index > -1) {
     policyRules.value[policyId].splice(index, 1)
   }
 
@@ -1791,12 +1992,12 @@ const deletePolicy = (policyId: string, ruleId: string) => {
   }
 }
 
-const resetFormData = (policyId: string) => {
+const resetFormData = (policyId: PolicyTypeId) => {
   switch (policyId) {
-    case 'authorization':
+    case 'access':
       authorizationForm.value = { ruleType: 'allow', users: '', note: '' }
       break
-    case 'ratelimiter':
+    case 'rate_limit':
       rateLimiterForm.value = {
         limit: '',
         windowUnit: 'minute',
@@ -1814,22 +2015,19 @@ const resetFormData = (policyId: string) => {
         note: '',
       }
       break
-    case 'ai-filters':
-      aiFiltersForm.value = { modelId: '', prompt: '', userType: 'all', users: '', note: '' }
-      break
   }
 }
 
-const loadRuleIntoForm = (policyId: string, config: PolicyConfig) => {
+const loadRuleIntoForm = (policyId: PolicyTypeId, config: PolicyConfig) => {
   switch (policyId) {
-    case 'authorization':
+    case 'access':
       authorizationForm.value = {
         ruleType: (config.ruleType as string) || 'allow',
         users: (config.users as string) || '',
         note: (config.note as string) || '',
       }
       break
-    case 'ratelimiter':
+    case 'rate_limit':
       rateLimiterForm.value = {
         limit: (config.limit as string) || '',
         windowUnit: (config.windowUnit as string) || 'minute',
@@ -1847,169 +2045,140 @@ const loadRuleIntoForm = (policyId: string, config: PolicyConfig) => {
         note: (config.note as string) || '',
       }
       break
-    case 'ai-filters':
-      aiFiltersForm.value = {
-        modelId: (config.modelId as string) || '',
-        prompt: (config.prompt as string) || '',
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
   }
 }
 
-// Navigation handlers
-const handleNext = () => {
-  if (!isCurrentStepValid.value) return
+const savePolicy = (policyId: PolicyTypeId, ruleId: string) => {
+  const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
+  if (!rule) return
 
-  if (currentSubStep.value < APP_LIMITS.TOTAL_MODEL_ENDPOINT_CREATION_STEPS) {
-    currentSubStep.value++
+  // Get the form data based on policy type
+  let formData
+  switch (policyId) {
+    case 'access':
+      formData = authorizationForm.value
+      break
+    case 'rate_limit':
+      formData = { ...rateLimiterForm.value }
+      break
+    case 'pricing':
+      formData = { ...pricingForm.value, pricingType: 'per_call' }
+      break
+    default:
+      return
+  }
+
+  // Save form data to rule config
+  rule.config = { ...formData, id: ruleId }
+  rule.isEditing = false
+
+  // Clear editing state
+  editingRuleId.value[policyId] = null
+}
+
+const cancelEditPolicy = (policyId: PolicyTypeId, ruleId: string) => {
+  const ruleIndex = policyRules.value[policyId].findIndex((r) => r.id === ruleId)
+  if (ruleIndex === -1) return
+
+  const rule = policyRules.value[policyId][ruleIndex]
+  if (!rule) return
+
+  // If this is a new rule being created, remove it
+  if (Object.keys(rule.config).length === 0) {
+    policyRules.value[policyId].splice(ruleIndex, 1)
   } else {
-    // Deploy the endpoint
-    console.log('Deploying model endpoint with data:', formData.value)
-    router.push({ name: 'endpoints' })
+    // Otherwise, just exit edit mode
+    rule.isEditing = false
   }
+
+  // Clear editing state
+  editingRuleId.value[policyId] = null
 }
 
-const handlePrevious = () => {
-  if (currentSubStep.value > 1) {
-    currentSubStep.value--
-  } else {
-    router.push({ name: 'create' })
-  }
-}
-
-const handleBack = () => {
-  router.push({ name: 'endpoints' })
-}
-
-// Save draft function
-const saveDraft = () => {
-  if (!canSaveDraft.value) return
-
-  console.log('Saving draft:', formData.value)
-  // In a real app, this would save to local storage or backend
-  // localStorage.setItem('modelEndpointDraft', JSON.stringify(formData.value))
-}
-
-// Open custom SDK documentation
-const openCustomSDKDocs = () => {
-  window.open('https://docs.openmined.org/custom-models', '_blank')
-}
-
-// Allowed users management
-const addAllowedUser = () => {
-  const input = allowedUserInput.value.trim()
-  if (input) {
-    // Clear previous errors
-    allowedUserError.value = ''
-    hasInputError.value = false
-
-    // Handle comma-separated input
-    const emails = input
-      .split(',')
-      .map((email) => email.trim())
-      .filter((email) => email)
-    const validEmails = []
-    const invalidEmails = []
-    const duplicateEmails = []
-
-    for (const email of emails) {
-      if (allowedUsers.value.includes(email)) {
-        duplicateEmails.push(email)
-      } else if (isValidEmailOrWildcard(email)) {
-        validEmails.push(email)
-      } else {
-        invalidEmails.push(email)
-      }
-    }
-
-    // Add valid emails
-    allowedUsers.value.push(...validEmails)
-
-    // Show error for invalid or duplicate emails
-    if (invalidEmails.length > 0 || duplicateEmails.length > 0) {
-      const errorMessages = []
-      if (invalidEmails.length > 0) {
-        errorMessages.push(`Invalid format: ${invalidEmails.join(', ')}`)
-      }
-      if (duplicateEmails.length > 0) {
-        errorMessages.push(`Already added: ${duplicateEmails.join(', ')}`)
-      }
-      allowedUserError.value = errorMessages.join('. ')
-      hasInputError.value = true
-
-      // Clear error after configured delay
-      setTimeout(() => {
-        allowedUserError.value = ''
-        hasInputError.value = false
-      }, UI_CONSTANTS.ERROR_AUTO_CLEAR_DELAY)
-    }
-
-    // Clear input if all emails were processed (valid or invalid)
-    if (validEmails.length > 0 || invalidEmails.length > 0) {
-      allowedUserInput.value = ''
-    }
-  }
-}
-
-const removeAllowedUser = (index: number) => {
-  allowedUsers.value.splice(index, 1)
-}
-
-// Fill example data function
-const fillExampleData = (type: string) => {
-  switch (type) {
-    case 'code':
-      formData.value.endpointName = 'gpt-4-code-helper'
-      formData.value.summary = 'GPT-4 powered coding assistant for development tasks'
-      formData.value.description =
-        'A powerful coding assistant that helps with programming tasks, debugging, code reviews, and technical problem-solving. Specialized in multiple programming languages and frameworks.'
-      formData.value.tags = ['coding', 'development', 'gpt-4', 'assistant']
-      break
-    case 'chat':
-      formData.value.endpointName = 'conversational-ai'
-      formData.value.summary = 'General purpose conversational AI assistant'
-      formData.value.description =
-        'A versatile AI assistant for general conversations, question answering, creative writing, and everyday tasks. Designed to be helpful, harmless, and honest.'
-      formData.value.tags = ['conversation', 'chat', 'general', 'assistant']
-      break
-    case 'analysis':
-      formData.value.endpointName = 'research-assistant'
-      formData.value.summary = 'AI model specialized in data analysis and research'
-      formData.value.description =
-        'Advanced AI assistant focused on data analysis, research tasks, report generation, and analytical thinking. Perfect for academic and business research needs.'
-      formData.value.tags = ['research', 'analysis', 'data', 'academic']
-      break
-  }
-}
-
-// Refresh form function
 const refreshForm = () => {
-  // Reset form data to initial state
-  formData.value = {
-    endpointName: '',
-    summary: '',
-    description: '',
-    tags: [],
-    aiModel: '',
-    policies: {},
+  // Form refresh function for error boundary retry
+  console.log('Refreshing form...')
+}
+
+// Load available models
+const loadAvailableModels = async () => {
+  loadingModels.value = true
+  modelsError.value = null
+  try {
+    const models = await modelsApi.list()
+    availableModels.value = models
+  } catch (error) {
+    console.error('Failed to load available models:', error)
+    modelsError.value = error instanceof Error ? error.message : 'Failed to load models'
+  } finally {
+    loadingModels.value = false
   }
-  currentSubStep.value = 1
-  tagInput.value = ''
 }
 
-const isValidEmailOrWildcard = (email: string) => {
-  // Allow wildcard patterns like *@company.com, *.edu, *@contractors.org
-  const wildcardEmailRegex = /^(\*|[^\s@]+)@([^\s@]+\.)*[^\s@]+$/
-  const wildcardDomainRegex = /^\*\.[^\s@]+$/ // For patterns like *.edu, *.com
-  const regularEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-  return (
-    wildcardEmailRegex.test(email) ||
-    wildcardDomainRegex.test(email) ||
-    regularEmailRegex.test(email)
-  )
+// Get selected existing model details
+const getSelectedModelDetails = () => {
+  if (!formData.value.aiModel) return null
+  return availableModels.value.find((m) => m.id === formData.value.aiModel)
 }
+
+// Get selected new model label
+const getSelectedNewModelLabel = () => {
+  if (!newModelForm.value.model) return null
+  const modelOption = availableNewModels.value.find((m) => m.value === newModelForm.value.model)
+  return modelOption?.label || null
+}
+
+// Derive model name from endpoint details (follows same pattern as datasets)
+const getDerivedModelName = () => {
+  return formData.value.endpointName || 'new-model'
+}
+
+// Derive model description from endpoint details (follows same pattern as datasets)
+const getDerivedModelDescription = () => {
+  if (formData.value.summary) {
+    return `Model for ${formData.value.summary}`
+  }
+  return `Model for ${newModelForm.value.provider.charAt(0).toUpperCase() + newModelForm.value.provider.slice(1)} AI integration`
+}
+
+onMounted(async () => {
+  await loadAvailableModels()
+
+  if (existingModelsCount.value === 0 && !selectedModelSourceType.value) {
+    selectedModelSourceType.value = 'create-new'
+  }
+})
+
+// Cleanup debounce timer when component unmounts
+onUnmounted(() => {
+  if (nameCheckDebounceTimer.value) {
+    clearTimeout(nameCheckDebounceTimer.value)
+  }
+})
+
+// Select model source type
+const selectModelSourceType = (type: string) => {
+  selectedModelSourceType.value = type
+  // Reset selections when changing type
+  if (type !== 'existing') {
+    formData.value.aiModel = ''
+  }
+  if (type !== 'create-new') {
+    selectedNewModelType.value = null
+    // Reset new model form
+    newModelForm.value = {
+      provider: '',
+      model: '',
+      apiKey: '',
+    }
+  }
+}
+
+// Watch for provider changes to reset model selection
+watch(
+  () => newModelForm.value.provider,
+  () => {
+    newModelForm.value.model = ''
+  },
+)
 </script>

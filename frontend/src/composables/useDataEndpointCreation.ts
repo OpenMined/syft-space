@@ -19,7 +19,7 @@ export interface PolicyRules {
   pricing: PolicyRule[]
 }
 
-export interface EndpointCreationData {
+export interface DataEndpointCreationData {
   // Step 1: Data source
   selectedDataSourceType: 'filesystem' | 'existing' | ''
   selectedFiles: string[]
@@ -40,7 +40,7 @@ export interface EndpointCreationData {
   tags: string[]
 }
 
-export function useEndpointCreation() {
+export function useDataEndpointCreation() {
   const router = useRouter()
   const { transformPolicyRules } = usePolicyCreation()
 
@@ -67,7 +67,7 @@ export function useEndpointCreation() {
   }
 
   // Step 1: Create dataset (if filesystem source)
-  const createDataset = async (data: EndpointCreationData): Promise<string | null> => {
+  const createDataset = async (data: DataEndpointCreationData): Promise<string | null> => {
     if (data.selectedDataSourceType !== 'filesystem') {
       return null // No dataset to create
     }
@@ -98,7 +98,7 @@ export function useEndpointCreation() {
 
   // Step 2: Create endpoint
   const createEndpoint = async (
-    data: EndpointCreationData,
+    data: DataEndpointCreationData,
     datasetId?: string,
   ): Promise<string> => {
     creationStep.value = 'Creating endpoint...'
@@ -125,7 +125,7 @@ export function useEndpointCreation() {
 
   // Step 3: Create policies
   const createPolicies = async (
-    data: EndpointCreationData,
+    data: DataEndpointCreationData,
     endpointId: string,
   ): Promise<string[]> => {
     creationStep.value = 'Applying policies...'
@@ -198,7 +198,7 @@ export function useEndpointCreation() {
   }
 
   // Main creation function
-  const createEndpointWithData = async (data: EndpointCreationData): Promise<boolean> => {
+  const createDataEndpointWithData = async (data: DataEndpointCreationData): Promise<boolean> => {
     isCreating.value = true
     creationError.value = null
     createdResources.value = {
@@ -263,7 +263,7 @@ export function useEndpointCreation() {
     creationStep,
 
     // Methods
-    createEndpointWithData,
+    createDataEndpointWithData,
     reset,
   }
 }
