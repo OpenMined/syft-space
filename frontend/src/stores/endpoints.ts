@@ -7,6 +7,7 @@ import type { EndpointListItem } from '@/api/types'
 export interface EndpointItem {
   id: string
   name: string
+  slug: string
   summary: string
   description: string
   dataSourceType?: ValueOf<typeof DATA_SOURCE_TYPES>
@@ -46,6 +47,7 @@ export const useEndpointsStore = defineStore('endpoints', () => {
     return {
       id: item.id,
       name: item.name,
+      slug: item.slug,
       summary: item.summary,
       description: '', // Not provided in list API
       dataSourceType: item.dataset?.dtype as ValueOf<typeof DATA_SOURCE_TYPES>,

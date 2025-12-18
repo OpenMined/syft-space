@@ -628,13 +628,17 @@
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showDeleteDialog = false">Cancel</Button>
+          <Button variant="outline" @click="showDeleteDialog = false" :disabled="isDeleting">Cancel</Button>
           <Button
             variant="destructive"
-            :disabled="deleteNameConfirm !== endpoint?.name"
+            :disabled="deleteNameConfirm !== endpoint?.name || isDeleting"
             @click="deleteEndpoint"
           >
-            Delete Endpoint
+            <div v-if="isDeleting" class="flex items-center gap-2">
+              <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              Deleting...
+            </div>
+            <span v-else>Delete Endpoint</span>
           </Button>
         </DialogFooter>
       </div>
@@ -897,6 +901,7 @@ const endpoint = ref<EndpointResponse | null>(null)
 const activeTab = ref('overview')
 const deleteNameConfirm = ref('')
 const showDeleteDialog = ref(false)
+const isDeleting = ref(false)
 const showDeletePolicyDialog = ref(false)
 const policyToDelete = ref<{ id: string; name: string } | null>(null)
 const showAddPolicyDialog = ref(false)
@@ -1119,11 +1124,25 @@ const getResponseType = computed(() => {
   }
 })
 
-const deleteEndpoint = () => {
-  // Handle endpoint deletion
-  console.log('Deleting endpoint:', endpoint.value?.name)
-  showDeleteDialog.value = false
-  router.push('/endpoints')
+const deleteEndpoint = async () => {
+  if (!endpoint.value?.slug || isDeleting.value) return
+
+  isDeleting.value = true
+  try {
+    // Call the delete API
+    await endpointsApi.delete(endpoint.value.slug)
+    
+    // Close dialog and navigate away
+    showDeleteDialog.value = false
+    router.push('/endpoints')
+  } catch (error) {
+    console.error('Failed to delete endpoint:', error)
+    // You might want to show an error toast here
+    // For now, just close the dialog
+    showDeleteDialog.value = false
+  } finally {
+    isDeleting.value = false
+  }
 }
 
 // Policy deletion functions

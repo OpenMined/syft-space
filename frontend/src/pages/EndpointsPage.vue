@@ -194,13 +194,17 @@
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="cancelDeleteEndpoint">Cancel</Button>
+          <Button variant="outline" @click="cancelDeleteEndpoint" :disabled="isDeleting">Cancel</Button>
           <Button
             variant="destructive"
             :disabled="deleteNameConfirm !== endpointToDelete?.name || isDeleting"
             @click="confirmDeleteEndpoint"
           >
-            {{ isDeleting ? 'Deleting...' : 'Delete Endpoint' }}
+            <div v-if="isDeleting" class="flex items-center gap-2">
+              <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              Deleting...
+            </div>
+            <span v-else>Delete Endpoint</span>
           </Button>
         </DialogFooter>
       </div>
@@ -228,6 +232,7 @@ import EndpointCard from '@/components/EndpointCard.vue'
 import CreateEndpointModal from '@/components/CreateEndpointModal.vue'
 import { useEndpointsStore } from '@/stores/endpoints'
 import type { EndpointItem } from '@/stores/endpoints'
+import { endpointsApi } from '@/api/endpoints/endpoints'
 
 const endpointsStore = useEndpointsStore()
 
@@ -284,22 +289,32 @@ const cancelDeleteEndpoint = () => {
 const confirmDeleteEndpoint = async () => {
   if (endpointToDelete.value && !isDeleting.value) {
     isDeleting.value = true
-    // TODO: Call the actual delete API here
-    console.log('Deleting endpoint:', endpointToDelete.value.name)
+    
+    try {
+      if (!endpointToDelete.value.slug) {
+        throw new Error('Endpoint slug is undefined')
+      }
+      
+      // Call the delete API
+      await endpointsApi.delete(endpointToDelete.value.slug)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Remove from store after successful deletion
+      const index = endpointsStore.endpoints.findIndex((e) => e.id === endpointToDelete.value!.id)
+      if (index > -1) {
+        endpointsStore.endpoints.splice(index, 1)
+      }
 
-    // Remove from store (this would normally be done by the API call)
-    const index = endpointsStore.endpoints.findIndex((e) => e.id === endpointToDelete.value!.id)
-    if (index > -1) {
-      endpointsStore.endpoints.splice(index, 1)
+      // Reset dialog state
+      showDeleteDialog.value = false
+      endpointToDelete.value = null
+      deleteNameConfirm.value = ''
+    } catch (error) {
+      console.error('Failed to delete endpoint:', error)
+      // You might want to show an error toast here
+      // For now, just log the error and close the dialog
+    } finally {
+      isDeleting.value = false
     }
-
-    showDeleteDialog.value = false
-    endpointToDelete.value = null
-    deleteNameConfirm.value = ''
-    isDeleting.value = false
   }
 }
 </script>
