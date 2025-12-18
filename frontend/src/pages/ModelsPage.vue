@@ -91,13 +91,13 @@
                         "
                         class="body-sm px-2.5 py-1 rounded-md"
                       >
-                        <div
+                        <Link
                           :class="
                             model.endpointCount > 0
-                              ? 'w-2 h-2 bg-secondary rounded-full mr-1'
-                              : 'w-2 h-2 bg-muted-foreground rounded-full mr-1'
+                              ? 'w-3.5 h-3.5 mr-1.5'
+                              : 'w-3.5 h-3.5 mr-1.5 opacity-40'
                           "
-                        ></div>
+                        />
                         {{
                           model.endpointCount === 0
                             ? 'No endpoints'
@@ -141,6 +141,10 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
+            <Button variant="outline" size="sm" @click.stop="handleEditModel(model)">
+              <Edit class="h-4 w-4 mr-2" />
+              Edit
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -159,6 +163,7 @@
   <!-- Create Model Dialog -->
   <CreateModelDialogSimple
     v-model:open="showCreateModelDialog"
+    :model="editingModel"
     @model-created="handleModelCreated"
     @model-updated="handleModelUpdated"
     @update:open="!$event && handleDialogClose()"
@@ -236,7 +241,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Brain, Plus, Trash2, Search } from 'lucide-vue-next'
+import { Brain, Plus, Trash2, Search, Edit, Link } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -257,33 +262,8 @@ import { toast } from 'vue-sonner'
 
 // Extended interface for UI-specific properties
 interface ModelWithUI extends ModelListItem {
-  endpointCount: number // Mock endpoint count
+  endpointCount: number
 }
-
-interface Endpoint {
-  id: string
-  name: string
-  modelIds: string[]
-}
-
-// Mock endpoints data (temporary until endpoints API is integrated)
-const mockEndpoints: Endpoint[] = [
-  {
-    id: 'endpoint-1',
-    name: 'Document Analysis API',
-    modelIds: ['nlp-engine'],
-  },
-  {
-    id: 'endpoint-2',
-    name: 'Content Generation API',
-    modelIds: ['nlp-engine'],
-  },
-  {
-    id: 'endpoint-3',
-    name: 'Code Review Assistant',
-    modelIds: ['code-assistant'],
-  },
-]
 
 const router = useRouter()
 
@@ -294,6 +274,7 @@ const error = ref<string | null>(null)
 
 const showCreateModelDialog = ref(false)
 const searchQuery = ref('')
+const editingModel = ref<ModelWithUI | null>(null)
 const showDeleteDialog = ref(false)
 const modelToDelete = ref<ModelWithUI | null>(null)
 const checkedEndpoints = ref<string[]>([])
@@ -313,7 +294,7 @@ const fetchModels = async () => {
     // Transform API response to include UI-specific properties
     models.value = response.map((model) => ({
       ...model,
-      endpointCount: mockEndpoints.filter((e) => e.modelIds.includes(model.id)).length,
+      endpointCount: model.connected_endpoints?.length || 0,
     }))
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load models'
@@ -354,14 +335,28 @@ const handleModelUpdated = async () => {
 
 // Function to get endpoint names connected to a model
 const getEndpointNamesForModel = (modelId: string): string[] => {
-  return mockEndpoints
-    .filter((endpoint) => endpoint.modelIds.includes(modelId))
-    .map((endpoint) => endpoint.name)
+  const model = models.value.find((m) => m.id === modelId)
+  if (!model || !model.connected_endpoints) return []
+  return model.connected_endpoints.map((endpoint) => endpoint.name)
+}
+
+const handleEditModel = async (model: ModelWithUI) => {
+  try {
+    const response = await modelsApi.get(model.name)
+    editingModel.value = {
+      ...model,
+      ...response,
+    }
+    showCreateModelDialog.value = true
+  } catch (err) {
+    toast.error('Failed to load model details for editing')
+    console.error('Failed to fetch model for editing:', err)
+  }
 }
 
 // Reset state when dialog closes
 const handleDialogClose = () => {
-  // Nothing to reset for now
+  editingModel.value = null
 }
 
 const handleDeleteModel = (model: ModelWithUI) => {

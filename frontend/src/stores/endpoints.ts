@@ -28,24 +28,35 @@ export const useEndpointsStore = defineStore('endpoints', () => {
   // Transform API response to frontend model
   const transformEndpointListItem = (item: EndpointListItem): EndpointItem => {
     // Extract domain from tags if present
-    const tagList = item.tags ? item.tags.split(',').map(t => t.trim()) : []
-    const domainTag = tagList.find(tag => tag.startsWith('domain:'))
+    const tagList = item.tags ? item.tags.split(',').map((t) => t.trim()) : []
+    const domainTag = tagList.find((tag) => tag.startsWith('domain:'))
     const domain = domainTag ? domainTag.replace('domain:', '') : undefined
-    
+
+    // Extract watched paths from dataset configuration
+    let watchedPaths: string[] | undefined = undefined
+    if (
+      item.dataset?.configuration?.filePaths &&
+      Array.isArray(item.dataset.configuration.filePaths)
+    ) {
+      watchedPaths = (
+        item.dataset.configuration.filePaths as Array<{ path: string; description: string }>
+      ).map((fp) => fp.path)
+    }
+
     return {
       id: item.id,
       name: item.name,
       summary: item.summary,
       description: '', // Not provided in list API
-      dataSourceType: undefined, // Would need to fetch from dataset details
-      modelType: undefined, // Would need to fetch from model details
+      dataSourceType: item.dataset?.dtype as ValueOf<typeof DATA_SOURCE_TYPES>,
+      modelType: item.model?.dtype as ValueOf<typeof MODEL_TYPES>,
       price: '$0.00 - $0.00 / request', // Default, not provided by API
       languages: [], // Default, not provided by API
       domains: domain ? [domain] : [], // Extract from tags
       mcpCompatible: false, // Default, not provided by API
       tags: tagList,
       published: item.published,
-      watchedPaths: undefined, // Not provided in list API
+      watchedPaths,
     }
   }
 

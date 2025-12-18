@@ -20,12 +20,8 @@
 
         <!-- Watched Paths Preview -->
         <div class="mb-4 space-y-2 pl-2">
-          <div v-if="endpoint.dataSourceType === 'local_file'" class="text-sm text-muted-foreground">
-            📂 <span class="italic">Local filesystem - manually configured</span>
-          </div>
-
           <div
-            v-else-if="!endpoint.watchedPaths || endpoint.watchedPaths.length === 0"
+            v-if="!endpoint.watchedPaths || endpoint.watchedPaths.length === 0"
             class="text-sm text-muted-foreground"
           >
             📂 <span class="italic">No paths configured</span>
@@ -54,18 +50,7 @@
         </div>
 
         <div class="flex gap-2 flex-wrap">
-          <Badge v-if="endpoint.dataSourceType" variant="outline" class="body-sm">
-            {{ endpoint.dataSourceType }}
-          </Badge>
-          <Badge v-if="endpoint.modelType" variant="outline" class="body-sm">
-            {{ endpoint.modelType }}
-          </Badge>
-          <Badge
-            v-for="tag in endpoint.tags"
-            :key="tag"
-            variant="outline"
-            class="body-sm"
-          >
+          <Badge v-for="tag in endpoint.tags" :key="tag" variant="outline" class="body-sm">
             {{ tag }}
           </Badge>
         </div>
@@ -126,14 +111,6 @@ const handleCardClick = () => {
 
 // Get preview paths for endpoint card
 const getPathsPreview = (endpoint: EndpointItem) => {
-  if (endpoint.dataSourceType === 'local_file') {
-    return {
-      paths: [],
-      hasMore: false,
-      totalCount: 0,
-    }
-  }
-
   if (!endpoint.watchedPaths || endpoint.watchedPaths.length === 0) {
     return {
       paths: [],

@@ -12,13 +12,18 @@
         <!-- Loading State -->
         <div v-if="isLoading" class="flex items-center justify-center py-8">
           <div class="text-center">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+            <div
+              class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"
+            ></div>
             <p class="text-sm text-muted-foreground">Loading models...</p>
           </div>
         </div>
 
         <!-- Error State -->
-        <div v-else-if="error" class="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-center">
+        <div
+          v-else-if="error"
+          class="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-center"
+        >
           <p class="text-sm text-destructive">{{ error }}</p>
         </div>
 
@@ -172,15 +177,15 @@ const handleCreateModel = () => {
 // Handle model creation success
 const handleModelCreated = async () => {
   console.log('Model created successfully')
-  
+
   // Store the current model IDs before refresh
-  const previousModelIds = new Set(models.value.map(model => model.id))
-  
+  const previousModelIds = new Set(models.value.map((model) => model.id))
+
   // Refresh the models list
   await fetchModels()
-  
+
   // Find and auto-select the newly created model
-  const newModel = models.value.find(model => !previousModelIds.has(model.id))
+  const newModel = models.value.find((model) => !previousModelIds.has(model.id))
   if (newModel) {
     emit('update:modelValue', newModel.id)
   }

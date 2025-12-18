@@ -101,7 +101,15 @@
     </div>
 
     <!-- DEMO: Empty State Section -->
-    <div v-if="!endpointsStore.isLoading && !endpointsStore.error && endpointsStore.endpoints.length === 0 && !searchQuery" class="mt-16">
+    <div
+      v-if="
+        !endpointsStore.isLoading &&
+        !endpointsStore.error &&
+        endpointsStore.endpoints.length === 0 &&
+        !searchQuery
+      "
+      class="mt-16"
+    >
       <!-- Divider with centered text -->
       <div class="relative">
         <div class="absolute inset-0 flex items-center">

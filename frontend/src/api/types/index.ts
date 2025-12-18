@@ -65,6 +65,19 @@ export interface EndpointListItem {
   published: boolean
   tags: string
   created_at: string
+  model?: {
+    id: string
+    name: string
+    dtype: string
+    configuration: Record<string, unknown>
+  }
+  dataset?: {
+    id: string
+    name: string
+    summary: string
+    dtype: string
+    configuration: Record<string, unknown>
+  }
 }
 
 export interface ProvisionerStatusResponse {
@@ -165,6 +178,7 @@ export interface ModelResponse {
   tags: string
   created_at: string
   updated_at: string
+  connected_endpoints: EndpointListItem[]
 }
 
 export interface ModelListItem {
@@ -174,6 +188,25 @@ export interface ModelListItem {
   summary: string
   tags: string
   created_at: string
+  connected_endpoints: EndpointListItem[]
+}
+
+export interface UpdateModelRequest {
+  name?: string
+  summary?: string
+  tags?: string
+}
+
+export interface ModelResponseWithEndpoints {
+  id: string
+  name: string
+  dtype: string
+  configuration: Record<string, unknown>
+  summary: string
+  tags: string
+  created_at: string
+  updated_at: string
+  connected_endpoints: EndpointListItem[]
 }
 
 export interface ModelTypeInfoResponse {

@@ -2,8 +2,10 @@ import { apiClient } from '../client'
 import type {
   CreateModelRequest,
   ModelResponse,
+  ModelResponseWithEndpoints,
   ModelListItem,
   ModelTypeInfoResponse,
+  UpdateModelRequest,
 } from '../types'
 
 export const modelsApi = {
@@ -17,8 +19,13 @@ export const modelsApi = {
     return response.data
   },
 
-  get: async (name: string): Promise<ModelResponse> => {
-    const response = await apiClient.get<ModelResponse>(`/models/${name}`)
+  get: async (name: string): Promise<ModelResponseWithEndpoints> => {
+    const response = await apiClient.get<ModelResponseWithEndpoints>(`/models/${name}`)
+    return response.data
+  },
+
+  update: async (name: string, model: UpdateModelRequest): Promise<ModelResponseWithEndpoints> => {
+    const response = await apiClient.patch<ModelResponseWithEndpoints>(`/models/${name}`, model)
     return response.data
   },
 

@@ -72,6 +72,10 @@
             </div>
           </div>
           <div class="flex items-center gap-3">
+            <Button variant="outline" @click="editModel">
+              <Edit class="h-4 w-4 mr-2" />
+              Edit
+            </Button>
             <Button
               variant="outline"
               class="text-destructive hover:text-destructive border-destructive/50 hover:border-destructive"
@@ -157,22 +161,18 @@
             <div
               v-for="endpoint in connectedEndpoints"
               :key="endpoint.id"
-              class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
+              class="flex items-center gap-4 py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all cursor-pointer"
+              @click="navigateToEndpoint(endpoint.slug)"
             >
-              <div class="flex items-center gap-4">
-                <div class="p-3 bg-primary/10 border border-primary/20 rounded-xl">
-                  <Globe class="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
-                  <p class="body-sm text-muted-foreground mt-1">
-                    {{ endpoint.description || 'API endpoint' }}
-                  </p>
-                </div>
+              <div class="p-3 bg-primary/10 rounded-xl">
+                <Globe class="h-5 w-5 text-primary" />
               </div>
-              <Button variant="outline" size="sm">
-                <ExternalLink class="h-4 w-4" />
-              </Button>
+              <div class="flex-1">
+                <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
+                <p class="body-sm text-muted-foreground mt-1">
+                  {{ endpoint.slug || 'API endpoint' }}
+                </p>
+              </div>
             </div>
           </div>
           <div v-else class="text-center py-16">
@@ -187,6 +187,14 @@
       </div>
     </div>
   </div>
+
+  <!-- Edit Model Dialog -->
+  <CreateModelDialogSimple
+    v-model:open="showEditDialog"
+    :model="editingModel"
+    @model-updated="handleModelUpdated"
+    @update:open="!$event && handleEditDialogClose()"
+  />
 
   <!-- Delete Confirmation Dialog -->
   <DeleteConfirmationDialog
@@ -203,23 +211,23 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Brain, ChevronRight, Trash2, Globe, Plus, ExternalLink } from 'lucide-vue-next'
+import { Brain, ChevronRight, Trash2, Globe, Plus, Edit } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
-import { getEndpointsForModel } from '@/stores/mockEndpoints'
+import CreateModelDialogSimple from '@/components/CreateModelDialogSimple.vue'
 import { formatDate } from '@/lib/formatters'
 import { useNavigation } from '@/composables/useNavigation'
 import { modelsApi } from '@/api/endpoints/models'
-import type { ModelResponse, ModelTypeInfoResponse } from '@/api/types'
+import type { ModelResponseWithEndpoints, ModelTypeInfoResponse } from '@/api/types'
 import { toast } from 'vue-sonner'
 
 // Extended interface for UI-specific properties
-interface ParsedModel extends Omit<ModelResponse, 'tags'> {
+interface ParsedModel extends Omit<ModelResponseWithEndpoints, 'tags'> {
   tags: string[] // Converted from comma-separated string
   status: 'running' | 'stopped' // Mock status for now
-  endpointCount: number // Mock endpoint count
+  endpointCount: number
 }
 
 const route = useRoute()
@@ -231,20 +239,29 @@ const error = ref(false)
 const model = ref<ParsedModel | null>(null)
 const modelTypeInfo = ref<ModelTypeInfoResponse | null>(null)
 const showDeleteDialog = ref(false)
+const showEditDialog = ref(false)
+const editingModel = ref<ParsedModel | null>(null)
 // Dependencies for delete dialog
 const modelDependencies = computed(() => {
   if (!model.value || model.value.endpointCount === 0) return []
 
-  return getEndpointsForModel(model.value.id).map((endpoint) => ({
+  return model.value.connected_endpoints.map((endpoint) => ({
     id: endpoint.id,
     name: endpoint.name,
   }))
 })
 
 const connectedEndpoints = computed(() => {
-  if (!model.value) return []
-  return getEndpointsForModel(model.value.id)
+  if (!model.value || !model.value.connected_endpoints) return []
+  return model.value.connected_endpoints
 })
+
+const editModel = () => {
+  if (model.value) {
+    editingModel.value = model.value
+    showEditDialog.value = true
+  }
+}
 
 const deleteModel = () => {
   showDeleteDialog.value = true
@@ -268,8 +285,25 @@ const cancelDelete = () => {
   showDeleteDialog.value = false
 }
 
+const handleModelUpdated = async () => {
+  showEditDialog.value = false
+  editingModel.value = null
+  // Reload model data
+  if (model.value) {
+    await loadModel(model.value.name)
+  }
+}
+
+const handleEditDialogClose = () => {
+  editingModel.value = null
+}
+
 const navigateToCreateEndpoint = () => {
   router.push({ name: 'create-model-endpoint' })
+}
+
+const navigateToEndpoint = (slug: string) => {
+  router.push(`/endpoints/${slug}`)
 }
 
 const loadModel = async (name: string) => {
@@ -284,7 +318,7 @@ const loadModel = async (name: string) => {
       ...modelResponse,
       tags: modelResponse.tags ? modelResponse.tags.split(',').map((tag) => tag.trim()) : [],
       status: 'stopped' as const, // Mock status for now
-      endpointCount: 0, // Mock endpoint count for now
+      endpointCount: modelResponse.connected_endpoints?.length || 0,
     }
 
     model.value = parsedModel

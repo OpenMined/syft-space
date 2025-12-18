@@ -63,6 +63,7 @@ class AttachedDataset(BaseModel):
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(..., description="Dataset name")
     summary: str = Field(..., description="Dataset summary")
+    dtype: str = Field(..., description="Dataset type")
     configuration: dict[str, Any] = Field(..., description="Configuration")
 
     class Config:

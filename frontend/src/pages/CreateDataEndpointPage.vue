@@ -1,14 +1,22 @@
 <!-- eslint-disable vue/no-parsing-error -->
 <template>
-  <ErrorBoundary :can-retry="true" :show-details="true" custom-title="Endpoint Creation Error"
-    custom-message="There was a problem with the endpoint creation form. Please try again." @retry="refreshForm">
+  <ErrorBoundary
+    :can-retry="true"
+    :show-details="true"
+    custom-title="Endpoint Creation Error"
+    custom-message="There was a problem with the endpoint creation form. Please try again."
+    @retry="refreshForm"
+  >
     <div class="min-h-screen bg-muted/50">
       <!-- Header -->
       <div class="bg-card border-b border-border">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div class="flex items-center justify-between">
-            <Button variant="ghost" @click="handleBack"
-              class="flex items-center text-muted-foreground hover:text-foreground">
+            <Button
+              variant="ghost"
+              @click="handleBack"
+              class="flex items-center text-muted-foreground hover:text-foreground"
+            >
               <ArrowLeft class="w-5 h-5 mr-2" />
               Back to Endpoints
             </Button>
@@ -17,8 +25,12 @@
               <Tooltip :delayDuration="0">
                 <TooltipTrigger as-child>
                   <span>
-                    <Button @click="saveDraft" :disabled="!canSaveDraft" variant="outline"
-                      class="flex items-center gap-2">
+                    <Button
+                      @click="saveDraft"
+                      :disabled="!canSaveDraft"
+                      variant="outline"
+                      class="flex items-center gap-2"
+                    >
                       <Save class="w-4 h-4" />
                       Save Draft
                     </Button>
@@ -44,28 +56,42 @@
             <div class="space-y-6">
               <!-- Step 1 -->
               <div class="flex items-start gap-4">
-                <div :class="[
-                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                  currentSubStep >= 1
-                    ? 'bg-primary text-white'
-                    : 'bg-muted text-muted-foreground',
-                ]">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    currentSubStep >= 1
+                      ? 'bg-primary text-white'
+                      : 'bg-muted text-muted-foreground',
+                  ]"
+                >
                   {{ currentSubStep > 1 ? '✓' : '1' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3 :class="[
-                    'font-medium body-sm',
-                    currentSubStep >= 1 ? 'text-foreground' : 'text-muted-foreground',
-                  ]">
+                  <h3
+                    :class="[
+                      'font-medium body-sm',
+                      currentSubStep >= 1 ? 'text-foreground' : 'text-muted-foreground',
+                    ]"
+                  >
                     What do you want to share?
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">
-                    {{ existingDataSourcesCount > 0 ? 'Add files or connect database' : 'Select files to share' }}
+                    {{
+                      existingDataSourcesCount > 0
+                        ? 'Add files or connect database'
+                        : 'Select files to share'
+                    }}
                   </p>
-                  <div v-if="currentSubStep > 1" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
+                  <div
+                    v-if="currentSubStep > 1"
+                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
+                  >
                     ✓ Completed
                   </div>
-                  <div v-else-if="currentSubStep === 1" class="mt-2 body-sm text-primary font-medium">
+                  <div
+                    v-else-if="currentSubStep === 1"
+                    class="mt-2 body-sm text-primary font-medium"
+                  >
                     Current step
                   </div>
                 </div>
@@ -73,26 +99,36 @@
 
               <!-- Step 2 -->
               <div class="flex items-start gap-4">
-                <div :class="[
-                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                  currentSubStep >= 2
-                    ? 'bg-primary text-white'
-                    : 'bg-muted text-muted-foreground',
-                ]">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    currentSubStep >= 2
+                      ? 'bg-primary text-white'
+                      : 'bg-muted text-muted-foreground',
+                  ]"
+                >
                   {{ currentSubStep > 2 ? '✓' : '2' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3 :class="[
-                    'font-medium body-sm',
-                    currentSubStep >= 2 ? 'text-foreground' : 'text-muted-foreground',
-                  ]">
+                  <h3
+                    :class="[
+                      'font-medium body-sm',
+                      currentSubStep >= 2 ? 'text-foreground' : 'text-muted-foreground',
+                    ]"
+                  >
                     How should it work?
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Configure output and AI settings</p>
-                  <div v-if="currentSubStep > 2" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
+                  <div
+                    v-if="currentSubStep > 2"
+                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
+                  >
                     ✓ Completed
                   </div>
-                  <div v-else-if="currentSubStep === 2" class="mt-2 body-sm text-primary font-medium">
+                  <div
+                    v-else-if="currentSubStep === 2"
+                    class="mt-2 body-sm text-primary font-medium"
+                  >
                     Current step
                   </div>
                 </div>
@@ -100,26 +136,36 @@
 
               <!-- Step 3 -->
               <div class="flex items-start gap-4">
-                <div :class="[
-                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                  currentSubStep >= 3
-                    ? 'bg-primary text-white'
-                    : 'bg-muted text-muted-foreground',
-                ]">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    currentSubStep >= 3
+                      ? 'bg-primary text-white'
+                      : 'bg-muted text-muted-foreground',
+                  ]"
+                >
                   {{ currentSubStep > 3 ? '✓' : '3' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3 :class="[
-                    'font-medium body-sm',
-                    currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
-                  ]">
+                  <h3
+                    :class="[
+                      'font-medium body-sm',
+                      currentSubStep >= 3 ? 'text-foreground' : 'text-muted-foreground',
+                    ]"
+                  >
                     Who can access it?
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Control who can use your content</p>
-                  <div v-if="currentSubStep > 3" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
+                  <div
+                    v-if="currentSubStep > 3"
+                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
+                  >
                     ✓ Completed
                   </div>
-                  <div v-else-if="currentSubStep === 3" class="mt-2 body-sm text-primary font-medium">
+                  <div
+                    v-else-if="currentSubStep === 3"
+                    class="mt-2 body-sm text-primary font-medium"
+                  >
                     Current step
                   </div>
                 </div>
@@ -127,26 +173,36 @@
 
               <!-- Step 4 -->
               <div class="flex items-start gap-4">
-                <div :class="[
-                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                  currentSubStep >= 4
-                    ? 'bg-primary text-white'
-                    : 'bg-muted text-muted-foreground',
-                ]">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    currentSubStep >= 4
+                      ? 'bg-primary text-white'
+                      : 'bg-muted text-muted-foreground',
+                  ]"
+                >
                   {{ currentSubStep > 4 ? '✓' : '4' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3 :class="[
-                    'font-medium body-sm',
-                    currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
-                  ]">
+                  <h3
+                    :class="[
+                      'font-medium body-sm',
+                      currentSubStep >= 4 ? 'text-foreground' : 'text-muted-foreground',
+                    ]"
+                  >
                     Tell us more about it
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Name and describe your endpoint</p>
-                  <div v-if="currentSubStep > 4" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
+                  <div
+                    v-if="currentSubStep > 4"
+                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
+                  >
                     ✓ Completed
                   </div>
-                  <div v-else-if="currentSubStep === 4" class="mt-2 body-sm text-primary font-medium">
+                  <div
+                    v-else-if="currentSubStep === 4"
+                    class="mt-2 body-sm text-primary font-medium"
+                  >
                     Current step
                   </div>
                 </div>
@@ -154,26 +210,36 @@
 
               <!-- Step 5 -->
               <div class="flex items-start gap-4">
-                <div :class="[
-                  'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
-                  currentSubStep >= 5
-                    ? 'bg-primary text-white'
-                    : 'bg-muted text-muted-foreground',
-                ]">
+                <div
+                  :class="[
+                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    currentSubStep >= 5
+                      ? 'bg-primary text-white'
+                      : 'bg-muted text-muted-foreground',
+                  ]"
+                >
                   {{ currentSubStep > 5 ? '✓' : '5' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3 :class="[
-                    'font-medium body-sm',
-                    currentSubStep >= 5 ? 'text-foreground' : 'text-muted-foreground',
-                  ]">
+                  <h3
+                    :class="[
+                      'font-medium body-sm',
+                      currentSubStep >= 5 ? 'text-foreground' : 'text-muted-foreground',
+                    ]"
+                  >
                     Review & Publish
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
-                  <div v-if="currentSubStep > 5" class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded">
+                  <div
+                    v-if="currentSubStep > 5"
+                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
+                  >
                     ✓ Completed
                   </div>
-                  <div v-else-if="currentSubStep === 5" class="mt-2 body-sm text-primary font-medium">
+                  <div
+                    v-else-if="currentSubStep === 5"
+                    class="mt-2 body-sm text-primary font-medium"
+                  >
                     Current step
                   </div>
                 </div>
@@ -197,20 +263,28 @@
           <!-- Step 1: Choose Data Source -->
           <div v-if="currentSubStep === 1" class="space-y-6">
             <!-- Data source selection cards - only show if there are existing datasets -->
-            <div v-if="existingDataSourcesCount > 0" :class="[
-              'grid gap-6',
-              existingDataSourcesCount > 0 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
-            ]">
+            <div
+              v-if="existingDataSourcesCount > 0"
+              :class="[
+                'grid gap-6',
+                existingDataSourcesCount > 0 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1',
+              ]"
+            >
               <!-- Add Files Card -->
-              <Card :class="[
-                'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-primary/30 hover:bg-gradient-to-br hover:from-primary/5 hover:to-primary/10',
-                selectedDataSourceType === 'filesystem'
-                  ? 'border-primary bg-gradient-to-br from-primary/5 to-primary/10'
-                  : 'border-border bg-card',
-              ]" @click="selectDataSourceType('filesystem')">
+              <Card
+                :class="[
+                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-primary/30 hover:bg-gradient-to-br hover:from-primary/5 hover:to-primary/10',
+                  selectedDataSourceType === 'filesystem'
+                    ? 'border-primary bg-gradient-to-br from-primary/5 to-primary/10'
+                    : 'border-border bg-card',
+                ]"
+                @click="selectDataSourceType('filesystem')"
+              >
                 <CardContent class="p-6 h-full">
                   <div class="flex flex-col items-center text-center h-full">
-                    <div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                    <div
+                      class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4"
+                    >
                       <FileText class="w-7 h-7 text-primary" />
                     </div>
 
@@ -235,7 +309,10 @@
                     </div>
 
                     <div class="flex items-center gap-1 mt-auto">
-                      <span class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">Easy</span>
+                      <span
+                        class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium"
+                        >Easy</span
+                      >
                       <span class="body-sm text-muted-foreground">2 minute setup</span>
                     </div>
                   </div>
@@ -243,15 +320,21 @@
               </Card>
 
               <!-- Existing Sources Card - Only show if there are existing datasets -->
-              <Card v-if="existingDataSourcesCount > 0" :class="[
-                'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 bg-card',
-                selectedDataSourceType === 'existing'
-                  ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
-                  : 'border-border',
-              ]" @click="selectDataSourceType('existing')">
+              <Card
+                v-if="existingDataSourcesCount > 0"
+                :class="[
+                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 bg-card',
+                  selectedDataSourceType === 'existing'
+                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                    : 'border-border',
+                ]"
+                @click="selectDataSourceType('existing')"
+              >
                 <CardContent class="p-6 h-full">
                   <div class="flex flex-col items-center text-center h-full">
-                    <div class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                    <div
+                      class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4"
+                    >
                       <FolderOpen class="w-7 h-7 text-green-600" />
                     </div>
 
@@ -261,19 +344,28 @@
                     </p>
 
                     <!-- Loading state -->
-                    <div v-if="loadingDatasets" class="space-y-2 mb-4 flex-grow flex items-center justify-center">
+                    <div
+                      v-if="loadingDatasets"
+                      class="space-y-2 mb-4 flex-grow flex items-center justify-center"
+                    >
                       <span class="body-sm text-muted-foreground">Loading datasets...</span>
                     </div>
 
                     <!-- Error state -->
-                    <div v-else-if="datasetsError" class="space-y-2 mb-4 flex-grow flex items-center justify-center">
+                    <div
+                      v-else-if="datasetsError"
+                      class="space-y-2 mb-4 flex-grow flex items-center justify-center"
+                    >
                       <span class="body-sm text-red-600">Failed to load datasets</span>
                     </div>
 
                     <!-- Dataset list -->
                     <div v-else class="space-y-2 mb-4 flex-grow">
-                      <div v-for="dataset in displayedDatasets" :key="dataset.name"
-                        class="flex items-center gap-2 body-sm">
+                      <div
+                        v-for="dataset in displayedDatasets"
+                        :key="dataset.name"
+                        class="flex items-center gap-2 body-sm"
+                      >
                         <div class="w-2 h-2 bg-primary rounded-full"></div>
                         <span class="text-muted-foreground truncate">{{ dataset.name }}</span>
                       </div>
@@ -283,7 +375,9 @@
                     </div>
 
                     <div class="flex items-center gap-1 mt-auto">
-                      <span class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                      <span
+                        class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium"
+                      >
                         Quick
                       </span>
                     </div>
@@ -306,16 +400,31 @@
 
                     <!-- Error state -->
                     <div v-else-if="datasetsError" class="flex items-center justify-center py-8">
-                      <span class="body-sm text-red-600">Failed to load datasets: {{ datasetsError }}</span>
+                      <span class="body-sm text-red-600"
+                        >Failed to load datasets: {{ datasetsError }}</span
+                      >
                     </div>
 
                     <!-- Dataset list -->
                     <div v-else-if="existingDatasets.length > 0" class="space-y-3">
-                      <div v-for="dataset in existingDatasets" :key="dataset.name"
-                        class="flex items-center space-x-3 p-4 border rounded-lg transition-colors" :class="[
-                          formData.selectedDataSource === dataset.id ? 'border-primary bg-primary/5' : 'border-border',
-                          isDatasetSelectable(dataset) ? 'cursor-pointer hover:bg-muted/50' : 'cursor-not-allowed opacity-60'
-                        ]" @click="isDatasetSelectable(dataset) ? formData.selectedDataSource = dataset.id : null">
+                      <div
+                        v-for="dataset in existingDatasets"
+                        :key="dataset.name"
+                        class="flex items-center space-x-3 p-4 border rounded-lg transition-colors"
+                        :class="[
+                          formData.selectedDataSource === dataset.id
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border',
+                          isDatasetSelectable(dataset)
+                            ? 'cursor-pointer hover:bg-muted/50'
+                            : 'cursor-not-allowed opacity-60',
+                        ]"
+                        @click="
+                          isDatasetSelectable(dataset)
+                            ? (formData.selectedDataSource = dataset.id)
+                            : null
+                        "
+                      >
                         <div class="flex items-center gap-3 flex-1">
                           <div class="p-2 bg-primary/10 rounded">
                             <Database class="h-5 w-5 text-primary" />
@@ -324,8 +433,11 @@
                             <div class="flex items-center gap-2">
                               <span class="font-medium text-foreground">{{ dataset.name }}</span>
                               <Badge variant="secondary" class="body-sm">{{ dataset.dtype }}</Badge>
-                              <Badge variant="outline"
-                                :class="getStatusBadgeClasses(dataset.provisioner_status?.status)" class="body-sm">
+                              <Badge
+                                variant="outline"
+                                :class="getStatusBadgeClasses(dataset.provisioner_status?.status)"
+                                class="body-sm"
+                              >
                                 {{ getStatusText(dataset.provisioner_status?.status) }}
                               </Badge>
                             </div>
@@ -334,11 +446,18 @@
                             </p>
                           </div>
                         </div>
-                        <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center" :class="formData.selectedDataSource === dataset.id
-                          ? 'border-primary bg-primary'
-                          : 'border-muted-foreground'">
-                          <div v-if="formData.selectedDataSource === dataset.id" class="w-2 h-2 rounded-full bg-white">
-                          </div>
+                        <div
+                          class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
+                          :class="
+                            formData.selectedDataSource === dataset.id
+                              ? 'border-primary bg-primary'
+                              : 'border-muted-foreground'
+                          "
+                        >
+                          <div
+                            v-if="formData.selectedDataSource === dataset.id"
+                            class="w-2 h-2 rounded-full bg-white"
+                          ></div>
                         </div>
                       </div>
                     </div>
@@ -356,7 +475,11 @@
             <div v-if="selectedDataSourceType === 'filesystem'" class="mt-6">
               <Card class="bg-card border-border">
                 <CardContent class="p-6">
-                  <FileExplorer v-model="selectedFiles" :show-hidden="false" :allow-multiple="true" />
+                  <FileExplorer
+                    v-model="selectedFiles"
+                    :show-hidden="false"
+                    :allow-multiple="true"
+                  />
                 </CardContent>
               </Card>
 
@@ -373,15 +496,24 @@
                         <div class="min-w-0 flex-1 space-y-1">
                           <div class="flex items-center justify-between gap-2">
                             <p class="body-sm font-medium text-foreground truncate">{{ file }}</p>
-                            <Button @click="removeFile(selectedFiles.indexOf(file))" variant="ghost" size="sm"
-                              class="h-6 w-6 p-0 hover:text-destructive">
+                            <Button
+                              @click="removeFile(selectedFiles.indexOf(file))"
+                              variant="ghost"
+                              size="sm"
+                              class="h-6 w-6 p-0 hover:text-destructive"
+                            >
                               <X class="h-3 w-3" />
                             </Button>
                           </div>
                           <div class="space-y-2">
-                            <Label class="body-sm text-muted-foreground">Description (Optional)</Label>
-                            <Input v-model="fileDescriptions[file]"
-                              placeholder="Brief description of this file's content..." class="body-sm" />
+                            <Label class="body-sm text-muted-foreground"
+                              >Description (Optional)</Label
+                            >
+                            <Input
+                              v-model="fileDescriptions[file]"
+                              placeholder="Brief description of this file's content..."
+                              class="body-sm"
+                            />
                           </div>
                         </div>
                       </div>
@@ -400,18 +532,25 @@
                 <!-- Raw Document Chunks Card -->
                 <Card
                   class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border-2 bg-card"
-                  :class="formData.responseType === 'raw'
-                    ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50'
-                    : 'border-border'
-                    " @click="selectResponseType('raw')">
+                  :class="
+                    formData.responseType === 'raw'
+                      ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50'
+                      : 'border-border'
+                  "
+                  @click="selectResponseType('raw')"
+                >
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
-                      <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                      <div
+                        class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mb-4"
+                      >
                         <FileType class="w-6 h-6 text-blue-600" />
                       </div>
 
                       <h3 class="heading-3 text-foreground mb-2">Search & Quote</h3>
-                      <p class="body-sm font-medium mb-3 text-blue-600">Return exact text matches</p>
+                      <p class="body-sm font-medium mb-3 text-blue-600">
+                        Return exact text matches
+                      </p>
 
                       <p class="body-sm text-muted-foreground mb-4 text-balance leading-relaxed">
                         Users search your content and get back the exact matching text
@@ -427,13 +566,18 @@
                 <!-- AI-Generated Summary Card -->
                 <Card
                   class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-purple-300 hover:bg-gradient-to-br hover:from-purple-50 hover:to-pink-50 border-2 bg-card"
-                  :class="formData.responseType === 'summary'
-                    ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
-                    : 'border-border'
-                    " @click="selectResponseType('summary')">
+                  :class="
+                    formData.responseType === 'summary'
+                      ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
+                      : 'border-border'
+                  "
+                  @click="selectResponseType('summary')"
+                >
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
-                      <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center mb-4">
+                      <div
+                        class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center mb-4"
+                      >
                         <Sparkles class="w-6 h-6 text-purple-600" />
                       </div>
 
@@ -456,18 +600,24 @@
                 <!-- Both Raw and Summary Card -->
                 <Card
                   class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border-2 bg-card relative"
-                  :class="formData.responseType === 'both'
-                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
-                    : 'border-border'
-                    " @click="selectResponseType('both')">
+                  :class="
+                    formData.responseType === 'both'
+                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                      : 'border-border'
+                  "
+                  @click="selectResponseType('both')"
+                >
                   <!-- Recommended Badge -->
                   <div
-                    class="absolute -top-2 -right-2 bg-green-600 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-md">
+                    class="absolute -top-2 -right-2 bg-green-600 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-md"
+                  >
                     Recommended
                   </div>
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
-                      <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                      <div
+                        class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mb-4"
+                      >
                         <GitMerge class="w-6 h-6 text-green-600" />
                       </div>
 
@@ -487,27 +637,37 @@
               </div>
 
               <!-- Advanced AI Model Selection (collapsible) -->
-              <div v-if="formData.responseType === 'summary' || formData.responseType === 'both'"
-                class="bg-card rounded-lg shadow-sm border border-border">
-                <button @click="showAdvancedOptions = !showAdvancedOptions"
-                  class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-muted/50">
+              <div
+                v-if="formData.responseType === 'summary' || formData.responseType === 'both'"
+                class="bg-card rounded-lg shadow-sm border border-border"
+              >
+                <button
+                  @click="showAdvancedOptions = !showAdvancedOptions"
+                  class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-muted/50"
+                >
                   <div>
                     <h4 class="font-medium text-foreground">Advanced - Choose Local AI Model</h4>
                     <p class="body-sm text-muted-foreground mt-1">
                       Customize AI settings and model selection
                     </p>
                   </div>
-                  <ChevronRight :class="[
-                    'w-5 h-5 text-muted-foreground transition-transform',
-                    showAdvancedOptions ? 'rotate-90' : '',
-                  ]" />
+                  <ChevronRight
+                    :class="[
+                      'w-5 h-5 text-muted-foreground transition-transform',
+                      showAdvancedOptions ? 'rotate-90' : '',
+                    ]"
+                  />
                 </button>
 
                 <div v-if="showAdvancedOptions" class="px-6 pb-6 border-t border-border">
                   <div class="pt-4">
-                    <ModelSelector v-model="formData.aiModel" title="AI Model"
-                      description="Ollama is pre-selected for local, private AI processing" id-prefix="step2-advanced"
-                      @create-model="handleStep3CreateModel" />
+                    <ModelSelector
+                      v-model="formData.aiModel"
+                      title="AI Model"
+                      description="Ollama is pre-selected for local, private AI processing"
+                      id-prefix="step2-advanced"
+                      @create-model="handleStep3CreateModel"
+                    />
                   </div>
                 </div>
               </div>
@@ -518,27 +678,35 @@
           <div v-if="currentSubStep === 3" class="space-y-6">
             <!-- Policy Configuration -->
             <div class="space-y-6">
-              <div v-for="policy in policyTypes" :key="policy.id"
-                class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
+              <div
+                v-for="policy in policyTypes"
+                :key="policy.id"
+                class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6"
+              >
                 <!-- Policy Header -->
                 <div class="flex items-center justify-between mb-3">
                   <div class="flex items-center gap-3">
-                    <div :class="[
-                      'p-2 rounded-lg',
-                      policy.color === 'blue' ? 'bg-blue-100' : '',
-                      policy.color === 'green' ? 'bg-green-100' : '',
-                      policy.color === 'yellow' ? 'bg-yellow-100' : '',
-                      policy.color === 'purple' ? 'bg-purple-100' : '',
-                      policy.color === 'red' ? 'bg-red-100' : '',
-                    ]">
-                      <component :is="policy.icon" :class="[
-                        'h-5 w-5',
-                        policy.color === 'blue' ? 'text-primary' : '',
-                        policy.color === 'green' ? 'text-green-600' : '',
-                        policy.color === 'yellow' ? 'text-yellow-600' : '',
-                        policy.color === 'purple' ? 'text-purple-600' : '',
-                        policy.color === 'red' ? 'text-red-600' : '',
-                      ]" />
+                    <div
+                      :class="[
+                        'p-2 rounded-lg',
+                        policy.color === 'blue' ? 'bg-blue-100' : '',
+                        policy.color === 'green' ? 'bg-green-100' : '',
+                        policy.color === 'yellow' ? 'bg-yellow-100' : '',
+                        policy.color === 'purple' ? 'bg-purple-100' : '',
+                        policy.color === 'red' ? 'bg-red-100' : '',
+                      ]"
+                    >
+                      <component
+                        :is="policy.icon"
+                        :class="[
+                          'h-5 w-5',
+                          policy.color === 'blue' ? 'text-primary' : '',
+                          policy.color === 'green' ? 'text-green-600' : '',
+                          policy.color === 'yellow' ? 'text-yellow-600' : '',
+                          policy.color === 'purple' ? 'text-purple-600' : '',
+                          policy.color === 'red' ? 'text-red-600' : '',
+                        ]"
+                      />
                     </div>
                     <div class="flex-1">
                       <h3 class="font-medium text-foreground">{{ policy.label }}</h3>
@@ -556,17 +724,25 @@
                   <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
                     <p class="body-sm text-green-700">
                       <strong class="font-medium">Default: </strong>
-                      <span v-if="policy.id === 'access'">Open access - everyone can use your endpoint</span>
-                      <span v-else-if="policy.id === 'rate_limit'">No rate limits - unlimited usage</span>
-                      <span v-else-if="policy.id === 'pricing'">Free access - no charges applied</span>
+                      <span v-if="policy.id === 'access'"
+                        >Open access - everyone can use your endpoint</span
+                      >
+                      <span v-else-if="policy.id === 'rate_limit'"
+                        >No rate limits - unlimited usage</span
+                      >
+                      <span v-else-if="policy.id === 'pricing'"
+                        >Free access - no charges applied</span
+                      >
                       <span v-else>Open access - most permissive settings</span>
                     </p>
                   </div>
                 </div>
 
                 <!-- Empty State -->
-                <div v-if="policyRules[policy.id]?.length === 0"
-                  class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/50/20">
+                <div
+                  v-if="policyRules[policy.id]?.length === 0"
+                  class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/50/20"
+                >
                   <p class="text-muted-foreground body-sm">
                     No {{ policy.name.toLowerCase() }} rule added yet
                   </p>
@@ -574,37 +750,54 @@
 
                 <!-- Policy Rules -->
                 <div v-if="policyRules[policy.id]?.length > 0" class="space-y-3">
-                  <div v-for="(rule, ruleIndex) in policyRules[policy.id] || []" :key="rule.id"
-                    class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4">
+                  <div
+                    v-for="(rule, ruleIndex) in policyRules[policy.id] || []"
+                    :key="rule.id"
+                    class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4"
+                  >
                     <!-- Rule in Edit Mode (Expanded) -->
                     <div v-if="rule.isEditing" class="space-y-3">
                       <!-- Authorization Policy Form -->
                       <div v-if="policy.id === 'access'">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Rule Type</Label>
+                            <Label class="body-sm text-muted-foreground font-medium"
+                              >Rule Type</Label
+                            >
                             <Select v-model="authorizationForm.ruleType">
                               <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
                                 <SelectValue placeholder="Select rule type" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="allow" class="body-sm">Allow specific users</SelectItem>
-                                <SelectItem value="deny" class="body-sm">Deny specific users</SelectItem>
+                                <SelectItem value="allow" class="body-sm"
+                                  >Allow specific users</SelectItem
+                                >
+                                <SelectItem value="deny" class="body-sm"
+                                  >Deny specific users</SelectItem
+                                >
                               </SelectContent>
                             </Select>
                           </div>
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input v-model="authorizationForm.note" placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground" />
+                            <Input
+                              v-model="authorizationForm.note"
+                              placeholder="Optional description"
+                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
+                            />
                           </div>
                         </div>
                         <div class="space-y-1 mt-3">
                           <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                          <Input v-model="authorizationForm.users" placeholder="user1@example.com, user2@example.com"
-                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground" />
-                          <p class="text-xs text-muted-foreground">Comma-separated list. Wildcard supported (e.g.,
-                            *@company.com, *.edu, *@contractors.org)</p>
+                          <Input
+                            v-model="authorizationForm.users"
+                            placeholder="user1@example.com, user2@example.com"
+                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
+                          />
+                          <p class="text-xs text-muted-foreground">
+                            Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
+                            *@contractors.org)
+                          </p>
                         </div>
                       </div>
 
@@ -614,11 +807,16 @@
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
                             <div class="flex">
-                              <Input v-model="rateLimiterForm.limit" type="number" placeholder="100"
-                                class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm" />
+                              <Input
+                                v-model="rateLimiterForm.limit"
+                                type="number"
+                                placeholder="100"
+                                class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
+                              />
                               <Select v-model="rateLimiterForm.windowUnit">
                                 <SelectTrigger
-                                  class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0">
+                                  class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0"
+                                >
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -645,8 +843,11 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div class="space-y-1">
                             <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input v-model="rateLimiterForm.note" placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm" />
+                            <Input
+                              v-model="rateLimiterForm.note"
+                              placeholder="Optional description"
+                              class="h-9 rounded-lg border-border bg-card body-sm"
+                            />
                           </div>
                         </div>
                       </div>
@@ -657,20 +858,32 @@
                           <!-- Price and Note side-by-side -->
                           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Price per query ($)</Label>
-                              <Input v-model="pricingForm.price" type="number" step="any" placeholder="0.01"
-                                class="h-9 rounded-lg border-border bg-card body-sm" />
+                              <Label class="body-sm text-muted-foreground font-medium"
+                                >Price per query ($)</Label
+                              >
+                              <Input
+                                v-model="pricingForm.price"
+                                type="number"
+                                step="any"
+                                placeholder="0.01"
+                                class="h-9 rounded-lg border-border bg-card body-sm"
+                              />
                             </div>
                             <div class="space-y-1">
                               <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input v-model="pricingForm.note" placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm" />
+                              <Input
+                                v-model="pricingForm.note"
+                                placeholder="Optional description"
+                                class="h-9 rounded-lg border-border bg-card body-sm"
+                              />
                             </div>
                           </div>
                           <!-- Apply To and Users row -->
                           <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
                             <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
-                              <Label class="body-sm text-muted-foreground font-medium">Apply To</Label>
+                              <Label class="body-sm text-muted-foreground font-medium"
+                                >Apply To</Label
+                              >
                               <Select v-model="pricingForm.userType">
                                 <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
                                   <SelectValue />
@@ -681,26 +894,40 @@
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div v-if="pricingForm.userType === 'specific'" class="space-y-1 flex-1">
+                            <div
+                              v-if="pricingForm.userType === 'specific'"
+                              class="space-y-1 flex-1"
+                            >
                               <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                              <Input v-model="pricingForm.users" placeholder="user1@example.com, user2@example.com"
-                                class="h-9 rounded-lg border-border bg-card body-sm" />
-                              <p class="text-xs text-muted-foreground">Comma-separated list. Wildcard supported (e.g.,
-                                *@company.com, *.edu, *@contractors.org)</p>
+                              <Input
+                                v-model="pricingForm.users"
+                                placeholder="user1@example.com, user2@example.com"
+                                class="h-9 rounded-lg border-border bg-card body-sm"
+                              />
+                              <p class="text-xs text-muted-foreground">
+                                Comma-separated list. Wildcard supported (e.g., *@company.com,
+                                *.edu, *@contractors.org)
+                              </p>
                             </div>
                           </div>
                         </div>
                       </div>
 
-
                       <!-- Form Action Buttons -->
                       <div class="flex gap-2 pt-3 border-t border-border">
-                        <Button @click="savePolicy(policy.id, rule.id)" size="sm"
-                          class="rounded-lg body-sm font-medium px-3 py-2">
+                        <Button
+                          @click="savePolicy(policy.id, rule.id)"
+                          size="sm"
+                          class="rounded-lg body-sm font-medium px-3 py-2"
+                        >
                           Save
                         </Button>
-                        <Button @click="cancelEditPolicy(policy.id, rule.id)" variant="outline" size="sm"
-                          class="rounded-lg border-border body-sm font-medium px-3 py-2">
+                        <Button
+                          @click="cancelEditPolicy(policy.id, rule.id)"
+                          variant="outline"
+                          size="sm"
+                          class="rounded-lg border-border body-sm font-medium px-3 py-2"
+                        >
                           Cancel
                         </Button>
                       </div>
@@ -712,13 +939,19 @@
                         <h4 class="body-sm font-medium text-foreground">
                           {{ rule.config.note || `${policy.name} Rule #${ruleIndex + 1}` }}
                         </h4>
-                        <p class="body-sm text-muted-foreground mt-1">{{ getRuleSummary(policy.id, rule.config) }}</p>
+                        <p class="body-sm text-muted-foreground mt-1">
+                          {{ getRuleSummary(policy.id, rule.config) }}
+                        </p>
                       </div>
                       <div class="flex gap-2">
                         <Button variant="outline" size="sm" @click="editPolicy(policy.id, rule.id)">
                           Edit
                         </Button>
-                        <Button variant="outline" size="sm" @click="deletePolicy(policy.id, rule.id)">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          @click="deletePolicy(policy.id, rule.id)"
+                        >
                           Delete
                         </Button>
                       </div>
@@ -730,7 +963,10 @@
           </div>
 
           <!-- Step 4: Tell us more about it -->
-          <div v-if="currentSubStep === 4" class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8">
+          <div
+            v-if="currentSubStep === 4"
+            class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
+          >
             <!-- Interactive examples -->
             <div class="mb-8 bg-primary/10 border border-blue-200 rounded-lg p-4">
               <h4 class="font-medium text-blue-900 mb-3 flex items-center gap-2">
@@ -739,23 +975,29 @@
               </h4>
               <p class="body-sm text-primary/80 mb-4">Click any example to auto-fill the form</p>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4 body-sm">
-                <button @click="fillExampleData('news')"
-                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left">
+                <button
+                  @click="fillExampleData('news')"
+                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
+                >
                   <p class="font-medium text-foreground">📰 News Archive</p>
                   <p class="text-muted-foreground mt-1">
                     "Herald Tribune Archives 2010-2024" - Historical articles and investigative
                     reports
                   </p>
                 </button>
-                <button @click="fillExampleData('research')"
-                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left">
+                <button
+                  @click="fillExampleData('research')"
+                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
+                >
                   <p class="font-medium text-foreground">🔬 Research Data</p>
                   <p class="text-muted-foreground mt-1">
                     "Cancer Research Publications" - Peer-reviewed papers and clinical studies
                   </p>
                 </button>
-                <button @click="fillExampleData('library')"
-                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left">
+                <button
+                  @click="fillExampleData('library')"
+                  class="bg-card p-3 rounded border hover:border-blue-400 hover:shadow-sm transition-all text-left"
+                >
                   <p class="font-medium text-foreground">📚 Document Library</p>
                   <p class="text-muted-foreground mt-1">
                     "Technical Manuals Collection" - Product guides and documentation
@@ -770,13 +1012,23 @@
                 <Label for="endpoint-name" class="body-sm font-medium text-foreground">
                   Name <span class="text-red-500">*</span>
                 </Label>
-                <Input id="endpoint-name" v-model="formData.endpointName" placeholder="e.g., herald-tribune-archives"
+                <Input
+                  id="endpoint-name"
+                  v-model="formData.endpointName"
+                  placeholder="e.g., herald-tribune-archives"
                   pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$"
-                  @input="formData.endpointName = formData.endpointName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')"
-                  class="w-full font-mono body-sm" />
+                  @input="
+                    formData.endpointName = formData.endpointName
+                      .toLowerCase()
+                      .replace(/[^a-z0-9-]/g, '-')
+                      .replace(/-+/g, '-')
+                      .replace(/^-|-$/g, '')
+                  "
+                  class="w-full font-mono body-sm"
+                />
                 <p class="body-sm text-muted-foreground">
-                  This appears when people discover it. Use lowercase letters, numbers, and hyphens only (e.g.,
-                  my-data-source)
+                  This appears when people discover it. Use lowercase letters, numbers, and hyphens
+                  only (e.g., my-data-source)
                 </p>
               </div>
 
@@ -785,8 +1037,12 @@
                 <Label for="summary" class="body-sm font-medium text-foreground">
                   Short Description <span class="text-red-500">*</span>
                 </Label>
-                <Input id="summary" v-model="formData.summary"
-                  placeholder="e.g., Historical news articles from 2010-2024" class="w-full" />
+                <Input
+                  id="summary"
+                  v-model="formData.summary"
+                  placeholder="e.g., Historical news articles from 2010-2024"
+                  class="w-full"
+                />
                 <p class="body-sm text-muted-foreground">
                   This appears when people browse available content
                 </p>
@@ -799,28 +1055,55 @@
                 </Label>
                 <div class="space-y-2">
                   <div class="flex gap-2">
-                    <Input id="tags" v-model="tagInput" @keydown.enter.prevent="addTag"
-                      placeholder="Add keywords like: legal, medical, research, finance" class="flex-1" />
-                    <Button @click="addTag" variant="outline" size="sm" :disabled="!tagInput.trim()">
+                    <Input
+                      id="tags"
+                      v-model="tagInput"
+                      @keydown.enter.prevent="addTag"
+                      placeholder="Add keywords like: legal, medical, research, finance"
+                      class="flex-1"
+                    />
+                    <Button
+                      @click="addTag"
+                      variant="outline"
+                      size="sm"
+                      :disabled="!tagInput.trim()"
+                    >
                       <Plus class="h-4 w-4" />
                     </Button>
                   </div>
-                  <p class="body-sm text-muted-foreground">Tags help others discover your content</p>
+                  <p class="body-sm text-muted-foreground">
+                    Tags help others discover your content
+                  </p>
 
                   <!-- Popular Tags Suggestions -->
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-xs text-muted-foreground">Popular:</span>
-                    <Button v-for="suggestion in popularTags" :key="suggestion" @click="addSuggestedTag(suggestion)"
-                      variant="ghost" size="sm" class="h-6 px-2 text-xs" :disabled="formData.tags.includes(suggestion)">
+                    <Button
+                      v-for="suggestion in popularTags"
+                      :key="suggestion"
+                      @click="addSuggestedTag(suggestion)"
+                      variant="ghost"
+                      size="sm"
+                      class="h-6 px-2 text-xs"
+                      :disabled="formData.tags.includes(suggestion)"
+                    >
                       {{ suggestion }}
                     </Button>
                   </div>
 
                   <!-- Selected Tags -->
                   <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-3">
-                    <Badge v-for="(tag, index) in formData.tags" :key="index" variant="secondary" class="px-3 py-1">
+                    <Badge
+                      v-for="(tag, index) in formData.tags"
+                      :key="index"
+                      variant="secondary"
+                      class="px-3 py-1"
+                    >
                       {{ tag }}
-                      <button @click="removeTag(index)" class="ml-2 hover:text-destructive transition-colors">
+                      <button
+                        @click="removeTag(index)"
+                        class="ml-2 hover:text-destructive transition-colors"
+                      >
                         <X class="h-3 w-3" />
                       </button>
                     </Badge>
@@ -829,16 +1112,27 @@
               </div>
 
               <!-- Watched Paths Descriptions -->
-              <div v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0" class="space-y-3">
-                <Label class="body-sm font-medium text-foreground">Watched Paths Descriptions (Optional)</Label>
+              <div
+                v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0"
+                class="space-y-3"
+              >
+                <Label class="body-sm font-medium text-foreground"
+                  >Watched Paths Descriptions (Optional)</Label
+                >
                 <div class="space-y-2">
-                  <div v-for="file in selectedFiles" :key="file"
-                    class="flex items-start gap-3 p-3 bg-muted/50 border border-border rounded-lg">
+                  <div
+                    v-for="file in selectedFiles"
+                    :key="file"
+                    class="flex items-start gap-3 p-3 bg-muted/50 border border-border rounded-lg"
+                  >
                     <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                     <div class="flex-1 min-w-0">
                       <p class="body-sm font-medium text-foreground truncate mb-1">{{ file }}</p>
-                      <Input v-model="fileDescriptions[file]"
-                        placeholder="Brief description of what this file contains..." class="body-sm" />
+                      <Input
+                        v-model="fileDescriptions[file]"
+                        placeholder="Brief description of what this file contains..."
+                        class="body-sm"
+                      />
                     </div>
                   </div>
                 </div>
@@ -846,12 +1140,16 @@
 
               <!-- Add More Details Toggle -->
               <div class="border-t pt-4">
-                <button @click="showAdvancedDetails = !showAdvancedDetails"
-                  class="flex items-center gap-2 body-sm text-primary hover:text-primary/80 transition-colors">
-                  <ChevronRight :class="[
-                    'w-4 h-4 transition-transform',
-                    showAdvancedDetails ? 'rotate-90' : '',
-                  ]" />
+                <button
+                  @click="showAdvancedDetails = !showAdvancedDetails"
+                  class="flex items-center gap-2 body-sm text-primary hover:text-primary/80 transition-colors"
+                >
+                  <ChevronRight
+                    :class="[
+                      'w-4 h-4 transition-transform',
+                      showAdvancedDetails ? 'rotate-90' : '',
+                    ]"
+                  />
                   Add more details (optional)
                 </button>
               </div>
@@ -862,10 +1160,25 @@
                   <Label for="description" class="body-sm font-medium text-foreground">
                     Description
                   </Label>
-                  <MdEditor :model-value="formData.description || defaultDescriptionTemplate"
-                    @update:model-value="formData.description = $event" :height="200"
-                    :toolbars="['bold', 'italic', 'title', 'strikeThrough', 'unorderedList', 'orderedList', 'link', 'code', 'codeRow']"
-                    :preview-theme="'github'" :code-theme="'github'" language="en-US" />
+                  <MdEditor
+                    :model-value="formData.description || defaultDescriptionTemplate"
+                    @update:model-value="formData.description = $event"
+                    :height="200"
+                    :toolbars="[
+                      'bold',
+                      'italic',
+                      'title',
+                      'strikeThrough',
+                      'unorderedList',
+                      'orderedList',
+                      'link',
+                      'code',
+                      'codeRow',
+                    ]"
+                    :preview-theme="'github'"
+                    :code-theme="'github'"
+                    language="en-US"
+                  />
                 </div>
               </div>
             </div>
@@ -874,10 +1187,24 @@
           <!-- Step 5: Review & Publish -->
           <div v-if="currentSubStep === 5" class="space-y-6">
             <!-- Header -->
-            <div class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center">
-              <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            <div
+              class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
+            >
+              <div
+                class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"
+              >
+                <svg
+                  class="w-8 h-8 text-green-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 13l4 4L19 7"
+                  ></path>
                 </svg>
               </div>
               <h2 class="heading-1 text-foreground mb-2">Ready to Publish!</h2>
@@ -888,15 +1215,27 @@
             </div>
 
             <!-- Creation Progress -->
-            <div v-if="isCreating"
-              class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center">
+            <div
+              v-if="isCreating"
+              class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
+            >
               <div
-                class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"
+              >
                 <svg class="w-8 h-8 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                  </path>
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  ></circle>
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
                 </svg>
               </div>
               <h3 class="heading-2 text-foreground mb-2">Creating Endpoint...</h3>
@@ -922,13 +1261,21 @@
                   <div>
                     <p class="body-sm font-medium text-muted-foreground mb-2">Data Source</p>
                     <div class="flex items-center gap-2">
-                      <div v-if="selectedDataSourceType === 'filesystem'" class="flex items-center gap-2">
+                      <div
+                        v-if="selectedDataSourceType === 'filesystem'"
+                        class="flex items-center gap-2"
+                      >
                         <FolderOpen class="w-4 h-4 text-primary" />
                         <span class="text-foreground">File System</span>
-                        <span class="body-sm text-muted-foreground">({{ selectedFiles.length }}
-                          {{ selectedFiles.length === 1 ? 'file' : 'files' }})</span>
+                        <span class="body-sm text-muted-foreground"
+                          >({{ selectedFiles.length }}
+                          {{ selectedFiles.length === 1 ? 'file' : 'files' }})</span
+                        >
                       </div>
-                      <div v-else-if="selectedDataSourceType === 'existing'" class="flex items-center gap-2">
+                      <div
+                        v-else-if="selectedDataSourceType === 'existing'"
+                        class="flex items-center gap-2"
+                      >
                         <Database class="w-4 h-4 text-green-600" />
                         <span class="text-foreground">Existing Source</span>
                         <span v-if="selectedDatasetName" class="body-sm text-muted-foreground">
@@ -951,26 +1298,41 @@
                 <div v-if="formData.description && formData.description.trim()" class="mt-6">
                   <p class="body-sm font-medium text-muted-foreground mb-3">Detailed Description</p>
                   <div class="bg-muted/30 border border-border rounded-lg p-4">
-                    <MdPreview :model-value="formData.description" :preview-theme="'github'" :code-theme="'github'"
-                      language="en-US" />
+                    <MdPreview
+                      :model-value="formData.description"
+                      :preview-theme="'github'"
+                      :code-theme="'github'"
+                      language="en-US"
+                    />
                   </div>
                 </div>
 
                 <div v-if="formData.tags.length > 0" class="mt-6">
                   <p class="body-sm font-medium text-muted-foreground mb-3">Tags</p>
                   <div class="flex flex-wrap gap-2">
-                    <Badge v-for="tag in formData.tags" :key="tag" variant="outline"
-                      class="bg-primary/10 text-primary border-primary px-3 py-1">{{ tag }}</Badge>
+                    <Badge
+                      v-for="tag in formData.tags"
+                      :key="tag"
+                      variant="outline"
+                      class="bg-primary/10 text-primary border-primary px-3 py-1"
+                      >{{ tag }}</Badge
+                    >
                   </div>
                 </div>
               </div>
 
               <!-- Configured Files Detail -->
-              <div v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0" class="border-t pt-6">
+              <div
+                v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0"
+                class="border-t pt-6"
+              >
                 <p class="body-sm font-medium text-muted-foreground mb-3">Selected Files</p>
                 <div class="space-y-3">
-                  <div v-for="file in selectedFiles" :key="file"
-                    class="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                  <div
+                    v-for="file in selectedFiles"
+                    :key="file"
+                    class="flex items-start gap-3 p-3 bg-muted/50 rounded-lg"
+                  >
                     <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                     <div class="min-w-0 flex-1">
                       <p class="body-sm font-medium text-foreground truncate">{{ file }}</p>
@@ -996,7 +1358,10 @@
                         </p>
                       </div>
                     </div>
-                    <div v-else-if="formData.responseType === 'summary'" class="flex items-start gap-3">
+                    <div
+                      v-else-if="formData.responseType === 'summary'"
+                      class="flex items-start gap-3"
+                    >
                       <Sparkles class="w-4 h-4 text-purple-600 mt-0.5" />
                       <div>
                         <span class="font-medium text-foreground">AI Assistant</span>
@@ -1005,7 +1370,10 @@
                         </p>
                       </div>
                     </div>
-                    <div v-else-if="formData.responseType === 'both'" class="flex items-start gap-3">
+                    <div
+                      v-else-if="formData.responseType === 'both'"
+                      class="flex items-start gap-3"
+                    >
                       <GitMerge class="w-4 h-4 text-green-600 mt-0.5" />
                       <div>
                         <span class="font-medium text-foreground">Search + AI</span>
@@ -1017,30 +1385,39 @@
                     <p v-else class="text-muted-foreground italic">Not configured</p>
 
                     <!-- Show AI Model if selected -->
-                    <div v-if="
-                      (formData.responseType === 'summary' || formData.responseType === 'both') &&
-                      formData.aiModel
-                    " class="mt-3 pt-3 border-t border-border">
+                    <div
+                      v-if="
+                        (formData.responseType === 'summary' || formData.responseType === 'both') &&
+                        formData.aiModel
+                      "
+                      class="mt-3 pt-3 border-t border-border"
+                    >
                       <span class="body-sm text-muted-foreground">AI Model: </span>
                       <span class="body-sm font-medium text-foreground">{{
                         getModelName(formData.aiModel) || formData.aiModel
-                        }}</span>
+                      }}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               <!-- Access Policies Summary -->
-              <div v-if="Object.values(policyRules).some((rules) => rules.length > 0)" class="border-t pt-6">
+              <div
+                v-if="Object.values(policyRules).some((rules) => rules.length > 0)"
+                class="border-t pt-6"
+              >
                 <p class="body-sm font-medium text-muted-foreground mb-3">Access Policies</p>
                 <div class="space-y-4">
                   <div v-for="policyType in policyTypes" :key="policyType.id">
-                    <div v-if="policyRules[policyType.id]?.length > 0" class="bg-muted/50 rounded-lg p-4">
+                    <div
+                      v-if="policyRules[policyType.id]?.length > 0"
+                      class="bg-muted/50 rounded-lg p-4"
+                    >
                       <div class="flex items-center gap-2 mb-3">
                         <component :is="policyType.icon" class="w-4 h-4 text-muted-foreground" />
                         <span class="body-sm font-medium text-foreground">{{
                           policyType.name
-                          }}</span>
+                        }}</span>
                         <Badge variant="secondary" class="body-sm">
                           {{ policyRules[policyType.id].length }}
                           {{ policyRules[policyType.id].length === 1 ? 'rule' : 'rules' }}
@@ -1048,14 +1425,18 @@
                       </div>
                       <!-- Rule Details -->
                       <div class="space-y-2">
-                        <div v-for="(rule, index) in policyRules[policyType.id]" :key="rule.id"
-                          class="bg-card/50 border border-border/50 rounded-lg p-3">
+                        <div
+                          v-for="(rule, index) in policyRules[policyType.id]"
+                          :key="rule.id"
+                          class="bg-card/50 border border-border/50 rounded-lg p-3"
+                        >
                           <div class="flex items-start justify-between">
                             <div class="flex-1">
                               <h4 class="body-sm font-medium text-foreground mb-1">
                                 {{ rule.config.note || `${policyType.name} Rule #${index + 1}` }}
                               </h4>
-                              <p class="body-sm text-muted-foreground">{{ getRuleSummary(policyType.id, rule.config) }}
+                              <p class="body-sm text-muted-foreground">
+                                {{ getRuleSummary(policyType.id, rule.config) }}
                               </p>
                             </div>
                           </div>
@@ -1069,7 +1450,10 @@
           </div>
 
           <!-- Error Display (only in step 5) -->
-          <div v-if="creationError && currentSubStep === 5" class="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div
+            v-if="creationError && currentSubStep === 5"
+            class="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg"
+          >
             <div class="flex items-start gap-3">
               <X class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
               <div class="flex-1">
@@ -1081,12 +1465,18 @@
 
           <!-- Navigation Buttons -->
           <div class="flex justify-between mt-8 pt-6 border-t border-border">
-            <Button variant="outline" @click="currentSubStep === 1 ? handleBack() : previousStep()"
-              :disabled="isCreating">
+            <Button
+              variant="outline"
+              @click="currentSubStep === 1 ? handleBack() : previousStep()"
+              :disabled="isCreating"
+            >
               {{ currentSubStep === 1 ? 'Cancel' : 'Back' }}
             </Button>
-            <Button @click="nextStep" :disabled="!isCurrentStepValid || isCreating"
-              class="bg-primary hover:bg-primary/90 text-white px-8">
+            <Button
+              @click="nextStep"
+              :disabled="!isCurrentStepValid || isCreating"
+              class="bg-primary hover:bg-primary/90 text-white px-8"
+            >
               <template v-if="currentSubStep === 5 && isCreating">
                 {{ creationStep || 'Publishing...' }}
               </template>
@@ -1150,7 +1540,8 @@ import type { DatasetListItem, ModelListItem } from '@/api/types'
 const router = useRouter()
 
 // Endpoint creation composable
-const { isCreating, creationError, creationStep, createEndpointWithData, reset } = useEndpointCreation()
+const { isCreating, creationError, creationStep, createEndpointWithData, reset } =
+  useEndpointCreation()
 
 // Sub-step navigation
 const currentSubStep = ref(1)
@@ -1258,7 +1649,6 @@ const pricingForm = ref({
   note: '',
 })
 
-
 // Policy types definition
 const policyTypes: PolicyType[] = [
   {
@@ -1342,7 +1732,7 @@ const remainingDatasetsCount = computed(() => {
 
 const selectedDatasetName = computed(() => {
   if (selectedDataSourceType.value === 'existing' && formData.value.selectedDataSource) {
-    const dataset = existingDatasets.value.find(d => d.id === formData.value.selectedDataSource)
+    const dataset = existingDatasets.value.find((d) => d.id === formData.value.selectedDataSource)
     return dataset?.name || formData.value.selectedDataSource
   }
   return ''
@@ -1403,7 +1793,6 @@ const selectDataSourceType = (type: 'filesystem' | 'existing') => {
   selectedDataSourceType.value = type
 }
 
-
 const nextStep = async () => {
   if (isCurrentStepValid.value && currentSubStep.value < 5) {
     currentSubStep.value++
@@ -1420,7 +1809,7 @@ const nextStep = async () => {
       endpointName: formData.value.endpointName,
       summary: formData.value.summary,
       description: formData.value.description,
-      tags: formData.value.tags
+      tags: formData.value.tags,
     }
 
     await createEndpointWithData(endpointData)
@@ -1486,7 +1875,10 @@ const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string =>
     case 'access':
       if (!config.users) return 'No users configured'
       const ruleType = config.ruleType === 'allow' ? 'Allow' : 'Deny'
-      const userList = (config.users as string).split(',').map(u => u.trim()).filter(u => u)
+      const userList = (config.users as string)
+        .split(',')
+        .map((u) => u.trim())
+        .filter((u) => u)
       if (userList.length === 0) {
         return 'No users configured'
       }
@@ -1499,7 +1891,8 @@ const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string =>
       return `${config.limit} requests per ${config.windowUnit} ${scope}`
 
     case 'pricing':
-      if (config.price === undefined || config.price === null || config.price === '') return 'No price configured'
+      if (config.price === undefined || config.price === null || config.price === '')
+        return 'No price configured'
       const price = parseFloat(config.price as string)
 
       // Check for invalid number
@@ -1510,7 +1903,12 @@ const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string =>
         if (config.userType === 'all') {
           return 'Free for all users'
         } else {
-          const userList = config.users ? (config.users as string).split(',').map(u => u.trim()).filter(u => u) : []
+          const userList = config.users
+            ? (config.users as string)
+                .split(',')
+                .map((u) => u.trim())
+                .filter((u) => u)
+            : []
           if (userList.length === 0) {
             return 'Free for specific users (none configured)'
           }
@@ -1524,7 +1922,12 @@ const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string =>
       if (config.userType === 'all') {
         return `$${formattedPrice} per query for all users`
       } else {
-        const userList = config.users ? (config.users as string).split(',').map(u => u.trim()).filter(u => u) : []
+        const userList = config.users
+          ? (config.users as string)
+              .split(',')
+              .map((u) => u.trim())
+              .filter((u) => u)
+          : []
         if (userList.length === 0) {
           return `$${formattedPrice} per query for specific users (none configured)`
         }
@@ -1751,16 +2154,13 @@ const loadAvailableModels = async () => {
 
 // Get model name by ID
 const getModelName = (modelId: string): string | null => {
-  const model = availableModels.value.find(m => m.id === modelId)
+  const model = availableModels.value.find((m) => m.id === modelId)
   return model?.name || null
 }
 
 // Load datasets and models when component mounts
 onMounted(async () => {
-  await Promise.all([
-    loadExistingDatasets(),
-    loadAvailableModels()
-  ])
+  await Promise.all([loadExistingDatasets(), loadAvailableModels()])
 
   // Auto-select filesystem if no existing datasets are available
   if (existingDataSourcesCount.value === 0 && !selectedDataSourceType.value) {
