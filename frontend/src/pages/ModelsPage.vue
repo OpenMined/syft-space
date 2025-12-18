@@ -52,7 +52,7 @@
     <!-- Empty State (when no models exist) -->
     <div
       v-else-if="models.length === 0"
-      class="bg-card rounded-lg shadow border border-border p-8 text-center"
+      class="text-center py-12"
     >
       <Brain class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
       <h3 class="heading-3 text-foreground mb-2">No models yet</h3>

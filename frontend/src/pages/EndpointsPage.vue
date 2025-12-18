@@ -105,7 +105,7 @@
       <p class="text-muted-foreground">No endpoints found matching "{{ searchQuery }}"</p>
     </div>
 
-    <!-- DEMO: Empty State Section -->
+    <!-- Empty state -->
     <div
       v-if="
         !endpointsStore.isLoading &&
@@ -113,40 +113,23 @@
         endpointsStore.endpoints.length === 0 &&
         !searchQuery
       "
-      class="mt-16"
+      class="text-center py-12"
     >
-      <!-- Divider with centered text -->
-      <div class="relative">
-        <div class="absolute inset-0 flex items-center">
-          <div class="w-full border-t border-border"></div>
-        </div>
-        <div class="relative flex justify-center body-sm">
-          <span class="px-4 bg-background text-muted-foreground font-medium">
-            Demo: Empty State (shown when no endpoints exist)
-          </span>
-        </div>
+      <div
+        class="mx-auto w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-6"
+      >
+        <Server class="w-7 h-7 text-muted-foreground" />
       </div>
-
-      <!-- Empty state content -->
-      <div class="mt-8 bg-card rounded-lg shadow border border-border p-8">
-        <div class="text-center py-12">
-          <div
-            class="mx-auto w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-6"
-          >
-            <Server class="w-7 h-7 text-muted-foreground" />
-          </div>
-          <h3 class="heading-2 text-foreground mb-3">No endpoints yet</h3>
-          <p class="body-sm text-muted-foreground mb-8 max-w-sm mx-auto">
-            Get started by creating your first endpoint to share data or models.
-          </p>
-          <div class="flex items-center justify-center gap-3">
-            <Button @click="showCreateEndpointModal = true">
-              <Plus class="h-4 w-4 mr-2" />
-              Create your first endpoint
-            </Button>
-            <Button variant="outline"> Learn more </Button>
-          </div>
-        </div>
+      <h3 class="heading-2 text-foreground mb-3">No endpoints yet</h3>
+      <p class="body-sm text-muted-foreground mb-8 max-w-sm mx-auto">
+        Get started by creating your first endpoint to share data or models.
+      </p>
+      <div class="flex items-center justify-center gap-3">
+        <Button @click="showCreateEndpointModal = true">
+          <Plus class="h-4 w-4 mr-2" />
+          Create your first endpoint
+        </Button>
+        <Button variant="outline"> Learn more </Button>
       </div>
     </div>
   </div>
