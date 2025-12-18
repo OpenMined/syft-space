@@ -61,6 +61,27 @@ export function usePolicyCreation() {
       .filter((u) => u.length > 0)
   }
 
+  // Helper function to create pricing configuration
+  const createPricingConfiguration = (
+    price: string | number,
+    userType: 'all' | 'specific',
+    users: string = '',
+  ): Record<string, unknown> => {
+    const configuration: Record<string, unknown> = {
+      price: typeof price === 'string' ? parseFloat(price) : price,
+    }
+
+    // Set applied_to based on userType: ['*'] for all users, user list for specific users
+    if (userType === 'specific') {
+      const userList = processUserList(users)
+      configuration.applied_to = userList
+    } else {
+      configuration.applied_to = ['*']
+    }
+
+    return configuration
+  }
+
   // Policy type specific creation methods
   const createAuthorizationPolicy = async (
     formData: AuthorizationFormData,
@@ -136,24 +157,12 @@ export function usePolicyCreation() {
     endpointName: string,
     ruleIndex: number = 1,
   ) => {
-    // Note: Pricing policies are not fully implemented in backend yet
-    // This method is provided for future use
     const policyName = generatePolicyName('pricing', formData, endpointName, ruleIndex)
-
-    const configuration: Record<string, unknown> = {
-      price: parseFloat(formData.price),
-      unit: 'request',
-    }
-
-    // Add user-specific pricing if applicable
-    if (formData.userType === 'specific') {
-      const userList = processUserList(formData.users)
-      configuration.applied_to = userList
-    }
+    const configuration = createPricingConfiguration(formData.price, formData.userType, formData.users)
 
     const request: CreatePolicyRequest = {
       name: policyName,
-      policy_type: 'pricing',
+      policy_type: 'accounting',
       configuration: configuration,
       endpoint_id: endpointId,
     }
@@ -220,8 +229,8 @@ export function usePolicyCreation() {
   ): CreatePolicyRequest[] => {
     const policyRequests: CreatePolicyRequest[] = []
 
-    // Only process implemented policy types (access, rate_limit)
-    const implementedPolicies = ['access', 'rate_limit']
+    // Only process implemented policy types (access, rate_limit, pricing)
+    const implementedPolicies = ['access', 'rate_limit', 'pricing']
 
     Object.entries(policyRules).forEach(([policyType, rules]) => {
       if (!implementedPolicies.includes(policyType)) {
@@ -276,14 +285,23 @@ export function usePolicyCreation() {
             limit: formattedLimit,
             scope: backendScope,
           }
+        } else if (policyType === 'pricing') {
+          const price = rule.config.price as string
+          const userType = rule.config.userType as 'all' | 'specific'
+          const users = rule.config.users as string
+
+          configuration = createPricingConfiguration(price, userType, users)
         } else {
           // Fallback for other policy types
           configuration = rule.config
         }
 
+        // Map frontend policy type to backend policy type
+        const backendPolicyType = policyType === 'pricing' ? 'accounting' : policyType
+
         policyRequests.push({
           name: policyName,
-          policy_type: policyType,
+          policy_type: backendPolicyType,
           configuration: configuration,
           endpoint_id: '', // Will be set by caller
         })

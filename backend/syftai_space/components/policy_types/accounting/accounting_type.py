@@ -31,7 +31,7 @@ class AccountingConfig(BaseModel):
 
     price: float = Field(
         ...,
-        gt=0,
+        ge=0,
         description="Price per unit",
     )
     pricing_mode: PricingMode = Field(

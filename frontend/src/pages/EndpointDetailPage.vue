@@ -496,17 +496,21 @@
                           </h4>
                           <p class="body-sm text-muted-foreground">
                             <template v-if="policy.configuration?.price !== undefined">
-                              ${{ policy.configuration.price }} per
-                              {{ policy.configuration?.unit || 'request' }}
+                              ${{ policy.configuration.price }} per query
                               <template
                                 v-if="
                                   Array.isArray(policy.configuration?.applied_to) &&
-                                  policy.configuration.applied_to.length
+                                  policy.configuration.applied_to.length > 0 &&
+                                  !(policy.configuration.applied_to.length === 1 && policy.configuration.applied_to[0] === '*')
                                 "
                               >
                                 for {{ policy.configuration.applied_to.join(', ') }}</template
                               >
-                              <template v-else-if="policy.configuration?.userType === 'all'">
+                              <template v-else-if="
+                                Array.isArray(policy.configuration?.applied_to) &&
+                                policy.configuration.applied_to.length === 1 &&
+                                policy.configuration.applied_to[0] === '*'
+                              ">
                                 for all users</template
                               >
                             </template>
@@ -1080,7 +1084,7 @@ const getRateLimitPolicies = () => {
 }
 
 const getPricingPolicies = () => {
-  return endpoint.value?.policies?.filter((p) => p.policy_type === 'pricing') || []
+  return endpoint.value?.policies?.filter((p) => p.policy_type === 'accounting') || []
 }
 
 const getTotalPoliciesCount = () => {
@@ -1202,8 +1206,10 @@ const handleAddPolicy = async () => {
   if (!formData) return
 
   // Calculate the correct rule index based on existing policies of this type
+  // Map frontend policy type to backend policy type for counting
+  const backendPolicyType = selectedPolicyType.value === 'pricing' ? 'accounting' : selectedPolicyType.value
   const existingPoliciesOfType =
-    endpoint.value.policies?.filter((p) => p.policy_type === selectedPolicyType.value) || []
+    endpoint.value.policies?.filter((p) => p.policy_type === backendPolicyType) || []
   const ruleIndex = existingPoliciesOfType.length + 1
 
   try {
