@@ -99,12 +99,29 @@ class EndpointCreateResponse(EndpointResponse):
     dataset_id: Optional[UUID] = Field(default=None, description="Dataset ID")
 
 
+class AttachedPolicy(BaseModel):
+    """Response model for attached policy."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Policy name")
+    policy_type: str = Field(..., description="Policy type name")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
 class EndpointDetailResponse(EndpointResponse):
     """Response model for endpoint details."""
 
     model: Optional[AttachedModel] = Field(default=None, description="Attached model")
     dataset: Optional[AttachedDataset] = Field(
         default=None, description="Attached dataset"
+    )
+    policies: list[AttachedPolicy] = Field(
+        default_factory=list, description="Attached policies"
     )
 
 

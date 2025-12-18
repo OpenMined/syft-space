@@ -92,7 +92,12 @@
 
     <!-- Endpoint cards -->
     <div v-else-if="filteredEndpoints.length > 0" class="space-y-5">
-      <EndpointCard v-for="endpoint in filteredEndpoints" :key="endpoint.id" :endpoint="endpoint" />
+      <EndpointCard
+        v-for="endpoint in filteredEndpoints"
+        :key="endpoint.id"
+        :endpoint="endpoint"
+        @delete="handleDeleteEndpoint"
+      />
     </div>
 
     <!-- No results state -->
@@ -148,15 +153,77 @@
 
   <!-- Create Endpoint Modal -->
   <CreateEndpointModal v-model:open="showCreateEndpointModal" />
+
+  <!-- Delete Confirmation Dialog -->
+  <Dialog v-model:open="showDeleteDialog">
+    <DialogContent class="sm:max-w-[600px]">
+      <div class="space-y-4">
+        <div>
+          <h3 class="body-sm font-semibold text-destructive">Danger Zone</h3>
+          <p class="body-sm text-muted-foreground mt-1">
+            Permanently delete this endpoint and all associated data.
+          </p>
+        </div>
+        <DialogHeader>
+          <DialogTitle>Delete endpoint</DialogTitle>
+          <DialogDescription>
+            This action cannot be undone. Please type
+            <span class="font-medium text-foreground"> {{ endpointToDelete?.name }} </span>
+            to confirm deletion.
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-2">
+          <Label class="body-sm text-muted-foreground">Confirm name</Label>
+          <Input
+            v-model="deleteNameConfirm"
+            :placeholder="endpointToDelete?.name || 'endpoint-name'"
+          />
+          <p
+            class="body-sm"
+            :class="
+              deleteNameConfirm === endpointToDelete?.name
+                ? 'text-success'
+                : 'text-muted-foreground'
+            "
+          >
+            {{
+              deleteNameConfirm === endpointToDelete?.name
+                ? 'Name matches'
+                : 'Enter the endpoint name exactly'
+            }}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="cancelDeleteEndpoint">Cancel</Button>
+          <Button
+            variant="destructive"
+            :disabled="deleteNameConfirm !== endpointToDelete?.name || isDeleting"
+            @click="confirmDeleteEndpoint"
+          >
+            {{ isDeleting ? 'Deleting...' : 'Delete Endpoint' }}
+          </Button>
+        </DialogFooter>
+      </div>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Search, Plus, Server, HelpCircle } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import EndpointCard from '@/components/EndpointCard.vue'
 import CreateEndpointModal from '@/components/CreateEndpointModal.vue'
 import { useEndpointsStore } from '@/stores/endpoints'
@@ -172,6 +239,10 @@ onMounted(() => {
 const searchQuery = ref('')
 const activeTab = ref('all')
 const showCreateEndpointModal = ref(false)
+const showDeleteDialog = ref(false)
+const endpointToDelete = ref<EndpointItem | null>(null)
+const deleteNameConfirm = ref('')
+const isDeleting = ref(false)
 
 const filteredEndpoints = computed(() => {
   return endpointsStore.endpoints.filter((endpoint: EndpointItem) => {
@@ -197,4 +268,38 @@ const filteredEndpoints = computed(() => {
     return true
   })
 })
+
+const handleDeleteEndpoint = (endpoint: EndpointItem) => {
+  endpointToDelete.value = endpoint
+  deleteNameConfirm.value = ''
+  showDeleteDialog.value = true
+}
+
+const cancelDeleteEndpoint = () => {
+  showDeleteDialog.value = false
+  endpointToDelete.value = null
+  deleteNameConfirm.value = ''
+}
+
+const confirmDeleteEndpoint = async () => {
+  if (endpointToDelete.value && !isDeleting.value) {
+    isDeleting.value = true
+    // TODO: Call the actual delete API here
+    console.log('Deleting endpoint:', endpointToDelete.value.name)
+
+    // Simulate API call
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    // Remove from store (this would normally be done by the API call)
+    const index = endpointsStore.endpoints.findIndex((e) => e.id === endpointToDelete.value!.id)
+    if (index > -1) {
+      endpointsStore.endpoints.splice(index, 1)
+    }
+
+    showDeleteDialog.value = false
+    endpointToDelete.value = null
+    deleteNameConfirm.value = ''
+    isDeleting.value = false
+  }
+}
 </script>

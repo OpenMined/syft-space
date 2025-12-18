@@ -1636,7 +1636,6 @@ const rateLimiterForm = ref({
   limit: '',
   windowUnit: 'minute',
   scope: 'per user',
-  type: 'sliding window',
   userType: 'all',
   users: '',
   note: '',
@@ -2020,7 +2019,6 @@ const resetFormData = (policyId: PolicyTypeId) => {
         limit: '',
         windowUnit: 'minute',
         scope: 'per user',
-        type: 'sliding window',
         userType: 'all',
         users: '',
         note: '',
@@ -2051,7 +2049,6 @@ const loadRuleIntoForm = (policyId: PolicyTypeId, config: PolicyConfig) => {
         limit: (config.limit as string) || '',
         windowUnit: (config.windowUnit as string) || 'minute',
         scope: (config.scope as string) || 'per user',
-        type: (config.type as string) || 'sliding window',
         userType: (config.userType as string) || 'all',
         users: (config.users as string) || '',
         note: (config.note as string) || '',
@@ -2079,7 +2076,7 @@ const savePolicy = (policyId: PolicyTypeId, ruleId: string) => {
       formData = authorizationForm.value
       break
     case 'rate_limit':
-      formData = { ...rateLimiterForm.value, windowValue: '1' }
+      formData = { ...rateLimiterForm.value }
       break
     case 'pricing':
       formData = { ...pricingForm.value, pricingType: 'per_call' }
