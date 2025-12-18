@@ -45,7 +45,6 @@ from syftai_space.components.ingestion.handlers import IngestionHandler
 from syftai_space.components.ingestion.manager import IngestionManager
 from syftai_space.components.ingestion.repository import IngestionJobRepository
 from syftai_space.components.ingestion.routes import build_ingestion_routes
-from syftai_space.components.marketplaces.entities import Marketplace
 from syftai_space.components.marketplaces.handlers import MarketplaceHandler
 from syftai_space.components.marketplaces.repository import MarketplaceRepository
 from syftai_space.components.marketplaces.routes import build_marketplace_routes
@@ -56,6 +55,11 @@ from syftai_space.components.model_types.registry import MODEL_TYPE_REGISTRY
 from syftai_space.components.models.handlers import ModelHandler
 from syftai_space.components.models.repository import ModelRepository
 from syftai_space.components.models.routes import build_model_routes
+
+# Import payment service components
+from syftai_space.components.payment_services.handlers import PaymentServiceHandler
+from syftai_space.components.payment_services.repository import PaymentServiceRepository
+from syftai_space.components.payment_services.routes import build_payment_service_routes
 from syftai_space.components.policies.handlers import PolicyHandler
 from syftai_space.components.policies.repository import PolicyRepository
 from syftai_space.components.policies.routes import build_policy_routes
@@ -197,35 +201,15 @@ if not default_tenant:
 else:
     logger.info(f"Default tenant already exists: {default_tenant.name}")
 
-# Initialize repositories (marketplace first for pre-seeding)
-marketplace_repository = MarketplaceRepository(database)
-
-# Pre-seed SyftHub marketplace for default tenant
-syfthub = marketplace_repository.get_by_name("SyftHub", default_tenant.id)
-if not syfthub:
-    logger.info("Creating default marketplace: SyftHub")
-    syfthub = marketplace_repository.create(
-        Marketplace(
-            tenant_id=default_tenant.id,
-            name="SyftHub",
-            url="https://syftbox.openmined.org",
-            email="",  # User must configure
-            password="",  # User must configure
-            is_default=True,
-            is_active=False,  # Inactive until credentials configured
-        )
-    )
-    logger.info(f"SyftHub marketplace created with ID: {syfthub.id}")
-else:
-    logger.info("SyftHub marketplace already exists")
-
-# Initialize repositories (marketplace_repository already initialized above for pre-seeding)
+# Initialize repositories
 dataset_repository = DatasetRepository(database)
 provisioner_state_repository = ProvisionerStateRepository(database)
 model_repository = ModelRepository(database)
 policy_repository = PolicyRepository(database)
 endpoint_repository = EndpointRepository(database)
 ingestion_job_repository = IngestionJobRepository(database)
+payment_service_repository = PaymentServiceRepository(database)
+marketplace_repository = MarketplaceRepository(database)
 
 # Explicit type registration - no import side effects
 logger.info("Registering dataset types ...")
@@ -257,6 +241,7 @@ endpoint_handler = EndpointHandler(
 )
 tenant_handler = TenantHandler(tenant_repository)
 marketplace_handler = MarketplaceHandler(marketplace_repository)
+payment_service_handler = PaymentServiceHandler(payment_service_repository)
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -292,6 +277,7 @@ router.include_router(build_endpoint_routes(endpoint_handler))
 router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
+router.include_router(build_payment_service_routes(payment_service_handler))
 
 
 @public_route
