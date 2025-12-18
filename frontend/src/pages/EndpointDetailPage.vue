@@ -77,7 +77,7 @@
                     {{ endpoint.published ? 'Live' : 'Draft' }}
                   </Badge>
                   <Badge variant="outline" class="bg-primary/10 text-primary border-primary/20">
-                    $0.005/request
+                    {{ getPricingRange }}
                   </Badge>
                 </div>
               </div>
@@ -1122,6 +1122,54 @@ const getResponseType = computed(() => {
     default:
       return endpoint.value.response_type
   }
+})
+
+// Get pricing range from pricing policies
+const getPricingRange = computed(() => {
+  const pricingPolicies = getPricingPolicies()
+  
+  if (pricingPolicies.length === 0) {
+    return '$0.00/request'
+  }
+
+  const prices = pricingPolicies
+    .map(policy => policy.configuration?.price)
+    .filter((price): price is number => typeof price === 'number')
+    .sort((a, b) => a - b)
+
+  if (prices.length === 0) {
+    return '$0.00/request'
+  }
+
+  // Helper function to format price with minimum 2 decimals, more if needed
+  const formatPrice = (price: number) => {
+    // Convert to string to check decimal places
+    const priceStr = price.toString()
+    const decimalIndex = priceStr.indexOf('.')
+    
+    if (decimalIndex === -1) {
+      // No decimals, add .00
+      return price.toFixed(2)
+    }
+    
+    const decimalPlaces = priceStr.length - decimalIndex - 1
+    if (decimalPlaces <= 2) {
+      // 2 or fewer decimals, format to 2
+      return price.toFixed(2)
+    }
+    
+    // More than 2 decimals, keep all
+    return priceStr
+  }
+
+  const minPrice = prices[0]!
+  const maxPrice = prices[prices.length - 1]!
+
+  if (minPrice === maxPrice) {
+    return `$${formatPrice(minPrice)}/request`
+  }
+
+  return `$${formatPrice(minPrice)} - $${formatPrice(maxPrice)}/request`
 })
 
 const deleteEndpoint = async () => {
