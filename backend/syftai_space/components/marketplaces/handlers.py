@@ -12,7 +12,9 @@ from syftai_space.components.marketplaces.schemas import (
     MarketplaceResponse,
     UpdateMarketplaceRequest,
 )
+from syftai_space.components.shared.syfthub_client import SyftHubClient
 from syftai_space.components.tenants.entities import Tenant
+from syftai_space.config import app_settings
 
 
 class MarketplaceHandler:
@@ -39,11 +41,25 @@ class MarketplaceHandler:
             Created marketplace
         """
         url_str = str(request.url)
+        syfthub_client = SyftHubClient(url_str)
+
+        try:
+            syfthub_client.register(
+                username=request.username,
+                email=request.email,
+                full_name=request.name,
+                password=request.password,
+                accounting_service_url=request.accounting_url,
+                accounting_password=request.accounting_password,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
         # Create marketplace entity
         marketplace = Marketplace(
             tenant_id=tenant.id,
             name=request.name,
+            username=request.username,
             url=url_str,
             email=request.email,
             password=request.password,
@@ -56,7 +72,22 @@ class MarketplaceHandler:
 
         return MarketplaceResponse.model_validate(created)
 
-    def list_marketplaces(self, tenant: Tenant) -> list[MarketplaceListItem]:
+    def check_username_availability(self, url: str | None, username: str) -> bool:
+        """Check if a username is available.
+        Args:
+            url: URL of the Marketplace
+            username: Username to check
+        Returns:
+            True if username is available, False otherwise.
+        """
+
+        url = app_settings.default_marketplace_url if url is None else url
+        syfthub_client = SyftHubClient(url)
+        return syfthub_client._is_username_available(username)
+
+    def list_marketplaces(
+        self, tenant: Tenant, url: str | None = None
+    ) -> list[MarketplaceListItem]:
         """List all marketplaces for a tenant.
 
         Args:
@@ -115,6 +146,7 @@ class MarketplaceHandler:
             url=url_str,
             email=request.email,
             password=request.password,
+            username=request.username,
             is_active=request.is_active,
         )
 

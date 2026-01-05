@@ -47,6 +47,22 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         """
         return handler.create_marketplace(request, tenant)
 
+    @router.get("/check-username/{username}", response_model=bool)
+    async def check_username_availability(
+        username: str,
+        handler: MarketplaceHandler = Depends(get_handler),
+        url: str | None = None,
+    ) -> bool:
+        """Check if a username is available.
+        Args:
+            username: Username to check
+            handler: Marketplace handler instance
+            url: URL of the Marketplace
+        Returns:
+            True if username is available, False otherwise.
+        """
+        return handler.check_username_availability(url, username)
+
     @router.get("/", response_model=list[MarketplaceListItem])
     async def list_marketplaces(
         tenant: Tenant = Depends(get_tenant_dependency),

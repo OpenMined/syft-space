@@ -64,6 +64,12 @@ class AppSettings(BaseSettings):
         description="Default URL for the marketplace service",
     )
 
+    # SyftAI Space Public URL
+    public_url: str | None = Field(
+        None,
+        description="Public URL for the SyftAI Space",
+    )
+
 
 # Global settings instance
 app_settings = AppSettings()

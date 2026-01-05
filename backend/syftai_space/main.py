@@ -110,6 +110,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📡 Public URL: {public_url}")
             logger.info(f"🔗 Local URL: http://localhost:{port}")
             logger.info("=" * 70 + "\n")
+            app_settings.public_url = public_url
 
         except Exception as e:
             logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")

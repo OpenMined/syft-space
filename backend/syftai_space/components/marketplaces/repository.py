@@ -105,6 +105,7 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         email: str | None = None,
         password: str | None = None,
         is_active: bool | None = None,
+        username: str | None = None,
     ) -> Marketplace | None:
         """Update a marketplace within a tenant.
 
@@ -116,7 +117,7 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
             email: Updated email
             password: Updated password
             is_active: Updated active status
-
+            username: Updated username
         Returns:
             Updated marketplace if found, None otherwise
         """
@@ -140,7 +141,8 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
                 marketplace.password = password
             if is_active is not None:
                 marketplace.is_active = is_active
-
+            if username is not None:
+                marketplace.username = username
             marketplace.updated_at = datetime.now(timezone.utc)
 
             session.add(marketplace)

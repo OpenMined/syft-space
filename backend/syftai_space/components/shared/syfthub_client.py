@@ -284,6 +284,15 @@ class SyftHubClient:
         )
         return _handle_response(response, RegisterResponse)
 
+    def _is_username_available(self, username: str) -> bool:
+        """
+        Check if a username is available.
+        Returns:
+            True if username is available, False otherwise.
+        """
+        response = self._auth_client.get(f"/api/v1/users/check-username/{username}")
+        return _handle_response_raw(response)["available"]
+
     def login(self, username: str, password: str) -> TokenResponse:
         """
         Login and setup authenticated client.

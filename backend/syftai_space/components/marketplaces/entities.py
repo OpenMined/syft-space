@@ -22,6 +22,7 @@ class Marketplace(SQLModel, table=True):
         description="Tenant ID for multi-tenancy isolation",
     )
     name: str = Field(..., description="Marketplace display name")
+    username: str = Field(..., description="Marketplace username")
     url: str = Field(..., description="Marketplace base URL")
     email: str = Field(default="", description="Login email for marketplace")
     password: str = Field(default="", description="Login password for marketplace")
