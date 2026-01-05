@@ -514,8 +514,6 @@ class EndpointHandler:
 
         Returns:
             Publish result
-
-        TODO: Integrate with actual SDK when available.
         """
         # Validate marketplace is active
         if not marketplace.is_active:
@@ -535,45 +533,58 @@ class EndpointHandler:
                 error="Marketplace credentials not configured",
             )
 
-        from syfthub_sdk import Connection, EndpointType, Policy, SyftHubClient
+        from syftai_space.components.shared import SyftHubClient
 
-        client = SyftHubClient(base_url=marketplace.url)
+        try:
+            with SyftHubClient(base_url=marketplace.url) as client:
+                # Note: marketplace.email is used as username
+                client.login(username=marketplace.email, password=marketplace.password)
 
-        client.auth.login(email=marketplace.email, password=marketplace.password)
-
-        endpoint_type = (
-            EndpointType.MODEL
-            if endpoint.model_id is not None
-            else EndpointType.DATA_SOURCE
-        )
-        connection_config = {
-            "host": "localhost:8080",
-            "path": f"/api/v1/endpoints/{endpoint.slug}/query",
-        }
-        policies = []
-        for policy in endpoint.policies:
-            Policy(
-                type=policy.policy_type,
-                enabled=True,
-                description=policy.name,
-                config=policy.configuration,
-            )
-            policies.append(policy)
-
-        client.my_endpoints.create(
-            name=endpoint.name,
-            type=endpoint_type,
-            slug=endpoint.slug,
-            description=endpoint.summary,
-            readme=endpoint.description,
-            tags=endpoint.tags,
-            policies=policies,
-            connect=[
-                Connection(
-                    type="https", enabled=True, description="", config=connection_config
+                endpoint_type = (
+                    "model" if endpoint.model_id is not None else "data_source"
                 )
-            ],
-        )
+                policies = [
+                    {
+                        "type": policy.policy_type,
+                        "version": "1.0",
+                        "enabled": True,
+                        "description": policy.name,
+                        "config": policy.configuration,
+                    }
+                    for policy in endpoint.policies
+                ]
+                connection_config = {
+                    "host": "localhost:8080",
+                    "path": f"/api/v1/endpoints/{endpoint.slug}/query",
+                }
+
+                payload = {
+                    "name": endpoint.name,
+                    "description": endpoint.summary or "",
+                    "type": endpoint_type,
+                    "visibility": "public",
+                    "version": "0.1.0",
+                    "readme": endpoint.description or "",
+                    "slug": endpoint.slug,
+                    "policies": policies,
+                    "connect": [
+                        {
+                            "type": "https",
+                            "enabled": True,
+                            "description": "",
+                            "config": connection_config,
+                        }
+                    ],
+                }
+                client.publish_endpoint(payload)
+
+        except Exception as e:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=str(e),
+            )
 
         try:
             # Record the publication in endpoint's published_to list
