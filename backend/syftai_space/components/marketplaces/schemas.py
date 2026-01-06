@@ -14,15 +14,13 @@ class CreateMarketplaceRequest(BaseModel):
     name: str = Field(..., description="Marketplace display name (unique per tenant)")
     username: str = Field(..., description="Marketplace username (unique per tenant)")
     url: HttpUrl = Field(
-        ...,
         description="Marketplace base URL (unique per tenant)",
         default=app_settings.default_marketplace_url,
     )
     email: EmailStr = Field(..., description="Login email for marketplace")
     password: str = Field(..., description="Login password for marketplace")
     accounting_password: Field(..., description="Accounting password for marketplace")
-    accounting_url: Field(
-        ...,
+    accounting_url: str = Field(
         description="Accounting URL for marketplace",
         default=app_settings.default_accounting_url,
     )

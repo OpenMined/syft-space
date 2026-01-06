@@ -44,7 +44,7 @@ class MarketplaceHandler:
         syfthub_client = SyftHubClient(url_str)
 
         try:
-            syfthub_client.register(
+            user_profile = syfthub_client.register(
                 username=request.username,
                 email=request.email,
                 full_name=request.name,
@@ -52,18 +52,28 @@ class MarketplaceHandler:
                 accounting_service_url=request.accounting_url,
                 accounting_password=request.accounting_password,
             )
+
+            # If public URL is set, update the domain
+            if app_settings.public_url:
+                syfthub_client.update_profile(domain=app_settings.public_url)
+
         except Exception as e:
             raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+        # Check if the marketplace should be set as default
+        # If the default marketplace URL is the same as the marketplace URL,
+        # set it as default
+        set_as_default = app_settings.default_marketplace_url == url_str
 
         # Create marketplace entity
         marketplace = Marketplace(
             tenant_id=tenant.id,
-            name=request.name,
-            username=request.username,
+            name=user_profile.full_name,
+            username=user_profile.username,
             url=url_str,
-            email=request.email,
-            password=request.password,
-            is_default=False,  # Only SyftHub is default, set via pre-seeding
+            email=user_profile.email,
+            password=user_profile.password,
+            is_default=set_as_default,
             is_active=True,
         )
 

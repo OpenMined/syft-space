@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 
 import httpx
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # =============================================================================
 # Exceptions
@@ -106,6 +106,16 @@ class EndpointResponse(BaseModel):
     # Add other fields as needed
 
     model_config = {"extra": "allow"}
+
+
+class UserProfile(BaseModel):
+    """User profile from SyftHub."""
+
+    username: str = Field(..., description="Username")
+    email: str = Field(..., description="Login email")
+    full_name: str = Field(..., description="Full name")
+    password: str | None = Field(None, description="Login password")
+    domain: str | None = Field(None, description="Domain")
 
 
 # =============================================================================
@@ -350,6 +360,42 @@ class SyftHubClient:
         self._require_auth()
         response = self._client.post("/api/v1/endpoints/", json=payload)  # type: ignore
         return _handle_response_raw(response)
+
+    def profile(self) -> UserProfile:
+        """Get the profile of the current user.
+        Returns:
+            UserProfile: User profile
+        """
+        self._require_auth()
+        response = self._client.get("/api/v1/users/me/")  # type: ignore
+        return _handle_response(response, UserProfile)
+
+    def update_profile(
+        self,
+        domain: str | None = None,
+        username: str | None = None,
+        email: str | None = None,
+        full_name: str | None = None,
+    ) -> UserProfile:
+        """Update the profile of the current user.
+        Args:
+            domain: Domain of the current user
+            username: Username of the current user
+            email: Email of the current user
+            full_name: Full name of the current user
+        Returns:
+            UserProfile: User profile
+        """
+        self._require_auth()
+        payload = {
+            "domain": domain,
+            "username": username,
+            "email": email,
+            "full_name": full_name,
+        }
+        payload = {k: v for k, v in payload.items() if v is not None}
+        response = self._client.put("api/v1/users/me/", json=payload)  # type: ignore
+        return _handle_response(response, UserProfile)
 
     def _require_auth(self) -> None:
         if self._client is None:
