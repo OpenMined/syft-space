@@ -9,9 +9,10 @@ from syftai_space.components.marketplaces.entities import Marketplace
 from syftai_space.components.marketplaces.repository import MarketplaceRepository
 from syftai_space.components.marketplaces.schemas import (
     BalanceResponse,
-    CreateMarketplaceRequest,
+    ConnectMarketplaceRequest,
     MarketplaceListItem,
     MarketplaceResponse,
+    RegisterMarketplaceRequest,
     UpdateMarketplaceRequest,
 )
 from syftai_space.components.marketplaces.utils import (
@@ -33,13 +34,13 @@ class MarketplaceHandler:
         """
         self.repository = repository
 
-    def create_marketplace(
-        self, request: CreateMarketplaceRequest, tenant: Tenant
+    def register_marketplace(
+        self, request: RegisterMarketplaceRequest, tenant: Tenant
     ) -> MarketplaceResponse:
-        """Create a new marketplace.
+        """Register a new marketplace by creating a new SyftHub account.
 
         Args:
-            request: Marketplace creation request
+            request: Marketplace registration request
             tenant: Tenant context
 
         Returns:
@@ -84,6 +85,62 @@ class MarketplaceHandler:
             url=url_str,
             email=user_profile.email,
             password=user_profile.password,
+            is_default=set_as_default,
+            is_active=True,
+            # Accounting credentials from SyftHub
+            accounting_url=accounting_creds.url,
+            accounting_email=accounting_creds.email,
+            accounting_password=accounting_creds.password,
+        )
+
+        # Save to database
+        created = self.repository.create(marketplace)
+
+        return MarketplaceResponse.model_validate(created)
+
+    def connect_marketplace(
+        self, request: ConnectMarketplaceRequest, tenant: Tenant
+    ) -> MarketplaceResponse:
+        """Connect to an existing SyftHub account and add as marketplace.
+
+        Args:
+            request: Marketplace connection request with existing credentials
+            tenant: Tenant context
+
+        Returns:
+            Created marketplace
+        """
+        url_str = str(request.url)
+        syfthub_client = SyftHubClient(url_str)
+
+        try:
+            # Login to existing account
+            syfthub_client.login(request.username, request.password)
+
+            # Fetch user profile
+            user_profile = syfthub_client.profile()
+
+            # Fetch accounting credentials
+            accounting_creds = syfthub_client.accounting_credentials()
+
+            # Update domain if public URL is set
+            if app_settings.public_url:
+                syfthub_client.update_profile(domain=app_settings.public_url)
+
+        except Exception as e:
+            raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+        # Check if the marketplace should be set as default
+        set_as_default = app_settings.default_marketplace_url == url_str
+
+        # Create marketplace entity
+        marketplace = Marketplace(
+            tenant_id=tenant.id,
+            name=user_profile.full_name,
+            username=user_profile.username,
+            url=url_str,
+            email=user_profile.email,
+            password=request.password,  # Store for future logins
             is_default=set_as_default,
             is_active=True,
             # Accounting credentials from SyftHub

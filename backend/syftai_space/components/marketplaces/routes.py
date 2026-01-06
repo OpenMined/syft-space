@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends
 from syftai_space.components.marketplaces.handlers import MarketplaceHandler
 from syftai_space.components.marketplaces.schemas import (
     BalanceResponse,
-    CreateMarketplaceRequest,
+    ConnectMarketplaceRequest,
     MarketplaceListItem,
     MarketplaceResponse,
+    RegisterMarketplaceRequest,
     UpdateMarketplaceRequest,
 )
 from syftai_space.components.tenants.dependency import get_tenant_dependency
@@ -31,22 +32,39 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         """Dependency to get the marketplace handler."""
         return handler
 
-    @router.post("/", response_model=MarketplaceResponse, status_code=201)
-    async def create_marketplace(
-        request: CreateMarketplaceRequest,
+    @router.post("/register", response_model=MarketplaceResponse, status_code=201)
+    async def register_marketplace(
+        request: RegisterMarketplaceRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: MarketplaceHandler = Depends(get_handler),
     ) -> MarketplaceResponse:
-        """Register a new marketplace.
+        """Register a new marketplace by creating a new SyftHub account.
 
         Args:
-            request: Marketplace creation request with URL and credentials
+            request: Marketplace registration request with credentials
             tenant: Current tenant (injected)
 
         Returns:
             Created marketplace details
         """
-        return handler.create_marketplace(request, tenant)
+        return handler.register_marketplace(request, tenant)
+
+    @router.post("/connect", response_model=MarketplaceResponse, status_code=201)
+    async def connect_marketplace(
+        request: ConnectMarketplaceRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: MarketplaceHandler = Depends(get_handler),
+    ) -> MarketplaceResponse:
+        """Connect to an existing SyftHub account and add as marketplace.
+
+        Args:
+            request: Connection request with existing SyftHub credentials
+            tenant: Current tenant (injected)
+
+        Returns:
+            Created marketplace details
+        """
+        return handler.connect_marketplace(request, tenant)
 
     @router.get("/check-username/{username}", response_model=bool)
     async def check_username_availability(
