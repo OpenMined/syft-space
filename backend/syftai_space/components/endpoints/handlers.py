@@ -27,6 +27,9 @@ from syftai_space.components.endpoints.schemas import (
 )
 from syftai_space.components.marketplaces.entities import Marketplace
 from syftai_space.components.marketplaces.repository import MarketplaceRepository
+from syftai_space.components.marketplaces.utils import (
+    ensure_valid_accounting_credentials,
+)
 from syftai_space.components.model_types.interfaces import ChatMessage, ChatParameters
 from syftai_space.components.model_types.registry import ModelTypeRegistry
 from syftai_space.components.models.repository import ModelRepository
@@ -61,7 +64,7 @@ class EndpointHandler:
             dataset_registry: Dataset type registry
             model_registry: Model type registry
             policy_registry: Policy type registry
-            marketplace_repository: Marketplace repository (optional, for publish)
+            marketplace_repository: Marketplace repository (optional, for publish and accounting)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -214,11 +217,30 @@ class EndpointHandler:
         # Get policies for this endpoint
         policies = self.policy_repository.get_by_endpoint_id(endpoint.id, tenant.id)
 
+        # Build policy context metadata with validated accounting credentials
+        metadata: dict = {}
+        if self.marketplace_repository:
+            try:
+                default_marketplace = self.marketplace_repository.get_default(tenant.id)
+                if default_marketplace:
+                    # Validate credentials upfront (refreshes from SyftHub if expired)
+                    creds = ensure_valid_accounting_credentials(
+                        default_marketplace, self.marketplace_repository
+                    )
+                    # Inject validated accounting credentials
+                    metadata["accounting_email"] = creds["email"]
+                    metadata["accounting_password"] = creds["password"]
+                    metadata["accounting_url"] = creds["url"]
+            except HTTPException:
+                # No marketplace configured or credentials invalid - accounting policies will fail
+                pass
+
         # Create policy context
         policy_context = PolicyContext(
             endpoint_slug=slug,
             sender_email=request.user_email,
             request=request.model_dump(),
+            metadata=metadata,
         )
 
         # Apply pre-hooks

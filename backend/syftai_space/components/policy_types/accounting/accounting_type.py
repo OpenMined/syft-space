@@ -53,7 +53,12 @@ class AccountingCredentials(BaseModel):
 
     @classmethod
     def from_context(cls, context: PolicyContext) -> "AccountingCredentials":
-        """Create credentials from the policy context."""
+        """Create credentials from the policy context.
+
+        Credentials are injected into context.metadata by the endpoint handler,
+        sourced from the default Marketplace's accounting credentials.
+        Credentials are validated upfront before being passed to policies.
+        """
         try:
             return cls(
                 email=context.metadata["accounting_email"],
@@ -63,7 +68,7 @@ class AccountingCredentials(BaseModel):
         except KeyError as e:
             raise ValueError(
                 f"Missing accounting credential: {e.args[0]}. "
-                "Ensure PaymentService is configured for this tenant."
+                "Ensure a marketplace is registered with accounting credentials."
             ) from e
 
 
@@ -71,7 +76,8 @@ class AccountingPolicy(BasePolicyType):
     """Accounting policy type.
 
     Tracks and bills API usage based on calls or tokens.
-    Credentials for the accounting service are injected via PolicyContext.metadata["payment_service"].
+    Credentials are injected into PolicyContext.metadata from the Marketplace entity.
+    Credentials are validated upfront by the endpoint handler before being passed here.
 
     This policy is stateless - accounting records are managed by the external accounting SDK.
     """
@@ -126,7 +132,7 @@ class AccountingPolicy(BasePolicyType):
     def pre_hook(self, context: PolicyContext) -> PolicyContext:
         """Pre-hook to create a delegated transaction before endpoint execution.
 
-        Credentials are read from context.metadata (accounting_email, accounting_password, accounting_url).
+        Credentials are read from context.metadata (validated upfront by endpoint handler).
 
         Args:
             context: Policy context with request information
@@ -139,8 +145,6 @@ class AccountingPolicy(BasePolicyType):
         # Skip if policy doesn't apply to this user
         if not self._applies_to_user(user_email):
             return context
-
-        accounting_credentials = AccountingCredentials.from_context(context)
 
         if self.config.pricing_mode != PricingMode.PER_CALL:
             raise ValueError("Only PER_CALL pricing mode is supported")
@@ -155,21 +159,16 @@ class AccountingPolicy(BasePolicyType):
                 "Transaction token is required. Please add it to the request."
             )
 
-        accounting_client = UserClient(
-            url=accounting_credentials.url,
-            email=accounting_credentials.email,
-            password=accounting_credentials.password,
-        )
-
-        # Calculate the amount to be charged
+        credentials = AccountingCredentials.from_context(context)
         amount = self.config.price
 
         try:
-            transaction = accounting_client.create_delegated_transaction(
-                senderEmail=context.sender_email,
-                amount=amount,
-                transaction_token=transaction_token,
-                appEpPath=context.endpoint_slug,
+            transaction = self._create_transaction(
+                credentials,
+                context.sender_email,
+                amount,
+                transaction_token,
+                context.endpoint_slug,
             )
         except Exception as e:
             raise ValueError(f"Failed to create accounting transaction: {e}") from e
@@ -177,6 +176,27 @@ class AccountingPolicy(BasePolicyType):
         context.metadata["transaction_id"] = transaction.id
         context.metadata["transaction_amount"] = amount
         return context
+
+    def _create_transaction(
+        self,
+        credentials: AccountingCredentials,
+        sender_email: str,
+        amount: float,
+        transaction_token: str,
+        endpoint_slug: str,
+    ):
+        """Create a delegated transaction with the accounting service."""
+        accounting_client = UserClient(
+            url=credentials.url,
+            email=credentials.email,
+            password=credentials.password,
+        )
+        return accounting_client.create_delegated_transaction(
+            senderEmail=sender_email,
+            amount=amount,
+            transaction_token=transaction_token,
+            appEpPath=endpoint_slug,
+        )
 
     def post_hook(self, context: PolicyContext) -> PolicyContext:
         """Post-hook to confirm the transaction after successful endpoint execution.
@@ -203,19 +223,25 @@ class AccountingPolicy(BasePolicyType):
                 "Transaction ID not found. The pre_hook may have failed or was skipped."
             )
 
-        accounting_credentials = AccountingCredentials.from_context(context)
-        accounting_client = UserClient(
-            url=accounting_credentials.url,
-            email=accounting_credentials.email,
-            password=accounting_credentials.password,
-        )
+        credentials = AccountingCredentials.from_context(context)
 
         try:
-            accounting_client.confirm_transaction(id=transaction_id)
+            self._confirm_transaction(credentials, transaction_id)
         except Exception as e:
             raise ValueError(f"Failed to confirm accounting transaction: {e}") from e
 
         return context
+
+    def _confirm_transaction(
+        self, credentials: AccountingCredentials, transaction_id: str
+    ) -> None:
+        """Confirm a transaction with the accounting service."""
+        accounting_client = UserClient(
+            url=credentials.url,
+            email=credentials.email,
+            password=credentials.password,
+        )
+        accounting_client.confirm_transaction(id=transaction_id)
 
     @classmethod
     def enabled(cls) -> bool:

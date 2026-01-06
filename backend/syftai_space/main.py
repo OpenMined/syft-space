@@ -55,11 +55,6 @@ from syftai_space.components.model_types.registry import MODEL_TYPE_REGISTRY
 from syftai_space.components.models.handlers import ModelHandler
 from syftai_space.components.models.repository import ModelRepository
 from syftai_space.components.models.routes import build_model_routes
-
-# Import payment service components
-from syftai_space.components.payments.handlers import PaymentServiceHandler
-from syftai_space.components.payments.repository import PaymentServiceRepository
-from syftai_space.components.payments.routes import build_payment_service_routes
 from syftai_space.components.policies.handlers import PolicyHandler
 from syftai_space.components.policies.repository import PolicyRepository
 from syftai_space.components.policies.routes import build_policy_routes
@@ -73,6 +68,9 @@ from syftai_space.components.policy_types.rate_limit.limiter import (
     set_storage as set_rate_limit_storage,
 )
 from syftai_space.components.policy_types.registry import POLICY_TYPE_REGISTRY
+
+# Import settings components
+from syftai_space.components.settings.routes import router as settings_router
 
 # Import database
 from syftai_space.components.shared.database import Database, SQLiteConfig
@@ -209,7 +207,6 @@ model_repository = ModelRepository(database)
 policy_repository = PolicyRepository(database)
 endpoint_repository = EndpointRepository(database)
 ingestion_job_repository = IngestionJobRepository(database)
-payment_service_repository = PaymentServiceRepository(database)
 marketplace_repository = MarketplaceRepository(database)
 
 # Explicit type registration - no import side effects
@@ -230,6 +227,7 @@ dataset_handler = DatasetHandler(
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 policy_handler = PolicyHandler(POLICY_TYPE_REGISTRY, policy_repository)
+marketplace_handler = MarketplaceHandler(marketplace_repository)
 endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
@@ -241,8 +239,6 @@ endpoint_handler = EndpointHandler(
     marketplace_repository=marketplace_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
-marketplace_handler = MarketplaceHandler(marketplace_repository)
-payment_service_handler = PaymentServiceHandler(payment_service_repository)
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -278,7 +274,7 @@ router.include_router(build_endpoint_routes(endpoint_handler))
 router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
-router.include_router(build_payment_service_routes(payment_service_handler))
+router.include_router(settings_router, prefix="/settings", tags=["settings"])
 
 
 @public_route

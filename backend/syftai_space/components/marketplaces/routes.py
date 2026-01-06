@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from syftai_space.components.marketplaces.handlers import MarketplaceHandler
 from syftai_space.components.marketplaces.schemas import (
+    BalanceResponse,
     CreateMarketplaceRequest,
     MarketplaceListItem,
     MarketplaceResponse,
@@ -77,6 +78,24 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
             List of marketplaces with summary information
         """
         return handler.list_marketplaces(tenant)
+
+    @router.get("/balance", response_model=BalanceResponse)
+    async def get_balance(
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: MarketplaceHandler = Depends(get_handler),
+    ) -> BalanceResponse:
+        """Get account balance for the default marketplace.
+
+        Validates accounting credentials before fetching balance.
+        If credentials are expired, refreshes them from SyftHub.
+
+        Args:
+            tenant: Current tenant (injected)
+
+        Returns:
+            Balance information
+        """
+        return handler.get_balance(tenant)
 
     @router.get("/{id}", response_model=MarketplaceResponse)
     async def get_marketplace(

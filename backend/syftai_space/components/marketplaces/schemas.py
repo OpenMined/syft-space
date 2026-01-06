@@ -19,7 +19,9 @@ class CreateMarketplaceRequest(BaseModel):
     )
     email: EmailStr = Field(..., description="Login email for marketplace")
     password: str = Field(..., description="Login password for marketplace")
-    accounting_password: Field(..., description="Accounting password for marketplace")
+    accounting_password: str = Field(
+        ..., description="Accounting password for marketplace"
+    )
     accounting_url: str = Field(
         description="Accounting URL for marketplace",
         default=app_settings.default_accounting_url,
@@ -99,3 +101,10 @@ class MarketplaceListItem(BaseModel):
         """Pydantic config."""
 
         from_attributes = True
+
+
+class BalanceResponse(BaseModel):
+    """Response model for account balance."""
+
+    balance: float = Field(..., description="Current account balance")
+    currency: str = Field(default="USD", description="Currency unit")

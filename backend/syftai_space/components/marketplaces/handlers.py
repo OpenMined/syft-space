@@ -3,14 +3,19 @@
 from uuid import UUID
 
 from fastapi import HTTPException
+from syft_accounting_sdk import ServiceException, UserClient
 
 from syftai_space.components.marketplaces.entities import Marketplace
 from syftai_space.components.marketplaces.repository import MarketplaceRepository
 from syftai_space.components.marketplaces.schemas import (
+    BalanceResponse,
     CreateMarketplaceRequest,
     MarketplaceListItem,
     MarketplaceResponse,
     UpdateMarketplaceRequest,
+)
+from syftai_space.components.marketplaces.utils import (
+    ensure_valid_accounting_credentials,
 )
 from syftai_space.components.shared.syfthub_client import SyftHubClient
 from syftai_space.components.tenants.entities import Tenant
@@ -53,6 +58,12 @@ class MarketplaceHandler:
                 accounting_password=request.accounting_password,
             )
 
+            # Login to get authenticated client for subsequent calls
+            syfthub_client.login(request.email, request.password)
+
+            # Fetch accounting credentials from SyftHub
+            accounting_creds = syfthub_client.accounting_credentials()
+
             # If public URL is set, update the domain
             if app_settings.public_url:
                 syfthub_client.update_profile(domain=app_settings.public_url)
@@ -75,6 +86,10 @@ class MarketplaceHandler:
             password=user_profile.password,
             is_default=set_as_default,
             is_active=True,
+            # Accounting credentials from SyftHub
+            accounting_url=accounting_creds.url,
+            accounting_email=accounting_creds.email,
+            accounting_password=accounting_creds.password,
         )
 
         # Save to database
@@ -200,3 +215,56 @@ class MarketplaceHandler:
             )
 
         return {"message": f"Successfully deleted marketplace '{marketplace.name}'"}
+
+    def get_default_marketplace(self, tenant: Tenant) -> Marketplace:
+        """Get the default marketplace for a tenant.
+
+        Args:
+            tenant: Tenant context
+
+        Returns:
+            Default marketplace
+
+        Raises:
+            HTTPException: If no default marketplace found
+        """
+        marketplace = self.repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(
+                status_code=404,
+                detail="No default marketplace configured. Please register with SyftHub first.",
+            )
+        return marketplace
+
+    def get_balance(self, tenant: Tenant) -> BalanceResponse:
+        """Get account balance for the default marketplace.
+
+        Validates credentials before fetching balance, refreshing if needed.
+
+        Args:
+            tenant: Tenant context
+
+        Returns:
+            Balance response
+
+        Raises:
+            HTTPException: If no marketplace configured or balance fetch fails
+        """
+        marketplace = self.get_default_marketplace(tenant)
+
+        # Validate and potentially refresh credentials using utility
+        creds = ensure_valid_accounting_credentials(marketplace, self.repository)
+
+        try:
+            accounting_client = UserClient(
+                url=creds["url"],
+                email=creds["email"],
+                password=creds["password"],
+            )
+            user_info = accounting_client.get_user_info()
+            return BalanceResponse(balance=user_info.balance)
+        except ServiceException as e:
+            raise HTTPException(
+                status_code=e.status_code,
+                detail=f"Failed to get balance: {e.message}",
+            ) from e

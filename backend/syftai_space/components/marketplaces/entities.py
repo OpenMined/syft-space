@@ -32,6 +32,14 @@ class Marketplace(SQLModel, table=True):
     is_active: bool = Field(
         default=True, description="Can be used for publishing endpoints"
     )
+
+    # Accounting credentials (fetched from SyftHub)
+    accounting_url: str = Field(default="", description="Accounting service URL")
+    accounting_email: str = Field(default="", description="Accounting service email")
+    accounting_password: str = Field(
+        default="", description="Accounting service password"
+    )
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

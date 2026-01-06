@@ -106,6 +106,9 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         password: str | None = None,
         is_active: bool | None = None,
         username: str | None = None,
+        accounting_url: str | None = None,
+        accounting_email: str | None = None,
+        accounting_password: str | None = None,
     ) -> Marketplace | None:
         """Update a marketplace within a tenant.
 
@@ -118,6 +121,10 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
             password: Updated password
             is_active: Updated active status
             username: Updated username
+            accounting_url: Accounting service URL
+            accounting_email: Accounting service email
+            accounting_password: Accounting service password
+
         Returns:
             Updated marketplace if found, None otherwise
         """
@@ -143,6 +150,12 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
                 marketplace.is_active = is_active
             if username is not None:
                 marketplace.username = username
+            if accounting_url is not None:
+                marketplace.accounting_url = accounting_url
+            if accounting_email is not None:
+                marketplace.accounting_email = accounting_email
+            if accounting_password is not None:
+                marketplace.accounting_password = accounting_password
             marketplace.updated_at = datetime.now(timezone.utc)
 
             session.add(marketplace)
