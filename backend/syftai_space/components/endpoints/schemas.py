@@ -194,6 +194,9 @@ class QueryEndpointRequest(BaseModel):
     extras: dict[str, Any] = Field(
         default_factory=dict, description="Additional options"
     )
+    transaction_token: str | None = Field(
+        default=None, description="Transaction token for accounting (optional)"
+    )
 
     class Config:
         """Pydantic config."""
@@ -207,6 +210,11 @@ class QueryEndpointRequest(BaseModel):
                 "limit": 5,
                 "max_tokens": 100,
                 "temperature": 0.7,
+                "transaction_token": "jwt-token-here",
+                "extras": {
+                    "reference_options": {},
+                    "summarize_options": {},
+                },
             }
         }
 

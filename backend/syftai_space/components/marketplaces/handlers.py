@@ -47,30 +47,29 @@ class MarketplaceHandler:
             Created marketplace
         """
         url_str = str(request.url)
-        syfthub_client = SyftHubClient(url_str)
 
-        try:
-            user_profile = syfthub_client.register(
-                username=request.username,
-                email=request.email,
-                full_name=request.name,
-                password=request.password,
-                accounting_service_url=request.accounting_url,
-                accounting_password=request.accounting_password,
-            )
+        with SyftHubClient(url_str) as syfthub_client:
+            try:
+                user_profile = syfthub_client.register(
+                    username=request.username,
+                    email=request.email,
+                    full_name=request.name,
+                    password=request.password,
+                    accounting_service_url=request.accounting_url,
+                )
 
-            # Login to get authenticated client for subsequent calls
-            syfthub_client.login(request.email, request.password)
+                # Login to get authenticated client for subsequent calls
+                syfthub_client.login(request.email, request.password)
 
-            # Fetch accounting credentials from SyftHub
-            accounting_creds = syfthub_client.accounting_credentials()
+                # Fetch accounting credentials from SyftHub
+                accounting_creds = syfthub_client.accounting_credentials()
 
-            # If public URL is set, update the domain
-            if app_settings.public_url:
-                syfthub_client.update_profile(domain=app_settings.public_url)
+                # If public URL is set, update the domain
+                if app_settings.public_url:
+                    syfthub_client.update_profile(domain=app_settings.public_url)
 
-        except Exception as e:
-            raise HTTPException(status_code=e.status_code, detail=e.message) from e
+            except Exception as e:
+                raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
         # Check if the marketplace should be set as default
         # If the default marketplace URL is the same as the marketplace URL,
@@ -80,11 +79,11 @@ class MarketplaceHandler:
         # Create marketplace entity
         marketplace = Marketplace(
             tenant_id=tenant.id,
-            name=user_profile.full_name,
-            username=user_profile.username,
+            name=user_profile.user.full_name,
+            username=user_profile.user.username,
             url=url_str,
-            email=user_profile.email,
-            password=user_profile.password,
+            email=user_profile.user.email,
+            password=request.password,
             is_default=set_as_default,
             is_active=True,
             # Accounting credentials from SyftHub
@@ -111,27 +110,31 @@ class MarketplaceHandler:
             Created marketplace
         """
         url_str = str(request.url)
-        syfthub_client = SyftHubClient(url_str)
 
-        try:
-            # Login to existing account
-            syfthub_client.login(request.username, request.password)
+        with SyftHubClient(url_str) as syfthub_client:
+            try:
+                # Login to existing account
+                syfthub_client.login(request.username, request.password)
 
-            # Fetch user profile
-            user_profile = syfthub_client.profile()
+                # Fetch user profile
+                user_profile = syfthub_client.profile()
 
-            # Fetch accounting credentials
-            accounting_creds = syfthub_client.accounting_credentials()
+                # Fetch accounting credentials
+                accounting_creds = syfthub_client.accounting_credentials()
 
-            # Update domain if public URL is set
-            if app_settings.public_url:
-                syfthub_client.update_profile(domain=app_settings.public_url)
+                # Update domain if public URL is set
+                if app_settings.public_url:
+                    syfthub_client.update_profile(domain=app_settings.public_url)
 
-        except Exception as e:
-            raise HTTPException(status_code=e.status_code, detail=e.message) from e
+            except Exception as e:
+                raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
         # Check if the marketplace should be set as default
-        set_as_default = app_settings.default_marketplace_url == url_str
+        set_as_default = app_settings.default_marketplace_url.strip(
+            "/"
+        ) == url_str.strip("/")
+
+        # TODO: Add check if marketplace already exists, if so, update it instead of creating a new one
 
         # Create marketplace entity
         marketplace = Marketplace(
@@ -156,16 +159,17 @@ class MarketplaceHandler:
 
     def check_username_availability(self, url: str | None, username: str) -> bool:
         """Check if a username is available.
+
         Args:
             url: URL of the Marketplace
             username: Username to check
+
         Returns:
             True if username is available, False otherwise.
         """
-
         url = app_settings.default_marketplace_url if url is None else url
-        syfthub_client = SyftHubClient(url)
-        return syfthub_client._is_username_available(username)
+        with SyftHubClient(url) as syfthub_client:
+            return syfthub_client._is_username_available(username)
 
     def list_marketplaces(
         self, tenant: Tenant, url: str | None = None

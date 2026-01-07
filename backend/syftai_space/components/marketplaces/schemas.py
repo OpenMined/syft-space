@@ -19,11 +19,8 @@ class RegisterMarketplaceRequest(BaseModel):
     )
     email: EmailStr = Field(..., description="Login email for marketplace")
     password: str = Field(..., description="Login password for marketplace")
-    accounting_password: str = Field(
-        ..., description="Accounting password for marketplace"
-    )
     accounting_url: str = Field(
-        description="Accounting URL for marketplace",
+        description="Accounting service URL",
         default=app_settings.default_accounting_url,
     )
 
@@ -37,7 +34,6 @@ class RegisterMarketplaceRequest(BaseModel):
                 "url": "https://marketplace.example.com",
                 "email": "user@example.com",
                 "password": "secret123",
-                "accounting_password": "secret123",
                 "accounting_url": "https://accounting.example.com",
             }
         }

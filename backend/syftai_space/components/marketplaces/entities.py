@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from pydantic import HttpUrl
 from sqlmodel import Column, Field, ForeignKey, Relationship, SQLModel
 
 from syftai_space.config import app_settings
@@ -26,7 +25,7 @@ class Marketplace(SQLModel, table=True):
     )
     name: str = Field(..., description="Marketplace display name")
     username: str = Field(..., description="Marketplace username")
-    url: HttpUrl = Field(
+    url: str = Field(
         default=app_settings.default_marketplace_url, description="Marketplace base URL"
     )
     email: str = Field(default="", description="Login email for marketplace")
@@ -39,7 +38,7 @@ class Marketplace(SQLModel, table=True):
     )
 
     # Accounting credentials (fetched from SyftHub)
-    accounting_url: HttpUrl = Field(
+    accounting_url: str = Field(
         default=app_settings.default_accounting_url,
         description="Accounting service URL",
     )

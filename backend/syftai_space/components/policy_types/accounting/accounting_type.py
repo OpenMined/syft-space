@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 from syft_accounting_sdk import UserClient
 
 from syftai_space.components.policy_types.interfaces import (
@@ -47,9 +47,9 @@ class AccountingConfig(BaseModel):
 class AccountingCredentials(BaseModel):
     """Credentials for the accounting service."""
 
-    email: str
+    email: EmailStr
     password: str
-    url: str
+    url: HttpUrl
 
     @classmethod
     def from_context(cls, context: PolicyContext) -> "AccountingCredentials":
@@ -187,8 +187,8 @@ class AccountingPolicy(BasePolicyType):
     ):
         """Create a delegated transaction with the accounting service."""
         accounting_client = UserClient(
-            url=credentials.url,
-            email=credentials.email,
+            url=str(credentials.url),
+            email=str(credentials.email),
             password=credentials.password,
         )
         return accounting_client.create_delegated_transaction(
@@ -230,6 +230,9 @@ class AccountingPolicy(BasePolicyType):
         except Exception as e:
             raise ValueError(f"Failed to confirm accounting transaction: {e}") from e
 
+        context.response["summary"]["cost"] = context.metadata["transaction_amount"]
+        context.response["references"]["cost"] = context.metadata["transaction_amount"]
+
         return context
 
     def _confirm_transaction(
@@ -237,8 +240,8 @@ class AccountingPolicy(BasePolicyType):
     ) -> None:
         """Confirm a transaction with the accounting service."""
         accounting_client = UserClient(
-            url=credentials.url,
-            email=credentials.email,
+            url=str(credentials.url),
+            email=str(credentials.email),
             password=credentials.password,
         )
         accounting_client.confirm_transaction(id=transaction_id)

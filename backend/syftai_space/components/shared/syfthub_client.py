@@ -94,7 +94,7 @@ class AccountingResponse(BaseModel):
     """Response from accounting endpoint."""
 
     url: str
-    email: str
+    email: EmailStr
     password: str
 
 
@@ -292,7 +292,7 @@ class SyftHubClient:
         full_name: str,
         password: str,
         accounting_service_url: str,
-        accounting_password: str,
+        accounting_password: str | None = None,
     ) -> RegisterResponse:
         """
         Register a new user on SyftHub.
@@ -302,17 +302,18 @@ class SyftHubClient:
             ValidationError: Invalid request data
             ServerError: Server-side error
         """
-        response = self._auth_client.post(
-            "/api/v1/auth/register",
-            json={
-                "username": username,
-                "email": email,
-                "full_name": full_name,
-                "password": password,
-                "accounting_service_url": accounting_service_url,
-                "accounting_password": accounting_password,
-            },
-        )
+
+        payload = {
+            "username": username,
+            "email": email,
+            "full_name": full_name,
+            "password": password,
+            "accounting_service_url": accounting_service_url,
+        }
+        if accounting_password:
+            payload["accounting_password"] = accounting_password
+
+        response = self._auth_client.post("/api/v1/auth/register", json=payload)
         return _handle_response(response, RegisterResponse)
 
     def _is_username_available(self, username: str) -> bool:
@@ -361,7 +362,7 @@ class SyftHubClient:
             ServerError: Server-side error
         """
         self._require_auth()
-        response = self._client.get("/api/v1/users/me/accounting-credentials")  # type: ignore
+        response = self._client.get("/api/v1/users/me/accounting")  # type: ignore
         return _handle_response(response, AccountingResponse)
 
     def publish_endpoint(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -379,7 +380,7 @@ class SyftHubClient:
             ServerError: Server-side error
         """
         self._require_auth()
-        response = self._client.post("/api/v1/endpoints/", json=payload)  # type: ignore
+        response = self._client.post("/api/v1/endpoints", json=payload)  # type: ignore
         return _handle_response_raw(response)
 
     def profile(self) -> UserProfile:
@@ -388,7 +389,7 @@ class SyftHubClient:
             UserProfile: User profile
         """
         self._require_auth()
-        response = self._client.get("/api/v1/users/me/")  # type: ignore
+        response = self._client.get("/api/v1/users/me")  # type: ignore
         return _handle_response(response, UserProfile)
 
     def update_profile(
@@ -415,7 +416,7 @@ class SyftHubClient:
             "full_name": full_name,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
-        response = self._client.put("api/v1/users/me/", json=payload)  # type: ignore
+        response = self._client.put("api/v1/users/me", json=payload)  # type: ignore
         return _handle_response(response, UserProfile)
 
     def verify_satellite_token(self, token: str) -> SatelliteToken:

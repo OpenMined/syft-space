@@ -298,7 +298,7 @@ class EndpointHandler:
                 # Post-hooks failures are logged but don't block response
                 print(f"Policy '{policy.name}' post-hook failed: {str(e)}")
 
-        return query_response
+        return QueryEndpointResponse.model_validate(policy_context.response)
 
     def _search_dataset(
         self, endpoint: Endpoint, request: AuthenticatedQueryRequest

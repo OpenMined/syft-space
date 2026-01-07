@@ -68,9 +68,10 @@ from syftai_space.components.policy_types.rate_limit.limiter import (
     set_storage as set_rate_limit_storage,
 )
 from syftai_space.components.policy_types.registry import POLICY_TYPE_REGISTRY
+from syftai_space.components.settings.handlers import SettingsHandler
 
 # Import settings components
-from syftai_space.components.settings.routes import router as settings_router
+from syftai_space.components.settings.routes import build_settings_routes
 
 # Import database
 from syftai_space.components.shared.database import Database, SQLiteConfig
@@ -239,6 +240,7 @@ endpoint_handler = EndpointHandler(
     marketplace_repository=marketplace_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
+settings_handler = SettingsHandler(marketplace_handler, app_settings)
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -274,7 +276,7 @@ router.include_router(build_endpoint_routes(endpoint_handler))
 router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
-router.include_router(settings_router, prefix="/settings", tags=["settings"])
+router.include_router(build_settings_routes(settings_handler))
 
 
 @public_route

@@ -53,9 +53,9 @@ class SettingsHandler:
         # Sync to SyftHub if marketplace is configured
         try:
             marketplace = self.marketplace_handler.get_default_marketplace(tenant)
-            syfthub = SyftHubClient(marketplace.url)
-            syfthub.login(marketplace.email, marketplace.password)
-            syfthub.update_profile(domain=new_url)
+            with SyftHubClient(str(marketplace.url)) as syfthub:
+                syfthub.login(marketplace.email, marketplace.password)
+                syfthub.update_profile(domain=new_url)
         except HTTPException as e:
             if e.status_code == 404:
                 # No marketplace configured, just update local config
