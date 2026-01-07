@@ -118,6 +118,27 @@ class UserProfile(BaseModel):
     domain: str | None = Field(None, description="Domain")
 
 
+class SatelliteToken(BaseModel):
+    """Response from verify satellite token endpoint."""
+
+    valid: bool = Field(..., description="True if token is valid, False otherwise.")
+    email: str | None = Field(None, description="Email")
+    iat: int | None = Field(None, description="Issued at time")
+    exp: int | None = Field(None, description="Expiration time")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if the token is expired."""
+        if self.exp is None or self.iat is None:
+            return True
+        return self.exp < self.iat
+
+
 # =============================================================================
 # Response Handler
 # =============================================================================
@@ -396,6 +417,17 @@ class SyftHubClient:
         payload = {k: v for k, v in payload.items() if v is not None}
         response = self._client.put("api/v1/users/me/", json=payload)  # type: ignore
         return _handle_response(response, UserProfile)
+
+    def verify_satellite_token(self, token: str) -> SatelliteToken:
+        """Verify a satellite token.
+        Args:
+            token: Satellite token
+        Returns:
+            SatelliteToken: Verify satellite token response
+        """
+        self._require_auth()
+        response = self._client.post("/api/v1/verify", json={"token": token})  # type: ignore
+        return _handle_response(response, SatelliteToken)
 
     def _require_auth(self) -> None:
         if self._client is None:
