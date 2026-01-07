@@ -10,6 +10,7 @@ from syftai_space.components.datasets.repository import DatasetRepository
 from syftai_space.components.endpoints.entities import Endpoint, ResponseType
 from syftai_space.components.endpoints.repository import EndpointRepository
 from syftai_space.components.endpoints.schemas import (
+    AuthenticatedQueryRequest,
     CreateEndpointRequest,
     DocumentResponse,
     EndpointCreateResponse,
@@ -19,7 +20,6 @@ from syftai_space.components.endpoints.schemas import (
     ProviderInfo,
     PublishEndpointResponse,
     PublishResult,
-    QueryEndpointRequest,
     QueryEndpointResponse,
     ReferencesResponse,
     SummaryResponse,
@@ -190,13 +190,16 @@ class EndpointHandler:
         return {"message": f"Successfully deleted endpoint '{slug}'"}
 
     def query_endpoint(
-        self, slug: str, request: QueryEndpointRequest, tenant: Tenant
+        self,
+        slug: str,
+        request: AuthenticatedQueryRequest,
+        tenant: Tenant,
     ) -> QueryEndpointResponse:
         """Query an endpoint - main RAG flow.
 
         Args:
             slug: Endpoint slug
-            request: Query request
+            request: Authenticated query request (includes verified sender_email)
             tenant: Tenant context
 
         Returns:
@@ -235,10 +238,10 @@ class EndpointHandler:
                 # No marketplace configured or credentials invalid - accounting policies will fail
                 pass
 
-        # Create policy context
+        # Create policy context with verified sender email
         policy_context = PolicyContext(
             endpoint_slug=slug,
-            sender_email=request.user_email,
+            sender_email=request.sender_email,
             request=request.model_dump(),
             metadata=metadata,
         )
@@ -298,13 +301,13 @@ class EndpointHandler:
         return query_response
 
     def _search_dataset(
-        self, endpoint: Endpoint, request: QueryEndpointRequest
+        self, endpoint: Endpoint, request: AuthenticatedQueryRequest
     ) -> ReferencesResponse:
         """Search the dataset.
 
         Args:
             endpoint: Endpoint entity
-            request: Query request
+            request: Authenticated query request
 
         Returns:
             References response
@@ -338,8 +341,8 @@ class EndpointHandler:
             user_messages = [m for m in request.messages if m.role == "user"]
             query = user_messages[-1].content if user_messages else ""
 
-        # Search
-        ctx = Context(sender=request.user_email)
+        # Search with verified sender email
+        ctx = Context(sender=request.sender_email)
         search_params = SearchParameters(
             similarity_threshold=request.similarity_threshold,
             limit=request.limit,
@@ -373,14 +376,14 @@ class EndpointHandler:
     def _chat_with_model(
         self,
         endpoint: Endpoint,
-        request: QueryEndpointRequest,
+        request: AuthenticatedQueryRequest,
         references: ReferencesResponse | None,
     ) -> SummaryResponse:
         """Chat with the model.
 
         Args:
             endpoint: Endpoint entity
-            request: Query request
+            request: Authenticated query request
             references: Optional search references to include in context
 
         Returns:
@@ -427,8 +430,8 @@ class EndpointHandler:
             )
             messages.insert(0, context_message)
 
-        # Chat
-        ctx = Context(sender=request.user_email)
+        # Chat with verified sender email
+        ctx = Context(sender=request.sender_email)
         chat_params = ChatParameters(
             temperature=request.temperature,
             max_tokens=request.max_tokens,

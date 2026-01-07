@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 
 import httpx
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 # =============================================================================
 # Exceptions
@@ -122,7 +122,7 @@ class SatelliteToken(BaseModel):
     """Response from verify satellite token endpoint."""
 
     valid: bool = Field(..., description="True if token is valid, False otherwise.")
-    email: str | None = Field(None, description="Email")
+    email: EmailStr | None = Field(None, description="User email")
     iat: int | None = Field(None, description="Issued at time")
     exp: int | None = Field(None, description="Expiration time")
 
