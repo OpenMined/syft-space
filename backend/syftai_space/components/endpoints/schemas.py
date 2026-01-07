@@ -1,10 +1,10 @@
 """Endpoint API schemas for request/response models."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from syftai_space.components.endpoints.entities import ResponseType
 
@@ -95,8 +95,8 @@ class EndpointResponse(BaseModel):
 class EndpointCreateResponse(EndpointResponse):
     """Response model for creating an endpoint."""
 
-    model_id: Optional[UUID] = Field(default=None, description="Model ID")
-    dataset_id: Optional[UUID] = Field(default=None, description="Dataset ID")
+    model_id: UUID | None = Field(default=None, description="Model ID")
+    dataset_id: UUID | None = Field(default=None, description="Dataset ID")
 
 
 class AttachedPolicy(BaseModel):
@@ -116,8 +116,8 @@ class AttachedPolicy(BaseModel):
 class EndpointDetailResponse(EndpointResponse):
     """Response model for endpoint details."""
 
-    model: Optional[AttachedModel] = Field(default=None, description="Attached model")
-    dataset: Optional[AttachedDataset] = Field(
+    model: AttachedModel | None = Field(default=None, description="Attached model")
+    dataset: AttachedDataset | None = Field(
         default=None, description="Attached dataset"
     )
     policies: list[AttachedPolicy] = Field(
@@ -137,8 +137,8 @@ class EndpointListItem(BaseModel):
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
 
-    model: Optional[AttachedModel] = Field(default=None, description="Attached model")
-    dataset: Optional[AttachedDataset] = Field(
+    model: AttachedModel | None = Field(default=None, description="Attached model")
+    dataset: AttachedDataset | None = Field(
         default=None, description="Attached dataset"
     )
 
@@ -159,9 +159,12 @@ class ChatMessageRequest(BaseModel):
 
 
 class QueryEndpointRequest(BaseModel):
-    """Request model for querying an endpoint."""
+    """Request model for querying an endpoint (client input).
 
-    user_email: str = Field(..., description="Email of the user making the request")
+    Note: User identity is not provided in the request body.
+    It is derived from the SyftHub satellite token in the Authorization header.
+    """
+
     messages: str | list[ChatMessageRequest] = Field(
         ..., description="Messages or conversation string"
     )
@@ -191,13 +194,15 @@ class QueryEndpointRequest(BaseModel):
     extras: dict[str, Any] = Field(
         default_factory=dict, description="Additional options"
     )
+    transaction_token: str | None = Field(
+        default=None, description="Transaction token for accounting (optional)"
+    )
 
     class Config:
         """Pydantic config."""
 
         json_schema_extra = {
             "example": {
-                "user_email": "user@example.com",
                 "messages": [
                     {"role": "user", "content": "What is the capital of France?"}
                 ],
@@ -205,8 +210,40 @@ class QueryEndpointRequest(BaseModel):
                 "limit": 5,
                 "max_tokens": 100,
                 "temperature": 0.7,
+                "transaction_token": "jwt-token-here",
+                "extras": {
+                    "reference_options": {},
+                    "summarize_options": {},
+                },
             }
         }
+
+
+class AuthenticatedQueryRequest(QueryEndpointRequest):
+    """Query request enriched with verified sender identity.
+
+    This is created at the route level by combining QueryEndpointRequest
+    with the verified sender email from the SyftHub token.
+    """
+
+    sender_email: EmailStr = Field(
+        ..., description="Verified sender email from SyftHub token"
+    )
+
+    @classmethod
+    def from_request(
+        cls, request: QueryEndpointRequest, sender_email: str
+    ) -> "AuthenticatedQueryRequest":
+        """Create authenticated request from base request + verified email.
+
+        Args:
+            request: Original query request from client
+            sender_email: Verified email from SyftHub token
+
+        Returns:
+            AuthenticatedQueryRequest with sender identity
+        """
+        return cls(**request.model_dump(), sender_email=sender_email)
 
 
 class MessageResponse(BaseModel):

@@ -23,7 +23,7 @@ dependencies = [
     "openai>=2.7.2",
     "ngrok>=1.4.0",
     "watchdog>=4.0.0",
-    "syfthub-sdk",
+    "httpx>=0.24.0",
     "syft-accounting-sdk",
 ]
 
@@ -119,5 +119,4 @@ where = ["."]  # Find packages in current directory (backend/)
 include = ["syftai_space*"]  # Include syftai_space and sub-packages
 
 [tool.uv.sources]
-syfthub-sdk = { git = "https://github.com/OpenMined/syfthub.git", subdirectory = "sdk/python", rev = "main" }
 syft-accounting-sdk = { git = "https://github.com/OpenMined/accounting-sdk.git", rev = "main" }

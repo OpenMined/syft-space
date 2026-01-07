@@ -10,6 +10,7 @@ from syftai_space.components.datasets.repository import DatasetRepository
 from syftai_space.components.endpoints.entities import Endpoint, ResponseType
 from syftai_space.components.endpoints.repository import EndpointRepository
 from syftai_space.components.endpoints.schemas import (
+    AuthenticatedQueryRequest,
     CreateEndpointRequest,
     DocumentResponse,
     EndpointCreateResponse,
@@ -19,7 +20,6 @@ from syftai_space.components.endpoints.schemas import (
     ProviderInfo,
     PublishEndpointResponse,
     PublishResult,
-    QueryEndpointRequest,
     QueryEndpointResponse,
     ReferencesResponse,
     SummaryResponse,
@@ -27,6 +27,9 @@ from syftai_space.components.endpoints.schemas import (
 )
 from syftai_space.components.marketplaces.entities import Marketplace
 from syftai_space.components.marketplaces.repository import MarketplaceRepository
+from syftai_space.components.marketplaces.utils import (
+    ensure_valid_accounting_credentials,
+)
 from syftai_space.components.model_types.interfaces import ChatMessage, ChatParameters
 from syftai_space.components.model_types.registry import ModelTypeRegistry
 from syftai_space.components.models.repository import ModelRepository
@@ -61,7 +64,7 @@ class EndpointHandler:
             dataset_registry: Dataset type registry
             model_registry: Model type registry
             policy_registry: Policy type registry
-            marketplace_repository: Marketplace repository (optional, for publish)
+            marketplace_repository: Marketplace repository (optional, for publish and accounting)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -187,13 +190,16 @@ class EndpointHandler:
         return {"message": f"Successfully deleted endpoint '{slug}'"}
 
     def query_endpoint(
-        self, slug: str, request: QueryEndpointRequest, tenant: Tenant
+        self,
+        slug: str,
+        request: AuthenticatedQueryRequest,
+        tenant: Tenant,
     ) -> QueryEndpointResponse:
         """Query an endpoint - main RAG flow.
 
         Args:
             slug: Endpoint slug
-            request: Query request
+            request: Authenticated query request (includes verified sender_email)
             tenant: Tenant context
 
         Returns:
@@ -214,11 +220,30 @@ class EndpointHandler:
         # Get policies for this endpoint
         policies = self.policy_repository.get_by_endpoint_id(endpoint.id, tenant.id)
 
-        # Create policy context
+        # Build policy context metadata with validated accounting credentials
+        metadata: dict = {}
+        if self.marketplace_repository:
+            try:
+                default_marketplace = self.marketplace_repository.get_default(tenant.id)
+                if default_marketplace:
+                    # Validate credentials upfront (refreshes from SyftHub if expired)
+                    creds = ensure_valid_accounting_credentials(
+                        default_marketplace, self.marketplace_repository
+                    )
+                    # Inject validated accounting credentials
+                    metadata["accounting_email"] = creds["email"]
+                    metadata["accounting_password"] = creds["password"]
+                    metadata["accounting_url"] = creds["url"]
+            except HTTPException:
+                # No marketplace configured or credentials invalid - accounting policies will fail
+                pass
+
+        # Create policy context with verified sender email
         policy_context = PolicyContext(
             endpoint_slug=slug,
-            sender_email=request.user_email,
+            sender_email=request.sender_email,
             request=request.model_dump(),
+            metadata=metadata,
         )
 
         # Apply pre-hooks
@@ -273,16 +298,16 @@ class EndpointHandler:
                 # Post-hooks failures are logged but don't block response
                 print(f"Policy '{policy.name}' post-hook failed: {str(e)}")
 
-        return query_response
+        return QueryEndpointResponse.model_validate(policy_context.response)
 
     def _search_dataset(
-        self, endpoint: Endpoint, request: QueryEndpointRequest
+        self, endpoint: Endpoint, request: AuthenticatedQueryRequest
     ) -> ReferencesResponse:
         """Search the dataset.
 
         Args:
             endpoint: Endpoint entity
-            request: Query request
+            request: Authenticated query request
 
         Returns:
             References response
@@ -316,8 +341,8 @@ class EndpointHandler:
             user_messages = [m for m in request.messages if m.role == "user"]
             query = user_messages[-1].content if user_messages else ""
 
-        # Search
-        ctx = Context(sender=request.user_email)
+        # Search with verified sender email
+        ctx = Context(sender=request.sender_email)
         search_params = SearchParameters(
             similarity_threshold=request.similarity_threshold,
             limit=request.limit,
@@ -351,14 +376,14 @@ class EndpointHandler:
     def _chat_with_model(
         self,
         endpoint: Endpoint,
-        request: QueryEndpointRequest,
+        request: AuthenticatedQueryRequest,
         references: ReferencesResponse | None,
     ) -> SummaryResponse:
         """Chat with the model.
 
         Args:
             endpoint: Endpoint entity
-            request: Query request
+            request: Authenticated query request
             references: Optional search references to include in context
 
         Returns:
@@ -405,8 +430,8 @@ class EndpointHandler:
             )
             messages.insert(0, context_message)
 
-        # Chat
-        ctx = Context(sender=request.user_email)
+        # Chat with verified sender email
+        ctx = Context(sender=request.sender_email)
         chat_params = ChatParameters(
             temperature=request.temperature,
             max_tokens=request.max_tokens,
@@ -514,8 +539,6 @@ class EndpointHandler:
 
         Returns:
             Publish result
-
-        TODO: Integrate with actual SDK when available.
         """
         # Validate marketplace is active
         if not marketplace.is_active:
@@ -535,45 +558,58 @@ class EndpointHandler:
                 error="Marketplace credentials not configured",
             )
 
-        from syfthub_sdk import Connection, EndpointType, Policy, SyftHubClient
+        from syftai_space.components.shared import SyftHubClient
 
-        client = SyftHubClient(base_url=marketplace.url)
+        try:
+            with SyftHubClient(base_url=marketplace.url) as client:
+                # Note: marketplace.email is used as username
+                client.login(username=marketplace.email, password=marketplace.password)
 
-        client.auth.login(email=marketplace.email, password=marketplace.password)
-
-        endpoint_type = (
-            EndpointType.MODEL
-            if endpoint.model_id is not None
-            else EndpointType.DATA_SOURCE
-        )
-        connection_config = {
-            "host": "localhost:8080",
-            "path": f"/api/v1/endpoints/{endpoint.slug}/query",
-        }
-        policies = []
-        for policy in endpoint.policies:
-            Policy(
-                type=policy.policy_type,
-                enabled=True,
-                description=policy.name,
-                config=policy.configuration,
-            )
-            policies.append(policy)
-
-        client.my_endpoints.create(
-            name=endpoint.name,
-            type=endpoint_type,
-            slug=endpoint.slug,
-            description=endpoint.summary,
-            readme=endpoint.description,
-            tags=endpoint.tags,
-            policies=policies,
-            connect=[
-                Connection(
-                    type="https", enabled=True, description="", config=connection_config
+                endpoint_type = (
+                    "model" if endpoint.model_id is not None else "data_source"
                 )
-            ],
-        )
+                policies = [
+                    {
+                        "type": policy.policy_type,
+                        "version": "1.0",
+                        "enabled": True,
+                        "description": policy.name,
+                        "config": policy.configuration,
+                    }
+                    for policy in endpoint.policies
+                ]
+                connection_config = {
+                    "host": "localhost:8080",
+                    "path": f"/api/v1/endpoints/{endpoint.slug}/query",
+                }
+
+                payload = {
+                    "name": endpoint.name,
+                    "description": endpoint.summary or "",
+                    "type": endpoint_type,
+                    "visibility": "public",
+                    "version": "0.1.0",
+                    "readme": endpoint.description or "",
+                    "slug": endpoint.slug,
+                    "policies": policies,
+                    "connect": [
+                        {
+                            "type": "https",
+                            "enabled": True,
+                            "description": "",
+                            "config": connection_config,
+                        }
+                    ],
+                }
+                client.publish_endpoint(payload)
+
+        except Exception as e:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=str(e),
+            )
 
         try:
             # Record the publication in endpoint's published_to list

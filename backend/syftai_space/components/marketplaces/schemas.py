@@ -5,14 +5,24 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
 
+from syftai_space.config import app_settings
 
-class CreateMarketplaceRequest(BaseModel):
-    """Request model for creating a marketplace."""
+
+class RegisterMarketplaceRequest(BaseModel):
+    """Request model for registering a new marketplace (new SyftHub account)."""
 
     name: str = Field(..., description="Marketplace display name (unique per tenant)")
-    url: HttpUrl = Field(..., description="Marketplace base URL (unique per tenant)")
+    username: str = Field(..., description="Marketplace username (unique per tenant)")
+    url: HttpUrl = Field(
+        description="Marketplace base URL (unique per tenant)",
+        default=app_settings.default_marketplace_url,
+    )
     email: EmailStr = Field(..., description="Login email for marketplace")
     password: str = Field(..., description="Login password for marketplace")
+    accounting_url: str = Field(
+        description="Accounting service URL",
+        default=app_settings.default_accounting_url,
+    )
 
     class Config:
         """Pydantic config."""
@@ -20,9 +30,33 @@ class CreateMarketplaceRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "name": "My Marketplace",
+                "username": "myusername",
                 "url": "https://marketplace.example.com",
                 "email": "user@example.com",
                 "password": "secret123",
+                "accounting_url": "https://accounting.example.com",
+            }
+        }
+
+
+class ConnectMarketplaceRequest(BaseModel):
+    """Request model for connecting to an existing SyftHub account."""
+
+    username: str = Field(..., description="SyftHub username")
+    password: str = Field(..., description="SyftHub password")
+    url: HttpUrl = Field(
+        description="Marketplace base URL",
+        default=app_settings.default_marketplace_url,
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "username": "myusername",
+                "password": "secret123",
+                "url": "https://marketplace.example.com",
             }
         }
 
@@ -33,6 +67,7 @@ class UpdateMarketplaceRequest(BaseModel):
     name: str | None = Field(
         None, description="New marketplace name (must be unique per tenant)"
     )
+    username: str | None = Field(None, description="New marketplace username")
     url: HttpUrl | None = Field(
         None, description="New marketplace URL (must be unique per tenant)"
     )
@@ -85,3 +120,10 @@ class MarketplaceListItem(BaseModel):
         """Pydantic config."""
 
         from_attributes = True
+
+
+class BalanceResponse(BaseModel):
+    """Response model for account balance."""
+
+    balance: float = Field(..., description="Current account balance")
+    currency: str = Field(default="USD", description="Currency unit")

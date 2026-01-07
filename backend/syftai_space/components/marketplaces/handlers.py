@@ -3,16 +3,24 @@
 from uuid import UUID
 
 from fastapi import HTTPException
+from syft_accounting_sdk import ServiceException, UserClient
 
 from syftai_space.components.marketplaces.entities import Marketplace
 from syftai_space.components.marketplaces.repository import MarketplaceRepository
 from syftai_space.components.marketplaces.schemas import (
-    CreateMarketplaceRequest,
+    BalanceResponse,
+    ConnectMarketplaceRequest,
     MarketplaceListItem,
     MarketplaceResponse,
+    RegisterMarketplaceRequest,
     UpdateMarketplaceRequest,
 )
+from syftai_space.components.marketplaces.utils import (
+    ensure_valid_accounting_credentials,
+)
+from syftai_space.components.shared.syfthub_client import SyftHubClient
 from syftai_space.components.tenants.entities import Tenant
+from syftai_space.config import app_settings
 
 
 class MarketplaceHandler:
@@ -26,13 +34,13 @@ class MarketplaceHandler:
         """
         self.repository = repository
 
-    def create_marketplace(
-        self, request: CreateMarketplaceRequest, tenant: Tenant
+    def register_marketplace(
+        self, request: RegisterMarketplaceRequest, tenant: Tenant
     ) -> MarketplaceResponse:
-        """Create a new marketplace.
+        """Register a new marketplace by creating a new SyftHub account.
 
         Args:
-            request: Marketplace creation request
+            request: Marketplace registration request
             tenant: Tenant context
 
         Returns:
@@ -40,15 +48,48 @@ class MarketplaceHandler:
         """
         url_str = str(request.url)
 
+        with SyftHubClient(url_str) as syfthub_client:
+            try:
+                user_profile = syfthub_client.register(
+                    username=request.username,
+                    email=request.email,
+                    full_name=request.name,
+                    password=request.password,
+                    accounting_service_url=request.accounting_url,
+                )
+
+                # Login to get authenticated client for subsequent calls
+                syfthub_client.login(request.email, request.password)
+
+                # Fetch accounting credentials from SyftHub
+                accounting_creds = syfthub_client.accounting_credentials()
+
+                # If public URL is set, update the domain
+                if app_settings.public_url:
+                    syfthub_client.update_profile(domain=app_settings.public_url)
+
+            except Exception as e:
+                raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+        # Check if the marketplace should be set as default
+        # If the default marketplace URL is the same as the marketplace URL,
+        # set it as default
+        set_as_default = app_settings.default_marketplace_url == url_str
+
         # Create marketplace entity
         marketplace = Marketplace(
             tenant_id=tenant.id,
-            name=request.name,
+            name=user_profile.user.full_name,
+            username=user_profile.user.username,
             url=url_str,
-            email=request.email,
+            email=user_profile.user.email,
             password=request.password,
-            is_default=False,  # Only SyftHub is default, set via pre-seeding
+            is_default=set_as_default,
             is_active=True,
+            # Accounting credentials from SyftHub
+            accounting_url=accounting_creds.url,
+            accounting_email=accounting_creds.email,
+            accounting_password=accounting_creds.password,
         )
 
         # Save to database
@@ -56,7 +97,83 @@ class MarketplaceHandler:
 
         return MarketplaceResponse.model_validate(created)
 
-    def list_marketplaces(self, tenant: Tenant) -> list[MarketplaceListItem]:
+    def connect_marketplace(
+        self, request: ConnectMarketplaceRequest, tenant: Tenant
+    ) -> MarketplaceResponse:
+        """Connect to an existing SyftHub account and add as marketplace.
+
+        Args:
+            request: Marketplace connection request with existing credentials
+            tenant: Tenant context
+
+        Returns:
+            Created marketplace
+        """
+        url_str = str(request.url)
+
+        with SyftHubClient(url_str) as syfthub_client:
+            try:
+                # Login to existing account
+                syfthub_client.login(request.username, request.password)
+
+                # Fetch user profile
+                user_profile = syfthub_client.profile()
+
+                # Fetch accounting credentials
+                accounting_creds = syfthub_client.accounting_credentials()
+
+                # Update domain if public URL is set
+                if app_settings.public_url:
+                    syfthub_client.update_profile(domain=app_settings.public_url)
+
+            except Exception as e:
+                raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+        # Check if the marketplace should be set as default
+        set_as_default = app_settings.default_marketplace_url.strip(
+            "/"
+        ) == url_str.strip("/")
+
+        # TODO: Add check if marketplace already exists, if so, update it instead of creating a new one
+
+        # Create marketplace entity
+        marketplace = Marketplace(
+            tenant_id=tenant.id,
+            name=user_profile.full_name,
+            username=user_profile.username,
+            url=url_str,
+            email=user_profile.email,
+            password=request.password,  # Store for future logins
+            is_default=set_as_default,
+            is_active=True,
+            # Accounting credentials from SyftHub
+            accounting_url=accounting_creds.url,
+            accounting_email=accounting_creds.email,
+            accounting_password=accounting_creds.password,
+        )
+
+        # Save to database
+        created = self.repository.create(marketplace)
+
+        return MarketplaceResponse.model_validate(created)
+
+    def check_username_availability(self, url: str | None, username: str) -> bool:
+        """Check if a username is available.
+
+        Args:
+            url: URL of the Marketplace
+            username: Username to check
+
+        Returns:
+            True if username is available, False otherwise.
+        """
+        url = app_settings.default_marketplace_url if url is None else url
+        with SyftHubClient(url) as syfthub_client:
+            return syfthub_client._is_username_available(username)
+
+    def list_marketplaces(
+        self, tenant: Tenant, url: str | None = None
+    ) -> list[MarketplaceListItem]:
         """List all marketplaces for a tenant.
 
         Args:
@@ -115,6 +232,7 @@ class MarketplaceHandler:
             url=url_str,
             email=request.email,
             password=request.password,
+            username=request.username,
             is_active=request.is_active,
         )
 
@@ -158,3 +276,56 @@ class MarketplaceHandler:
             )
 
         return {"message": f"Successfully deleted marketplace '{marketplace.name}'"}
+
+    def get_default_marketplace(self, tenant: Tenant) -> Marketplace:
+        """Get the default marketplace for a tenant.
+
+        Args:
+            tenant: Tenant context
+
+        Returns:
+            Default marketplace
+
+        Raises:
+            HTTPException: If no default marketplace found
+        """
+        marketplace = self.repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(
+                status_code=404,
+                detail="No default marketplace configured. Please register with SyftHub first.",
+            )
+        return marketplace
+
+    def get_balance(self, tenant: Tenant) -> BalanceResponse:
+        """Get account balance for the default marketplace.
+
+        Validates credentials before fetching balance, refreshing if needed.
+
+        Args:
+            tenant: Tenant context
+
+        Returns:
+            Balance response
+
+        Raises:
+            HTTPException: If no marketplace configured or balance fetch fails
+        """
+        marketplace = self.get_default_marketplace(tenant)
+
+        # Validate and potentially refresh credentials using utility
+        creds = ensure_valid_accounting_credentials(marketplace, self.repository)
+
+        try:
+            accounting_client = UserClient(
+                url=creds["url"],
+                email=creds["email"],
+                password=creds["password"],
+            )
+            user_info = accounting_client.get_user_info()
+            return BalanceResponse(balance=user_info.balance)
+        except ServiceException as e:
+            raise HTTPException(
+                status_code=e.status_code,
+                detail=f"Failed to get balance: {e.message}",
+            ) from e

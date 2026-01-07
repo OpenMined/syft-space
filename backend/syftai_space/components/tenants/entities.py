@@ -1,7 +1,7 @@
 """Tenant database entities."""
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from components.endpoints.entities import Endpoint
     from components.marketplaces.entities import Marketplace
     from components.models.entities import Model
-    from components.payments.entities import PaymentService
     from components.policies.entities import Policy
 
 
@@ -51,7 +50,6 @@ class Tenant(SQLModel, table=True):
     endpoints: list["Endpoint"] = Relationship(back_populates="tenant")
     policies: list["Policy"] = Relationship(back_populates="tenant")
     marketplaces: list["Marketplace"] = Relationship(back_populates="tenant")
-    payment_service: Optional["PaymentService"] = Relationship(back_populates="tenant")
 
     class Config:
         """Pydantic config."""

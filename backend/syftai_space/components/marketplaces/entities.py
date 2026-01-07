@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 
 from sqlmodel import Column, Field, ForeignKey, Relationship, SQLModel
 
+from syftai_space.config import app_settings
+
 if TYPE_CHECKING:
     from syftai_space.components.tenants.entities import Tenant
 
@@ -22,7 +24,10 @@ class Marketplace(SQLModel, table=True):
         description="Tenant ID for multi-tenancy isolation",
     )
     name: str = Field(..., description="Marketplace display name")
-    url: str = Field(..., description="Marketplace base URL")
+    username: str = Field(..., description="Marketplace username")
+    url: str = Field(
+        default=app_settings.default_marketplace_url, description="Marketplace base URL"
+    )
     email: str = Field(default="", description="Login email for marketplace")
     password: str = Field(default="", description="Login password for marketplace")
     is_default: bool = Field(
@@ -31,6 +36,17 @@ class Marketplace(SQLModel, table=True):
     is_active: bool = Field(
         default=True, description="Can be used for publishing endpoints"
     )
+
+    # Accounting credentials (fetched from SyftHub)
+    accounting_url: str = Field(
+        default=app_settings.default_accounting_url,
+        description="Accounting service URL",
+    )
+    accounting_email: str = Field(default="", description="Accounting service email")
+    accounting_password: str = Field(
+        default="", description="Accounting service password"
+    )
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

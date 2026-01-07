@@ -3504,6 +3504,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "loguru" },
     { name = "ngrok", version = "1.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "ngrok", version = "1.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -3514,7 +3515,6 @@ dependencies = [
     { name = "requests" },
     { name = "sqlmodel" },
     { name = "syft-accounting-sdk" },
-    { name = "syfthub-sdk" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "watchdog" },
 ]
@@ -3573,6 +3573,7 @@ requires-dist = [
     { name = "bandit", extras = ["toml"], marker = "extra == 'lint'", specifier = ">=1.7.0" },
     { name = "docling", marker = "extra == 'libs'", specifier = ">=2.55.0" },
     { name = "fastapi", specifier = "==0.116.2" },
+    { name = "httpx", specifier = ">=0.24.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.24.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mypy", marker = "extra == 'lint'", specifier = ">=0.950" },
@@ -3592,22 +3593,11 @@ requires-dist = [
     { name = "syft-accounting-sdk", git = "https://github.com/OpenMined/accounting-sdk.git?rev=main" },
     { name = "syftai-space", extras = ["build", "libs", "test", "lint", "pre-commit"], marker = "extra == 'dev'" },
     { name = "syftai-space", extras = ["dev", "libs"], marker = "extra == 'all'" },
-    { name = "syfthub-sdk", git = "https://github.com/OpenMined/syfthub.git?subdirectory=sdk%2Fpython&rev=main" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
     { name = "watchdog", specifier = ">=4.0.0" },
     { name = "weaviate-client", marker = "extra == 'libs'", specifier = ">=4.17.0" },
 ]
 provides-extras = ["build", "test", "lint", "pre-commit", "libs", "dev", "all"]
-
-[[package]]
-name = "syfthub-sdk"
-version = "0.1.0"
-source = { git = "https://github.com/OpenMined/syfthub.git?subdirectory=sdk%2Fpython&rev=main#b8ee0c5f9e8ebe1d82cb96bd9eb650c2f84d33f7" }
-dependencies = [
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
-]
 
 [[package]]
 name = "sympy"
