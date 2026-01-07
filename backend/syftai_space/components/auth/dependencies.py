@@ -2,6 +2,7 @@ from fastapi import HTTPException, Request
 from pydantic import EmailStr
 
 from syftai_space.components.marketplaces.repository import Marketplace
+from syftai_space.config import app_settings
 
 
 def get_verified_user_email(
@@ -38,7 +39,11 @@ def get_verified_user_email(
             status_code=424, detail="Marketplace credentials are not set"
         )
 
-    # Verify with SyftHub
+    # If Token is Admin API Key, return admin email from marketplace
+    if token == app_settings.admin_api_key:
+        return EmailStr(marketplace.email)
+
+    # Otherwise, verify token with SyftHub
     try:
         client = SyftHubClient(str(marketplace.url))
         client.login(marketplace.email, marketplace.password)
