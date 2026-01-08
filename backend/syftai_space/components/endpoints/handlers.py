@@ -37,6 +37,7 @@ from syftai_space.components.policies.repository import PolicyRepository
 from syftai_space.components.policy_types.interfaces import PolicyContext
 from syftai_space.components.policy_types.registry import PolicyTypeRegistry
 from syftai_space.components.shared.domain_types import Context
+from syftai_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syftai_space.components.tenants.entities import Tenant
 
 
@@ -558,8 +559,6 @@ class EndpointHandler:
                 error="Marketplace credentials not configured",
             )
 
-        from syftai_space.components.shared import SyftHubClient
-
         try:
             with SyftHubClient(base_url=marketplace.url) as client:
                 # Note: marketplace.email is used as username
@@ -603,12 +602,12 @@ class EndpointHandler:
                 }
                 client.publish_endpoint(payload)
 
-        except Exception as e:
+        except SyftHubError as e:
             return PublishResult(
                 marketplace_id=marketplace.id,
                 marketplace_name=marketplace.name,
                 success=False,
-                error=str(e),
+                error=e.message,
             )
 
         try:

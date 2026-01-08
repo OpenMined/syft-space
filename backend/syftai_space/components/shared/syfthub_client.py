@@ -1,11 +1,13 @@
 """SyftHub marketplace API client using httpx."""
 
 import threading
+from dataclasses import dataclass
 from typing import Any, TypeVar
 
 import httpx
+from fastapi import HTTPException
 from loguru import logger
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 # =============================================================================
 # Exceptions
@@ -15,10 +17,22 @@ from pydantic import BaseModel, EmailStr, Field
 class SyftHubError(Exception):
     """Base exception for SyftHub API errors."""
 
-    def __init__(self, message: str, status_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 500,
+        code: str | None = None,
+        field: str | None = None,
+    ):
         self.message = message
         self.status_code = status_code
+        self.code = code
+        self.field = field
         super().__init__(message)
+
+    def to_http_exception(self) -> HTTPException:
+        """Convert to FastAPI HTTPException."""
+        return HTTPException(status_code=self.status_code, detail=self.message)
 
 
 class AuthenticationError(SyftHubError):
@@ -27,16 +41,8 @@ class AuthenticationError(SyftHubError):
     pass
 
 
-class ValidationError(SyftHubError):
-    """Request validation failed (400, 422)."""
-
-    def __init__(self, message: str, errors: list[dict[str, Any]] | None = None):
-        super().__init__(message, status_code=422)
-        self.errors = errors or []
-
-
-class ConflictError(SyftHubError):
-    """Resource already exists (409)."""
+class ForbiddenError(SyftHubError):
+    """Access forbidden (403)."""
 
     pass
 
@@ -47,8 +53,34 @@ class NotFoundError(SyftHubError):
     pass
 
 
+class ConflictError(SyftHubError):
+    """Resource already exists (409)."""
+
+    pass
+
+
+class ValidationError(SyftHubError):
+    """Request validation failed (400, 422)."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 422,
+        code: str | None = None,
+        errors: list[dict[str, Any]] | None = None,
+    ):
+        super().__init__(message, status_code=status_code, code=code)
+        self.errors = errors or []
+
+
+class FailedDependencyError(SyftHubError):
+    """Failed dependency - accounting service issue (424)."""
+
+    pass
+
+
 class ServerError(SyftHubError):
-    """Server-side error (5xx)."""
+    """Server-side error (5xx) - covers 500, 502, 503, 504, etc."""
 
     pass
 
@@ -57,7 +89,7 @@ class NotAuthenticatedError(SyftHubError):
     """Client not authenticated - login() not called."""
 
     def __init__(self):
-        super().__init__("Not authenticated. Call login() first.", status_code=None)
+        super().__init__("Not authenticated. Call login() first.", status_code=401)
 
 
 # =============================================================================
@@ -93,7 +125,7 @@ class RegisterResponse(BaseModel):
 class AccountingResponse(BaseModel):
     """Response from accounting endpoint."""
 
-    url: str
+    url: HttpUrl
     email: EmailStr
     password: str
 
@@ -146,27 +178,52 @@ class SatelliteToken(BaseModel):
 T = TypeVar("T", bound=BaseModel)
 
 
-def _extract_error_detail(response: httpx.Response) -> str:
-    """Extract error message from response body."""
+@dataclass
+class ParsedError:
+    """Parsed error response from SyftHub."""
+
+    message: str
+    code: str | None = None
+    field: str | None = None
+
+
+def _parse_error_response(response: httpx.Response) -> ParsedError:
+    """Parse SyftHub error response into structured format.
+
+    Handles patterns:
+    1. {"detail": {"code/error": "...", "message": "...", ...}} - Structured
+    2. {"detail": "string"} - Simple string
+    3. {"detail": [...]} - Validation errors
+    """
     try:
         data = response.json()
-        if isinstance(data, dict):
-            # FastAPI style: {"detail": "message"} or {"detail": [...]}
-            detail = data.get("detail")
-            if isinstance(detail, str):
-                return detail
-            if isinstance(detail, list) and detail:
-                # Validation errors: [{"loc": [...], "msg": "...", "type": "..."}]
-                messages = [err.get("msg", str(err)) for err in detail]
-                return "; ".join(messages)
-            # Other formats
-            if "message" in data:
-                return data["message"]
-            if "error" in data:
-                return data["error"]
-        return response.text[:200] if response.text else response.reason_phrase
     except Exception:
-        return response.reason_phrase or f"HTTP {response.status_code}"
+        return ParsedError(
+            message=response.reason_phrase or f"HTTP {response.status_code}"
+        )
+
+    detail = data.get("detail") if isinstance(data, dict) else None
+
+    # Pattern 1: Structured dict
+    if isinstance(detail, dict):
+        return ParsedError(
+            message=detail.get("message", str(detail)),
+            code=detail.get("code") or detail.get("error"),  # Handle both formats
+            field=detail.get("field"),
+        )
+
+    # Pattern 2: Simple string
+    if isinstance(detail, str):
+        return ParsedError(message=detail)
+
+    # Pattern 3: Validation errors array
+    if isinstance(detail, list):
+        messages = [err.get("msg", str(err)) for err in detail]
+        return ParsedError(message="; ".join(messages))
+
+    return ParsedError(
+        message=response.text[:200] if response.text else response.reason_phrase or ""
+    )
 
 
 def _extract_validation_errors(response: httpx.Response) -> list[dict[str, Any]]:
@@ -180,27 +237,46 @@ def _extract_validation_errors(response: httpx.Response) -> list[dict[str, Any]]
     return []
 
 
+def _raise_for_status(response: httpx.Response) -> None:
+    """Raise appropriate exception based on response status code."""
+    parsed = _parse_error_response(response)
+    status = response.status_code
+
+    if status == 400:
+        raise ValidationError(parsed.message, status_code=status, code=parsed.code)
+    elif status == 401:
+        raise AuthenticationError(parsed.message, status_code=status, code=parsed.code)
+    elif status == 403:
+        raise ForbiddenError(parsed.message, status_code=status, code=parsed.code)
+    elif status == 404:
+        raise NotFoundError(parsed.message, status_code=status, code=parsed.code)
+    elif status == 409:
+        raise ConflictError(
+            parsed.message, status_code=status, code=parsed.code, field=parsed.field
+        )
+    elif status == 422:
+        errors = _extract_validation_errors(response)
+        raise ValidationError(
+            parsed.message, status_code=status, code=parsed.code, errors=errors
+        )
+    elif status == 424:
+        raise FailedDependencyError(
+            parsed.message, status_code=status, code=parsed.code
+        )
+    elif status >= 500:
+        raise ServerError(parsed.message, status_code=status, code=parsed.code)
+    else:
+        raise SyftHubError(parsed.message, status_code=status, code=parsed.code)
+
+
 def _handle_response(response: httpx.Response, model: type[T]) -> T:
     """Handle API response: parse success or raise appropriate exception."""
     if response.is_success:
         return model.model_validate(response.json())
 
-    status = response.status_code
-    detail = _extract_error_detail(response)
-
-    if status == 401:
-        raise AuthenticationError(detail, status_code=status)
-    elif status == 404:
-        raise NotFoundError(detail, status_code=status)
-    elif status == 409:
-        raise ConflictError(detail, status_code=status)
-    elif status in (400, 422):
-        errors = _extract_validation_errors(response)
-        raise ValidationError(detail, errors=errors)
-    elif status >= 500:
-        raise ServerError(detail, status_code=status)
-    else:
-        raise SyftHubError(detail, status_code=status)
+    _raise_for_status(response)
+    # This line is never reached but helps type checker
+    raise AssertionError("Unreachable")
 
 
 def _handle_response_raw(response: httpx.Response) -> dict[str, Any]:
@@ -208,22 +284,9 @@ def _handle_response_raw(response: httpx.Response) -> dict[str, Any]:
     if response.is_success:
         return response.json()
 
-    status = response.status_code
-    detail = _extract_error_detail(response)
-
-    if status == 401:
-        raise AuthenticationError(detail, status_code=status)
-    elif status == 404:
-        raise NotFoundError(detail, status_code=status)
-    elif status == 409:
-        raise ConflictError(detail, status_code=status)
-    elif status in (400, 422):
-        errors = _extract_validation_errors(response)
-        raise ValidationError(detail, errors=errors)
-    elif status >= 500:
-        raise ServerError(detail, status_code=status)
-    else:
-        raise SyftHubError(detail, status_code=status)
+    _raise_for_status(response)
+    # This line is never reached but helps type checker
+    raise AssertionError("Unreachable")
 
 
 # =============================================================================
@@ -270,6 +333,12 @@ class SyftHubClient:
     """HTTP client for SyftHub marketplace API with typed requests/responses."""
 
     def __init__(self, base_url: str):
+        """Initialize SyftHub client.
+
+        Args:
+            base_url: Base URL for the SyftHub instance (str)
+        """
+        # Normalize URL (remove trailing slash)
         self.base_url = base_url.rstrip("/")
         self._auth_client = httpx.Client(base_url=self.base_url)
         self._client: httpx.Client | None = None

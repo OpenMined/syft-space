@@ -5,7 +5,7 @@ from syft_accounting_sdk import ServiceException, UserClient
 
 from syftai_space.components.marketplaces.entities import Marketplace
 from syftai_space.components.marketplaces.repository import MarketplaceRepository
-from syftai_space.components.shared.syfthub_client import SyftHubClient
+from syftai_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 
 
 def refresh_accounting_credentials(
@@ -33,20 +33,20 @@ def refresh_accounting_credentials(
         repository.update(
             marketplace.id,
             marketplace.tenant_id,
-            accounting_url=creds.url,
+            accounting_url=str(creds.url),
             accounting_email=creds.email,
             accounting_password=creds.password,
         )
 
         return {
-            "url": creds.url,
+            "url": str(creds.url),
             "email": creds.email,
             "password": creds.password,
         }
-    except Exception as e:
+    except SyftHubError as e:
         raise HTTPException(
-            status_code=getattr(e, "status_code", 500),
-            detail=f"Failed to refresh accounting credentials: {getattr(e, 'message', str(e))}",
+            status_code=e.status_code,
+            detail=f"Failed to refresh accounting credentials: {e.message}",
         ) from e
 
 

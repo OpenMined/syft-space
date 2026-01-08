@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,17 +55,17 @@ class AppSettings(BaseSettings):
     )
 
     # External service URLs
-    default_accounting_url: str = Field(
+    default_accounting_url: HttpUrl = Field(
         default="https://syftaccounting.centralus.cloudapp.azure.com/",
         description="Default URL for the accounting service",
     )
-    default_marketplace_url: str = Field(
+    default_marketplace_url: HttpUrl = Field(
         default="https://syfthub.openmined.org",
         description="Default URL for the marketplace service",
     )
 
     # SyftAI Space Public URL
-    public_url: str | None = Field(
+    public_url: HttpUrl | None = Field(
         None,
         description="Public URL for the SyftAI Space",
     )

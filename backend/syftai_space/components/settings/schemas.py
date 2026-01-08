@@ -1,6 +1,6 @@
 """Settings API schemas for request/response models."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class PublicUrlResponse(BaseModel):
@@ -12,7 +12,7 @@ class PublicUrlResponse(BaseModel):
 class UpdatePublicUrlRequest(BaseModel):
     """Request model for updating the public URL."""
 
-    public_url: str = Field(..., description="New public URL to set")
+    public_url: HttpUrl = Field(..., description="New public URL to set")
 
     class Config:
         """Pydantic config."""

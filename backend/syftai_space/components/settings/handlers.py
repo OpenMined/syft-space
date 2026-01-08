@@ -1,10 +1,11 @@
 """Settings handlers for business logic."""
 
 from fastapi import HTTPException
+from pydantic import HttpUrl
 
 from syftai_space.components.marketplaces.handlers import MarketplaceHandler
 from syftai_space.components.settings.schemas import PublicUrlResponse
-from syftai_space.components.shared.syfthub_client import SyftHubClient
+from syftai_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syftai_space.components.tenants.entities import Tenant
 from syftai_space.config import AppSettings
 
@@ -30,16 +31,20 @@ class SettingsHandler:
         Returns:
             Public URL response
         """
-        return PublicUrlResponse(public_url=self.config.public_url)
+        return PublicUrlResponse(
+            public_url=str(self.config.public_url) if self.config.public_url else None
+        )
 
-    def update_public_url(self, tenant: Tenant, new_url: str) -> PublicUrlResponse:
+    def update_public_url(
+        self, tenant: Tenant, new_url: HttpUrl | str
+    ) -> PublicUrlResponse:
         """Update the public URL.
 
         Updates the local config and syncs to SyftHub marketplace.
 
         Args:
             tenant: Tenant context
-            new_url: New public URL to set
+            new_url: New public URL to set (HttpUrl or str)
 
         Returns:
             Updated public URL response
@@ -47,6 +52,10 @@ class SettingsHandler:
         Raises:
             HTTPException: If sync to marketplace fails
         """
+        # Convert to HttpUrl if str, then store
+        if isinstance(new_url, str):
+            new_url = HttpUrl(new_url)
+
         # Update local config
         self.config.public_url = new_url
 
@@ -55,20 +64,17 @@ class SettingsHandler:
             marketplace = self.marketplace_handler.get_default_marketplace(tenant)
             with SyftHubClient(str(marketplace.url)) as syfthub:
                 syfthub.login(marketplace.email, marketplace.password)
-                syfthub.update_profile(domain=new_url)
+                syfthub.update_profile(domain=str(new_url))
         except HTTPException as e:
             if e.status_code == 404:
                 # No marketplace configured, just update local config
                 pass
             else:
-                raise HTTPException(
-                    status_code=e.status_code,
-                    detail=f"Failed to sync public URL to marketplace: {e.detail}",
-                ) from e
-        except Exception as e:
+                raise
+        except SyftHubError as e:
             raise HTTPException(
-                status_code=getattr(e, "status_code", 500),
-                detail=f"Failed to sync public URL to marketplace: {str(e)}",
+                status_code=e.status_code,
+                detail=f"Failed to sync public URL to marketplace: {e.message}",
             ) from e
 
-        return PublicUrlResponse(public_url=new_url)
+        return PublicUrlResponse(public_url=str(new_url))
