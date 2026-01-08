@@ -7,7 +7,7 @@
     custom-message="There was a problem with the endpoint creation form. Please try again."
     @retry="refreshForm"
   >
-    <div class="min-h-screen bg-muted/50">
+    <div class="min-h-screen">
       <!-- Header -->
       <div class="bg-card border-b border-border">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -682,7 +682,11 @@
                     <!-- OpenAI GPT-4o Option -->
                     <div
                       class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
-                      :class="selectedAiProvider === 'openai-gpt-4o' ? 'border-blue-500 bg-blue-50' : 'border-border'"
+                      :class="
+                        selectedAiProvider === 'openai-gpt-4o'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-border'
+                      "
                       @click="selectAiProvider('openai-gpt-4o')"
                     >
                       <div
@@ -707,7 +711,9 @@
                             <span class="font-medium">openai/gpt-4o</span>
                             <Badge variant="secondary" class="text-xs">Popular</Badge>
                           </div>
-                          <p class="text-sm text-muted-foreground mt-1">Most capable, industry standard</p>
+                          <p class="text-sm text-muted-foreground mt-1">
+                            Most capable, industry standard
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -715,7 +721,11 @@
                     <!-- Claude 3.5 Sonnet via OpenRouter -->
                     <div
                       class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
-                      :class="selectedAiProvider === 'openrouter-claude' ? 'border-blue-500 bg-blue-50' : 'border-border'"
+                      :class="
+                        selectedAiProvider === 'openrouter-claude'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-border'
+                      "
                       @click="selectAiProvider('openrouter-claude')"
                     >
                       <div
@@ -740,7 +750,9 @@
                             <span class="font-medium">openrouter/claude-3.5-sonnet</span>
                             <Badge variant="secondary" class="text-xs">Smart</Badge>
                           </div>
-                          <p class="text-sm text-muted-foreground mt-1">Excellent for analysis and reasoning</p>
+                          <p class="text-sm text-muted-foreground mt-1">
+                            Excellent for analysis and reasoning
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -748,7 +760,11 @@
                     <!-- Groq Llama Option -->
                     <div
                       class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
-                      :class="selectedAiProvider === 'groq-llama' ? 'border-blue-500 bg-blue-50' : 'border-border'"
+                      :class="
+                        selectedAiProvider === 'groq-llama'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-border'
+                      "
                       @click="selectAiProvider('groq-llama')"
                     >
                       <div
@@ -773,7 +789,9 @@
                             <span class="font-medium">groq/llama-3.3-70b-instruct</span>
                             <Badge variant="secondary" class="text-xs">Fast</Badge>
                           </div>
-                          <p class="text-sm text-muted-foreground mt-1">Ultra-fast inference speed</p>
+                          <p class="text-sm text-muted-foreground mt-1">
+                            Ultra-fast inference speed
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -803,7 +821,11 @@
                       />
                       <p class="body-sm text-muted-foreground">
                         Your API key is stored securely and only used for your endpoint.
-                        <a :href="getProviderApiUrl(selectedAiProvider)" target="_blank" class="text-primary hover:underline">
+                        <a
+                          :href="getProviderApiUrl(selectedAiProvider)"
+                          target="_blank"
+                          class="text-primary hover:underline"
+                        >
                           Get API key →
                         </a>
                       </p>
@@ -1571,7 +1593,9 @@
                         getModelDisplayName()
                       }}</span>
                       <span v-if="selectedAiProvider" class="text-blue-600"> (New Model)</span>
-                      <span v-else-if="formData.aiModel" class="text-green-600"> (Existing Model)</span>
+                      <span v-else-if="formData.aiModel" class="text-green-600">
+                        (Existing Model)</span
+                      >
                     </div>
                   </div>
                 </div>
@@ -1650,7 +1674,9 @@
             </Button>
             <Button
               @click="nextStep"
-              :disabled="!isCurrentStepValid || isCreating || (currentSubStep === 3 && isAnyRuleFormOpen)"
+              :disabled="
+                !isCurrentStepValid || isCreating || (currentSubStep === 3 && isAnyRuleFormOpen)
+              "
               class="bg-primary hover:bg-primary/90 text-white px-8"
             >
               <template v-if="currentSubStep === 5 && isCreating">
@@ -1822,7 +1848,7 @@ const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
 
 // Check if any rule form is currently open
 const isAnyRuleFormOpen = computed(() => {
-  return Object.values(editingRuleId.value).some(id => id !== null)
+  return Object.values(editingRuleId.value).some((id) => id !== null)
 })
 
 // Policy form data
@@ -2065,7 +2091,7 @@ const handleEndpointNameInput = () => {
 // AI Provider methods
 const selectAiProvider = (providerModel: 'openai-gpt-4o' | 'openrouter-claude' | 'groq-llama') => {
   selectedAiProvider.value = providerModel
-  
+
   // Set the AI model configuration based on provider/model combination
   if (providerModel === 'openai-gpt-4o') {
     // Store provider info and model for creating the model later
@@ -2102,7 +2128,6 @@ const getProviderApiUrl = (providerModel: string) => {
       return '#'
   }
 }
-
 
 const selectDataSourceType = (type: 'filesystem' | 'existing') => {
   selectedDataSourceType.value = type
@@ -2518,7 +2543,7 @@ const getModelDisplayName = (): string => {
         return selectedAiProvider.value
     }
   }
-  
+
   // Fall back to existing model name or model ID
   return getModelName(formData.value.aiModel) || formData.value.aiModel || 'Not selected'
 }
