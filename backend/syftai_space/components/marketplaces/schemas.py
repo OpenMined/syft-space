@@ -23,6 +23,9 @@ class RegisterMarketplaceRequest(BaseModel):
         description="Accounting service URL",
         default=app_settings.default_accounting_url,
     )
+    accounting_password: str | None = Field(
+        None, description="Accounting service password"
+    )
 
     class Config:
         """Pydantic config."""

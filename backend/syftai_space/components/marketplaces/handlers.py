@@ -53,6 +53,7 @@ class MarketplaceHandler:
                     full_name=request.name,
                     password=request.password,
                     accounting_service_url=str(request.accounting_url),
+                    accounting_password=request.accounting_password,
                 )
 
                 # Login to get authenticated client for subsequent calls
