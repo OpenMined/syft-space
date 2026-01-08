@@ -49,6 +49,22 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
             )
             return session.exec(statement).first()
 
+    def get_by_url(self, url: str, tenant_id: UUID) -> Marketplace | None:
+        """Get a marketplace by URL within a tenant.
+
+        Args:
+            url: Marketplace URL
+            tenant_id: Tenant ID
+
+        Returns:
+            Marketplace if found, None otherwise
+        """
+        with self.db.get_session() as session:
+            statement = select(Marketplace).where(
+                Marketplace.url == url, Marketplace.tenant_id == tenant_id
+            )
+            return session.exec(statement).first()
+
     def get_default(self, tenant_id: UUID) -> Marketplace | None:
         """Get the default marketplace for a tenant.
 
@@ -158,6 +174,46 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
                 marketplace.accounting_password = accounting_password
             marketplace.updated_at = datetime.now(timezone.utc)
 
+            session.add(marketplace)
+            session.commit()
+            session.refresh(marketplace)
+            return marketplace
+
+    def set_as_default(self, id: UUID, tenant_id: UUID) -> Marketplace | None:
+        """Set a marketplace as the default for a tenant.
+
+        Unsets any existing default marketplace and sets the specified one as default.
+
+        Args:
+            id: Marketplace ID to set as default
+            tenant_id: Tenant ID
+
+        Returns:
+            Updated marketplace if found, None otherwise
+        """
+        with self.db.get_session() as session:
+            # Find the marketplace to set as default
+            statement = select(Marketplace).where(
+                Marketplace.id == id, Marketplace.tenant_id == tenant_id
+            )
+            marketplace = session.exec(statement).first()
+
+            if not marketplace:
+                return None
+
+            # Unset any existing defaults for this tenant
+            unset_statement = select(Marketplace).where(
+                Marketplace.tenant_id == tenant_id,
+                Marketplace.is_default.is_(True),
+                Marketplace.id != id,
+            )
+            for other in session.exec(unset_statement).all():
+                other.is_default = False
+                session.add(other)
+
+            # Set this marketplace as default
+            marketplace.is_default = True
+            marketplace.updated_at = datetime.now(timezone.utc)
             session.add(marketplace)
             session.commit()
             session.refresh(marketplace)

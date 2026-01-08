@@ -13,7 +13,6 @@ from syftai_space.components.marketplaces.schemas import (
     MarketplaceListItem,
     MarketplaceResponse,
     RegisterMarketplaceRequest,
-    UpdateMarketplaceRequest,
 )
 from syftai_space.components.marketplaces.utils import (
     ensure_valid_accounting_credentials,
@@ -70,10 +69,7 @@ class MarketplaceHandler:
                 raise e.to_http_exception() from e
 
         # Check if the marketplace should be set as default
-        # If the default marketplace URL is the same as the marketplace URL,
-        # set it as default
-        # HttpUrl types are automatically normalized by Pydantic, so direct comparison works
-        set_as_default = app_settings.default_marketplace_url == request.url
+        should_be_default = app_settings.default_marketplace_url == request.url
 
         # Create marketplace entity
         marketplace = Marketplace(
@@ -83,18 +79,21 @@ class MarketplaceHandler:
             url=str(request.url),
             email=user_profile.user.email,
             password=request.password,
-            is_default=set_as_default,
+            is_default=False,
             is_active=True,
-            # Accounting credentials from SyftHub
             accounting_url=str(accounting_creds.url),
             accounting_email=accounting_creds.email,
             accounting_password=accounting_creds.password,
         )
 
         # Save to database
-        created = self.repository.create(marketplace)
+        marketplace = self.repository.create(marketplace)
 
-        return MarketplaceResponse.model_validate(created)
+        # Set as default if it matches the default marketplace URL
+        if should_be_default:
+            marketplace = self.repository.set_as_default(marketplace.id, tenant.id)
+
+        return MarketplaceResponse.model_validate(marketplace)
 
     def connect_marketplace(
         self, request: ConnectMarketplaceRequest, tenant: Tenant
@@ -127,31 +126,47 @@ class MarketplaceHandler:
                 raise e.to_http_exception() from e
 
         # Check if the marketplace should be set as default
-        # HttpUrl types are automatically normalized by Pydantic, so direct comparison works
-        set_as_default = app_settings.default_marketplace_url == request.url
+        should_be_default = app_settings.default_marketplace_url == request.url
 
-        # TODO: Add check if marketplace already exists, if so, update it instead of creating a new one
+        # Check if the marketplace already exists with the same URL
+        existing_marketplace = self.repository.get_by_url(str(request.url), tenant.id)
 
-        # Create marketplace entity
-        marketplace = Marketplace(
-            tenant_id=tenant.id,
-            name=user_profile.full_name,
-            username=user_profile.username,
-            url=str(request.url),
-            email=user_profile.email,
-            password=request.password,  # Store for future logins
-            is_default=set_as_default,
-            is_active=True,
-            # Accounting credentials from SyftHub
-            accounting_url=str(accounting_creds.url),
-            accounting_email=accounting_creds.email,
-            accounting_password=accounting_creds.password,
-        )
+        if existing_marketplace:
+            # Update the marketplace with the new credentials
+            marketplace = self.repository.update(
+                existing_marketplace.id,
+                tenant.id,
+                name=user_profile.full_name,
+                username=user_profile.username,
+                email=user_profile.email,
+                password=request.password,
+                accounting_url=str(accounting_creds.url),
+                accounting_email=accounting_creds.email,
+                accounting_password=accounting_creds.password,
+                is_active=True,
+            )
+        else:
+            # Create marketplace entity with the new credentials
+            marketplace = Marketplace(
+                tenant_id=tenant.id,
+                name=user_profile.full_name,
+                username=user_profile.username,
+                url=str(request.url),
+                email=user_profile.email,
+                password=request.password,
+                is_default=False,
+                is_active=True,
+                accounting_url=str(accounting_creds.url),
+                accounting_email=accounting_creds.email,
+                accounting_password=accounting_creds.password,
+            )
+            marketplace = self.repository.create(marketplace)
 
-        # Save to database
-        created = self.repository.create(marketplace)
+        # Set as default if it matches the default marketplace URL
+        if should_be_default:
+            marketplace = self.repository.set_as_default(marketplace.id, tenant.id)
 
-        return MarketplaceResponse.model_validate(created)
+        return MarketplaceResponse.model_validate(marketplace)
 
     def check_username_availability(self, url: str | None, username: str) -> bool:
         """Check if a username is available.
@@ -203,43 +218,6 @@ class MarketplaceHandler:
             )
 
         return MarketplaceResponse.model_validate(marketplace)
-
-    def update_marketplace(
-        self, id: UUID, request: UpdateMarketplaceRequest, tenant: Tenant
-    ) -> MarketplaceResponse:
-        """Update a marketplace by ID within a tenant.
-
-        Args:
-            id: Marketplace ID
-            request: Update request with fields to update
-            tenant: Tenant context
-
-        Returns:
-            Updated marketplace details
-
-        Raises:
-            HTTPException: If marketplace not found
-        """
-        # Convert URL to string if provided
-        url_str = str(request.url) if request.url else None
-
-        updated = self.repository.update(
-            id,
-            tenant.id,
-            name=request.name,
-            url=url_str,
-            email=request.email,
-            password=request.password,
-            username=request.username,
-            is_active=request.is_active,
-        )
-
-        if not updated:
-            raise HTTPException(
-                status_code=404, detail=f"Marketplace with ID '{id}' not found"
-            )
-
-        return MarketplaceResponse.model_validate(updated)
 
     def delete_marketplace(self, id: UUID, tenant: Tenant) -> dict:
         """Delete a marketplace by ID within a tenant.

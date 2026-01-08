@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 from syftai_space.config import app_settings
 
@@ -59,33 +59,6 @@ class ConnectMarketplaceRequest(BaseModel):
                 "url": "https://marketplace.example.com",
             }
         }
-
-
-class UpdateMarketplaceRequest(BaseModel):
-    """Request model for updating a marketplace (partial update)."""
-
-    name: str | None = Field(
-        None, description="New marketplace name (must be unique per tenant)"
-    )
-    username: str | None = Field(None, description="New marketplace username")
-    url: HttpUrl | None = Field(
-        None, description="New marketplace URL (must be unique per tenant)"
-    )
-    email: EmailStr | None = Field(None, description="Updated login email")
-    password: str | None = Field(None, description="Updated login password")
-    is_active: bool | None = Field(
-        None, description="Whether the marketplace can be used for publishing"
-    )
-
-    @model_validator(mode="after")
-    def validate_at_least_one_field(self) -> "UpdateMarketplaceRequest":
-        """Ensure at least one field is provided for update."""
-        if all(
-            v is None
-            for v in [self.name, self.url, self.email, self.password, self.is_active]
-        ):
-            raise ValueError("At least one field must be provided for update")
-        return self
 
 
 class MarketplaceResponse(BaseModel):

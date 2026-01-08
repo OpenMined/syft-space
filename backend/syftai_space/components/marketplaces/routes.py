@@ -11,7 +11,6 @@ from syftai_space.components.marketplaces.schemas import (
     MarketplaceListItem,
     MarketplaceResponse,
     RegisterMarketplaceRequest,
-    UpdateMarketplaceRequest,
 )
 from syftai_space.components.tenants.dependency import get_tenant_dependency
 from syftai_space.components.tenants.entities import Tenant
@@ -131,33 +130,6 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
             Marketplace details (password not included)
         """
         return handler.get_marketplace(id, tenant)
-
-    @router.patch("/{id}", response_model=MarketplaceResponse)
-    async def update_marketplace(
-        id: UUID,
-        request: UpdateMarketplaceRequest,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: MarketplaceHandler = Depends(get_handler),
-    ) -> MarketplaceResponse:
-        """Update a marketplace (partial update).
-
-        Allows updating name, URL, email, password, and/or is_active status.
-        Name and URL must remain unique per tenant.
-
-        Args:
-            id: Marketplace ID
-            request: Update request with fields to update
-            tenant: Current tenant (injected)
-
-        Returns:
-            Updated marketplace details
-
-        Raises:
-            422 Unprocessable Entity: If no fields provided
-            404 Not Found: If marketplace not found
-            409 Conflict: If new name/URL already exists
-        """
-        return handler.update_marketplace(id, request, tenant)
 
     @router.delete("/{id}", response_model=dict[str, str])
     async def delete_marketplace(
