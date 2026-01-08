@@ -18,7 +18,7 @@ from syftai_space.components.marketplaces.schemas import (
 from syftai_space.components.marketplaces.utils import (
     ensure_valid_accounting_credentials,
 )
-from syftai_space.components.shared.syfthub_client import SyftHubClient
+from syftai_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syftai_space.components.tenants.entities import Tenant
 from syftai_space.config import app_settings
 
@@ -66,8 +66,8 @@ class MarketplaceHandler:
                 if app_settings.public_url:
                     syfthub_client.update_profile(domain=str(app_settings.public_url))
 
-            except Exception as e:
-                raise HTTPException(status_code=e.status_code, detail=e.message) from e
+            except SyftHubError as e:
+                raise e.to_http_exception() from e
 
         # Check if the marketplace should be set as default
         # If the default marketplace URL is the same as the marketplace URL,
@@ -123,8 +123,8 @@ class MarketplaceHandler:
                 if app_settings.public_url:
                     syfthub_client.update_profile(domain=str(app_settings.public_url))
 
-            except Exception as e:
-                raise HTTPException(status_code=e.status_code, detail=e.message) from e
+            except SyftHubError as e:
+                raise e.to_http_exception() from e
 
         # Check if the marketplace should be set as default
         # HttpUrl types are automatically normalized by Pydantic, so direct comparison works

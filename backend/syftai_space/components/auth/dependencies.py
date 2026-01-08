@@ -2,6 +2,7 @@ from fastapi import HTTPException, Request
 from pydantic import EmailStr
 
 from syftai_space.components.marketplaces.repository import Marketplace
+from syftai_space.components.shared.syfthub_client import SyftHubError
 from syftai_space.config import app_settings
 
 
@@ -48,10 +49,8 @@ def get_verified_user_email(
         client = SyftHubClient(str(marketplace.url))
         client.login(marketplace.email, marketplace.password)
         result = client.verify_satellite_token(token)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"SyftHub verification failed: {str(e)}"
-        ) from e
+    except SyftHubError as e:
+        raise e.to_http_exception() from e
 
     if not result.valid:
         raise HTTPException(status_code=401, detail="Invalid satellite token")

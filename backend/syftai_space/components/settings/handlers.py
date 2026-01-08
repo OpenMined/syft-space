@@ -5,7 +5,7 @@ from pydantic import HttpUrl
 
 from syftai_space.components.marketplaces.handlers import MarketplaceHandler
 from syftai_space.components.settings.schemas import PublicUrlResponse
-from syftai_space.components.shared.syfthub_client import SyftHubClient
+from syftai_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syftai_space.components.tenants.entities import Tenant
 from syftai_space.config import AppSettings
 
@@ -70,14 +70,11 @@ class SettingsHandler:
                 # No marketplace configured, just update local config
                 pass
             else:
-                raise HTTPException(
-                    status_code=e.status_code,
-                    detail=f"Failed to sync public URL to marketplace: {e.detail}",
-                ) from e
-        except Exception as e:
+                raise
+        except SyftHubError as e:
             raise HTTPException(
-                status_code=getattr(e, "status_code", 500),
-                detail=f"Failed to sync public URL to marketplace: {str(e)}",
+                status_code=e.status_code,
+                detail=f"Failed to sync public URL to marketplace: {e.message}",
             ) from e
 
         return PublicUrlResponse(public_url=str(new_url))
