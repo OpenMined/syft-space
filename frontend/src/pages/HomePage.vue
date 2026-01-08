@@ -6,7 +6,7 @@
     custom-message="There was a problem loading the dashboard. Please try again."
     @retry="refreshDashboard"
   >
-    <div class="min-h-screen bg-background">
+    <div class="min-h-screen">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
         <!-- Hero Section -->
         <div class="text-center mb-16">

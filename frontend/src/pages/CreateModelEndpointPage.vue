@@ -7,7 +7,7 @@
     custom-message="There was a problem with the endpoint creation form. Please try again."
     @retry="refreshForm"
   >
-    <div class="min-h-screen bg-muted/50">
+    <div class="min-h-screen">
       <!-- Header -->
       <div class="bg-card border-b border-border">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -1287,7 +1287,9 @@
             </Button>
             <Button
               @click="nextStep"
-              :disabled="!isCurrentStepValid || isCreating || (currentSubStep === 2 && isAnyRuleFormOpen)"
+              :disabled="
+                !isCurrentStepValid || isCreating || (currentSubStep === 2 && isAnyRuleFormOpen)
+              "
               class="bg-primary hover:bg-primary/90 text-white px-8"
             >
               <template v-if="currentSubStep === 4 && isCreating">
@@ -1574,7 +1576,7 @@ const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
 
 // Check if any rule form is currently open
 const isAnyRuleFormOpen = computed(() => {
-  return Object.values(editingRuleId.value).some(id => id !== null)
+  return Object.values(editingRuleId.value).some((id) => id !== null)
 })
 
 // Policy form data

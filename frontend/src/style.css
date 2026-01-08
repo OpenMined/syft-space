@@ -256,7 +256,7 @@
   }
 }
 
-/* Typography utilities - USED */
+/* Typography utilities */
 .text-xs {
   font-size: var(--fs-xs);
 }
@@ -282,7 +282,7 @@
   font-size: var(--fs-4xl);
 }
 
-/* Heading utilities - HEAVILY USED */
+/* Heading utilities */
 .heading-1 {
   font-size: var(--fs-4xl);
   font-weight: 500;
@@ -307,14 +307,4 @@
 }
 .body-sm {
   font-size: var(--fs-sm);
-}
-
-/* Font family utilities - USED */
-.font-mono {
-  font-family: var(--font-mono);
-}
-
-/* Custom utilities - USED */
-.text-primary {
-  color: var(--color-text);
 }

@@ -1,597 +1,583 @@
 <template>
-  <div
-    class="min-h-screen bg-gradient-to-br from-background via-blue-50/20 dark:via-blue-950/20 to-purple-50/20 dark:to-purple-950/20"
-  >
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
-      <!-- Breadcrumb Navigation -->
-      <nav class="flex mb-6" aria-label="Breadcrumb">
-        <ol class="flex items-center space-x-2">
-          <li>
-            <router-link
-              to="/endpoints"
-              class="text-muted-foreground hover:text-foreground body-sm font-medium flex items-center transition-colors"
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+    <!-- Breadcrumb Navigation -->
+    <nav class="flex mb-6" aria-label="Breadcrumb">
+      <ol class="flex items-center space-x-2">
+        <li>
+          <router-link
+            to="/endpoints"
+            class="text-muted-foreground hover:text-foreground body-sm font-medium flex items-center transition-colors"
+          >
+            <Server class="h-4 w-4 mr-2" />
+            Endpoints
+          </router-link>
+        </li>
+        <li class="flex items-center">
+          <ChevronRight class="h-4 w-4 text-muted-foreground mx-3" />
+          <span class="text-foreground body-sm font-medium">{{
+            endpoint?.name || 'Loading...'
+          }}</span>
+        </li>
+      </ol>
+    </nav>
+
+    <!-- Loading State -->
+    <div v-if="loading" class="flex justify-center py-12">
+      <div class="flex items-center gap-3">
+        <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+        <span class="text-muted-foreground">Loading endpoint details...</span>
+      </div>
+    </div>
+
+    <!-- Error State -->
+    <div
+      v-else-if="error"
+      class="bg-destructive/10 border border-destructive/20 rounded-2xl p-8 text-center"
+    >
+      <h3 class="heading-3 text-destructive mb-2">Endpoint not found</h3>
+      <p class="text-destructive mb-4">
+        The endpoint you're looking for doesn't exist or has been deleted.
+      </p>
+      <Button @click="$router.push('/endpoints')" variant="outline"> Back to Endpoints </Button>
+    </div>
+
+    <!-- Main Content -->
+    <div v-else-if="endpoint" class="space-y-6">
+      <!-- Header Section -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-4">
+            <div
+              class="p-3 rounded-lg bg-gradient-to-br from-purple-100 dark:from-purple-950 to-blue-100 dark:to-blue-950"
             >
-              <Server class="h-4 w-4 mr-2" />
-              Endpoints
-            </router-link>
-          </li>
-          <li class="flex items-center">
-            <ChevronRight class="h-4 w-4 text-muted-foreground mx-3" />
-            <span class="text-foreground body-sm font-medium">{{
-              endpoint?.name || 'Loading...'
-            }}</span>
-          </li>
-        </ol>
-      </nav>
-
-      <!-- Loading State -->
-      <div v-if="loading" class="flex justify-center py-12">
-        <div class="flex items-center gap-3">
-          <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
-          <span class="text-muted-foreground">Loading endpoint details...</span>
-        </div>
-      </div>
-
-      <!-- Error State -->
-      <div
-        v-else-if="error"
-        class="bg-destructive/10 border border-destructive/20 rounded-2xl p-8 text-center"
-      >
-        <h3 class="heading-3 text-destructive mb-2">Endpoint not found</h3>
-        <p class="text-destructive mb-4">
-          The endpoint you're looking for doesn't exist or has been deleted.
-        </p>
-        <Button @click="$router.push('/endpoints')" variant="outline"> Back to Endpoints </Button>
-      </div>
-
-      <!-- Main Content -->
-      <div v-else-if="endpoint" class="space-y-6">
-        <!-- Header Section -->
-        <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-          <div class="flex items-start justify-between">
-            <div class="flex items-start gap-4">
-              <div
-                class="p-3 rounded-lg bg-gradient-to-br from-purple-100 dark:from-purple-950 to-blue-100 dark:to-blue-950"
-              >
-                <Server class="h-8 w-8 text-purple-600 dark:text-purple-400" />
-              </div>
-              <div>
-                <h1 class="heading-2 mb-2">{{ endpoint.name }}</h1>
-                <p class="body-lg text-muted-foreground mb-4">{{ endpoint.summary }}</p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <Badge
-                    :variant="endpoint.published ? 'default' : 'outline'"
+              <Server class="h-8 w-8 text-purple-600 dark:text-purple-400" />
+            </div>
+            <div>
+              <h1 class="heading-2 mb-2">{{ endpoint.name }}</h1>
+              <p class="body-lg text-muted-foreground mb-4">{{ endpoint.summary }}</p>
+              <div class="flex flex-wrap items-center gap-2">
+                <Badge
+                  :variant="endpoint.published ? 'default' : 'outline'"
+                  :class="
+                    endpoint.published
+                      ? 'bg-primary/10 text-primary border border-primary/20'
+                      : 'bg-muted text-muted-foreground border border-border'
+                  "
+                >
+                  <div
                     :class="
                       endpoint.published
-                        ? 'bg-primary/10 text-primary border border-primary/20'
-                        : 'bg-muted text-muted-foreground border border-border'
+                        ? 'w-2 h-2 bg-primary rounded-full mr-2 animate-pulse'
+                        : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
                     "
-                  >
-                    <div
-                      :class="
-                        endpoint.published
-                          ? 'w-2 h-2 bg-primary rounded-full mr-2 animate-pulse'
-                          : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
-                      "
-                    ></div>
-                    {{ endpoint.published ? 'Live' : 'Draft' }}
-                  </Badge>
-                  <Badge variant="outline" class="bg-primary/10 text-primary border-primary/20">
-                    {{ getPricingRange }}
-                  </Badge>
-                </div>
+                  ></div>
+                  {{ endpoint.published ? 'Live' : 'Draft' }}
+                </Badge>
+                <Badge variant="outline" class="bg-primary/10 text-primary border-primary/20">
+                  {{ getPricingRange }}
+                </Badge>
               </div>
-            </div>
-            <!-- Quick Actions -->
-            <div class="flex items-center gap-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <Button v-if="!endpoint.published" variant="default">
-                      <Send class="h-4 w-4 mr-2" />
-                      Publish
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Make this endpoint publicly available</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <Button variant="outline">
-                <Edit class="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                class="text-destructive border-destructive/20 hover:bg-destructive hover:text-destructive-foreground"
-                @click="
-                  () => {
-                    deleteNameConfirm = ''
-                    showDeleteDialog = true
-                  }
-                "
-              >
-                <Trash2 class="h-4 w-4 mr-2" />
-                Delete
-              </Button>
             </div>
           </div>
+          <!-- Quick Actions -->
+          <div class="flex items-center gap-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <Button v-if="!endpoint.published" variant="default">
+                    <Send class="h-4 w-4 mr-2" />
+                    Publish
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Make this endpoint publicly available</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Button variant="outline">
+              <Edit class="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              class="text-destructive border-destructive/20 hover:bg-destructive hover:text-destructive-foreground"
+              @click="
+                () => {
+                  deleteNameConfirm = ''
+                  showDeleteDialog = true
+                }
+              "
+            >
+              <Trash2 class="h-4 w-4 mr-2" />
+              Delete
+            </Button>
+          </div>
         </div>
+      </div>
 
-        <!-- Tabs Section -->
-        <Tabs v-model="activeTab" class="space-y-4">
-          <TabsList
-            class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-2"
-          >
-            <TabsTrigger value="overview" class="flex items-center gap-2">
-              <Layout class="h-4 w-4" />
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="access" class="flex items-center gap-2">
-              <Shield class="h-4 w-4" />
-              Access Control
-            </TabsTrigger>
-          </TabsList>
+      <!-- Tabs Section -->
+      <Tabs v-model="activeTab" class="space-y-4">
+        <TabsList
+          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-2"
+        >
+          <TabsTrigger value="overview" class="flex items-center gap-2">
+            <Layout class="h-4 w-4" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="access" class="flex items-center gap-2">
+            <Shield class="h-4 w-4" />
+            Access Control
+          </TabsTrigger>
+        </TabsList>
 
-          <!-- Overview Tab -->
-          <TabsContent value="overview" class="space-y-6">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <!-- Description and Data Sources -->
-              <div class="lg:col-span-2 space-y-6">
-                <!-- Description -->
-                <div
-                  v-if="endpoint.description && endpoint.description.trim()"
-                  class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-                >
-                  <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
-                    <FileText class="h-5 w-5 text-muted-foreground" />
-                    Description
-                  </h2>
-                  <div class="prose prose-sm max-w-none text-muted-foreground">
-                    <div class="markdown-content">
-                      <MdPreview
-                        :model-value="endpoint.description"
-                        preview-theme="default"
-                        :show-code-row-number="false"
-                      />
-                    </div>
+        <!-- Overview Tab -->
+        <TabsContent value="overview" class="space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Description and Data Sources -->
+            <div class="lg:col-span-2 space-y-6">
+              <!-- Description -->
+              <div
+                v-if="endpoint.description && endpoint.description.trim()"
+                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+              >
+                <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
+                  <FileText class="h-5 w-5 text-muted-foreground" />
+                  Description
+                </h2>
+                <div class="prose prose-sm max-w-none text-muted-foreground">
+                  <div class="markdown-content">
+                    <MdPreview
+                      :model-value="endpoint.description"
+                      preview-theme="default"
+                      :show-code-row-number="false"
+                    />
                   </div>
                 </div>
+              </div>
 
-                <!-- Data Sources -->
-                <div
-                  v-if="endpoint.dataset && getWatchedPaths.length > 0"
-                  class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-                >
-                  <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
-                    <Database class="h-5 w-5 text-muted-foreground" />
-                    Watched Paths
-                  </h2>
-                  <div class="space-y-3">
-                    <div
-                      v-for="path in getWatchedPaths"
-                      :key="path.id"
-                      class="p-3 bg-muted/50 border border-border rounded-lg"
-                    >
-                      <div class="flex items-start gap-3">
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger as-child>
-                              <div
-                                :class="[
-                                  'w-2 h-2 rounded-full mt-1.5 cursor-help',
-                                  path.status === 'indexed'
-                                    ? 'bg-success'
-                                    : path.status === 'processing'
-                                      ? 'bg-primary'
-                                      : path.status === 'queued'
-                                        ? 'bg-warning'
-                                        : path.status === 'errored'
-                                          ? 'bg-destructive'
-                                          : 'bg-muted',
-                                ]"
-                              ></div>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>{{ getStatusLabel(path.status) }}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                        <div class="flex-1">
-                          <p class="body-sm font-medium text-foreground">{{ path.path }}</p>
-                          <p class="body-sm text-muted-foreground mt-1">
-                            {{ path.fileCount }} files
-                          </p>
-                          <p class="body-sm text-muted-foreground mt-1 italic">
-                            {{ path.description }}
-                          </p>
-                        </div>
+              <!-- Data Sources -->
+              <div
+                v-if="endpoint.dataset && getWatchedPaths.length > 0"
+                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+              >
+                <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
+                  <Database class="h-5 w-5 text-muted-foreground" />
+                  Watched Paths
+                </h2>
+                <div class="space-y-3">
+                  <div
+                    v-for="path in getWatchedPaths"
+                    :key="path.id"
+                    class="p-3 bg-muted/50 border border-border rounded-lg"
+                  >
+                    <div class="flex items-start gap-3">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger as-child>
+                            <div
+                              :class="[
+                                'w-2 h-2 rounded-full mt-1.5 cursor-help',
+                                path.status === 'indexed'
+                                  ? 'bg-success'
+                                  : path.status === 'processing'
+                                    ? 'bg-primary'
+                                    : path.status === 'queued'
+                                      ? 'bg-warning'
+                                      : path.status === 'errored'
+                                        ? 'bg-destructive'
+                                        : 'bg-muted',
+                              ]"
+                            ></div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{{ getStatusLabel(path.status) }}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <div class="flex-1">
+                        <p class="body-sm font-medium text-foreground">{{ path.path }}</p>
+                        <p class="body-sm text-muted-foreground mt-1">{{ path.fileCount }} files</p>
+                        <p class="body-sm text-muted-foreground mt-1 italic">
+                          {{ path.description }}
+                        </p>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <!-- Quick Stats -->
-              <div class="space-y-4">
-                <!-- Endpoint Details Card -->
-                <div
-                  class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-                >
-                  <h3 class="body-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-                    <Info class="h-4 w-4 text-muted-foreground" />
-                    Details
-                  </h3>
-                  <div class="space-y-3">
+            <!-- Quick Stats -->
+            <div class="space-y-4">
+              <!-- Endpoint Details Card -->
+              <div
+                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+              >
+                <h3 class="body-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                  <Info class="h-4 w-4 text-muted-foreground" />
+                  Details
+                </h3>
+                <div class="space-y-3">
+                  <div class="flex justify-between items-center py-1">
+                    <span class="body-sm text-muted-foreground">Type</span>
+                    <span class="body-sm font-medium text-foreground">{{ getEndpointType }}</span>
+                  </div>
+                  <!-- Only show Response type for Data endpoints, not AI Model endpoints -->
+                  <template v-if="getEndpointType !== 'AI Model Endpoint'">
+                    <Separator />
                     <div class="flex justify-between items-center py-1">
-                      <span class="body-sm text-muted-foreground">Type</span>
-                      <span class="body-sm font-medium text-foreground">{{ getEndpointType }}</span>
+                      <span class="body-sm text-muted-foreground">Response</span>
+                      <span class="body-sm font-medium text-foreground">{{ getResponseType }}</span>
                     </div>
-                    <!-- Only show Response type for Data endpoints, not AI Model endpoints -->
-                    <template v-if="getEndpointType !== 'AI Model Endpoint'">
-                      <Separator />
-                      <div class="flex justify-between items-center py-1">
-                        <span class="body-sm text-muted-foreground">Response</span>
-                        <span class="body-sm font-medium text-foreground">{{
-                          getResponseType
-                        }}</span>
-                      </div>
-                      <Separator />
-                    </template>
-                    <div v-if="endpoint.dataset" class="flex justify-between items-center py-1">
-                      <span class="body-sm text-muted-foreground">Data Source</span>
+                    <Separator />
+                  </template>
+                  <div v-if="endpoint.dataset" class="flex justify-between items-center py-1">
+                    <span class="body-sm text-muted-foreground">Data Source</span>
+                    <router-link
+                      :to="{
+                        name: 'dataset-detail',
+                        params: { slug: endpoint.dataset.name },
+                      }"
+                      class="body-sm font-medium text-primary hover:text-primary/80 hover:underline"
+                    >
+                      {{ endpoint.dataset.name }}
+                    </router-link>
+                  </div>
+                  <template v-if="endpoint.model">
+                    <Separator />
+                    <div class="flex justify-between items-center py-1">
+                      <span class="body-sm text-muted-foreground">Model</span>
                       <router-link
                         :to="{
-                          name: 'dataset-detail',
-                          params: { slug: endpoint.dataset.name },
+                          name: 'model-detail',
+                          params: { slug: endpoint.model.name },
                         }"
                         class="body-sm font-medium text-primary hover:text-primary/80 hover:underline"
                       >
-                        {{ endpoint.dataset.name }}
+                        {{ endpoint.model.name }}
                       </router-link>
                     </div>
-                    <template v-if="endpoint.model">
-                      <Separator />
-                      <div class="flex justify-between items-center py-1">
-                        <span class="body-sm text-muted-foreground">Model</span>
-                        <router-link
-                          :to="{
-                            name: 'model-detail',
-                            params: { slug: endpoint.model.name },
-                          }"
-                          class="body-sm font-medium text-primary hover:text-primary/80 hover:underline"
-                        >
-                          {{ endpoint.model.name }}
-                        </router-link>
-                      </div>
-                    </template>
-                  </div>
+                  </template>
                 </div>
+              </div>
 
-                <!-- Tags -->
-                <div
-                  class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-                >
-                  <h3 class="body-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                    <Tags class="h-4 w-4 text-muted-foreground" />
-                    Tags
-                  </h3>
-                  <div class="flex flex-wrap gap-2">
-                    <Badge
-                      v-for="language in parsedTags.languages"
-                      :key="`lang-${language}`"
-                      variant="outline"
-                      class="body-sm"
-                    >
-                      {{ language }}
-                    </Badge>
-                    <Badge
-                      v-for="domain in parsedTags.domains"
-                      :key="`domain-${domain}`"
-                      variant="outline"
-                      class="body-sm"
-                    >
-                      {{ domain }}
-                    </Badge>
-                    <Badge
-                      v-for="tag in parsedTags.others"
-                      :key="tag"
-                      variant="outline"
-                      class="body-sm"
-                    >
-                      {{ tag }}
-                    </Badge>
-                  </div>
+              <!-- Tags -->
+              <div
+                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+              >
+                <h3 class="body-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Tags class="h-4 w-4 text-muted-foreground" />
+                  Tags
+                </h3>
+                <div class="flex flex-wrap gap-2">
+                  <Badge
+                    v-for="language in parsedTags.languages"
+                    :key="`lang-${language}`"
+                    variant="outline"
+                    class="body-sm"
+                  >
+                    {{ language }}
+                  </Badge>
+                  <Badge
+                    v-for="domain in parsedTags.domains"
+                    :key="`domain-${domain}`"
+                    variant="outline"
+                    class="body-sm"
+                  >
+                    {{ domain }}
+                  </Badge>
+                  <Badge
+                    v-for="tag in parsedTags.others"
+                    :key="tag"
+                    variant="outline"
+                    class="body-sm"
+                  >
+                    {{ tag }}
+                  </Badge>
                 </div>
               </div>
             </div>
-          </TabsContent>
+          </div>
+        </TabsContent>
 
-          <!-- Access Control Tab -->
-          <TabsContent value="access" class="space-y-6">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-              <!-- Authorization Policies -->
-              <Card
-                class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col"
-              >
-                <CardHeader>
-                  <CardTitle class="flex items-center gap-2">
-                    <UserCheck class="h-5 w-5 text-muted-foreground" />
-                    Authorization
-                  </CardTitle>
-                  <CardDescription> Control who can access this endpoint </CardDescription>
-                </CardHeader>
-                <CardContent class="space-y-3 flex-1">
+        <!-- Access Control Tab -->
+        <TabsContent value="access" class="space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+            <!-- Authorization Policies -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <UserCheck class="h-5 w-5 text-muted-foreground" />
+                  Authorization
+                </CardTitle>
+                <CardDescription> Control who can access this endpoint </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 flex-1">
+                <div
+                  v-if="getAuthorizationPolicies().length === 0"
+                  class="text-sm text-muted-foreground"
+                >
+                  No authorization policies configured
+                </div>
+                <div v-else class="space-y-2">
                   <div
-                    v-if="getAuthorizationPolicies().length === 0"
-                    class="text-sm text-muted-foreground"
+                    v-for="policy in getAuthorizationPolicies()"
+                    :key="policy.id"
+                    class="p-3 bg-muted/50 border border-border rounded-lg"
                   >
-                    No authorization policies configured
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <h4 class="body-sm font-medium text-foreground mb-1">
+                          {{ policy.name }}
+                        </h4>
+                        <p class="body-sm text-muted-foreground">
+                          <template
+                            v-if="
+                              Array.isArray(policy.configuration?.allowed_users) &&
+                              policy.configuration.allowed_users.length
+                            "
+                          >
+                            Allow access for {{ policy.configuration.allowed_users.join(', ') }}
+                          </template>
+                          <template
+                            v-else-if="
+                              Array.isArray(policy.configuration?.denied_users) &&
+                              policy.configuration.denied_users.length
+                            "
+                          >
+                            Deny access for {{ policy.configuration.denied_users.join(', ') }}
+                          </template>
+                          <template v-else> Authorization rule configured </template>
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
+                        @click="handleDeletePolicy(policy.id, policy.name)"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div v-else class="space-y-2">
-                    <div
-                      v-for="policy in getAuthorizationPolicies()"
-                      :key="policy.id"
-                      class="p-3 bg-muted/50 border border-border rounded-lg"
-                    >
-                      <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                          <h4 class="body-sm font-medium text-foreground mb-1">
-                            {{ policy.name }}
-                          </h4>
-                          <p class="body-sm text-muted-foreground">
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button
+                  variant="outline"
+                  class="w-full"
+                  @click="
+                    () => {
+                      selectedPolicyType = 'access'
+                      resetPolicyForm('access')
+                      showAddPolicyDialog = true
+                    }
+                  "
+                >
+                  <Plus class="h-4 w-4 mr-2" />
+                  Add Authorization Rule
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <!-- Rate Limiting Policies -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <Gauge class="h-5 w-5 text-muted-foreground" />
+                  Rate Limiting
+                </CardTitle>
+                <CardDescription> Manage request frequency limits </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 flex-1">
+                <div
+                  v-if="getRateLimitPolicies().length === 0"
+                  class="text-sm text-muted-foreground"
+                >
+                  No rate limiting policies configured
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+                    v-for="policy in getRateLimitPolicies()"
+                    :key="policy.id"
+                    class="p-3 bg-muted/50 border border-border rounded-lg"
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <h4 class="body-sm font-medium text-foreground mb-1">
+                          {{ policy.name }}
+                        </h4>
+                        <p class="body-sm text-muted-foreground">
+                          <template
+                            v-if="
+                              policy.configuration?.limit &&
+                              typeof policy.configuration?.scope === 'string'
+                            "
+                          >
+                            {{ policy.configuration.limit }} requests per
+                            {{ policy.configuration.windowUnit || 'minute' }}
+                            {{ policy.configuration.scope.replace('_', ' ') }}
+                          </template>
+                          <template v-else-if="policy.configuration?.limit">
+                            Limit: {{ policy.configuration.limit }}
+                          </template>
+                          <template v-else> Rate limiting configured </template>
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
+                        @click="handleDeletePolicy(policy.id, policy.name)"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button
+                  variant="outline"
+                  class="w-full"
+                  @click="
+                    () => {
+                      selectedPolicyType = 'rate_limit'
+                      resetPolicyForm('rate_limit')
+                      showAddPolicyDialog = true
+                    }
+                  "
+                >
+                  <Plus class="h-4 w-4 mr-2" />
+                  Add Rate Limiting Rule
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <!-- Pricing Policies -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <DollarSign class="h-5 w-5 text-muted-foreground" />
+                  Pricing
+                </CardTitle>
+                <CardDescription> Set pricing for endpoint usage </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 flex-1">
+                <div v-if="getPricingPolicies().length === 0" class="text-sm text-muted-foreground">
+                  No pricing policies configured
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+                    v-for="policy in getPricingPolicies()"
+                    :key="policy.id"
+                    class="p-3 bg-muted/50 border border-border rounded-lg"
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <h4 class="body-sm font-medium text-foreground mb-1">
+                          {{ policy.name }}
+                        </h4>
+                        <p class="body-sm text-muted-foreground">
+                          <template v-if="policy.configuration?.price !== undefined">
+                            ${{ policy.configuration.price }} per query
                             <template
                               v-if="
-                                Array.isArray(policy.configuration?.allowed_users) &&
-                                policy.configuration.allowed_users.length
+                                Array.isArray(policy.configuration?.applied_to) &&
+                                policy.configuration.applied_to.length > 0 &&
+                                !(
+                                  policy.configuration.applied_to.length === 1 &&
+                                  policy.configuration.applied_to[0] === '*'
+                                )
                               "
                             >
-                              Allow access for {{ policy.configuration.allowed_users.join(', ') }}
-                            </template>
+                              for {{ policy.configuration.applied_to.join(', ') }}</template
+                            >
                             <template
                               v-else-if="
-                                Array.isArray(policy.configuration?.denied_users) &&
-                                policy.configuration.denied_users.length
-                              "
-                            >
-                              Deny access for {{ policy.configuration.denied_users.join(', ') }}
-                            </template>
-                            <template v-else> Authorization rule configured </template>
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
-                          @click="handleDeletePolicy(policy.id, policy.name)"
-                        >
-                          <Trash2 class="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button
-                    variant="outline"
-                    class="w-full"
-                    @click="
-                      () => {
-                        selectedPolicyType = 'access'
-                        resetPolicyForm('access')
-                        showAddPolicyDialog = true
-                      }
-                    "
-                  >
-                    <Plus class="h-4 w-4 mr-2" />
-                    Add Authorization Rule
-                  </Button>
-                </CardFooter>
-              </Card>
-
-              <!-- Rate Limiting Policies -->
-              <Card
-                class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col"
-              >
-                <CardHeader>
-                  <CardTitle class="flex items-center gap-2">
-                    <Gauge class="h-5 w-5 text-muted-foreground" />
-                    Rate Limiting
-                  </CardTitle>
-                  <CardDescription> Manage request frequency limits </CardDescription>
-                </CardHeader>
-                <CardContent class="space-y-3 flex-1">
-                  <div
-                    v-if="getRateLimitPolicies().length === 0"
-                    class="text-sm text-muted-foreground"
-                  >
-                    No rate limiting policies configured
-                  </div>
-                  <div v-else class="space-y-2">
-                    <div
-                      v-for="policy in getRateLimitPolicies()"
-                      :key="policy.id"
-                      class="p-3 bg-muted/50 border border-border rounded-lg"
-                    >
-                      <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                          <h4 class="body-sm font-medium text-foreground mb-1">
-                            {{ policy.name }}
-                          </h4>
-                          <p class="body-sm text-muted-foreground">
-                            <template
-                              v-if="
-                                policy.configuration?.limit &&
-                                typeof policy.configuration?.scope === 'string'
-                              "
-                            >
-                              {{ policy.configuration.limit }} requests per
-                              {{ policy.configuration.windowUnit || 'minute' }}
-                              {{ policy.configuration.scope.replace('_', ' ') }}
-                            </template>
-                            <template v-else-if="policy.configuration?.limit">
-                              Limit: {{ policy.configuration.limit }}
-                            </template>
-                            <template v-else> Rate limiting configured </template>
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
-                          @click="handleDeletePolicy(policy.id, policy.name)"
-                        >
-                          <Trash2 class="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button
-                    variant="outline"
-                    class="w-full"
-                    @click="
-                      () => {
-                        selectedPolicyType = 'rate_limit'
-                        resetPolicyForm('rate_limit')
-                        showAddPolicyDialog = true
-                      }
-                    "
-                  >
-                    <Plus class="h-4 w-4 mr-2" />
-                    Add Rate Limiting Rule
-                  </Button>
-                </CardFooter>
-              </Card>
-
-              <!-- Pricing Policies -->
-              <Card
-                class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col"
-              >
-                <CardHeader>
-                  <CardTitle class="flex items-center gap-2">
-                    <DollarSign class="h-5 w-5 text-muted-foreground" />
-                    Pricing
-                  </CardTitle>
-                  <CardDescription> Set pricing for endpoint usage </CardDescription>
-                </CardHeader>
-                <CardContent class="space-y-3 flex-1">
-                  <div
-                    v-if="getPricingPolicies().length === 0"
-                    class="text-sm text-muted-foreground"
-                  >
-                    No pricing policies configured
-                  </div>
-                  <div v-else class="space-y-2">
-                    <div
-                      v-for="policy in getPricingPolicies()"
-                      :key="policy.id"
-                      class="p-3 bg-muted/50 border border-border rounded-lg"
-                    >
-                      <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                          <h4 class="body-sm font-medium text-foreground mb-1">
-                            {{ policy.name }}
-                          </h4>
-                          <p class="body-sm text-muted-foreground">
-                            <template v-if="policy.configuration?.price !== undefined">
-                              ${{ policy.configuration.price }} per query
-                              <template
-                                v-if="
-                                  Array.isArray(policy.configuration?.applied_to) &&
-                                  policy.configuration.applied_to.length > 0 &&
-                                  !(policy.configuration.applied_to.length === 1 && policy.configuration.applied_to[0] === '*')
-                                "
-                              >
-                                for {{ policy.configuration.applied_to.join(', ') }}</template
-                              >
-                              <template v-else-if="
                                 Array.isArray(policy.configuration?.applied_to) &&
                                 policy.configuration.applied_to.length === 1 &&
                                 policy.configuration.applied_to[0] === '*'
-                              ">
-                                for all users</template
-                              >
-                            </template>
-                            <template v-else> Pricing rule configured </template>
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
-                          @click="handleDeletePolicy(policy.id, policy.name)"
-                        >
-                          <Trash2 class="h-4 w-4" />
-                        </Button>
+                              "
+                            >
+                              for all users</template
+                            >
+                          </template>
+                          <template v-else> Pricing rule configured </template>
+                        </p>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
+                        @click="handleDeletePolicy(policy.id, policy.name)"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-                </CardContent>
-                <CardFooter>
-                  <Button
-                    variant="outline"
-                    class="w-full"
-                    @click="
-                      () => {
-                        selectedPolicyType = 'pricing'
-                        resetPolicyForm('pricing')
-                        showAddPolicyDialog = true
-                      }
-                    "
-                  >
-                    <Plus class="h-4 w-4 mr-2" />
-                    Add Pricing Rule
-                  </Button>
-                </CardFooter>
-              </Card>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button
+                  variant="outline"
+                  class="w-full"
+                  @click="
+                    () => {
+                      selectedPolicyType = 'pricing'
+                      resetPolicyForm('pricing')
+                      showAddPolicyDialog = true
+                    }
+                  "
+                >
+                  <Plus class="h-4 w-4 mr-2" />
+                  Add Pricing Rule
+                </Button>
+              </CardFooter>
+            </Card>
 
-              <!-- Access Summary -->
-              <Card
-                class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col"
-              >
-                <CardHeader>
-                  <CardTitle class="flex items-center gap-2">
-                    <Shield class="h-5 w-5 text-muted-foreground" />
-                    Access Summary
-                  </CardTitle>
-                  <CardDescription> Overview of all access controls </CardDescription>
-                </CardHeader>
-                <CardContent class="space-y-3 flex-1">
-                  <div class="flex justify-between items-center py-1">
-                    <span class="body-sm text-muted-foreground">Total Policies</span>
-                    <span class="body-sm font-medium text-foreground">{{
-                      getTotalPoliciesCount()
-                    }}</span>
-                  </div>
-                  <Separator />
-                  <div class="flex justify-between items-center py-1">
-                    <span class="body-sm text-muted-foreground">Authorization</span>
-                    <span class="body-sm font-medium text-foreground">{{
-                      getAuthorizationPolicies().length
-                    }}</span>
-                  </div>
-                  <Separator />
-                  <div class="flex justify-between items-center py-1">
-                    <span class="body-sm text-muted-foreground">Rate Limiting</span>
-                    <span class="body-sm font-medium text-foreground">{{
-                      getRateLimitPolicies().length
-                    }}</span>
-                  </div>
-                  <Separator />
-                  <div class="flex justify-between items-center py-1">
-                    <span class="body-sm text-muted-foreground">Pricing</span>
-                    <span class="body-sm font-medium text-foreground">{{
-                      getPricingPolicies().length
-                    }}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+            <!-- Access Summary -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <Shield class="h-5 w-5 text-muted-foreground" />
+                  Access Summary
+                </CardTitle>
+                <CardDescription> Overview of all access controls </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 flex-1">
+                <div class="flex justify-between items-center py-1">
+                  <span class="body-sm text-muted-foreground">Total Policies</span>
+                  <span class="body-sm font-medium text-foreground">{{
+                    getTotalPoliciesCount()
+                  }}</span>
+                </div>
+                <Separator />
+                <div class="flex justify-between items-center py-1">
+                  <span class="body-sm text-muted-foreground">Authorization</span>
+                  <span class="body-sm font-medium text-foreground">{{
+                    getAuthorizationPolicies().length
+                  }}</span>
+                </div>
+                <Separator />
+                <div class="flex justify-between items-center py-1">
+                  <span class="body-sm text-muted-foreground">Rate Limiting</span>
+                  <span class="body-sm font-medium text-foreground">{{
+                    getRateLimitPolicies().length
+                  }}</span>
+                </div>
+                <Separator />
+                <div class="flex justify-between items-center py-1">
+                  <span class="body-sm text-muted-foreground">Pricing</span>
+                  <span class="body-sm font-medium text-foreground">{{
+                    getPricingPolicies().length
+                  }}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   </div>
 
@@ -628,7 +614,9 @@
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showDeleteDialog = false" :disabled="isDeleting">Cancel</Button>
+          <Button variant="outline" @click="showDeleteDialog = false" :disabled="isDeleting"
+            >Cancel</Button
+          >
           <Button
             variant="destructive"
             :disabled="deleteNameConfirm !== endpoint?.name || isDeleting"
@@ -1127,13 +1115,13 @@ const getResponseType = computed(() => {
 // Get pricing range from pricing policies
 const getPricingRange = computed(() => {
   const pricingPolicies = getPricingPolicies()
-  
+
   if (pricingPolicies.length === 0) {
     return '$0.00/request'
   }
 
   const prices = pricingPolicies
-    .map(policy => policy.configuration?.price)
+    .map((policy) => policy.configuration?.price)
     .filter((price): price is number => typeof price === 'number')
     .sort((a, b) => a - b)
 
@@ -1146,18 +1134,18 @@ const getPricingRange = computed(() => {
     // Convert to string to check decimal places
     const priceStr = price.toString()
     const decimalIndex = priceStr.indexOf('.')
-    
+
     if (decimalIndex === -1) {
       // No decimals, add .00
       return price.toFixed(2)
     }
-    
+
     const decimalPlaces = priceStr.length - decimalIndex - 1
     if (decimalPlaces <= 2) {
       // 2 or fewer decimals, format to 2
       return price.toFixed(2)
     }
-    
+
     // More than 2 decimals, keep all
     return priceStr
   }
@@ -1179,7 +1167,7 @@ const deleteEndpoint = async () => {
   try {
     // Call the delete API
     await endpointsApi.delete(endpoint.value.slug)
-    
+
     // Close dialog and navigate away
     showDeleteDialog.value = false
     router.push('/endpoints')
@@ -1274,7 +1262,8 @@ const handleAddPolicy = async () => {
 
   // Calculate the correct rule index based on existing policies of this type
   // Map frontend policy type to backend policy type for counting
-  const backendPolicyType = selectedPolicyType.value === 'pricing' ? 'accounting' : selectedPolicyType.value
+  const backendPolicyType =
+    selectedPolicyType.value === 'pricing' ? 'accounting' : selectedPolicyType.value
   const existingPoliciesOfType =
     endpoint.value.policies?.filter((p) => p.policy_type === backendPolicyType) || []
   const ruleIndex = existingPoliciesOfType.length + 1

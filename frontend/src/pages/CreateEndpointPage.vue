@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-white">
+  <div class="min-h-screen">
     <!-- Header (like GitHub's new repo flow) -->
     <div class="border-b border-border">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">

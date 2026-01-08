@@ -6,7 +6,12 @@ import { endpointsApi } from '@/api/endpoints/endpoints'
 import { modelsApi } from '@/api/endpoints/models'
 import { policiesApi } from '@/api/policies/policies'
 import { usePolicyCreation } from './usePolicyCreation'
-import type { CreateDatasetRequest, CreateEndpointRequest, CreateModelRequest, PolicyResponse } from '@/api/types'
+import type {
+  CreateDatasetRequest,
+  CreateEndpointRequest,
+  CreateModelRequest,
+  PolicyResponse,
+} from '@/api/types'
 
 export interface PolicyRule {
   id: string
@@ -79,19 +84,19 @@ export function useDataEndpointCreation() {
         return {
           provider: 'openai',
           model: 'gpt-4o',
-          baseUrl: 'https://api.openai.com/v1'
+          baseUrl: 'https://api.openai.com/v1',
         }
       case 'openrouter-claude':
         return {
           provider: 'openrouter',
           model: 'anthropic/claude-3.5-sonnet',
-          baseUrl: 'https://openrouter.ai/api/v1'
+          baseUrl: 'https://openrouter.ai/api/v1',
         }
       case 'groq-llama':
         return {
           provider: 'groq',
           model: 'llama-3.3-70b-instruct',
-          baseUrl: 'https://api.groq.com/openai/v1'
+          baseUrl: 'https://api.groq.com/openai/v1',
         }
       default:
         throw new Error(`Unsupported provider: ${provider}`)
@@ -105,19 +110,19 @@ export function useDataEndpointCreation() {
         return {
           name: 'OpenAI GPT-4o',
           summary: 'Most capable, industry standard model for general purpose AI tasks',
-          tags: 'openai, gpt-4, general-purpose, reasoning, writing, coding'
+          tags: 'openai, gpt-4, general-purpose, reasoning, writing, coding',
         }
       case 'openrouter-claude':
         return {
           name: 'Claude 3.5 Sonnet via OpenRouter',
           summary: 'Excellent for analysis and reasoning with strong safety guardrails',
-          tags: 'anthropic, claude, reasoning, analysis, writing, safety'
+          tags: 'anthropic, claude, reasoning, analysis, writing, safety',
         }
       case 'groq-llama':
         return {
           name: 'Groq Llama 3.3 70B',
           summary: 'Ultra-fast inference speed for high-performance applications',
-          tags: 'groq, llama, fast, performance, open-source, inference'
+          tags: 'groq, llama, fast, performance, open-source, inference',
         }
       default:
         throw new Error(`Unsupported provider: ${provider}`)

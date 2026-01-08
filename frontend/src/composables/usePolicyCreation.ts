@@ -158,7 +158,11 @@ export function usePolicyCreation() {
     ruleIndex: number = 1,
   ) => {
     const policyName = generatePolicyName('pricing', formData, endpointName, ruleIndex)
-    const configuration = createPricingConfiguration(formData.price, formData.userType, formData.users)
+    const configuration = createPricingConfiguration(
+      formData.price,
+      formData.userType,
+      formData.users,
+    )
 
     const request: CreatePolicyRequest = {
       name: policyName,

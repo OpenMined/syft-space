@@ -99,9 +99,7 @@
       "
       class="text-center py-12"
     >
-      <div
-        class="mx-auto w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-6"
-      >
+      <div class="mx-auto w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-6">
         <Server class="w-7 h-7 text-muted-foreground" />
       </div>
       <h3 class="heading-2 text-foreground mb-3">No endpoints yet</h3>
@@ -161,7 +159,9 @@
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="cancelDeleteEndpoint" :disabled="isDeleting">Cancel</Button>
+          <Button variant="outline" @click="cancelDeleteEndpoint" :disabled="isDeleting"
+            >Cancel</Button
+          >
           <Button
             variant="destructive"
             :disabled="deleteNameConfirm !== endpointToDelete?.name || isDeleting"
@@ -246,12 +246,12 @@ const cancelDeleteEndpoint = () => {
 const confirmDeleteEndpoint = async () => {
   if (endpointToDelete.value && !isDeleting.value) {
     isDeleting.value = true
-    
+
     try {
       if (!endpointToDelete.value.slug) {
         throw new Error('Endpoint slug is undefined')
       }
-      
+
       // Call the delete API
       await endpointsApi.delete(endpointToDelete.value.slug)
 
