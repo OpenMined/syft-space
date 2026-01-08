@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 
 import httpx
 from loguru import logger
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 # =============================================================================
 # Exceptions
@@ -93,7 +93,7 @@ class RegisterResponse(BaseModel):
 class AccountingResponse(BaseModel):
     """Response from accounting endpoint."""
 
-    url: str
+    url: HttpUrl
     email: EmailStr
     password: str
 
@@ -270,6 +270,12 @@ class SyftHubClient:
     """HTTP client for SyftHub marketplace API with typed requests/responses."""
 
     def __init__(self, base_url: str):
+        """Initialize SyftHub client.
+
+        Args:
+            base_url: Base URL for the SyftHub instance (str)
+        """
+        # Normalize URL (remove trailing slash)
         self.base_url = base_url.rstrip("/")
         self._auth_client = httpx.Client(base_url=self.base_url)
         self._client: httpx.Client | None = None

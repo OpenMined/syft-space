@@ -46,16 +46,14 @@ class MarketplaceHandler:
         Returns:
             Created marketplace
         """
-        url_str = str(request.url)
-
-        with SyftHubClient(url_str) as syfthub_client:
+        with SyftHubClient(str(request.url)) as syfthub_client:
             try:
                 user_profile = syfthub_client.register(
                     username=request.username,
                     email=request.email,
                     full_name=request.name,
                     password=request.password,
-                    accounting_service_url=request.accounting_url,
+                    accounting_service_url=str(request.accounting_url),
                 )
 
                 # Login to get authenticated client for subsequent calls
@@ -66,7 +64,7 @@ class MarketplaceHandler:
 
                 # If public URL is set, update the domain
                 if app_settings.public_url:
-                    syfthub_client.update_profile(domain=app_settings.public_url)
+                    syfthub_client.update_profile(domain=str(app_settings.public_url))
 
             except Exception as e:
                 raise HTTPException(status_code=e.status_code, detail=e.message) from e
@@ -74,20 +72,21 @@ class MarketplaceHandler:
         # Check if the marketplace should be set as default
         # If the default marketplace URL is the same as the marketplace URL,
         # set it as default
-        set_as_default = app_settings.default_marketplace_url == url_str
+        # HttpUrl types are automatically normalized by Pydantic, so direct comparison works
+        set_as_default = app_settings.default_marketplace_url == request.url
 
         # Create marketplace entity
         marketplace = Marketplace(
             tenant_id=tenant.id,
             name=user_profile.user.full_name,
             username=user_profile.user.username,
-            url=url_str,
+            url=str(request.url),
             email=user_profile.user.email,
             password=request.password,
             is_default=set_as_default,
             is_active=True,
             # Accounting credentials from SyftHub
-            accounting_url=accounting_creds.url,
+            accounting_url=str(accounting_creds.url),
             accounting_email=accounting_creds.email,
             accounting_password=accounting_creds.password,
         )
@@ -109,9 +108,7 @@ class MarketplaceHandler:
         Returns:
             Created marketplace
         """
-        url_str = str(request.url)
-
-        with SyftHubClient(url_str) as syfthub_client:
+        with SyftHubClient(str(request.url)) as syfthub_client:
             try:
                 # Login to existing account
                 syfthub_client.login(request.username, request.password)
@@ -124,15 +121,14 @@ class MarketplaceHandler:
 
                 # Update domain if public URL is set
                 if app_settings.public_url:
-                    syfthub_client.update_profile(domain=app_settings.public_url)
+                    syfthub_client.update_profile(domain=str(app_settings.public_url))
 
             except Exception as e:
                 raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
         # Check if the marketplace should be set as default
-        set_as_default = app_settings.default_marketplace_url.strip(
-            "/"
-        ) == url_str.strip("/")
+        # HttpUrl types are automatically normalized by Pydantic, so direct comparison works
+        set_as_default = app_settings.default_marketplace_url == request.url
 
         # TODO: Add check if marketplace already exists, if so, update it instead of creating a new one
 
@@ -141,13 +137,13 @@ class MarketplaceHandler:
             tenant_id=tenant.id,
             name=user_profile.full_name,
             username=user_profile.username,
-            url=url_str,
+            url=str(request.url),
             email=user_profile.email,
             password=request.password,  # Store for future logins
             is_default=set_as_default,
             is_active=True,
             # Accounting credentials from SyftHub
-            accounting_url=accounting_creds.url,
+            accounting_url=str(accounting_creds.url),
             accounting_email=accounting_creds.email,
             accounting_password=accounting_creds.password,
         )
@@ -167,8 +163,10 @@ class MarketplaceHandler:
         Returns:
             True if username is available, False otherwise.
         """
-        url = app_settings.default_marketplace_url if url is None else url
-        with SyftHubClient(url) as syfthub_client:
+        marketplace_url = (
+            str(app_settings.default_marketplace_url) if url is None else url
+        )
+        with SyftHubClient(marketplace_url) as syfthub_client:
             return syfthub_client._is_username_available(username)
 
     def list_marketplaces(

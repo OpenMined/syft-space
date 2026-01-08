@@ -26,7 +26,8 @@ class Marketplace(SQLModel, table=True):
     name: str = Field(..., description="Marketplace display name")
     username: str = Field(..., description="Marketplace username")
     url: str = Field(
-        default=app_settings.default_marketplace_url, description="Marketplace base URL"
+        default_factory=lambda: str(app_settings.default_marketplace_url),
+        description="Marketplace base URL",
     )
     email: str = Field(default="", description="Login email for marketplace")
     password: str = Field(default="", description="Login password for marketplace")
@@ -39,7 +40,7 @@ class Marketplace(SQLModel, table=True):
 
     # Accounting credentials (fetched from SyftHub)
     accounting_url: str = Field(
-        default=app_settings.default_accounting_url,
+        default_factory=lambda: str(app_settings.default_accounting_url),
         description="Accounting service URL",
     )
     accounting_email: str = Field(default="", description="Accounting service email")

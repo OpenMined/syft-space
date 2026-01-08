@@ -33,13 +33,13 @@ def refresh_accounting_credentials(
         repository.update(
             marketplace.id,
             marketplace.tenant_id,
-            accounting_url=creds.url,
+            accounting_url=str(creds.url),
             accounting_email=creds.email,
             accounting_password=creds.password,
         )
 
         return {
-            "url": creds.url,
+            "url": str(creds.url),
             "email": creds.email,
             "password": creds.password,
         }

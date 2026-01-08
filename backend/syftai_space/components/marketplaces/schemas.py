@@ -19,7 +19,7 @@ class RegisterMarketplaceRequest(BaseModel):
     )
     email: EmailStr = Field(..., description="Login email for marketplace")
     password: str = Field(..., description="Login password for marketplace")
-    accounting_url: str = Field(
+    accounting_url: HttpUrl = Field(
         description="Accounting service URL",
         default=app_settings.default_accounting_url,
     )
