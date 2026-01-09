@@ -627,7 +627,7 @@ class EndpointHandler:
                 marketplace_id=marketplace.id,
                 marketplace_name=marketplace.name,
                 success=True,
-                message="Published successfully (SDK integration pending)",
+                message=f"Published successfully to {marketplace.name}: {marketplace.url}",
             )
         except Exception as e:
             return PublishResult(

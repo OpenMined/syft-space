@@ -1,8 +1,16 @@
 from fastapi import HTTPException, Request
+from fastapi.security import HTTPBearer
 
 from syftai_space.components.marketplaces.repository import Marketplace
 from syftai_space.components.shared.syfthub_client import SyftHubError
 from syftai_space.config import app_settings
+
+# Security scheme for OpenAPI documentation
+# Actual auth is handled by AdminKeyMiddleware
+bearer_scheme = HTTPBearer(
+    auto_error=False,  # Don't raise error - middleware handles it
+    description="Admin API key or SyftHub satellite token",
+)
 
 
 def get_verified_user_email(
