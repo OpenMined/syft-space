@@ -169,7 +169,8 @@ class EndpointAccessPolicy(BasePolicyType):
     def _specificity_score(self, config: AccessPolicyConfig) -> int:
         """Calculate specificity score for ordering.
 
-        More specific patterns (fewer wildcards) = higher score.
+        Uses literal character count approach (similar to nginx longest prefix match).
+        More literal characters = more specific. Fewer wildcards = more specific.
 
         Args:
             config: Validated access policy configuration
@@ -177,15 +178,43 @@ class EndpointAccessPolicy(BasePolicyType):
         Returns:
             Specificity score (higher = more specific)
         """
-        score = 0
-        for pattern in config.allowed_users + config.denied_users:
-            if pattern == "*":
-                score += 0
-            elif "*" in pattern:
-                score += 1
-            else:
-                score += 2  # Exact match
-        return score
+        return sum(
+            self._pattern_specificity(p)
+            for p in config.allowed_users + config.denied_users
+        )
+
+    def _pattern_specificity(self, pattern: str) -> int:
+        """Calculate specificity for a single pattern.
+
+        Scoring logic:
+        - More literal characters = higher score
+        - Fewer wildcards = higher score
+        - Exact match (no wildcards) gets a bonus
+
+        Examples:
+            "*"                    → 0
+            "*@company.com"        → 10  (12 literal - 2 penalty)
+            "admin-*@company.com"  → 17  (19 literal - 2 penalty)
+            "admin@company.com"    → 117 (17 literal + 100 exact match bonus)
+
+        Args:
+            pattern: Glob pattern string
+
+        Returns:
+            Specificity score (higher = more specific)
+        """
+        if pattern == "*":
+            return 0
+
+        wildcard_count = pattern.count("*")
+        literal_count = len(pattern) - wildcard_count
+
+        # Exact match gets a bonus
+        if wildcard_count == 0:
+            return literal_count + 100
+
+        # Score: literal chars minus penalty for wildcards
+        return literal_count - (wildcard_count * 2)
 
     def _check_access(
         self, user_email: str, config: AccessPolicyConfig
