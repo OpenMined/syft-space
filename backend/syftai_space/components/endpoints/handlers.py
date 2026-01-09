@@ -34,7 +34,10 @@ from syftai_space.components.model_types.interfaces import ChatMessage, ChatPara
 from syftai_space.components.model_types.registry import ModelTypeRegistry
 from syftai_space.components.models.repository import ModelRepository
 from syftai_space.components.policies.repository import PolicyRepository
-from syftai_space.components.policy_types.interfaces import PolicyContext
+from syftai_space.components.policy_types.interfaces import (
+    PolicyContext,
+    PolicyViolationError,
+)
 from syftai_space.components.policy_types.registry import PolicyTypeRegistry
 from syftai_space.components.shared.domain_types import Context
 from syftai_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
@@ -218,9 +221,6 @@ class EndpointHandler:
         if not endpoint.published:
             raise HTTPException(status_code=403, detail="Endpoint is not published")
 
-        # Get policies for this endpoint
-        policies = self.policy_repository.get_by_endpoint_id(endpoint.id, tenant.id)
-
         # Build policy context metadata with validated accounting credentials
         metadata: dict = {}
         if self.marketplace_repository:
@@ -239,6 +239,15 @@ class EndpointHandler:
                 # No marketplace configured or credentials invalid - accounting policies will fail
                 pass
 
+        # Get policies grouped by type and extract configurations
+        policies_by_type = self.policy_repository.get_by_endpoint_id_grouped(
+            endpoint.id, tenant.id
+        )
+        configs_by_type: dict[str, list[dict]] = {
+            policy_type: [p.configuration for p in policies]
+            for policy_type, policies in policies_by_type.items()
+        }
+
         # Create policy context with verified sender email
         policy_context = PolicyContext(
             endpoint_slug=slug,
@@ -247,18 +256,16 @@ class EndpointHandler:
             metadata=metadata,
         )
 
-        # Apply pre-hooks
-        for policy in policies:
+        # Apply pre-hooks per type (one instance per type, all configs passed)
+        for policy_type_name, configs in configs_by_type.items():
             try:
-                policy_type_cls = self.policy_registry.get_policy_type(
-                    policy.policy_type
-                )
-                policy_instance = policy_type_cls(policy.configuration)
-                policy_context = policy_instance.pre_hook(policy_context)
-            except Exception as e:
+                policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
+                policy_instance = policy_type_cls()
+                policy_context = policy_instance.pre_hook(configs, policy_context)
+            except PolicyViolationError as e:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Policy '{policy.name}' pre-hook failed: {str(e)}",
+                    detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
                 ) from e
 
         # Execute query based on response_type
@@ -287,17 +294,17 @@ class EndpointHandler:
         # Update policy context with response
         policy_context.response = query_response.model_dump()
 
-        # Apply post-hooks
-        for policy in policies:
+        # Apply post-hooks per type (also block on failure for data integrity)
+        for policy_type_name, configs in configs_by_type.items():
             try:
-                policy_type_cls = self.policy_registry.get_policy_type(
-                    policy.policy_type
-                )
-                policy_instance = policy_type_cls(policy.configuration)
-                policy_context = policy_instance.post_hook(policy_context)
-            except Exception as e:
-                # Post-hooks failures are logged but don't block response
-                print(f"Policy '{policy.name}' post-hook failed: {str(e)}")
+                policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
+                policy_instance = policy_type_cls()
+                policy_context = policy_instance.post_hook(configs, policy_context)
+            except PolicyViolationError as e:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
+                ) from e
 
         return QueryEndpointResponse.model_validate(policy_context.response)
 
@@ -620,7 +627,7 @@ class EndpointHandler:
                 marketplace_id=marketplace.id,
                 marketplace_name=marketplace.name,
                 success=True,
-                message="Published successfully (SDK integration pending)",
+                message=f"Published successfully to {marketplace.name}: {marketplace.url}",
             )
         except Exception as e:
             return PublishResult(

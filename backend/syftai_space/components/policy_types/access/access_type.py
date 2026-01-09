@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from syftai_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
+    PolicyViolationError,
 )
 from syftai_space.components.shared.utils import (
     ConfigSchemaGenerator,
@@ -42,18 +43,13 @@ class EndpointAccessPolicy(BasePolicyType):
     Controls which users can access an endpoint based on whitelist/blacklist rules.
     Blacklist (denied_users) always takes priority over whitelist (allowed_users).
 
+    Aggregation: OR logic - if ANY access policy allows, access is granted.
+    Ordering: Policies are sorted by specificity (most specific patterns first).
+
     This policy is stateless.
     """
 
     NAME = "access"
-
-    def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize the access policy.
-
-        Args:
-            config: Configuration dictionary matching AccessPolicyConfig schema
-        """
-        self.config = AccessPolicyConfig(**config)
 
     @classmethod
     def name(cls) -> str:
@@ -84,39 +80,57 @@ class EndpointAccessPolicy(BasePolicyType):
             schema_generator=ConfigSchemaGenerator
         )
 
-    def pre_hook(self, context: PolicyContext) -> PolicyContext:
-        """Pre-hook to enforce access control.
+    def pre_hook(
+        self, configs: list[dict[str, Any]], context: PolicyContext
+    ) -> PolicyContext:
+        """Pre-hook to enforce access control with OR logic.
+
+        If ANY policy allows access, the user is granted access.
+        Policies are sorted by specificity (most specific patterns checked first).
 
         Args:
+            configs: List of configurations for all access policies
             context: Policy context with request information
 
         Returns:
             Modified context with access metadata
 
         Raises:
-            Exception: If user is denied access
+            PolicyViolationError: If ALL policies deny access
         """
+        if not configs:
+            return context
+
         user_email = str(context.sender_email)
 
-        # Check access
-        is_allowed, reason = self._check_access(user_email)
+        # Validate all configs upfront
+        validated = [AccessPolicyConfig(**c) for c in configs]
 
-        if not is_allowed:
-            raise Exception(f"Access denied: {reason}")
+        # Sort by specificity (most specific first)
+        sorted_configs = sorted(validated, key=self._specificity_score, reverse=True)
 
-        # Add metadata about access status
-        context.metadata[self.NAME] = {
-            "allowed": True,
-            "reason": reason,
-            "user": user_email,
-        }
+        denial_reasons = []
+        for config in sorted_configs:
+            is_allowed, reason = self._check_access(user_email, config)
+            if is_allowed:
+                # First match wins in OR logic
+                return context
+            denial_reasons.append(reason)
 
-        return context
+        # All policies denied - abort
+        raise PolicyViolationError(
+            message=f"Access denied: {'; '.join(denial_reasons)}",
+            policy_type=self.NAME,
+            details={"user": user_email, "reasons": denial_reasons},
+        )
 
-    def post_hook(self, context: PolicyContext) -> PolicyContext:
+    def post_hook(
+        self, configs: list[dict[str, Any]], context: PolicyContext
+    ) -> PolicyContext:
         """Post-hook (no-op for access control).
 
         Args:
+            configs: List of configurations for all access policies
             context: Policy context with request and response
 
         Returns:
@@ -152,26 +166,114 @@ class EndpointAccessPolicy(BasePolicyType):
         except Exception as e:
             raise ValueError(f"Invalid access policy config: {e}") from e
 
-    def _check_access(self, user_email: str) -> tuple[bool, str]:
-        """Check if a user has access.
+    def _specificity_score(self, config: AccessPolicyConfig) -> int:
+        """Calculate specificity score for ordering.
+
+        Uses literal character count approach (similar to nginx longest prefix match).
+        More literal characters = more specific. Fewer wildcards = more specific.
+
+        Args:
+            config: Validated access policy configuration
+
+        Returns:
+            Specificity score (higher = more specific)
+        """
+        return sum(
+            self._pattern_specificity(p)
+            for p in config.allowed_users + config.denied_users
+        )
+
+    def _pattern_specificity(self, pattern: str) -> int:
+        """Calculate specificity for a single pattern.
+
+        Scoring logic:
+        - More literal characters = higher score
+        - Fewer wildcards = higher score
+        - Exact match (no wildcards) gets a bonus
+
+        Examples:
+            "*"                    → 0
+            "*@company.com"        → 10  (12 literal - 2 penalty)
+            "admin-*@company.com"  → 17  (19 literal - 2 penalty)
+            "admin@company.com"    → 117 (17 literal + 100 exact match bonus)
+
+        Args:
+            pattern: Glob pattern string
+
+        Returns:
+            Specificity score (higher = more specific)
+        """
+        if pattern == "*":
+            return 0
+
+        wildcard_count = pattern.count("*")
+        literal_count = len(pattern) - wildcard_count
+
+        # Exact match gets a bonus
+        if wildcard_count == 0:
+            return literal_count + 100
+
+        # Score: literal chars minus penalty for wildcards
+        return literal_count - (wildcard_count * 2)
+
+    def _best_matching_pattern(
+        self, user_email: str, patterns: list[str]
+    ) -> str | None:
+        """Find the most specific pattern that matches the user.
 
         Args:
             user_email: Email of the user
+            patterns: List of glob patterns to check
+
+        Returns:
+            The most specific matching pattern, or None if no match
+        """
+        matches = [p for p in patterns if matches_any_pattern(user_email, [p])]
+        if not matches:
+            return None
+        # Return the most specific matching pattern
+        return max(matches, key=self._pattern_specificity)
+
+    def _check_access(
+        self, user_email: str, config: AccessPolicyConfig
+    ) -> tuple[bool, str]:
+        """Check if a user has access based on specificity-based precedence.
+
+        When a user matches both allowed and denied patterns, the more specific
+        pattern wins. If equal specificity, deny wins (security tiebreaker).
+
+        Args:
+            user_email: Email of the user
+            config: Access policy configuration
 
         Returns:
             Tuple of (is_allowed, reason)
         """
-        # Rule 1: Blacklist takes priority
-        if matches_any_pattern(user_email, self.config.denied_users):
-            return False, "User matches denied pattern"
+        # Find best matching patterns in each list
+        denied_match = self._best_matching_pattern(user_email, config.denied_users)
+        allowed_match = self._best_matching_pattern(user_email, config.allowed_users)
 
-        # Rule 2: If allowed_users is empty, everyone is allowed (except denied)
-        if not self.config.allowed_users:
-            return True, "Open access (no whitelist configured)"
+        # Case 1: No matches in either list
+        if not denied_match and not allowed_match:
+            # If allowed_users is empty, default allow; otherwise deny
+            if not config.allowed_users:
+                return True, "Open access (no whitelist configured)"
+            return False, "User does not match any allowed pattern"
 
-        # Rule 3: Check if user matches whitelist pattern
-        if matches_any_pattern(user_email, self.config.allowed_users):
-            return True, "User matches allowed pattern"
+        # Case 2: Only denied match
+        if denied_match and not allowed_match:
+            return False, f"User matches denied pattern '{denied_match}'"
 
-        # Rule 4: User doesn't match whitelist
-        return False, "User does not match any allowed pattern"
+        # Case 3: Only allowed match
+        if allowed_match and not denied_match:
+            return True, f"User matches allowed pattern '{allowed_match}'"
+
+        # Case 4: Both match - compare specificity
+        denied_score = self._pattern_specificity(denied_match)
+        allowed_score = self._pattern_specificity(allowed_match)
+
+        if allowed_score > denied_score:
+            return True, f"User matches allowed pattern '{allowed_match}'"
+        else:
+            # Deny wins on tie (security default)
+            return False, f"User matches denied pattern '{denied_match}'"

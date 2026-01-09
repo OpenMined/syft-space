@@ -1,7 +1,6 @@
 """Endpoint API routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import EmailStr
 
 from syftai_space.components.auth.dependencies import get_verified_user_email
 from syftai_space.components.auth.public import public_route
@@ -40,7 +39,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         request: Request,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
-    ) -> EmailStr:
+    ) -> str:
         """Get verified sender email from SyftHub token.
 
         Args:
@@ -115,7 +114,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         slug: str,
         request: QueryEndpointRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
-        sender_email: EmailStr = Depends(get_verified_sender_email),
+        sender_email: str = Depends(get_verified_sender_email),
         handler: EndpointHandler = Depends(get_handler),
     ) -> QueryEndpointResponse:
         """Query an endpoint - main RAG flow (PUBLIC, requires SyftHub token).

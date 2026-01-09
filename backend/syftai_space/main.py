@@ -4,13 +4,14 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI, status
+from fastapi import APIRouter, Depends, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 # Import auth components
+from syftai_space.components.auth.dependencies import bearer_scheme
 from syftai_space.components.auth.middleware import AdminKeyMiddleware
 from syftai_space.components.auth.public import public_route
 
@@ -164,6 +165,7 @@ app = FastAPI(
     version="0.1.0",
     debug=app_settings.debug,
     lifespan=lifespan,
+    swagger_ui_parameters={"persistAuthorization": True},
 )
 
 # Add CORS middleware
@@ -265,8 +267,9 @@ app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
 # Middleware execution order is reverse of registration order
 app.add_middleware(AdminKeyMiddleware)
 
-# Create main API router
-router = APIRouter(prefix="/api/v1")
+# Create main API router with bearer auth for OpenAPI docs
+# Actual auth is handled by AdminKeyMiddleware
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(bearer_scheme)])
 
 # Include all routes
 router.include_router(build_dataset_routes(dataset_handler, ingestion_manager))

@@ -20,7 +20,6 @@ import threading
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 
 class RateLimitStorage(ABC):
@@ -139,7 +138,7 @@ class InMemoryRateLimitStorage(RateLimitStorage):
 
 
 # Module-level storage instance
-_storage: Optional[RateLimitStorage] = None
+_storage: RateLimitStorage | None = None
 
 
 def set_storage(storage: RateLimitStorage) -> None:

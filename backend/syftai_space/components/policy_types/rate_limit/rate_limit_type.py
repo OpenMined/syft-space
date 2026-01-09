@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from syftai_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
+    PolicyViolationError,
 )
 from syftai_space.components.policy_types.rate_limit.limiter import (
     check_rate_limit,
@@ -122,18 +123,13 @@ class EndpointRateLimitPolicy(BasePolicyType):
     Limits the number of requests that can be made within a time window.
     Supports per-user and global scoping with selective application to specific users.
 
+    Aggregation: AND logic - ALL rate limits must pass.
+    Ordering: Policies are sorted by most restrictive first (fail fast).
+
     This policy is stateless - rate limit history is managed by the limiter module.
     """
 
     NAME = "rate_limit"
-
-    def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize the rate limit policy.
-
-        Args:
-            config: Configuration dictionary matching RateLimitConfig schema
-        """
-        self.config = RateLimitConfig(**config)
 
     @classmethod
     def name(cls) -> str:
@@ -162,65 +158,79 @@ class EndpointRateLimitPolicy(BasePolicyType):
         """
         return RateLimitConfig.model_json_schema(schema_generator=ConfigSchemaGenerator)
 
-    def pre_hook(self, context: PolicyContext) -> PolicyContext:
-        """Pre-hook to enforce rate limiting.
+    def pre_hook(
+        self, configs: list[dict[str, Any]], context: PolicyContext
+    ) -> PolicyContext:
+        """Pre-hook to enforce rate limiting with AND logic.
+
+        ALL rate limits must pass. Policies are sorted by most restrictive first
+        (fail fast on strictest limit).
 
         Args:
+            configs: List of configurations for all rate limit policies
             context: Policy context with request information
 
         Returns:
             Modified context
 
         Raises:
-            Exception: If rate limit is exceeded
+            PolicyViolationError: If ANY rate limit is exceeded
         """
-        user_email = str(context.sender_email)
-
-        # Check if policy applies to this user
-        if not self._applies_to_user(user_email):
+        if not configs:
             return context
 
-        # Get rate limit parameters
-        count, window_seconds = self.config.parse_limit()
+        user_email = str(context.sender_email)
 
-        # Build key based on scope
-        if self.config.scope == LimitScope.PER_USER:
-            key = f"{context.endpoint_slug}:{user_email}"
-        else:  # GLOBAL
-            key = context.endpoint_slug
+        # Validate all configs upfront
+        validated = [RateLimitConfig(**c) for c in configs]
 
-        # Check and record using module-level limiter
-        is_allowed, current_count = check_rate_limit(key, count, window_seconds)
+        # Sort by limit count (most restrictive first for early failure)
+        sorted_configs = sorted(validated, key=self._parse_limit_count)
 
-        if not is_allowed:
-            friendly_limit = self.config.get_friendly_description()
-            remaining, reset_seconds = get_rate_limit_stats(key, count, window_seconds)
-            raise Exception(
-                f"Rate limit exceeded: {friendly_limit}. "
-                f"Requests in window: {current_count}. "
-                f"Try again in {reset_seconds}s."
-            )
+        for config in sorted_configs:
+            # Check if policy applies to this user
+            if not self._applies_to_user(user_email, config):
+                continue
 
-        # Get stats for metadata
-        remaining, reset_seconds = get_rate_limit_stats(key, count, window_seconds)
+            # Get rate limit parameters
+            count, window_seconds = config.parse_limit()
 
-        # Add metadata about rate limit status
-        context.metadata[self.NAME] = {
-            "limit": self.config.limit,
-            "requests_in_window": current_count,
-            "max_requests": count,
-            "remaining": remaining,
-            "reset_seconds": reset_seconds,
-            "window_seconds": window_seconds,
-            "scope": self.config.scope.value,
-        }
+            # Build key based on scope
+            if config.scope == LimitScope.PER_USER:
+                key = f"{context.endpoint_slug}:{user_email}"
+            else:  # GLOBAL
+                key = context.endpoint_slug
+
+            # Check and record using module-level limiter
+            is_allowed, current_count = check_rate_limit(key, count, window_seconds)
+
+            if not is_allowed:
+                friendly_limit = config.get_friendly_description()
+                _, reset_seconds = get_rate_limit_stats(key, count, window_seconds)
+                raise PolicyViolationError(
+                    message=(
+                        f"Rate limit exceeded: {friendly_limit}. "
+                        f"Requests in window: {current_count}. "
+                        f"Try again in {reset_seconds}s."
+                    ),
+                    policy_type=self.NAME,
+                    details={
+                        "limit": config.limit,
+                        "current_count": current_count,
+                        "reset_seconds": reset_seconds,
+                        "scope": config.scope.value,
+                    },
+                )
 
         return context
 
-    def post_hook(self, context: PolicyContext) -> PolicyContext:
+    def post_hook(
+        self, configs: list[dict[str, Any]], context: PolicyContext
+    ) -> PolicyContext:
         """Post-hook (no-op for rate limiting).
 
         Args:
+            configs: List of configurations for all rate limit policies
             context: Policy context with request and response
 
         Returns:
@@ -256,16 +266,28 @@ class EndpointRateLimitPolicy(BasePolicyType):
         except Exception as e:
             raise ValueError(f"Invalid rate limit config: {e}") from e
 
-    def _applies_to_user(self, user_email: str) -> bool:
-        """Check if the rate limit applies to a given user by
-        matching the user email against the applied_to patterns
-        using the matches_any_pattern function.
+    def _parse_limit_count(self, config: RateLimitConfig) -> int:
+        """Parse limit count for sorting (lower = more restrictive).
+
+        Args:
+            config: Validated rate limit configuration
+
+        Returns:
+            The limit count for sorting purposes
+        """
+        match = re.match(r"^(\d+)/", config.limit)
+        if match:
+            return int(match.group(1))
+        return 999999
+
+    def _applies_to_user(self, user_email: str, config: RateLimitConfig) -> bool:
+        """Check if the rate limit applies to a given user.
 
         Args:
             user_email: Email of the user
+            config: Rate limit configuration
 
         Returns:
-            True if the rate limit applies to this user by
-            matching the user email against the applied_to patterns
+            True if the rate limit applies to this user
         """
-        return matches_any_pattern(user_email, self.config.applied_to)
+        return matches_any_pattern(user_email, config.applied_to)
