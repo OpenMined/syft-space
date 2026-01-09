@@ -216,10 +216,31 @@ class EndpointAccessPolicy(BasePolicyType):
         # Score: literal chars minus penalty for wildcards
         return literal_count - (wildcard_count * 2)
 
+    def _best_matching_pattern(
+        self, user_email: str, patterns: list[str]
+    ) -> str | None:
+        """Find the most specific pattern that matches the user.
+
+        Args:
+            user_email: Email of the user
+            patterns: List of glob patterns to check
+
+        Returns:
+            The most specific matching pattern, or None if no match
+        """
+        matches = [p for p in patterns if matches_any_pattern(user_email, [p])]
+        if not matches:
+            return None
+        # Return the most specific matching pattern
+        return max(matches, key=self._pattern_specificity)
+
     def _check_access(
         self, user_email: str, config: AccessPolicyConfig
     ) -> tuple[bool, str]:
-        """Check if a user has access based on a single config.
+        """Check if a user has access based on specificity-based precedence.
+
+        When a user matches both allowed and denied patterns, the more specific
+        pattern wins. If equal specificity, deny wins (security tiebreaker).
 
         Args:
             user_email: Email of the user
@@ -228,17 +249,31 @@ class EndpointAccessPolicy(BasePolicyType):
         Returns:
             Tuple of (is_allowed, reason)
         """
-        # Rule 1: Blacklist takes priority
-        if matches_any_pattern(user_email, config.denied_users):
-            return False, "User matches denied pattern"
+        # Find best matching patterns in each list
+        denied_match = self._best_matching_pattern(user_email, config.denied_users)
+        allowed_match = self._best_matching_pattern(user_email, config.allowed_users)
 
-        # Rule 2: If allowed_users is empty, everyone is allowed (except denied)
-        if not config.allowed_users:
-            return True, "Open access (no whitelist configured)"
+        # Case 1: No matches in either list
+        if not denied_match and not allowed_match:
+            # If allowed_users is empty, default allow; otherwise deny
+            if not config.allowed_users:
+                return True, "Open access (no whitelist configured)"
+            return False, "User does not match any allowed pattern"
 
-        # Rule 3: Check if user matches whitelist pattern
-        if matches_any_pattern(user_email, config.allowed_users):
-            return True, "User matches allowed pattern"
+        # Case 2: Only denied match
+        if denied_match and not allowed_match:
+            return False, f"User matches denied pattern '{denied_match}'"
 
-        # Rule 4: User doesn't match whitelist
-        return False, "User does not match any allowed pattern"
+        # Case 3: Only allowed match
+        if allowed_match and not denied_match:
+            return True, f"User matches allowed pattern '{allowed_match}'"
+
+        # Case 4: Both match - compare specificity
+        denied_score = self._pattern_specificity(denied_match)
+        allowed_score = self._pattern_specificity(allowed_match)
+
+        if allowed_score > denied_score:
+            return True, f"User matches allowed pattern '{allowed_match}'"
+        else:
+            # Deny wins on tie (security default)
+            return False, f"User matches denied pattern '{denied_match}'"
