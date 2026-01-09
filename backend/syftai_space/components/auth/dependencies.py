@@ -1,5 +1,4 @@
 from fastapi import HTTPException, Request
-from pydantic import EmailStr
 
 from syftai_space.components.marketplaces.repository import Marketplace
 from syftai_space.components.shared.syfthub_client import SyftHubError
@@ -9,7 +8,7 @@ from syftai_space.config import app_settings
 def get_verified_user_email(
     request: Request,
     marketplace: Marketplace,
-) -> EmailStr:
+) -> str:
     """Extract and verify SyftHub satellite token.
 
     Uses handler.marketplace_repository captured from closure.
@@ -42,7 +41,7 @@ def get_verified_user_email(
 
     # If Token is Admin API Key, return admin email from marketplace
     if token == app_settings.admin_api_key:
-        return EmailStr(marketplace.email)
+        return marketplace.email
 
     # Otherwise, verify token with SyftHub
     try:
@@ -59,4 +58,4 @@ def get_verified_user_email(
     if not result.email:
         raise HTTPException(status_code=401, detail="Token missing email claim")
 
-    return result.email
+    return str(result.email)
