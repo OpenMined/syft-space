@@ -1,5 +1,6 @@
 """RemoteWeaviate dataset type implementation."""
 
+import json
 from typing import Any
 
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
@@ -39,6 +40,14 @@ class RemoteWeaviateConfiguration(BaseModel):
     default_similarity_threshold: float = Field(
         default=DEFAULT_SIMILARITY_THRESHOLD,
         description="The default similarity threshold for the Weaviate collection",
+    )
+    content_property: str | None = Field(
+        default=None,
+        description="Property name to use as main content (e.g., 'body', 'description'). If not specified, all properties are JSON-serialized as content.",
+    )
+    metadata_properties: list[str] | None = Field(
+        default=None,
+        description="Properties to include in metadata (e.g., ['title', 'author']). If not specified, all properties are included.",
     )
 
 
@@ -105,7 +114,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
     @property
     def collection_name(self) -> str:
         """Get the name of the collection."""
-        return f"Collection_{self.config.collection_name}"
+        return self.config.collection_name
 
     def search(
         self, ctx: Context, query: str, params: SearchParameters | None = None
@@ -154,15 +163,38 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
                 ),
             )
             for result in results.objects:
+                # Content: use specified property OR JSON dump all properties
+                if self.config.content_property:
+                    content = str(
+                        result.properties.get(self.config.content_property, "")
+                    )
+                else:
+                    content = json.dumps(result.properties, default=str)
+
+                # Metadata: use specified properties OR include all properties
+                if self.config.metadata_properties is not None:
+                    custom_metadata = {
+                        k: v
+                        for k, v in result.properties.items()
+                        if k in self.config.metadata_properties
+                    }
+                else:
+                    custom_metadata = dict(result.properties)
+
+                # Include Weaviate system metadata
+                metadata = {
+                    "creation_time": str(result.metadata.creation_time)
+                    if result.metadata.creation_time
+                    else None,
+                    "distance": result.metadata.distance,
+                    **custom_metadata,
+                }
+
                 documents.append(
                     SearchedDocument(
                         document_id=str(result.uuid),
-                        content=result.properties.get("content", ""),
-                        metadata={
-                            "creation_time": str(result.metadata.creation_time),
-                            "distance": result.metadata.distance,
-                            "file_name": result.properties.get("file_name", ""),
-                        },
+                        content=content,
+                        metadata=metadata,
                         similarity_score=result.metadata.score or 0.0,
                     )
                 )
@@ -211,14 +243,9 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
                 grpc_secure=self.config.grpc_url.scheme == "https",
                 auth_credentials=Auth.api_key(self.config.api_key),
             ) as client:
-                if client.is_ready(timeout=10):
+                if client.is_ready():
                     return HealthcheckResponse(
                         status=HealthcheckStatus.HEALTHY, message="Weaviate is healthy"
-                    )
-                else:
-                    return HealthcheckResponse(
-                        status=HealthcheckStatus.UNHEALTHY,
-                        message="Weaviate is not ready",
                     )
         except Exception as e:
             return HealthcheckResponse(
