@@ -33,8 +33,8 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.5
 class RemoteWeaviateConfiguration(BaseModel):
     """Configuration for Weaviate remote dataset type."""
 
-    http_url: HttpUrl = Field(..., description="The URL of the Weaviate server")
-    grpc_url: HttpUrl = Field(..., description="The URL of the Weaviate server")
+    http_url: HttpUrl = Field(..., description="The HTTP URL of the Weaviate server")
+    grpc_url: HttpUrl = Field(..., description="The gRPC URL of the Weaviate server.")
     api_key: str = Field(..., description="The API key for the Weaviate server")
     collection_name: str = Field(..., description="The name of the Weaviate collection")
     default_similarity_threshold: float = Field(
@@ -52,13 +52,13 @@ class RemoteWeaviateConfiguration(BaseModel):
 
 
 class RemoteWeaviateDatasetType(BaseDatasetType):
-    """Weaviate remote dataset type that allows you to store and query your data.
+    """Remote Weaviate dataset type that allows you to query your data
+    from a remote Weaviate server.
 
-    It uses the weaviate vector database to store and query your data.
-    Implements BaseDatasetType for remote dataset type.
+    It uses the Weaviate vector database to query your data from a remote server.
     """
 
-    NAME = "weaviate_remote"
+    NAME = "remote_weaviate"
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate remote dataset type.
