@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 from loguru import logger
 from sqlalchemy import Engine, event
@@ -69,7 +69,6 @@ class SQLiteConfig(DatabaseConfig):
                 cursor.close()
                 logger.debug("SQLite PRAGMA foreign_keys=ON set for new connection")
 
-    
 
 class Database:
     """Database class for managing database connections and sessions"""
@@ -91,14 +90,13 @@ class Database:
         # Apply database-specific configurations
         config.configure_engine(self.engine)
 
-    def create_db_and_tables(self, reset: bool = False):
-        """Create the database and tables"""
+    def run_migrations(self, reset: bool = False):
+        """Run Alembic migrations to upgrade database to latest version"""
+
+        # If reset is True, drop all tables first
         if reset:
             SQLModel.metadata.drop_all(self.engine)
-        SQLModel.metadata.create_all(self.engine, checkfirst=True)
 
-    def run_migrations(self):
-        """Run Alembic migrations to upgrade database to latest version"""
         try:
             # Get the directory where alembic.ini is located (backend directory)
             backend_dir = Path(__file__).parent.parent.parent
@@ -149,7 +147,7 @@ class BaseRepository(Generic[T]):
             session.refresh(obj)
             return obj
 
-    def get_by_id(self, id: int) -> Optional[T]:
+    def get_by_id(self, id: int) -> T | None:
         """Get an object by its ID"""
         with self.db.get_session() as session:
             return session.get(self.model, id)
@@ -178,7 +176,7 @@ class BaseRepository(Generic[T]):
                 return True
             return False
 
-    def get_by_field(self, field_name: str, value: any) -> Optional[T]:
+    def get_by_field(self, field_name: str, value: any) -> T | None:
         """Get an object by a specific field value"""
         with self.db.get_session() as session:
             statement = select(self.model).where(
