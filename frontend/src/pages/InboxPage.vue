@@ -138,7 +138,7 @@ const formatTimestamp = (date: Date) => {
           {{ inboxStore.unreadCount }} new
         </Badge>
       </div>
-      <p class="body-lg text-muted-foreground md:max-w-[50%]">
+      <p class="body-lg text-muted-foreground md:max-w-[60%]">
         Your inbox collects system alerts and requests related to your resources and endpoints.
         Review items here to approve access, resolve issues, and keep things running smoothly.
       </p>

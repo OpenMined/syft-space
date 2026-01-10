@@ -15,9 +15,13 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
         registry: The policy type registry to register types with
     """
     # Import and register built-in policy types here as they're implemented
-    from .rate_limit.rate_limit_type import RateLimitPolicyType
+    from .access.access_type import EndpointAccessPolicy
+    from .accounting.accounting_type import AccountingPolicy
+    from .rate_limit.rate_limit_type import EndpointRateLimitPolicy
 
-    registry.register_policy_type(RateLimitPolicyType)
+    registry.register_policy_type(EndpointRateLimitPolicy)
+    registry.register_policy_type(EndpointAccessPolicy)
+    registry.register_policy_type(AccountingPolicy)
 
 
 __all__ = ["register_builtin_types"]

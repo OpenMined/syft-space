@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-white">
+  <div class="min-h-screen">
     <!-- Header (like GitHub's new repo flow) -->
     <div class="border-b border-border">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -99,8 +99,12 @@
               <div class="flex flex-wrap gap-2">
                 <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm">PDF</span>
                 <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm">CSV</span>
-                <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm">Markdown</span>
-                <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm">Database</span>
+                <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm"
+                  >Markdown</span
+                >
+                <span class="px-2 py-1 bg-muted text-muted-foreground rounded body-sm"
+                  >Database</span
+                >
               </div>
             </div>
             <ChevronRight

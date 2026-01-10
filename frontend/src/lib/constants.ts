@@ -37,7 +37,7 @@ export const MODEL_TYPES = {
 export const DATA_SOURCE_TYPES = {
   WEAVIATE: 'weaviate',
   QDRANT: 'qdrant',
-  FILESYSTEM: 'filesystem',
+  FILESYSTEM: 'local_file',
   CHROMA: 'chroma',
 } as const
 

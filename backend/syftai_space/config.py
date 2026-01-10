@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,10 +15,9 @@ class AppSettings(BaseSettings):
     )
 
     # Database settings
-    sqlite_db_path: Path = Field(
-        default=Path("~/.syai-server/app.db").expanduser(),
-        description="Path to SQLite database file",
-    )
+    sqlite_db_path: Path = Path(
+        "~/.syai-space/app.db"
+    ).expanduser()  # Default path for SQLite database
 
     # Application settings
     debug: bool = False
@@ -47,6 +46,28 @@ class AppSettings(BaseSettings):
     default_tenant_name: str = Field(
         default="root",
         description="Default tenant name (used when multi-tenancy is disabled)",
+    )
+
+    # Admin authentication
+    admin_api_key: str = Field(
+        default="",
+        description="Admin API key for protected endpoints. If empty, no auth is enforced (dev mode).",
+    )
+
+    # External service URLs
+    default_accounting_url: HttpUrl = Field(
+        default="https://syftaccounting.centralus.cloudapp.azure.com/",
+        description="Default URL for the accounting service",
+    )
+    default_marketplace_url: HttpUrl = Field(
+        default="https://syfthub.openmined.org",
+        description="Default URL for the marketplace service",
+    )
+
+    # SyftAI Space Public URL
+    public_url: HttpUrl | None = Field(
+        None,
+        description="Public URL for the SyftAI Space",
     )
 
 

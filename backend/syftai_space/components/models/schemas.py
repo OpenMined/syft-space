@@ -1,10 +1,10 @@
 """Model API schemas for request/response models."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ModelTypeInfoResponse(BaseModel):
@@ -50,6 +50,38 @@ class CreateModelRequest(BaseModel):
         }
 
 
+class UpdateModelRequest(BaseModel):
+    """Request model for updating a model (partial update)."""
+
+    name: Optional[str] = Field(
+        None, description="New model name (must be unique per tenant)"
+    )
+    summary: Optional[str] = Field(None, description="Updated summary")
+    tags: Optional[str] = Field(None, description="Updated tags (e.g., 'openai,gpt-4')")
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(self) -> "UpdateModelRequest":
+        """Ensure at least one field is provided for update."""
+        if self.name is None and self.summary is None and self.tags is None:
+            raise ValueError(
+                "At least one field (name, summary, or tags) must be provided"
+            )
+        return self
+
+
+class EndpointListItem(BaseModel):
+    """Response model for endpoint in list view."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Endpoint name")
+    slug: str = Field(..., description="Unique URL slug")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
 class ModelResponse(BaseModel):
     """Response model for model details."""
 
@@ -68,17 +100,40 @@ class ModelResponse(BaseModel):
         from_attributes = True
 
 
+class ModelResponseWithEndpoints(ModelResponse):
+    connected_endpoints: list[EndpointListItem] = Field(
+        ...,
+        alias="endpoints",
+        serialization_alias="connected_endpoints",
+        description="Connected endpoints",
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+        populate_by_name = True
+
+
 class ModelListItem(BaseModel):
     """Response model for model in list view."""
 
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(..., description="Model name")
     dtype: str = Field(..., description="Model type name")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
     summary: str = Field(..., description="Model summary")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
+    connected_endpoints: list[EndpointListItem] = Field(
+        ...,
+        alias="endpoints",
+        serialization_alias="connected_endpoints",
+        description="Connected endpoints",
+    )
 
     class Config:
         """Pydantic config."""
 
         from_attributes = True
+        populate_by_name = True

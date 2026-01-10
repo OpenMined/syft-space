@@ -109,6 +109,44 @@ bun run test:e2e           # E2E tests against production build
 - Uses SyftBox configuration from `~/.syftbox/config.json`
 - SQLite database at `~/.syai-server/app.db`
 
+## API Integration Guide
+
+### Adding New API Endpoints to Frontend
+
+When integrating a backend API endpoint into the frontend:
+
+1. **Create API types** in `frontend/src/api/types/index.ts`:
+   ```typescript
+   export interface MyResponse {
+     // Match the backend Pydantic schema
+   }
+   ```
+
+2. **Add API function** in `frontend/src/api/endpoints/`:
+   ```typescript
+   export const myApi = {
+     fetch: async (params): Promise<MyResponse> => {
+       const response = await apiClient.get('/my-endpoint', { params })
+       return response.data
+     }
+   }
+   ```
+
+3. **Create composable** for complex logic in `frontend/src/composables/`:
+   ```typescript
+   export function useMyFeature() {
+     // Handle loading states, errors, data transformation
+   }
+   ```
+
+4. **Update components** to use the API through stores or composables
+
+### Example: File Browser Integration
+- API types: `frontend/src/api/types/index.ts`
+- API endpoint: `frontend/src/api/endpoints/datasets.ts`
+- Composable: `frontend/src/composables/useDatasetBrowser.ts`
+- Component: `frontend/src/components/FileExplorer.vue`
+
 ## Important Notes
 - The frontend has its own CLAUDE.md with detailed UI component guidance
 - Always run lint and typecheck commands after making changes

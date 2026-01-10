@@ -1,28 +1,37 @@
 """Dataset API routes."""
 
-import json
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Body, Depends
 
 from syftai_space.components.datasets.handlers import DatasetHandler
 from syftai_space.components.datasets.schemas import (
+    BrowseResponse,
     CreateDatasetRequest,
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
     HealthcheckResponse,
-    IngestFileResponse,
+    ProvisionerActionResponse,
+    ProvisionerInfoResponse,
+    UpdateDatasetRequest,
 )
 from syftai_space.components.tenants.dependency import get_tenant_dependency
 from syftai_space.components.tenants.entities import Tenant
 
+if TYPE_CHECKING:
+    from syftai_space.components.ingestion.manager import IngestionManager
 
-def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
+
+def build_dataset_routes(
+    handler: DatasetHandler,
+    ingestion_manager: Optional["IngestionManager"] = None,
+) -> APIRouter:
     """Build the dataset routes.
 
     Args:
         handler: Dataset handler instance
+        ingestion_manager: Optional ingestion manager for auto-starting ingestion
 
     Returns:
         Configured API router
@@ -75,6 +84,30 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
         type_info = handler.get_dataset_type(name)
         return type_info.config_schema
 
+    # ============== File Browser Endpoint ==============
+
+    @router.get("/browse", response_model=BrowseResponse)
+    async def browse_directory(
+        path: str = "~",
+        show_hidden: bool = False,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> BrowseResponse:
+        """Browse directories on the filesystem.
+
+        Used for selecting files/folders when creating datasets.
+        Restricted to user's home directory for security.
+
+        Args:
+            path: Directory path to browse (defaults to home directory)
+            show_hidden: Whether to include hidden files (dotfiles)
+
+        Returns:
+            Directory contents with file metadata
+        """
+        return handler.browse_directory(path, show_hidden)
+
+    # ============== Dataset CRUD Endpoints ==============
+
     @router.post("/", response_model=DatasetResponse, status_code=201)
     async def create_dataset(
         request: CreateDatasetRequest,
@@ -83,6 +116,9 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
     ) -> DatasetResponse:
         """Create a new dataset.
 
+        For FileIngestableDatasetType, automatically starts ingestion
+        (scans existing files and starts watcher).
+
         Args:
             request: Dataset creation request with configuration
             tenant: Current tenant (injected)
@@ -90,7 +126,13 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
         Returns:
             Created dataset details
         """
-        return handler.create_dataset(request, tenant)
+        response = handler.create_dataset(request, tenant)
+
+        # Auto-start ingestion for FileIngestableDatasetType
+        if ingestion_manager:
+            ingestion_manager.start_ingestion_by_id(response.id, tenant.id)
+
+        return response
 
     @router.get("/", response_model=list[DatasetListItem])
     async def list_datasets(
@@ -124,34 +166,31 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
         """
         return handler.get_dataset(name, tenant)
 
-    @router.post("/{name}/ingest", response_model=IngestFileResponse)
-    async def ingest_file(
+    @router.patch("/{name}", response_model=DatasetResponse)
+    async def update_dataset(
         name: str,
-        file: UploadFile = File(...),
-        metadata: str = Form("{}"),
+        request: UpdateDatasetRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: DatasetHandler = Depends(get_handler),
-    ) -> IngestFileResponse:
-        """Ingest a single file into dataset.
+    ) -> DatasetResponse:
+        """Update a dataset (partial update).
+
+        Allows updating name, summary, and/or tags. Name must remain unique per tenant.
 
         Args:
-            name: Dataset name
-            file: Uploaded file
-            metadata: JSON string with custom metadata
+            name: Current dataset name
+            request: Update request with fields to update
             tenant: Current tenant (injected)
 
         Returns:
-            Ingestion result with file details
-        """
-        # Parse and enrich metadata
-        metadata_dict = json.loads(metadata)
-        metadata_dict["filename"] = file.filename
-        metadata_dict["content_type"] = file.content_type
-        metadata_dict["file_size"] = file.size
+            Updated dataset details
 
-        # TODO: Get sender_email from auth context when auth is implemented
-        sender_email = "admin@example.com"
-        return handler.ingest_file(name, file, metadata_dict, sender_email, tenant)
+        Raises:
+            422 Unprocessable Entity: If no fields provided (Pydantic validation)
+            404 Not Found: If dataset not found
+            409 Conflict: If new name already exists
+        """
+        return handler.update_dataset(name, request, tenant)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_dataset(
@@ -186,5 +225,94 @@ def build_dataset_routes(handler: DatasetHandler) -> APIRouter:
             Healthcheck response
         """
         return handler.healthcheck(name, tenant)
+
+    # ============== Admin Provisioner Endpoints ==============
+
+    @router.get("/provisioners/", response_model=list[ProvisionerInfoResponse])
+    async def list_provisioners(
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> list[ProvisionerInfoResponse]:
+        """List all provisioners and their status.
+
+        Admin endpoint to view all provisioner states, their status,
+        and how many datasets are using each one.
+        """
+        return handler.list_provisioners()
+
+    @router.post(
+        "/provisioners/{dtype}/start", response_model=ProvisionerActionResponse
+    )
+    async def start_provisioner(
+        dtype: str,
+        config: dict[str, Any] = Body(default={}),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> ProvisionerActionResponse:
+        """Start a provisioner for a specific dataset type.
+
+        Admin endpoint to manually start a provisioner.
+
+        Args:
+            dtype: Dataset type name (e.g., 'weaviate_local')
+            config: Optional configuration with connection settings (httpPort, grpcPort, etc.)
+
+        Returns:
+            Action response with message and status
+        """
+        return handler.start_provisioner_by_dtype(dtype, config)
+
+    @router.post("/provisioners/{dtype}/stop", response_model=ProvisionerActionResponse)
+    async def stop_provisioner(
+        dtype: str,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> ProvisionerActionResponse:
+        """Stop a provisioner for a specific dataset type.
+
+        Admin endpoint to manually stop a provisioner.
+        The provisioner state record is kept for later restart.
+
+        Args:
+            dtype: Dataset type name (e.g., 'weaviate_local')
+
+        Returns:
+            Action response with message and status
+        """
+        return handler.stop_provisioner_by_dtype(dtype)
+
+    @router.delete("/provisioners/{dtype}", response_model=ProvisionerActionResponse)
+    async def delete_provisioner(
+        dtype: str,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> ProvisionerActionResponse:
+        """Delete a provisioner for a specific dataset type.
+
+        Admin endpoint to stop and delete a provisioner state record.
+        Only succeeds if no datasets are attached to this provisioner.
+
+        Args:
+            dtype: Dataset type name (e.g., 'weaviate_local')
+
+        Returns:
+            Action response with message and status
+
+        Raises:
+            409 Conflict: If datasets are still attached to the provisioner
+        """
+        return handler.delete_provisioner_by_dtype(dtype)
+
+    @router.get("/provisioners/{dtype}/status", response_model=ProvisionerInfoResponse)
+    async def get_provisioner_status(
+        dtype: str,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> ProvisionerInfoResponse:
+        """Get detailed status of a provisioner.
+
+        Args:
+            dtype: Dataset type name
+
+        Returns:
+            Detailed provisioner status including actual running status,
+            dataset count, connection config, timestamps, and any errors.
+        """
+        return handler.get_provisioner_status_by_dtype(dtype)
 
     return router

@@ -3,10 +3,10 @@
 import re
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from syftai_space.components.dataset_types.interfaces import (
-    BaseDatasetType,
+    FileIngestableDatasetType,
     IngestFile,
     IngestRequest,
     SearchedDocument,
@@ -21,7 +21,6 @@ from syftai_space.components.shared.domain_types import (
 
 try:
     import weaviate
-    from docling.document_converter import DocumentConverter, DocumentStream
     from weaviate.classes.config import Configure
     from weaviate.classes.query import MetadataQuery
 
@@ -30,27 +29,32 @@ except ImportError:
     enabled = False
 
 DEFAULT_SIMILARITY_THRESHOLD = 0.5
+DEFAULT_HTTP_PORT = 8083
+DEFAULT_GRPC_PORT = 50051
+
+DEFAULT_INGEST_FILE_TYPE_OPTIONS = [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"]
 
 
-class WeaviateLocalDatasetType(BaseDatasetType):
-    """Weaviate is a vector database that allows you to store and query your data.
+class LocalFileDatasetType(FileIngestableDatasetType):
+    """Local file dataset type that allows you to store and query your data.
 
-    It uses transformers to embed your data and then allows you to query it using
-    a similarity search.
-
-    Reference: https://weaviate.io/
-    Docs: https://weaviate.io/developers/weaviate/
+    It uses the weaviate vector database to store and query your data.
+    Implements FileIngestableDatasetType for watch-based file ingestion.
     """
 
-    NAME = "weaviate_local"
+    NAME = "local_file"
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize Weaviate dataset type.
+        """Initialize Local file dataset type.
 
         Args:
             config: Configuration dictionary with connection settings
         """
+        from docling.document_converter import DocumentConverter
+
         self.config = config
+        self.config["httpPort"] = config.get("httpPort", DEFAULT_HTTP_PORT)
+        self.config["grpcPort"] = config.get("grpcPort", DEFAULT_GRPC_PORT)
         if enabled:
             self.converter = DocumentConverter()
 
@@ -84,22 +88,6 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         return {
             "type": "object",
             "properties": {
-                "httpPort": {
-                    "type": "number",
-                    "title": "Localhost HTTP Port",
-                    "default": 8083,
-                },
-                "grpcPort": {
-                    "type": "number",
-                    "title": "Localhost gRPC Port",
-                    "default": 50051,
-                },
-                "useTLS": {
-                    "type": "boolean",
-                    "title": "Use TLS/HTTPS",
-                    "default": False,
-                    "description": "Whether to use TLS/HTTPS for the connection to the weaviate server",
-                },
                 "collectionName": {
                     "type": "string",
                     "title": "Collection Name",
@@ -113,17 +101,58 @@ class WeaviateLocalDatasetType(BaseDatasetType):
                         "enum": [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"],
                     },
                     "uniqueItems": True,
-                    "default": [".pdf"],
+                    "default": [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"],
                 },
-                "queryLimit": {
-                    "type": "number",
-                    "title": "Query Limit",
-                    "default": 10,
-                    "description": "The maximum number of results to return from a query. Must be positive",
+                "filePaths": {
+                    "type": "array",
+                    "title": "File Paths",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "title": "File Path",
+                            },
+                            "description": {
+                                "type": "string",
+                                "title": "Description",
+                            },
+                        },
+                        "required": ["path", "description"],
+                    },
+                    "uniqueItems": True,
+                    "default": [],
                 },
             },
-            "required": ["httpPort", "grpcPort", "collectionName"],
+            "required": ["collectionName", "filePaths"],
         }
+
+    def watched_paths(self) -> list[str]:
+        """Get the paths to watch for new files.
+
+        Extracts paths from the filePaths configuration.
+
+        Returns:
+            List of absolute directory/file paths to monitor.
+        """
+        return [
+            path
+            for file_path_item in self.config.get("filePaths", [])
+            if isinstance(file_path_item, dict)
+            and (path := file_path_item.get("path")) is not None
+        ]
+
+    def allowed_extensions(self) -> set[str]:
+        """Get the allowed file extensions for ingestion.
+
+        Extracts extensions from the ingestFileTypeOptions configuration.
+
+        Returns:
+            Set of extensions including the dot (e.g., {".pdf", ".txt"}).
+        """
+        return set(
+            self.config.get("ingestFileTypeOptions", DEFAULT_INGEST_FILE_TYPE_OPTIONS)
+        )
 
     @classmethod
     def validate_configuration(cls, configuration: dict[str, Any]) -> None:
@@ -136,10 +165,6 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         # TODO: Maybe use Pydantic model to validate configuration
 
         # Check if required fields are present
-        if "httpPort" not in configuration:
-            raise ValueError("httpPort is required")
-        if "grpcPort" not in configuration:
-            raise ValueError("grpcPort is required")
         if "collectionName" not in configuration:
             raise ValueError("collectionName is required")
 
@@ -151,15 +176,26 @@ class WeaviateLocalDatasetType(BaseDatasetType):
                 "and spaces are not allowed."
             ) from None
 
-        # Check if httpPort and grpcPort are positive
-        if configuration["httpPort"] <= 0:
-            raise ValueError("httpPort must be positive")
-        if configuration["grpcPort"] <= 0:
-            raise ValueError("grpcPort must be positive")
+        # Check if filePaths exist
+        for file_path_item in configuration["filePaths"]:
+            # Handle both old format (string) and new format (object with path and description)
+            if isinstance(file_path_item, str):
+                file_path = file_path_item
+            elif isinstance(file_path_item, dict):
+                file_path = file_path_item.get("path")
+                if not file_path:
+                    raise ValueError("filePaths item must have a 'path' property")
+                if "description" not in file_path_item:
+                    raise ValueError(
+                        "filePaths item must have a 'description' property"
+                    )
+            else:
+                raise ValueError(
+                    f"filePaths item must be a string or object with 'path' and 'description' properties, got {type(file_path_item)}"
+                )
 
-        # Check if queryLimit is positive
-        if configuration.get("queryLimit", 10) <= 0:
-            raise ValueError("queryLimit must be positive")
+            if not Path(file_path).exists():
+                raise ValueError(f"filePaths does not exist: {file_path}")
 
     def _parse_document(self, file: IngestFile) -> dict[str, Any]:
         """Parse the document into a dictionary.
@@ -170,6 +206,8 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         Returns:
             Dictionary with parsed document content and metadata
         """
+        from docling.document_converter import DocumentStream
+
         # Convert the file to a document stream
         stream = BytesIO(file.file_handle.read())
         document_stream = DocumentStream(name=file.filename, stream=stream)
@@ -197,9 +235,9 @@ class WeaviateLocalDatasetType(BaseDatasetType):
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
             # Ensure collection exists
-            if not client.collections.exists(self.config["collectionName"]):
+            if not client.collections.exists(self.collection_name):
                 client.collections.create(
-                    self.config["collectionName"],
+                    self.collection_name,
                     vectorizer_config=Configure.Vectorizer.text2vec_transformers(),
                 )
 
@@ -207,19 +245,22 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         with weaviate.connect_to_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
-            collection = client.collections.get(self.config["collectionName"])
+            collection = client.collections.get(self.collection_name)
             for file in request.files:
-                if file.content_type not in self.config["ingestFileTypeOptions"]:
-                    file_extension = Path(file.filename).suffix
-                    if file_extension not in self.config["ingestFileTypeOptions"]:
-                        raise ValueError(
-                            f"Unsupported file type: {file_extension}"
-                        ) from None
+                if file.content_type not in self.allowed_extensions():
+                    raise ValueError(
+                        f"Unsupported file type: {file.content_type}"
+                    ) from None
                 parsed_document = self._parse_document(file)
                 collection.data.insert(parsed_document)
 
+    @property
+    def collection_name(self) -> str:
+        """Get the name of the collection."""
+        return f"Collection_{self.config["collectionName"]}"
+
     def search(
-        self, ctx: Context, query: str, params: Optional[SearchParameters] = None
+        self, ctx: Context, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
         """Search the dataset for the given query.
 
@@ -248,7 +289,7 @@ class WeaviateLocalDatasetType(BaseDatasetType):
         with weaviate.connect_to_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
-            collection = client.collections.get(self.config["collectionName"])
+            collection = client.collections.get(self.collection_name)
 
             results = collection.query.near_text(
                 query=query,
@@ -282,6 +323,21 @@ class WeaviateLocalDatasetType(BaseDatasetType):
             True if weaviate and docling are installed
         """
         return enabled
+
+    @classmethod
+    def connection_fields(cls) -> list[str]:
+        """Return list of connection-related configuration fields.
+
+        These fields are shared across all datasets of this type.
+        - httpPort, grpcPort: Server connection settings
+        - useTLS: Connection security setting
+
+        Dataset-specific fields (not included):
+        - queryLimit: query limit setting
+        - collectionName: Each dataset has its own collection
+        - ingestFileTypeOptions: Per-dataset ingestion settings
+        """
+        return ["httpPort", "grpcPort", "useTLS"]
 
     def healthcheck(self) -> HealthcheckResponse:
         """Check if the dataset type is healthy.

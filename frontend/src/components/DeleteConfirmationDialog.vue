@@ -11,7 +11,9 @@
       <!-- Dependencies Warning -->
       <div v-if="dependencies && dependencies.length > 0" class="py-4">
         <div class="space-y-4">
-          <div class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-md p-4">
+          <div
+            class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-md p-4"
+          >
             <div class="flex items-start gap-3">
               <div class="text-xl">⚠️</div>
               <div class="flex-1">

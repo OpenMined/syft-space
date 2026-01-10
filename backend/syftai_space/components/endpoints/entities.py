@@ -1,13 +1,13 @@
 """Endpoint database entities."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from pydantic import field_validator
-from sqlalchemy import Index, UniqueConstraint
-from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
+from sqlalchemy import JSON, Index, UniqueConstraint
+from sqlmodel import Column, Field, ForeignKey, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from components.datasets.entities import Dataset
@@ -43,29 +43,29 @@ class Endpoint(SQLModel, table=True):
     slug: str = Field(..., description="URL slug (unique per tenant)")
     description: str = Field(default="", description="Markdown description")
     summary: str = Field(default="", description="Brief summary")
-    dataset_id: Optional[UUID] = Field(
+    dataset_id: UUID | None = Field(
         default=None,
-        sa_column=Column(ForeignKey("datasets.id", ondelete="SET NULL")),
+        sa_column=Column(ForeignKey("datasets.id", ondelete="CASCADE")),
         description="ID of linked dataset (optional)",
     )
-    model_id: Optional[UUID] = Field(
+    model_id: UUID | None = Field(
         default=None,
-        sa_column=Column(ForeignKey("models.id", ondelete="SET NULL")),
+        sa_column=Column(ForeignKey("models.id", ondelete="CASCADE")),
         description="ID of linked model (optional)",
     )
     response_type: str = Field(
         default=ResponseType.BOTH.value,
         description="Type of response (raw/summary/both)",
     )
-    visibility: list = Field(
-        default_factory=lambda: ["*"],
-        sa_column=Column(JSON),
-        description="List of allowed emails/patterns (* for public)",
-    )
     published: bool = Field(default=False, description="Whether endpoint is published")
     tags: str = Field(default="", description="Comma-separated tags")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    published_to: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON),
+        description="List of marketplace IDs this endpoint is published to",
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Relationships
     tenant: "Tenant" = Relationship(back_populates="endpoints")
@@ -109,7 +109,6 @@ class Endpoint(SQLModel, table=True):
                 "dataset_id": "123e4567-e89b-12d3-a456-426614174000",
                 "model_id": "223e4567-e89b-12d3-a456-426614174000",
                 "response_type": "both",
-                "visibility": ["*"],
                 "published": True,
                 "tags": "legal,qa,documents",
             }

@@ -1,6 +1,6 @@
 """Policy repository for database operations."""
 
-from typing import Optional
+from collections import defaultdict
 from uuid import UUID
 
 from sqlmodel import select
@@ -33,7 +33,7 @@ class PolicyRepository(BaseRepository[Policy]):
             statement = select(Policy).where(Policy.tenant_id == tenant_id)
             return list(session.exec(statement).all())
 
-    def get_by_id(self, id: int, tenant_id: UUID) -> Optional[Policy]:
+    def get_by_id(self, id: int, tenant_id: UUID) -> Policy | None:
         """Get a policy by ID within a tenant.
 
         Args:
@@ -65,6 +65,33 @@ class PolicyRepository(BaseRepository[Policy]):
             )
             return list(session.exec(statement).all())
 
+    def get_by_endpoint_id_grouped(
+        self, endpoint_id: UUID, tenant_id: UUID
+    ) -> dict[str, list[Policy]]:
+        """Get all policies for a specific endpoint within a tenant, grouped by policy_type.
+
+        Args:
+            endpoint_id: Endpoint UUID
+            tenant_id: Tenant ID
+
+        Returns:
+            Dictionary mapping policy_type to list of policies
+        """
+        with self.db.get_session() as session:
+            statement = (
+                select(Policy)
+                .where(Policy.endpoint_id == endpoint_id, Policy.tenant_id == tenant_id)
+                .order_by(Policy.policy_type)
+            )
+            policies = list(session.exec(statement).all())
+
+            # Group policies by policy_type
+            grouped: dict[str, list[Policy]] = defaultdict(list)
+            for policy in policies:
+                grouped[policy.policy_type].append(policy)
+
+            return grouped
+
     def get_by_type(self, type_name: str, tenant_id: UUID) -> list[Policy]:
         """Get all policies of a specific type within a tenant.
 
@@ -81,7 +108,7 @@ class PolicyRepository(BaseRepository[Policy]):
             )
             return list(session.exec(statement).all())
 
-    def get_by_name(self, name: str, tenant_id: UUID) -> Optional[Policy]:
+    def get_by_name(self, name: str, tenant_id: UUID) -> Policy | None:
         """Get a policy by name within a tenant.
 
         Args:

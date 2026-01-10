@@ -1,12 +1,18 @@
 """Endpoint API routes."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from syftai_space.components.auth.dependencies import get_verified_user_email
+from syftai_space.components.auth.public import public_route
 from syftai_space.components.endpoints.handlers import EndpointHandler
 from syftai_space.components.endpoints.schemas import (
+    AuthenticatedQueryRequest,
     CreateEndpointRequest,
+    EndpointCreateResponse,
+    EndpointDetailResponse,
     EndpointListItem,
-    EndpointResponse,
+    PublishEndpointRequest,
+    PublishEndpointResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
 )
@@ -29,12 +35,36 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """Dependency to get the endpoint handler."""
         return handler
 
-    @router.post("/", response_model=EndpointResponse, status_code=201)
+    def get_verified_sender_email(
+        request: Request,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> str:
+        """Get verified sender email from SyftHub token.
+
+        Args:
+            request: FastAPI request object
+            tenant: Current tenant (injected)
+            handler: Endpoint handler (injected)
+
+        Returns:
+            Verified sender email from SyftHub token
+
+        Raises:
+            HTTPException: If no marketplace configured or token invalid
+        """
+        marketplace = handler.marketplace_repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(status_code=400, detail="No marketplace configured")
+
+        return get_verified_user_email(request, marketplace)
+
+    @router.post("/", response_model=EndpointCreateResponse, status_code=201)
     async def create_endpoint(
         request: CreateEndpointRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
-    ) -> EndpointResponse:
+    ) -> EndpointCreateResponse:
         """Create a new endpoint.
 
         Args:
@@ -61,12 +91,12 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """
         return handler.list_endpoints(tenant)
 
-    @router.get("/{slug}", response_model=EndpointResponse)
+    @router.get("/{slug}", response_model=EndpointDetailResponse)
     async def get_endpoint(
         slug: str,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
-    ) -> EndpointResponse:
+    ) -> EndpointDetailResponse:
         """Get details of a specific endpoint.
 
         Args:
@@ -78,14 +108,16 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """
         return handler.get_endpoint(slug, tenant)
 
+    @public_route
     @router.post("/{slug}/query", response_model=QueryEndpointResponse)
     async def query_endpoint(
         slug: str,
         request: QueryEndpointRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
+        sender_email: str = Depends(get_verified_sender_email),
         handler: EndpointHandler = Depends(get_handler),
     ) -> QueryEndpointResponse:
-        """Query an endpoint - main RAG flow.
+        """Query an endpoint - main RAG flow (PUBLIC, requires SyftHub token).
 
         This is the core endpoint that orchestrates:
         - Dataset search (if configured)
@@ -96,11 +128,34 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
             slug: Endpoint slug
             request: Query request with messages and parameters
             tenant: Current tenant (injected)
+            sender_email: Verified sender email from SyftHub token (injected)
+            handler: Endpoint handler (injected)
 
         Returns:
             Query response with summary and/or references
         """
-        return handler.query_endpoint(slug, request, tenant)
+        # Create authenticated request with verified sender email
+        auth_request = AuthenticatedQueryRequest.from_request(request, sender_email)
+        return handler.query_endpoint(slug, auth_request, tenant)
+
+    @router.post("/{slug}/publish", response_model=PublishEndpointResponse)
+    async def publish_endpoint(
+        slug: str,
+        request: PublishEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> PublishEndpointResponse:
+        """Publish an endpoint to one or more marketplaces.
+
+        Args:
+            slug: Endpoint slug
+            request: Publish request with marketplace IDs
+            tenant: Current tenant (injected)
+
+        Returns:
+            Publish results for each marketplace
+        """
+        return handler.publish_endpoint(slug, request.marketplace_ids, tenant)
 
     @router.delete("/{slug}", response_model=dict[str, str])
     async def delete_endpoint(

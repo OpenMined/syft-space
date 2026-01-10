@@ -44,11 +44,9 @@ const statusClasses = {
   running: '', // Will use shadcn variant styling
   stopped: '', // Will use shadcn variant styling
   error: '', // Will use shadcn variant styling
-  warning:
-    'bg-accent/10 text-accent-foreground border-accent/50',
+  warning: 'bg-accent/10 text-accent-foreground border-accent/50',
   success: '', // Will use shadcn variant styling
-  pending:
-    'bg-secondary/10 text-secondary-foreground border-secondary/50',
+  pending: 'bg-secondary/10 text-secondary-foreground border-secondary/50',
   published: '', // Will use shadcn variant styling
   draft: '', // Will use shadcn variant styling
 }

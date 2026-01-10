@@ -1,6 +1,6 @@
 """Policy database entities."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -41,8 +41,8 @@ class Policy(SQLModel, table=True):
         sa_column=Column(ForeignKey("endpoints.id", ondelete="CASCADE")),
         description="ID of the endpoint this policy is attached to",
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Relationships
     tenant: "Tenant" = Relationship(back_populates="policies")

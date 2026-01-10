@@ -1,8 +1,30 @@
 """Policy type interfaces and domain models."""
 
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, EmailStr, Field
+
+
+class PolicyViolationError(Exception):
+    """Raised when a policy rule is violated.
+
+    This exception is used by policy hooks to signal that the request
+    should be blocked (pre-hook) or the response should not be returned (post-hook).
+    """
+
+    def __init__(
+        self, message: str, policy_type: str, details: dict[str, Any] | None = None
+    ) -> None:
+        """Initialize the PolicyViolationError.
+
+        Args:
+            message: Human-readable error message
+            policy_type: Name of the policy type that raised the error
+            details: Optional additional details about the error
+        """
+        super().__init__(message)
+        self.policy_type = policy_type
+        self.details = details or {}
 
 
 class PolicyContext(BaseModel):
@@ -14,7 +36,7 @@ class PolicyContext(BaseModel):
     endpoint_slug: str = Field(..., description="Slug of the endpoint being accessed")
     sender_email: EmailStr = Field(..., description="Email of the request sender")
     request: dict[str, Any] = Field(..., description="Request payload")
-    response: Optional[dict[str, Any]] = Field(
+    response: dict[str, Any] | None = Field(
         default=None, description="Response payload (for post hooks)"
     )
     metadata: dict[str, Any] = Field(
@@ -27,15 +49,18 @@ class BasePolicyType(Protocol):
 
     All concrete policy types must implement this protocol.
     Policies are pre/post hooks applied to endpoint requests.
+
+    One instance is created per policy type, and all configurations
+    for that type are passed to the hooks. This allows the policy type
+    to determine its own aggregation logic (AND/OR/custom).
     """
 
     NAME: str
 
-    def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize the policy type with configuration.
+    def __init__(self) -> None:
+        """Initialize the policy type.
 
-        Args:
-            config: Configuration dictionary for this policy type
+        No configuration is passed here - configurations are passed to hooks.
         """
         ...
 
@@ -66,32 +91,44 @@ class BasePolicyType(Protocol):
         """
         ...
 
-    def pre_hook(self, context: PolicyContext) -> PolicyContext:
+    def pre_hook(
+        self, configs: list[dict[str, Any]], context: PolicyContext
+    ) -> PolicyContext:
         """Pre-hook executed before endpoint processing.
 
-        Can modify context or raise exceptions to block requests.
+        Receives ALL configurations for this policy type attached to the endpoint.
+        The policy type decides its own aggregation logic (AND/OR/custom).
 
         Args:
+            configs: List of configurations for all policies of this type
             context: Policy context with request information
 
         Returns:
             Modified context (can add metadata, modify request, etc.)
 
         Raises:
-            Exception: To block the request
+            PolicyViolationError: To abort request processing
         """
         ...
 
-    def post_hook(self, context: PolicyContext) -> PolicyContext:
+    def post_hook(
+        self, configs: list[dict[str, Any]], context: PolicyContext
+    ) -> PolicyContext:
         """Post-hook executed after endpoint processing.
 
-        Can modify response or perform logging/accounting.
+        Receives ALL configurations for this policy type attached to the endpoint.
+        The policy type decides its own aggregation logic (AND/OR/custom).
 
         Args:
+            configs: List of configurations for all policies of this type
             context: Policy context with request and response
 
         Returns:
             Modified context (can modify response, add metadata, etc.)
+
+        Raises:
+            PolicyViolationError: To abort response (data integrity - e.g., if
+                accounting transaction confirmation fails)
         """
         ...
 
@@ -101,5 +138,20 @@ class BasePolicyType(Protocol):
 
         Returns:
             True if enabled, False otherwise
+        """
+        ...
+
+    @classmethod
+    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+        """Validate and normalize configuration.
+
+        Args:
+            config: Configuration dictionary to validate
+
+        Returns:
+            Validated configuration dictionary
+
+        Raises:
+            ValueError: If configuration is invalid
         """
         ...

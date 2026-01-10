@@ -65,8 +65,6 @@ import { getMockAnalytics } from '@/stores/mockData'
 
 const endpointsStore = useEndpointsStore()
 
-const activeCount = computed(
-  () => endpointsStore.endpoints.filter((e) => e.status === 'published').length,
-)
+const activeCount = computed(() => endpointsStore.endpoints.filter((e) => e.published).length)
 const analytics = getMockAnalytics('endpoint')
 </script>

@@ -15,7 +15,7 @@
         <li class="flex items-center">
           <ChevronRight class="h-4 w-4 text-muted-foreground mx-3" />
           <span class="text-foreground body-sm font-medium">{{
-            dataset?.name || 'Loading...'
+            loading ? 'Loading...' : dataset?.name || 'Dataset not found'
           }}</span>
         </li>
       </ol>
@@ -33,6 +33,16 @@
       <Button @click="$router.push('/datasets')" variant="outline"> Back to Datasets </Button>
     </div>
 
+    <!-- Loading State -->
+    <div v-else-if="loading" class="flex items-center justify-center min-h-96">
+      <div class="text-center">
+        <div
+          class="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"
+        ></div>
+        <p class="text-muted-foreground">Loading dataset...</p>
+      </div>
+    </div>
+
     <!-- Dataset Details -->
     <div v-else-if="dataset" class="space-y-6">
       <!-- Header -->
@@ -42,18 +52,18 @@
             <div
               :class="[
                 'p-4 rounded-2xl shadow-sm',
-                dataset.type === 'weaviate'
+                dataset.dtype === 'weaviate'
                   ? 'bg-primary/10 border border-border'
-                  : dataset.type === 'qdrant'
+                  : dataset.dtype === 'qdrant'
                     ? 'bg-primary/10 border border-border'
                     : 'bg-primary/10 border border-border',
               ]"
             >
-              <IntegrationIcon :name="dataset.type" class="h-8 w-8" />
+              <IntegrationIcon :name="datasetTypeInfo?.icon || dataset.dtype" class="h-8 w-8" />
             </div>
             <div>
               <h1 class="heading-2 mb-2">{{ dataset.name }}</h1>
-              <p class="body-lg text-muted-foreground mb-4">{{ dataset.description }}</p>
+              <p class="body-lg text-muted-foreground mb-4">{{ dataset.summary }}</p>
               <div class="flex flex-wrap items-center gap-3">
                 <Badge
                   variant="outline"
@@ -76,7 +86,7 @@
                   variant="outline"
                   class="bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full"
                 >
-                  {{ dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1) }}
+                  {{ dataset.dtype }}
                 </Badge>
                 <Badge
                   v-for="tag in dataset.tags"
@@ -109,7 +119,7 @@
       <!-- Tabs Navigation -->
       <Tabs default-value="overview" class="space-y-4">
         <TabsList
-          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3"
+          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-2"
         >
           <TabsTrigger value="overview" class="flex items-center gap-2">
             <Database class="h-4 w-4" />
@@ -118,10 +128,6 @@
           <TabsTrigger value="analytics" class="flex items-center gap-2">
             <BarChart3 class="h-4 w-4" />
             Analytics
-          </TabsTrigger>
-          <TabsTrigger value="logs" class="flex items-center gap-2">
-            <ScrollText class="h-4 w-4" />
-            Logs
           </TabsTrigger>
         </TabsList>
 
@@ -133,20 +139,18 @@
               <div class="text-center">
                 <p class="body-sm text-muted-foreground mb-1">Type</p>
                 <p class="body-sm font-medium text-foreground">
-                  {{ dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1) }}
+                  {{
+                    datasetTypeInfo?.name ||
+                    dataset.dtype.charAt(0).toUpperCase() + dataset.dtype.slice(1)
+                  }}
                 </p>
               </div>
 
               <div class="text-center">
                 <p class="body-sm text-muted-foreground mb-1">Status</p>
                 <div class="flex items-center justify-center gap-2">
-                  <div
-                    :class="[
-                      'w-2.5 h-2.5 rounded-full',
-                      dataset.status === 'running' ? 'bg-primary' : 'bg-muted',
-                    ]"
-                  ></div>
-                  <p class="body-sm font-medium text-foreground capitalize">{{ dataset.status }}</p>
+                  <div :class="['w-2.5 h-2.5 rounded-full', getDatasetStatus().color]"></div>
+                  <p class="body-sm font-medium text-foreground">{{ getDatasetStatus().text }}</p>
                 </div>
               </div>
 
@@ -156,23 +160,23 @@
               </div>
 
               <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Queries</p>
+                <p class="body-sm text-muted-foreground mb-1">Files</p>
                 <p class="body-sm font-medium text-primary">
-                  {{ getUsageStats().totalQueries }}
+                  {{ getTotalFiles() }}
                 </p>
               </div>
 
               <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Data Points</p>
+                <p class="body-sm text-muted-foreground mb-1">Ingested</p>
                 <p class="body-sm font-medium text-primary">
-                  {{ getUsageStats().dataPoints }}
+                  {{ getIngestedFiles() }}
                 </p>
               </div>
 
               <div class="text-center">
                 <p class="body-sm text-muted-foreground mb-1">Created</p>
                 <p class="body-sm font-medium text-foreground">
-                  {{ formatDate(dataset.createdAt) }}
+                  {{ formatDate(dataset.created_at) }}
                 </p>
               </div>
             </div>
@@ -184,92 +188,92 @@
             class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
           >
             <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-3">Watched Paths</h2>
-              <Button variant="outline" size="sm" @click="refreshWatchedPaths">
-                <RefreshCw class="h-4 w-4 mr-2" :class="{ 'animate-spin': isRefreshingPaths }" />
-                Refresh
-              </Button>
-            </div>
-            <div class="space-y-4">
-              <div
-                v-for="path in getWatchedPaths()"
-                :key="path.id"
-                class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
-              >
-                <div class="flex items-center gap-4">
+              <div class="flex items-center gap-4">
+                <h2 class="heading-3">Watched Paths</h2>
+                <div class="flex items-center gap-2">
                   <div
                     :class="[
-                      'w-3 h-3 rounded-full',
-                      path.status === 'indexed'
-                        ? 'bg-primary'
-                        : path.status === 'processing'
-                          ? 'bg-secondary'
-                          : path.status === 'queued'
-                            ? 'bg-accent'
-                            : path.status === 'errored'
-                              ? 'bg-destructive'
-                              : 'bg-muted',
+                      'w-2 h-2 rounded-full',
+                      ingestionStatus?.is_watching ? 'bg-primary' : 'bg-muted',
                     ]"
                   ></div>
-                  <div class="flex-1">
-                    <p class="body-sm font-medium text-foreground">{{ path.path }}</p>
-                    <p class="body-sm text-muted-foreground mt-1">
-                      {{ path.fileCount }} files • Last scan: {{ path.lastScan }}
-                    </p>
-                    <p class="body-sm text-muted-foreground mt-2 italic">{{ path.summary }}</p>
-                  </div>
-                </div>
-                <div class="flex items-center gap-4">
-                  <Badge
-                    :variant="
-                      path.status === 'indexed'
-                        ? 'default'
-                        : path.status === 'processing'
-                          ? 'secondary'
-                          : path.status === 'errored'
-                            ? 'destructive'
-                            : 'outline'
-                    "
-                    class="capitalize px-3 py-1.5 rounded-full border-0"
-                  >
-                    {{ path.status }}
-                  </Badge>
-                  <span
-                    v-if="path.status === 'processing'"
-                    class="body-sm font-medium text-muted-foreground"
-                  >
-                    {{ path.progress }}%
+                  <span class="body-sm text-muted-foreground">
+                    {{ ingestionStatus?.is_watching ? 'Watching' : 'Not watching' }}
                   </span>
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <Button
+                  v-if="ingestionStatus?.failed && ingestionStatus.failed > 0"
+                  variant="outline"
+                  size="sm"
+                  @click="retryFailedJobs"
+                  :disabled="isRetryingJobs"
+                >
+                  <RotateCcw class="h-4 w-4 mr-2" :class="{ 'animate-spin': isRetryingJobs }" />
+                  Retry Failed ({{ ingestionStatus.failed }})
+                </Button>
+              </div>
+            </div>
+            <div v-if="getWatchedPaths().length > 0">
+              <!-- Watched Paths Overview -->
+              <div class="space-y-4 mb-8">
+                <div
+                  v-for="path in getWatchedPaths()"
+                  :key="path.id"
+                  class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
+                >
+                  <div class="flex items-center gap-4">
+                    <div
+                      :class="[
+                        'w-3 h-3 rounded-full',
+                        path.status === 'watching' ? 'bg-primary' : 'bg-muted',
+                      ]"
+                    ></div>
+                    <div class="flex-1">
+                      <p class="body-sm font-medium text-foreground">{{ path.path }}</p>
+                      <p class="body-sm text-muted-foreground mt-1">
+                        {{ path.description }}
+                      </p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-4">
+                    <Badge
+                      :variant="path.status === 'watching' ? 'default' : 'outline'"
+                      class="capitalize px-3 py-1.5 rounded-full border-0"
+                    >
+                      {{ path.status === 'watching' ? 'Watching' : 'Not Watching' }}
+                    </Badge>
+                  </div>
                 </div>
               </div>
             </div>
 
+            <!-- No Watched Paths Message -->
+            <div v-else class="text-center py-16">
+              <div
+                class="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center"
+              >
+                <Database class="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p class="text-muted-foreground body-sm mb-4">No watched paths configured</p>
+              <p class="text-muted-foreground body-sm">
+                Configure file paths in dataset settings to enable file watching
+              </p>
+            </div>
+
             <div class="mt-8 pt-6 border-t border-border">
               <div class="flex items-center justify-between">
-                <div class="flex items-center gap-6">
-                  <span class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground">
-                    <div class="w-2.5 h-2.5 bg-primary rounded-full"></div>
-                    Indexed ({{ getWatchedPaths().filter((p) => p.status === 'indexed').length }})
-                  </span>
-                  <span class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground">
-                    <div class="w-2.5 h-2.5 bg-secondary rounded-full"></div>
-                    Processing ({{
-                      getWatchedPaths().filter((p) => p.status === 'processing').length
-                    }})
-                  </span>
-                  <span class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground">
-                    <div class="w-2.5 h-2.5 bg-accent rounded-full"></div>
-                    Queued ({{ getWatchedPaths().filter((p) => p.status === 'queued').length }})
-                  </span>
-                  <span class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground">
-                    <div class="w-2.5 h-2.5 bg-destructive rounded-full"></div>
-                    Errored ({{ getWatchedPaths().filter((p) => p.status === 'errored').length }})
+                <div class="flex items-center gap-4 flex-wrap">
+                  <span
+                    v-for="status in ['completed', 'in_progress', 'pending', 'failed', 'cancelled']"
+                    :key="status"
+                    class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground px-3 py-2 rounded-lg"
+                  >
+                    <div :class="getStatusDotClass(status)"></div>
+                    {{ getStatusLabel(status) }} ({{ getStatusCount(status) }})
                   </span>
                 </div>
-                <Button variant="outline" size="sm">
-                  <Plus class="h-4 w-4 mr-2" />
-                  Add Path
-                </Button>
               </div>
             </div>
           </div>
@@ -278,70 +282,54 @@
           <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
             <div class="flex items-center justify-between mb-8">
               <h2 class="heading-3">Configuration</h2>
-              <div class="flex items-center gap-3">
-                <Button variant="outline" size="sm">
-                  <Edit class="h-4 w-4 mr-2" />
-                  Edit Settings
-                </Button>
-              </div>
             </div>
 
             <!-- Basic Settings -->
             <div class="space-y-6">
               <div class="flex justify-between items-center py-2 border-b border-border">
                 <span class="body-sm text-muted-foreground">Index Name</span>
-                <span class="body-sm font-medium text-foreground">{{ getIndexName() }}</span>
+                <span class="body-sm font-medium text-foreground">{{
+                  getConfigValue('indexName') || getConfigValue('collectionName') || dataset.name
+                }}</span>
               </div>
               <div class="flex justify-between items-center py-2">
                 <span class="body-sm text-muted-foreground">Connection Status</span>
                 <div class="flex items-center gap-3">
-                  <div class="w-2.5 h-2.5 bg-primary rounded-full"></div>
-                  <span class="body-sm font-medium text-primary"
-                    >Connected</span
+                  <div
+                    :class="[
+                      'w-2.5 h-2.5 rounded-full',
+                      healthStatus?.status === 'healthy' ? 'bg-primary' : 'bg-destructive',
+                    ]"
+                  ></div>
+                  <span
+                    :class="[
+                      'body-sm font-medium',
+                      healthStatus?.status === 'healthy' ? 'text-primary' : 'text-destructive',
+                    ]"
                   >
+                    {{ healthStatus?.status === 'healthy' ? 'Connected' : 'Disconnected' }}
+                  </span>
                 </div>
               </div>
             </div>
 
-            <!-- Advanced Settings (Collapsible) -->
-            <div v-if="showAdvancedConfig" class="mt-6 pt-6 border-t border-border">
+            <!-- Dynamic Configuration Display -->
+            <div
+              v-if="showAdvancedConfig && dataset?.configuration"
+              class="mt-6 pt-6 border-t border-border"
+            >
               <div class="space-y-6">
                 <h3 class="body-sm font-semibold text-foreground mb-4">Advanced Settings</h3>
                 <div class="space-y-3">
-                  <div class="flex justify-between items-center py-2 border-b border-border">
-                    <span class="body-sm text-muted-foreground">URL</span>
+                  <!-- Dynamically render configuration properties -->
+                  <div
+                    v-for="(value, key) in getDisplayableConfig()"
+                    :key="key"
+                    class="flex justify-between items-center py-2 border-b border-border"
+                  >
+                    <span class="body-sm text-muted-foreground">{{ formatConfigKey(key) }}</span>
                     <span class="body-sm font-medium text-foreground">{{
-                      getConnectionUrl()
-                    }}</span>
-                  </div>
-                  <div class="flex justify-between items-center py-2 border-b border-border">
-                    <span class="body-sm text-muted-foreground">Vector Dimensions</span>
-                    <span class="body-sm font-medium text-foreground">{{
-                      getWeaviateConfig().dimensions
-                    }}</span>
-                  </div>
-                  <div class="flex justify-between items-center py-2 border-b border-border">
-                    <span class="body-sm text-muted-foreground">Chunk Size</span>
-                    <span class="body-sm font-medium text-foreground"
-                      >{{ getWeaviateConfig().chunkSize }} tokens</span
-                    >
-                  </div>
-                  <div class="flex justify-between items-center py-2 border-b border-border">
-                    <span class="body-sm text-muted-foreground">Overlap</span>
-                    <span class="body-sm font-medium text-foreground"
-                      >{{ getWeaviateConfig().overlap }} tokens</span
-                    >
-                  </div>
-                  <div class="flex justify-between items-center py-2 border-b border-border">
-                    <span class="body-sm text-muted-foreground">Embedding Model</span>
-                    <span class="body-sm font-medium text-foreground">{{
-                      getWeaviateConfig().embeddingModel
-                    }}</span>
-                  </div>
-                  <div class="flex justify-between items-center py-2">
-                    <span class="body-sm text-muted-foreground">Distance Metric</span>
-                    <span class="body-sm font-medium text-foreground">{{
-                      getWeaviateConfig().distanceMetric
+                      formatConfigValue(key, value)
                     }}</span>
                   </div>
                 </div>
@@ -367,24 +355,18 @@
               <div
                 v-for="endpoint in connectedEndpoints"
                 :key="endpoint.id"
-                class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
+                class="flex items-center gap-4 py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all cursor-pointer"
+                @click="navigateToEndpoint(endpoint.slug)"
               >
-                <div class="flex items-center gap-4">
-                  <div
-                    class="p-3 bg-primary/10 rounded-xl"
-                  >
-                    <Globe class="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
-                    <p class="body-sm text-muted-foreground mt-1">
-                      {{ endpoint.description || 'API endpoint' }}
-                    </p>
-                  </div>
+                <div class="p-3 bg-primary/10 rounded-xl">
+                  <Globe class="h-5 w-5 text-primary" />
                 </div>
-                <Button variant="outline" size="sm">
-                  <ExternalLink class="h-4 w-4" />
-                </Button>
+                <div class="flex-1">
+                  <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
+                  <p class="body-sm text-muted-foreground mt-1">
+                    {{ endpoint.slug || 'API endpoint' }}
+                  </p>
+                </div>
               </div>
             </div>
             <div v-else class="text-center py-16">
@@ -392,7 +374,7 @@
               <p class="text-muted-foreground body-sm mb-4">
                 No endpoints connected to this dataset
               </p>
-              <Button size="sm">
+              <Button size="sm" @click="$router.push({ name: 'create-data-endpoint' })">
                 <Plus class="h-4 w-4 mr-2" />
                 Create Endpoint
               </Button>
@@ -402,170 +384,120 @@
 
         <!-- Analytics Tab Content -->
         <TabsContent value="analytics" class="space-y-6">
-          <!-- Access Trends Chart -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-3 text-foreground flex items-center gap-2">
-                Access Trends
-              </h2>
-              <div class="flex items-center gap-2">
-                <Button
-                  v-for="period in ['Daily', 'Weekly', 'Monthly']"
-                  :key="period"
-                  size="sm"
-                  :variant="selectedPeriod === period ? 'default' : 'outline'"
-                  @click="selectedPeriod = period"
-                  class="body-sm rounded-xl px-4 py-2"
-                >
-                  {{ period }}
-                </Button>
-              </div>
-            </div>
-            <div
-              class="h-80 flex items-center justify-center border border-dashed border-border rounded-2xl bg-muted/30"
-            >
-              <div class="text-center">
-                <p class="text-muted-foreground body-lg mb-1">{{ selectedPeriod }} Access Chart</p>
-                <p class="text-muted-foreground body-sm">Chart visualization coming soon</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Access Logs -->
-          <div class="bg-card border border-border rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-              <h2 class="heading-3 text-foreground">Recent Access Logs</h2>
-              <Button variant="outline" size="sm">
-                <Download class="h-4 w-4 mr-2" />
-                Export Logs
+          <!-- Watched Files (only for self-managed) -->
+          <div
+            v-if="getDatasetManagement() === 'Self-managed' && getWatchedPaths().length > 0"
+            class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+          >
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="heading-3">Watched Files</h2>
+              <Button variant="outline" size="sm" @click="refreshWatchedPaths">
+                <RefreshCw class="h-4 w-4 mr-2" :class="{ 'animate-spin': isRefreshingPaths }" />
+                Refresh
               </Button>
             </div>
-            <div class="space-y-3">
+
+            <!-- Status Filter Tabs -->
+            <div class="flex items-center justify-between mb-6 pb-4 border-b border-border">
+              <div class="flex items-center gap-4 flex-wrap">
+                <span
+                  v-for="status in ['completed', 'in_progress', 'pending', 'failed', 'cancelled']"
+                  :key="status"
+                  :class="getStatusTagClass(status)"
+                  @click="onJobStatusChange(status)"
+                >
+                  <div :class="getStatusDotClass(status)"></div>
+                  {{ getStatusLabel(status) }} ({{ getStatusCount(status) }})
+                </span>
+              </div>
+              <div class="body-sm text-muted-foreground">
+                {{ getPageInfo().start }}-{{ getPageInfo().end }} of
+                {{ getStatusCount(selectedJobStatus) }} files
+              </div>
+            </div>
+
+            <!-- Loading State -->
+            <div v-if="isLoadingFiles" class="flex items-center justify-center py-8">
+              <div class="flex items-center gap-2 text-muted-foreground">
+                <RefreshCw class="h-4 w-4 animate-spin" />
+                <span class="body-sm">Loading files...</span>
+              </div>
+            </div>
+
+            <!-- Files List -->
+            <div v-else-if="getFilteredJobs().length > 0" class="space-y-2">
               <div
-                v-for="log in getAccessLogs()"
-                :key="log.id"
-                class="flex items-center justify-between py-3 px-4 bg-muted/50 border border-border rounded-lg"
+                v-for="job in getFilteredJobs()"
+                :key="job.id"
+                class="flex items-center justify-between py-3 px-4 bg-background border border-border rounded-lg hover:bg-muted/50 transition-all"
               >
-                <div class="flex items-center gap-3">
-                  <div
-                    :class="[
-                      'w-2 h-2 rounded-full',
-                      log.status === 'success'
-                        ? 'bg-primary'
-                        : log.status === 'error'
-                          ? 'bg-destructive'
-                          : 'bg-accent',
-                    ]"
-                  ></div>
-                  <span class="body-sm font-medium text-foreground">{{ log.endpoint }}</span>
-                  <span class="body-sm text-muted-foreground">{{ log.method }}</span>
+                <div class="flex items-center gap-3 flex-1 min-w-0">
+                  <File class="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <div class="flex-1 min-w-0">
+                    <p class="body-sm font-medium text-foreground truncate">{{ job.file_name }}</p>
+                    <div class="flex items-center gap-4 mt-1">
+                      <p class="body-sm text-muted-foreground">
+                        {{ formatFileSize(job.file_size) }}
+                      </p>
+                      <div class="flex items-center gap-1">
+                        <Clock class="h-3 w-3 text-muted-foreground" />
+                        <p class="body-sm text-muted-foreground">
+                          {{ formatTimeAgo(job.created_at) }}
+                        </p>
+                      </div>
+                      <p v-if="job.retry_count > 0" class="body-sm text-muted-foreground">
+                        {{ job.retry_count }} retries
+                      </p>
+                    </div>
+                    <p v-if="job.error_message" class="body-sm text-destructive mt-1 truncate">
+                      {{ job.error_message }}
+                    </p>
+                  </div>
                 </div>
-                <div class="flex items-center gap-4">
-                  <span class="body-sm text-muted-foreground">{{ log.responseTime }}</span>
-                  <span class="body-sm text-muted-foreground">{{ log.timestamp }}</span>
-                  <Badge
-                    :variant="log.status === 'success' ? 'default' : 'destructive'"
-                    class="body-sm"
-                  >
-                    {{ log.status }}
+                <div class="flex items-center gap-3">
+                  <Badge :variant="getJobStatusBadgeVariant(job.status)" class="capitalize">
+                    {{ job.status.replace('_', ' ') }}
                   </Badge>
                 </div>
               </div>
-            </div>
-          </div>
-        </TabsContent>
 
-        <!-- Logs Tab Content -->
-        <TabsContent value="logs" class="space-y-6">
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-3 text-foreground flex items-center gap-2">
-                Weaviate Logs
-              </h2>
-              <div class="flex items-center gap-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  @click="refreshLogs"
-                  class="rounded-xl px-4 py-2.5"
-                >
-                  <RefreshCw class="h-4 w-4 mr-2" :class="{ 'animate-spin': isRefreshing }" />
-                  Refresh
-                </Button>
-                <Button variant="outline" size="sm" class="rounded-xl px-4 py-2.5">
-                  <Download class="h-4 w-4 mr-2" />
-                  Download
-                </Button>
-              </div>
-            </div>
-
-            <!-- Log Filters -->
-            <div class="flex items-center gap-6 mb-8 pb-6 border-b border-border">
-              <div class="flex items-center gap-3">
-                <span class="body-sm font-medium text-muted-foreground">Level:</span>
-                <div class="flex gap-2">
+              <!-- Pagination Controls -->
+              <div
+                v-if="totalPages > 1"
+                class="flex items-center justify-between pt-4 border-t border-border"
+              >
+                <div class="flex items-center gap-2">
                   <Button
-                    v-for="level in ['ALL', 'INFO', 'WARN', 'ERROR']"
-                    :key="level"
+                    variant="outline"
                     size="sm"
-                    :variant="selectedLogLevel === level ? 'default' : 'outline'"
-                    @click="selectedLogLevel = level"
-                    class="body-sm rounded-xl px-4 py-2"
+                    :disabled="!canGoPrevious"
+                    @click="onPageChange(currentPage - 1)"
                   >
-                    {{ level }}
+                    <ChevronLeft class="h-4 w-4" />
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    :disabled="!canGoNext"
+                    @click="onPageChange(currentPage + 1)"
+                  >
+                    Next
+                    <ChevronRightIcon class="h-4 w-4" />
                   </Button>
                 </div>
-              </div>
-              <div class="flex items-center gap-3">
-                <span class="body-sm font-medium text-muted-foreground">Auto-refresh:</span>
-                <Button
-                  size="sm"
-                  :variant="autoRefresh ? 'default' : 'outline'"
-                  @click="toggleAutoRefresh"
-                  class="body-sm rounded-xl px-4 py-2"
-                >
-                  {{ autoRefresh ? 'ON' : 'OFF' }}
-                </Button>
+                <div class="body-sm text-muted-foreground">
+                  Page {{ currentPage }} of {{ totalPages }}
+                </div>
               </div>
             </div>
 
-            <!-- Logs Display -->
-            <div
-              class="bg-background rounded-2xl p-6 h-96 overflow-y-auto font-mono body-sm border border-border"
-            >
-              <div
-                v-for="log in filteredLogs"
-                :key="log.id"
-                :class="[
-                  'mb-2 leading-relaxed',
-                  log.level === 'INFO'
-                    ? 'text-green-400'
-                    : log.level === 'WARN'
-                      ? 'text-yellow-400'
-                      : log.level === 'ERROR'
-                        ? 'text-red-400'
-                        : 'text-muted-foreground',
-                ]"
-              >
-                <span class="text-muted-foreground">[{{ log.timestamp }}]</span>
-                <span
-                  :class="[
-                    'ml-2 px-2 py-1 rounded body-sm font-bold',
-                    log.level === 'INFO'
-                      ? 'bg-green-900 text-green-200'
-                      : log.level === 'WARN'
-                        ? 'bg-yellow-900 text-yellow-200'
-                        : log.level === 'ERROR'
-                          ? 'bg-red-900 text-red-200'
-                          : 'bg-muted text-muted-foreground',
-                  ]"
-                  >{{ log.level }}</span
-                >
-                <span class="ml-2">{{ log.message }}</span>
-              </div>
-              <div v-if="filteredLogs.length === 0" class="text-muted-foreground text-center py-8">
-                No logs found for the selected filter
-              </div>
+            <!-- Empty State -->
+            <div v-else class="text-center py-8">
+              <File class="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+              <p class="text-muted-foreground body-sm">
+                No {{ getStatusLabel(selectedJobStatus).toLowerCase() }} files found
+              </p>
             </div>
           </div>
         </TabsContent>
@@ -574,9 +506,9 @@
   </div>
 
   <!-- Create Dataset Dialog -->
-  <CreateDatasetDialog
+  <CreateDatasetDialogSimple
     v-model:open="showEditDialog"
-    :dataset="dataset"
+    :dataset="editingDataset"
     @dataset-updated="handleDatasetUpdated"
     @update:open="!$event && handleDialogClose()"
   />
@@ -606,7 +538,7 @@
                 <p class="text-red-800 body-sm mb-3">Check each endpoint to confirm deletion</p>
                 <div class="space-y-2">
                   <div
-                    v-for="endpointName in getEndpointNamesForDataset(dataset.id)"
+                    v-for="endpointName in getEndpointNamesForDataset()"
                     :key="endpointName"
                     class="flex items-center gap-3 p-2.5 bg-white rounded border border-red-200"
                   >
@@ -649,7 +581,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Database,
@@ -658,12 +590,14 @@ import {
   Trash2,
   Globe,
   Plus,
-  ExternalLink,
   BarChart3,
-  ScrollText,
-  Download,
   RefreshCw,
   ChevronDown,
+  RotateCcw,
+  File,
+  Clock,
+  ChevronLeft,
+  ChevronRight as ChevronRightIcon,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -677,131 +611,100 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
-import CreateDatasetDialog from '@/components/CreateDatasetDialog.vue'
+import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import { datasetsApi } from '@/api/endpoints/datasets'
+import { ingestionApi } from '@/api/endpoints/ingestion'
+import type {
+  DatasetResponse,
+  IngestionStatusResponse,
+  IngestionJobListResponse,
+  DatasetTypeInfoResponse,
+} from '@/api/types'
 
-interface DataSource {
-  id: string
-  name: string
-  type: string
-  description: string
+// Interface for tag parsing
+interface ParsedDataset extends Omit<DatasetResponse, 'tags'> {
   tags: string[]
   status: 'running' | 'stopped'
   endpointCount: number
-  createdAt: Date
 }
-
-interface Endpoint {
-  id: string
-  name: string
-  description?: string
-  datasetIds: string[]
-}
-
-// Mock data - in a real app, this would come from an API
-const mockDatasets: DataSource[] = [
-  {
-    id: '1',
-    name: 'Legal Documents Store',
-    type: 'weaviate',
-    description: 'Vector database for legal document analysis and retrieval',
-    tags: ['legal', 'documents', 'analysis'],
-    status: 'running',
-    endpointCount: 3,
-    createdAt: new Date('2024-01-15'),
-  },
-  {
-    id: '2',
-    name: 'Customer Analytics Store',
-    type: 'qdrant',
-    description: 'Vector database for customer behavior analysis and segmentation',
-    tags: ['customer', 'analytics', 'segmentation'],
-    status: 'running',
-    endpointCount: 1,
-    createdAt: new Date('2024-02-10'),
-  },
-  {
-    id: '3',
-    name: 'Research Database',
-    type: 'chroma',
-    description: 'Knowledge base for research papers and scientific literature',
-    tags: ['research', 'papers', 'knowledge'],
-    status: 'stopped',
-    endpointCount: 0,
-    createdAt: new Date('2024-03-05'),
-  },
-]
-
-const mockEndpoints: Endpoint[] = [
-  {
-    id: 'endpoint-1',
-    name: 'Legal Document Analysis API',
-    description: 'Analyze and extract insights from legal documents',
-    datasetIds: ['1'],
-  },
-  {
-    id: 'endpoint-2',
-    name: 'Contract Review Assistant',
-    description: 'AI-powered contract review and analysis',
-    datasetIds: ['1'],
-  },
-  {
-    id: 'endpoint-3',
-    name: 'Legal Research Helper',
-    description: 'Search and retrieve relevant legal precedents',
-    datasetIds: ['1'],
-  },
-  {
-    id: 'endpoint-4',
-    name: 'Customer Insights API',
-    description: 'Generate customer behavior insights',
-    datasetIds: ['2'],
-  },
-]
 
 const route = useRoute()
 const router = useRouter()
 
 const error = ref(false)
-const dataset = ref<DataSource | null>(null)
+const loading = ref(true)
+const dataset = ref<ParsedDataset | null>(null)
+const healthStatus = ref<{ status: string; message: string } | null>(null)
+const datasetTypeInfo = ref<DatasetTypeInfoResponse | null>(null)
 const showEditDialog = ref(false)
+const editingDataset = ref<{
+  id: string
+  name: string
+  summary: string
+  tags: string[]
+  filePaths: Array<{ path: string; description: string }>
+} | null>(null)
 const showDeleteDialog = ref(false)
 const checkedEndpoints = ref<string[]>([])
-const selectedPeriod = ref('Daily')
-const selectedLogLevel = ref('ALL')
-const autoRefresh = ref(false)
-const isRefreshing = ref(false)
-const refreshInterval = ref<number | null>(null)
 const isRefreshingPaths = ref(false)
+const ingestionStatus = ref<IngestionStatusResponse | null>(null)
+const ingestionJobs = ref<IngestionJobListResponse | null>(null)
+const selectedJobStatus = ref<string>('completed')
+const isRetryingJobs = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const isLoadingFiles = ref(false)
 const showAdvancedConfig = ref(false)
 
 const connectedEndpoints = computed(() => {
   if (!dataset.value) return []
-  return mockEndpoints.filter((endpoint) => endpoint.datasetIds.includes(dataset.value!.id))
+  return dataset.value.connected_endpoints
 })
 
-const formatDate = (date: Date) => {
-  return date.toLocaleDateString('en-US', {
+const formatDate = (dateString: string) => {
+  return new Date(dateString).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   })
 }
 
-const getUsageStats = () => {
-  // Mock data - in real app this would come from analytics API
-  return {
-    totalQueries: '8.4k',
-    dataPoints: '2.1M',
-    storageUsed: '1.2GB',
-    thisMonth: '847',
+const getDatasetStatus = () => {
+  if (!healthStatus.value) {
+    return { text: 'Unknown', color: 'bg-muted' }
+  }
+
+  // Map health status to display format
+  switch (healthStatus.value.status) {
+    case 'healthy':
+      return { text: 'Healthy', color: 'bg-primary' }
+    case 'unhealthy':
+      return { text: 'Unhealthy', color: 'bg-destructive' }
+    case 'degraded':
+      return { text: 'Degraded', color: 'bg-yellow-500' }
+    default:
+      return { text: 'Unknown', color: 'bg-muted' }
   }
 }
 
+const getTotalFiles = () => {
+  if (getDatasetManagement() === 'Self-managed') {
+    return ingestionStatus.value?.total_jobs?.toLocaleString() || '0'
+  }
+  return 'N/A' // External datasets don't track files
+}
+
+const getIngestedFiles = () => {
+  if (getDatasetManagement() === 'Self-managed') {
+    return ingestionStatus.value?.completed?.toLocaleString() || '0'
+  }
+  return 'N/A' // External datasets don't track ingestion
+}
+
 // Function to get endpoint names connected to a dataset
-const getEndpointNamesForDataset = (datasetId: string): string[] => {
-  return mockEndpoints
-    .filter((endpoint) => endpoint.datasetIds.includes(datasetId))
-    .map((endpoint) => endpoint.name)
+const getEndpointNamesForDataset = (): string[] => {
+  if (!dataset.value) return []
+  return dataset.value.connected_endpoints.map((endpoint) => endpoint.name)
 }
 
 // Check if all endpoints are selected
@@ -809,7 +712,7 @@ const allEndpointsChecked = computed(() => {
   if (!dataset.value) return true
   if (dataset.value.endpointCount === 0) return true
 
-  const endpointNames = getEndpointNamesForDataset(dataset.value.id)
+  const endpointNames = getEndpointNamesForDataset()
   return endpointNames.length > 0 && endpointNames.length === checkedEndpoints.value.length
 })
 
@@ -823,13 +726,94 @@ const toggleEndpoint = (endpointName: string) => {
   }
 }
 
-const editDataset = () => {
-  showEditDialog.value = true
+const editDataset = async () => {
+  if (!dataset.value) return
+
+  try {
+    editingDataset.value = {
+      id: dataset.value.id,
+      name: dataset.value.name,
+      summary: dataset.value.summary,
+      tags: dataset.value.tags || [],
+      filePaths: [], // Not used in edit mode
+    }
+    showEditDialog.value = true
+  } catch (err) {
+    console.error('Failed to prepare dataset for editing:', err)
+  }
 }
 
 const deleteDataset = () => {
   checkedEndpoints.value = []
   showDeleteDialog.value = true
+}
+
+const loadDataset = async (name: string) => {
+  try {
+    loading.value = true
+    error.value = false
+
+    const [datasetResponse, healthResponse] = await Promise.all([
+      datasetsApi.get(name),
+      datasetsApi
+        .healthcheck(name)
+        .catch(() => ({ dataset_type_status: 'unknown', message: 'Health check unavailable' })),
+    ])
+
+    // Parse the dataset and convert tags string to array
+    const parsedDataset: ParsedDataset = {
+      ...datasetResponse,
+      tags: datasetResponse.tags ? datasetResponse.tags.split(',').map((tag) => tag.trim()) : [],
+      status: datasetResponse.provisioner_state?.status === 'running' ? 'running' : 'stopped',
+      endpointCount: datasetResponse.connected_endpoints.length,
+    }
+
+    dataset.value = parsedDataset
+    healthStatus.value = {
+      status: healthResponse.dataset_type_status,
+      message: healthResponse.message,
+    }
+
+    // Fetch dataset type information
+    try {
+      const typeInfoResponse = await datasetsApi.getType(datasetResponse.dtype)
+      datasetTypeInfo.value = typeInfoResponse
+    } catch (typeErr) {
+      console.error('Failed to load dataset type info:', typeErr)
+      datasetTypeInfo.value = null
+    }
+
+    // Load ingestion data if dataset is self-managed
+    if (getDatasetManagement() === 'Self-managed') {
+      await loadIngestionData(datasetResponse.id)
+    }
+  } catch (err) {
+    console.error('Failed to load dataset:', err)
+    error.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadIngestionData = async (datasetId: string) => {
+  try {
+    isLoadingFiles.value = true
+    const offset = (currentPage.value - 1) * pageSize.value
+
+    const [statusResponse, jobsResponse] = await Promise.all([
+      ingestionApi.getStatus(datasetId).catch(() => null),
+      ingestionApi
+        .listJobs(datasetId, selectedJobStatus.value, pageSize.value, offset)
+        .catch(() => null),
+    ])
+
+    ingestionStatus.value = statusResponse
+    ingestionJobs.value = jobsResponse
+  } catch (err) {
+    console.error('Failed to load ingestion data:', err)
+  } finally {
+    isLoadingFiles.value = false
+  }
 }
 
 const handleDatasetUpdated = () => {
@@ -840,14 +824,18 @@ const handleDatasetUpdated = () => {
 
 const handleDialogClose = () => {
   showEditDialog.value = false
+  editingDataset.value = null
 }
 
-const confirmDelete = () => {
+const confirmDelete = async () => {
   if (dataset.value) {
-    console.log('Deleting dataset:', dataset.value.name)
-    // In a real app, this would call an API to delete the dataset
-    // Then navigate back to the list
-    router.push('/datasets')
+    try {
+      await datasetsApi.delete(dataset.value.name)
+      router.push('/datasets')
+    } catch (err) {
+      console.error('Failed to delete dataset:', err)
+      // Could show toast notification here
+    }
   }
 }
 
@@ -856,241 +844,260 @@ const cancelDelete = () => {
   checkedEndpoints.value = []
 }
 
-// Configuration getters
-const getConnectionUrl = () => {
-  if (!dataset.value) return 'N/A'
-  return dataset.value.type === 'weaviate'
-    ? 'http://localhost:8080/v1'
-    : dataset.value.type === 'qdrant'
-      ? 'http://localhost:6333'
-      : 'http://localhost:8000'
+const navigateToEndpoint = (endpointSlug: string) => {
+  router.push({ name: 'endpoint-detail', params: { slug: endpointSlug } })
 }
 
-const getIndexName = () => {
-  return dataset.value?.name.toLowerCase().replace(/\s+/g, '_') || 'default'
-}
-
-const getVectorDimensions = () => {
-  return dataset.value?.type === 'weaviate' ? '1536' : '768'
-}
-
-const getDistanceMetric = () => {
-  return dataset.value?.type === 'weaviate' ? 'cosine' : 'euclidean'
-}
-
-// Weaviate configuration settings
-const getWeaviateConfig = () => {
-  return {
-    chunkSize: '512',
-    embeddingModel: 'text-embedding-ada-002',
-    distanceMetric: getDistanceMetric(),
-    dimensions: getVectorDimensions(),
-    overlap: '50',
-    batchSize: '100',
-    maxRetries: '3',
-  }
-}
-
-// Dataset management type
+// Dataset management type - check if dataset has file ingestion paths
 const getDatasetManagement = () => {
-  // For demo purposes, make Legal Documents self-managed, others external
-  return dataset.value?.name === 'Legal Documents Store' ? 'Self-managed' : 'External'
+  if (!dataset.value) return 'External'
+  const config = dataset.value.configuration as Record<string, unknown>
+  // If dataset has filePaths or ingestionPath in config, it's self-managed
+  return config?.filePaths || config?.ingestionPath ? 'Self-managed' : 'External'
 }
 
-// Watched paths for self-managed datasets
+// Get watched paths from dataset configuration
 const getWatchedPaths = () => {
-  if (getDatasetManagement() === 'Self-managed') {
-    return [
-      {
-        id: '1',
-        path: '/data/legal/contracts',
-        fileCount: 1247,
-        lastScan: '2 min ago',
-        status: 'indexed',
-        progress: 100,
-        summary: 'Commercial agreements, service contracts, and partnership documents',
-      },
-      {
-        id: '2',
-        path: '/data/legal/cases',
-        fileCount: 856,
-        lastScan: '5 min ago',
-        status: 'processing',
-        progress: 73,
-        summary: 'Court decisions, case law, and legal precedents from various jurisdictions',
-      },
-      {
-        id: '3',
-        path: '/data/legal/regulations',
-        fileCount: 423,
-        lastScan: '1 hour ago',
-        status: 'queued',
-        progress: 0,
-        summary: 'Federal and state regulations, compliance guidelines, and regulatory updates',
-      },
-      {
-        id: '4',
-        path: '/data/legal/archived',
-        fileCount: 89,
-        lastScan: '3 hours ago',
-        status: 'errored',
-        progress: 0,
-        summary: 'Historical legal documents and archived case files',
-      },
-    ]
+  if (getDatasetManagement() !== 'Self-managed' || !dataset.value) {
+    return []
   }
-  return []
+
+  const config = dataset.value.configuration as Record<string, unknown>
+  const filePaths = (config?.filePaths as Array<{ path: string; description?: string }>) || []
+
+  return filePaths.map((pathItem) => ({
+    id: pathItem.path,
+    path: pathItem.path,
+    description: pathItem.description || 'Selected folder for ingestion',
+    fileCount: ingestionJobs.value?.total || 0,
+    status: ingestionStatus.value?.is_watching ? 'watching' : 'not_watching',
+  }))
+}
+
+// Get filtered ingestion jobs
+const getFilteredJobs = () => {
+  if (!ingestionJobs.value) return []
+  return ingestionJobs.value.jobs
+}
+
+const formatTimeAgo = (dateString: string): string => {
+  const now = new Date()
+  const date = new Date(dateString)
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / (1000 * 60))
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffMins < 1) return 'just now'
+  if (diffMins < 60) return `${diffMins} min ago`
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`
+  return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`
 }
 
 const refreshWatchedPaths = async () => {
+  if (!dataset.value) return
+
   isRefreshingPaths.value = true
-  // Simulate API call
-  await new Promise((resolve) => setTimeout(resolve, 1500))
-  isRefreshingPaths.value = false
+  try {
+    await loadIngestionData(dataset.value.id)
+  } catch (err) {
+    console.error('Failed to refresh ingestion data:', err)
+  } finally {
+    isRefreshingPaths.value = false
+  }
 }
 
-const getAccessLogs = () => {
+const onJobStatusChange = async (newStatus: string) => {
+  selectedJobStatus.value = newStatus
+  currentPage.value = 1 // Reset to first page when changing filter
+  if (dataset.value) {
+    await loadIngestionData(dataset.value.id)
+  }
+}
+
+const onPageChange = async (page: number) => {
+  currentPage.value = page
+  if (dataset.value) {
+    await loadIngestionData(dataset.value.id)
+  }
+}
+
+const totalPages = computed(() => {
+  const totalCount = getStatusCount(selectedJobStatus.value)
+  return Math.ceil(totalCount / pageSize.value)
+})
+
+const canGoPrevious = computed(() => currentPage.value > 1)
+const canGoNext = computed(() => currentPage.value < totalPages.value)
+
+const getPageInfo = () => {
+  const start = (currentPage.value - 1) * pageSize.value + 1
+  const end = Math.min(currentPage.value * pageSize.value, getStatusCount(selectedJobStatus.value))
+  return { start, end }
+}
+
+const getStatusTagClass = (status: string) => {
+  const isSelected = selectedJobStatus.value === status
   return [
-    {
-      id: '1',
-      endpoint: 'Legal Document Analysis API',
-      method: 'POST',
-      status: 'success',
-      responseTime: '45ms',
-      timestamp: '2 min ago',
-    },
-    {
-      id: '2',
-      endpoint: 'Contract Review Assistant',
-      method: 'GET',
-      status: 'success',
-      responseTime: '23ms',
-      timestamp: '5 min ago',
-    },
-    {
-      id: '3',
-      endpoint: 'Legal Research Helper',
-      method: 'POST',
-      status: 'error',
-      responseTime: '1.2s',
-      timestamp: '8 min ago',
-    },
-    {
-      id: '4',
-      endpoint: 'Legal Document Analysis API',
-      method: 'GET',
-      status: 'success',
-      responseTime: '67ms',
-      timestamp: '12 min ago',
-    },
+    'flex items-center gap-2.5 body-sm font-medium cursor-pointer transition-all px-3 py-2 rounded-lg',
+    isSelected
+      ? 'text-foreground bg-muted/80 border border-border'
+      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
   ]
 }
 
-// Mock log data
-const mockLogs = ref([
-  {
-    id: '1',
-    timestamp: '2024-10-27 14:32:15',
-    level: 'INFO',
-    message: 'Successfully connected to Weaviate instance at localhost:8080',
-  },
-  {
-    id: '2',
-    timestamp: '2024-10-27 14:32:16',
-    level: 'INFO',
-    message: 'Schema validation completed for class LegalDocuments',
-  },
-  {
-    id: '3',
-    timestamp: '2024-10-27 14:35:22',
-    level: 'WARN',
-    message: 'Query performance degraded: 150ms response time exceeded threshold',
-  },
-  {
-    id: '4',
-    timestamp: '2024-10-27 14:38:45',
-    level: 'ERROR',
-    message: 'Failed to index document: vector dimension mismatch (expected 1536, got 768)',
-  },
-  {
-    id: '5',
-    timestamp: '2024-10-27 14:40:12',
-    level: 'INFO',
-    message: 'Backup process started for class LegalDocuments',
-  },
-  {
-    id: '6',
-    timestamp: '2024-10-27 14:42:33',
-    level: 'INFO',
-    message: 'Successfully processed batch insert: 1,247 documents indexed',
-  },
-  {
-    id: '7',
-    timestamp: '2024-10-27 14:45:18',
-    level: 'WARN',
-    message: 'Memory usage high: 85% of allocated heap space in use',
-  },
-  {
-    id: '8',
-    timestamp: '2024-10-27 14:47:29',
-    level: 'INFO',
-    message: 'Query executed successfully: similarity search returned 15 results',
-  },
-])
-
-const filteredLogs = computed(() => {
-  if (selectedLogLevel.value === 'ALL') {
-    return mockLogs.value
+const getStatusDotClass = (status: string) => {
+  const statusMap: Record<string, string> = {
+    completed: 'bg-primary',
+    in_progress: 'bg-secondary',
+    pending: 'bg-accent',
+    failed: 'bg-destructive',
+    cancelled: 'bg-muted',
   }
-  return mockLogs.value.filter((log) => log.level === selectedLogLevel.value)
-})
-
-const refreshLogs = async () => {
-  isRefreshing.value = true
-  // Simulate API call
-  await new Promise((resolve) => setTimeout(resolve, 1000))
-
-  // Add a new mock log entry
-  const newLog = {
-    id: Date.now().toString(),
-    timestamp: new Date().toLocaleString('sv-SE').replace(' ', ' '),
-    level: ['INFO', 'WARN', 'ERROR'][Math.floor(Math.random() * 3)] as 'INFO' | 'WARN' | 'ERROR',
-    message: 'New log entry generated at ' + new Date().toLocaleTimeString(),
-  }
-  mockLogs.value.unshift(newLog)
-
-  isRefreshing.value = false
+  return `w-2.5 h-2.5 rounded-full ${statusMap[status] || 'bg-muted'}`
 }
 
-const toggleAutoRefresh = () => {
-  autoRefresh.value = !autoRefresh.value
+const getStatusLabel = (status: string) => {
+  const labelMap: Record<string, string> = {
+    completed: 'Indexed',
+    in_progress: 'Processing',
+    pending: 'Queued',
+    failed: 'Errored',
+    cancelled: 'Cancelled',
+  }
+  return labelMap[status] || status
+}
 
-  if (autoRefresh.value) {
-    refreshInterval.value = setInterval(() => {
-      refreshLogs()
-    }, 5000) // Refresh every 5 seconds
-  } else {
-    if (refreshInterval.value) {
-      clearInterval(refreshInterval.value)
-      refreshInterval.value = null
+const getStatusCount = (status: string) => {
+  if (status === 'completed') return ingestionStatus.value?.completed || 0
+  if (status === 'in_progress') return ingestionStatus.value?.in_progress || 0
+  if (status === 'pending') return ingestionStatus.value?.pending || 0
+  if (status === 'failed') return ingestionStatus.value?.failed || 0
+  if (status === 'cancelled') return ingestionStatus.value?.cancelled || 0
+  return 0
+}
+
+const retryFailedJobs = async () => {
+  if (!dataset.value) return
+
+  isRetryingJobs.value = true
+  try {
+    await ingestionApi.retry(dataset.value.id)
+    await loadIngestionData(dataset.value.id)
+  } catch (err) {
+    console.error('Failed to retry jobs:', err)
+  } finally {
+    isRetryingJobs.value = false
+  }
+}
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+const getJobStatusBadgeVariant = (status: string) => {
+  switch (status) {
+    case 'completed':
+      return 'default'
+    case 'failed':
+      return 'destructive'
+    case 'in_progress':
+      return 'secondary'
+    case 'pending':
+      return 'outline'
+    case 'cancelled':
+      return 'outline'
+    default:
+      return 'outline'
+  }
+}
+
+// Configuration display helpers
+const getConfigValue = (key: string): unknown => {
+  if (!dataset.value?.configuration) return null
+  const config = dataset.value.configuration as Record<string, unknown>
+  return config[key]
+}
+
+const getDisplayableConfig = () => {
+  if (!dataset.value?.configuration) return {}
+  const config = dataset.value.configuration as Record<string, unknown>
+
+  // Filter out complex nested objects and arrays for display
+  const displayable: Record<string, unknown> = {}
+
+  Object.entries(config).forEach(([key, value]) => {
+    // Skip file paths as they're shown in the watched paths section
+    if (key === 'filePaths' || key === 'ingestionPath') return
+
+    // Include primitives and simple arrays
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      displayable[key] = value
+    } else if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') {
+      displayable[key] = value
+    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+      // For simple objects, try to display as JSON
+      const objKeys = Object.keys(value)
+      if (objKeys.length <= 3) {
+        displayable[key] = value
+      }
+    }
+  })
+
+  return displayable
+}
+
+const formatConfigKey = (key: string): string => {
+  // Convert camelCase to Title Case, handling acronyms properly
+  return (
+    key
+      // Add space before capital letters that follow lowercase or digits
+      .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+      // Add space before capital letters that start a lowercase word (after acronym)
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      // Capitalize first letter
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim()
+  )
+}
+
+const formatConfigValue = (key: string, value: unknown): string => {
+  if (value === null || value === undefined) return 'N/A'
+
+  // Special formatting for known keys
+  if (key === 'url' || key === 'host') {
+    return String(value)
+  }
+
+  if (key === 'dimensions' || key === 'chunkSize' || key === 'overlap') {
+    return `${value}`
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Enabled' : 'Disabled'
+  }
+
+  if (Array.isArray(value)) {
+    return value.join(', ')
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return '[Object]'
     }
   }
+
+  return String(value)
 }
 
-onMounted(() => {
-  const datasetSlug = route.params.slug as string
-  const foundDataset = mockDatasets.find((d) => d.name === datasetSlug)
-
-  if (foundDataset) {
-    dataset.value = foundDataset
-  } else {
-    error.value = true
-  }
-})
-
-onUnmounted(() => {
-  if (refreshInterval.value) {
-    clearInterval(refreshInterval.value)
-  }
+onMounted(async () => {
+  const datasetName = route.params.slug as string
+  await loadDataset(datasetName)
 })
 </script>

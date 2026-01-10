@@ -4,11 +4,16 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI, status
+from fastapi import APIRouter, Depends, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+
+# Import auth components
+from syftai_space.components.auth.dependencies import bearer_scheme
+from syftai_space.components.auth.middleware import AdminKeyMiddleware
+from syftai_space.components.auth.public import public_route
 
 # Import explicit registration functions
 from syftai_space.components.dataset_types import (
@@ -21,7 +26,13 @@ from syftai_space.components.dataset_types.registry import DATASET_TYPE_REGISTRY
 # Import handlers
 from syftai_space.components.datasets.handlers import DatasetHandler
 
+# Import provisioner manager
+from syftai_space.components.datasets.provisioner_manager import ProvisionerManager
+
 # Import repositories
+from syftai_space.components.datasets.provisioner_state_repository import (
+    ProvisionerStateRepository,
+)
 from syftai_space.components.datasets.repository import DatasetRepository
 
 # Import route builders
@@ -29,6 +40,15 @@ from syftai_space.components.datasets.routes import build_dataset_routes
 from syftai_space.components.endpoints.handlers import EndpointHandler
 from syftai_space.components.endpoints.repository import EndpointRepository
 from syftai_space.components.endpoints.routes import build_endpoint_routes
+
+# Import ingestion components
+from syftai_space.components.ingestion.handlers import IngestionHandler
+from syftai_space.components.ingestion.manager import IngestionManager
+from syftai_space.components.ingestion.repository import IngestionJobRepository
+from syftai_space.components.ingestion.routes import build_ingestion_routes
+from syftai_space.components.marketplaces.handlers import MarketplaceHandler
+from syftai_space.components.marketplaces.repository import MarketplaceRepository
+from syftai_space.components.marketplaces.routes import build_marketplace_routes
 from syftai_space.components.model_types import (
     register_builtin_types as register_model_types,
 )
@@ -42,7 +62,17 @@ from syftai_space.components.policies.routes import build_policy_routes
 from syftai_space.components.policy_types import (
     register_builtin_types as register_policy_types,
 )
+from syftai_space.components.policy_types.rate_limit.limiter import (
+    InMemoryRateLimitStorage,
+)
+from syftai_space.components.policy_types.rate_limit.limiter import (
+    set_storage as set_rate_limit_storage,
+)
 from syftai_space.components.policy_types.registry import POLICY_TYPE_REGISTRY
+from syftai_space.components.settings.handlers import SettingsHandler
+
+# Import settings components
+from syftai_space.components.settings.routes import build_settings_routes
 
 # Import database
 from syftai_space.components.shared.database import Database, SQLiteConfig
@@ -80,12 +110,44 @@ async def lifespan(app: FastAPI):
             logger.info(f"📡 Public URL: {public_url}")
             logger.info(f"🔗 Local URL: http://localhost:{port}")
             logger.info("=" * 70 + "\n")
+            app_settings.public_url = public_url
 
         except Exception as e:
             logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
             logger.error("   Continuing without ngrok...\n")
 
+    # Startup order: provisioners first, then ingestion
+    provisioner_manager: ProvisionerManager = getattr(
+        app.state, "provisioner_manager", None
+    )
+    ingestion_manager: IngestionManager = getattr(app.state, "ingestion_manager", None)
+
+    if provisioner_manager:
+        try:
+            await provisioner_manager.startup()
+        except Exception as e:
+            logger.error(f"Failed to start provisioners: {e}")
+
+    if ingestion_manager:
+        try:
+            await ingestion_manager.startup()
+        except Exception as e:
+            logger.error(f"Failed to start ingestion manager: {e}")
+
     yield  # Application runs here
+
+    # Shutdown order: ingestion first, then provisioners
+    if ingestion_manager:
+        try:
+            await ingestion_manager.shutdown()
+        except Exception as e:
+            logger.error(f"Error shutting down ingestion manager: {e}")
+
+    if provisioner_manager:
+        try:
+            await provisioner_manager.shutdown()
+        except Exception as e:
+            logger.error(f"Error shutting down provisioners: {e}")
 
     # Shutdown: Clean up ngrok if it was started
     if listener:
@@ -103,6 +165,7 @@ app = FastAPI(
     version="0.1.0",
     debug=app_settings.debug,
     lifespan=lifespan,
+    swagger_ui_parameters={"persistAuthorization": True},
 )
 
 # Add CORS middleware
@@ -142,19 +205,32 @@ else:
 
 # Initialize repositories
 dataset_repository = DatasetRepository(database)
+provisioner_state_repository = ProvisionerStateRepository(database)
 model_repository = ModelRepository(database)
 policy_repository = PolicyRepository(database)
 endpoint_repository = EndpointRepository(database)
+ingestion_job_repository = IngestionJobRepository(database)
+marketplace_repository = MarketplaceRepository(database)
 
 # Explicit type registration - no import side effects
+logger.info("Registering dataset types ...")
 register_dataset_types(DATASET_TYPE_REGISTRY)
+logger.info("Registering model types ...")
 register_model_types(MODEL_TYPE_REGISTRY)
+logger.info("Registering policy types ...")
 register_policy_types(POLICY_TYPE_REGISTRY)
 
+# Configure rate limiter storage (in-memory, can swap to Redis later)
+logger.info("Initializing rate limiter storage ...")
+set_rate_limit_storage(InMemoryRateLimitStorage())
+
 # Initialize handlers
-dataset_handler = DatasetHandler(DATASET_TYPE_REGISTRY, dataset_repository)
+dataset_handler = DatasetHandler(
+    DATASET_TYPE_REGISTRY, dataset_repository, provisioner_state_repository
+)
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 policy_handler = PolicyHandler(POLICY_TYPE_REGISTRY, policy_repository)
+marketplace_handler = MarketplaceHandler(marketplace_repository)
 endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
@@ -163,26 +239,53 @@ endpoint_handler = EndpointHandler(
     dataset_registry=DATASET_TYPE_REGISTRY,
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
+    marketplace_repository=marketplace_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
+settings_handler = SettingsHandler(marketplace_handler, app_settings)
+
+# Initialize ingestion manager and handler
+ingestion_manager = IngestionManager(
+    dataset_repository=dataset_repository,
+    ingestion_repository=ingestion_job_repository,
+    registry=DATASET_TYPE_REGISTRY,
+)
+ingestion_handler = IngestionHandler(
+    ingestion_manager=ingestion_manager,
+    dataset_repository=dataset_repository,
+)
+
+# Initialize lifecycle managers (independent, ordered in lifespan)
+provisioner_manager = ProvisionerManager(dataset_handler)
+app.state.provisioner_manager = provisioner_manager
+app.state.ingestion_manager = ingestion_manager
 
 # Add tenant middleware (after CORS, before routes)
 app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
 
-# Create main API router
-router = APIRouter(prefix="/api/v1")
+# Add admin key middleware (runs before tenant middleware)
+# Middleware execution order is reverse of registration order
+app.add_middleware(AdminKeyMiddleware)
+
+# Create main API router with bearer auth for OpenAPI docs
+# Actual auth is handled by AdminKeyMiddleware
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(bearer_scheme)])
 
 # Include all routes
-router.include_router(build_dataset_routes(dataset_handler))
+router.include_router(build_dataset_routes(dataset_handler, ingestion_manager))
 router.include_router(build_model_routes(model_handler))
 router.include_router(build_policy_routes(policy_handler))
 router.include_router(build_endpoint_routes(endpoint_handler))
 router.include_router(build_tenant_routes(tenant_handler))
+router.include_router(build_ingestion_routes(ingestion_handler))
+router.include_router(build_marketplace_routes(marketplace_handler))
+router.include_router(build_settings_routes(settings_handler))
 
 
+@public_route
 @router.get("/health", tags=["system"])
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint (PUBLIC, no auth required)."""
     return {"status": "healthy", "version": "0.1.0"}
 
 

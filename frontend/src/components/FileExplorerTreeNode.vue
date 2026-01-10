@@ -22,14 +22,12 @@
 
       <!-- Icon/Checkbox container -->
       <div class="relative w-4 h-4 flex-shrink-0">
-        <!-- File/Folder icon - always hidden, replaced by checkbox -->
         <component
           :is="getIcon()"
           class="w-4 h-4 absolute inset-0 opacity-0"
           :class="getIconClass()"
         />
 
-        <!-- Selection checkbox - always visible -->
         <input
           ref="checkboxRef"
           type="checkbox"
@@ -53,15 +51,26 @@
     </div>
 
     <!-- Children -->
-    <div v-if="node.type === 'directory' && isExpanded && node.children" class="ml-2">
+    <div v-if="node.type === 'directory' && isExpanded" class="ml-2">
+      <div
+        v-if="node.isLoading"
+        class="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground"
+        :style="{ paddingLeft: `${(depth + 1) * 20}px` }"
+      >
+        <div
+          class="w-4 h-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent"
+        ></div>
+        Loading...
+      </div>
       <TreeNode
+        v-else
         v-for="child in node.children"
         :key="child.path"
         :node="child"
         :depth="depth + 1"
         :selected-files="selectedFiles"
         :expanded-dirs="expandedDirs"
-        @toggle-dir="$emit('toggle-dir', $event)"
+        @toggle-dir="(node: FileNode) => $emit('toggle-dir', node)"
         @toggle-file="(path: string, event: MouseEvent) => $emit('toggle-file', path, event)"
         @toggle-selection="
           (paths: string[], selected: boolean) => $emit('toggle-selection', paths, selected)
@@ -73,7 +82,6 @@
 
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue'
-// Self-reference for recursive component
 import TreeNode from './FileExplorerTreeNode.vue'
 import { ChevronRight } from 'lucide-vue-next'
 import { useFileIcon } from '@/composables/useFileIcon'
@@ -85,6 +93,8 @@ interface FileNode {
   size?: number
   modifiedTime?: Date
   children?: FileNode[]
+  isLoading?: boolean
+  hasLoaded?: boolean
 }
 
 const props = withDefaults(
@@ -100,7 +110,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  'toggle-dir': [path: string]
+  'toggle-dir': [node: FileNode]
   'toggle-file': [path: string, event: MouseEvent]
   'toggle-selection': [paths: string[], selected: boolean]
 }>()
@@ -110,15 +120,11 @@ const isExpanded = computed(() => props.expandedDirs.has(props.node.path))
 
 const { getFileIcon, getFileIconColor, formatFileSize } = useFileIcon()
 
-// For both files and directories, check if this specific item is selected
 const isSelected = computed(() => {
   return props.selectedFiles.includes(props.node.path)
 })
 
-// No partial selection needed since we're selecting the folder itself, not its contents
 const isPartiallySelected = computed(() => false)
-
-// Set indeterminate state for checkbox
 watchEffect(() => {
   if (checkboxRef.value) {
     checkboxRef.value.indeterminate = isPartiallySelected.value
@@ -129,11 +135,10 @@ const getIcon = () => getFileIcon(props.node.path, isExpanded.value, [props.node
 const getIconClass = () => getFileIconColor(props.node.path, [props.node])
 
 const toggleDir = () => {
-  emit('toggle-dir', props.node.path)
+  emit('toggle-dir', props.node)
 }
 
 const handleClick = (event: MouseEvent) => {
-  // Don't do anything if clicking on the checkbox or chevron button
   if (
     (event.target as HTMLElement).matches('input[type="checkbox"]') ||
     (event.target as HTMLElement).closest('button')
@@ -144,13 +149,10 @@ const handleClick = (event: MouseEvent) => {
   if (props.node.type === 'directory') {
     toggleDir()
   }
-  // Don't toggle file selection on click anymore - only via checkbox
 }
 
 const handleCheckboxChange = (event: Event) => {
   const checked = (event.target as HTMLInputElement).checked
-
-  // For both files and directories, just toggle the item itself
   emit('toggle-selection', [props.node.path], checked)
 }
 </script>

@@ -1,6 +1,6 @@
 """Endpoint handlers for business logic."""
 
-from typing import Optional
+from uuid import UUID
 
 from fastapi import HTTPException
 
@@ -10,25 +10,37 @@ from syftai_space.components.datasets.repository import DatasetRepository
 from syftai_space.components.endpoints.entities import Endpoint, ResponseType
 from syftai_space.components.endpoints.repository import EndpointRepository
 from syftai_space.components.endpoints.schemas import (
+    AuthenticatedQueryRequest,
     CreateEndpointRequest,
     DocumentResponse,
+    EndpointCreateResponse,
+    EndpointDetailResponse,
     EndpointListItem,
-    EndpointResponse,
     MessageResponse,
     ProviderInfo,
-    QueryEndpointRequest,
+    PublishEndpointResponse,
+    PublishResult,
     QueryEndpointResponse,
     ReferencesResponse,
     SummaryResponse,
     TokenUsage,
 )
+from syftai_space.components.marketplaces.entities import Marketplace
+from syftai_space.components.marketplaces.repository import MarketplaceRepository
+from syftai_space.components.marketplaces.utils import (
+    ensure_valid_accounting_credentials,
+)
 from syftai_space.components.model_types.interfaces import ChatMessage, ChatParameters
 from syftai_space.components.model_types.registry import ModelTypeRegistry
 from syftai_space.components.models.repository import ModelRepository
 from syftai_space.components.policies.repository import PolicyRepository
-from syftai_space.components.policy_types.interfaces import PolicyContext
+from syftai_space.components.policy_types.interfaces import (
+    PolicyContext,
+    PolicyViolationError,
+)
 from syftai_space.components.policy_types.registry import PolicyTypeRegistry
 from syftai_space.components.shared.domain_types import Context
+from syftai_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syftai_space.components.tenants.entities import Tenant
 
 
@@ -44,6 +56,7 @@ class EndpointHandler:
         dataset_registry: DatasetTypeRegistry,
         model_registry: ModelTypeRegistry,
         policy_registry: PolicyTypeRegistry,
+        marketplace_repository: MarketplaceRepository | None = None,
     ):
         """Initialize the endpoint handler.
 
@@ -55,6 +68,7 @@ class EndpointHandler:
             dataset_registry: Dataset type registry
             model_registry: Model type registry
             policy_registry: Policy type registry
+            marketplace_repository: Marketplace repository (optional, for publish and accounting)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -63,10 +77,11 @@ class EndpointHandler:
         self.dataset_registry = dataset_registry
         self.model_registry = model_registry
         self.policy_registry = policy_registry
+        self.marketplace_repository = marketplace_repository
 
     def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
-    ) -> EndpointResponse:
+    ) -> EndpointCreateResponse:
         """Create a new endpoint.
 
         Args:
@@ -118,7 +133,6 @@ class EndpointHandler:
             dataset_id=request.dataset_id,
             model_id=request.model_id,
             response_type=request.response_type,
-            visibility=request.visibility,
             published=request.published,
             tags=request.tags,
             tenant_id=tenant.id,  # Set tenant_id explicitly
@@ -127,7 +141,7 @@ class EndpointHandler:
         # Save to database
         created = self.endpoint_repository.create(endpoint)
 
-        return EndpointResponse.model_validate(created)
+        return EndpointCreateResponse.model_validate(created)
 
     def list_endpoints(self, tenant: Tenant) -> list[EndpointListItem]:
         """List all endpoints for a tenant.
@@ -141,7 +155,7 @@ class EndpointHandler:
         endpoints = self.endpoint_repository.get_all(tenant.id)
         return [EndpointListItem.model_validate(ep) for ep in endpoints]
 
-    def get_endpoint(self, slug: str, tenant: Tenant) -> EndpointResponse:
+    def get_endpoint(self, slug: str, tenant: Tenant) -> EndpointDetailResponse:
         """Get a specific endpoint by slug within a tenant.
 
         Args:
@@ -158,7 +172,7 @@ class EndpointHandler:
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
-        return EndpointResponse.model_validate(endpoint)
+        return EndpointDetailResponse.model_validate(endpoint)
 
     def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
         """Delete an endpoint by slug within a tenant.
@@ -180,13 +194,16 @@ class EndpointHandler:
         return {"message": f"Successfully deleted endpoint '{slug}'"}
 
     def query_endpoint(
-        self, slug: str, request: QueryEndpointRequest, tenant: Tenant
+        self,
+        slug: str,
+        request: AuthenticatedQueryRequest,
+        tenant: Tenant,
     ) -> QueryEndpointResponse:
         """Query an endpoint - main RAG flow.
 
         Args:
             slug: Endpoint slug
-            request: Query request
+            request: Authenticated query request (includes verified sender_email)
             tenant: Tenant context
 
         Returns:
@@ -204,42 +221,56 @@ class EndpointHandler:
         if not endpoint.published:
             raise HTTPException(status_code=403, detail="Endpoint is not published")
 
-        # Check visibility (TODO: implement proper email pattern matching)
-        if "*" not in endpoint.visibility:
-            # For now, just check if user_email is in the list
-            if request.user_email not in endpoint.visibility:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Access denied - user not in visibility list",
-                )
+        # Build policy context metadata with validated accounting credentials
+        metadata: dict = {}
+        if self.marketplace_repository:
+            try:
+                default_marketplace = self.marketplace_repository.get_default(tenant.id)
+                if default_marketplace:
+                    # Validate credentials upfront (refreshes from SyftHub if expired)
+                    creds = ensure_valid_accounting_credentials(
+                        default_marketplace, self.marketplace_repository
+                    )
+                    # Inject validated accounting credentials
+                    metadata["accounting_email"] = creds["email"]
+                    metadata["accounting_password"] = creds["password"]
+                    metadata["accounting_url"] = creds["url"]
+            except HTTPException:
+                # No marketplace configured or credentials invalid - accounting policies will fail
+                pass
 
-        # Get policies for this endpoint
-        policies = self.policy_repository.get_by_endpoint_id(endpoint.id)
+        # Get policies grouped by type and extract configurations
+        policies_by_type = self.policy_repository.get_by_endpoint_id_grouped(
+            endpoint.id, tenant.id
+        )
+        configs_by_type: dict[str, list[dict]] = {
+            policy_type: [p.configuration for p in policies]
+            for policy_type, policies in policies_by_type.items()
+        }
 
-        # Create policy context
+        # Create policy context with verified sender email
         policy_context = PolicyContext(
             endpoint_slug=slug,
-            sender_email=request.user_email,
+            sender_email=request.sender_email,
             request=request.model_dump(),
+            metadata=metadata,
         )
 
-        # Apply pre-hooks
-        for policy in policies:
+        # Apply pre-hooks per type (one instance per type, all configs passed)
+        for policy_type_name, configs in configs_by_type.items():
             try:
-                policy_type_cls = self.policy_registry.get_policy_type(
-                    policy.policy_type
-                )
-                policy_instance = policy_type_cls(policy.configuration)
-                policy_context = policy_instance.pre_hook(policy_context)
-            except Exception as e:
+                policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
+                policy_instance = policy_type_cls()
+                policy_context = policy_instance.pre_hook(configs, policy_context)
+            except PolicyViolationError as e:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Policy '{policy.name}' pre-hook failed: {str(e)}",
+                    detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
                 ) from e
 
         # Execute query based on response_type
-        references: Optional[ReferencesResponse] = None
-        summary: Optional[SummaryResponse] = None
+        references: ReferencesResponse | None = None
+        summary: SummaryResponse | None = None
 
         response_type = ResponseType(endpoint.response_type)
 
@@ -263,28 +294,28 @@ class EndpointHandler:
         # Update policy context with response
         policy_context.response = query_response.model_dump()
 
-        # Apply post-hooks
-        for policy in policies:
+        # Apply post-hooks per type (also block on failure for data integrity)
+        for policy_type_name, configs in configs_by_type.items():
             try:
-                policy_type_cls = self.policy_registry.get_policy_type(
-                    policy.policy_type
-                )
-                policy_instance = policy_type_cls(policy.configuration)
-                policy_context = policy_instance.post_hook(policy_context)
-            except Exception as e:
-                # Post-hooks failures are logged but don't block response
-                print(f"Policy '{policy.name}' post-hook failed: {str(e)}")
+                policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
+                policy_instance = policy_type_cls()
+                policy_context = policy_instance.post_hook(configs, policy_context)
+            except PolicyViolationError as e:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
+                ) from e
 
-        return query_response
+        return QueryEndpointResponse.model_validate(policy_context.response)
 
     def _search_dataset(
-        self, endpoint: Endpoint, request: QueryEndpointRequest
+        self, endpoint: Endpoint, request: AuthenticatedQueryRequest
     ) -> ReferencesResponse:
         """Search the dataset.
 
         Args:
             endpoint: Endpoint entity
-            request: Query request
+            request: Authenticated query request
 
         Returns:
             References response
@@ -292,8 +323,10 @@ class EndpointHandler:
         Raises:
             HTTPException: If search fails
         """
-        # Get dataset
-        dataset = self.dataset_repository.get_by_id(endpoint.dataset_id)
+        # Get dataset (use endpoint's tenant_id for authorization)
+        dataset = self.dataset_repository.get_by_id(
+            endpoint.dataset_id, endpoint.tenant_id
+        )
         if not dataset:
             raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -316,8 +349,8 @@ class EndpointHandler:
             user_messages = [m for m in request.messages if m.role == "user"]
             query = user_messages[-1].content if user_messages else ""
 
-        # Search
-        ctx = Context(sender=request.user_email)
+        # Search with verified sender email
+        ctx = Context(sender=request.sender_email)
         search_params = SearchParameters(
             similarity_threshold=request.similarity_threshold,
             limit=request.limit,
@@ -351,14 +384,14 @@ class EndpointHandler:
     def _chat_with_model(
         self,
         endpoint: Endpoint,
-        request: QueryEndpointRequest,
-        references: Optional[ReferencesResponse],
+        request: AuthenticatedQueryRequest,
+        references: ReferencesResponse | None,
     ) -> SummaryResponse:
         """Chat with the model.
 
         Args:
             endpoint: Endpoint entity
-            request: Query request
+            request: Authenticated query request
             references: Optional search references to include in context
 
         Returns:
@@ -367,8 +400,8 @@ class EndpointHandler:
         Raises:
             HTTPException: If chat fails
         """
-        # Get model
-        model = self.model_repository.get_by_id(endpoint.model_id)
+        # Get model (use endpoint's tenant_id for authorization)
+        model = self.model_repository.get_by_id(endpoint.model_id, endpoint.tenant_id)
         if not model:
             raise HTTPException(status_code=500, detail="Model not found")
 
@@ -405,8 +438,8 @@ class EndpointHandler:
             )
             messages.insert(0, context_message)
 
-        # Chat
-        ctx = Context(sender=request.user_email)
+        # Chat with verified sender email
+        ctx = Context(sender=request.sender_email)
         chat_params = ChatParameters(
             temperature=request.temperature,
             max_tokens=request.max_tokens,
@@ -445,3 +478,161 @@ class EndpointHandler:
             cost=0.0,  # TODO: Implement cost tracking
             provider_info=ProviderInfo(api_version="v1"),
         )
+
+    def publish_endpoint(
+        self,
+        slug: str,
+        marketplace_ids: list[UUID],
+        tenant: Tenant,
+    ) -> PublishEndpointResponse:
+        """Publish an endpoint to one or more marketplaces.
+
+        Args:
+            slug: Endpoint slug
+            marketplace_ids: List of marketplace IDs to publish to
+            tenant: Tenant context
+
+        Returns:
+            Publish results for each marketplace
+
+        Raises:
+            HTTPException: If endpoint not found or marketplace repository not configured
+        """
+        if not self.marketplace_repository:
+            raise HTTPException(
+                status_code=500,
+                detail="Marketplace publishing is not configured",
+            )
+
+        # Get endpoint
+        endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        # Get marketplaces by IDs
+        marketplaces = self.marketplace_repository.get_by_ids(
+            marketplace_ids, tenant.id
+        )
+        found_ids = {m.id for m in marketplaces}
+
+        # Check for missing marketplaces
+        missing_ids = set(marketplace_ids) - found_ids
+        if missing_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Marketplaces not found: {[str(id) for id in missing_ids]}",
+            )
+
+        # Publish to each marketplace
+        results: list[PublishResult] = []
+        for marketplace in marketplaces:
+            result = self._publish_to_marketplace(endpoint, marketplace)
+            results.append(result)
+
+        return PublishEndpointResponse(
+            endpoint_slug=slug,
+            results=results,
+        )
+
+    def _publish_to_marketplace(
+        self,
+        endpoint: Endpoint,
+        marketplace: Marketplace,
+    ) -> PublishResult:
+        """Publish endpoint info to a marketplace using SDK.
+
+        Args:
+            endpoint: Endpoint to publish
+            marketplace: Target marketplace
+
+        Returns:
+            Publish result
+        """
+        # Validate marketplace is active
+        if not marketplace.is_active:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error="Marketplace is not active",
+            )
+
+        # Validate marketplace has credentials
+        if not marketplace.email or not marketplace.password:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error="Marketplace credentials not configured",
+            )
+
+        try:
+            with SyftHubClient(base_url=marketplace.url) as client:
+                # Note: marketplace.email is used as username
+                client.login(username=marketplace.email, password=marketplace.password)
+
+                endpoint_type = (
+                    "model" if endpoint.model_id is not None else "data_source"
+                )
+                policies = [
+                    {
+                        "type": policy.policy_type,
+                        "version": "1.0",
+                        "enabled": True,
+                        "description": policy.name,
+                        "config": policy.configuration,
+                    }
+                    for policy in endpoint.policies
+                ]
+                connection_config = {
+                    "host": "localhost:8080",
+                    "path": f"/api/v1/endpoints/{endpoint.slug}/query",
+                }
+
+                payload = {
+                    "name": endpoint.name,
+                    "description": endpoint.summary or "",
+                    "type": endpoint_type,
+                    "visibility": "public",
+                    "version": "0.1.0",
+                    "readme": endpoint.description or "",
+                    "slug": endpoint.slug,
+                    "policies": policies,
+                    "connect": [
+                        {
+                            "type": "https",
+                            "enabled": True,
+                            "description": "",
+                            "config": connection_config,
+                        }
+                    ],
+                }
+                client.publish_endpoint(payload)
+
+        except SyftHubError as e:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=e.message,
+            )
+
+        try:
+            # Record the publication in endpoint's published_to list
+            self.endpoint_repository.add_publication(
+                endpoint.id, marketplace.id, endpoint.tenant_id
+            )
+
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=True,
+                message=f"Published successfully to {marketplace.name}: {marketplace.url}",
+            )
+        except Exception as e:
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=str(e),
+            )

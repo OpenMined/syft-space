@@ -1,10 +1,10 @@
 """Endpoint API schemas for request/response models."""
 
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from syftai_space.components.endpoints.entities import ResponseType
 
@@ -16,14 +16,11 @@ class CreateEndpointRequest(BaseModel):
     slug: str = Field(..., description="Unique URL slug")
     description: str = Field(default="", description="Markdown description")
     summary: str = Field(default="", description="Brief summary")
-    dataset_id: Optional[UUID] = Field(default=None, description="ID of linked dataset")
-    model_id: Optional[UUID] = Field(default=None, description="ID of linked model")
+    dataset_id: UUID | None = Field(default=None, description="ID of linked dataset")
+    model_id: UUID | None = Field(default=None, description="ID of linked model")
     response_type: str = Field(
         default=ResponseType.BOTH.value,
         description="Type of response (raw/summary/both)",
-    )
-    visibility: list[str] = Field(
-        default=["*"], description="List of allowed emails/patterns (* for public)"
     )
     published: bool = Field(default=False, description="Whether endpoint is published")
     tags: str = Field(default="", description="Comma-separated tags")
@@ -40,11 +37,39 @@ class CreateEndpointRequest(BaseModel):
                 "dataset_id": "123e4567-e89b-12d3-a456-426614174000",
                 "model_id": "223e4567-e89b-12d3-a456-426614174000",
                 "response_type": "both",
-                "visibility": ["*"],
                 "published": True,
                 "tags": "legal,qa,documents",
             }
         }
+
+
+class AttachedModel(BaseModel):
+    """Response model for attached model."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Model name")
+    dtype: str = Field(..., description="Model type name")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class AttachedDataset(BaseModel):
+    """Response model for attached dataset."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Dataset name")
+    summary: str = Field(..., description="Dataset summary")
+    dtype: str = Field(..., description="Dataset type")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
 
 
 class EndpointResponse(BaseModel):
@@ -55,10 +80,7 @@ class EndpointResponse(BaseModel):
     slug: str = Field(..., description="Unique URL slug")
     description: str = Field(..., description="Markdown description")
     summary: str = Field(..., description="Brief summary")
-    dataset_id: Optional[UUID] = Field(..., description="Linked dataset ID")
-    model_id: Optional[UUID] = Field(..., description="Linked model ID")
     response_type: str = Field(..., description="Type of response")
-    visibility: list[str] = Field(..., description="Allowed emails/patterns")
     published: bool = Field(..., description="Whether published")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
@@ -68,6 +90,39 @@ class EndpointResponse(BaseModel):
         """Pydantic config."""
 
         from_attributes = True
+
+
+class EndpointCreateResponse(EndpointResponse):
+    """Response model for creating an endpoint."""
+
+    model_id: UUID | None = Field(default=None, description="Model ID")
+    dataset_id: UUID | None = Field(default=None, description="Dataset ID")
+
+
+class AttachedPolicy(BaseModel):
+    """Response model for attached policy."""
+
+    id: UUID = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Policy name")
+    policy_type: str = Field(..., description="Policy type name")
+    configuration: dict[str, Any] = Field(..., description="Configuration")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class EndpointDetailResponse(EndpointResponse):
+    """Response model for endpoint details."""
+
+    model: AttachedModel | None = Field(default=None, description="Attached model")
+    dataset: AttachedDataset | None = Field(
+        default=None, description="Attached dataset"
+    )
+    policies: list[AttachedPolicy] = Field(
+        default_factory=list, description="Attached policies"
+    )
 
 
 class EndpointListItem(BaseModel):
@@ -81,6 +136,11 @@ class EndpointListItem(BaseModel):
     published: bool = Field(..., description="Whether published")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
+
+    model: AttachedModel | None = Field(default=None, description="Attached model")
+    dataset: AttachedDataset | None = Field(
+        default=None, description="Attached dataset"
+    )
 
     class Config:
         """Pydantic config."""
@@ -99,10 +159,13 @@ class ChatMessageRequest(BaseModel):
 
 
 class QueryEndpointRequest(BaseModel):
-    """Request model for querying an endpoint."""
+    """Request model for querying an endpoint (client input).
 
-    user_email: str = Field(..., description="Email of the user making the request")
-    messages: Union[str, list[ChatMessageRequest]] = Field(
+    Note: User identity is not provided in the request body.
+    It is derived from the SyftHub satellite token in the Authorization header.
+    """
+
+    messages: str | list[ChatMessageRequest] = Field(
         ..., description="Messages or conversation string"
     )
     similarity_threshold: float = Field(
@@ -131,13 +194,15 @@ class QueryEndpointRequest(BaseModel):
     extras: dict[str, Any] = Field(
         default_factory=dict, description="Additional options"
     )
+    transaction_token: str | None = Field(
+        default=None, description="Transaction token for accounting (optional)"
+    )
 
     class Config:
         """Pydantic config."""
 
         json_schema_extra = {
             "example": {
-                "user_email": "user@example.com",
                 "messages": [
                     {"role": "user", "content": "What is the capital of France?"}
                 ],
@@ -145,8 +210,40 @@ class QueryEndpointRequest(BaseModel):
                 "limit": 5,
                 "max_tokens": 100,
                 "temperature": 0.7,
+                "transaction_token": "jwt-token-here",
+                "extras": {
+                    "reference_options": {},
+                    "summarize_options": {},
+                },
             }
         }
+
+
+class AuthenticatedQueryRequest(QueryEndpointRequest):
+    """Query request enriched with verified sender identity.
+
+    This is created at the route level by combining QueryEndpointRequest
+    with the verified sender email from the SyftHub token.
+    """
+
+    sender_email: EmailStr = Field(
+        ..., description="Verified sender email from SyftHub token"
+    )
+
+    @classmethod
+    def from_request(
+        cls, request: QueryEndpointRequest, sender_email: str
+    ) -> "AuthenticatedQueryRequest":
+        """Create authenticated request from base request + verified email.
+
+        Args:
+            request: Original query request from client
+            sender_email: Verified email from SyftHub token
+
+        Returns:
+            AuthenticatedQueryRequest with sender identity
+        """
+        return cls(**request.model_dump(), sender_email=sender_email)
 
 
 class MessageResponse(BaseModel):
@@ -178,11 +275,11 @@ class LogProbs(BaseModel):
 class ProviderInfo(BaseModel):
     """Provider-specific information."""
 
-    api_version: Optional[str] = Field(default=None, description="API version used")
-    response_time_ms: Optional[int] = Field(
+    api_version: str | None = Field(default=None, description="API version used")
+    response_time_ms: int | None = Field(
         default=None, description="Response time in milliseconds"
     )
-    search_engine: Optional[str] = Field(default=None, description="Search engine used")
+    search_engine: str | None = Field(default=None, description="Search engine used")
 
 
 class SummaryResponse(BaseModel):
@@ -193,7 +290,7 @@ class SummaryResponse(BaseModel):
     message: MessageResponse = Field(..., description="Generated message")
     finish_reason: str = Field(..., description="Reason for completion")
     usage: TokenUsage = Field(..., description="Token usage information")
-    logprobs: Optional[LogProbs] = Field(default=None, description="Log probabilities")
+    logprobs: LogProbs | None = Field(default=None, description="Log probabilities")
     cost: float = Field(..., description="Cost of the generation")
     provider_info: ProviderInfo = Field(
         ..., description="Provider-specific information"
@@ -226,10 +323,10 @@ class ReferencesResponse(BaseModel):
 class QueryEndpointResponse(BaseModel):
     """Response model for endpoint query."""
 
-    summary: Optional[SummaryResponse] = Field(
+    summary: SummaryResponse | None = Field(
         default=None, description="Generated response summary (if model enabled)"
     )
-    references: Optional[ReferencesResponse] = Field(
+    references: ReferencesResponse | None = Field(
         default=None,
         description="Reference documents and search results (if dataset enabled)",
     )
@@ -273,3 +370,47 @@ class QueryEndpointResponse(BaseModel):
                 },
             }
         }
+
+
+# Publish Request/Response Models
+
+
+class PublishEndpointRequest(BaseModel):
+    """Request model for publishing an endpoint to marketplace(s)."""
+
+    marketplace_ids: list[UUID] = Field(
+        ...,
+        min_length=1,
+        description="List of marketplace IDs to publish to",
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "marketplace_ids": [
+                    "123e4567-e89b-12d3-a456-426614174000",
+                    "223e4567-e89b-12d3-a456-426614174001",
+                ]
+            }
+        }
+
+
+class PublishResult(BaseModel):
+    """Result of publishing to a single marketplace."""
+
+    marketplace_id: UUID = Field(..., description="Marketplace ID")
+    marketplace_name: str = Field(..., description="Marketplace name")
+    success: bool = Field(..., description="Whether publishing succeeded")
+    message: str | None = Field(default=None, description="Success message")
+    error: str | None = Field(default=None, description="Error message if failed")
+
+
+class PublishEndpointResponse(BaseModel):
+    """Response model for endpoint publish operation."""
+
+    endpoint_slug: str = Field(..., description="Slug of the published endpoint")
+    results: list[PublishResult] = Field(
+        ..., description="Results for each marketplace"
+    )
