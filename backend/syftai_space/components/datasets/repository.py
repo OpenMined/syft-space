@@ -1,7 +1,6 @@
 """Dataset repository for database operations."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -60,7 +59,7 @@ class DatasetRepository(BaseRepository[Dataset]):
             )
             return list(session.exec(statement).all())
 
-    def get_by_id(self, id: UUID, tenant_id: UUID) -> Optional[Dataset]:
+    def get_by_id(self, id: UUID, tenant_id: UUID) -> Dataset | None:
         """Get a dataset by ID within a tenant.
 
         Includes tenant_id check for authorization - use this for API handlers.
@@ -80,7 +79,7 @@ class DatasetRepository(BaseRepository[Dataset]):
             )
             return session.exec(statement).first()
 
-    def get_by_name(self, name: str, tenant_id: UUID) -> Optional[Dataset]:
+    def get_by_name(self, name: str, tenant_id: UUID) -> Dataset | None:
         """Get a dataset by name within a tenant.
 
         Args:
@@ -100,6 +99,9 @@ class DatasetRepository(BaseRepository[Dataset]):
 
     def delete_by_name(self, name: str, tenant_id: UUID) -> bool:
         """Delete a dataset by name within a tenant.
+
+        Endpoints attached to this dataset are automatically cascade deleted
+        by the database foreign key constraint.
 
         Args:
             name: Dataset name
@@ -152,10 +154,10 @@ class DatasetRepository(BaseRepository[Dataset]):
         name: str,
         tenant_id: UUID,
         *,
-        name_new: Optional[str] = None,
-        summary: Optional[str] = None,
-        tags: Optional[str] = None,
-    ) -> Optional[Dataset]:
+        name_new: str | None = None,
+        summary: str | None = None,
+        tags: str | None = None,
+    ) -> Dataset | None:
         """Update a dataset by name within a tenant.
 
         Uses SELECT FOR UPDATE locking to prevent race conditions when updating

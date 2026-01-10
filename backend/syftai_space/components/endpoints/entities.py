@@ -45,12 +45,12 @@ class Endpoint(SQLModel, table=True):
     summary: str = Field(default="", description="Brief summary")
     dataset_id: UUID | None = Field(
         default=None,
-        sa_column=Column(ForeignKey("datasets.id", ondelete="SET NULL")),
+        sa_column=Column(ForeignKey("datasets.id", ondelete="CASCADE")),
         description="ID of linked dataset (optional)",
     )
     model_id: UUID | None = Field(
         default=None,
-        sa_column=Column(ForeignKey("models.id", ondelete="SET NULL")),
+        sa_column=Column(ForeignKey("models.id", ondelete="CASCADE")),
         description="ID of linked model (optional)",
     )
     response_type: str = Field(
