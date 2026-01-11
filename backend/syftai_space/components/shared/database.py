@@ -4,12 +4,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generic, TypeVar
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from loguru import logger
 from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine, select
-
-from alembic import command
-from alembic.config import Config as AlembicConfig
 
 T = TypeVar("T", bound=SQLModel)
 
@@ -91,38 +90,54 @@ class Database:
         config.configure_engine(self.engine)
 
     def run_migrations(self, reset: bool = False):
-        """Run Alembic migrations to upgrade database to latest version"""
+        """Run database migrations.
+
+        In production (debug=False): Strict Alembic migrations only.
+        In development (debug=True): Falls back to create_all + stamp if migrations fail.
+        """
+        from syftai_space.config import app_settings
 
         # If reset is True, drop all tables first
         if reset:
             SQLModel.metadata.drop_all(self.engine)
 
+        # Get the syftai_space package directory where alembic.ini is located
+        package_dir = Path(__file__).parent.parent.parent
+        alembic_ini_path = package_dir / "alembic.ini"
+
+        if not alembic_ini_path.exists():
+            raise FileNotFoundError(f"alembic.ini not found at {alembic_ini_path}")
+
+        # Create Alembic config and override the database URL
+        alembic_cfg = AlembicConfig(str(alembic_ini_path))
+        alembic_cfg.set_main_option("sqlalchemy.url", self.database_url)
+
         try:
-            # Get the directory where alembic.ini is located (backend directory)
-            backend_dir = Path(__file__).parent.parent.parent
-            alembic_ini_path = backend_dir / "alembic.ini"
-
-            if not alembic_ini_path.exists():
-                logger.warning(
-                    f"alembic.ini not found at {alembic_ini_path}, falling back to create_all"
-                )
-                SQLModel.metadata.create_all(self.engine, checkfirst=True)
-                return
-
-            # Create Alembic config and override the database URL
-            # This ensures migrations run against the correct database
-            alembic_cfg = AlembicConfig(str(alembic_ini_path))
-            alembic_cfg.set_main_option("sqlalchemy.url", self.database_url)
-
             # Run upgrade to head
             command.upgrade(alembic_cfg, "head")
-
-            logger.info("✅ Database migrations completed successfully")
+            logger.info("Database migrations completed successfully")
 
         except Exception as e:
-            logger.error(f"Failed to run migrations: {e}")
-            logger.warning("Falling back to create_all")
-            SQLModel.metadata.create_all(self.engine, checkfirst=True)
+            if app_settings.debug:
+                # DEV MODE: Fallback to create_all + stamp
+                logger.warning(f"Migration failed: {e}")
+                logger.warning("Dev mode: Using create_all() and stamping to head")
+
+                SQLModel.metadata.create_all(self.engine, checkfirst=True)
+
+                # Stamp the database so Alembic knows we're at "head"
+                try:
+                    command.stamp(alembic_cfg, "head")
+                    logger.info("Database created and stamped to head")
+                except Exception as stamp_error:
+                    logger.warning(f"Could not stamp database: {stamp_error}")
+            else:
+                # PRODUCTION MODE: Fail loudly
+                logger.error(f"Migration failed in production mode: {e}")
+                raise RuntimeError(
+                    f"Database migration failed. This is fatal in production. "
+                    f"Error: {e}"
+                ) from e
 
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:

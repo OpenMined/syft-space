@@ -2,20 +2,21 @@
 
 from logging.config import fileConfig
 
+from alembic import context
 from sqlmodel import SQLModel
 
-from alembic import context
-from syftai_space.components.datasets.entities import Dataset  # noqa: F401
+from syftai_space.components.datasets.entities import (  # noqa: F401
+    Dataset,
+    ProvisionerState,
+)
 from syftai_space.components.endpoints.entities import Endpoint  # noqa: F401
+from syftai_space.components.ingestion.entities import IngestionJob  # noqa: F401
+from syftai_space.components.marketplaces.entities import Marketplace  # noqa: F401
 from syftai_space.components.models.entities import Model  # noqa: F401
 from syftai_space.components.policies.entities import Policy  # noqa: F401
 from syftai_space.components.shared.database import SQLiteConfig
 from syftai_space.components.tenants.entities import Tenant  # noqa: F401
 from syftai_space.config import app_settings
-
-# Add your other model imports here as you create them
-# from syftai_space.components.accounting.entities import ...
-# from syftai_space.components.profile.entities import ...
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -26,12 +27,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set database URL from application config
-# This is always injected here rather than in alembic.ini
-# When run from CLI, it uses the default path from app_settings
-# When run from Database.run_migrations(), the URL is overridden
-db_config = SQLiteConfig(app_settings.sqlite_db_path)
-config.set_main_option("sqlalchemy.url", db_config.get_database_url())
+# Set database URL - use existing config value if set (from Database.run_migrations()),
+# otherwise fall back to app_settings (for CLI usage)
+if not config.get_main_option("sqlalchemy.url"):
+    db_config = SQLiteConfig(app_settings.sqlite_db_path)
+    config.set_main_option("sqlalchemy.url", db_config.get_database_url())
 
 # Set target metadata for 'autogenerate' support
 # SQLModel uses SQLModel.metadata just like SQLAlchemy's Base.metadata
