@@ -1,8 +1,8 @@
 """initial schema
 
-Revision ID: 640a7f9a94e1
+Revision ID: 9b73c6b77fa4
 Revises:
-Create Date: 2026-01-10 23:02:54.413937
+Create Date: 2026-01-12 13:24:02.556614
 
 """
 
@@ -13,7 +13,7 @@ import sqlmodel  # Added for SQLModel support
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "640a7f9a94e1"
+revision: str = "9b73c6b77fa4"
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -86,6 +86,30 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_datasets_id"), "datasets", ["id"], unique=False)
     op.create_table(
+        "marketplaces",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("tenant_id", sa.Uuid(), nullable=True),
+        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("username", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("url", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("email", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("password", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("is_default", sa.Boolean(), nullable=False),
+        sa.Column("is_active", sa.Boolean(), nullable=False),
+        sa.Column("accounting_url", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column(
+            "accounting_email", sqlmodel.sql.sqltypes.AutoString(), nullable=False
+        ),
+        sa.Column(
+            "accounting_password", sqlmodel.sql.sqltypes.AutoString(), nullable=False
+        ),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_marketplaces_id"), "marketplaces", ["id"], unique=False)
+    op.create_table(
         "models",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("tenant_id", sa.Uuid(), nullable=True),
@@ -131,6 +155,41 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_endpoints_id"), "endpoints", ["id"], unique=False)
     op.create_table(
+        "ingestion_jobs",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("tenant_id", sa.Uuid(), nullable=True),
+        sa.Column("dataset_id", sa.Uuid(), nullable=True),
+        sa.Column("file_path", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("file_name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("file_size", sa.Integer(), nullable=False),
+        sa.Column("file_mtime_ns", sa.Integer(), nullable=False),
+        sa.Column("status", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("error_message", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("retry_count", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("started_at", sa.DateTime(), nullable=True),
+        sa.Column("completed_at", sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(["dataset_id"], ["datasets.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "dataset_id", "file_path", name="uq_ingestion_job_dataset_file"
+        ),
+    )
+    op.create_index(
+        "idx_ingestion_job_dataset_id", "ingestion_jobs", ["dataset_id"], unique=False
+    )
+    op.create_index(
+        "idx_ingestion_job_tenant_status",
+        "ingestion_jobs",
+        ["tenant_id", "status"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_ingestion_jobs_id"), "ingestion_jobs", ["id"], unique=False
+    )
+    op.create_table(
         "policies",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("tenant_id", sa.Uuid(), nullable=True),
@@ -160,12 +219,18 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_policies_id"), table_name="policies")
     op.drop_index("idx_policy_tenant_endpoint", table_name="policies")
     op.drop_table("policies")
+    op.drop_index(op.f("ix_ingestion_jobs_id"), table_name="ingestion_jobs")
+    op.drop_index("idx_ingestion_job_tenant_status", table_name="ingestion_jobs")
+    op.drop_index("idx_ingestion_job_dataset_id", table_name="ingestion_jobs")
+    op.drop_table("ingestion_jobs")
     op.drop_index(op.f("ix_endpoints_id"), table_name="endpoints")
     op.drop_index("idx_endpoint_tenant_slug", table_name="endpoints")
     op.drop_table("endpoints")
     op.drop_index(op.f("ix_models_id"), table_name="models")
     op.drop_index("idx_model_tenant_name", table_name="models")
     op.drop_table("models")
+    op.drop_index(op.f("ix_marketplaces_id"), table_name="marketplaces")
+    op.drop_table("marketplaces")
     op.drop_index(op.f("ix_datasets_id"), table_name="datasets")
     op.drop_index("idx_dataset_tenant_name", table_name="datasets")
     op.drop_index("idx_dataset_provisioner_state_id", table_name="datasets")

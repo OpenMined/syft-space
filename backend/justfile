@@ -1,0 +1,191 @@
+# Migration management commands for syftai_space
+# Usage: just <command> [args]
+
+# Alembic command with config path
+alembic := "uv run alembic -c syftai_space/alembic.ini"
+
+# Default: show available commands
+default:
+    @just --list
+
+# ============================================
+# STATUS & INFO
+# ============================================
+
+# Show current migration status
+status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Current Migration State ==="
+    {{alembic}} current
+    echo ""
+    echo "=== Heads ==="
+    {{alembic}} heads
+    echo ""
+    if [ -f syftai_space/alembic/RELEASE_MARKER ]; then
+        echo "=== Release Marker ==="
+        cat syftai_space/alembic/RELEASE_MARKER
+    else
+        echo "No RELEASE_MARKER file found"
+    fi
+
+# Show migration history
+history:
+    {{alembic}} history --verbose
+
+# ============================================
+# COMMON OPERATIONS
+# ============================================
+
+# Upgrade database to latest migration
+upgrade:
+    {{alembic}} upgrade head
+
+# Downgrade database by one migration
+downgrade:
+    {{alembic}} downgrade -1
+
+# Downgrade to specific revision
+downgrade-to revision:
+    {{alembic}} downgrade {{revision}}
+
+# Unapply ALL migrations (back to empty database)
+downgrade-all:
+    {{alembic}} downgrade base
+    @echo "All migrations unapplied. Database schema is now empty."
+
+# ============================================
+# MIGRATION GENERATION
+# ============================================
+
+# Generate new migration (review before committing!)
+generate message:
+    {{alembic}} revision --autogenerate -m "{{message}}"
+    @echo ""
+    @echo "Migration generated. Review the file before committing!"
+
+# ============================================
+# CONFLICT RESOLUTION
+# ============================================
+
+# Merge multiple heads (resolve migration conflicts)
+merge-heads:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    HEADS=$({{alembic}} heads 2>/dev/null | grep -c "^[a-f0-9]" || echo "0")
+    if [ "$HEADS" -le 1 ]; then
+        echo "No merge needed - single head"
+    else
+        echo "Merging $HEADS heads..."
+        {{alembic}} merge heads -m "merge migrations"
+        echo ""
+        echo "Merge migration created. Review and commit!"
+    fi
+
+# Check migration integrity (used by CI)
+check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    HEADS=$({{alembic}} heads 2>/dev/null | grep -c "^[a-f0-9]" || echo "0")
+    if [ "$HEADS" -gt 1 ]; then
+        echo "ERROR: Multiple heads detected!"
+        {{alembic}} heads
+        echo ""
+        echo "Fix with: just merge-heads"
+        exit 1
+    fi
+    echo "Migration chain OK (single head)"
+    {{alembic}} check 2>&1 || true
+
+# ============================================
+# DATABASE RESET (Use with caution!)
+# ============================================
+
+# Wipe database completely (just deletes the file, no migrations needed)
+wipe:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "WARNING: This will DELETE the database file!"
+    read -p "Type 'yes' to confirm: " confirm
+    if [ "$confirm" != "yes" ]; then
+        echo "Aborted"
+        exit 1
+    fi
+    rm -f ~/.syai-space/app.db
+    echo "Database wiped. Run 'just upgrade' to recreate with migrations."
+
+# Rebuild database from scratch (deletes DB + applies all migrations)
+rebuild:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "WARNING: This will DELETE all data and rebuild from migrations!"
+    read -p "Type 'yes' to confirm: " confirm
+    if [ "$confirm" != "yes" ]; then
+        echo "Aborted"
+        exit 1
+    fi
+    rm -f ~/.syai-space/app.db
+    {{alembic}} upgrade head
+    echo "Database rebuilt to head"
+
+# Reset to last released version (stable state)
+reset-to-release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f syftai_space/alembic/RELEASE_MARKER ]; then
+        echo "ERROR: No RELEASE_MARKER found"
+        exit 1
+    fi
+    source syftai_space/alembic/RELEASE_MARKER
+    echo "Resetting to release $RELEASE_VERSION ($RELEASE_REVISION)..."
+    rm -f ~/.syai-space/app.db
+    {{alembic}} upgrade $RELEASE_REVISION
+    echo "Database at last released state"
+
+# ============================================
+# RELEASE VALIDATION
+# ============================================
+
+# Validate migrations for release (run all tests)
+validate-release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Checking Migration Chain ==="
+    just check
+    echo ""
+    echo "=== Testing Fresh Install ==="
+    rm -f /tmp/syftai_test_fresh.db
+    SQLITE_DB_PATH=/tmp/syftai_test_fresh.db {{alembic}} upgrade head
+    echo "PASS: Fresh install"
+    echo ""
+    if [ -f syftai_space/alembic/RELEASE_MARKER ]; then
+        source syftai_space/alembic/RELEASE_MARKER
+        echo "=== Testing Upgrade from $RELEASE_VERSION ==="
+        rm -f /tmp/syftai_test_upgrade.db
+        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade $RELEASE_REVISION
+        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade head
+        echo "PASS: Upgrade from release"
+        echo ""
+        echo "=== Testing Downgrade Cycle ==="
+        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} downgrade $RELEASE_REVISION
+        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade head
+        echo "PASS: Downgrade/upgrade cycle"
+    else
+        echo "SKIP: No RELEASE_MARKER (first release)"
+    fi
+    echo ""
+    echo "=== All Validation Passed ==="
+
+# Mark current head as released version
+mark-release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CURRENT=$({{alembic}} current 2>/dev/null | grep -oE "^[a-f0-9]+" | head -1 || echo "")
+    if [ -z "$CURRENT" ]; then
+        echo "ERROR: No current revision found. Run 'just upgrade' first."
+        exit 1
+    fi
+    echo "RELEASE_REVISION=$CURRENT" > syftai_space/alembic/RELEASE_MARKER
+    echo "RELEASE_VERSION={{version}}" >> syftai_space/alembic/RELEASE_MARKER
+    echo "Marked $CURRENT as release {{version}}"
+    cat syftai_space/alembic/RELEASE_MARKER
