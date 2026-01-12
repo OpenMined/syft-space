@@ -183,8 +183,9 @@ db_path = app_settings.sqlite_db_path.resolve()
 db_config = SQLiteConfig(db_path)
 database = Database(db_config)
 
-# Create tables
-database.create_db_and_tables(reset=app_settings.reset_db)
+# Run database migrations, optionally resetting the database
+database.run_migrations(reset=app_settings.reset_db)
+
 
 # Initialize tenant repository and create default tenant
 tenant_repository = TenantRepository(database)
