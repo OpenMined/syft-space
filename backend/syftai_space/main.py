@@ -72,6 +72,7 @@ from syftai_space.components.policy_types.registry import POLICY_TYPE_REGISTRY
 from syftai_space.components.settings.handlers import SettingsHandler
 
 # Import settings components
+from syftai_space.components.settings.repository import SettingsRepository
 from syftai_space.components.settings.routes import build_settings_routes
 
 # Import database
@@ -110,7 +111,11 @@ async def lifespan(app: FastAPI):
             logger.info(f"📡 Public URL: {public_url}")
             logger.info(f"🔗 Local URL: http://localhost:{port}")
             logger.info("=" * 70 + "\n")
-            app_settings.public_url = public_url
+
+            # Update database via settings handler (source of truth)
+            settings_handler = getattr(app.state, "settings_handler", None)
+            if settings_handler:
+                settings_handler.settings_repository.update_public_url(public_url)
 
         except Exception as e:
             logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
@@ -243,7 +248,15 @@ endpoint_handler = EndpointHandler(
     marketplace_repository=marketplace_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
-settings_handler = SettingsHandler(marketplace_handler, app_settings)
+
+# Initialize settings repository and handler
+settings_repository = SettingsRepository(database)
+settings_handler = SettingsHandler(
+    settings_repository, marketplace_handler, app_settings
+)
+
+# Initialize settings from config on startup (env var overwrites DB if set)
+settings_handler.initialize_from_config()
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -260,6 +273,7 @@ ingestion_handler = IngestionHandler(
 provisioner_manager = ProvisionerManager(dataset_handler)
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
+app.state.settings_handler = settings_handler
 
 # Add tenant middleware (after CORS, before routes)
 app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
