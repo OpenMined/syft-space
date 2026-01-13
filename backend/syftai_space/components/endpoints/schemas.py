@@ -1,10 +1,11 @@
 """Endpoint API schemas for request/response models."""
 
+import re
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from syftai_space.components.endpoints.entities import ResponseType
 
@@ -24,6 +25,28 @@ class CreateEndpointRequest(BaseModel):
     )
     published: bool = Field(default=False, description="Whether endpoint is published")
     tags: str = Field(default="", description="Comma-separated tags")
+
+    @field_validator("slug", mode="before")
+    @classmethod
+    def validate_slug(cls, v: Any) -> str:
+        """Validate the slug."""
+        if not isinstance(v, str):
+            raise ValueError("Slug must be a string")
+        if not v:
+            raise ValueError("Slug is required")
+
+        _slug = v.lower()
+        if len(_slug) < 3:
+            raise ValueError("Slug must be at least 3 characters long")
+        if len(_slug) > 64:
+            raise ValueError("Slug must be at most 64 characters long")
+        if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", _slug):
+            raise ValueError(
+                "Slug must contain only lowercase letters, numbers, and hyphens "
+                "(no leading/trailing/consecutive hyphens)"
+            )
+
+        return _slug
 
     class Config:
         """Pydantic config."""
