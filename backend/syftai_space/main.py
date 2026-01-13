@@ -13,7 +13,7 @@ from loguru import logger
 # Import auth components
 from syftai_space.components.auth.dependencies import bearer_scheme
 from syftai_space.components.auth.middleware import AdminKeyMiddleware
-from syftai_space.components.auth.public import public_route
+from syftai_space.components.auth.public import discover_public_routes, public_route
 
 # Import explicit registration functions
 from syftai_space.components.dataset_types import (
@@ -275,13 +275,6 @@ app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.settings_handler = settings_handler
 
-# Add tenant middleware (after CORS, before routes)
-app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
-
-# Add admin key middleware (runs before tenant middleware)
-# Middleware execution order is reverse of registration order
-app.add_middleware(AdminKeyMiddleware)
-
 # Create main API router with bearer auth for OpenAPI docs
 # Actual auth is handled by AdminKeyMiddleware
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(bearer_scheme)])
@@ -306,6 +299,13 @@ async def health():
 
 # Include the router in the app
 app.include_router(router)
+
+# Discover public routes from @public_route decorators
+discover_public_routes(app)
+
+# Add middleware (execution order is reverse of registration)
+app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
+app.add_middleware(AdminKeyMiddleware)
 
 # Mount static files (if frontend exists)
 # Frontend is a sibling directory to backend
