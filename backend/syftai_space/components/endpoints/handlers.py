@@ -607,7 +607,7 @@ class EndpointHandler:
                         }
                     ],
                 }
-                client.publish_endpoint(payload)
+                client.publish_endpoint(payload, overwrite=True)
 
         except SyftHubError as e:
             return PublishResult(
