@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,6 +70,15 @@ class AppSettings(BaseSettings):
         None,
         description="Public URL for the SyftAI Space",
     )
+
+    @field_validator("public_url", mode="before")
+    @classmethod
+    def validate_public_url(cls, v: HttpUrl | None) -> HttpUrl | None:
+        if not v:
+            return
+        if not v.startswith("http"):
+            v = HttpUrl(f"https://{v}")
+        return v
 
 
 # Global settings instance
