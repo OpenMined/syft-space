@@ -16,12 +16,14 @@ from syftai_space.components.endpoints.schemas import (
     EndpointCreateResponse,
     EndpointDetailResponse,
     EndpointListItem,
+    MarketplaceAvailabilityResult,
     MessageResponse,
     ProviderInfo,
     PublishEndpointResponse,
     PublishResult,
     QueryEndpointResponse,
     ReferencesResponse,
+    SlugAvailabilityResponse,
     SummaryResponse,
     TokenUsage,
 )
@@ -607,7 +609,7 @@ class EndpointHandler:
                         }
                     ],
                 }
-                client.publish_endpoint(payload)
+                client.publish_endpoint(payload, overwrite=True)
 
         except SyftHubError as e:
             return PublishResult(
@@ -634,5 +636,134 @@ class EndpointHandler:
                 marketplace_id=marketplace.id,
                 marketplace_name=marketplace.name,
                 success=False,
+                error=str(e),
+            )
+
+    def check_slug_availability(
+        self,
+        slug: str,
+        marketplace_ids: list[UUID] | None,
+        check_all_marketplaces: bool,
+        tenant: Tenant,
+    ) -> SlugAvailabilityResponse:
+        """Check if a slug is available locally and optionally on marketplaces.
+
+        Args:
+            slug: Slug to check
+            marketplace_ids: Optional list of marketplace IDs to check
+            check_all_marketplaces: If True, check all active marketplaces (takes precedence)
+            tenant: Tenant context
+
+        Returns:
+            Availability status for local and each requested marketplace
+        """
+        # Check local availability
+        existing_endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
+        local_available = existing_endpoint is None
+
+        # Determine if we need to check marketplaces
+        should_check_marketplaces = check_all_marketplaces or marketplace_ids
+
+        # If no marketplace check needed, return local-only result
+        if not should_check_marketplaces:
+            return SlugAvailabilityResponse(
+                slug=slug,
+                local_available=local_available,
+                marketplaces=None,
+            )
+
+        # Check marketplace availability
+        if not self.marketplace_repository:
+            raise HTTPException(
+                status_code=500,
+                detail="Marketplace checking is not configured",
+            )
+
+        # Get marketplaces to check
+        if check_all_marketplaces:
+            # Get all active marketplaces (flag takes precedence)
+            marketplaces = self.marketplace_repository.get_active(tenant.id)
+            missing_ids: set[UUID] = set()
+        else:
+            # Get specific marketplaces by IDs
+            marketplaces = self.marketplace_repository.get_by_ids(
+                marketplace_ids, tenant.id
+            )
+            found_ids = {m.id for m in marketplaces}
+            missing_ids = set(marketplace_ids) - found_ids
+
+        # Build results for each requested marketplace
+        marketplace_results: list[MarketplaceAvailabilityResult] = []
+
+        # Add results for missing marketplaces (only when using marketplace_ids)
+        for missing_id in missing_ids:
+            marketplace_results.append(
+                MarketplaceAvailabilityResult(
+                    marketplace_id=missing_id,
+                    available=None,
+                    error="Marketplace not found",
+                )
+            )
+
+        # Check each found marketplace
+        for marketplace in marketplaces:
+            result = self._check_marketplace_availability(slug, marketplace)
+            marketplace_results.append(result)
+
+        return SlugAvailabilityResponse(
+            slug=slug,
+            local_available=local_available,
+            marketplaces=marketplace_results,
+        )
+
+    def _check_marketplace_availability(
+        self,
+        slug: str,
+        marketplace: Marketplace,
+    ) -> MarketplaceAvailabilityResult:
+        """Check if a slug is available on a specific marketplace.
+
+        Args:
+            slug: Slug to check
+            marketplace: Marketplace to check on
+
+        Returns:
+            Availability result for the marketplace
+        """
+        # Validate marketplace is active
+        if not marketplace.is_active:
+            return MarketplaceAvailabilityResult(
+                marketplace_id=marketplace.id,
+                available=None,
+                error="Marketplace is not active",
+            )
+
+        # Validate marketplace has credentials
+        if not marketplace.email or not marketplace.password:
+            return MarketplaceAvailabilityResult(
+                marketplace_id=marketplace.id,
+                available=None,
+                error="Marketplace credentials not configured",
+            )
+
+        try:
+            with SyftHubClient(base_url=marketplace.url) as client:
+                client.login(username=marketplace.email, password=marketplace.password)
+                exists = client.endpoint_exists(slug)
+                return MarketplaceAvailabilityResult(
+                    marketplace_id=marketplace.id,
+                    available=not exists,
+                    error=None,
+                )
+        except SyftHubError as e:
+            return MarketplaceAvailabilityResult(
+                marketplace_id=marketplace.id,
+                available=None,
+                error=e.message,
+            )
+        except Exception as e:
+            return MarketplaceAvailabilityResult(
+                marketplace_id=marketplace.id,
+                available=None,
                 error=str(e),
             )

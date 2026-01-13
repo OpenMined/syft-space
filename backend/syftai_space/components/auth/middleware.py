@@ -1,12 +1,12 @@
 """Admin API key authentication middleware."""
 
-from typing import Callable
+from collections.abc import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from syftai_space.components.auth.public import PUBLIC_ROUTE_MARKER
+from syftai_space.components.auth.public import is_public_route
 
 
 class AdminKeyMiddleware(BaseHTTPMiddleware):
@@ -18,31 +18,24 @@ class AdminKeyMiddleware(BaseHTTPMiddleware):
     All other routes require Authorization: Bearer <key> header.
     """
 
-    # Static paths that don't have route handlers (can't use decorator)
-    STATIC_PUBLIC_PATHS = [
-        "/docs",
-        "/redoc",
-        "/openapi.json",
-        "/syftai-server",  # Frontend static files
-    ]
-
+    STATIC_PUBLIC_PATHS = ["/docs", "/redoc", "/openapi.json", "/syftai-server"]
     STATIC_PUBLIC_EXACT = ["/"]
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Response]
     ) -> Response:
         path = request.url.path
+        method = request.method
 
-        # Check if route is marked as public via @public_route decorator
-        endpoint = request.scope.get("endpoint")
-        if endpoint and getattr(endpoint, PUBLIC_ROUTE_MARKER, False):
-            return await call_next(request)
-
-        # Allow static public paths (docs, frontend, etc.)
+        # Allow static paths (docs, frontend)
         if self._is_static_public_path(path):
             return await call_next(request)
 
-        # All other routes require admin key
+        # Allow public API routes (discovered from @public_route decorator)
+        if is_public_route(path, method):
+            return await call_next(request)
+
+        # Require admin key for all other routes
         if not self._verify_admin_key(request):
             return JSONResponse(
                 status_code=401,
@@ -55,20 +48,17 @@ class AdminKeyMiddleware(BaseHTTPMiddleware):
         """Check static paths that can't use decorators."""
         if path in self.STATIC_PUBLIC_EXACT:
             return True
-        return any(path.startswith(prefix) for prefix in self.STATIC_PUBLIC_PATHS)
+        return any(path.startswith(p) for p in self.STATIC_PUBLIC_PATHS)
 
     def _verify_admin_key(self, request: Request) -> bool:
         """Verify the admin API key from Authorization header."""
         from syftai_space.config import app_settings
 
-        # If no admin key configured, allow all (dev mode)
         if not app_settings.admin_api_key:
             return True
 
-        # Check Authorization: Bearer <token> header
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
-            provided_key = auth_header[7:]  # Strip "Bearer " prefix
-            return provided_key == app_settings.admin_api_key
+            return auth_header[7:] == app_settings.admin_api_key
 
         return False

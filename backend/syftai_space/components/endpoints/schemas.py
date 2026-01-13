@@ -414,3 +414,71 @@ class PublishEndpointResponse(BaseModel):
     results: list[PublishResult] = Field(
         ..., description="Results for each marketplace"
     )
+
+
+# Slug Availability Check Models
+
+
+class SlugAvailabilityRequest(BaseModel):
+    """Request model for checking slug availability."""
+
+    slug: str = Field(..., description="Slug to check for availability")
+    marketplace_ids: list[UUID] | None = Field(
+        default=None,
+        description="Optional list of marketplace IDs to check availability on",
+    )
+    check_all_marketplaces: bool = Field(
+        default=False,
+        description="If true, checks all active marketplaces (takes precedence over marketplace_ids)",
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "slug": "my-new-endpoint",
+                "marketplace_ids": ["123e4567-e89b-12d3-a456-426614174000"],
+                "check_all_marketplaces": False,
+            }
+        }
+
+
+class MarketplaceAvailabilityResult(BaseModel):
+    """Result of checking slug availability on a single marketplace."""
+
+    marketplace_id: UUID = Field(..., description="Marketplace ID")
+    available: bool | None = Field(
+        ..., description="True if available, False if exists, None if check failed"
+    )
+    error: str | None = Field(default=None, description="Error message if check failed")
+
+
+class SlugAvailabilityResponse(BaseModel):
+    """Response model for slug availability check."""
+
+    slug: str = Field(..., description="Slug that was checked")
+    local_available: bool = Field(
+        ..., description="Whether slug is available locally (not in use)"
+    )
+    marketplaces: list[MarketplaceAvailabilityResult] | None = Field(
+        default=None,
+        description="Availability results per marketplace (only if marketplace_ids provided)",
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "slug": "my-new-endpoint",
+                "local_available": True,
+                "marketplaces": [
+                    {
+                        "marketplace_id": "123e4567-e89b-12d3-a456-426614174000",
+                        "available": True,
+                        "error": None,
+                    }
+                ],
+            }
+        }
