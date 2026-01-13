@@ -12,6 +12,7 @@ class AppSettings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_prefix="SYFT_SPACE_",
     )
 
     # Database settings

@@ -1,0 +1,73 @@
+services:
+  syftai-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production  # Use 'development' for dev builds
+    image: syftai-server:latest
+    container_name: syftai-server
+    restart: unless-stopped
+
+    ports:
+      - "${SYFT_SPACE_PORT:-8080}:8080"
+
+    volumes:
+      # Persist SQLite database
+      - syftai-data:/data
+
+    environment:
+      # Application port
+      - SYFT_SPACE_PORT=8080
+
+      # Database configuration
+      - SYFT_SPACE_SQLITE_DB_PATH=/data/app.db
+
+      # Debug mode (set to true for development)
+      - SYFT_SPACE_DEBUG=${SYFT_SPACE_DEBUG:-false}
+
+      # Database reset (CAUTION: destroys all data)
+      - SYFT_SPACE_RESET_DB=${SYFT_SPACE_RESET_DB:-false}
+
+      # Ngrok settings (optional - for exposing to internet)
+      - SYFT_SPACE_USE_NGROK=${SYFT_SPACE_USE_NGROK:-false}
+      - SYFT_SPACE_NGROK_AUTH_TOKEN=${SYFT_SPACE_NGROK_AUTH_TOKEN:-}
+
+      # Multi-tenancy settings
+      - SYFT_SPACE_ENABLE_MULTI_TENANCY=${SYFT_SPACE_ENABLE_MULTI_TENANCY:-false}
+      - SYFT_SPACE_DEFAULT_TENANT_NAME=${SYFT_SPACE_DEFAULT_TENANT_NAME:-root}
+
+      # Authentication (empty = no auth, dev mode)
+      - SYFT_SPACE_ADMIN_API_KEY=${SYFT_SPACE_ADMIN_API_KEY:-}
+
+      # External service URLs
+      - SYFT_SPACE_DEFAULT_ACCOUNTING_URL=${SYFT_SPACE_DEFAULT_ACCOUNTING_URL:-https://syftaccounting.centralus.cloudapp.azure.com/}
+      - SYFT_SPACE_DEFAULT_MARKETPLACE_URL=${SYFT_SPACE_DEFAULT_MARKETPLACE_URL:-https://syfthub.openmined.org}
+
+      # Public URL (optional - for callbacks/webhooks)
+      - SYFT_SPACE_PUBLIC_URL=${SYFT_SPACE_PUBLIC_URL:-}
+
+    # Health check using Python (no curl in distroless image)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+volumes:
+  syftai-data:
+    driver: local
+
+networks:
+  default:
+    name: syftai-network
