@@ -8,7 +8,11 @@ import 'vue-sonner/style.css'
 
 const route = useRoute()
 const showNavbar = computed(
-  () => route.name !== 'create' && !route.path.startsWith('/create/') && route.name !== 'updates',
+  () =>
+    route.name !== 'create' &&
+    !route.path.startsWith('/create/') &&
+    route.name !== 'updates' &&
+    route.name !== 'onboarding',
 )
 
 // Initialize theme support

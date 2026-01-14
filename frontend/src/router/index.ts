@@ -12,6 +12,7 @@ import ModelDetailPage from '../pages/ModelDetailPage.vue'
 import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
 import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
 import UpdatesPage from '../pages/UpdatesPage.vue'
+import OnboardingPage from '../pages/OnboardingPage.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -84,6 +85,11 @@ const router = createRouter({
       path: '/updates',
       name: 'updates',
       component: UpdatesPage,
+    },
+    {
+      path: '/onboarding',
+      name: 'onboarding',
+      component: OnboardingPage,
     },
   ],
 })
