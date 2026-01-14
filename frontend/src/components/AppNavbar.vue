@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { useInboxStore } from '@/stores/inbox'
 import ThemeToggle from '@/components/ThemeToggle.vue'
@@ -101,7 +102,8 @@ const tabs = [
         <!-- Balance Display -->
         <div class="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-lg">
           <span class="text-sm text-muted-foreground">Balance:</span>
-          <span class="text-sm font-semibold text-green-600 dark:text-green-400">{{
+          <Skeleton v-if="userStore.balanceLoading" class="h-4 w-16" />
+          <span v-else class="text-sm font-semibold text-green-600 dark:text-green-400">{{
             userStore.formattedBalance()
           }}</span>
         </div>
@@ -119,34 +121,48 @@ const tabs = [
           </DropdownMenuTrigger>
           <DropdownMenuContent class="w-56" align="end">
             <div class="p-4 space-y-4">
-              <div>
-                <p class="text-sm text-muted-foreground mb-0.5">Email</p>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <p class="text-sm font-medium text-foreground truncate cursor-default">
-                        {{ userStore.email || '--' }}
-                      </p>
-                    </TooltipTrigger>
-                    <TooltipContent v-if="userStore.email">
-                      <p>{{ userStore.email }}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              <div>
-                <p class="text-sm text-muted-foreground mb-0.5">Marketplace</p>
-                <a
-                  v-if="userStore.marketplaceUrl"
-                  :href="userStore.marketplaceUrl"
-                  target="_blank"
-                  class="text-sm font-medium text-foreground hover:text-muted-foreground inline-flex items-center gap-1.5"
-                >
-                  {{ userStore.marketplaceUrl.replace('https://', '').replace(/\/$/, '') }}
-                  <ExternalLink class="h-3 w-3 text-muted-foreground" />
-                </a>
-                <p v-else class="text-sm font-medium text-foreground">--</p>
-              </div>
+              <!-- Loading skeleton -->
+              <template v-if="userStore.marketplaceLoading">
+                <div class="space-y-1.5">
+                  <Skeleton class="h-3 w-10" />
+                  <Skeleton class="h-4 w-32" />
+                </div>
+                <div class="space-y-1.5">
+                  <Skeleton class="h-3 w-16" />
+                  <Skeleton class="h-4 w-36" />
+                </div>
+              </template>
+              <!-- Loaded content -->
+              <template v-else>
+                <div>
+                  <p class="text-sm text-muted-foreground mb-0.5">Email</p>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <p class="text-sm font-medium text-foreground truncate cursor-default">
+                          {{ userStore.email || '--' }}
+                        </p>
+                      </TooltipTrigger>
+                      <TooltipContent v-if="userStore.email">
+                        <p>{{ userStore.email }}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <div>
+                  <p class="text-sm text-muted-foreground mb-0.5">Marketplace</p>
+                  <a
+                    v-if="userStore.marketplaceUrl"
+                    :href="userStore.marketplaceUrl"
+                    target="_blank"
+                    class="text-sm font-medium text-foreground hover:text-muted-foreground inline-flex items-center gap-1.5"
+                  >
+                    {{ userStore.marketplaceUrl.replace('https://', '').replace(/\/$/, '') }}
+                    <ExternalLink class="h-3 w-3 text-muted-foreground" />
+                  </a>
+                  <p v-else class="text-sm font-medium text-foreground">--</p>
+                </div>
+              </template>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem @click="navigateTo('settings')" class="cursor-pointer">
