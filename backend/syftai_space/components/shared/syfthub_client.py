@@ -434,7 +434,20 @@ class SyftHubClient:
         response = self._client.get("/api/v1/users/me/accounting")  # type: ignore
         return _handle_response(response, AccountingResponse)
 
-    def publish_endpoint(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def endpoint_exists(self, slug: str) -> bool:
+        """Check if an endpoint exists on SyftHub.
+        Args:
+            slug: Slug of the endpoint
+        Returns:
+            True if endpoint exists, False otherwise.
+        """
+        self._require_auth()
+        response = self._client.get(f"/api/v1/endpoints/{slug}/exists")  # type: ignore
+        return _handle_response_raw(response)
+
+    def publish_endpoint(
+        self, payload: dict[str, Any], overwrite: bool = False
+    ) -> dict[str, Any]:
         """
         Publish an endpoint to SyftHub.
 
@@ -450,6 +463,12 @@ class SyftHubClient:
         """
         self._require_auth()
         response = self._client.post("/api/v1/endpoints", json=payload)  # type: ignore
+
+        if overwrite and response.status_code == 400:
+            # Endpoint already exists, try to update it
+            response = self._client.patch(
+                f"/api/v1/endpoints/{payload['slug']}", json=payload
+            )  # type: ignore
         return _handle_response_raw(response)
 
     def profile(self) -> UserProfile:

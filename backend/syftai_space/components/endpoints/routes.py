@@ -15,6 +15,8 @@ from syftai_space.components.endpoints.schemas import (
     PublishEndpointResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
+    SlugAvailabilityRequest,
+    SlugAvailabilityResponse,
 )
 from syftai_space.components.tenants.dependency import get_tenant_dependency
 from syftai_space.components.tenants.entities import Tenant
@@ -90,6 +92,33 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
             List of endpoints with summary information
         """
         return handler.list_endpoints(tenant)
+
+    @router.post("/validate-slug", response_model=SlugAvailabilityResponse)
+    async def validate_slug(
+        request: SlugAvailabilityRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> SlugAvailabilityResponse:
+        """Validate if a slug is available locally and optionally on marketplaces.
+
+        This endpoint allows checking slug uniqueness before creating an endpoint.
+        - If neither marketplace_ids nor check_all_marketplaces is provided, only checks locally (fast)
+        - If check_all_marketplaces is True, checks all active marketplaces
+        - If marketplace_ids is provided, checks only those specific marketplaces
+
+        Args:
+            request: Slug and optional marketplace options
+            tenant: Current tenant (injected)
+
+        Returns:
+            Availability status for local and each requested marketplace
+        """
+        return handler.check_slug_availability(
+            request.slug,
+            request.marketplace_ids,
+            request.check_all_marketplaces,
+            tenant,
+        )
 
     @router.get("/{slug}", response_model=EndpointDetailResponse)
     async def get_endpoint(

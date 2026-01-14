@@ -53,9 +53,9 @@ def get_verified_user_email(
 
     # Otherwise, verify token with SyftHub
     try:
-        client = SyftHubClient(str(marketplace.url))
-        client.login(marketplace.email, marketplace.password)
-        result = client.verify_satellite_token(token)
+        with SyftHubClient(str(marketplace.url)) as client:
+            client.login(marketplace.email, marketplace.password)
+            result = client.verify_satellite_token(token)
     except SyftHubError as e:
         raise e.to_http_exception() from e
 

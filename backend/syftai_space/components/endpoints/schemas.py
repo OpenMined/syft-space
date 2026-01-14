@@ -1,10 +1,11 @@
 """Endpoint API schemas for request/response models."""
 
+import re
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from syftai_space.components.endpoints.entities import ResponseType
 
@@ -24,6 +25,28 @@ class CreateEndpointRequest(BaseModel):
     )
     published: bool = Field(default=False, description="Whether endpoint is published")
     tags: str = Field(default="", description="Comma-separated tags")
+
+    @field_validator("slug", mode="before")
+    @classmethod
+    def validate_slug(cls, v: Any) -> str:
+        """Validate the slug."""
+        if not isinstance(v, str):
+            raise ValueError("Slug must be a string")
+        if not v:
+            raise ValueError("Slug is required")
+
+        _slug = v.lower()
+        if len(_slug) < 3:
+            raise ValueError("Slug must be at least 3 characters long")
+        if len(_slug) > 64:
+            raise ValueError("Slug must be at most 64 characters long")
+        if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", _slug):
+            raise ValueError(
+                "Slug must contain only lowercase letters, numbers, and hyphens "
+                "(no leading/trailing/consecutive hyphens)"
+            )
+
+        return _slug
 
     class Config:
         """Pydantic config."""
@@ -414,3 +437,71 @@ class PublishEndpointResponse(BaseModel):
     results: list[PublishResult] = Field(
         ..., description="Results for each marketplace"
     )
+
+
+# Slug Availability Check Models
+
+
+class SlugAvailabilityRequest(BaseModel):
+    """Request model for checking slug availability."""
+
+    slug: str = Field(..., description="Slug to check for availability")
+    marketplace_ids: list[UUID] | None = Field(
+        default=None,
+        description="Optional list of marketplace IDs to check availability on",
+    )
+    check_all_marketplaces: bool = Field(
+        default=False,
+        description="If true, checks all active marketplaces (takes precedence over marketplace_ids)",
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "slug": "my-new-endpoint",
+                "marketplace_ids": ["123e4567-e89b-12d3-a456-426614174000"],
+                "check_all_marketplaces": False,
+            }
+        }
+
+
+class MarketplaceAvailabilityResult(BaseModel):
+    """Result of checking slug availability on a single marketplace."""
+
+    marketplace_id: UUID = Field(..., description="Marketplace ID")
+    available: bool | None = Field(
+        ..., description="True if available, False if exists, None if check failed"
+    )
+    error: str | None = Field(default=None, description="Error message if check failed")
+
+
+class SlugAvailabilityResponse(BaseModel):
+    """Response model for slug availability check."""
+
+    slug: str = Field(..., description="Slug that was checked")
+    local_available: bool = Field(
+        ..., description="Whether slug is available locally (not in use)"
+    )
+    marketplaces: list[MarketplaceAvailabilityResult] | None = Field(
+        default=None,
+        description="Availability results per marketplace (only if marketplace_ids provided)",
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "slug": "my-new-endpoint",
+                "local_available": True,
+                "marketplaces": [
+                    {
+                        "marketplace_id": "123e4567-e89b-12d3-a456-426614174000",
+                        "available": True,
+                        "error": None,
+                    }
+                ],
+            }
+        }

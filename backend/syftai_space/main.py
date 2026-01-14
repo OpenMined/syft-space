@@ -13,7 +13,7 @@ from loguru import logger
 # Import auth components
 from syftai_space.components.auth.dependencies import bearer_scheme
 from syftai_space.components.auth.middleware import AdminKeyMiddleware
-from syftai_space.components.auth.public import public_route
+from syftai_space.components.auth.public import discover_public_routes, public_route
 
 # Import explicit registration functions
 from syftai_space.components.dataset_types import (
@@ -72,6 +72,7 @@ from syftai_space.components.policy_types.registry import POLICY_TYPE_REGISTRY
 from syftai_space.components.settings.handlers import SettingsHandler
 
 # Import settings components
+from syftai_space.components.settings.repository import SettingsRepository
 from syftai_space.components.settings.routes import build_settings_routes
 
 # Import database
@@ -110,7 +111,11 @@ async def lifespan(app: FastAPI):
             logger.info(f"📡 Public URL: {public_url}")
             logger.info(f"🔗 Local URL: http://localhost:{port}")
             logger.info("=" * 70 + "\n")
-            app_settings.public_url = public_url
+
+            # Update database via settings handler (source of truth)
+            settings_handler = getattr(app.state, "settings_handler", None)
+            if settings_handler:
+                settings_handler.settings_repository.update_public_url(public_url)
 
         except Exception as e:
             logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
@@ -243,7 +248,15 @@ endpoint_handler = EndpointHandler(
     marketplace_repository=marketplace_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
-settings_handler = SettingsHandler(marketplace_handler, app_settings)
+
+# Initialize settings repository and handler
+settings_repository = SettingsRepository(database)
+settings_handler = SettingsHandler(
+    settings_repository, marketplace_handler, app_settings
+)
+
+# Initialize settings from config on startup (env var overwrites DB if set)
+settings_handler.initialize_from_config()
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -260,13 +273,7 @@ ingestion_handler = IngestionHandler(
 provisioner_manager = ProvisionerManager(dataset_handler)
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
-
-# Add tenant middleware (after CORS, before routes)
-app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
-
-# Add admin key middleware (runs before tenant middleware)
-# Middleware execution order is reverse of registration order
-app.add_middleware(AdminKeyMiddleware)
+app.state.settings_handler = settings_handler
 
 # Create main API router with bearer auth for OpenAPI docs
 # Actual auth is handled by AdminKeyMiddleware
@@ -292,6 +299,13 @@ async def health():
 
 # Include the router in the app
 app.include_router(router)
+
+# Discover public routes from @public_route decorators
+discover_public_routes(app)
+
+# Add middleware (execution order is reverse of registration)
+app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
+app.add_middleware(AdminKeyMiddleware)
 
 # Mount static files (if frontend exists)
 # Frontend is a sibling directory to backend
