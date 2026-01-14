@@ -107,10 +107,22 @@ async def lifespan(app: FastAPI):
             listener = await ngrok.forward(port)
             public_url = listener.url()
 
+            admin_api_key = app_settings.admin_api_key
+            public_url_str = (
+                f"{public_url}#authToken={admin_api_key}"
+                if admin_api_key
+                else str(public_url)
+            )
+            local_url_str = (
+                f"http://localhost:{port}#authToken={admin_api_key}"
+                if admin_api_key
+                else f"http://localhost:{port}"
+            )
+
             logger.info("\n" + "=" * 70)
             logger.info("🚀 Ngrok tunnel established!")
-            logger.info(f"📡 Public URL: {public_url}")
-            logger.info(f"🔗 Local URL: http://localhost:{port}")
+            logger.info(f"📡 Public URL: {public_url_str}")
+            logger.info(f"🔗 Local URL: {local_url_str}")
             logger.info("=" * 70 + "\n")
 
             # Update database via settings handler (source of truth)
