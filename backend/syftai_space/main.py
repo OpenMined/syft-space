@@ -251,9 +251,7 @@ tenant_handler = TenantHandler(tenant_repository)
 
 # Initialize settings repository and handler
 settings_repository = SettingsRepository(database)
-settings_handler = SettingsHandler(
-    settings_repository, marketplace_handler, app_settings
-)
+settings_handler = SettingsHandler(settings_repository, marketplace_handler)
 
 # Initialize settings from config on startup (env var overwrites DB if set)
 settings_handler.initialize_from_config()

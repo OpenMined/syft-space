@@ -8,7 +8,7 @@ from syftai_space.components.settings.repository import SettingsRepository
 from syftai_space.components.settings.schemas import PublicUrlResponse
 from syftai_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syftai_space.components.tenants.entities import Tenant
-from syftai_space.config import AppSettings
+from syftai_space.config import app_settings
 
 
 class SettingsHandler:
@@ -18,7 +18,6 @@ class SettingsHandler:
         self,
         settings_repository: SettingsRepository,
         marketplace_handler: MarketplaceHandler,
-        config: AppSettings,
     ) -> None:
         """Initialize the settings handler.
 
@@ -29,7 +28,6 @@ class SettingsHandler:
         """
         self.settings_repository = settings_repository
         self.marketplace_handler = marketplace_handler
-        self.config = config
 
     def get_public_url(self) -> PublicUrlResponse:
         """Get the current public URL from database (source of truth).
@@ -81,6 +79,7 @@ class SettingsHandler:
                 detail=f"Failed to sync public URL to marketplace: {e.message}",
             ) from e
 
+        app_settings.public_url = HttpUrl(url_str) if url_str else None
         return PublicUrlResponse(public_url=url_str)
 
     def initialize_from_config(self) -> None:
@@ -88,5 +87,5 @@ class SettingsHandler:
 
         If SYFT_PUBLIC_URL env var is set, it overwrites the database value.
         """
-        if self.config.public_url:
-            self.settings_repository.update_public_url(str(self.config.public_url))
+        if app_settings.public_url:
+            self.settings_repository.update_public_url(str(app_settings.public_url))
