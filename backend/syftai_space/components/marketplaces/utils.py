@@ -25,29 +25,29 @@ def refresh_accounting_credentials(
         HTTPException: If refresh fails
     """
     try:
-        syfthub_client = SyftHubClient(marketplace.url)
-        syfthub_client.login(marketplace.email, marketplace.password)
-        creds = syfthub_client.accounting_credentials()
-
-        # Update marketplace with fresh credentials
-        repository.update(
-            marketplace.id,
-            marketplace.tenant_id,
-            accounting_url=str(creds.url),
-            accounting_email=creds.email,
-            accounting_password=creds.password,
-        )
-
-        return {
-            "url": str(creds.url),
-            "email": creds.email,
-            "password": creds.password,
-        }
+        with SyftHubClient(marketplace.url) as syfthub_client:
+            syfthub_client.login(marketplace.email, marketplace.password)
+            creds = syfthub_client.accounting_credentials()
     except SyftHubError as e:
         raise HTTPException(
             status_code=e.status_code,
             detail=f"Failed to refresh accounting credentials: {e.message}",
         ) from e
+
+    # Update marketplace with fresh credentials
+    repository.update(
+        marketplace.id,
+        marketplace.tenant_id,
+        accounting_url=str(creds.url),
+        accounting_email=creds.email,
+        accounting_password=creds.password,
+    )
+
+    return {
+        "url": str(creds.url),
+        "email": creds.email,
+        "password": creds.password,
+    }
 
 
 def ensure_valid_accounting_credentials(
