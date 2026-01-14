@@ -13,6 +13,27 @@ import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
 import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
 import UpdatesPage from '../pages/UpdatesPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
+import { marketplacesApi } from '../api/endpoints/marketplaces'
+
+const ONBOARDED_KEY = 'isOnboarded'
+
+async function checkOnboardingStatus(): Promise<boolean> {
+  if (localStorage.getItem(ONBOARDED_KEY) === 'true') {
+    return true
+  }
+
+  try {
+    const marketplaces = await marketplacesApi.list()
+    if (marketplaces.length > 0) {
+      localStorage.setItem(ONBOARDED_KEY, 'true')
+      return true
+    }
+  } catch {
+    // If API fails, assume not onboarded
+  }
+
+  return false
+}
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -92,6 +113,26 @@ const router = createRouter({
       component: OnboardingPage,
     },
   ],
+})
+
+router.beforeEach(async (to, _from, next) => {
+  // Skip onboarding check for the onboarding page itself
+  if (to.name === 'onboarding') {
+    next()
+    return
+  }
+
+  const isOnboarded = await checkOnboardingStatus()
+  if (!isOnboarded) {
+    // Preserve the original destination URL
+    const nextUrl = to.fullPath !== '/' ? to.fullPath : undefined
+    next({
+      name: 'onboarding',
+      query: nextUrl ? { next: nextUrl } : undefined,
+    })
+    return
+  }
+  next()
 })
 
 export default router

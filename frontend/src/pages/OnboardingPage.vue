@@ -252,7 +252,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { CheckCircle, XCircle, Loader2, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -264,6 +264,7 @@ import { Separator } from '@/components/ui/separator'
 import { useOnboarding } from '@/composables/useOnboarding'
 
 const router = useRouter()
+const route = useRoute()
 
 // Use onboarding composable
 const {
@@ -358,7 +359,14 @@ const handleCompleteSetup = async () => {
     const setupSuccess = await completeSetup()
     if (setupSuccess) {
       // TODO: Save the devToken if using subdomain
-      router.push({ name: 'home' })
+      localStorage.setItem('isOnboarded', 'true')
+      // Redirect to the original destination or home
+      const nextUrl = route.query.next as string | undefined
+      if (nextUrl) {
+        router.push(nextUrl)
+      } else {
+        router.push({ name: 'home' })
+      }
     }
   } finally {
     isSubmitting.value = false
