@@ -325,6 +325,8 @@ export interface MarketplaceResponse {
 export interface MarketplaceListItem {
   id: string
   name: string
+  username: string
+  email: string
   url: string
   is_default: boolean
   is_active: boolean

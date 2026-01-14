@@ -46,7 +46,8 @@
               <Input
                 id="manager-url"
                 type="url"
-                v-model="userStore.walletManagerUrl"
+                :model-value="userStore.marketplaceUrl ?? undefined"
+                @update:model-value="userStore.marketplaceUrl = $event ? String($event) : null"
                 placeholder="https://payments.openmined.org"
                 class="pr-10"
               />
@@ -62,7 +63,8 @@
             <Input
               id="email"
               type="email"
-              v-model="userStore.email"
+              :model-value="userStore.email ?? undefined"
+              @update:model-value="userStore.email = $event ? String($event) : null"
               placeholder="Enter your email address"
             />
           </div>

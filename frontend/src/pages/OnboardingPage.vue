@@ -73,10 +73,7 @@
                       v-else-if="usernameAvailable === true"
                       class="h-4 w-4 text-green-600"
                     />
-                    <XCircle
-                      v-else-if="usernameAvailable === false"
-                      class="h-4 w-4 text-red-600"
-                    />
+                    <XCircle v-else-if="usernameAvailable === false" class="h-4 w-4 text-red-600" />
                   </div>
                 </div>
                 <p v-if="usernameAvailable === false" class="body-sm text-red-600">
@@ -117,6 +114,26 @@
                   placeholder="••••••••"
                 />
                 <p class="body-sm text-muted-foreground">Must be at least 8 characters</p>
+              </div>
+
+              <!-- Confirm Password field -->
+              <div class="space-y-2">
+                <Label for="confirm-password">Confirm Password</Label>
+                <Input
+                  id="confirm-password"
+                  v-model="confirmPassword"
+                  type="password"
+                  placeholder="••••••••"
+                  :class="{
+                    'border-red-500': confirmPassword && registerForm.password !== confirmPassword,
+                  }"
+                />
+                <p
+                  v-if="confirmPassword && registerForm.password !== confirmPassword"
+                  class="body-sm text-red-600"
+                >
+                  Passwords do not match
+                </p>
               </div>
             </div>
 
@@ -285,6 +302,7 @@ const {
 
 // Additional form state
 const devToken = ref('')
+const confirmPassword = ref('')
 const isSubmitting = ref(false)
 
 // Computed properties
@@ -294,6 +312,7 @@ const isRegisterFormValid = computed(() => {
     registerForm.value.email.trim() !== '' &&
     registerForm.value.name.trim() !== '' &&
     registerForm.value.password.length >= 8 &&
+    registerForm.value.password === confirmPassword.value &&
     usernameAvailable.value === true
   )
 })
