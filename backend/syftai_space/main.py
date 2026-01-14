@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from pydantic import HttpUrl
 
 # Import auth components
 from syftai_space.components.auth.dependencies import bearer_scheme
@@ -106,16 +107,29 @@ async def lifespan(app: FastAPI):
             listener = await ngrok.forward(port)
             public_url = listener.url()
 
+            admin_api_key = app_settings.admin_api_key
+            public_url_str = (
+                f"{public_url}#authToken={admin_api_key}"
+                if admin_api_key
+                else str(public_url)
+            )
+            local_url_str = (
+                f"http://localhost:{port}#authToken={admin_api_key}"
+                if admin_api_key
+                else f"http://localhost:{port}"
+            )
+
             logger.info("\n" + "=" * 70)
             logger.info("🚀 Ngrok tunnel established!")
-            logger.info(f"📡 Public URL: {public_url}")
-            logger.info(f"🔗 Local URL: http://localhost:{port}")
+            logger.info(f"📡 Public URL: {public_url_str}")
+            logger.info(f"🔗 Local URL: {local_url_str}")
             logger.info("=" * 70 + "\n")
 
             # Update database via settings handler (source of truth)
-            settings_handler = getattr(app.state, "settings_handler", None)
-            if settings_handler:
-                settings_handler.settings_repository.update_public_url(public_url)
+            settings_handler = app.state.settings_handler
+            default_tenant = app.state.default_tenant
+            app_settings.public_url = HttpUrl(public_url)
+            settings_handler.update_public_url(default_tenant, public_url)
 
         except Exception as e:
             logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
@@ -165,8 +179,8 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Syft AI Server",
-    description="Syft AI Server - RAG platform with datasets, models, endpoints, and policies",
+    title="Syft Space",
+    description="Syft Space - RAG platform with datasets, models, endpoints, and policies",
     version="0.1.0",
     debug=app_settings.debug,
     lifespan=lifespan,
@@ -251,12 +265,10 @@ tenant_handler = TenantHandler(tenant_repository)
 
 # Initialize settings repository and handler
 settings_repository = SettingsRepository(database)
-settings_handler = SettingsHandler(
-    settings_repository, marketplace_handler, app_settings
-)
+settings_handler = SettingsHandler(settings_repository, marketplace_handler)
 
 # Initialize settings from config on startup (env var overwrites DB if set)
-settings_handler.initialize_from_config()
+settings_handler.initialize_from_config(tenants=[default_tenant])
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -274,6 +286,7 @@ provisioner_manager = ProvisionerManager(dataset_handler)
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.settings_handler = settings_handler
+app.state.default_tenant = default_tenant
 
 # Create main API router with bearer auth for OpenAPI docs
 # Actual auth is handled by AdminKeyMiddleware
@@ -312,7 +325,7 @@ app.add_middleware(AdminKeyMiddleware)
 frontend_path = Path(__file__).parent.parent.parent / "frontend" / "dist"
 if frontend_path.exists():
     app.mount(
-        "/syftai-server",
+        "/frontend",
         StaticFiles(directory=str(frontend_path), html=True, check_dir=False),
     )
 
@@ -322,7 +335,7 @@ async def redirect_root():
     """Redirect root to frontend or API docs."""
     if frontend_path.exists():
         return RedirectResponse(
-            url="/syftai-server", status_code=status.HTTP_307_TEMPORARY_REDIRECT
+            url="/frontend", status_code=status.HTTP_307_TEMPORARY_REDIRECT
         )
     else:
         return RedirectResponse(

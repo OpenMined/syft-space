@@ -467,7 +467,7 @@ class SyftHubClient:
         if overwrite and response.status_code == 400:
             # Endpoint already exists, try to update it
             response = self._client.patch(
-                f"/api/v1/endpoints/{payload['slug']}", json=payload
+                f"/api/v1/endpoints/slug/{payload['slug']}", json=payload
             )  # type: ignore
         return _handle_response_raw(response)
 

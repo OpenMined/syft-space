@@ -19,7 +19,7 @@
         <div class="flex items-center">
           <IconGhost :width="60" :height="60" />
           <div class="ml-3">
-            <h1 class="text-3xl font-bold text-white">SyftAI Space</h1>
+            <h1 class="text-3xl font-bold text-white">Syft Space</h1>
           </div>
         </div>
 

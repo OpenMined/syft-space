@@ -587,7 +587,6 @@ class EndpointHandler:
                     for policy in endpoint.policies
                 ]
                 connection_config = {
-                    "host": "localhost:8080",
                     "path": f"/api/v1/endpoints/{endpoint.slug}/query",
                 }
 

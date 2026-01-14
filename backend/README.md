@@ -1,4 +1,4 @@
-# Syft AI Server
+# Syft Space
 
 A powerful RAG (Retrieval-Augmented Generation) platform that enables you to create, manage, and query AI-powered endpoints backed by vector databases and language models.
 

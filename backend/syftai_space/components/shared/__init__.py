@@ -1,4 +1,4 @@
-"""Shared utilities and types for syftai-server."""
+"""Shared utilities and types for Syft Space."""
 
 from .syfthub_client import SyftHubClient
 

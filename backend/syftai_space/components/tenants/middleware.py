@@ -7,7 +7,7 @@ The middleware ALWAYS sets a tenant in context (either from X-Tenant-Name header
 Route-specific header validation happens in get_tenant_dependency() for routes that need it.
 """
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from loguru import logger
@@ -95,19 +95,16 @@ class TenantMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
 
             return response
-
         except Exception as e:
-            logger.error(f"Tenant middleware error: {e}")
-            return Response(
-                status_code=500,
-                content=f'{{"detail":"Tenant resolution failed: {str(e)}"}}',
-                media_type="application/json",
+            logger.exception(
+                f"Unhandled error on {request.method} {request.url.path}: {e}"
             )
+            raise
         finally:
             # Clean up context
             clear_current_tenant()
 
-    async def _get_default_tenant(self) -> Optional[Tenant]:
+    async def _get_default_tenant(self) -> Tenant | None:
         """Get the default tenant (used when multi-tenancy is disabled).
 
         Returns:

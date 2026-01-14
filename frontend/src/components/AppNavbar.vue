@@ -59,7 +59,7 @@ const tabs = [
           <span class="text-primary-foreground font-bold text-base">S</span>
         </div>
         <span class="text-lg font-bold text-foreground tracking-tight">
-          SyftAI Space
+          Syft Space
           <span class="ml-1 text-xs font-semibold text-primary align-top">BETA</span>
         </span>
       </div>

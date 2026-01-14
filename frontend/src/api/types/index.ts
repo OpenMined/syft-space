@@ -293,3 +293,53 @@ export interface PolicyListItem {
   endpoint_id: string
   created_at: string
 }
+
+// Marketplace API types
+export interface RegisterMarketplaceRequest {
+  name: string
+  username: string
+  url?: string
+  email: string
+  password: string
+  accounting_url?: string
+  accounting_password?: string
+}
+
+export interface ConnectMarketplaceRequest {
+  username: string
+  password: string
+  url?: string
+}
+
+export interface MarketplaceResponse {
+  id: string
+  name: string
+  url: string
+  email: string
+  is_default: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface MarketplaceListItem {
+  id: string
+  name: string
+  url: string
+  is_default: boolean
+  is_active: boolean
+}
+
+export interface BalanceResponse {
+  balance: number
+  currency: string
+}
+
+// Settings API types
+export interface PublicUrlResponse {
+  public_url: string | null
+}
+
+export interface UpdatePublicUrlRequest {
+  public_url: string
+}

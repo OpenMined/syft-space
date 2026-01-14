@@ -18,7 +18,7 @@ class AdminKeyMiddleware(BaseHTTPMiddleware):
     All other routes require Authorization: Bearer <key> header.
     """
 
-    STATIC_PUBLIC_PATHS = ["/docs", "/redoc", "/openapi.json", "/syftai-server"]
+    STATIC_PUBLIC_PATHS = ["/docs", "/redoc", "/openapi.json", "/frontend"]
     STATIC_PUBLIC_EXACT = ["/"]
 
     async def dispatch(

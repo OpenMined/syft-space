@@ -1,6 +1,6 @@
 # Database Migrations Guide
 
-This guide explains how to work with database migrations in SyftAI Server. Whether you're new to migrations or just new to this project, this document will help you get started.
+This guide explains how to work with database migrations in Syft Space. Whether you're new to migrations or just new to this project, this document will help you get started.
 
 ## What Are Migrations?
 
