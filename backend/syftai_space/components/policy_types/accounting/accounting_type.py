@@ -182,6 +182,7 @@ class AccountingPolicy(BasePolicyType):
             credentials = AccountingCredentials.from_context(context)
             amount = config.price
 
+            transaction = None
             try:
                 transaction = self._create_transaction(
                     credentials,
@@ -193,6 +194,9 @@ class AccountingPolicy(BasePolicyType):
                 transactions.append({"id": transaction.id, "amount": amount})
                 total_amount += amount
             except Exception as e:
+                if transaction:
+                    self._cancel_transaction(credentials, transaction.id)
+
                 raise PolicyViolationError(
                     message=f"Failed to create accounting transaction: {e}",
                     policy_type=self.NAME,
@@ -221,7 +225,7 @@ class AccountingPolicy(BasePolicyType):
         return accounting_client.create_delegated_transaction(
             senderEmail=sender_email,
             amount=amount,
-            transaction_token=transaction_token,
+            token=transaction_token,
             appEpPath=endpoint_slug,
         )
 
@@ -259,6 +263,9 @@ class AccountingPolicy(BasePolicyType):
             try:
                 self._confirm_transaction(credentials, transaction["id"])
             except Exception as e:
+                if transaction.get("id"):
+                    self._cancel_transaction(credentials, transaction["id"])
+
                 raise PolicyViolationError(
                     message=f"Failed to confirm accounting transaction: {e}",
                     policy_type=self.NAME,
@@ -276,6 +283,17 @@ class AccountingPolicy(BasePolicyType):
                 context.response["references"]["cost"] = total_amount
 
         return context
+
+    def _cancel_transaction(
+        self, credentials: AccountingCredentials, transaction_id: str
+    ) -> None:
+        """Cancel a transaction with the accounting service."""
+        accounting_client = UserClient(
+            url=str(credentials.url),
+            email=str(credentials.email),
+            password=credentials.password,
+        )
+        accounting_client.cancel_transaction(id=transaction_id)
 
     def _confirm_transaction(
         self, credentials: AccountingCredentials, transaction_id: str
