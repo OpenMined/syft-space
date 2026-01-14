@@ -64,10 +64,10 @@ class AppSettings(BaseSettings):
         description="Default URL for the marketplace service",
     )
 
-    # SyftAI Space Public URL
+    # Syft Space Public URL
     public_url: HttpUrl | None = Field(
         None,
-        description="Public URL for the SyftAI Space",
+        description="Public URL for the Syft Space",
     )
 
 

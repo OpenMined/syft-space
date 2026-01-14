@@ -3,7 +3,7 @@
     <div class="w-full max-w-2xl">
       <!-- Header -->
       <div class="text-center mb-8">
-        <h1 class="heading-2 text-foreground mb-2">Welcome to SyftAI Space</h1>
+        <h1 class="heading-2 text-foreground mb-2">Welcome to Syft Space</h1>
         <p class="body-lg text-muted-foreground">
           Let's get you connected to
           <a
@@ -218,7 +218,7 @@
                       placeholder="https://my-space.example.com"
                     />
                     <p class="body-sm text-muted-foreground">
-                      Enter the complete web address where your SyftAI Space can be reached
+                      Enter the complete web address where your Syft Space can be reached
                     </p>
                   </div>
                 </div>

@@ -179,8 +179,8 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Syft AI Server",
-    description="Syft AI Server - RAG platform with datasets, models, endpoints, and policies",
+    title="Syft Space",
+    description="Syft Space - RAG platform with datasets, models, endpoints, and policies",
     version="0.1.0",
     debug=app_settings.debug,
     lifespan=lifespan,
@@ -325,7 +325,7 @@ app.add_middleware(AdminKeyMiddleware)
 frontend_path = Path(__file__).parent.parent.parent / "frontend" / "dist"
 if frontend_path.exists():
     app.mount(
-        "/syftai-server",
+        "/frontend",
         StaticFiles(directory=str(frontend_path), html=True, check_dir=False),
     )
 
@@ -335,7 +335,7 @@ async def redirect_root():
     """Redirect root to frontend or API docs."""
     if frontend_path.exists():
         return RedirectResponse(
-            url="/syftai-server", status_code=status.HTTP_307_TEMPORARY_REDIRECT
+            url="/frontend", status_code=status.HTTP_307_TEMPORARY_REDIRECT
         )
     else:
         return RedirectResponse(

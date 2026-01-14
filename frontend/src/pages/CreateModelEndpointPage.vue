@@ -1296,7 +1296,7 @@
                 {{ creationStep || 'Publishing...' }}
               </template>
               <template v-else>
-                {{ currentSubStep === 4 ? 'Publish Now' : 'Continue' }}
+                {{ currentSubStep === 4 ? 'Publish to SyftHub' : 'Continue' }}
               </template>
               <ArrowRight v-if="!isCreating" class="ml-2 h-4 w-4" />
             </Button>

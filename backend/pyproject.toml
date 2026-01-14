@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "syftai_space"
 version = "0.1.0"
-description = "Syft AI Server Backend API"
+description = "Syft Space Backend API"
 authors = [
     {name = "OpenMined", email = "support@openmined.org"}
 ]

@@ -1,1 +1,1 @@
-"""Components package for syftai-server."""
+"""Components package for Syft Space."""

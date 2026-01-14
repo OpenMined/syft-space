@@ -1,4 +1,4 @@
-# SyftAI Design Standards
+# Syft Space Design Standards
 
 ## Typography Hierarchy (Based on HomePage.vue)
 

@@ -12,7 +12,7 @@
         <div class="text-center mb-16">
           <h1 class="heading-1 font-light text-foreground mb-4">
             Welcome to your
-            <span class="font-medium text-primary">SyftAI Space</span>
+            <span class="font-medium text-primary">Syft Space</span>
           </h1>
           <p class="body-lg text-muted-foreground max-w-2xl mx-auto">
             A Space where you can turn data and models into shareable workflows — exposing them
