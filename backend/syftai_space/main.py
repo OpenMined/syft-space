@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from pydantic import HttpUrl
 
 # Import auth components
 from syftai_space.components.auth.dependencies import bearer_scheme
@@ -113,9 +114,10 @@ async def lifespan(app: FastAPI):
             logger.info("=" * 70 + "\n")
 
             # Update database via settings handler (source of truth)
-            settings_handler = getattr(app.state, "settings_handler", None)
-            if settings_handler:
-                settings_handler.settings_repository.update_public_url(public_url)
+            settings_handler = app.state.settings_handler
+            default_tenant = app.state.default_tenant
+            app_settings.public_url = HttpUrl(public_url)
+            settings_handler.update_public_url(default_tenant, public_url)
 
         except Exception as e:
             logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
@@ -254,7 +256,7 @@ settings_repository = SettingsRepository(database)
 settings_handler = SettingsHandler(settings_repository, marketplace_handler)
 
 # Initialize settings from config on startup (env var overwrites DB if set)
-settings_handler.initialize_from_config()
+settings_handler.initialize_from_config(tenants=[default_tenant])
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -272,6 +274,7 @@ provisioner_manager = ProvisionerManager(dataset_handler)
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.settings_handler = settings_handler
+app.state.default_tenant = default_tenant
 
 # Create main API router with bearer auth for OpenAPI docs
 # Actual auth is handled by AdminKeyMiddleware

@@ -1,6 +1,7 @@
 """Settings handlers for business logic."""
 
 from fastapi import HTTPException
+from loguru import logger
 from pydantic import HttpUrl
 
 from syftai_space.components.marketplaces.handlers import MarketplaceHandler
@@ -64,6 +65,9 @@ class SettingsHandler:
         # Sync to SyftHub if marketplace is configured
         try:
             marketplace = self.marketplace_handler.get_default_marketplace(tenant)
+            logger.info(
+                f"Updating public URL to {url_str} for marketplace {marketplace.url}"
+            )
             with SyftHubClient(str(marketplace.url)) as syfthub:
                 syfthub.login(marketplace.email, marketplace.password)
                 syfthub.update_profile(domain=url_str)
@@ -82,10 +86,13 @@ class SettingsHandler:
         app_settings.public_url = HttpUrl(url_str) if url_str else None
         return PublicUrlResponse(public_url=url_str)
 
-    def initialize_from_config(self) -> None:
+    def initialize_from_config(self, tenants: list[Tenant]) -> None:
         """Initialize settings from config on startup.
 
         If SYFT_PUBLIC_URL env var is set, it overwrites the database value.
         """
-        if app_settings.public_url:
-            self.settings_repository.update_public_url(str(app_settings.public_url))
+        if not app_settings.public_url:
+            return
+
+        for tenant in tenants:
+            self.update_public_url(tenant, app_settings.public_url)
