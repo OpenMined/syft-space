@@ -128,7 +128,9 @@
                         class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 flex-shrink-0"
                       />
                       <Skeleton v-if="statsLoading" class="h-5 w-8" />
-                      <span v-else class="text-lg font-light text-foreground">{{ datasetCount }}</span>
+                      <span v-else class="text-lg font-light text-foreground">{{
+                        datasetCount
+                      }}</span>
                     </div>
                     <span class="text-xs text-muted-foreground text-center leading-tight"
                       >Datasets</span
@@ -153,7 +155,9 @@
                         class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 flex-shrink-0"
                       />
                       <Skeleton v-if="statsLoading" class="h-5 w-8" />
-                      <span v-else class="text-lg font-light text-foreground">{{ modelCount }}</span>
+                      <span v-else class="text-lg font-light text-foreground">{{
+                        modelCount
+                      }}</span>
                     </div>
                     <span class="text-xs text-muted-foreground text-center leading-tight"
                       >Models</span
@@ -178,7 +182,9 @@
                         class="w-3.5 h-3.5 text-orange-600 dark:text-orange-400 flex-shrink-0"
                       />
                       <Skeleton v-if="statsLoading" class="h-5 w-8" />
-                      <span v-else class="text-lg font-light text-foreground">{{ endpointCount }}</span>
+                      <span v-else class="text-lg font-light text-foreground">{{
+                        endpointCount
+                      }}</span>
                     </div>
                     <span class="text-xs text-muted-foreground text-center leading-tight"
                       >Endpoints</span
