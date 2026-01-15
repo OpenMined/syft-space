@@ -353,7 +353,9 @@
                   getConfigValue('indexName') || getConfigValue('collectionName') || dataset.name
                 }}</span>
               </div>
-              <div class="flex justify-between items-center py-2 border-b border-border last:border-b-0">
+              <div
+                class="flex justify-between items-center py-2 border-b border-border last:border-b-0"
+              >
                 <span class="body-sm text-muted-foreground">Connection Status</span>
                 <div class="flex items-center gap-3">
                   <div
@@ -375,10 +377,7 @@
             </div>
 
             <!-- Dynamic Configuration Display -->
-            <div
-              v-if="showAdvancedConfig && dataset?.configuration"
-              class="mt-6"
-            >
+            <div v-if="showAdvancedConfig && dataset?.configuration" class="mt-6">
               <div class="space-y-6">
                 <h3 class="body-sm font-semibold text-foreground mb-4">Advanced Settings</h3>
                 <div class="space-y-3">

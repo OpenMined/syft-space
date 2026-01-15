@@ -193,7 +193,9 @@
                 model.configuration.model || 'Not specified'
               }}</span>
             </div>
-            <div class="flex justify-between items-center py-4 border-b border-border last:border-b-0">
+            <div
+              class="flex justify-between items-center py-4 border-b border-border last:border-b-0"
+            >
               <span class="body-sm text-muted-foreground">API Key</span>
               <span class="body-sm font-medium text-foreground">{{
                 model.configuration.api_key ? '••••••••' : 'Not configured'

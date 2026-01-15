@@ -89,7 +89,11 @@
           <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
             <div class="h-5 bg-muted rounded w-20 mb-4"></div>
             <div class="space-y-3">
-              <div v-for="i in 3" :key="`detail-${i}`" class="flex justify-between items-center py-1">
+              <div
+                v-for="i in 3"
+                :key="`detail-${i}`"
+                class="flex justify-between items-center py-1"
+              >
                 <div class="h-4 bg-muted rounded w-20"></div>
                 <div class="h-4 bg-muted rounded w-28"></div>
               </div>
