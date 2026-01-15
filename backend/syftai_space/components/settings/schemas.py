@@ -22,3 +22,29 @@ class UpdatePublicUrlRequest(BaseModel):
                 "public_url": "https://my-server.example.com",
             }
         }
+
+
+class ProxyConfigRequest(BaseModel):
+    """Request model for configuring the ngrok proxy."""
+
+    ngrok_token: str = Field(
+        ..., min_length=1, description="Ngrok authentication token"
+    )
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "ngrok_token": "2abc123def456...",
+            }
+        }
+
+
+class ProxyStatusResponse(BaseModel):
+    """Response model for proxy status."""
+
+    connected: bool = Field(..., description="Whether the proxy tunnel is connected")
+    public_url: str | None = Field(
+        None, description="Public URL of the tunnel if connected"
+    )

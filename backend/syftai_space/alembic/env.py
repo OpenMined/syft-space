@@ -14,6 +14,7 @@ from syftai_space.components.ingestion.entities import IngestionJob  # noqa: F40
 from syftai_space.components.marketplaces.entities import Marketplace  # noqa: F401
 from syftai_space.components.models.entities import Model  # noqa: F401
 from syftai_space.components.policies.entities import Policy  # noqa: F401
+from syftai_space.components.settings.entities import Settings  # noqa: F401
 from syftai_space.components.shared.database import SQLiteConfig
 from syftai_space.components.tenants.entities import Tenant  # noqa: F401
 from syftai_space.config import app_settings

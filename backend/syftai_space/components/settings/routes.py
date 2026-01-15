@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends
 
 from syftai_space.components.settings.handlers import SettingsHandler
 from syftai_space.components.settings.schemas import (
+    ProxyConfigRequest,
+    ProxyStatusResponse,
     PublicUrlResponse,
     UpdatePublicUrlRequest,
 )
@@ -29,7 +31,7 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
         return handler
 
     @router.get("/public-url", response_model=PublicUrlResponse)
-    async def get_public_url(
+    def get_public_url(
         handler: SettingsHandler = Depends(get_handler),
     ) -> PublicUrlResponse:
         """Get the current public URL."""
@@ -46,5 +48,26 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
         Updates the local configuration and syncs to the marketplace.
         """
         return handler.update_public_url(tenant, request.public_url)
+
+    @router.post("/proxy", response_model=ProxyStatusResponse)
+    async def configure_proxy(
+        request: ProxyConfigRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: SettingsHandler = Depends(get_handler),
+    ) -> ProxyStatusResponse:
+        """Configure the ngrok proxy tunnel.
+
+        Connects to ngrok with the provided token and persists the configuration.
+        The tunnel will automatically reconnect on app restart.
+        """
+        return await handler.configure_proxy(tenant, request.ngrok_token)
+
+    @router.delete("/proxy", response_model=ProxyStatusResponse)
+    async def disconnect_proxy(
+        handler: SettingsHandler = Depends(get_handler),
+        tenant: Tenant = Depends(get_tenant_dependency),
+    ) -> ProxyStatusResponse:
+        """Disconnect the ngrok proxy tunnel and clear configuration."""
+        return await handler.disconnect_proxy(tenant)
 
     return router

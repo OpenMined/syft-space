@@ -1,6 +1,5 @@
 """Main FastAPI application."""
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-from pydantic import HttpUrl
 
 # Import auth components
 from syftai_space.components.auth.dependencies import bearer_scheme
@@ -79,6 +77,9 @@ from syftai_space.components.settings.routes import build_settings_routes
 # Import database
 from syftai_space.components.shared.database import Database, SQLiteConfig
 
+# Import proxy service
+from syftai_space.components.shared.proxy_service import ProxyService
+
 # Import tenant components
 from syftai_space.components.tenants.entities import Tenant
 from syftai_space.components.tenants.handlers import TenantHandler
@@ -91,56 +92,28 @@ from syftai_space.config import app_settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - handles startup and shutdown events."""
-    # Startup: Initialize ngrok if enabled
-    listener = None
-    if app_settings.use_ngrok:
-        try:
-            import ngrok
-
-            # Set auth token if provided
-            ngrok.set_auth_token(app_settings.ngrok_auth_token)
-
-            # Get the port from environment variable or default
-            port = int(os.getenv("SYFTAI_PORT", "8080"))
-
-            # Start ngrok tunnel
-            listener = await ngrok.forward(port)
-            public_url = listener.url()
-
-            admin_api_key = app_settings.admin_api_key
-            public_url_str = (
-                f"{public_url}#authToken={admin_api_key}"
-                if admin_api_key
-                else str(public_url)
-            )
-            local_url_str = (
-                f"http://localhost:{port}#authToken={admin_api_key}"
-                if admin_api_key
-                else f"http://localhost:{port}"
-            )
-
-            logger.info("\n" + "=" * 70)
-            logger.info("🚀 Ngrok tunnel established!")
-            logger.info(f"📡 Public URL: {public_url_str}")
-            logger.info(f"🔗 Local URL: {local_url_str}")
-            logger.info("=" * 70 + "\n")
-
-            # Update database via settings handler (source of truth)
-            settings_handler = app.state.settings_handler
-            default_tenant = app.state.default_tenant
-            app_settings.public_url = HttpUrl(public_url)
-            settings_handler.update_public_url(default_tenant, public_url)
-
-        except Exception as e:
-            logger.error(f"⚠️  Warning: Failed to start ngrok tunnel: {e}")
-            logger.error("   Continuing without ngrok...\n")
-
-    # Startup order: provisioners first, then ingestion
+    # Get services from app.state
+    proxy_service: ProxyService = getattr(app.state, "proxy_service", None)
     provisioner_manager: ProvisionerManager = getattr(
         app.state, "provisioner_manager", None
     )
     ingestion_manager: IngestionManager = getattr(app.state, "ingestion_manager", None)
 
+    # Startup: Auto-connect proxy if configured
+    if proxy_service:
+        try:
+            await proxy_service.auto_connect_if_configured()
+            if proxy_service.is_connected():
+                proxy_service.log_connection_info(app_settings.admin_api_key)
+                public_url = proxy_service.get_public_url()
+                if public_url:
+                    default_tenant = app.state.default_tenant
+                    settings_handler.update_public_url(default_tenant, public_url)
+        except Exception as e:
+            logger.error(f"⚠️  Warning: Failed to auto-connect ngrok tunnel: {e}")
+            logger.error("   Continuing without ngrok...\n")
+
+    # Startup order: provisioners first, then ingestion
     if provisioner_manager:
         try:
             await provisioner_manager.startup()
@@ -155,7 +128,7 @@ async def lifespan(app: FastAPI):
 
     yield  # Application runs here
 
-    # Shutdown order: ingestion first, then provisioners
+    # Shutdown order: ingestion first, then provisioners, then proxy
     if ingestion_manager:
         try:
             await ingestion_manager.shutdown()
@@ -168,13 +141,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error shutting down provisioners: {e}")
 
-    # Shutdown: Clean up ngrok if it was started
-    if listener:
+    # Shutdown: Clean up proxy service
+    if proxy_service:
         try:
-            await listener.close()
-            logger.info("✅ Ngrok tunnel closed")
+            await proxy_service.shutdown()
+            logger.info("✅ Proxy service shutdown complete")
         except Exception as e:
-            logger.error(f"⚠️  Warning: Error closing ngrok tunnel: {e}")
+            logger.error(f"⚠️  Warning: Error shutting down proxy service: {e}")
 
 
 # Initialize FastAPI app
@@ -263,9 +236,14 @@ endpoint_handler = EndpointHandler(
 )
 tenant_handler = TenantHandler(tenant_repository)
 
-# Initialize settings repository and handler
+# Initialize settings repository and proxy service
 settings_repository = SettingsRepository(database)
-settings_handler = SettingsHandler(settings_repository, marketplace_handler)
+proxy_service = ProxyService(settings_repository)
+
+# Initialize settings handler with proxy service
+settings_handler = SettingsHandler(
+    settings_repository, marketplace_repository, proxy_service
+)
 
 # Initialize settings from config on startup (env var overwrites DB if set)
 settings_handler.initialize_from_config(tenants=[default_tenant])
@@ -285,6 +263,7 @@ ingestion_handler = IngestionHandler(
 provisioner_manager = ProvisionerManager(dataset_handler)
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
+app.state.proxy_service = proxy_service
 app.state.settings_handler = settings_handler
 app.state.default_tenant = default_tenant
 
