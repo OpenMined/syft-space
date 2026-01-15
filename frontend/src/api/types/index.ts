@@ -337,6 +337,24 @@ export interface BalanceResponse {
   currency: string
 }
 
+// Slug Availability API types
+export interface SlugAvailabilityRequest {
+  slug: string
+  marketplace_ids?: string[] | null
+  check_all_marketplaces?: boolean
+}
+
+export interface SlugAvailabilityResponse {
+  slug: string
+  local_available: boolean
+  marketplaces?: Array<{
+    marketplace_id: string
+    marketplace_name: string
+    available: boolean
+    error?: string
+  }> | null
+}
+
 // Settings API types
 export interface PublicUrlResponse {
   public_url: string | null

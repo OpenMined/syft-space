@@ -51,6 +51,19 @@ export const useUserStore = defineStore('user', () => {
     return `$${formatPrice(balance.value)}`
   }
 
+  /**
+   * Get the marketplace URL for an endpoint
+   * @param endpointSlug - The endpoint slug/name
+   * @returns The full URL to view the endpoint on the marketplace, or null if not available
+   */
+  const getEndpointUrlInMarketplace = (endpointSlug: string): string | null => {
+    if (marketplaceUrl.value && username.value && endpointSlug) {
+      const baseUrl = marketplaceUrl.value.replace(/\/+$/, '')
+      return `${baseUrl}/${username.value}/${endpointSlug}`
+    }
+    return null
+  }
+
   return {
     name,
     username,
@@ -64,5 +77,6 @@ export const useUserStore = defineStore('user', () => {
     fetchMarketplaceInfo,
     fetchBalance,
     formattedBalance,
+    getEndpointUrlInMarketplace,
   }
 })

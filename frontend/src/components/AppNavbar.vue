@@ -26,7 +26,6 @@ const inboxStore = useInboxStore()
 const currentRouteName = computed(() => route.name as string)
 
 onMounted(() => {
-  userStore.fetchMarketplaceInfo()
   userStore.fetchBalance()
 })
 

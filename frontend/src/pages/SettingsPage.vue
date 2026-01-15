@@ -78,9 +78,7 @@
           </div>
           <div>
             <h3 class="text-lg font-medium text-foreground">Network Configuration</h3>
-            <p class="text-sm text-muted-foreground">
-              Configure how others can access your space
-            </p>
+            <p class="text-sm text-muted-foreground">Configure how others can access your space</p>
           </div>
         </div>
 
