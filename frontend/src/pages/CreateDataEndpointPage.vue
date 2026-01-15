@@ -297,9 +297,9 @@
               <!-- Add Files Card -->
               <Card
                 :class="[
-                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-primary/30 hover:bg-gradient-to-br hover:from-primary/5 hover:to-primary/10',
+                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-400 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 dark:hover:from-blue-950/30 dark:hover:to-indigo-950/30 bg-card',
                   selectedDataSourceType === 'filesystem'
-                    ? 'border-primary bg-gradient-to-br from-primary/5 to-primary/10'
+                    ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30'
                     : 'border-border bg-card',
                 ]"
                 @click="selectDataSourceType('filesystem')"
@@ -307,9 +307,9 @@
                 <CardContent class="p-6 h-full">
                   <div class="flex flex-col items-center text-center h-full">
                     <div
-                      class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4"
+                      class="w-14 h-14 rounded-full bg-blue-100 dark:bg-blue-950/50 flex items-center justify-center mb-4"
                     >
-                      <FileText class="w-7 h-7 text-primary" />
+                      <FileText class="w-7 h-7 text-blue-600 dark:text-blue-400" />
                     </div>
 
                     <h3 class="heading-3 text-foreground mb-2">Add Files</h3>
@@ -334,7 +334,7 @@
 
                     <div class="flex items-center gap-1 mt-auto">
                       <span
-                        class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium"
+                        class="body-sm bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-300 px-2 py-1 rounded-full font-medium"
                         >Easy</span
                       >
                       <span class="body-sm text-muted-foreground">2 minute setup</span>
@@ -347,9 +347,9 @@
               <Card
                 v-if="existingDataSourcesCount > 0"
                 :class="[
-                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 bg-card',
+                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-green-300 dark:hover:border-green-400 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-950/30 dark:hover:to-emerald-950/30 bg-card',
                   selectedDataSourceType === 'existing'
-                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30'
                     : 'border-border',
                 ]"
                 @click="selectDataSourceType('existing')"
@@ -357,9 +357,9 @@
                 <CardContent class="p-6 h-full">
                   <div class="flex flex-col items-center text-center h-full">
                     <div
-                      class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4"
+                      class="w-14 h-14 rounded-full bg-green-100 dark:bg-green-950/50 flex items-center justify-center mb-4"
                     >
-                      <FolderOpen class="w-7 h-7 text-green-600" />
+                      <FolderOpen class="w-7 h-7 text-green-600 dark:text-green-400" />
                     </div>
 
                     <h3 class="heading-3 text-foreground mb-2">Existing Sources</h3>
@@ -404,7 +404,7 @@
 
                     <div class="flex items-center gap-1 mt-auto">
                       <span
-                        class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium"
+                        class="body-sm bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-300 px-2 py-1 rounded-full font-medium"
                       >
                         Quick
                       </span>
@@ -504,6 +504,7 @@
               <Card class="bg-card border-border">
                 <CardContent class="p-6">
                   <FileExplorer
+                    ref="fileExplorerRef"
                     v-model="selectedFiles"
                     :show-hidden="false"
                     :allow-multiple="true"
@@ -512,41 +513,66 @@
               </Card>
 
               <!-- File descriptions for selected files -->
-              <div v-if="selectedFiles.length > 0" class="mt-4">
-                <h4 class="font-medium text-foreground mb-3">
-                  Selected Paths ({{ selectedFiles.length }})
-                </h4>
-                <div class="space-y-2">
-                  <Card v-for="file in selectedFiles" :key="file" class="bg-muted/50 border-border">
-                    <CardContent class="p-4">
-                      <div class="flex items-start gap-3">
-                        <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                        <div class="min-w-0 flex-1 space-y-1">
-                          <div class="flex items-center justify-between gap-2">
-                            <p class="body-sm font-medium text-foreground truncate">{{ file }}</p>
-                            <Button
-                              @click="removeFile(selectedFiles.indexOf(file))"
-                              variant="ghost"
-                              size="sm"
-                              class="h-6 w-6 p-0 hover:text-destructive"
-                            >
-                              <X class="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <div class="space-y-2">
-                            <Label class="body-sm text-muted-foreground"
-                              >Description (Optional)</Label
-                            >
-                            <Input
-                              v-model="fileDescriptions[file]"
-                              placeholder="Brief description of this file's content..."
-                              class="body-sm"
-                            />
-                          </div>
-                        </div>
+              <div v-if="selectedFiles.length > 0" class="mt-4 space-y-3">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <h4 class="text-sm font-medium text-foreground">Selected Paths</h4>
+                    <Badge variant="secondary" class="text-xs">
+                      {{ selectedFiles.length }}
+                    </Badge>
+                  </div>
+                  <Button
+                    @click="selectedFiles = []"
+                    variant="ghost"
+                    size="sm"
+                    class="h-8 text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    <X class="h-3 w-3 mr-1" />
+                    Clear all
+                  </Button>
+                </div>
+
+                <div class="rounded-lg border border-border bg-muted/30 divide-y divide-border">
+                  <div
+                    v-for="(file, index) in selectedFiles"
+                    :key="file"
+                    class="p-4 first:rounded-t-lg last:rounded-b-lg hover:bg-muted/50 transition-colors"
+                  >
+                    <div class="flex items-start gap-3">
+                      <div class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0">
+                        <component
+                          :is="getFileIcon(file, false, fileExplorerRef?.rootNodes)"
+                          class="h-4 w-4"
+                          :class="getFileIconColor(file, fileExplorerRef?.rootNodes)"
+                        />
                       </div>
-                    </CardContent>
-                  </Card>
+                      <div class="flex-1 min-w-0 space-y-3">
+                        <div class="flex items-start justify-between gap-2">
+                          <div class="space-y-1">
+                            <p class="text-sm font-medium text-foreground truncate">
+                              {{ file.split('/').pop() }}
+                            </p>
+                            <p class="text-xs text-muted-foreground truncate">
+                              {{ file }}
+                            </p>
+                          </div>
+                          <Button
+                            @click="removeFile(index)"
+                            variant="ghost"
+                            size="sm"
+                            class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex-shrink-0"
+                          >
+                            <X class="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <Input
+                          v-model="fileDescriptions[file]"
+                          placeholder="Add a description (optional)..."
+                          class="text-sm h-9 bg-background"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1783,6 +1809,7 @@ import {
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
+import { useFileIcon } from '@/composables/useFileIcon'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
@@ -1998,6 +2025,8 @@ const formData = ref({
 const selectedDataSourceType = ref<'filesystem' | 'existing' | ''>('')
 const selectedFiles = ref<string[]>([]) // Start with empty selection for FileExplorer
 const fileDescriptions = ref({} as Record<string, string>)
+const fileExplorerRef = ref<InstanceType<typeof FileExplorer> | null>(null)
+const { getFileIcon, getFileIconColor } = useFileIcon()
 const existingDatasets = ref<DatasetListItem[]>([])
 const loadingDatasets = ref(false)
 const datasetsError = ref<string | null>(null)

@@ -574,70 +574,15 @@
   />
 
   <!-- Delete Confirmation Dialog -->
-  <Dialog v-model:open="showDeleteDialog">
-    <DialogContent class="sm:max-w-[600px]">
-      <DialogHeader>
-        <DialogTitle>Delete Dataset</DialogTitle>
-        <DialogDescription>
-          Are you sure you want to delete "{{ dataset?.name }}"? This action cannot be undone.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div v-if="dataset && dataset.endpointCount > 0" class="py-4">
-        <div class="space-y-4">
-          <div class="bg-red-50 border border-red-200 rounded-md p-4">
-            <div class="flex items-start gap-3">
-              <div class="text-xl">⚠️</div>
-              <div class="flex-1">
-                <p class="text-red-900 font-semibold body-sm mb-2">
-                  This dataset has {{ dataset.endpointCount }} dependent endpoint{{
-                    dataset.endpointCount !== 1 ? 's' : ''
-                  }}
-                  that will be deleted:
-                </p>
-                <p class="text-red-800 body-sm mb-3">Check each endpoint to confirm deletion</p>
-                <div class="space-y-2">
-                  <div
-                    v-for="endpointName in getEndpointNamesForDataset()"
-                    :key="endpointName"
-                    class="flex items-center gap-3 p-2.5 bg-white rounded border border-red-200"
-                  >
-                    <input
-                      type="checkbox"
-                      :id="`endpoint-${endpointName}`"
-                      :checked="checkedEndpoints.includes(endpointName)"
-                      @change="() => toggleEndpoint(endpointName)"
-                      class="w-4 h-4 text-red-600 bg-white border-red-400 rounded focus:ring-red-500 focus:ring-2"
-                    />
-                    <label
-                      :for="`endpoint-${endpointName}`"
-                      class="flex-1 cursor-pointer flex items-center justify-between"
-                    >
-                      <span class="body-sm font-medium text-foreground">
-                        {{ endpointName }}
-                      </span>
-                      <span class="body-sm text-red-600"> Will be deleted </span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" @click="cancelDelete"> Cancel </Button>
-        <Button variant="destructive" @click="confirmDelete" :disabled="!allEndpointsChecked">
-          {{
-            dataset && dataset.endpointCount && dataset.endpointCount > 0
-              ? `Delete Dataset & ${dataset.endpointCount} Endpoint${dataset.endpointCount !== 1 ? 's' : ''}`
-              : 'Delete Dataset'
-          }}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+  <DeleteConfirmationDialog
+    v-model:open="showDeleteDialog"
+    item-type="Dataset"
+    :item-name="dataset?.name || ''"
+    :dependencies="getEndpointNamesForDataset()"
+    dependency-type="endpoint"
+    @confirm="confirmDelete"
+    @cancel="cancelDelete"
+  />
 </template>
 
 <script setup lang="ts">
@@ -659,17 +604,10 @@ import {
   ChevronLeft,
   ChevronRight as ChevronRightIcon,
 } from 'lucide-vue-next'
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
@@ -705,7 +643,6 @@ const editingDataset = ref<{
   filePaths: Array<{ path: string; description: string }>
 } | null>(null)
 const showDeleteDialog = ref(false)
-const checkedEndpoints = ref<string[]>([])
 const isRefreshingPaths = ref(false)
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
@@ -767,25 +704,6 @@ const getEndpointNamesForDataset = (): string[] => {
   return dataset.value.connected_endpoints.map((endpoint) => endpoint.name)
 }
 
-// Check if all endpoints are selected
-const allEndpointsChecked = computed(() => {
-  if (!dataset.value) return true
-  if (dataset.value.endpointCount === 0) return true
-
-  const endpointNames = getEndpointNamesForDataset()
-  return endpointNames.length > 0 && endpointNames.length === checkedEndpoints.value.length
-})
-
-// Toggle endpoint checkbox
-const toggleEndpoint = (endpointName: string) => {
-  const index = checkedEndpoints.value.indexOf(endpointName)
-  if (index > -1) {
-    checkedEndpoints.value.splice(index, 1)
-  } else {
-    checkedEndpoints.value.push(endpointName)
-  }
-}
-
 const editDataset = async () => {
   if (!dataset.value) return
 
@@ -804,7 +722,6 @@ const editDataset = async () => {
 }
 
 const deleteDataset = () => {
-  checkedEndpoints.value = []
   showDeleteDialog.value = true
 }
 
@@ -901,7 +818,6 @@ const confirmDelete = async () => {
 
 const cancelDelete = () => {
   showDeleteDialog.value = false
-  checkedEndpoints.value = []
 }
 
 const navigateToEndpoint = (endpointSlug: string) => {

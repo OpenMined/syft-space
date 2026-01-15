@@ -237,81 +237,16 @@
   />
 
   <!-- Delete Confirmation Dialog -->
-  <Dialog v-model:open="showDeleteDialog">
-    <DialogContent class="sm:max-w-[600px]">
-      <DialogHeader>
-        <DialogTitle>Delete Dataset</DialogTitle>
-        <DialogDescription>
-          Are you sure you want to delete "{{ datasetToDelete?.name }}"? This action cannot be
-          undone.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div v-if="datasetToDelete && datasetToDelete.endpointCount > 0" class="py-4">
-        <div class="space-y-4">
-          <div class="bg-destructive/10 border border-destructive/20 rounded-md p-4">
-            <div class="flex items-start gap-3">
-              <div class="text-xl">⚠️</div>
-              <div class="flex-1">
-                <p class="text-destructive font-semibold body-sm mb-2">
-                  This dataset has {{ datasetToDelete.endpointCount }} dependent endpoint{{
-                    datasetToDelete.endpointCount !== 1 ? 's' : ''
-                  }}
-                  that will be deleted:
-                </p>
-                <p class="text-destructive/80 body-sm mb-3">
-                  Check each endpoint to confirm deletion
-                </p>
-                <div class="space-y-2">
-                  <div
-                    v-for="endpointName in getEndpointNamesForDataset(datasetToDelete.id)"
-                    :key="endpointName"
-                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20"
-                  >
-                    <input
-                      type="checkbox"
-                      :id="`endpoint-${endpointName}`"
-                      :checked="checkedEndpoints.includes(endpointName)"
-                      @change="() => toggleEndpoint(endpointName)"
-                      class="w-4 h-4 text-destructive bg-background border-destructive/40 rounded focus:ring-destructive/50 focus:ring-2"
-                    />
-                    <label
-                      :for="`endpoint-${endpointName}`"
-                      class="flex-1 cursor-pointer flex items-center justify-between"
-                    >
-                      <span class="body-sm font-medium text-foreground">
-                        {{ endpointName }}
-                      </span>
-                      <span class="body-sm text-destructive"> Will be deleted </span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" @click="cancelDeleteDataset"> Cancel </Button>
-        <Button
-          variant="destructive"
-          @click="confirmDeleteDataset"
-          :disabled="!allEndpointsChecked || isDeleting"
-        >
-          {{
-            isDeleting
-              ? 'Deleting...'
-              : datasetToDelete &&
-                  datasetToDelete.endpointCount &&
-                  datasetToDelete.endpointCount > 0
-                ? `Delete Dataset & ${datasetToDelete.endpointCount} Endpoint${datasetToDelete.endpointCount !== 1 ? 's' : ''}`
-                : 'Delete Dataset'
-          }}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+  <DeleteConfirmationDialog
+    v-model:open="showDeleteDialog"
+    item-type="Dataset"
+    :item-name="datasetToDelete?.name || ''"
+    :dependencies="getEndpointNamesForDataset(datasetToDelete?.id || '')"
+    dependency-type="endpoint"
+    :is-deleting="isDeleting"
+    @confirm="confirmDeleteDataset"
+    @cancel="cancelDeleteDataset"
+  />
 </template>
 
 <script setup lang="ts">
@@ -322,15 +257,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { useDatasets } from '@/composables/useDatasets'
 import { toast } from 'vue-sonner'
 
@@ -378,7 +306,6 @@ const editingDataset = ref<{
 } | null>(null)
 const showDeleteDialog = ref(false)
 const datasetToDelete = ref<DataSource | null>(null)
-const checkedEndpoints = ref<string[]>([])
 const isDeleting = ref(false)
 
 // Function to get endpoint names connected to a dataset
@@ -455,7 +382,6 @@ const handleDialogClose = () => {
 
 const handleDeleteDataset = (dataset: DataSource) => {
   datasetToDelete.value = dataset
-  checkedEndpoints.value = []
   showDeleteDialog.value = true
 }
 
@@ -467,7 +393,6 @@ const confirmDeleteDataset = async () => {
       toast.success(`Dataset "${datasetToDelete.value.name}" deleted successfully`)
       showDeleteDialog.value = false
       datasetToDelete.value = null
-      checkedEndpoints.value = []
     } else {
       toast.error(error.value || 'Failed to delete dataset')
     }
@@ -478,31 +403,11 @@ const confirmDeleteDataset = async () => {
 const cancelDeleteDataset = () => {
   showDeleteDialog.value = false
   datasetToDelete.value = null
-  checkedEndpoints.value = []
 }
-
-// Check if all endpoints are selected
-const allEndpointsChecked = computed(() => {
-  if (!datasetToDelete.value) return true
-  if (datasetToDelete.value.endpointCount === 0) return true
-
-  const endpointNames = getEndpointNamesForDataset(datasetToDelete.value.id)
-  return endpointNames.length > 0 && endpointNames.length === checkedEndpoints.value.length
-})
 
 // Navigate to dataset detail page
 const navigateToDetail = (datasetSlug: string) => {
   router.push(`/datasets/${datasetSlug}`)
-}
-
-// Toggle endpoint checkbox
-const toggleEndpoint = (endpointName: string) => {
-  const index = checkedEndpoints.value.indexOf(endpointName)
-  if (index > -1) {
-    checkedEndpoints.value.splice(index, 1)
-  } else {
-    checkedEndpoints.value.push(endpointName)
-  }
 }
 
 // Get preview paths for dataset card

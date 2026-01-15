@@ -304,10 +304,7 @@ const editingModel = ref<ParsedModel | null>(null)
 const modelDependencies = computed(() => {
   if (!model.value || model.value.endpointCount === 0) return []
 
-  return model.value.connected_endpoints.map((endpoint) => ({
-    id: endpoint.id,
-    name: endpoint.name,
-  }))
+  return model.value.connected_endpoints.map((endpoint) => endpoint.name)
 })
 
 const connectedEndpoints = computed(() => {

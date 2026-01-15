@@ -191,7 +191,7 @@
             </Button>
             <Button
               variant="outline"
-              class="text-destructive border-destructive/20 hover:bg-destructive hover:text-destructive-foreground"
+              class="text-destructive hover:text-destructive"
               @click="
                 () => {
                   deleteNameConfirm = ''
