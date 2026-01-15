@@ -34,12 +34,73 @@
     </div>
 
     <!-- Loading State -->
-    <div v-else-if="loading" class="flex items-center justify-center min-h-96">
-      <div class="text-center">
-        <div
-          class="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"
-        ></div>
-        <p class="text-muted-foreground">Loading dataset...</p>
+    <div v-else-if="loading" class="space-y-6 animate-pulse">
+      <!-- Header Skeleton -->
+      <div class="bg-card/60 backdrop-blur-sm border border-border rounded-3xl p-8 mb-8">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-6">
+            <div class="w-16 h-16 bg-muted rounded-2xl"></div>
+            <div class="space-y-3">
+              <div class="h-8 bg-muted rounded w-48"></div>
+              <div class="h-5 bg-muted rounded w-96"></div>
+              <div class="flex gap-3">
+                <div class="h-8 bg-muted rounded-full w-24"></div>
+                <div class="h-8 bg-muted rounded-full w-20"></div>
+                <div class="h-8 bg-muted rounded-full w-16"></div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="h-10 bg-muted rounded w-20"></div>
+            <div class="h-10 bg-muted rounded w-24"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs Skeleton -->
+      <div class="h-10 bg-muted rounded-md w-full"></div>
+
+      <!-- Summary Grid Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-8">
+          <div v-for="i in 6" :key="`summary-${i}`" class="text-center space-y-2">
+            <div class="h-4 bg-muted rounded w-16 mx-auto"></div>
+            <div class="h-5 bg-muted rounded w-20 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Configuration Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="h-6 bg-muted rounded w-32 mb-8"></div>
+        <div class="space-y-6">
+          <div class="flex justify-between items-center py-2 border-b border-border">
+            <div class="h-4 bg-muted rounded w-24"></div>
+            <div class="h-4 bg-muted rounded w-32"></div>
+          </div>
+          <div class="flex justify-between items-center py-2">
+            <div class="h-4 bg-muted rounded w-32"></div>
+            <div class="h-4 bg-muted rounded w-24"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connected Endpoints Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="h-6 bg-muted rounded w-48 mb-4"></div>
+        <div class="space-y-4">
+          <div
+            v-for="i in 2"
+            :key="`endpoint-${i}`"
+            class="flex items-center gap-4 py-6 px-6 bg-muted/50 border border-border rounded-2xl"
+          >
+            <div class="w-11 h-11 bg-muted rounded-xl"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-4 bg-muted rounded w-32"></div>
+              <div class="h-3 bg-muted rounded w-48"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

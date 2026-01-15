@@ -22,10 +22,90 @@
     </nav>
 
     <!-- Loading State -->
-    <div v-if="loading" class="flex justify-center py-12">
-      <div class="flex items-center gap-3">
-        <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
-        <span class="text-muted-foreground">Loading endpoint details...</span>
+    <div v-if="loading" class="space-y-6 animate-pulse">
+      <!-- Header Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-4">
+            <div class="w-14 h-14 bg-muted rounded-lg"></div>
+            <div class="space-y-3">
+              <div class="h-8 bg-muted rounded w-56"></div>
+              <div class="h-5 bg-muted rounded w-80"></div>
+              <div class="flex gap-2">
+                <div class="h-7 bg-muted rounded-full w-16"></div>
+                <div class="h-7 bg-muted rounded-full w-28"></div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="h-10 bg-muted rounded w-24"></div>
+            <div class="h-10 bg-muted rounded w-36"></div>
+            <div class="h-10 bg-muted rounded w-24"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs Skeleton -->
+      <div class="h-10 bg-muted rounded-md w-full"></div>
+
+      <!-- Content Grid Skeleton -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Left Column (2/3) -->
+        <div class="lg:col-span-2 space-y-6">
+          <!-- Description Card Skeleton -->
+          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+            <div class="h-6 bg-muted rounded w-32 mb-4"></div>
+            <div class="space-y-2">
+              <div class="h-4 bg-muted rounded w-full"></div>
+              <div class="h-4 bg-muted rounded w-5/6"></div>
+              <div class="h-4 bg-muted rounded w-4/6"></div>
+            </div>
+          </div>
+
+          <!-- Watched Paths Card Skeleton -->
+          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+            <div class="h-6 bg-muted rounded w-36 mb-4"></div>
+            <div class="space-y-3">
+              <div
+                v-for="i in 2"
+                :key="`path-${i}`"
+                class="p-3 bg-muted/50 border border-border rounded-lg"
+              >
+                <div class="flex items-start gap-3">
+                  <div class="w-2 h-2 bg-muted rounded-full mt-1.5"></div>
+                  <div class="flex-1 space-y-2">
+                    <div class="h-4 bg-muted rounded w-64"></div>
+                    <div class="h-3 bg-muted rounded w-20"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column (1/3) -->
+        <div class="space-y-4">
+          <!-- Details Card Skeleton -->
+          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+            <div class="h-5 bg-muted rounded w-20 mb-4"></div>
+            <div class="space-y-3">
+              <div v-for="i in 3" :key="`detail-${i}`" class="flex justify-between items-center py-1">
+                <div class="h-4 bg-muted rounded w-20"></div>
+                <div class="h-4 bg-muted rounded w-28"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tags Card Skeleton -->
+          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+            <div class="h-5 bg-muted rounded w-12 mb-3"></div>
+            <div class="flex flex-wrap gap-2">
+              <div class="h-6 bg-muted rounded w-16"></div>
+              <div class="h-6 bg-muted rounded w-20"></div>
+              <div class="h-6 bg-muted rounded w-14"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
