@@ -265,10 +265,10 @@
 
               <!-- Select Existing Model Card -->
               <Card
-                class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border-2 bg-card"
+                class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 dark:hover:border-green-400 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-950/30 dark:hover:to-emerald-950/30 border-2 bg-card"
                 :class="
                   selectedModelSourceType === 'existing'
-                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30'
                     : 'border-border'
                 "
                 @click="selectModelSourceType('existing')"
@@ -276,9 +276,9 @@
                 <CardContent class="p-6 h-full">
                   <div class="flex flex-col items-center text-center h-full">
                     <div
-                      class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4"
+                      class="w-14 h-14 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center mb-4"
                     >
-                      <FolderOpen class="w-7 h-7 text-green-600" />
+                      <FolderOpen class="w-7 h-7 text-green-600 dark:text-green-400" />
                     </div>
 
                     <h3 class="heading-3 text-foreground mb-2">Use Existing Model</h3>
@@ -508,22 +508,22 @@
                     <div
                       :class="[
                         'p-2 rounded-lg',
-                        policy.color === 'blue' ? 'bg-blue-100' : '',
-                        policy.color === 'green' ? 'bg-green-100' : '',
-                        policy.color === 'yellow' ? 'bg-yellow-100' : '',
-                        policy.color === 'purple' ? 'bg-purple-100' : '',
-                        policy.color === 'red' ? 'bg-red-100' : '',
+                        policy.color === 'blue' ? 'bg-blue-100 dark:bg-blue-900' : '',
+                        policy.color === 'green' ? 'bg-green-100 dark:bg-green-900' : '',
+                        policy.color === 'yellow' ? 'bg-yellow-100 dark:bg-yellow-900' : '',
+                        policy.color === 'purple' ? 'bg-purple-100 dark:bg-purple-900' : '',
+                        policy.color === 'red' ? 'bg-red-100 dark:bg-red-900' : '',
                       ]"
                     >
                       <component
                         :is="policy.icon"
                         :class="[
                           'h-5 w-5',
-                          policy.color === 'blue' ? 'text-blue-600' : '',
-                          policy.color === 'green' ? 'text-green-600' : '',
-                          policy.color === 'yellow' ? 'text-yellow-600' : '',
-                          policy.color === 'purple' ? 'text-purple-600' : '',
-                          policy.color === 'red' ? 'text-red-600' : '',
+                          policy.color === 'blue' ? 'text-blue-600 dark:text-blue-400' : '',
+                          policy.color === 'green' ? 'text-green-600 dark:text-green-400' : '',
+                          policy.color === 'yellow' ? 'text-yellow-600 dark:text-yellow-400' : '',
+                          policy.color === 'purple' ? 'text-purple-600 dark:text-purple-400' : '',
+                          policy.color === 'red' ? 'text-red-600 dark:text-red-400' : '',
                         ]"
                       />
                     </div>
@@ -540,8 +540,8 @@
 
                 <!-- Default Policy Message -->
                 <div v-if="policyRules[policy.id]?.length === 0" class="mb-3">
-                  <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
-                    <p class="body-sm text-green-700">
+                  <div class="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50 rounded-xl px-4 py-3">
+                    <p class="body-sm text-green-700 dark:text-green-300">
                       <strong class="font-medium">Default: </strong>
                       <span v-if="policy.id === 'access'"
                         >Open access - everyone can use your endpoint</span
@@ -787,12 +787,12 @@
             class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
           >
             <!-- Interactive examples -->
-            <div class="mb-8 bg-primary/10 border border-blue-200 rounded-lg p-4">
-              <h4 class="font-medium text-blue-900 mb-3 flex items-center gap-2">
+            <div class="mb-8 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg p-4">
+              <h4 class="font-medium text-blue-900 dark:text-blue-300 mb-3 flex items-center gap-2">
                 <Lightbulb class="w-4 h-4" />
                 Popular examples to get you started
               </h4>
-              <p class="body-sm text-primary mb-4">Click any example to auto-fill the form</p>
+              <p class="body-sm text-blue-700 dark:text-blue-400 mb-4">Click any example to auto-fill the form</p>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4 body-sm">
                 <button
                   @click="fillExampleData('code')"
@@ -978,6 +978,7 @@
                     :model-value="formData.description || defaultDescriptionTemplate"
                     @update:model-value="formData.description = $event"
                     :height="200"
+                    :theme="isDark ? 'dark' : 'light'"
                     :toolbars="[
                       'bold',
                       'italic',
@@ -1006,10 +1007,10 @@
               class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
             >
               <div
-                class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"
+                class="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4"
               >
                 <svg
-                  class="w-8 h-8 text-green-600"
+                  class="w-8 h-8 text-green-600 dark:text-green-400"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -1035,9 +1036,9 @@
               class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
             >
               <div
-                class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"
+                class="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"
               >
-                <svg class="w-8 h-8 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                <svg class="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle
                     class="opacity-25"
                     cx="12"
@@ -1085,12 +1086,15 @@
                 <div v-if="formData.description && formData.description.trim()" class="mt-6">
                   <p class="body-sm font-medium text-muted-foreground mb-3">Detailed Description</p>
                   <div class="bg-muted/30 border border-border rounded-lg p-4">
-                    <MdPreview
-                      :model-value="formData.description"
-                      :preview-theme="'github'"
-                      :code-theme="'github'"
-                      language="en-US"
-                    />
+                    <div class="prose prose-sm max-w-none text-muted-foreground">
+                      <div class="markdown-content">
+                        <MdPreview
+                          :model-value="formData.description"
+                          :theme="isDark ? 'dark' : 'light'"
+                          :show-code-row-number="false"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1266,13 +1270,13 @@
           <!-- Error Display (only in step 4) -->
           <div
             v-if="creationError && currentSubStep === 4"
-            class="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg"
+            class="mt-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg"
           >
             <div class="flex items-start gap-3">
-              <X class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <X class="w-5 h-5 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
               <div class="flex-1">
-                <h4 class="font-medium text-red-900 mb-1">Failed to create endpoint</h4>
-                <p class="text-sm text-red-700">{{ creationError }}</p>
+                <h4 class="font-medium text-red-900 dark:text-red-300 mb-1">Failed to create endpoint</h4>
+                <p class="text-sm text-red-700 dark:text-red-400">{{ creationError }}</p>
               </div>
             </div>
           </div>
@@ -1391,6 +1395,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
+import { useTheme } from '@/composables/useTheme'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { modelsApi } from '@/api/endpoints/models'
@@ -1401,6 +1406,7 @@ import type { ModelListItem } from '@/api/types'
 
 const router = useRouter()
 const userStore = useUserStore()
+const { isDark } = useTheme()
 
 // Computed URL to view existing endpoint on SyftHub
 const existingEndpointUrl = computed(() =>
@@ -2296,3 +2302,39 @@ watch(
   },
 )
 </script>
+
+<style scoped>
+.markdown-content :deep(.md-editor) {
+  background-color: transparent !important;
+}
+
+.markdown-content :deep(*) {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  line-height: 1.6;
+}
+
+.markdown-content :deep(p) {
+  margin-bottom: 1rem;
+  word-break: normal;
+}
+
+.markdown-content :deep(h1),
+.markdown-content :deep(h2),
+.markdown-content :deep(h3),
+.markdown-content :deep(h4) {
+  word-break: normal;
+  hyphens: none;
+}
+
+.markdown-content :deep(ul),
+.markdown-content :deep(ol) {
+  padding-left: 1.5rem;
+}
+
+.markdown-content :deep(li) {
+  margin-bottom: 0.5rem;
+  word-break: normal;
+}
+</style>
