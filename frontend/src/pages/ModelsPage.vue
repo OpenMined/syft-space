@@ -31,12 +31,22 @@
     </div>
 
     <!-- Loading State -->
-    <div v-if="isLoading" class="flex justify-center items-center py-12">
-      <div class="text-center">
-        <div
-          class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"
-        ></div>
-        <p class="text-muted-foreground">Loading models...</p>
+    <div v-if="isLoading" class="space-y-5">
+      <div
+        v-for="i in 3"
+        :key="`skeleton-${i}`"
+        class="bg-card border border-border rounded-xl p-6 animate-pulse"
+      >
+        <div class="flex items-start justify-between">
+          <div class="flex-1 flex gap-4">
+            <div class="w-14 h-14 bg-muted rounded-xl"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-6 bg-muted rounded w-1/3"></div>
+              <div class="h-4 bg-muted rounded w-1/2"></div>
+              <div class="h-4 bg-muted rounded w-2/3"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
