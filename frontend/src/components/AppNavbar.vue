@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, ExternalLink, Settings } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -12,9 +12,10 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { useInboxStore } from '@/stores/inbox'
-import RevenueDetailsDialog from '@/components/RevenueDetailsDialog.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 
 const router = useRouter()
@@ -23,7 +24,10 @@ const userStore = useUserStore()
 const inboxStore = useInboxStore()
 
 const currentRouteName = computed(() => route.name as string)
-const revenueDialogOpen = ref(false)
+
+onMounted(() => {
+  userStore.fetchBalance()
+})
 
 const routeMapping: Record<string, string[]> = {
   endpoints: ['endpoints', 'endpoint-detail'],
@@ -95,15 +99,13 @@ const tabs = [
         <!-- Theme Toggle -->
         <ThemeToggle />
         <!-- Balance Display -->
-        <button
-          @click="revenueDialogOpen = true"
-          class="flex items-center gap-2 bg-muted hover:bg-muted/80 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
-        >
+        <div class="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-lg">
           <span class="text-sm text-muted-foreground">Balance:</span>
-          <span class="text-sm font-semibold text-green-600 dark:text-green-400">{{
-            userStore.balance
+          <Skeleton v-if="userStore.balanceLoading" class="h-4 w-16" />
+          <span v-else class="text-sm font-semibold text-green-600 dark:text-green-400">{{
+            userStore.formattedBalance()
           }}</span>
-        </button>
+        </div>
 
         <!-- Avatar with Dropdown -->
         <DropdownMenu>
@@ -118,21 +120,48 @@ const tabs = [
           </DropdownMenuTrigger>
           <DropdownMenuContent class="w-56" align="end">
             <div class="p-4 space-y-4">
-              <div>
-                <p class="text-sm text-muted-foreground mb-0.5">Email</p>
-                <p class="text-sm font-medium text-foreground">{{ userStore.email }}</p>
-              </div>
-              <div>
-                <p class="text-sm text-muted-foreground mb-0.5">Wallet Manager</p>
-                <a
-                  :href="userStore.walletManagerUrl"
-                  target="_blank"
-                  class="text-sm font-medium text-foreground hover:text-muted-foreground inline-flex items-center gap-1.5"
-                >
-                  {{ userStore.walletManagerUrl.replace('https://', '') }}
-                  <ExternalLink class="h-3 w-3 text-muted-foreground" />
-                </a>
-              </div>
+              <!-- Loading skeleton -->
+              <template v-if="userStore.marketplaceLoading">
+                <div class="space-y-1.5">
+                  <Skeleton class="h-3 w-10" />
+                  <Skeleton class="h-4 w-32" />
+                </div>
+                <div class="space-y-1.5">
+                  <Skeleton class="h-3 w-16" />
+                  <Skeleton class="h-4 w-36" />
+                </div>
+              </template>
+              <!-- Loaded content -->
+              <template v-else>
+                <div>
+                  <p class="text-sm text-muted-foreground mb-0.5">Email</p>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <p class="text-sm font-medium text-foreground truncate cursor-default">
+                          {{ userStore.email || '--' }}
+                        </p>
+                      </TooltipTrigger>
+                      <TooltipContent v-if="userStore.email">
+                        <p>{{ userStore.email }}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <div>
+                  <p class="text-sm text-muted-foreground mb-0.5">Marketplace</p>
+                  <a
+                    v-if="userStore.marketplaceUrl"
+                    :href="userStore.marketplaceUrl"
+                    target="_blank"
+                    class="text-sm font-medium text-foreground hover:text-muted-foreground inline-flex items-center gap-1.5"
+                  >
+                    {{ userStore.marketplaceUrl.replace('https://', '').replace(/\/$/, '') }}
+                    <ExternalLink class="h-3 w-3 text-muted-foreground" />
+                  </a>
+                  <p v-else class="text-sm font-medium text-foreground">--</p>
+                </div>
+              </template>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem @click="navigateTo('settings')" class="cursor-pointer">
@@ -144,6 +173,4 @@ const tabs = [
       </div>
     </div>
   </header>
-  <!-- Revenue Details Dialog -->
-  <RevenueDetailsDialog v-model:open="revenueDialogOpen" />
 </template>

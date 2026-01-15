@@ -34,7 +34,7 @@ export function useOnboarding() {
 
   // Network setup state
   const networkMode: Ref<'subdomain' | 'custom' | ''> = ref('')
-  const publicUrl = ref('')
+  const publicUrl = ref(window.location.origin)
 
   // Username availability checking
   const checkingUsername = ref(false)
@@ -212,7 +212,7 @@ export function useOnboarding() {
       password: '',
     }
     networkMode.value = ''
-    publicUrl.value = ''
+    publicUrl.value = window.location.origin
     usernameAvailable.value = null
     authError.value = ''
     networkError.value = ''

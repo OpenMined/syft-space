@@ -325,6 +325,8 @@ export interface MarketplaceResponse {
 export interface MarketplaceListItem {
   id: string
   name: string
+  username: string
+  email: string
   url: string
   is_default: boolean
   is_active: boolean
@@ -333,6 +335,24 @@ export interface MarketplaceListItem {
 export interface BalanceResponse {
   balance: number
   currency: string
+}
+
+// Slug Availability API types
+export interface SlugAvailabilityRequest {
+  slug: string
+  marketplace_ids?: string[] | null
+  check_all_marketplaces?: boolean
+}
+
+export interface SlugAvailabilityResponse {
+  slug: string
+  local_available: boolean
+  marketplaces?: Array<{
+    marketplace_id: string
+    marketplace_name: string
+    available: boolean
+    error?: string
+  }> | null
 }
 
 // Settings API types

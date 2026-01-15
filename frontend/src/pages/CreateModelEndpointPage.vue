@@ -519,7 +519,7 @@
                         :is="policy.icon"
                         :class="[
                           'h-5 w-5',
-                          policy.color === 'blue' ? 'text-primary' : '',
+                          policy.color === 'blue' ? 'text-blue-600' : '',
                           policy.color === 'green' ? 'text-green-600' : '',
                           policy.color === 'yellow' ? 'text-yellow-600' : '',
                           policy.color === 'purple' ? 'text-purple-600' : '',
@@ -1000,8 +1000,9 @@
 
           <!-- Step 4: Review & Publish -->
           <div v-if="currentSubStep === 4" class="space-y-6">
-            <!-- Header -->
+            <!-- Header - only show when not creating -->
             <div
+              v-if="!isCreating"
               class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
             >
               <div
@@ -1058,8 +1059,8 @@
               </p>
             </div>
 
-            <!-- Summary -->
-            <div class="bg-card border border-border rounded-2xl p-8 space-y-6">
+            <!-- Summary - only show when not creating -->
+            <div v-if="!isCreating" class="bg-card border border-border rounded-2xl p-8 space-y-6">
               <!-- Basic Information -->
               <div>
                 <h3 class="heading-2 text-foreground mb-6">Summary</h3>
@@ -1288,23 +1289,63 @@
             <Button
               @click="nextStep"
               :disabled="
-                !isCurrentStepValid || isCreating || (currentSubStep === 2 && isAnyRuleFormOpen)
+                !isCurrentStepValid ||
+                isCreating ||
+                isCheckingBeforePublish ||
+                (currentSubStep === 2 && isAnyRuleFormOpen)
               "
               class="bg-primary hover:bg-primary/90 text-white px-8"
             >
-              <template v-if="currentSubStep === 4 && isCreating">
+              <template v-if="currentSubStep === 4 && isCheckingBeforePublish">
+                <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                Checking...
+              </template>
+              <template v-else-if="currentSubStep === 4 && isCreating">
                 {{ creationStep || 'Publishing...' }}
               </template>
               <template v-else>
                 {{ currentSubStep === 4 ? 'Publish to SyftHub' : 'Continue' }}
               </template>
-              <ArrowRight v-if="!isCreating" class="ml-2 h-4 w-4" />
+              <ArrowRight v-if="!isCreating && !isCheckingBeforePublish" class="ml-2 h-4 w-4" />
             </Button>
           </div>
         </div>
       </div>
     </div>
   </ErrorBoundary>
+
+  <!-- Overwrite Confirmation Dialog -->
+  <Dialog :open="showOverwriteDialog" @update:open="showOverwriteDialog = $event">
+    <DialogContent class="sm:max-w-md">
+      <DialogHeader>
+        <DialogTitle class="flex items-center gap-2">
+          <AlertTriangle class="h-5 w-5 text-yellow-500" />
+          Endpoint Name Already Exists
+        </DialogTitle>
+        <DialogDescription class="space-y-3">
+          <span class="block">
+            The endpoint name "<span class="font-medium">{{ formData.endpointName }}</span
+            >" is already taken on SyftHub. Proceeding will overwrite the existing endpoint with the
+            same name.
+          </span>
+          <a
+            v-if="existingEndpointUrl"
+            :href="existingEndpointUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 text-primary hover:underline"
+          >
+            View existing endpoint
+            <ExternalLink class="h-3 w-3" />
+          </a>
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter class="gap-2">
+        <Button variant="outline" @click="handleOverwriteCancel"> Cancel </Button>
+        <Button variant="destructive" @click="handleOverwriteConfirm"> Overwrite </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
@@ -1326,6 +1367,8 @@ import {
   Lightbulb,
   Loader2,
   Check,
+  AlertTriangle,
+  ExternalLink,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1339,15 +1382,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { modelsApi } from '@/api/endpoints/models'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useModelEndpointCreation } from '@/composables/useModelEndpointCreation'
+import { useUserStore } from '@/stores/user'
 import type { ModelListItem } from '@/api/types'
 
 const router = useRouter()
+const userStore = useUserStore()
+
+// Computed URL to view existing endpoint on SyftHub
+const existingEndpointUrl = computed(() =>
+  userStore.getEndpointUrlInMarketplace(formData.value.endpointName),
+)
 
 // Model endpoint creation composable
 const { isCreating, creationError, creationStep, createModelEndpointWithData, reset } =
@@ -1382,6 +1440,10 @@ const hasTypedEndpointName = ref(false)
 const isCheckingNameAvailability = ref(false)
 const nameAvailabilityResult = ref<'available' | 'taken' | null>(null)
 const nameCheckDebounceTimer = ref<number | null>(null)
+
+// Overwrite confirmation dialog state
+const showOverwriteDialog = ref(false)
+const isCheckingBeforePublish = ref(false)
 
 // Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
@@ -1677,23 +1739,20 @@ const checkNameAvailability = async (name: string) => {
   nameAvailabilityResult.value = null
 
   try {
-    await endpointsApi.get(name)
-    // If we get here, the endpoint exists, so the name is taken
-    nameAvailabilityResult.value = 'taken'
+    const response = await endpointsApi.validateSlug({
+      slug: name,
+      check_all_marketplaces: true,
+    })
+
+    // Must be available locally and on all marketplaces
+    const localAvailable = response.local_available
+    const marketplacesAvailable =
+      !response.marketplaces || response.marketplaces.every((m) => m.available)
+
+    nameAvailabilityResult.value = localAvailable && marketplacesAvailable ? 'available' : 'taken'
   } catch (error) {
-    // If we get a 404, the name is available
-    if (
-      error &&
-      typeof error === 'object' &&
-      'response' in error &&
-      (error as { response?: { status?: number } }).response?.status === 404
-    ) {
-      nameAvailabilityResult.value = 'available'
-    } else {
-      // Other errors, reset the state
-      nameAvailabilityResult.value = null
-      console.error('Error checking name availability:', error)
-    }
+    nameAvailabilityResult.value = null
+    console.error('Error checking name availability:', error)
   } finally {
     isCheckingNameAvailability.value = false
   }
@@ -1787,20 +1846,56 @@ const nextStep = async () => {
     completedSteps.value.add(currentSubStep.value)
     currentSubStep.value++
   } else if (currentSubStep.value === 4) {
-    // Publish the model endpoint using the composable
-    const modelEndpointData = {
-      selectedModelSourceType: selectedModelSourceType.value as 'create-new' | 'existing' | '',
-      newModelForm: newModelForm.value,
-      selectedModelId: formData.value.aiModel,
-      policyRules: policyRules.value,
-      endpointName: formData.value.endpointName,
-      summary: formData.value.summary,
-      description: formData.value.description,
-      tags: formData.value.tags,
+    // Check availability one more time before publishing
+    isCheckingBeforePublish.value = true
+    try {
+      const response = await endpointsApi.validateSlug({
+        slug: formData.value.endpointName,
+        check_all_marketplaces: true,
+      })
+
+      const marketplacesAvailable =
+        !response.marketplaces || response.marketplaces.every((m) => m.available)
+
+      if (!marketplacesAvailable) {
+        // Show warning dialog if name is taken on any marketplace
+        isCheckingBeforePublish.value = false
+        showOverwriteDialog.value = true
+        return
+      }
+    } catch (error) {
+      console.error('Error checking availability before publish:', error)
+      // Continue with publish even if check fails
+    } finally {
+      isCheckingBeforePublish.value = false
     }
 
-    await createModelEndpointWithData(modelEndpointData)
+    await publishEndpoint()
   }
+}
+
+const publishEndpoint = async () => {
+  const modelEndpointData = {
+    selectedModelSourceType: selectedModelSourceType.value as 'create-new' | 'existing' | '',
+    newModelForm: newModelForm.value,
+    selectedModelId: formData.value.aiModel,
+    policyRules: policyRules.value,
+    endpointName: formData.value.endpointName,
+    summary: formData.value.summary,
+    description: formData.value.description,
+    tags: formData.value.tags,
+  }
+
+  await createModelEndpointWithData(modelEndpointData)
+}
+
+const handleOverwriteConfirm = async () => {
+  showOverwriteDialog.value = false
+  await publishEndpoint()
+}
+
+const handleOverwriteCancel = () => {
+  showOverwriteDialog.value = false
 }
 
 const previousStep = () => {

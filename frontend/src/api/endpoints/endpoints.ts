@@ -1,5 +1,11 @@
 import { apiClient } from '../client'
-import type { EndpointListItem, CreateEndpointRequest, EndpointResponse } from '../types'
+import type {
+  EndpointListItem,
+  CreateEndpointRequest,
+  EndpointResponse,
+  SlugAvailabilityRequest,
+  SlugAvailabilityResponse,
+} from '../types'
 
 export const endpointsApi = {
   list: async (): Promise<EndpointListItem[]> => {
@@ -19,6 +25,14 @@ export const endpointsApi = {
 
   delete: async (slug: string): Promise<{ message: string }> => {
     const response = await apiClient.delete<{ message: string }>(`/endpoints/${slug}`)
+    return response.data
+  },
+
+  validateSlug: async (request: SlugAvailabilityRequest): Promise<SlugAvailabilityResponse> => {
+    const response = await apiClient.post<SlugAvailabilityResponse>(
+      '/endpoints/validate-slug',
+      request,
+    )
     return response.data
   },
 }

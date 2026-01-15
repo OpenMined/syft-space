@@ -191,25 +191,25 @@
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button
-                    @click="revenueDialogOpen = true"
+                  <div
                     class="group flex flex-col items-center gap-1.5 p-3 rounded-lg hover:bg-muted transition-colors min-h-0"
                   >
                     <div class="flex items-center gap-1.5">
-                      <TrendingUp
+                      <Wallet
                         class="w-3.5 h-3.5 text-green-600 dark:text-green-400 flex-shrink-0"
                       />
-                      <span class="text-lg font-light text-foreground truncate"
-                        >${{ getTotalRevenue().total }}</span
-                      >
+                      <Skeleton v-if="userStore.balanceLoading" class="h-5 w-12" />
+                      <span v-else class="text-lg font-light text-foreground truncate">{{
+                        userStore.formattedBalance()
+                      }}</span>
                     </div>
                     <span class="text-xs text-muted-foreground text-center leading-tight"
-                      >Revenue</span
+                      >Balance</span
                     >
-                  </button>
+                  </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>View detailed revenue analytics</p>
+                  <p>Your current account balance</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -292,21 +292,21 @@
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <button
-                    @click="revenueDialogOpen = true"
+                  <div
                     class="group flex items-center gap-2 px-2 lg:px-3 py-2 rounded-lg hover:bg-muted transition-colors"
                   >
-                    <TrendingUp class="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0" />
-                    <span class="text-xl lg:text-2xl font-light text-foreground"
-                      >${{ getTotalRevenue().total }}</span
-                    >
+                    <Wallet class="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                    <Skeleton v-if="userStore.balanceLoading" class="h-6 w-16" />
+                    <span v-else class="text-xl lg:text-2xl font-light text-foreground">{{
+                      userStore.formattedBalance()
+                    }}</span>
                     <span class="text-sm lg:body-sm text-muted-foreground whitespace-nowrap"
-                      >Revenue</span
+                      >Balance</span
                     >
-                  </button>
+                  </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>View detailed revenue analytics</p>
+                  <p>Your current account balance</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -442,9 +442,6 @@
           </div>
         </DialogContent>
       </Dialog>
-
-      <!-- Revenue Details Dialog -->
-      <RevenueDetailsDialog v-model:open="revenueDialogOpen" />
     </div>
   </ErrorBoundary>
 
@@ -467,7 +464,7 @@ import {
   FolderOpen,
   Settings,
   Server,
-  TrendingUp,
+  Wallet,
   FileText,
   Zap,
   Shield,
@@ -484,18 +481,18 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useInboxStore, type InboxItem } from '@/stores/inbox'
+import { useUserStore } from '@/stores/user'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import CreateEndpointModal from '@/components/CreateEndpointModal.vue'
-import RevenueDetailsDialog from '@/components/RevenueDetailsDialog.vue'
-import { getTotalRevenue } from '@/composables/useRevenue'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useDashboardStats } from '@/composables/useDashboardStats'
 
 const inboxStore = useInboxStore()
+const userStore = useUserStore()
 const { datasetCount, modelCount, endpointCount } = useDashboardStats()
 
 const selectedItem = ref<InboxItem | null>(null)
 const dialogOpen = ref(false)
-const revenueDialogOpen = ref(false)
 const showCreateEndpointModal = ref(false)
 
 const dismissItem = (item: InboxItem) => {

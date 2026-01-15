@@ -88,6 +88,8 @@ class MarketplaceListItem(BaseModel):
 
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(..., description="Marketplace display name")
+    username: str = Field(..., description="Marketplace username")
+    email: str = Field(..., description="Login email")
     url: str = Field(..., description="Marketplace base URL")
     is_default: bool = Field(..., description="Is this the default marketplace")
     is_active: bool = Field(..., description="Can be used for publishing")

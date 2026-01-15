@@ -41,3 +41,25 @@ export const formatDateShort = (date: Date): string => {
     day: 'numeric',
   })
 }
+
+/**
+ * Format a price with minimum 2 decimal places, keeping more if needed for microtransactions.
+ * - No decimals → adds .00
+ * - ≤2 decimals → formats to 2 decimals
+ * - >2 decimals → keeps all decimals
+ */
+export const formatPrice = (price: number): string => {
+  const priceStr = price.toString()
+  const decimalIndex = priceStr.indexOf('.')
+
+  if (decimalIndex === -1) {
+    return price.toFixed(2)
+  }
+
+  const decimalPlaces = priceStr.length - decimalIndex - 1
+  if (decimalPlaces <= 2) {
+    return price.toFixed(2)
+  }
+
+  return priceStr
+}

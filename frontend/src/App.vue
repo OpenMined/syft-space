@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import AppNavbar from './components/AppNavbar.vue'
 import { useTheme } from './composables/useTheme'
+import { useUserStore } from './stores/user'
 import { Toaster } from '@/components/ui/sonner'
 import 'vue-sonner/style.css'
 
 const route = useRoute()
+const userStore = useUserStore()
+
 const showNavbar = computed(
   () =>
     route.name !== 'create' &&
@@ -17,6 +20,11 @@ const showNavbar = computed(
 
 // Initialize theme support
 useTheme()
+
+// Fetch marketplace info on app load so it's available everywhere
+onMounted(() => {
+  userStore.fetchMarketplaceInfo()
+})
 </script>
 
 <template>
