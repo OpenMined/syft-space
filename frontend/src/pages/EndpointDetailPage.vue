@@ -94,9 +94,16 @@
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Button variant="outline">
-              <Edit class="h-4 w-4 mr-2" />
-              Edit
+            <Button
+              v-if="syftHubUrl"
+              variant="outline"
+              as="a"
+              :href="syftHubUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink class="h-4 w-4 mr-2" />
+              View on SyftHub
             </Button>
             <Button
               variant="outline"
@@ -823,7 +830,6 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Server,
   ChevronRight,
-  Edit,
   Trash2,
   Send,
   Gauge,
@@ -836,6 +842,7 @@ import {
   Tags,
   Database,
   Plus,
+  ExternalLink,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -870,6 +877,7 @@ import {
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import { policiesApi } from '@/api/policies/policies'
+import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
 import type { EndpointResponse } from '@/api/types'
 import type { IngestionStatusResponse, IngestionJobListResponse } from '@/api/types'
@@ -884,6 +892,7 @@ import { formatPrice } from '@/lib/formatters'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 const error = ref(false)
 const loading = ref(true)
 const endpoint = ref<EndpointResponse | null>(null)
@@ -941,6 +950,11 @@ const getFormDataForType = (policyType: string) => {
       return null
   }
 }
+
+// Computed URL to view endpoint on SyftHub
+const syftHubUrl = computed(() =>
+  endpoint.value?.slug ? userStore.getEndpointUrlInMarketplace(endpoint.value.slug) : null,
+)
 
 // Parse tags into languages, domains, and other tags
 const parsedTags = computed(() => {

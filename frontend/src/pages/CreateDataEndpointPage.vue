@@ -873,7 +873,7 @@
                         :is="policy.icon"
                         :class="[
                           'h-5 w-5',
-                          policy.color === 'blue' ? 'text-primary' : '',
+                          policy.color === 'blue' ? 'text-blue-600' : '',
                           policy.color === 'green' ? 'text-green-600' : '',
                           policy.color === 'yellow' ? 'text-yellow-600' : '',
                           policy.color === 'purple' ? 'text-purple-600' : '',
@@ -1382,8 +1382,9 @@
 
           <!-- Step 5: Review & Publish -->
           <div v-if="currentSubStep === 5" class="space-y-6">
-            <!-- Header -->
+            <!-- Header - only show when not creating -->
             <div
+              v-if="!isCreating"
               class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
             >
               <div
@@ -1440,8 +1441,8 @@
               </p>
             </div>
 
-            <!-- Summary -->
-            <div class="bg-card border border-border rounded-2xl p-8 space-y-6">
+            <!-- Summary - only show when not creating -->
+            <div v-if="!isCreating" class="bg-card border border-border rounded-2xl p-8 space-y-6">
               <!-- Basic Information -->
               <div>
                 <h3 class="heading-2 text-foreground mb-6">Summary</h3>

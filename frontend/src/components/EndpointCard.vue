@@ -58,9 +58,18 @@
 
       <div class="ml-4 text-right">
         <div class="flex items-center gap-2">
-          <Button variant="outline" size="sm" @click.stop>
-            <Edit class="h-4 w-4 mr-2" />
-            Edit
+          <Button
+            v-if="syftHubUrl"
+            variant="outline"
+            size="sm"
+            as="a"
+            :href="syftHubUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click.stop
+          >
+            <ExternalLink class="h-4 w-4 mr-2" />
+            View on SyftHub
           </Button>
           <Button
             variant="outline"
@@ -78,14 +87,17 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Edit, Trash2 } from 'lucide-vue-next'
+import { ExternalLink, Trash2 } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { useUserStore } from '@/stores/user'
 import type { EndpointItem } from '@/stores/endpoints'
 
 const router = useRouter()
+const userStore = useUserStore()
 
 const props = defineProps<{
   endpoint: EndpointItem
@@ -94,6 +106,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   delete: [endpoint: EndpointItem]
 }>()
+
+const syftHubUrl = computed(() =>
+  props.endpoint.name ? userStore.getEndpointUrlInMarketplace(props.endpoint.name) : null,
+)
 
 const handleCardClick = () => {
   router.push({ name: 'endpoint-detail', params: { slug: props.endpoint.name } })
