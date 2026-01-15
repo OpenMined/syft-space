@@ -235,7 +235,7 @@
                   <div class="markdown-content">
                     <MdPreview
                       :model-value="endpoint.description"
-                      preview-theme="default"
+                      :theme="isDark ? 'dark' : 'light'"
                       :show-code-row-number="false"
                     />
                   </div>
@@ -907,6 +907,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useTheme } from '@/composables/useTheme'
 import {
   Server,
   ChevronRight,
@@ -973,6 +974,7 @@ import { formatPrice } from '@/lib/formatters'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const { isDark } = useTheme()
 const error = ref(false)
 const loading = ref(true)
 const endpoint = ref<EndpointResponse | null>(null)
@@ -1409,6 +1411,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.markdown-content :deep(.md-editor) {
+  background-color: transparent !important;
+}
+
 .markdown-content :deep(*) {
   word-wrap: break-word;
   overflow-wrap: break-word;

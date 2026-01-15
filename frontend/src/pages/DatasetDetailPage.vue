@@ -323,7 +323,7 @@
               </p>
             </div>
 
-            <div class="mt-8 pt-6 border-t border-border">
+            <div class="mt-8">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4 flex-wrap">
                   <span
@@ -346,14 +346,14 @@
             </div>
 
             <!-- Basic Settings -->
-            <div class="space-y-6">
+            <div class="space-y-3">
               <div class="flex justify-between items-center py-2 border-b border-border">
                 <span class="body-sm text-muted-foreground">Index Name</span>
                 <span class="body-sm font-medium text-foreground">{{
                   getConfigValue('indexName') || getConfigValue('collectionName') || dataset.name
                 }}</span>
               </div>
-              <div class="flex justify-between items-center py-2">
+              <div class="flex justify-between items-center py-2 border-b border-border last:border-b-0">
                 <span class="body-sm text-muted-foreground">Connection Status</span>
                 <div class="flex items-center gap-3">
                   <div
@@ -377,7 +377,7 @@
             <!-- Dynamic Configuration Display -->
             <div
               v-if="showAdvancedConfig && dataset?.configuration"
-              class="mt-6 pt-6 border-t border-border"
+              class="mt-6"
             >
               <div class="space-y-6">
                 <h3 class="body-sm font-semibold text-foreground mb-4">Advanced Settings</h3>
@@ -386,7 +386,7 @@
                   <div
                     v-for="(value, key) in getDisplayableConfig()"
                     :key="key"
-                    class="flex justify-between items-center py-2 border-b border-border"
+                    class="flex justify-between items-center py-2 border-b border-border last:border-b-0"
                   >
                     <span class="body-sm text-muted-foreground">{{ formatConfigKey(key) }}</span>
                     <span class="body-sm font-medium text-foreground">{{
@@ -398,7 +398,7 @@
             </div>
 
             <!-- Show Advanced Button (Bottom Right) -->
-            <div class="flex justify-end mt-6 pt-6 border-t border-border">
+            <div class="flex justify-end mt-6">
               <Button variant="ghost" size="sm" @click="showAdvancedConfig = !showAdvancedConfig">
                 <ChevronDown
                   class="h-4 w-4 mr-2 transition-transform"
