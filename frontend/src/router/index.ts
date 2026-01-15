@@ -116,6 +116,14 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, _from, next) => {
+  // Extract authToken from URL hash params and save to localStorage
+  if (to.query.authToken) {
+    localStorage.setItem('authToken', to.query.authToken as string)
+    const { authToken: _authToken, ...remainingQuery } = to.query
+    next({ ...to, query: remainingQuery, replace: true })
+    return
+  }
+
   // Skip onboarding check for the onboarding page itself
   if (to.name === 'onboarding') {
     next()
