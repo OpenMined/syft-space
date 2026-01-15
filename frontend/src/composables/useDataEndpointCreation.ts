@@ -279,7 +279,9 @@ export function useDataEndpointCreation() {
       // Check if any marketplace failed
       const failedResults = response.results.filter((r) => !r.success)
       if (failedResults.length > 0) {
-        const errorMessages = failedResults.map((r) => `${r.marketplace_name}: ${r.error}`).join('; ')
+        const errorMessages = failedResults
+          .map((r) => `${r.marketplace_name}: ${r.error}`)
+          .join('; ')
         console.warn(`Some marketplaces failed to publish: ${errorMessages}`)
       }
     } catch (error) {
@@ -363,7 +365,11 @@ export function useDataEndpointCreation() {
       const modelId = await createModel(data)
 
       // Step 3: Create endpoint
-      const endpointId = await createEndpointResource(data, datasetId || undefined, modelId || undefined)
+      const endpointId = await createEndpointResource(
+        data,
+        datasetId || undefined,
+        modelId || undefined,
+      )
 
       // Step 4: Create policies
       await createPolicies(data, endpointId)

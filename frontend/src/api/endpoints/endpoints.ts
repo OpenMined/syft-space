@@ -38,7 +38,10 @@ export const endpointsApi = {
     return response.data
   },
 
-  publish: async (slug: string, request: PublishEndpointRequest): Promise<PublishEndpointResponse> => {
+  publish: async (
+    slug: string,
+    request: PublishEndpointRequest,
+  ): Promise<PublishEndpointResponse> => {
     const response = await apiClient.post<PublishEndpointResponse>(
       `/endpoints/${slug}/publish`,
       request,

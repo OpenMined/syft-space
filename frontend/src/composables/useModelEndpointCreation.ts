@@ -183,7 +183,9 @@ export function useModelEndpointCreation() {
       // Check if any marketplace failed
       const failedResults = response.results.filter((r) => !r.success)
       if (failedResults.length > 0) {
-        const errorMessages = failedResults.map((r) => `${r.marketplace_name}: ${r.error}`).join('; ')
+        const errorMessages = failedResults
+          .map((r) => `${r.marketplace_name}: ${r.error}`)
+          .join('; ')
         console.warn(`Some marketplaces failed to publish: ${errorMessages}`)
       }
     } catch (error) {
