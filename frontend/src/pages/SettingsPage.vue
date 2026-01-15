@@ -199,7 +199,7 @@ const publicUrl = ref('')
 const fetchAccountInfo = async () => {
   loadingAccount.value = true
   try {
-    await Promise.all([userStore.fetchMarketplaceInfo(), userStore.fetchBalance()])
+    await userStore.fetchMarketplaceInfo()
   } finally {
     loadingAccount.value = false
   }
