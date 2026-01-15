@@ -21,9 +21,10 @@ const showNavbar = computed(
 // Initialize theme support
 useTheme()
 
-// Fetch marketplace info on app load so it's available everywhere
+// Fetch user data on app load so it's available everywhere
 onMounted(() => {
   userStore.fetchMarketplaceInfo()
+  userStore.fetchBalance()
 })
 </script>
 
