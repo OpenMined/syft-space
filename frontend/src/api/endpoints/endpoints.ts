@@ -5,6 +5,8 @@ import type {
   EndpointResponse,
   SlugAvailabilityRequest,
   SlugAvailabilityResponse,
+  PublishEndpointRequest,
+  PublishEndpointResponse,
 } from '../types'
 
 export const endpointsApi = {
@@ -31,6 +33,14 @@ export const endpointsApi = {
   validateSlug: async (request: SlugAvailabilityRequest): Promise<SlugAvailabilityResponse> => {
     const response = await apiClient.post<SlugAvailabilityResponse>(
       '/endpoints/validate-slug',
+      request,
+    )
+    return response.data
+  },
+
+  publish: async (slug: string, request: PublishEndpointRequest): Promise<PublishEndpointResponse> => {
+    const response = await apiClient.post<PublishEndpointResponse>(
+      `/endpoints/${slug}/publish`,
       request,
     )
     return response.data

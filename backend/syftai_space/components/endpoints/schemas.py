@@ -401,10 +401,13 @@ class QueryEndpointResponse(BaseModel):
 class PublishEndpointRequest(BaseModel):
     """Request model for publishing an endpoint to marketplace(s)."""
 
-    marketplace_ids: list[UUID] = Field(
-        ...,
-        min_length=1,
-        description="List of marketplace IDs to publish to",
+    marketplace_ids: list[UUID] | None = Field(
+        default=None,
+        description="List of marketplace IDs to publish to (required if publish_to_all_marketplaces is False)",
+    )
+    publish_to_all_marketplaces: bool = Field(
+        default=False,
+        description="If true, publishes to all active marketplaces (takes precedence over marketplace_ids)",
     )
 
     class Config:
@@ -415,7 +418,8 @@ class PublishEndpointRequest(BaseModel):
                 "marketplace_ids": [
                     "123e4567-e89b-12d3-a456-426614174000",
                     "223e4567-e89b-12d3-a456-426614174001",
-                ]
+                ],
+                "publish_to_all_marketplaces": False,
             }
         }
 

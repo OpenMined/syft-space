@@ -484,14 +484,16 @@ class EndpointHandler:
     def publish_endpoint(
         self,
         slug: str,
-        marketplace_ids: list[UUID],
+        marketplace_ids: list[UUID] | None,
+        publish_to_all_marketplaces: bool,
         tenant: Tenant,
     ) -> PublishEndpointResponse:
         """Publish an endpoint to one or more marketplaces.
 
         Args:
             slug: Endpoint slug
-            marketplace_ids: List of marketplace IDs to publish to
+            marketplace_ids: List of marketplace IDs to publish to (required if publish_to_all_marketplaces is False)
+            publish_to_all_marketplaces: If True, publish to all active marketplaces (takes precedence)
             tenant: Tenant context
 
         Returns:
@@ -506,24 +508,41 @@ class EndpointHandler:
                 detail="Marketplace publishing is not configured",
             )
 
+        # Validate that either marketplace_ids or publish_to_all_marketplaces is provided
+        if not publish_to_all_marketplaces and not marketplace_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Either marketplace_ids or publish_to_all_marketplaces must be provided",
+            )
+
         # Get endpoint
         endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
-        # Get marketplaces by IDs
-        marketplaces = self.marketplace_repository.get_by_ids(
-            marketplace_ids, tenant.id
-        )
-        found_ids = {m.id for m in marketplaces}
-
-        # Check for missing marketplaces
-        missing_ids = set(marketplace_ids) - found_ids
-        if missing_ids:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Marketplaces not found: {[str(id) for id in missing_ids]}",
+        # Get marketplaces to publish to
+        if publish_to_all_marketplaces:
+            # Get all active marketplaces (flag takes precedence)
+            marketplaces = self.marketplace_repository.get_active(tenant.id)
+            if not marketplaces:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No active marketplaces found",
+                )
+        else:
+            # Get specific marketplaces by IDs
+            marketplaces = self.marketplace_repository.get_by_ids(
+                marketplace_ids, tenant.id
             )
+            found_ids = {m.id for m in marketplaces}
+
+            # Check for missing marketplaces
+            missing_ids = set(marketplace_ids) - found_ids
+            if missing_ids:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Marketplaces not found: {[str(id) for id in missing_ids]}",
+                )
 
         # Publish to each marketplace
         results: list[PublishResult] = []

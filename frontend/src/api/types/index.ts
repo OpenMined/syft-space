@@ -355,6 +355,25 @@ export interface SlugAvailabilityResponse {
   }> | null
 }
 
+// Publish Endpoint API types
+export interface PublishEndpointRequest {
+  marketplace_ids?: string[] | null
+  publish_to_all_marketplaces?: boolean
+}
+
+export interface PublishResult {
+  marketplace_id: string
+  marketplace_name: string
+  success: boolean
+  message?: string | null
+  error?: string | null
+}
+
+export interface PublishEndpointResponse {
+  endpoint_slug: string
+  results: PublishResult[]
+}
+
 // Settings API types
 export interface PublicUrlResponse {
   public_url: string | null
