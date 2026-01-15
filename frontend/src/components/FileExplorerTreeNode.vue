@@ -134,7 +134,9 @@ const handleClick = (event: MouseEvent) => {
   }
 }
 
-const handleCheckboxChange = (checked: boolean) => {
-  emit('toggle-selection', [props.node.path], checked)
+const handleCheckboxChange = (checked: boolean | 'indeterminate') => {
+  if (typeof checked === 'boolean') {
+    emit('toggle-selection', [props.node.path], checked)
+  }
 }
 </script>

@@ -16,7 +16,8 @@
               <div class="flex-1">
                 <p class="text-destructive font-semibold body-sm mb-2">
                   This {{ itemType.toLowerCase() }} has {{ dependencies.length }} dependent
-                  {{ dependencyType }}{{ dependencies.length !== 1 ? 's' : '' }} that will be deleted:
+                  {{ dependencyType }}{{ dependencies.length !== 1 ? 's' : '' }} that will be
+                  deleted:
                 </p>
                 <p class="text-destructive/80 body-sm mb-3">
                   Check each {{ dependencyType }} to confirm deletion

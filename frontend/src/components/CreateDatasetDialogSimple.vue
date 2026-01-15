@@ -59,7 +59,9 @@
                 class="p-4 first:rounded-t-lg last:rounded-b-lg hover:bg-muted/50 transition-colors"
               >
                 <div class="flex items-start gap-3">
-                  <div class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0">
+                  <div
+                    class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0"
+                  >
                     <component
                       :is="getFileIcon(file, false, fileExplorerRef?.rootNodes)"
                       class="h-4 w-4"

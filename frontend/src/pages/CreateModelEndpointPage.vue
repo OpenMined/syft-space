@@ -540,7 +540,9 @@
 
                 <!-- Default Policy Message -->
                 <div v-if="policyRules[policy.id]?.length === 0" class="mb-3">
-                  <div class="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50 rounded-xl px-4 py-3">
+                  <div
+                    class="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50 rounded-xl px-4 py-3"
+                  >
                     <p class="body-sm text-green-700 dark:text-green-300">
                       <strong class="font-medium">Default: </strong>
                       <span v-if="policy.id === 'access'"
@@ -787,12 +789,16 @@
             class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
           >
             <!-- Interactive examples -->
-            <div class="mb-8 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg p-4">
+            <div
+              class="mb-8 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg p-4"
+            >
               <h4 class="font-medium text-blue-900 dark:text-blue-300 mb-3 flex items-center gap-2">
                 <Lightbulb class="w-4 h-4" />
                 Popular examples to get you started
               </h4>
-              <p class="body-sm text-blue-700 dark:text-blue-400 mb-4">Click any example to auto-fill the form</p>
+              <p class="body-sm text-blue-700 dark:text-blue-400 mb-4">
+                Click any example to auto-fill the form
+              </p>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4 body-sm">
                 <button
                   @click="fillExampleData('code')"
@@ -1038,7 +1044,11 @@
               <div
                 class="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"
               >
-                <svg class="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                <svg
+                  class="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
                   <circle
                     class="opacity-25"
                     cx="12"
@@ -1275,7 +1285,9 @@
             <div class="flex items-start gap-3">
               <X class="w-5 h-5 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
               <div class="flex-1">
-                <h4 class="font-medium text-red-900 dark:text-red-300 mb-1">Failed to create endpoint</h4>
+                <h4 class="font-medium text-red-900 dark:text-red-300 mb-1">
+                  Failed to create endpoint
+                </h4>
                 <p class="text-sm text-red-700 dark:text-red-400">{{ creationError }}</p>
               </div>
             </div>
