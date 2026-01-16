@@ -25,59 +25,74 @@
         <!-- File Explorer -->
         <div v-if="!props.dataset" class="space-y-4">
           <FileExplorer
+            ref="fileExplorerRef"
             v-model="formData.selectedFiles"
             :show-hidden="false"
             :allow-multiple="true"
           />
 
           <!-- Selected Items with Descriptions -->
-          <div v-if="formData.selectedFiles.length > 0" class="border-t pt-4 space-y-3">
-            <div class="flex items-center justify-between mb-3">
-              <h4 class="text-sm font-medium text-foreground">
-                Selected Items ({{ formData.selectedFiles.length }})
-              </h4>
+          <div v-if="formData.selectedFiles.length > 0" class="space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <h4 class="text-sm font-medium text-foreground">Selected Items</h4>
+                <Badge variant="secondary" class="text-xs">
+                  {{ formData.selectedFiles.length }}
+                </Badge>
+              </div>
               <Button
                 v-if="!props.dataset"
                 @click="clearAllFiles"
                 variant="ghost"
                 size="sm"
-                class="text-muted-foreground hover:text-foreground"
+                class="h-8 text-xs text-muted-foreground hover:text-destructive"
               >
+                <X class="h-3 w-3 mr-1" />
                 Clear all
               </Button>
             </div>
 
-            <div class="space-y-3">
+            <div class="rounded-lg border border-border bg-muted/30 divide-y divide-border">
               <div
-                v-for="file in formData.selectedFiles"
+                v-for="(file, index) in formData.selectedFiles"
                 :key="file"
-                class="p-3 bg-muted/50 border border-border rounded-lg"
+                class="p-4 first:rounded-t-lg last:rounded-b-lg hover:bg-muted/50 transition-colors"
               >
                 <div class="flex items-start gap-3">
-                  <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                  <div class="flex-1 min-w-0 space-y-2">
-                    <div class="flex items-center justify-between gap-2">
-                      <p class="text-sm font-medium text-foreground truncate">
-                        {{ getFileName(file) }}
-                      </p>
+                  <div
+                    class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0"
+                  >
+                    <component
+                      :is="getFileIcon(file, false, fileExplorerRef?.rootNodes)"
+                      class="h-4 w-4"
+                      :class="getFileIconColor(file, fileExplorerRef?.rootNodes)"
+                    />
+                  </div>
+                  <div class="flex-1 min-w-0 space-y-3">
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="space-y-1">
+                        <p class="text-sm font-medium text-foreground truncate">
+                          {{ getFileName(file) }}
+                        </p>
+                        <p class="text-xs text-muted-foreground truncate">
+                          {{ file }}
+                        </p>
+                      </div>
                       <Button
                         v-if="!props.dataset"
-                        @click="removeFile(formData.selectedFiles.indexOf(file))"
+                        @click="removeFile(index)"
                         variant="ghost"
                         size="sm"
-                        class="h-6 w-6 p-0 hover:text-destructive"
+                        class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex-shrink-0"
                       >
-                        <X class="h-3 w-3" />
+                        <X class="h-4 w-4" />
                       </Button>
                     </div>
-                    <div class="space-y-1">
-                      <Label class="text-sm text-muted-foreground">Description (Optional)</Label>
-                      <Input
-                        v-model="fileDescriptions[file]"
-                        placeholder="Brief description of this item's content..."
-                        class="text-sm"
-                      />
-                    </div>
+                    <Input
+                      v-model="fileDescriptions[file]"
+                      placeholder="Add a description (optional)..."
+                      class="text-sm h-9 bg-background"
+                    />
                   </div>
                 </div>
               </div>
@@ -185,8 +200,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { FileText, Plus, X } from 'lucide-vue-next'
+import { Plus, X } from 'lucide-vue-next'
 import FileExplorer from '@/components/FileExplorer.vue'
+import { useFileIcon } from '@/composables/useFileIcon'
 import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import type { CreateDatasetRequest, UpdateDatasetRequest } from '@/api/types'
@@ -223,6 +239,8 @@ const formData = ref({
 
 const tagInput = ref('')
 const fileDescriptions = ref<Record<string, string>>({})
+const { getFileIcon, getFileIconColor } = useFileIcon()
+const fileExplorerRef = ref<InstanceType<typeof FileExplorer> | null>(null)
 const isCreating = ref(false)
 const isInitialized = ref(false)
 

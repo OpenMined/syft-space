@@ -110,13 +110,13 @@
           <!-- Model Option -->
           <button
             @click="selectEndpointType('model')"
-            class="w-full p-6 bg-card border-2 border-border rounded-lg hover:border-purple-500 hover:bg-purple-50/50 transition-all text-left group"
+            class="w-full p-6 bg-card border-2 border-border rounded-lg hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-950/30 transition-all text-left group"
           >
             <div class="flex items-start gap-4">
               <div
-                class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-purple-200 transition-colors"
+                class="w-12 h-12 bg-purple-100 dark:bg-purple-950/50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-purple-200 dark:group-hover:bg-purple-950 transition-colors"
               >
-                <Brain class="w-6 h-6 text-purple-600" />
+                <Brain class="w-6 h-6 text-purple-600 dark:text-purple-400" />
               </div>
               <div class="flex-1">
                 <div class="flex items-center justify-between mb-1">
@@ -142,19 +142,19 @@
                   <p class="text-xs text-muted-foreground mb-2">Popular for:</p>
                   <div class="flex flex-wrap gap-2">
                     <span
-                      class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium"
+                      class="px-2 py-1 bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 rounded text-xs font-medium"
                       >Specialized LLMs</span
                     >
                     <span
-                      class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium"
+                      class="px-2 py-1 bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 rounded text-xs font-medium"
                       >Local LLMs</span
                     >
                     <span
-                      class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium"
+                      class="px-2 py-1 bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 rounded text-xs font-medium"
                       >Custom AI workflows</span
                     >
                     <span
-                      class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium"
+                      class="px-2 py-1 bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 rounded text-xs font-medium"
                       >Third-party LLMs</span
                     >
                   </div>
@@ -170,7 +170,7 @@
                 </div>
               </div>
               <ChevronRight
-                class="w-5 h-5 text-muted-foreground group-hover:text-purple-600 transition-colors"
+                class="w-5 h-5 text-muted-foreground group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors"
               />
             </div>
           </button>

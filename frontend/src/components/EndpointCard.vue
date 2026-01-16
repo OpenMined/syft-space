@@ -18,8 +18,8 @@
         </div>
         <p class="body-sm text-muted-foreground mb-4">{{ endpoint.summary }}</p>
 
-        <!-- Watched Paths Preview -->
-        <div class="mb-4 space-y-2 pl-2">
+        <!-- Watched Paths Preview (only for local_file data sources) -->
+        <div v-if="endpoint.dataSourceType === 'local_file'" class="mb-4 space-y-2 pl-2">
           <div
             v-if="!endpoint.watchedPaths || endpoint.watchedPaths.length === 0"
             class="text-sm text-muted-foreground"

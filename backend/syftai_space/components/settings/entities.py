@@ -1,17 +1,21 @@
 """Settings database entities."""
 
 from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 from sqlmodel import Field, SQLModel
 
 
 class Settings(SQLModel, table=True):
-    """Application settings entity - singleton row (id=1)."""
+    """Application settings entity."""
 
     __tablename__ = "settings"
 
-    id: int = Field(default=1, primary_key=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     public_url: str | None = Field(
         default=None, description="Public URL for the Syft Space"
+    )
+    ngrok_token: str | None = Field(
+        default=None, description="Ngrok authentication token for proxy tunnel"
     )
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

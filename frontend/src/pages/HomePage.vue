@@ -127,7 +127,10 @@
                       <Database
                         class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 flex-shrink-0"
                       />
-                      <span class="text-lg font-light text-foreground">{{ datasetCount }}</span>
+                      <Skeleton v-if="statsLoading" class="h-5 w-8" />
+                      <span v-else class="text-lg font-light text-foreground">{{
+                        datasetCount
+                      }}</span>
                     </div>
                     <span class="text-xs text-muted-foreground text-center leading-tight"
                       >Datasets</span
@@ -151,7 +154,10 @@
                       <Brain
                         class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 flex-shrink-0"
                       />
-                      <span class="text-lg font-light text-foreground">{{ modelCount }}</span>
+                      <Skeleton v-if="statsLoading" class="h-5 w-8" />
+                      <span v-else class="text-lg font-light text-foreground">{{
+                        modelCount
+                      }}</span>
                     </div>
                     <span class="text-xs text-muted-foreground text-center leading-tight"
                       >Models</span
@@ -175,7 +181,10 @@
                       <Server
                         class="w-3.5 h-3.5 text-orange-600 dark:text-orange-400 flex-shrink-0"
                       />
-                      <span class="text-lg font-light text-foreground">{{ endpointCount }}</span>
+                      <Skeleton v-if="statsLoading" class="h-5 w-8" />
+                      <span v-else class="text-lg font-light text-foreground">{{
+                        endpointCount
+                      }}</span>
                     </div>
                     <span class="text-xs text-muted-foreground text-center leading-tight"
                       >Endpoints</span
@@ -225,7 +234,8 @@
                     class="group flex items-center gap-2 px-2 lg:px-3 py-2 rounded-lg hover:bg-muted transition-colors"
                   >
                     <Database class="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                    <span class="text-xl lg:text-2xl font-light text-foreground">{{
+                    <Skeleton v-if="statsLoading" class="h-6 w-10" />
+                    <span v-else class="text-xl lg:text-2xl font-light text-foreground">{{
                       datasetCount
                     }}</span>
                     <span class="text-sm lg:body-sm text-muted-foreground whitespace-nowrap"
@@ -249,7 +259,8 @@
                     class="group flex items-center gap-2 px-2 lg:px-3 py-2 rounded-lg hover:bg-muted transition-colors"
                   >
                     <Brain class="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
-                    <span class="text-xl lg:text-2xl font-light text-foreground">{{
+                    <Skeleton v-if="statsLoading" class="h-6 w-10" />
+                    <span v-else class="text-xl lg:text-2xl font-light text-foreground">{{
                       modelCount
                     }}</span>
                     <span class="text-sm lg:body-sm text-muted-foreground whitespace-nowrap"
@@ -273,7 +284,8 @@
                     class="group flex items-center gap-2 px-2 lg:px-3 py-2 rounded-lg hover:bg-muted transition-colors"
                   >
                     <Server class="w-4 h-4 text-orange-600 dark:text-orange-400 flex-shrink-0" />
-                    <span class="text-xl lg:text-2xl font-light text-foreground">{{
+                    <Skeleton v-if="statsLoading" class="h-6 w-10" />
+                    <span v-else class="text-xl lg:text-2xl font-light text-foreground">{{
                       endpointCount
                     }}</span>
                     <span class="text-sm lg:body-sm text-muted-foreground whitespace-nowrap"
@@ -489,7 +501,7 @@ import { useDashboardStats } from '@/composables/useDashboardStats'
 
 const inboxStore = useInboxStore()
 const userStore = useUserStore()
-const { datasetCount, modelCount, endpointCount } = useDashboardStats()
+const { datasetCount, modelCount, endpointCount, loading: statsLoading } = useDashboardStats()
 
 const selectedItem = ref<InboxItem | null>(null)
 const dialogOpen = ref(false)

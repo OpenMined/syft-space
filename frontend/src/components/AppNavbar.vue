@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, ExternalLink, Settings } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -24,10 +24,6 @@ const userStore = useUserStore()
 const inboxStore = useInboxStore()
 
 const currentRouteName = computed(() => route.name as string)
-
-onMounted(() => {
-  userStore.fetchBalance()
-})
 
 const routeMapping: Record<string, string[]> = {
   endpoints: ['endpoints', 'endpoint-detail'],

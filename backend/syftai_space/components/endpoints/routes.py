@@ -178,13 +178,18 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
 
         Args:
             slug: Endpoint slug
-            request: Publish request with marketplace IDs
+            request: Publish request with marketplace IDs or publish_to_all_marketplaces flag
             tenant: Current tenant (injected)
 
         Returns:
             Publish results for each marketplace
         """
-        return handler.publish_endpoint(slug, request.marketplace_ids, tenant)
+        return handler.publish_endpoint(
+            slug,
+            request.marketplace_ids,
+            request.publish_to_all_marketplaces,
+            tenant,
+        )
 
     @router.delete("/{slug}", response_model=dict[str, str])
     async def delete_endpoint(

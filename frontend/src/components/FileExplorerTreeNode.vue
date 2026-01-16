@@ -1,9 +1,9 @@
 <template>
   <div class="tree-node">
     <div
-      class="node-content group flex items-center gap-2 px-2 py-1 hover:bg-gray-100 rounded cursor-pointer select-none"
+      class="node-content group flex items-center gap-2 px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded cursor-pointer select-none"
       :class="{
-        'bg-blue-50': isSelected,
+        'bg-blue-50 dark:bg-blue-950/50': isSelected,
         'font-medium': node.type === 'directory',
       }"
       :style="{ paddingLeft: `${depth * 20}px` }"
@@ -14,29 +14,19 @@
         <button
           v-if="node.type === 'directory'"
           @click.stop="toggleDir"
-          class="p-1 hover:bg-gray-200 rounded transition-colors"
+          class="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
         >
           <ChevronRight class="w-4 h-4 transition-transform" :class="{ 'rotate-90': isExpanded }" />
         </button>
       </div>
 
-      <!-- Icon/Checkbox container -->
-      <div class="relative w-4 h-4 flex-shrink-0">
-        <component
-          :is="getIcon()"
-          class="w-4 h-4 absolute inset-0 opacity-0"
-          :class="getIconClass()"
-        />
-
-        <input
-          ref="checkboxRef"
-          type="checkbox"
-          :checked="isSelected || isPartiallySelected"
-          @click.stop
-          @change="handleCheckboxChange"
-          class="h-4 w-4 absolute inset-0 text-blue-600 rounded border-border focus:ring-blue-500 opacity-100 cursor-pointer"
-        />
-      </div>
+      <!-- Checkbox -->
+      <Checkbox
+        :model-value="isSelected"
+        @click.stop
+        @update:model-value="handleCheckboxChange"
+        class="flex-shrink-0 border-gray-400 dark:border-gray-500 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600 data-[state=checked]:text-white"
+      />
 
       <!-- File/Folder icon -->
       <component :is="getIcon()" class="w-4 h-4 flex-shrink-0" :class="getIconClass()" />
@@ -81,9 +71,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue'
+import { computed } from 'vue'
 import TreeNode from './FileExplorerTreeNode.vue'
 import { ChevronRight } from 'lucide-vue-next'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useFileIcon } from '@/composables/useFileIcon'
 
 interface FileNode {
@@ -115,20 +106,12 @@ const emit = defineEmits<{
   'toggle-selection': [paths: string[], selected: boolean]
 }>()
 
-const checkboxRef = ref<HTMLInputElement>()
 const isExpanded = computed(() => props.expandedDirs.has(props.node.path))
 
 const { getFileIcon, getFileIconColor, formatFileSize } = useFileIcon()
 
 const isSelected = computed(() => {
   return props.selectedFiles.includes(props.node.path)
-})
-
-const isPartiallySelected = computed(() => false)
-watchEffect(() => {
-  if (checkboxRef.value) {
-    checkboxRef.value.indeterminate = isPartiallySelected.value
-  }
 })
 
 const getIcon = () => getFileIcon(props.node.path, isExpanded.value, [props.node])
@@ -140,8 +123,8 @@ const toggleDir = () => {
 
 const handleClick = (event: MouseEvent) => {
   if (
-    (event.target as HTMLElement).matches('input[type="checkbox"]') ||
-    (event.target as HTMLElement).closest('button')
+    (event.target as HTMLElement).closest('button[data-slot="checkbox"]') ||
+    (event.target as HTMLElement).closest('button:not([data-slot="checkbox"])')
   ) {
     return
   }
@@ -151,8 +134,9 @@ const handleClick = (event: MouseEvent) => {
   }
 }
 
-const handleCheckboxChange = (event: Event) => {
-  const checked = (event.target as HTMLInputElement).checked
-  emit('toggle-selection', [props.node.path], checked)
+const handleCheckboxChange = (checked: boolean | 'indeterminate') => {
+  if (typeof checked === 'boolean') {
+    emit('toggle-selection', [props.node.path], checked)
+  }
 }
 </script>

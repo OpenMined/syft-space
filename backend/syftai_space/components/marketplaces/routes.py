@@ -97,7 +97,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         return handler.list_marketplaces(tenant)
 
     @router.get("/balance", response_model=BalanceResponse)
-    async def get_balance(
+    def get_balance(
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: MarketplaceHandler = Depends(get_handler),
     ) -> BalanceResponse:

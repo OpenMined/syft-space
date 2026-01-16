@@ -15,24 +15,14 @@ import UpdatesPage from '../pages/UpdatesPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 
-const ONBOARDED_KEY = 'isOnboarded'
-
 async function checkOnboardingStatus(): Promise<boolean> {
-  if (localStorage.getItem(ONBOARDED_KEY) === 'true') {
-    return true
-  }
-
   try {
     const marketplaces = await marketplacesApi.list()
-    if (marketplaces.length > 0) {
-      localStorage.setItem(ONBOARDED_KEY, 'true')
-      return true
-    }
+    return marketplaces.length > 0
   } catch {
     // If API fails, assume not onboarded
+    return false
   }
-
-  return false
 }
 
 const router = createRouter({
@@ -116,6 +106,14 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, _from, next) => {
+  // Extract authToken from URL hash params and save to localStorage
+  if (to.query.authToken) {
+    localStorage.setItem('authToken', to.query.authToken as string)
+    const { authToken: _authToken, ...remainingQuery } = to.query
+    next({ ...to, query: remainingQuery, replace: true })
+    return
+  }
+
   // Skip onboarding check for the onboarding page itself
   if (to.name === 'onboarding') {
     next()

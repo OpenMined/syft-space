@@ -171,6 +171,33 @@ export function useModelEndpointCreation() {
     return createdPolicies.map((p) => p.id)
   }
 
+  // Step 4: Publish endpoint to all marketplaces
+  const publishEndpoint = async (slug: string): Promise<void> => {
+    creationStep.value = 'Publishing to SyftHub...'
+
+    try {
+      const response = await endpointsApi.publish(slug, {
+        publish_to_all_marketplaces: true,
+      })
+
+      // Check if any marketplace failed
+      const failedResults = response.results.filter((r) => !r.success)
+      if (failedResults.length > 0) {
+        const errorMessages = failedResults
+          .map((r) => `${r.marketplace_name}: ${r.error}`)
+          .join('; ')
+        console.warn(`Some marketplaces failed to publish: ${errorMessages}`)
+      }
+    } catch (error) {
+      // Log the error but don't fail the whole creation process
+      // The endpoint is created locally, just not published to marketplaces
+      console.error('Failed to publish endpoint to marketplaces:', error)
+      throw new Error(
+        `Failed to publish to SyftHub: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
+    }
+  }
+
   // Rollback function to clean up created resources
   const rollback = async () => {
     creationStep.value = 'Cleaning up...'
@@ -232,9 +259,12 @@ export function useModelEndpointCreation() {
       // Step 3: Create policies
       await createPolicies(data, endpointId)
 
+      // Step 4: Publish endpoint to all marketplaces
+      await publishEndpoint(data.endpointName)
+
       // Success!
       creationStep.value = 'Complete!'
-      toast.success(`Model endpoint "${data.endpointName}" created successfully`)
+      toast.success(`Model endpoint "${data.endpointName}" published successfully to SyftHub`)
 
       // Navigate to the endpoint details page
       router.push({ name: 'endpoints' })

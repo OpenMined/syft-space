@@ -8,45 +8,46 @@
         </DialogDescription>
       </DialogHeader>
 
-      <!-- Dependencies Warning -->
       <div v-if="dependencies && dependencies.length > 0" class="py-4">
         <div class="space-y-4">
-          <div
-            class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-md p-4"
-          >
+          <div class="bg-destructive/10 border border-destructive/20 rounded-md p-4">
             <div class="flex items-start gap-3">
               <div class="text-xl">⚠️</div>
               <div class="flex-1">
-                <p class="text-red-900 dark:text-red-100 font-semibold text-sm mb-2">
+                <p class="text-destructive font-semibold body-sm mb-2">
                   This {{ itemType.toLowerCase() }} has {{ dependencies.length }} dependent
                   {{ dependencyType }}{{ dependencies.length !== 1 ? 's' : '' }} that will be
                   deleted:
                 </p>
-                <p class="text-red-800 dark:text-red-200 text-xs mb-3">
+                <p class="text-destructive/80 body-sm mb-3">
                   Check each {{ dependencyType }} to confirm deletion
                 </p>
                 <div class="space-y-2">
                   <div
-                    v-for="dependency in dependencies"
-                    :key="dependency.id"
-                    class="flex items-center gap-3 p-2.5 bg-card rounded border border-red-200 dark:border-red-800"
+                    v-for="dep in dependencies"
+                    :key="dep"
+                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20 cursor-pointer hover:bg-muted/50 transition-colors"
+                    @click="toggleDependency(dep)"
                   >
-                    <input
-                      type="checkbox"
-                      :id="`dependency-${dependency.id}`"
-                      :checked="checkedDependencies.includes(dependency.id)"
-                      @change="() => toggleDependency(dependency.id)"
-                      class="w-4 h-4 text-red-600 dark:text-red-400 bg-card border-red-400 dark:border-red-600 rounded focus:ring-red-500 focus:ring-2"
-                    />
-                    <label
-                      :for="`dependency-${dependency.id}`"
-                      class="flex-1 cursor-pointer flex items-center justify-between"
+                    <div
+                      class="w-4 h-4 rounded-sm border flex items-center justify-center shrink-0 transition-colors"
+                      :class="
+                        checkedDependencies.includes(dep)
+                          ? 'bg-primary border-primary text-primary-foreground'
+                          : 'border-input bg-background'
+                      "
                     >
-                      <span class="text-sm font-medium text-foreground">
-                        {{ dependency.name }}
+                      <Check v-if="checkedDependencies.includes(dep)" class="w-3 h-3" />
+                    </div>
+                    <span class="flex-1 flex items-center justify-between">
+                      <span
+                        class="body-sm font-medium text-foreground"
+                        :class="{ 'line-through opacity-60': checkedDependencies.includes(dep) }"
+                      >
+                        {{ dep }}
                       </span>
-                      <span class="text-xs text-red-600 dark:text-red-400"> Will be deleted </span>
-                    </label>
+                      <span class="body-sm text-destructive">Will be deleted</span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -57,8 +58,19 @@
 
       <DialogFooter>
         <Button variant="outline" @click="handleCancel"> Cancel </Button>
-        <Button variant="destructive" @click="handleConfirm" :disabled="!canDelete">
-          {{ deleteButtonText }}
+        <Button
+          variant="destructive"
+          @click="handleConfirm"
+          :disabled="!allDependenciesChecked || isDeleting"
+        >
+          <template v-if="isDeleting">Deleting...</template>
+          <template v-else>
+            {{
+              dependencies && dependencies.length > 0
+                ? `Delete ${itemType} & ${dependencies.length} ${dependencyType}${dependencies.length !== 1 ? 's' : ''}`
+                : `Delete ${itemType}`
+            }}
+          </template>
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -76,33 +88,29 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-
-interface Dependency {
-  id: string
-  name: string
-}
+import { Check } from 'lucide-vue-next'
 
 interface Props {
   open?: boolean
   itemType: string
   itemName: string
-  dependencies?: Dependency[]
+  dependencies?: string[]
   dependencyType?: string
-}
-
-interface Emits {
-  (e: 'update:open', value: boolean): void
-  (e: 'confirm'): void
-  (e: 'cancel'): void
+  isDeleting?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   open: false,
   dependencies: () => [],
-  dependencyType: 'item',
+  dependencyType: 'endpoint',
+  isDeleting: false,
 })
 
-const emit = defineEmits<Emits>()
+const emit = defineEmits<{
+  'update:open': [value: boolean]
+  confirm: []
+  cancel: []
+}>()
 
 const isOpen = computed({
   get: () => props.open,
@@ -111,30 +119,22 @@ const isOpen = computed({
 
 const checkedDependencies = ref<string[]>([])
 
-const canDelete = computed(() => {
+const allDependenciesChecked = computed(() => {
   if (!props.dependencies || props.dependencies.length === 0) return true
-  return props.dependencies.length === checkedDependencies.value.length
+  return props.dependencies.every((dep) => checkedDependencies.value.includes(dep))
 })
 
-const deleteButtonText = computed(() => {
-  if (!props.dependencies || props.dependencies.length === 0) {
-    return `Delete ${props.itemType}`
-  }
-  return `Delete ${props.itemType} & ${props.dependencies.length} ${props.dependencyType}${props.dependencies.length !== 1 ? 's' : ''}`
-})
-
-const toggleDependency = (dependencyId: string) => {
-  const index = checkedDependencies.value.indexOf(dependencyId)
+const toggleDependency = (dep: string) => {
+  const index = checkedDependencies.value.indexOf(dep)
   if (index > -1) {
     checkedDependencies.value.splice(index, 1)
   } else {
-    checkedDependencies.value.push(dependencyId)
+    checkedDependencies.value.push(dep)
   }
 }
 
 const handleConfirm = () => {
   emit('confirm')
-  handleCancel() // Reset state
 }
 
 const handleCancel = () => {

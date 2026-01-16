@@ -31,12 +31,22 @@
     </div>
 
     <!-- Loading State -->
-    <div v-if="isLoading" class="flex justify-center items-center py-12">
-      <div class="text-center">
-        <div
-          class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"
-        ></div>
-        <p class="text-muted-foreground">Loading models...</p>
+    <div v-if="isLoading" class="space-y-5">
+      <div
+        v-for="i in 3"
+        :key="`skeleton-${i}`"
+        class="bg-card border border-border rounded-xl p-6 animate-pulse"
+      >
+        <div class="flex items-start justify-between">
+          <div class="flex-1 flex gap-4">
+            <div class="w-14 h-14 bg-muted rounded-xl"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-6 bg-muted rounded w-1/3"></div>
+              <div class="h-4 bg-muted rounded w-1/2"></div>
+              <div class="h-4 bg-muted rounded w-2/3"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -167,72 +177,16 @@
   />
 
   <!-- Delete Confirmation Dialog -->
-  <Dialog v-model:open="showDeleteDialog">
-    <DialogContent class="sm:max-w-[600px]">
-      <DialogHeader>
-        <DialogTitle>Delete Model</DialogTitle>
-        <DialogDescription>
-          Are you sure you want to delete "{{ modelToDelete?.name }}"? This action cannot be undone.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div v-if="modelToDelete && modelToDelete.endpointCount > 0" class="py-4">
-        <div class="space-y-4">
-          <div class="bg-destructive/10 border border-destructive/20 rounded-md p-4">
-            <div class="flex items-start gap-3">
-              <div class="text-xl">⚠️</div>
-              <div class="flex-1">
-                <p class="text-destructive font-semibold body-sm mb-2">
-                  This model has {{ modelToDelete.endpointCount }} dependent endpoint{{
-                    modelToDelete.endpointCount !== 1 ? 's' : ''
-                  }}
-                  that will be deleted:
-                </p>
-                <p class="text-destructive/80 body-sm mb-3">
-                  Check each endpoint to confirm deletion
-                </p>
-                <div class="space-y-2">
-                  <div
-                    v-for="endpointName in getEndpointNamesForModel(modelToDelete.id)"
-                    :key="endpointName"
-                    class="flex items-center gap-3 p-2.5 bg-background rounded border border-destructive/20"
-                  >
-                    <input
-                      type="checkbox"
-                      :id="`endpoint-${endpointName}`"
-                      :checked="checkedEndpoints.includes(endpointName)"
-                      @change="() => toggleEndpoint(endpointName)"
-                      class="w-4 h-4 text-destructive bg-background border-destructive rounded focus:ring-destructive focus:ring-2"
-                    />
-                    <label
-                      :for="`endpoint-${endpointName}`"
-                      class="flex-1 cursor-pointer flex items-center justify-between"
-                    >
-                      <span class="body-sm font-medium text-foreground">
-                        {{ endpointName }}
-                      </span>
-                      <span class="body-sm text-destructive"> Will be deleted </span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" @click="cancelDeleteModel"> Cancel </Button>
-        <Button variant="destructive" @click="confirmDeleteModel" :disabled="!allEndpointsChecked">
-          {{
-            modelToDelete && modelToDelete.endpointCount && modelToDelete.endpointCount > 0
-              ? `Delete Model & ${modelToDelete.endpointCount} Endpoint${modelToDelete.endpointCount !== 1 ? 's' : ''}`
-              : 'Delete Model'
-          }}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+  <DeleteConfirmationDialog
+    v-model:open="showDeleteDialog"
+    item-type="Model"
+    :item-name="modelToDelete?.name || ''"
+    :dependencies="getEndpointNamesForModel(modelToDelete?.id || '')"
+    dependency-type="endpoint"
+    :is-deleting="isDeleting"
+    @confirm="confirmDeleteModel"
+    @cancel="cancelDeleteModel"
+  />
 </template>
 
 <script setup lang="ts">
@@ -243,16 +197,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateModelDialogSimple from '@/components/CreateModelDialogSimple.vue'
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { modelsApi } from '@/api/endpoints/models'
 import type { ModelListItem } from '@/api/types'
 import { toast } from 'vue-sonner'
@@ -274,7 +221,7 @@ const searchQuery = ref('')
 const editingModel = ref<ModelWithUI | null>(null)
 const showDeleteDialog = ref(false)
 const modelToDelete = ref<ModelWithUI | null>(null)
-const checkedEndpoints = ref<string[]>([])
+const isDeleting = ref(false)
 
 // Fetch models on component mount
 onMounted(async () => {
@@ -358,12 +305,12 @@ const handleDialogClose = () => {
 
 const handleDeleteModel = (model: ModelWithUI) => {
   modelToDelete.value = model
-  checkedEndpoints.value = []
   showDeleteDialog.value = true
 }
 
 const confirmDeleteModel = async () => {
-  if (modelToDelete.value) {
+  if (modelToDelete.value && !isDeleting.value) {
+    isDeleting.value = true
     try {
       await modelsApi.delete(modelToDelete.value.name)
       toast.success(`Model "${modelToDelete.value.name}" deleted successfully`)
@@ -375,36 +322,17 @@ const confirmDeleteModel = async () => {
       toast.error(errorMessage)
       console.error('Failed to delete model:', err)
     }
+    isDeleting.value = false
   }
 }
 
 const cancelDeleteModel = () => {
   showDeleteDialog.value = false
   modelToDelete.value = null
-  checkedEndpoints.value = []
 }
-
-// Check if all endpoints are selected
-const allEndpointsChecked = computed(() => {
-  if (!modelToDelete.value) return true
-  if (modelToDelete.value.endpointCount === 0) return true
-
-  const endpointNames = getEndpointNamesForModel(modelToDelete.value.id)
-  return endpointNames.length > 0 && endpointNames.length === checkedEndpoints.value.length
-})
 
 // Navigate to model detail page
 const navigateToDetail = (modelSlug: string) => {
   router.push(`/models/${modelSlug}`)
-}
-
-// Toggle endpoint checkbox
-const toggleEndpoint = (endpointName: string) => {
-  const index = checkedEndpoints.value.indexOf(endpointName)
-  if (index > -1) {
-    checkedEndpoints.value.splice(index, 1)
-  } else {
-    checkedEndpoints.value.push(endpointName)
-  }
 }
 </script>

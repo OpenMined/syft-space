@@ -29,16 +29,6 @@ class AppSettings(BaseSettings):
         description="Reset the database (delete and recreate all tables)",
     )
 
-    # Ngrok settings
-    use_ngrok: bool = Field(
-        default=False,
-        description="Use ngrok to expose the server to the internet",
-    )
-    ngrok_auth_token: str = Field(
-        default="",
-        description="Ngrok authentication token",
-    )
-
     # Multi-tenancy settings
     enable_multi_tenancy: bool = Field(
         default=False,

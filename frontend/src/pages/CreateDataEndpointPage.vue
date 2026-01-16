@@ -297,9 +297,9 @@
               <!-- Add Files Card -->
               <Card
                 :class="[
-                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-primary/30 hover:bg-gradient-to-br hover:from-primary/5 hover:to-primary/10',
+                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-400 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 dark:hover:from-blue-950/30 dark:hover:to-indigo-950/30 bg-card',
                   selectedDataSourceType === 'filesystem'
-                    ? 'border-primary bg-gradient-to-br from-primary/5 to-primary/10'
+                    ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30'
                     : 'border-border bg-card',
                 ]"
                 @click="selectDataSourceType('filesystem')"
@@ -307,9 +307,9 @@
                 <CardContent class="p-6 h-full">
                   <div class="flex flex-col items-center text-center h-full">
                     <div
-                      class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4"
+                      class="w-14 h-14 rounded-full bg-blue-100 dark:bg-blue-950/50 flex items-center justify-center mb-4"
                     >
-                      <FileText class="w-7 h-7 text-primary" />
+                      <FileText class="w-7 h-7 text-blue-600 dark:text-blue-400" />
                     </div>
 
                     <h3 class="heading-3 text-foreground mb-2">Add Files</h3>
@@ -334,7 +334,7 @@
 
                     <div class="flex items-center gap-1 mt-auto">
                       <span
-                        class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium"
+                        class="body-sm bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-300 px-2 py-1 rounded-full font-medium"
                         >Easy</span
                       >
                       <span class="body-sm text-muted-foreground">2 minute setup</span>
@@ -347,9 +347,9 @@
               <Card
                 v-if="existingDataSourcesCount > 0"
                 :class="[
-                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 bg-card',
+                  'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-green-300 dark:hover:border-green-400 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-950/30 dark:hover:to-emerald-950/30 bg-card',
                   selectedDataSourceType === 'existing'
-                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                    ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30'
                     : 'border-border',
                 ]"
                 @click="selectDataSourceType('existing')"
@@ -357,9 +357,9 @@
                 <CardContent class="p-6 h-full">
                   <div class="flex flex-col items-center text-center h-full">
                     <div
-                      class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4"
+                      class="w-14 h-14 rounded-full bg-green-100 dark:bg-green-950/50 flex items-center justify-center mb-4"
                     >
-                      <FolderOpen class="w-7 h-7 text-green-600" />
+                      <FolderOpen class="w-7 h-7 text-green-600 dark:text-green-400" />
                     </div>
 
                     <h3 class="heading-3 text-foreground mb-2">Existing Sources</h3>
@@ -390,7 +390,7 @@
                         :key="dataset.name"
                         class="flex items-center gap-2 body-sm"
                       >
-                        <div class="w-2 h-2 bg-primary rounded-full"></div>
+                        <div class="w-2 h-2 bg-green-600 dark:bg-green-400 rounded-full"></div>
                         <span class="text-muted-foreground truncate">{{ dataset.name }}</span>
                       </div>
                       <div
@@ -404,7 +404,7 @@
 
                     <div class="flex items-center gap-1 mt-auto">
                       <span
-                        class="body-sm bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium"
+                        class="body-sm bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-300 px-2 py-1 rounded-full font-medium"
                       >
                         Quick
                       </span>
@@ -441,10 +441,10 @@
                         class="flex items-center space-x-3 p-4 border rounded-lg transition-colors"
                         :class="[
                           formData.selectedDataSource === dataset.id
-                            ? 'border-primary bg-primary/5'
+                            ? 'border-green-500 bg-green-50 dark:bg-green-950/30'
                             : 'border-border',
                           isDatasetSelectable(dataset)
-                            ? 'cursor-pointer hover:bg-muted/50'
+                            ? 'cursor-pointer hover:bg-green-50 dark:hover:bg-green-950/20'
                             : 'cursor-not-allowed opacity-60',
                         ]"
                         @click="
@@ -454,8 +454,8 @@
                         "
                       >
                         <div class="flex items-center gap-3 flex-1">
-                          <div class="p-2 bg-primary/10 rounded">
-                            <Database class="h-5 w-5 text-primary" />
+                          <div class="p-2 bg-green-100 dark:bg-green-950/50 rounded">
+                            <Database class="h-5 w-5 text-green-600 dark:text-green-400" />
                           </div>
                           <div class="flex-1">
                             <div class="flex items-center gap-2">
@@ -478,7 +478,7 @@
                           class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
                           :class="
                             formData.selectedDataSource === dataset.id
-                              ? 'border-primary bg-primary'
+                              ? 'border-green-500 bg-green-500'
                               : 'border-muted-foreground'
                           "
                         >
@@ -504,6 +504,7 @@
               <Card class="bg-card border-border">
                 <CardContent class="p-6">
                   <FileExplorer
+                    ref="fileExplorerRef"
                     v-model="selectedFiles"
                     :show-hidden="false"
                     :allow-multiple="true"
@@ -512,41 +513,68 @@
               </Card>
 
               <!-- File descriptions for selected files -->
-              <div v-if="selectedFiles.length > 0" class="mt-4">
-                <h4 class="font-medium text-foreground mb-3">
-                  Selected Paths ({{ selectedFiles.length }})
-                </h4>
-                <div class="space-y-2">
-                  <Card v-for="file in selectedFiles" :key="file" class="bg-muted/50 border-border">
-                    <CardContent class="p-4">
-                      <div class="flex items-start gap-3">
-                        <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                        <div class="min-w-0 flex-1 space-y-1">
-                          <div class="flex items-center justify-between gap-2">
-                            <p class="body-sm font-medium text-foreground truncate">{{ file }}</p>
-                            <Button
-                              @click="removeFile(selectedFiles.indexOf(file))"
-                              variant="ghost"
-                              size="sm"
-                              class="h-6 w-6 p-0 hover:text-destructive"
-                            >
-                              <X class="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <div class="space-y-2">
-                            <Label class="body-sm text-muted-foreground"
-                              >Description (Optional)</Label
-                            >
-                            <Input
-                              v-model="fileDescriptions[file]"
-                              placeholder="Brief description of this file's content..."
-                              class="body-sm"
-                            />
-                          </div>
-                        </div>
+              <div v-if="selectedFiles.length > 0" class="mt-4 space-y-3">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <h4 class="text-sm font-medium text-foreground">Selected Paths</h4>
+                    <Badge variant="secondary" class="text-xs">
+                      {{ selectedFiles.length }}
+                    </Badge>
+                  </div>
+                  <Button
+                    @click="selectedFiles = []"
+                    variant="ghost"
+                    size="sm"
+                    class="h-8 text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    <X class="h-3 w-3 mr-1" />
+                    Clear all
+                  </Button>
+                </div>
+
+                <div class="rounded-lg border border-border bg-muted/30 divide-y divide-border">
+                  <div
+                    v-for="(file, index) in selectedFiles"
+                    :key="file"
+                    class="p-4 first:rounded-t-lg last:rounded-b-lg hover:bg-muted/50 transition-colors"
+                  >
+                    <div class="flex items-start gap-3">
+                      <div
+                        class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0"
+                      >
+                        <component
+                          :is="getFileIcon(file, false, fileExplorerRef?.rootNodes)"
+                          class="h-4 w-4"
+                          :class="getFileIconColor(file, fileExplorerRef?.rootNodes)"
+                        />
                       </div>
-                    </CardContent>
-                  </Card>
+                      <div class="flex-1 min-w-0 space-y-3">
+                        <div class="flex items-start justify-between gap-2">
+                          <div class="space-y-1">
+                            <p class="text-sm font-medium text-foreground truncate">
+                              {{ file.split('/').pop() }}
+                            </p>
+                            <p class="text-xs text-muted-foreground truncate">
+                              {{ file }}
+                            </p>
+                          </div>
+                          <Button
+                            @click="removeFile(index)"
+                            variant="ghost"
+                            size="sm"
+                            class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex-shrink-0"
+                          >
+                            <X class="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <Input
+                          v-model="fileDescriptions[file]"
+                          placeholder="Add a description (optional)..."
+                          class="text-sm h-9 bg-background"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -559,10 +587,10 @@
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <!-- Raw Document Chunks Card -->
                 <Card
-                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border-2 bg-card"
+                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-400 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 dark:hover:from-blue-950/30 dark:hover:to-indigo-950/30 border-2 bg-card"
                   :class="
                     formData.responseType === 'raw'
-                      ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50'
+                      ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30'
                       : 'border-border'
                   "
                   @click="selectResponseType('raw')"
@@ -570,13 +598,13 @@
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
                       <div
-                        class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mb-4"
+                        class="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-950/50 flex items-center justify-center mb-4"
                       >
-                        <FileType class="w-6 h-6 text-blue-600" />
+                        <FileType class="w-6 h-6 text-blue-600 dark:text-blue-400" />
                       </div>
 
                       <h3 class="heading-3 text-foreground mb-2">Search & Quote</h3>
-                      <p class="body-sm font-medium mb-3 text-blue-600">
+                      <p class="body-sm font-medium mb-3 text-blue-600 dark:text-blue-400">
                         Return exact text matches
                       </p>
 
@@ -593,10 +621,10 @@
 
                 <!-- AI-Generated Summary Card -->
                 <Card
-                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-purple-300 hover:bg-gradient-to-br hover:from-purple-50 hover:to-pink-50 border-2 bg-card"
+                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-purple-300 dark:hover:border-purple-400 hover:bg-gradient-to-br hover:from-purple-50 hover:to-pink-50 dark:hover:from-purple-950/30 dark:hover:to-pink-950/30 border-2 bg-card"
                   :class="
                     formData.responseType === 'summary'
-                      ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
+                      ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30'
                       : 'border-border'
                   "
                   @click="selectResponseType('summary')"
@@ -604,13 +632,13 @@
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
                       <div
-                        class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center mb-4"
+                        class="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-950/50 flex items-center justify-center mb-4"
                       >
-                        <Sparkles class="w-6 h-6 text-purple-600" />
+                        <Sparkles class="w-6 h-6 text-purple-600 dark:text-purple-400" />
                       </div>
 
                       <h3 class="heading-3 text-foreground mb-2">AI Assistant</h3>
-                      <p class="body-sm font-medium mb-3 text-purple-600">
+                      <p class="body-sm font-medium mb-3 text-purple-600 dark:text-purple-400">
                         Smart answers from your data
                       </p>
 
@@ -627,10 +655,10 @@
 
                 <!-- Both Raw and Summary Card -->
                 <Card
-                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border-2 bg-card relative"
+                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 dark:hover:border-green-400 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-950/30 dark:hover:to-emerald-950/30 border-2 bg-card relative"
                   :class="
                     formData.responseType === 'both'
-                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
+                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30'
                       : 'border-border'
                   "
                   @click="selectResponseType('both')"
@@ -644,13 +672,15 @@
                   <CardContent class="p-6">
                     <div class="flex flex-col items-center text-center">
                       <div
-                        class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mb-4"
+                        class="w-12 h-12 rounded-full bg-green-100 dark:bg-green-950/50 flex items-center justify-center mb-4"
                       >
-                        <GitMerge class="w-6 h-6 text-green-600" />
+                        <GitMerge class="w-6 h-6 text-green-600 dark:text-green-400" />
                       </div>
 
                       <h3 class="heading-3 text-foreground mb-2">Search + AI</h3>
-                      <p class="body-sm font-medium mb-3 text-green-600">Complete solution</p>
+                      <p class="body-sm font-medium mb-3 text-green-600 dark:text-green-400">
+                        Complete solution
+                      </p>
 
                       <p class="body-sm text-muted-foreground mb-4 text-balance leading-relaxed">
                         Users get both exact quotes and AI-powered answers
@@ -681,10 +711,10 @@
                   <div class="space-y-3">
                     <!-- OpenAI GPT-4o Option -->
                     <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
+                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
                       :class="
                         selectedAiProvider === 'openai-gpt-4o'
-                          ? 'border-blue-500 bg-blue-50'
+                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
                           : 'border-border'
                       "
                       @click="selectAiProvider('openai-gpt-4o')"
@@ -693,7 +723,7 @@
                         class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
                         :class="
                           selectedAiProvider === 'openai-gpt-4o'
-                            ? 'border-blue-500 bg-blue-500'
+                            ? 'border-primary bg-primary'
                             : 'border-muted-foreground'
                         "
                       >
@@ -704,7 +734,7 @@
                       </div>
                       <div class="flex items-center gap-3 cursor-pointer flex-1">
                         <div class="p-2 rounded bg-primary/10">
-                          <span class="text-primary font-bold text-sm">AI</span>
+                          <span class="font-bold text-sm text-primary">AI</span>
                         </div>
                         <div class="flex-1">
                           <div class="flex items-center gap-2">
@@ -720,10 +750,10 @@
 
                     <!-- Claude 3.5 Sonnet via OpenRouter -->
                     <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
+                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
                       :class="
                         selectedAiProvider === 'openrouter-claude'
-                          ? 'border-blue-500 bg-blue-50'
+                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
                           : 'border-border'
                       "
                       @click="selectAiProvider('openrouter-claude')"
@@ -732,7 +762,7 @@
                         class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
                         :class="
                           selectedAiProvider === 'openrouter-claude'
-                            ? 'border-blue-500 bg-blue-500'
+                            ? 'border-primary bg-primary'
                             : 'border-muted-foreground'
                         "
                       >
@@ -743,7 +773,7 @@
                       </div>
                       <div class="flex items-center gap-3 cursor-pointer flex-1">
                         <div class="p-2 rounded bg-primary/10">
-                          <span class="text-primary font-bold text-xs">OR</span>
+                          <span class="font-bold text-xs text-primary">OR</span>
                         </div>
                         <div class="flex-1">
                           <div class="flex items-center gap-2">
@@ -759,10 +789,10 @@
 
                     <!-- Groq Llama Option -->
                     <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
+                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
                       :class="
                         selectedAiProvider === 'groq-llama'
-                          ? 'border-blue-500 bg-blue-50'
+                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
                           : 'border-border'
                       "
                       @click="selectAiProvider('groq-llama')"
@@ -771,7 +801,7 @@
                         class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
                         :class="
                           selectedAiProvider === 'groq-llama'
-                            ? 'border-blue-500 bg-blue-500'
+                            ? 'border-primary bg-primary'
                             : 'border-muted-foreground'
                         "
                       >
@@ -782,7 +812,7 @@
                       </div>
                       <div class="flex items-center gap-3 cursor-pointer flex-1">
                         <div class="p-2 rounded bg-primary/10">
-                          <span class="text-primary font-bold text-sm">⚡</span>
+                          <span class="font-bold text-sm">⚡</span>
                         </div>
                         <div class="flex-1">
                           <div class="flex items-center gap-2">
@@ -862,22 +892,22 @@
                     <div
                       :class="[
                         'p-2 rounded-lg',
-                        policy.color === 'blue' ? 'bg-blue-100' : '',
-                        policy.color === 'green' ? 'bg-green-100' : '',
-                        policy.color === 'yellow' ? 'bg-yellow-100' : '',
-                        policy.color === 'purple' ? 'bg-purple-100' : '',
-                        policy.color === 'red' ? 'bg-red-100' : '',
+                        policy.color === 'blue' ? 'bg-blue-100 dark:bg-blue-900' : '',
+                        policy.color === 'green' ? 'bg-green-100 dark:bg-green-900' : '',
+                        policy.color === 'yellow' ? 'bg-yellow-100 dark:bg-yellow-900' : '',
+                        policy.color === 'purple' ? 'bg-purple-100 dark:bg-purple-900' : '',
+                        policy.color === 'red' ? 'bg-red-100 dark:bg-red-900' : '',
                       ]"
                     >
                       <component
                         :is="policy.icon"
                         :class="[
                           'h-5 w-5',
-                          policy.color === 'blue' ? 'text-blue-600' : '',
-                          policy.color === 'green' ? 'text-green-600' : '',
-                          policy.color === 'yellow' ? 'text-yellow-600' : '',
-                          policy.color === 'purple' ? 'text-purple-600' : '',
-                          policy.color === 'red' ? 'text-red-600' : '',
+                          policy.color === 'blue' ? 'text-blue-600 dark:text-blue-400' : '',
+                          policy.color === 'green' ? 'text-green-600 dark:text-green-400' : '',
+                          policy.color === 'yellow' ? 'text-yellow-600 dark:text-yellow-400' : '',
+                          policy.color === 'purple' ? 'text-purple-600 dark:text-purple-400' : '',
+                          policy.color === 'red' ? 'text-red-600 dark:text-red-400' : '',
                         ]"
                       />
                     </div>
@@ -894,8 +924,10 @@
 
                 <!-- Default Policy Message -->
                 <div v-if="policyRules[policy.id]?.length === 0" class="mb-3">
-                  <div class="bg-green-50/50 border border-green-200/30 rounded-xl px-4 py-3">
-                    <p class="body-sm text-green-700">
+                  <div
+                    class="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50 rounded-xl px-4 py-3"
+                  >
+                    <p class="body-sm text-green-700 dark:text-green-300">
                       <strong class="font-medium">Default: </strong>
                       <span v-if="policy.id === 'access'"
                         >Open access - everyone can use your endpoint</span
@@ -1141,12 +1173,16 @@
             class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
           >
             <!-- Interactive examples -->
-            <div class="mb-8 bg-primary/10 border border-blue-200 rounded-lg p-4">
-              <h4 class="font-medium text-blue-900 mb-3 flex items-center gap-2">
+            <div
+              class="mb-8 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg p-4"
+            >
+              <h4 class="font-medium text-blue-900 dark:text-blue-300 mb-3 flex items-center gap-2">
                 <Lightbulb class="w-4 h-4" />
                 Popular examples to get you started
               </h4>
-              <p class="body-sm text-primary/80 mb-4">Click any example to auto-fill the form</p>
+              <p class="body-sm text-blue-700 dark:text-blue-400 mb-4">
+                Click any example to auto-fill the form
+              </p>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4 body-sm">
                 <button
                   @click="fillExampleData('news')"
@@ -1312,23 +1348,46 @@
                 v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0"
                 class="space-y-3"
               >
-                <Label class="body-sm font-medium text-foreground"
-                  >Watched Paths Descriptions (Optional)</Label
-                >
-                <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <h4 class="text-sm font-medium text-foreground">Selected Paths</h4>
+                    <Badge variant="secondary" class="text-xs">
+                      {{ selectedFiles.length }}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div class="rounded-lg border border-border bg-muted/30 divide-y divide-border">
                   <div
                     v-for="file in selectedFiles"
                     :key="file"
-                    class="flex items-start gap-3 p-3 bg-muted/50 border border-border rounded-lg"
+                    class="p-4 first:rounded-t-lg last:rounded-b-lg hover:bg-muted/50 transition-colors"
                   >
-                    <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                    <div class="flex-1 min-w-0">
-                      <p class="body-sm font-medium text-foreground truncate mb-1">{{ file }}</p>
-                      <Input
-                        v-model="fileDescriptions[file]"
-                        placeholder="Brief description of what this file contains..."
-                        class="body-sm"
-                      />
+                    <div class="flex items-start gap-3">
+                      <div
+                        class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0"
+                      >
+                        <component
+                          :is="getCachedFileIcon(file)"
+                          class="h-4 w-4"
+                          :class="getCachedFileIconColor(file)"
+                        />
+                      </div>
+                      <div class="flex-1 min-w-0 space-y-3">
+                        <div class="space-y-1">
+                          <p class="text-sm font-medium text-foreground truncate">
+                            {{ file.split('/').pop() }}
+                          </p>
+                          <p class="text-xs text-muted-foreground truncate">
+                            {{ file }}
+                          </p>
+                        </div>
+                        <Input
+                          v-model="fileDescriptions[file]"
+                          placeholder="Add a description (optional)..."
+                          class="text-sm h-9 bg-background"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1360,6 +1419,7 @@
                     :model-value="formData.description || defaultDescriptionTemplate"
                     @update:model-value="formData.description = $event"
                     :height="200"
+                    :theme="isDark ? 'dark' : 'light'"
                     :toolbars="[
                       'bold',
                       'italic',
@@ -1388,10 +1448,10 @@
               class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
             >
               <div
-                class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"
+                class="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4"
               >
                 <svg
-                  class="w-8 h-8 text-green-600"
+                  class="w-8 h-8 text-green-600 dark:text-green-400"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -1417,9 +1477,13 @@
               class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-8 text-center"
             >
               <div
-                class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"
+                class="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"
               >
-                <svg class="w-8 h-8 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                <svg
+                  class="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
                   <circle
                     class="opacity-25"
                     cx="12"
@@ -1495,12 +1559,15 @@
                 <div v-if="formData.description && formData.description.trim()" class="mt-6">
                   <p class="body-sm font-medium text-muted-foreground mb-3">Detailed Description</p>
                   <div class="bg-muted/30 border border-border rounded-lg p-4">
-                    <MdPreview
-                      :model-value="formData.description"
-                      :preview-theme="'github'"
-                      :code-theme="'github'"
-                      language="en-US"
-                    />
+                    <div class="prose prose-sm max-w-none text-muted-foreground">
+                      <div class="markdown-content">
+                        <MdPreview
+                          :model-value="formData.description"
+                          :theme="isDark ? 'dark' : 'light'"
+                          :show-code-row-number="false"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1530,7 +1597,11 @@
                     :key="file"
                     class="flex items-start gap-3 p-3 bg-muted/50 rounded-lg"
                   >
-                    <FileText class="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <component
+                      :is="getCachedFileIcon(file)"
+                      class="w-4 h-4 mt-0.5 flex-shrink-0"
+                      :class="getCachedFileIconColor(file)"
+                    />
                     <div class="min-w-0 flex-1">
                       <p class="body-sm font-medium text-foreground truncate">{{ file }}</p>
                       <p class="body-sm text-muted-foreground mt-1">
@@ -1653,13 +1724,15 @@
           <!-- Error Display (only in step 5) -->
           <div
             v-if="creationError && currentSubStep === 5"
-            class="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg"
+            class="mt-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg"
           >
             <div class="flex items-start gap-3">
-              <X class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <X class="w-5 h-5 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
               <div class="flex-1">
-                <h4 class="font-medium text-red-900 mb-1">Failed to create endpoint</h4>
-                <p class="text-sm text-red-700">{{ creationError }}</p>
+                <h4 class="font-medium text-red-900 dark:text-red-300 mb-1">
+                  Failed to create endpoint
+                </h4>
+                <p class="text-sm text-red-700 dark:text-red-400">{{ creationError }}</p>
               </div>
             </div>
           </div>
@@ -1736,12 +1809,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
   ArrowRight,
   FileText,
+  Folder,
   FolderOpen,
   Database,
   ChevronRight,
@@ -1783,6 +1857,8 @@ import {
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
+import { useFileIcon } from '@/composables/useFileIcon'
+import { useTheme } from '@/composables/useTheme'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
@@ -1794,6 +1870,7 @@ import type { DatasetListItem, ModelListItem } from '@/api/types'
 
 const router = useRouter()
 const userStore = useUserStore()
+const { isDark } = useTheme()
 
 // Computed URL to view existing endpoint on SyftHub
 const existingEndpointUrl = computed(() =>
@@ -1998,6 +2075,68 @@ const formData = ref({
 const selectedDataSourceType = ref<'filesystem' | 'existing' | ''>('')
 const selectedFiles = ref<string[]>([]) // Start with empty selection for FileExplorer
 const fileDescriptions = ref({} as Record<string, string>)
+const fileExplorerRef = ref<InstanceType<typeof FileExplorer> | null>(null)
+const { getFileIcon, getFileIconColor } = useFileIcon()
+
+// Cache for file types (to use in step 4 when FileExplorer is unmounted)
+const selectedPathTypes = ref<Record<string, 'file' | 'directory'>>({})
+
+// Helper to find a node in the file tree
+interface FileNode {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  children?: FileNode[]
+}
+
+const findNodeInTree = (nodes: FileNode[], targetPath: string): FileNode | null => {
+  for (const node of nodes) {
+    if (node.path === targetPath) return node
+    if (node.children) {
+      const found = findNodeInTree(node.children, targetPath)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+// Watch selectedFiles and cache their types when FileExplorer data is available
+watch(
+  selectedFiles,
+  (newFiles) => {
+    if (fileExplorerRef.value?.rootNodes) {
+      for (const file of newFiles) {
+        if (!selectedPathTypes.value[file]) {
+          const node = findNodeInTree(fileExplorerRef.value.rootNodes, file)
+          if (node) {
+            selectedPathTypes.value[file] = node.type
+          }
+        }
+      }
+    }
+  },
+  { deep: true },
+)
+
+// Helper functions to get icons using cached types (for step 4)
+const getCachedFileIcon = (path: string) => {
+  // Use cached type if available
+  if (selectedPathTypes.value[path] === 'directory') {
+    return Folder
+  }
+  // Fall back to extension-based detection
+  return getFileIcon(path, false)
+}
+
+const getCachedFileIconColor = (path: string): string => {
+  // Use cached type if available
+  if (selectedPathTypes.value[path] === 'directory') {
+    return 'text-blue-600'
+  }
+  // Fall back to extension-based detection
+  return getFileIconColor(path)
+}
+
 const existingDatasets = ref<DatasetListItem[]>([])
 const loadingDatasets = ref(false)
 const datasetsError = ref<string | null>(null)
@@ -2673,16 +2812,16 @@ const getStatusBadgeClasses = (status: string | undefined): string => {
     case 'running':
     case 'ready':
     case 'active':
-      return 'bg-green-50 text-green-700 border-green-200'
+      return 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800'
     case 'stopped':
     case 'inactive':
-      return 'bg-red-50 text-red-700 border-red-200'
+      return 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
     case 'starting':
     case 'loading':
-      return 'bg-yellow-50 text-yellow-700 border-yellow-200'
+      return 'bg-yellow-50 dark:bg-yellow-950 text-yellow-700 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800'
     case 'error':
     case 'failed':
-      return 'bg-red-50 text-red-700 border-red-200'
+      return 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
     default:
       return 'bg-muted text-muted-foreground border-muted'
   }
@@ -2694,3 +2833,39 @@ const isDatasetSelectable = (dataset: DatasetListItem): boolean => {
   return !status || ['running', 'ready', 'active'].includes(status)
 }
 </script>
+
+<style scoped>
+.markdown-content :deep(.md-editor) {
+  background-color: transparent !important;
+}
+
+.markdown-content :deep(*) {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  line-height: 1.6;
+}
+
+.markdown-content :deep(p) {
+  margin-bottom: 1rem;
+  word-break: normal;
+}
+
+.markdown-content :deep(h1),
+.markdown-content :deep(h2),
+.markdown-content :deep(h3),
+.markdown-content :deep(h4) {
+  word-break: normal;
+  hyphens: none;
+}
+
+.markdown-content :deep(ul),
+.markdown-content :deep(ol) {
+  padding-left: 1.5rem;
+}
+
+.markdown-content :deep(li) {
+  margin-bottom: 0.5rem;
+  word-break: normal;
+}
+</style>

@@ -1,1 +1,0 @@
-import{C as e,S as t,_ as n,b as r,f as i,g as a,h as o,m as s,p as c,v as l,x as u,y as d}from"./index-Ddt8VyF2.js";export{i as autoCloseTags,c as completionPath,s as esLint,o as javascript,a as javascriptLanguage,n as jsxLanguage,l as localCompletionSource,d as scopeCompletionSource,r as snippets,u as tsxLanguage,t as typescriptLanguage,e as typescriptSnippets};

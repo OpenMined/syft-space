@@ -33,33 +33,37 @@
             </div>
           </div>
 
-          <div class="file-tree-content flex-1 overflow-y-auto p-2">
-            <div v-if="isInitialLoading" class="flex items-center justify-center h-full">
-              <div class="text-muted-foreground">Loading files...</div>
-            </div>
-            <div v-else-if="error" class="p-4 text-sm text-destructive">
-              Error loading files: {{ error }}
-            </div>
-            <div v-else-if="rootNodes.length === 0" class="p-4 text-sm text-muted-foreground">
-              No files found in home directory
-            </div>
-            <TreeNode
-              v-else
-              v-for="node in rootNodes"
-              :key="node.path"
-              :node="node"
-              :selected-files="selectedFiles"
-              :expanded-dirs="expandedDirs"
-              @toggle-dir="toggleDirectory"
-              @toggle-file="toggleFile"
-              @toggle-selection="toggleSelection"
-            />
+          <div class="flex-1 min-h-0">
+            <ScrollArea class="h-full">
+              <div class="p-2">
+                <div v-if="isInitialLoading" class="flex items-center justify-center h-[200px]">
+                  <div class="text-muted-foreground">Loading files...</div>
+                </div>
+                <div v-else-if="error" class="p-4 text-sm text-destructive">
+                  Error loading files: {{ error }}
+                </div>
+                <div v-else-if="rootNodes.length === 0" class="p-4 text-sm text-muted-foreground">
+                  No files found in home directory
+                </div>
+                <TreeNode
+                  v-else
+                  v-for="node in rootNodes"
+                  :key="node.path"
+                  :node="node"
+                  :selected-files="selectedFiles"
+                  :expanded-dirs="expandedDirs"
+                  @toggle-dir="toggleDirectory"
+                  @toggle-file="toggleFile"
+                  @toggle-selection="toggleSelection"
+                />
+              </div>
+            </ScrollArea>
           </div>
         </div>
 
         <!-- Right Panel: Selection Preview -->
         <div
-          class="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex flex-col h-full"
+          class="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 pr-0 flex flex-col h-full min-h-0"
         >
           <div class="flex items-center justify-between mb-4 flex-shrink-0">
             <h4 class="text-sm font-medium text-blue-900 dark:text-blue-100">
@@ -73,21 +77,29 @@
             </Badge>
           </div>
 
-          <div v-if="selectedFiles.length > 0" class="flex-1 overflow-y-auto">
-            <div class="space-y-1">
-              <div
-                v-for="path in selectedFiles"
-                :key="path"
-                class="flex items-center gap-2 text-xs text-blue-800 dark:text-blue-200 bg-card rounded px-3 py-2 shadow-sm"
-              >
-                <component
-                  :is="getFileIconForPath(path)"
-                  class="w-4 h-4 flex-shrink-0"
-                  :class="getFileIconColorForPath(path)"
-                />
-                <span class="truncate font-mono text-sm">{{ path }}</span>
+          <div v-if="selectedFiles.length > 0" class="flex-1 min-h-0">
+            <ScrollArea class="h-full">
+              <div class="space-y-1 pr-4">
+                <div
+                  v-for="path in selectedFiles"
+                  :key="path"
+                  class="flex items-center gap-2 text-xs text-blue-900 dark:text-blue-100 bg-blue-100 dark:bg-blue-900/60 border border-blue-200 dark:border-blue-700 rounded-md px-3 py-2"
+                >
+                  <component
+                    :is="getFileIconForPath(path)"
+                    class="w-4 h-4 flex-shrink-0"
+                    :class="getFileIconColorForPath(path)"
+                  />
+                  <span class="truncate font-mono text-sm flex-1">{{ path }}</span>
+                  <button
+                    @click="removeFile(path)"
+                    class="p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded transition-colors flex-shrink-0"
+                  >
+                    <X class="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-            </div>
+            </ScrollArea>
           </div>
 
           <div v-else class="flex-1 flex flex-col items-center justify-center text-center">
@@ -114,9 +126,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { HardDrive } from 'lucide-vue-next'
+import { HardDrive, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import TreeNode from './FileExplorerTreeNode.vue'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { useDatasetBrowser, type FileNode } from '@/composables/useDatasetBrowser'
@@ -211,13 +224,16 @@ const clearSelection = () => {
   selectedFiles.value = []
 }
 
+const removeFile = (path: string) => {
+  selectedFiles.value = selectedFiles.value.filter((p) => p !== path)
+}
+
 // Helper functions using composable
 const getFileIconForPath = (path: string) => getFileIcon(path, false, rootNodes.value)
 const getFileIconColorForPath = (path: string) => getFileIconColor(path, rootNodes.value)
-</script>
 
-<style scoped>
-.file-tree-content {
-  min-height: 200px;
-}
-</style>
+// Expose rootNodes for parent components to use with file icons
+defineExpose({
+  rootNodes,
+})
+</script>

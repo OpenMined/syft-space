@@ -377,8 +377,6 @@ const handleCompleteSetup = async () => {
     // Complete the setup
     const setupSuccess = await completeSetup()
     if (setupSuccess) {
-      // TODO: Save the devToken if using subdomain
-      localStorage.setItem('isOnboarded', 'true')
       // Redirect to the original destination or home
       const nextUrl = route.query.next as string | undefined
       if (nextUrl) {

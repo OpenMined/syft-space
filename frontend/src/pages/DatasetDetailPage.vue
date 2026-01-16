@@ -34,12 +34,73 @@
     </div>
 
     <!-- Loading State -->
-    <div v-else-if="loading" class="flex items-center justify-center min-h-96">
-      <div class="text-center">
-        <div
-          class="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"
-        ></div>
-        <p class="text-muted-foreground">Loading dataset...</p>
+    <div v-else-if="loading" class="space-y-6 animate-pulse">
+      <!-- Header Skeleton -->
+      <div class="bg-card/60 backdrop-blur-sm border border-border rounded-3xl p-8 mb-8">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-6">
+            <div class="w-16 h-16 bg-muted rounded-2xl"></div>
+            <div class="space-y-3">
+              <div class="h-8 bg-muted rounded w-48"></div>
+              <div class="h-5 bg-muted rounded w-96"></div>
+              <div class="flex gap-3">
+                <div class="h-8 bg-muted rounded-full w-24"></div>
+                <div class="h-8 bg-muted rounded-full w-20"></div>
+                <div class="h-8 bg-muted rounded-full w-16"></div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="h-10 bg-muted rounded w-20"></div>
+            <div class="h-10 bg-muted rounded w-24"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs Skeleton -->
+      <div class="h-10 bg-muted rounded-md w-full"></div>
+
+      <!-- Summary Grid Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-8">
+          <div v-for="i in 6" :key="`summary-${i}`" class="text-center space-y-2">
+            <div class="h-4 bg-muted rounded w-16 mx-auto"></div>
+            <div class="h-5 bg-muted rounded w-20 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Configuration Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="h-6 bg-muted rounded w-32 mb-8"></div>
+        <div class="space-y-6">
+          <div class="flex justify-between items-center py-2 border-b border-border">
+            <div class="h-4 bg-muted rounded w-24"></div>
+            <div class="h-4 bg-muted rounded w-32"></div>
+          </div>
+          <div class="flex justify-between items-center py-2">
+            <div class="h-4 bg-muted rounded w-32"></div>
+            <div class="h-4 bg-muted rounded w-24"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connected Endpoints Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="h-6 bg-muted rounded w-48 mb-4"></div>
+        <div class="space-y-4">
+          <div
+            v-for="i in 2"
+            :key="`endpoint-${i}`"
+            class="flex items-center gap-4 py-6 px-6 bg-muted/50 border border-border rounded-2xl"
+          >
+            <div class="w-11 h-11 bg-muted rounded-xl"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-4 bg-muted rounded w-32"></div>
+              <div class="h-3 bg-muted rounded w-48"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -262,7 +323,7 @@
               </p>
             </div>
 
-            <div class="mt-8 pt-6 border-t border-border">
+            <div class="mt-8">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4 flex-wrap">
                   <span
@@ -285,14 +346,16 @@
             </div>
 
             <!-- Basic Settings -->
-            <div class="space-y-6">
+            <div class="space-y-3">
               <div class="flex justify-between items-center py-2 border-b border-border">
                 <span class="body-sm text-muted-foreground">Index Name</span>
                 <span class="body-sm font-medium text-foreground">{{
                   getConfigValue('indexName') || getConfigValue('collectionName') || dataset.name
                 }}</span>
               </div>
-              <div class="flex justify-between items-center py-2">
+              <div
+                class="flex justify-between items-center py-2 border-b border-border last:border-b-0"
+              >
                 <span class="body-sm text-muted-foreground">Connection Status</span>
                 <div class="flex items-center gap-3">
                   <div
@@ -314,10 +377,7 @@
             </div>
 
             <!-- Dynamic Configuration Display -->
-            <div
-              v-if="showAdvancedConfig && dataset?.configuration"
-              class="mt-6 pt-6 border-t border-border"
-            >
+            <div v-if="showAdvancedConfig && dataset?.configuration" class="mt-6">
               <div class="space-y-6">
                 <h3 class="body-sm font-semibold text-foreground mb-4">Advanced Settings</h3>
                 <div class="space-y-3">
@@ -325,7 +385,7 @@
                   <div
                     v-for="(value, key) in getDisplayableConfig()"
                     :key="key"
-                    class="flex justify-between items-center py-2 border-b border-border"
+                    class="flex justify-between items-center py-2 border-b border-border last:border-b-0"
                   >
                     <span class="body-sm text-muted-foreground">{{ formatConfigKey(key) }}</span>
                     <span class="body-sm font-medium text-foreground">{{
@@ -337,7 +397,7 @@
             </div>
 
             <!-- Show Advanced Button (Bottom Right) -->
-            <div class="flex justify-end mt-6 pt-6 border-t border-border">
+            <div class="flex justify-end mt-6">
               <Button variant="ghost" size="sm" @click="showAdvancedConfig = !showAdvancedConfig">
                 <ChevronDown
                   class="h-4 w-4 mr-2 transition-transform"
@@ -514,70 +574,15 @@
   />
 
   <!-- Delete Confirmation Dialog -->
-  <Dialog v-model:open="showDeleteDialog">
-    <DialogContent class="sm:max-w-[600px]">
-      <DialogHeader>
-        <DialogTitle>Delete Dataset</DialogTitle>
-        <DialogDescription>
-          Are you sure you want to delete "{{ dataset?.name }}"? This action cannot be undone.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div v-if="dataset && dataset.endpointCount > 0" class="py-4">
-        <div class="space-y-4">
-          <div class="bg-red-50 border border-red-200 rounded-md p-4">
-            <div class="flex items-start gap-3">
-              <div class="text-xl">⚠️</div>
-              <div class="flex-1">
-                <p class="text-red-900 font-semibold body-sm mb-2">
-                  This dataset has {{ dataset.endpointCount }} dependent endpoint{{
-                    dataset.endpointCount !== 1 ? 's' : ''
-                  }}
-                  that will be deleted:
-                </p>
-                <p class="text-red-800 body-sm mb-3">Check each endpoint to confirm deletion</p>
-                <div class="space-y-2">
-                  <div
-                    v-for="endpointName in getEndpointNamesForDataset()"
-                    :key="endpointName"
-                    class="flex items-center gap-3 p-2.5 bg-white rounded border border-red-200"
-                  >
-                    <input
-                      type="checkbox"
-                      :id="`endpoint-${endpointName}`"
-                      :checked="checkedEndpoints.includes(endpointName)"
-                      @change="() => toggleEndpoint(endpointName)"
-                      class="w-4 h-4 text-red-600 bg-white border-red-400 rounded focus:ring-red-500 focus:ring-2"
-                    />
-                    <label
-                      :for="`endpoint-${endpointName}`"
-                      class="flex-1 cursor-pointer flex items-center justify-between"
-                    >
-                      <span class="body-sm font-medium text-foreground">
-                        {{ endpointName }}
-                      </span>
-                      <span class="body-sm text-red-600"> Will be deleted </span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" @click="cancelDelete"> Cancel </Button>
-        <Button variant="destructive" @click="confirmDelete" :disabled="!allEndpointsChecked">
-          {{
-            dataset && dataset.endpointCount && dataset.endpointCount > 0
-              ? `Delete Dataset & ${dataset.endpointCount} Endpoint${dataset.endpointCount !== 1 ? 's' : ''}`
-              : 'Delete Dataset'
-          }}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+  <DeleteConfirmationDialog
+    v-model:open="showDeleteDialog"
+    item-type="Dataset"
+    :item-name="dataset?.name || ''"
+    :dependencies="getEndpointNamesForDataset()"
+    dependency-type="endpoint"
+    @confirm="confirmDelete"
+    @cancel="cancelDelete"
+  />
 </template>
 
 <script setup lang="ts">
@@ -599,17 +604,10 @@ import {
   ChevronLeft,
   ChevronRight as ChevronRightIcon,
 } from 'lucide-vue-next'
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
@@ -645,7 +643,6 @@ const editingDataset = ref<{
   filePaths: Array<{ path: string; description: string }>
 } | null>(null)
 const showDeleteDialog = ref(false)
-const checkedEndpoints = ref<string[]>([])
 const isRefreshingPaths = ref(false)
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
@@ -707,25 +704,6 @@ const getEndpointNamesForDataset = (): string[] => {
   return dataset.value.connected_endpoints.map((endpoint) => endpoint.name)
 }
 
-// Check if all endpoints are selected
-const allEndpointsChecked = computed(() => {
-  if (!dataset.value) return true
-  if (dataset.value.endpointCount === 0) return true
-
-  const endpointNames = getEndpointNamesForDataset()
-  return endpointNames.length > 0 && endpointNames.length === checkedEndpoints.value.length
-})
-
-// Toggle endpoint checkbox
-const toggleEndpoint = (endpointName: string) => {
-  const index = checkedEndpoints.value.indexOf(endpointName)
-  if (index > -1) {
-    checkedEndpoints.value.splice(index, 1)
-  } else {
-    checkedEndpoints.value.push(endpointName)
-  }
-}
-
 const editDataset = async () => {
   if (!dataset.value) return
 
@@ -744,7 +722,6 @@ const editDataset = async () => {
 }
 
 const deleteDataset = () => {
-  checkedEndpoints.value = []
   showDeleteDialog.value = true
 }
 
@@ -841,7 +818,6 @@ const confirmDelete = async () => {
 
 const cancelDelete = () => {
   showDeleteDialog.value = false
-  checkedEndpoints.value = []
 }
 
 const navigateToEndpoint = (endpointSlug: string) => {

@@ -37,8 +37,12 @@
           v-else
           v-for="model in models"
           :key="model.id"
-          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
-          :class="modelValue === model.id ? 'border-blue-500 bg-blue-50' : 'border-border'"
+          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
+          :class="
+            modelValue === model.id
+              ? 'border-primary bg-primary/5 dark:bg-primary/10'
+              : 'border-border'
+          "
           @click="$emit('update:modelValue', model.id)"
         >
           <RadioGroupItem :value="model.id" :id="`${idPrefix}-${model.id}`" />
@@ -72,14 +76,14 @@
 
         <!-- Create New Model Option (outside radio group) -->
         <div
-          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50 border-border"
+          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer border-border hover:bg-primary/5 dark:hover:bg-primary/10"
           @click="handleCreateModel"
         >
           <!-- Spacer to maintain alignment with radio button items -->
           <div class="w-4 h-4"></div>
           <div class="flex items-center gap-3 cursor-pointer flex-1">
-            <div class="p-2 bg-muted rounded">
-              <Plus class="h-5 w-5 text-muted-foreground" />
+            <div class="p-2 rounded bg-primary/10">
+              <Plus class="h-5 w-5 text-primary" />
             </div>
             <div class="flex-1">
               <span class="font-medium">Create New Model</span>

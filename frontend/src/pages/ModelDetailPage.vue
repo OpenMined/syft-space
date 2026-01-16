@@ -20,12 +20,69 @@
     </nav>
 
     <!-- Loading State -->
-    <div v-if="loading" class="flex justify-center items-center py-16">
-      <div class="text-center">
-        <div
-          class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"
-        ></div>
-        <p class="text-muted-foreground">Loading model details...</p>
+    <div v-if="loading" class="space-y-6 animate-pulse">
+      <!-- Header Skeleton -->
+      <div class="bg-card/60 backdrop-blur-sm border border-border rounded-3xl p-8 mb-8">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-6">
+            <div class="w-16 h-16 bg-muted rounded-2xl"></div>
+            <div class="space-y-3">
+              <div class="h-8 bg-muted rounded w-48"></div>
+              <div class="h-5 bg-muted rounded w-96"></div>
+              <div class="flex gap-3">
+                <div class="h-8 bg-muted rounded-full w-20"></div>
+                <div class="h-8 bg-muted rounded-full w-16"></div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="h-10 bg-muted rounded w-20"></div>
+            <div class="h-10 bg-muted rounded w-24"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary Grid Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-8">
+          <div v-for="i in 3" :key="`summary-${i}`" class="text-center space-y-2">
+            <div class="h-4 bg-muted rounded w-16 mx-auto"></div>
+            <div class="h-5 bg-muted rounded w-24 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Configuration Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="h-6 bg-muted rounded w-40 mb-8"></div>
+        <div class="space-y-6">
+          <div
+            v-for="i in 4"
+            :key="`config-${i}`"
+            class="flex justify-between items-center py-4 border-b border-border last:border-b-0"
+          >
+            <div class="h-4 bg-muted rounded w-24"></div>
+            <div class="h-4 bg-muted rounded w-48"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connected Endpoints Skeleton -->
+      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+        <div class="h-6 bg-muted rounded w-52 mb-4"></div>
+        <div class="space-y-4">
+          <div
+            v-for="i in 2"
+            :key="`endpoint-${i}`"
+            class="flex items-center gap-4 py-6 px-6 bg-muted/50 border border-border rounded-2xl"
+          >
+            <div class="w-11 h-11 bg-muted rounded-xl"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-4 bg-muted rounded w-32"></div>
+              <div class="h-3 bg-muted rounded w-48"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -136,7 +193,9 @@
                 model.configuration.model || 'Not specified'
               }}</span>
             </div>
-            <div class="flex justify-between items-center py-4 border-b border-border">
+            <div
+              class="flex justify-between items-center py-4 border-b border-border last:border-b-0"
+            >
               <span class="body-sm text-muted-foreground">API Key</span>
               <span class="body-sm font-medium text-foreground">{{
                 model.configuration.api_key ? '••••••••' : 'Not configured'
@@ -245,10 +304,7 @@ const editingModel = ref<ParsedModel | null>(null)
 const modelDependencies = computed(() => {
   if (!model.value || model.value.endpointCount === 0) return []
 
-  return model.value.connected_endpoints.map((endpoint) => ({
-    id: endpoint.id,
-    name: endpoint.name,
-  }))
+  return model.value.connected_endpoints.map((endpoint) => endpoint.name)
 })
 
 const connectedEndpoints = computed(() => {
