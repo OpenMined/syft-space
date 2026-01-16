@@ -138,9 +138,14 @@
 
                 <div v-if="proxyStatus.publicUrl" class="text-sm">
                   <span class="text-muted-foreground">Public URL:</span>
-                  <code class="ml-2 bg-muted px-2 py-0.5 rounded text-xs">
+                  <a
+                    :href="proxyStatus.publicUrl"
+                    target="_blank"
+                    class="ml-2 bg-muted px-2 py-0.5 rounded text-xs font-mono hover:bg-muted/80 inline-flex items-center gap-1"
+                  >
                     {{ proxyStatus.publicUrl }}
-                  </code>
+                    <ExternalLink class="h-3 w-3" />
+                  </a>
                 </div>
               </div>
 

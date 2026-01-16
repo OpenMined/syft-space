@@ -282,6 +282,7 @@ const {
   signinForm,
   networkMode,
   publicUrl,
+  devToken,
   checkingUsername,
   usernameAvailable,
   authError,
@@ -293,7 +294,6 @@ const {
 } = useOnboarding()
 
 // Additional form state
-const devToken = ref('')
 const confirmPassword = ref('')
 const isSubmitting = ref(false)
 
@@ -356,15 +356,6 @@ const handleCompleteSetup = async () => {
       isSubmitting.value = false
       return
     }
-
-    // Update the public URL based on network mode
-    if (networkMode.value === 'subdomain') {
-      // For subdomain, construct the URL
-      const username =
-        authMode.value === 'register' ? registerForm.value.username : signinForm.value.username
-      publicUrl.value = `https://${username}.syfthub.net`
-    }
-    // For custom domain, publicUrl is already set by user input
 
     // Complete the setup
     const setupSuccess = await completeSetup()
