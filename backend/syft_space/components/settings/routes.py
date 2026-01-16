@@ -49,6 +49,13 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
         """
         return handler.update_public_url(tenant, request.public_url)
 
+    @router.get("/proxy", response_model=ProxyStatusResponse)
+    def get_proxy_status(
+        handler: SettingsHandler = Depends(get_handler),
+    ) -> ProxyStatusResponse:
+        """Get the current proxy tunnel status."""
+        return handler.get_proxy_status()
+
     @router.post("/proxy", response_model=ProxyStatusResponse)
     async def configure_proxy(
         request: ProxyConfigRequest,

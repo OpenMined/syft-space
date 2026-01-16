@@ -115,6 +115,22 @@ class SettingsHandler:
         for tenant in tenants:
             self.update_public_url(tenant, app_settings.public_url)
 
+    def get_proxy_status(self) -> ProxyStatusResponse:
+        """Get the current proxy tunnel status.
+
+        Returns:
+            Proxy status response with connection status, public URL, and token presence
+        """
+        if self.proxy_service is None:
+            return ProxyStatusResponse(connected=False, public_url=None, has_token=False)
+
+        has_token = bool(self.settings_repository.get_ngrok_token())
+        return ProxyStatusResponse(
+            connected=self.proxy_service.is_connected(),
+            public_url=self.proxy_service.get_public_url(),
+            has_token=has_token,
+        )
+
     async def configure_proxy(self, tenant: Tenant, token: str) -> ProxyStatusResponse:
         """Configure the ngrok proxy tunnel.
 
@@ -146,7 +162,7 @@ class SettingsHandler:
         self.sync_public_url_to_marketplace(tenant, public_url)
         self.proxy_service.log_connection_info(app_settings.admin_api_key)
 
-        return ProxyStatusResponse(connected=True, public_url=public_url)
+        return ProxyStatusResponse(connected=True, public_url=public_url, has_token=True)
 
     async def disconnect_proxy(self, tenant: Tenant) -> ProxyStatusResponse:
         """Disconnect the ngrok proxy tunnel and clear configuration.
@@ -165,4 +181,4 @@ class SettingsHandler:
 
         await self.proxy_service.disconnect()
         self.sync_public_url_to_marketplace(tenant, "")
-        return ProxyStatusResponse(connected=False, public_url=None)
+        return ProxyStatusResponse(connected=False, public_url=None, has_token=False)

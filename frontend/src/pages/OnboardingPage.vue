@@ -176,19 +176,11 @@
                       v-model="networkMode"
                       class="mt-1 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
                     />
-                    <div class="space-y-1 flex-1">
+                    <div class="flex-1">
                       <Label for="subdomain" class="font-medium cursor-pointer">
-                        Use a subdomain provided by SyftHub
+                        Use a URL provided by SyftHub
                         <Badge variant="secondary" class="ml-2">Recommended</Badge>
                       </Label>
-                      <p class="body-sm text-muted-foreground">
-                        We'll make your space accessible at
-                        <code class="bg-muted px-2 py-0.5 rounded text-xs">
-                          https://{{
-                            registerForm.username || signinForm.username || 'yourusername'
-                          }}.syfthub.net
-                        </code>
-                      </p>
                     </div>
                   </div>
 

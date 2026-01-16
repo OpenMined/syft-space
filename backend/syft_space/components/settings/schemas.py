@@ -48,3 +48,6 @@ class ProxyStatusResponse(BaseModel):
     public_url: str | None = Field(
         None, description="Public URL of the tunnel if connected"
     )
+    has_token: bool = Field(
+        False, description="Whether an ngrok token is configured"
+    )

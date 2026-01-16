@@ -382,3 +382,13 @@ export interface PublicUrlResponse {
 export interface UpdatePublicUrlRequest {
   public_url: string
 }
+
+export interface ProxyStatusResponse {
+  connected: boolean
+  public_url: string | null
+  has_token: boolean
+}
+
+export interface ProxyConfigRequest {
+  ngrok_token: string
+}
