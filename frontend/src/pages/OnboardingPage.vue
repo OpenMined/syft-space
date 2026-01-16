@@ -271,6 +271,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
 import { useOnboarding } from '@/composables/useOnboarding'
+import { loadGlobalData } from '@/lib/utils'
 
 const router = useRouter()
 const route = useRoute()
@@ -360,6 +361,9 @@ const handleCompleteSetup = async () => {
     // Complete the setup
     const setupSuccess = await completeSetup()
     if (setupSuccess) {
+      // Fetch global data now that onboarding is complete
+      await loadGlobalData()
+
       // Redirect to the original destination or home
       const nextUrl = route.query.next as string | undefined
       if (nextUrl) {
