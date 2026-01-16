@@ -1,5 +1,5 @@
 # ============================================================================
-# SyftAI Server - Production Dockerfile
+# SyftAI Space Server - Production Dockerfile
 # ============================================================================
 # Builds a minimal production image with pre-built frontend.
 #
@@ -7,8 +7,8 @@
 #   cd frontend && bun install && bun run build
 #
 # Usage:
-#   docker build -t syftai-server .
-#   docker build --build-arg PYTHON_VERSION=3.13 -t syftai-server .
+#   docker build -t syft-space-server .
+#   docker build --build-arg PYTHON_VERSION=3.12 -t syft-space-server .
 # ============================================================================
 
 ARG PYTHON_VERSION=3.12

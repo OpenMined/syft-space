@@ -3719,7 +3719,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "syftai-space"
+name = "syft-space"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -3813,8 +3813,8 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.1.0" },
     { name = "sqlmodel", specifier = ">=0.0.14" },
     { name = "syft-accounting-sdk", git = "https://github.com/OpenMined/accounting-sdk.git?rev=main" },
-    { name = "syftai-space", extras = ["build", "libs", "test", "lint", "pre-commit"], marker = "extra == 'dev'" },
-    { name = "syftai-space", extras = ["dev", "libs"], marker = "extra == 'all'" },
+    { name = "syft-space", extras = ["build", "libs", "test", "lint", "pre-commit"], marker = "extra == 'dev'" },
+    { name = "syft-space", extras = ["dev", "libs"], marker = "extra == 'all'" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
     { name = "watchdog", specifier = ">=4.0.0" },
     { name = "weaviate-client", marker = "extra == 'libs'", specifier = ">=4.17.0" },

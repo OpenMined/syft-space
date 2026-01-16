@@ -154,21 +154,21 @@ validate-release:
     just check
     echo ""
     echo "=== Testing Fresh Install ==="
-    rm -f /tmp/syftai_test_fresh.db
-    SQLITE_DB_PATH=/tmp/syftai_test_fresh.db {{alembic}} upgrade head
+    rm -f /tmp/syft-space_test_fresh.db
+    SQLITE_DB_PATH=/tmp/syft_space_test_fresh.db {{alembic}} upgrade head
     echo "PASS: Fresh install"
     echo ""
     if [ -f syft_space/alembic/RELEASE_MARKER ]; then
         source syft_space/alembic/RELEASE_MARKER
         echo "=== Testing Upgrade from $RELEASE_VERSION ==="
-        rm -f /tmp/syftai_test_upgrade.db
-        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade $RELEASE_REVISION
-        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade head
+        rm -f /tmp/syft_space_test_upgrade.db
+        SQLITE_DB_PATH=/tmp/syft_space_test_upgrade.db {{alembic}} upgrade $RELEASE_REVISION
+        SQLITE_DB_PATH=/tmp/syft_space_test_upgrade.db {{alembic}} upgrade head
         echo "PASS: Upgrade from release"
         echo ""
         echo "=== Testing Downgrade Cycle ==="
-        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} downgrade $RELEASE_REVISION
-        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade head
+        SQLITE_DB_PATH=/tmp/syft_space_test_upgrade.db {{alembic}} downgrade $RELEASE_REVISION
+        SQLITE_DB_PATH=/tmp/syft_space_test_upgrade.db {{alembic}} upgrade head
         echo "PASS: Downgrade/upgrade cycle"
     else
         echo "SKIP: No RELEASE_MARKER (first release)"

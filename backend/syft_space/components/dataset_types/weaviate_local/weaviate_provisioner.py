@@ -41,7 +41,7 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
 
         # Use dtype-based container name for shared provisioner
         # All datasets of this type share the same container
-        container_name = f"syftai-{cls.NAME}".replace("_", "-")
+        container_name = f"syft-space-{cls.NAME}".replace("_", "-")
 
         # Get environment variables for docker-compose (thread-safe)
         env = cls._get_environment(http_port, grpc_port, query_limit)
