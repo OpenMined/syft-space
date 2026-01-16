@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "syftai_space"
+name = "syft_space"
 version = "0.1.0"
 description = "Syft Space Backend API"
 authors = [
@@ -62,12 +62,12 @@ libs = [
 
 # All development dependencies (includes test, lint, pre-commit)
 dev = [
-    "syftai_space[build,libs,test,lint,pre-commit]",
+    "syft_space[build,libs,test,lint,pre-commit]",
 ]
 
 # All dependencies (includes dev and libs)
 all = [
-    "syftai_space[dev,libs]",
+    "syft_space[dev,libs]",
 ]
 
 
@@ -117,7 +117,7 @@ skips = [
 
 [tool.setuptools.packages.find]
 where = ["."]  # Find packages in current directory (backend/)
-include = ["syftai_space*"]  # Include syftai_space and sub-packages
+include = ["syft_space*"]  # Include syft_space and sub-packages
 
 [tool.uv.sources]
 syft-accounting-sdk = { git = "https://github.com/OpenMined/accounting-sdk.git", rev = "main" }

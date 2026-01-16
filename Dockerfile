@@ -30,7 +30,7 @@ RUN apk update && apk add --no-cache \
 WORKDIR /app
 
 COPY backend/pyproject.toml backend/README.md ./backend/
-COPY backend/syftai_space/__init__.py ./backend/syftai_space/
+COPY backend/syft_space/__init__.py ./backend/syft_space/
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 RUN uv venv /app/.venv --python python${PYTHON_VERSION} && \
@@ -66,4 +66,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
-ENTRYPOINT ["python", "-m", "uvicorn", "syftai_space.main:app", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["python", "-m", "uvicorn", "syft_space.main:app", "--host", "0.0.0.0", "--port", "8080"]

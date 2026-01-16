@@ -134,7 +134,7 @@ curl -X POST http://localhost:8000/api/v1/endpoints/doc-qa/query \
 
 ```
 backend/
-├── syftai_space/
+├── syft_space/
 │  ├── components/
 │  │   ├── dataset_types/       # Dataset type definitions and provisioners
 │  │   │   ├── interfaces.py    # Base protocols

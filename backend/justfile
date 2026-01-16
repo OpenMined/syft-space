@@ -1,8 +1,8 @@
-# Migration management commands for syftai_space
+# Migration management commands for syft_space
 # Usage: just <command> [args]
 
 # Alembic command with config path
-alembic := "uv run alembic -c syftai_space/alembic.ini"
+alembic := "uv run alembic -c syft_space/alembic.ini"
 
 # Default: show available commands
 default:
@@ -22,9 +22,9 @@ status:
     echo "=== Heads ==="
     {{alembic}} heads
     echo ""
-    if [ -f syftai_space/alembic/RELEASE_MARKER ]; then
+    if [ -f syft_space/alembic/RELEASE_MARKER ]; then
         echo "=== Release Marker ==="
-        cat syftai_space/alembic/RELEASE_MARKER
+        cat syft_space/alembic/RELEASE_MARKER
     else
         echo "No RELEASE_MARKER file found"
     fi
@@ -132,11 +132,11 @@ rebuild:
 reset-to-release:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f syftai_space/alembic/RELEASE_MARKER ]; then
+    if [ ! -f syft_space/alembic/RELEASE_MARKER ]; then
         echo "ERROR: No RELEASE_MARKER found"
         exit 1
     fi
-    source syftai_space/alembic/RELEASE_MARKER
+    source syft_space/alembic/RELEASE_MARKER
     echo "Resetting to release $RELEASE_VERSION ($RELEASE_REVISION)..."
     rm -f ~/.syai-space/app.db
     {{alembic}} upgrade $RELEASE_REVISION
@@ -158,8 +158,8 @@ validate-release:
     SQLITE_DB_PATH=/tmp/syftai_test_fresh.db {{alembic}} upgrade head
     echo "PASS: Fresh install"
     echo ""
-    if [ -f syftai_space/alembic/RELEASE_MARKER ]; then
-        source syftai_space/alembic/RELEASE_MARKER
+    if [ -f syft_space/alembic/RELEASE_MARKER ]; then
+        source syft_space/alembic/RELEASE_MARKER
         echo "=== Testing Upgrade from $RELEASE_VERSION ==="
         rm -f /tmp/syftai_test_upgrade.db
         SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade $RELEASE_REVISION
@@ -185,7 +185,7 @@ mark-release version:
         echo "ERROR: No current revision found. Run 'just upgrade' first."
         exit 1
     fi
-    echo "RELEASE_REVISION=$CURRENT" > syftai_space/alembic/RELEASE_MARKER
-    echo "RELEASE_VERSION={{version}}" >> syftai_space/alembic/RELEASE_MARKER
+    echo "RELEASE_REVISION=$CURRENT" > syft_space/alembic/RELEASE_MARKER
+    echo "RELEASE_VERSION={{version}}" >> syft_space/alembic/RELEASE_MARKER
     echo "Marked $CURRENT as release {{version}}"
-    cat syftai_space/alembic/RELEASE_MARKER
+    cat syft_space/alembic/RELEASE_MARKER

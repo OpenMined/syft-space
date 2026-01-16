@@ -11,4 +11,4 @@ uv pip install -e "backend/.[dev]"
 SYFT_PORT=${SYFT_PORT:-8080}
 
 # Run uvicorn with new module path
-uv run uvicorn syftai_space.main:app --reload --host 0.0.0.0 --port $SYFT_PORT
+uv run uvicorn syft_space.main:app --reload --host 0.0.0.0 --port $SYFT_PORT
