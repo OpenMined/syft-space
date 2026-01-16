@@ -260,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { CheckCircle, XCircle, Loader2, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -272,9 +272,23 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { loadGlobalData } from '@/lib/utils'
+import { checkOnboardingStatus } from '@/router'
 
 const router = useRouter()
 const route = useRoute()
+
+// Check if already onboarded and redirect if so
+onMounted(async () => {
+  const isOnboarded = await checkOnboardingStatus()
+  if (isOnboarded) {
+    const nextUrl = route.query.next as string | undefined
+    if (nextUrl) {
+      router.replace(nextUrl)
+    } else {
+      router.replace({ name: 'home' })
+    }
+  }
+})
 
 // Use onboarding composable
 const {
