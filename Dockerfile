@@ -58,7 +58,7 @@ COPY frontend/dist ./frontend/dist
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    SYFTAI_PORT=8080 \
+    SYFT_PORT=8080 \
     SQLITE_DB_PATH=/data/app.db
 
 EXPOSE 8080

@@ -36,10 +36,10 @@ class ProxyService:
 
         Args:
             settings_repository: Repository for persisting settings
-            port: Port to forward traffic to (default: SYFTAI_PORT env or 8080)
+            port: Port to forward traffic to (default: SYFT_PORT environment variable or 8080)
         """
         self._settings_repository = settings_repository
-        self._port = port or int(os.getenv("SYFTAI_PORT", "8080"))
+        self._port = port or int(os.getenv("SYFT_PORT", "8080"))
         self._listener = None
         self._current_token: str | None = None
         self._shutdown_event = asyncio.Event()
