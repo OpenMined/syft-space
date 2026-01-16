@@ -195,7 +195,7 @@ class EndpointHandler:
 
         return {"message": f"Successfully deleted endpoint '{slug}'"}
 
-    def query_endpoint(
+    async def query_endpoint(
         self,
         slug: str,
         request: AuthenticatedQueryRequest,
@@ -230,7 +230,7 @@ class EndpointHandler:
                 default_marketplace = self.marketplace_repository.get_default(tenant.id)
                 if default_marketplace:
                     # Validate credentials upfront (refreshes from SyftHub if expired)
-                    creds = ensure_valid_accounting_credentials(
+                    creds = await ensure_valid_accounting_credentials(
                         default_marketplace, self.marketplace_repository
                     )
                     # Inject validated accounting credentials
@@ -481,7 +481,7 @@ class EndpointHandler:
             provider_info=ProviderInfo(api_version="v1"),
         )
 
-    def publish_endpoint(
+    async def publish_endpoint(
         self,
         slug: str,
         marketplace_ids: list[UUID] | None,
@@ -547,7 +547,7 @@ class EndpointHandler:
         # Publish to each marketplace
         results: list[PublishResult] = []
         for marketplace in marketplaces:
-            result = self._publish_to_marketplace(endpoint, marketplace)
+            result = await self._publish_to_marketplace(endpoint, marketplace)
             results.append(result)
 
         return PublishEndpointResponse(
@@ -555,7 +555,7 @@ class EndpointHandler:
             results=results,
         )
 
-    def _publish_to_marketplace(
+    async def _publish_to_marketplace(
         self,
         endpoint: Endpoint,
         marketplace: Marketplace,
@@ -588,9 +588,11 @@ class EndpointHandler:
             )
 
         try:
-            with SyftHubClient(base_url=marketplace.url) as client:
+            async with SyftHubClient(base_url=marketplace.url) as client:
                 # Note: marketplace.email is used as username
-                client.login(username=marketplace.email, password=marketplace.password)
+                await client.login(
+                    username=marketplace.email, password=marketplace.password
+                )
 
                 endpoint_type = (
                     "model" if endpoint.model_id is not None else "data_source"
@@ -627,7 +629,7 @@ class EndpointHandler:
                         }
                     ],
                 }
-                client.publish_endpoint(payload, overwrite=True)
+                await client.publish_endpoint(payload, overwrite=True)
 
         except SyftHubError as e:
             return PublishResult(
@@ -657,7 +659,7 @@ class EndpointHandler:
                 error=str(e),
             )
 
-    def check_slug_availability(
+    async def check_slug_availability(
         self,
         slug: str,
         marketplace_ids: list[UUID] | None,
@@ -725,7 +727,7 @@ class EndpointHandler:
 
         # Check each found marketplace
         for marketplace in marketplaces:
-            result = self._check_marketplace_availability(slug, marketplace)
+            result = await self._check_marketplace_availability(slug, marketplace)
             marketplace_results.append(result)
 
         return SlugAvailabilityResponse(
@@ -734,7 +736,7 @@ class EndpointHandler:
             marketplaces=marketplace_results,
         )
 
-    def _check_marketplace_availability(
+    async def _check_marketplace_availability(
         self,
         slug: str,
         marketplace: Marketplace,
@@ -765,9 +767,11 @@ class EndpointHandler:
             )
 
         try:
-            with SyftHubClient(base_url=marketplace.url) as client:
-                client.login(username=marketplace.email, password=marketplace.password)
-                exists = client.endpoint_exists(slug)
+            async with SyftHubClient(base_url=marketplace.url) as client:
+                await client.login(
+                    username=marketplace.email, password=marketplace.password
+                )
+                exists = await client.endpoint_exists(slug)
                 return MarketplaceAvailabilityResult(
                     marketplace_id=marketplace.id,
                     available=not exists,

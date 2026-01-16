@@ -46,7 +46,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         Returns:
             Created marketplace details
         """
-        return handler.register_marketplace(request, tenant)
+        return await handler.register_marketplace(request, tenant)
 
     @router.post("/connect", response_model=MarketplaceResponse, status_code=201)
     async def connect_marketplace(
@@ -63,7 +63,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         Returns:
             Created marketplace details
         """
-        return handler.connect_marketplace(request, tenant)
+        return await handler.connect_marketplace(request, tenant)
 
     @router.get("/check-username/{username}", response_model=bool)
     async def check_username_availability(
@@ -79,7 +79,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         Returns:
             True if username is available, False otherwise.
         """
-        return handler.check_username_availability(url, username)
+        return await handler.check_username_availability(url, username)
 
     @router.get("/", response_model=list[MarketplaceListItem])
     async def list_marketplaces(
@@ -97,7 +97,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         return handler.list_marketplaces(tenant)
 
     @router.get("/balance", response_model=BalanceResponse)
-    def get_balance(
+    async def get_balance(
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: MarketplaceHandler = Depends(get_handler),
     ) -> BalanceResponse:
@@ -112,7 +112,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         Returns:
             Balance information
         """
-        return handler.get_balance(tenant)
+        return await handler.get_balance(tenant)
 
     @router.get("/{id}", response_model=MarketplaceResponse)
     async def get_marketplace(

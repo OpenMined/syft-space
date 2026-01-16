@@ -47,7 +47,7 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
 
         Updates the local configuration and syncs to the marketplace.
         """
-        return handler.update_public_url(tenant, request.public_url)
+        return await handler.update_public_url(tenant, request.public_url)
 
     @router.get("/proxy", response_model=ProxyStatusResponse)
     def get_proxy_status(

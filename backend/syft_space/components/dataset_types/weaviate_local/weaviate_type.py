@@ -257,7 +257,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
     @property
     def collection_name(self) -> str:
         """Get the name of the collection."""
-        return f"Collection_{self.config["collectionName"]}"
+        return f"Collection_{self.config['collectionName']}"
 
     def search(
         self, ctx: Context, query: str, params: SearchParameters | None = None

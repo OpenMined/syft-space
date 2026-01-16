@@ -99,6 +99,19 @@ async def lifespan(app: FastAPI):
     )
     ingestion_manager: IngestionManager = getattr(app.state, "ingestion_manager", None)
 
+    # Initialize settings from config (env var overwrites DB if set)
+    settings_handler_local: SettingsHandler = getattr(
+        app.state, "settings_handler", None
+    )
+    default_tenant = getattr(app.state, "default_tenant", None)
+    if settings_handler_local and default_tenant:
+        try:
+            await settings_handler_local.initialize_from_config(
+                tenants=[default_tenant]
+            )
+        except Exception as e:
+            logger.error(f"⚠️  Warning: Failed to initialize settings from config: {e}")
+
     # Startup: Auto-connect proxy if configured
     if proxy_service:
         try:
@@ -106,9 +119,10 @@ async def lifespan(app: FastAPI):
             if proxy_service.is_connected():
                 proxy_service.log_connection_info(app_settings.admin_api_key)
                 public_url = proxy_service.get_public_url()
-                if public_url:
-                    default_tenant = app.state.default_tenant
-                    settings_handler.update_public_url(default_tenant, public_url)
+                if public_url and settings_handler_local and default_tenant:
+                    await settings_handler_local.update_public_url(
+                        default_tenant, public_url
+                    )
         except Exception as e:
             logger.error(f"⚠️  Warning: Failed to auto-connect ngrok tunnel: {e}")
             logger.error("   Continuing without ngrok...\n")
@@ -244,9 +258,6 @@ proxy_service = ProxyService(settings_repository)
 settings_handler = SettingsHandler(
     settings_repository, marketplace_repository, proxy_service
 )
-
-# Initialize settings from config on startup (env var overwrites DB if set)
-settings_handler.initialize_from_config(tenants=[default_tenant])
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(

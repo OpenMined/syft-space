@@ -8,7 +8,7 @@ from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 
 
-def refresh_accounting_credentials(
+async def refresh_accounting_credentials(
     marketplace: Marketplace,
     repository: MarketplaceRepository,
 ) -> dict[str, str]:
@@ -25,9 +25,9 @@ def refresh_accounting_credentials(
         HTTPException: If refresh fails
     """
     try:
-        with SyftHubClient(marketplace.url) as syfthub_client:
-            syfthub_client.login(marketplace.email, marketplace.password)
-            creds = syfthub_client.accounting_credentials()
+        async with SyftHubClient(marketplace.url) as syfthub_client:
+            await syfthub_client.login(marketplace.email, marketplace.password)
+            creds = await syfthub_client.accounting_credentials()
     except SyftHubError as e:
         raise HTTPException(
             status_code=e.status_code,
@@ -50,7 +50,7 @@ def refresh_accounting_credentials(
     }
 
 
-def ensure_valid_accounting_credentials(
+async def ensure_valid_accounting_credentials(
     marketplace: Marketplace,
     repository: MarketplaceRepository,
 ) -> dict[str, str]:
@@ -96,7 +96,7 @@ def ensure_valid_accounting_credentials(
         # Check if it's an authentication error
         if e.status_code == 401:
             # Refresh credentials from SyftHub and return fresh ones
-            return refresh_accounting_credentials(marketplace, repository)
+            return await refresh_accounting_credentials(marketplace, repository)
 
         raise HTTPException(
             status_code=e.status_code,
