@@ -154,9 +154,7 @@
                   placeholder="Enter your SyftHub developer token"
                 />
                 <div v-if="proxyStatus.hasToken" class="flex gap-2 mt-2">
-                  <Button variant="ghost" size="sm" @click="cancelEditToken">
-                    Cancel
-                  </Button>
+                  <Button variant="ghost" size="sm" @click="cancelEditToken"> Cancel </Button>
                 </div>
               </div>
             </div>
