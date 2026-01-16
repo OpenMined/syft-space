@@ -52,7 +52,7 @@ Let's say you're adding a "user_preferences" table.
 **Step 1: Create your model**
 
 ```python
-# syftai_space/components/preferences/entities.py
+# syft_space/components/preferences/entities.py
 from sqlmodel import SQLModel, Field
 from uuid import UUID, uuid4
 
@@ -65,11 +65,11 @@ class UserPreference(SQLModel, table=True):
 
 **Step 2: Register your model** (Important!)
 
-Add your model to `syftai_space/alembic/env.py`:
+Add your model to `syft_space/alembic/env.py`:
 
 ```python
 # Add with other imports at the top
-from syftai_space.components.preferences.entities import UserPreference  # noqa: F401
+from syft_space.components.preferences.entities import UserPreference  # noqa: F401
 ```
 
 > **Why?** Alembic needs to "see" your model to detect changes. If you skip this, your migration will be empty!
@@ -80,7 +80,7 @@ from syftai_space.components.preferences.entities import UserPreference  # noqa:
 just generate "add user preferences table"
 ```
 
-This creates a new file in `syftai_space/alembic/versions/` like:
+This creates a new file in `syft_space/alembic/versions/` like:
 ```
 abc123def456_add_user_preferences_table.py
 ```
@@ -265,7 +265,7 @@ just mark-release 1.2.0    # Mark current state as a release
 ```
 backend/
 ├── justfile                          # All the commands you run
-└── syftai_space/
+└── syft_space/
     ├── alembic.ini                   # Alembic configuration
     └── alembic/
         ├── env.py                    # Entity imports go here!
@@ -300,7 +300,7 @@ Your model isn't being seen by Alembic. Check:
 
 2. Did you import it in `alembic/env.py`?
    ```python
-   from syftai_space.components.myfeature.entities import MyModel  # noqa: F401
+   from syft_space.components.myfeature.entities import MyModel  # noqa: F401
    ```
 
 3. Are you in the `backend/` directory?
@@ -311,7 +311,7 @@ Your database has tables that the migration is trying to create. This usually me
 
 ```bash
 # Tell Alembic "the DB is already at this state"
-uv run alembic -c syftai_space/alembic.ini stamp head
+uv run alembic -c syft_space/alembic.ini stamp head
 ```
 
 ### "Multiple heads detected"
@@ -406,7 +406,7 @@ All tables use UUID primary keys and include `created_at`/`updated_at` timestamp
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEBUG` | `true` | Dev mode (lenient) vs prod mode (strict) |
-| `SQLITE_DB_PATH` | `~/.syai-space/app.db` | Database file location |
+| `SQLITE_DB_PATH` | `~/.syft-space/app.db` | Database file location |
 | `RESET_DB` | `false` | Drop all tables on startup (dangerous!) |
 
 ---
@@ -415,5 +415,5 @@ All tables use UUID primary keys and include `created_at`/`updated_at` timestamp
 
 - Run `just` to see all available commands
 - Run `just status` to see where you are
-- Check the migration files in `syftai_space/alembic/versions/` for examples
+- Check the migration files in `syft_space/alembic/versions/` for examples
 - Ask in the team chat if you're stuck!

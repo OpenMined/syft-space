@@ -1,8 +1,8 @@
-# Migration management commands for syftai_space
+# Migration management commands for syft_space
 # Usage: just <command> [args]
 
 # Alembic command with config path
-alembic := "uv run alembic -c syftai_space/alembic.ini"
+alembic := "uv run alembic -c syft_space/alembic.ini"
 
 # Default: show available commands
 default:
@@ -22,9 +22,9 @@ status:
     echo "=== Heads ==="
     {{alembic}} heads
     echo ""
-    if [ -f syftai_space/alembic/RELEASE_MARKER ]; then
+    if [ -f syft_space/alembic/RELEASE_MARKER ]; then
         echo "=== Release Marker ==="
-        cat syftai_space/alembic/RELEASE_MARKER
+        cat syft_space/alembic/RELEASE_MARKER
     else
         echo "No RELEASE_MARKER file found"
     fi
@@ -111,7 +111,7 @@ wipe:
         echo "Aborted"
         exit 1
     fi
-    rm -f ~/.syai-space/app.db
+    rm -f ~/.syft-space/app.db
     echo "Database wiped. Run 'just upgrade' to recreate with migrations."
 
 # Rebuild database from scratch (deletes DB + applies all migrations)
@@ -124,7 +124,7 @@ rebuild:
         echo "Aborted"
         exit 1
     fi
-    rm -f ~/.syai-space/app.db
+    rm -f ~/.syft-space/app.db
     {{alembic}} upgrade head
     echo "Database rebuilt to head"
 
@@ -132,13 +132,13 @@ rebuild:
 reset-to-release:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f syftai_space/alembic/RELEASE_MARKER ]; then
+    if [ ! -f syft_space/alembic/RELEASE_MARKER ]; then
         echo "ERROR: No RELEASE_MARKER found"
         exit 1
     fi
-    source syftai_space/alembic/RELEASE_MARKER
+    source syft_space/alembic/RELEASE_MARKER
     echo "Resetting to release $RELEASE_VERSION ($RELEASE_REVISION)..."
-    rm -f ~/.syai-space/app.db
+    rm -f ~/.syft-space/app.db
     {{alembic}} upgrade $RELEASE_REVISION
     echo "Database at last released state"
 
@@ -154,21 +154,21 @@ validate-release:
     just check
     echo ""
     echo "=== Testing Fresh Install ==="
-    rm -f /tmp/syftai_test_fresh.db
-    SQLITE_DB_PATH=/tmp/syftai_test_fresh.db {{alembic}} upgrade head
+    rm -f /tmp/syft-space_test_fresh.db
+    SQLITE_DB_PATH=/tmp/syft_space_test_fresh.db {{alembic}} upgrade head
     echo "PASS: Fresh install"
     echo ""
-    if [ -f syftai_space/alembic/RELEASE_MARKER ]; then
-        source syftai_space/alembic/RELEASE_MARKER
+    if [ -f syft_space/alembic/RELEASE_MARKER ]; then
+        source syft_space/alembic/RELEASE_MARKER
         echo "=== Testing Upgrade from $RELEASE_VERSION ==="
-        rm -f /tmp/syftai_test_upgrade.db
-        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade $RELEASE_REVISION
-        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade head
+        rm -f /tmp/syft_space_test_upgrade.db
+        SQLITE_DB_PATH=/tmp/syft_space_test_upgrade.db {{alembic}} upgrade $RELEASE_REVISION
+        SQLITE_DB_PATH=/tmp/syft_space_test_upgrade.db {{alembic}} upgrade head
         echo "PASS: Upgrade from release"
         echo ""
         echo "=== Testing Downgrade Cycle ==="
-        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} downgrade $RELEASE_REVISION
-        SQLITE_DB_PATH=/tmp/syftai_test_upgrade.db {{alembic}} upgrade head
+        SQLITE_DB_PATH=/tmp/syft_space_test_upgrade.db {{alembic}} downgrade $RELEASE_REVISION
+        SQLITE_DB_PATH=/tmp/syft_space_test_upgrade.db {{alembic}} upgrade head
         echo "PASS: Downgrade/upgrade cycle"
     else
         echo "SKIP: No RELEASE_MARKER (first release)"
@@ -185,7 +185,7 @@ mark-release version:
         echo "ERROR: No current revision found. Run 'just upgrade' first."
         exit 1
     fi
-    echo "RELEASE_REVISION=$CURRENT" > syftai_space/alembic/RELEASE_MARKER
-    echo "RELEASE_VERSION={{version}}" >> syftai_space/alembic/RELEASE_MARKER
+    echo "RELEASE_REVISION=$CURRENT" > syft_space/alembic/RELEASE_MARKER
+    echo "RELEASE_VERSION={{version}}" >> syft_space/alembic/RELEASE_MARKER
     echo "Marked $CURRENT as release {{version}}"
-    cat syftai_space/alembic/RELEASE_MARKER
+    cat syft_space/alembic/RELEASE_MARKER

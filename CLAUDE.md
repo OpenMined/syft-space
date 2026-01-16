@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SyftAI Server is a full-stack application with a FastAPI backend and Vue 3 frontend. The backend uses FastSyftBox framework and serves the frontend as static files from `/syftai-server` subpath. The application includes modular components for accounting, integrations, policies, profiles, services, and settings management.
+Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 frontend. The backend uses FastSyftBox framework and serves the frontend as static files from `/frontend` subpath. The application includes modular components for accounting, integrations, policies, profiles, services, and settings management.
 
 ## Architecture
 
@@ -91,7 +91,7 @@ bun run test:e2e           # E2E tests against production build
 - **Icons**: Use lucide-vue-next icons
 - **Styling**: Tailwind CSS classes following existing patterns
 - **Forms**: Use shadcn/ui form components with consistent validation
-- **File Organization**: 
+- **File Organization**:
   - Pages in `src/pages/`
   - Reusable components in `src/components/`
   - UI components in `src/components/ui/`
@@ -104,7 +104,7 @@ bun run test:e2e           # E2E tests against production build
 
 ## Server Configuration
 - Backend runs on configurable port (default 8080, set via `SYFTBOX_ASSIGNED_PORT`)
-- Frontend served from `/syftai-server` subpath
+- Frontend served from `/syft-space-server` subpath
 - CORS enabled for localhost:5173 (frontend dev server)
 - Uses SyftBox configuration from `~/.syftbox/config.json`
 - SQLite database at `~/.syai-server/app.db`
@@ -152,4 +152,4 @@ When integrating a backend API endpoint into the frontend:
 - Always run lint and typecheck commands after making changes
 - Use bun for all frontend package operations
 - Backend uses UV for Python package management
-- The app serves frontend static files and redirects root to `/syftai-server`
+- The app serves frontend static files and redirects root to `/syft-space-server`
