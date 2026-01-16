@@ -63,11 +63,11 @@ class AppSettings(BaseSettings):
 
     @field_validator("public_url", mode="before")
     @classmethod
-    def validate_public_url(cls, v: HttpUrl | None) -> HttpUrl | None:
+    def validate_public_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
         if not v:
             return
-        if not v.startswith("http"):
-            v = HttpUrl(f"https://{v}")
+        if not isinstance(v, HttpUrl):
+            v = HttpUrl(v)
         return v
 
 

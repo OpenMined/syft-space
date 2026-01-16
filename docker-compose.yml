@@ -28,10 +28,6 @@ services:
       # Database reset (CAUTION: destroys all data)
       - SYFT_RESET_DB=${SYFT_RESET_DB:-false}
 
-      # Ngrok settings (optional - for exposing to internet)
-      - SYFT_USE_NGROK=${SYFT_USE_NGROK:-false}
-      - SYFT_NGROK_AUTH_TOKEN=${SYFT_NGROK_AUTH_TOKEN:-}
-
       # Multi-tenancy settings
       - SYFT_ENABLE_MULTI_TENANCY=${SYFT_ENABLE_MULTI_TENANCY:-false}
       - SYFT_DEFAULT_TENANT_NAME=${SYFT_DEFAULT_TENANT_NAME:-root}
