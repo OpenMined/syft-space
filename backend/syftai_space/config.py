@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +12,7 @@ class AppSettings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_prefix="SYFT_",
     )
 
     # Database settings
@@ -59,6 +60,15 @@ class AppSettings(BaseSettings):
         None,
         description="Public URL for the Syft Space",
     )
+
+    @field_validator("public_url", mode="before")
+    @classmethod
+    def validate_public_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
+        if not v:
+            return
+        if not isinstance(v, HttpUrl):
+            v = HttpUrl(v)
+        return v
 
 
 # Global settings instance

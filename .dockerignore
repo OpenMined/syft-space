@@ -1,0 +1,68 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv/
+ENV/
+env/
+.eggs/
+*.egg-info/
+*.egg
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.tox/
+
+# Node/Frontend
+frontend/node_modules/
+frontend/.vite/
+frontend/coverage/
+# frontend/dist/ - NOT ignored, needed for Docker build
+frontend/cypress/videos/
+frontend/cypress/screenshots/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed in container)
+*.md
+!README.md
+docs/
+
+# Local development files
+.env.local
+.env.*.local
+*.log
+
+# Test files
+tests/
+*_test.py
+test_*.py
+**/*.spec.ts
+**/*.test.ts
+
+# Build artifacts that will be regenerated
+*.db
+*.sqlite
+
+# Misc
+.editorconfig
+.pre-commit-config.yaml
+Makefile

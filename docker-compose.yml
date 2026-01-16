@@ -1,0 +1,69 @@
+services:
+  syftai-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production  # Use 'development' for dev builds
+    image: syftai-server:latest
+    container_name: syftai-server
+    restart: unless-stopped
+
+    ports:
+      - "${SYFT_PORT:-8080}:8080"
+
+    volumes:
+      # Persist SQLite database
+      - syftai-data:/data
+
+    environment:
+      # Application port
+      - SYFT_PORT=8080
+
+      # Database configuration
+      - SYFT_SQLITE_DB_PATH=/data/app.db
+
+      # Debug mode (set to true for development)
+      - SYFT_DEBUG=${SYFT_DEBUG:-false}
+
+      # Database reset (CAUTION: destroys all data)
+      - SYFT_RESET_DB=${SYFT_RESET_DB:-false}
+
+      # Multi-tenancy settings
+      - SYFT_ENABLE_MULTI_TENANCY=${SYFT_ENABLE_MULTI_TENANCY:-false}
+      - SYFT_DEFAULT_TENANT_NAME=${SYFT_DEFAULT_TENANT_NAME:-root}
+
+      # Authentication (empty = no auth, dev mode)
+      - SYFT_ADMIN_API_KEY=${SYFT_ADMIN_API_KEY:-}
+
+      # External service URLs
+      - SYFT_DEFAULT_ACCOUNTING_URL=${SYFT_DEFAULT_ACCOUNTING_URL:-https://syftaccounting.centralus.cloudapp.azure.com/}
+      - SYFT_DEFAULT_MARKETPLACE_URL=${SYFT_DEFAULT_MARKETPLACE_URL:-https://syfthub.openmined.org}
+
+      # Public URL (optional - for callbacks/webhooks)
+      - SYFT_PUBLIC_URL=${SYFT_PUBLIC_URL:-}
+
+    # Health check using Python (no curl in distroless image)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+volumes:
+  syftai-data:
+    driver: local
+
+networks:
+  default:
+    name: syftai-network
