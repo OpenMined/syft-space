@@ -111,7 +111,7 @@ wipe:
         echo "Aborted"
         exit 1
     fi
-    rm -f ~/.syai-space/app.db
+    rm -f ~/.syft-space/app.db
     echo "Database wiped. Run 'just upgrade' to recreate with migrations."
 
 # Rebuild database from scratch (deletes DB + applies all migrations)
@@ -124,7 +124,7 @@ rebuild:
         echo "Aborted"
         exit 1
     fi
-    rm -f ~/.syai-space/app.db
+    rm -f ~/.syft-space/app.db
     {{alembic}} upgrade head
     echo "Database rebuilt to head"
 
@@ -138,7 +138,7 @@ reset-to-release:
     fi
     source syft_space/alembic/RELEASE_MARKER
     echo "Resetting to release $RELEASE_VERSION ($RELEASE_REVISION)..."
-    rm -f ~/.syai-space/app.db
+    rm -f ~/.syft-space/app.db
     {{alembic}} upgrade $RELEASE_REVISION
     echo "Database at last released state"
 

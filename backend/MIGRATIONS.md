@@ -406,7 +406,7 @@ All tables use UUID primary keys and include `created_at`/`updated_at` timestamp
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEBUG` | `true` | Dev mode (lenient) vs prod mode (strict) |
-| `SQLITE_DB_PATH` | `~/.syai-space/app.db` | Database file location |
+| `SQLITE_DB_PATH` | `~/.syft-space/app.db` | Database file location |
 | `RESET_DB` | `false` | Drop all tables on startup (dangerous!) |
 
 ---
