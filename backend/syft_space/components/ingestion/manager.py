@@ -218,7 +218,7 @@ class IngestionManager:
     def _create_job_for_file(
         self, dataset_id: UUID, tenant_id: UUID, file_path: Path
     ) -> int:
-        """Create ingestion job for a single file.
+        """Create ingestion job for a single file (sync version for watchdog handlers).
 
         Args:
             dataset_id: Dataset UUID
@@ -520,8 +520,8 @@ class IngestionManager:
                 # Create context (use system context for background ingestion)
                 ctx = Context(sender="system@openmined.org")
 
-                # Call ingest (blocking call - runs in worker thread)
-                dataset_type.ingest(ctx, ingest_request)
+                # Call ingest (async - run via event loop from worker thread)
+                self._run_async(dataset_type.ingest(ctx, ingest_request))
 
             # Success
             self._run_async(

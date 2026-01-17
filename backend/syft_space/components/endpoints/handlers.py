@@ -369,10 +369,7 @@ class EndpointHandler:
         )
 
         try:
-            # Blocking search call wrapped with to_thread
-            search_result = await asyncio.to_thread(
-                dataset_instance.search, ctx, query, search_params
-            )
+            search_result = await dataset_instance.search(ctx, query, search_params)
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Dataset search failed: {str(e)}"
