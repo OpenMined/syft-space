@@ -1,14 +1,16 @@
 from abc import ABC, abstractmethod
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from loguru import logger
 from sqlalchemy import Engine, event
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 T = TypeVar("T", bound=SQLModel)
 
@@ -19,6 +21,11 @@ class DatabaseConfig(ABC):
     @abstractmethod
     def get_database_url(self) -> str:
         """Get the database connection URL"""
+        pass
+
+    @abstractmethod
+    def get_async_database_url(self) -> str:
+        """Get the async database connection URL"""
         pass
 
     @abstractmethod
@@ -51,6 +58,10 @@ class SQLiteConfig(DatabaseConfig):
     def get_database_url(self) -> str:
         """Get the database connection URL"""
         return f"sqlite:///{self.db_path}"
+
+    def get_async_database_url(self) -> str:
+        """Get the async database connection URL (uses aiosqlite driver)"""
+        return f"sqlite+aiosqlite:///{self.db_path}"
 
     def setup(self) -> None:
         """Create parent directory if it doesn't exist"""
@@ -191,7 +202,7 @@ class BaseRepository(Generic[T]):
                 return True
             return False
 
-    def get_by_field(self, field_name: str, value: any) -> T | None:
+    def get_by_field(self, field_name: str, value: Any) -> T | None:
         """Get an object by a specific field value"""
         with self.db.get_session() as session:
             statement = select(self.model).where(
@@ -199,7 +210,7 @@ class BaseRepository(Generic[T]):
             )
             return session.exec(statement).first()
 
-    def delete_by_field(self, field_name: str, value: any) -> bool:
+    def delete_by_field(self, field_name: str, value: Any) -> bool:
         """Delete an object by a specific field value"""
         with self.db.get_session() as session:
             statement = select(self.model).where(
@@ -209,5 +220,111 @@ class BaseRepository(Generic[T]):
             if obj:
                 session.delete(obj)
                 session.commit()
+                return True
+            return False
+
+
+class AsyncDatabase:
+    """Async database class for managing async database connections and sessions"""
+
+    def __init__(self, config: DatabaseConfig):
+        """Initialize the async database with a configuration
+
+        Args:
+            config: Database configuration instance
+        """
+        # Run database-specific setup
+        config.setup()
+
+        # Get async database URL and create async engine
+        self.database_url = config.get_async_database_url()
+        logger.info(f"Initializing async database with URL: {self.database_url}")
+        self.engine: AsyncEngine = create_async_engine(
+            self.database_url,
+            echo=False,
+        )
+
+        # Store config for PRAGMA setup during session
+        self._config = config
+
+    @asynccontextmanager
+    async def get_session(self) -> AsyncGenerator[SQLModelAsyncSession, None]:
+        """Get an async session for the database"""
+        async with SQLModelAsyncSession(self.engine) as session:
+            # Set SQLite PRAGMA for each session if needed
+            if (
+                isinstance(self._config, SQLiteConfig)
+                and self._config.enable_foreign_keys
+            ):
+                await session.exec("PRAGMA foreign_keys=ON")  # type: ignore
+            yield session
+
+
+class AsyncBaseRepository(Generic[T]):
+    """Async base repository class for CRUD operations"""
+
+    def __init__(self, db: AsyncDatabase, model: type[T]):
+        """Initialize the async base repository"""
+        self.db = db
+        self.model = model
+
+    async def create(self, obj: T) -> T:
+        """Create an object in the database"""
+        async with self.db.get_session() as session:
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj
+
+    async def get_by_id(self, id: int) -> T | None:
+        """Get an object by its ID"""
+        async with self.db.get_session() as session:
+            return await session.get(self.model, id)
+
+    async def get_all(self) -> list[T]:
+        """Get all objects from the database"""
+        async with self.db.get_session() as session:
+            statement = select(self.model)
+            result = await session.exec(statement)
+            return list(result.all())
+
+    async def update(self, obj: T) -> T:
+        """Update an object in the database"""
+        async with self.db.get_session() as session:
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj
+
+    async def delete(self, id: int) -> bool:
+        """Delete an object from the database"""
+        async with self.db.get_session() as session:
+            obj = await session.get(self.model, id)
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+                return True
+            return False
+
+    async def get_by_field(self, field_name: str, value: Any) -> T | None:
+        """Get an object by a specific field value"""
+        async with self.db.get_session() as session:
+            statement = select(self.model).where(
+                getattr(self.model, field_name) == value
+            )
+            result = await session.exec(statement)
+            return result.first()
+
+    async def delete_by_field(self, field_name: str, value: Any) -> bool:
+        """Delete an object by a specific field value"""
+        async with self.db.get_session() as session:
+            statement = select(self.model).where(
+                getattr(self.model, field_name) == value
+            )
+            result = await session.exec(statement)
+            obj = result.first()
+            if obj:
+                await session.delete(obj)
+                await session.commit()
                 return True
             return False
