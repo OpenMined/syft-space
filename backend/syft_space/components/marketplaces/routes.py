@@ -94,7 +94,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         Returns:
             List of marketplaces with summary information
         """
-        return handler.list_marketplaces(tenant)
+        return await handler.list_marketplaces(tenant)
 
     @router.get("/balance", response_model=BalanceResponse)
     async def get_balance(
@@ -129,7 +129,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         Returns:
             Marketplace details (password not included)
         """
-        return handler.get_marketplace(id, tenant)
+        return await handler.get_marketplace(id, tenant)
 
     @router.delete("/{id}", response_model=dict[str, str])
     async def delete_marketplace(
@@ -148,6 +148,6 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         Returns:
             Success message
         """
-        return handler.delete_marketplace(id, tenant)
+        return await handler.delete_marketplace(id, tenant)
 
     return router

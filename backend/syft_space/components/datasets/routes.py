@@ -126,11 +126,11 @@ def build_dataset_routes(
         Returns:
             Created dataset details
         """
-        response = handler.create_dataset(request, tenant)
+        response = await handler.create_dataset(request, tenant)
 
         # Auto-start ingestion for FileIngestableDatasetType
         if ingestion_manager:
-            ingestion_manager.start_ingestion_by_id(response.id, tenant.id)
+            await ingestion_manager.start_ingestion_by_id(response.id, tenant.id)
 
         return response
 
@@ -147,7 +147,7 @@ def build_dataset_routes(
         Returns:
             List of datasets with summary information
         """
-        return handler.list_datasets(tenant)
+        return await handler.list_datasets(tenant)
 
     @router.get("/{name}", response_model=DatasetResponse)
     async def get_dataset(
@@ -164,7 +164,7 @@ def build_dataset_routes(
         Returns:
             Dataset details including configuration
         """
-        return handler.get_dataset(name, tenant)
+        return await handler.get_dataset(name, tenant)
 
     @router.patch("/{name}", response_model=DatasetResponse)
     async def update_dataset(
@@ -190,7 +190,7 @@ def build_dataset_routes(
             404 Not Found: If dataset not found
             409 Conflict: If new name already exists
         """
-        return handler.update_dataset(name, request, tenant)
+        return await handler.update_dataset(name, request, tenant)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_dataset(
@@ -207,7 +207,7 @@ def build_dataset_routes(
         Returns:
             Success message
         """
-        return handler.delete_dataset(name, tenant)
+        return await handler.delete_dataset(name, tenant)
 
     @router.get("/{name}/health", response_model=HealthcheckResponse)
     async def healthcheck(
@@ -224,7 +224,7 @@ def build_dataset_routes(
         Returns:
             Healthcheck response
         """
-        return handler.healthcheck(name, tenant)
+        return await handler.healthcheck(name, tenant)
 
     # ============== Admin Provisioner Endpoints ==============
 
@@ -237,7 +237,7 @@ def build_dataset_routes(
         Admin endpoint to view all provisioner states, their status,
         and how many datasets are using each one.
         """
-        return handler.list_provisioners()
+        return await handler.list_provisioners()
 
     @router.post(
         "/provisioners/{dtype}/start", response_model=ProvisionerActionResponse
@@ -258,7 +258,7 @@ def build_dataset_routes(
         Returns:
             Action response with message and status
         """
-        return handler.start_provisioner_by_dtype(dtype, config)
+        return await handler.start_provisioner_by_dtype(dtype, config)
 
     @router.post("/provisioners/{dtype}/stop", response_model=ProvisionerActionResponse)
     async def stop_provisioner(
@@ -276,7 +276,7 @@ def build_dataset_routes(
         Returns:
             Action response with message and status
         """
-        return handler.stop_provisioner_by_dtype(dtype)
+        return await handler.stop_provisioner_by_dtype(dtype)
 
     @router.delete("/provisioners/{dtype}", response_model=ProvisionerActionResponse)
     async def delete_provisioner(
@@ -297,7 +297,7 @@ def build_dataset_routes(
         Raises:
             409 Conflict: If datasets are still attached to the provisioner
         """
-        return handler.delete_provisioner_by_dtype(dtype)
+        return await handler.delete_provisioner_by_dtype(dtype)
 
     @router.get("/provisioners/{dtype}/status", response_model=ProvisionerInfoResponse)
     async def get_provisioner_status(
@@ -313,6 +313,6 @@ def build_dataset_routes(
             Detailed provisioner status including actual running status,
             dataset count, connection config, timestamps, and any errors.
         """
-        return handler.get_provisioner_status_by_dtype(dtype)
+        return await handler.get_provisioner_status_by_dtype(dtype)
 
     return router

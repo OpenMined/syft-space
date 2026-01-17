@@ -50,7 +50,7 @@ def build_ingestion_routes(handler: IngestionHandler) -> APIRouter:
         Returns:
             Ingestion status with progress information
         """
-        return handler.get_ingestion_status(dataset_id, tenant)
+        return await handler.get_ingestion_status(dataset_id, tenant)
 
     @router.get("/datasets/{dataset_id}/jobs", response_model=IngestionJobListResponse)
     async def list_ingestion_jobs(
@@ -75,7 +75,9 @@ def build_ingestion_routes(handler: IngestionHandler) -> APIRouter:
         Returns:
             Paginated list of ingestion jobs
         """
-        return handler.list_ingestion_jobs(dataset_id, tenant, status, limit, offset)
+        return await handler.list_ingestion_jobs(
+            dataset_id, tenant, status, limit, offset
+        )
 
     @router.post("/datasets/{dataset_id}/start", response_model=StartIngestionResponse)
     async def start_ingestion(
@@ -95,7 +97,7 @@ def build_ingestion_routes(handler: IngestionHandler) -> APIRouter:
         Returns:
             Start response with number of jobs created
         """
-        return handler.start_ingestion(dataset_id, tenant)
+        return await handler.start_ingestion(dataset_id, tenant)
 
     @router.post("/datasets/{dataset_id}/stop", response_model=StopIngestionResponse)
     async def stop_ingestion(
@@ -114,7 +116,7 @@ def build_ingestion_routes(handler: IngestionHandler) -> APIRouter:
         Returns:
             Stop response with number of jobs cancelled
         """
-        return handler.stop_ingestion(dataset_id, tenant)
+        return await handler.stop_ingestion(dataset_id, tenant)
 
     @router.post("/datasets/{dataset_id}/retry", response_model=RetryIngestionResponse)
     async def retry_failed_ingestion(
@@ -133,6 +135,6 @@ def build_ingestion_routes(handler: IngestionHandler) -> APIRouter:
         Returns:
             Number of jobs reset for retry
         """
-        return handler.retry_failed_jobs(dataset_id, tenant)
+        return await handler.retry_failed_jobs(dataset_id, tenant)
 
     return router

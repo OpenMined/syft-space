@@ -55,7 +55,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Raises:
             HTTPException: If no marketplace configured or token invalid
         """
-        marketplace = handler.marketplace_repository.get_default(tenant.id)
+        marketplace = await handler.marketplace_repository.get_default(tenant.id)
         if not marketplace:
             raise HTTPException(status_code=400, detail="No marketplace configured")
 
@@ -76,7 +76,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             Created endpoint details
         """
-        return handler.create_endpoint(request, tenant)
+        return await handler.create_endpoint(request, tenant)
 
     @router.get("/", response_model=list[EndpointListItem])
     async def list_endpoints(
@@ -91,7 +91,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             List of endpoints with summary information
         """
-        return handler.list_endpoints(tenant)
+        return await handler.list_endpoints(tenant)
 
     @router.post("/validate-slug", response_model=SlugAvailabilityResponse)
     async def validate_slug(
@@ -135,7 +135,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             Endpoint details
         """
-        return handler.get_endpoint(slug, tenant)
+        return await handler.get_endpoint(slug, tenant)
 
     @public_route
     @router.post("/{slug}/query", response_model=QueryEndpointResponse)
@@ -206,6 +206,6 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             Success message
         """
-        return handler.delete_endpoint(slug, tenant)
+        return await handler.delete_endpoint(slug, tenant)
 
     return router
