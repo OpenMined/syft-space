@@ -155,7 +155,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         )
 
     @classmethod
-    def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
         """Validate the configuration for the dataset type.
 
         Args:
@@ -221,7 +221,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
             "file_size": file.file_size or 0,
         }
 
-    def ingest(self, ctx: Context, request: IngestRequest) -> None:
+    async def ingest(self, ctx: Context, request: IngestRequest) -> None:
         """Ingest files into Weaviate.
 
         Args:
@@ -231,35 +231,34 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         if not enabled:
             raise ImportError("Weaviate and docling are required for ingestion")
 
-        with weaviate.connect_to_local(
+        async with weaviate.use_async_with_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
             # Ensure collection exists
-            if not client.collections.exists(self.collection_name):
-                client.collections.create(
+            collection_exists = await client.collections.exists(self.collection_name)
+            if not collection_exists:
+                # Create the collection
+                await client.collections.create(
                     self.collection_name,
                     vectorizer_config=Configure.Vectorizer.text2vec_transformers(),
                 )
 
-        # Ingest the data into the data source
-        with weaviate.connect_to_local(
-            port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
-        ) as client:
-            collection = client.collections.get(self.collection_name)
+            # Ingest the data into the data source
+            collection = await client.collections.get(self.collection_name)
             for file in request.files:
                 if file.content_type not in self.allowed_extensions():
                     raise ValueError(
                         f"Unsupported file type: {file.content_type}"
                     ) from None
                 parsed_document = self._parse_document(file)
-                collection.data.insert(parsed_document)
+                await collection.data.insert(parsed_document)
 
     @property
     def collection_name(self) -> str:
         """Get the name of the collection."""
         return f"Collection_{self.config['collectionName']}"
 
-    def search(
+    async def search(
         self, ctx: Context, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
         """Search the dataset for the given query.
@@ -286,12 +285,14 @@ class LocalFileDatasetType(FileIngestableDatasetType):
             else DEFAULT_SIMILARITY_THRESHOLD
         )
 
-        with weaviate.connect_to_local(
+        async with weaviate.use_async_with_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
-            collection = client.collections.get(self.collection_name)
+            # Get the collection
+            collection = await client.collections.get(self.collection_name)
 
-            results = collection.query.near_text(
+            # Perform the search
+            results = await collection.query.near_text(
                 query=query,
                 limit=params.limit,
                 certainty=similarity_threshold,
@@ -299,7 +300,9 @@ class LocalFileDatasetType(FileIngestableDatasetType):
                     distance=True, score=True, creation_time=True
                 ),
             )
-            for result in results.objects:
+
+            # Process the results
+            for result in results.get("objects", []):
                 documents.append(
                     SearchedDocument(
                         document_id=str(result.uuid),
@@ -339,7 +342,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         """
         return ["httpPort", "grpcPort", "useTLS"]
 
-    def healthcheck(self) -> HealthcheckResponse:
+    async def healthcheck(self) -> HealthcheckResponse:
         """Check if the dataset type is healthy.
 
         Returns:
@@ -352,12 +355,13 @@ class LocalFileDatasetType(FileIngestableDatasetType):
             )
 
         try:
-            with weaviate.connect_to_local(
+            async with weaviate.use_async_with_local(
                 port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
             ) as client:
-                if client.is_ready():
+                if await client.is_ready():
                     return HealthcheckResponse(
-                        status=HealthcheckStatus.HEALTHY, message="Weaviate is healthy"
+                        status=HealthcheckStatus.HEALTHY,
+                        message="Weaviate is healthy",
                     )
         except Exception as e:
             return HealthcheckResponse(
@@ -366,5 +370,6 @@ class LocalFileDatasetType(FileIngestableDatasetType):
             )
 
         return HealthcheckResponse(
-            status=HealthcheckStatus.UNHEALTHY, message="Weaviate is unhealthy"
+            status=HealthcheckStatus.UNHEALTHY,
+            message="Weaviate is unhealthy",
         )

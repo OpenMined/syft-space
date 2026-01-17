@@ -1,11 +1,11 @@
 """Weaviate provisioner implementation."""
 
-import subprocess
+import asyncio
 import time
 from pathlib import Path
 from typing import Any
 
-import requests
+import httpx
 from loguru import logger
 
 from syft_space.components.dataset_types.interfaces import BaseDatasetTypeProvisioner
@@ -25,7 +25,7 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         return cls.NAME
 
     @classmethod
-    def start(cls, config: dict[str, Any]) -> dict[str, Any]:
+    async def start(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Start Weaviate Docker container.
 
         Args:
@@ -49,7 +49,7 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         docker_compose_file = Path(__file__).parent / "docker-compose.yml"
 
         # Start container with unique name
-        cmd = cls._get_docker_compose_command() + [
+        cmd = await cls._get_docker_compose_command() + [
             "-f",
             str(docker_compose_file),
             "-p",
@@ -58,18 +58,28 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             "-d",
         ]
 
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, env=env
-            )
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to start Weaviate container: {e.stderr}")
-            raise RuntimeError(f"Failed to start Weaviate container: {e.stderr}") from e
+        result = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, stderr = await result.communicate()
 
-        logger.info(f"Started Weaviate container '{container_name}': {result.stdout}")
+        if result.returncode != 0:
+            logger.error(
+                f"Failed to start Weaviate container: {stderr.decode('utf-8')}"
+            )
+            raise RuntimeError(
+                f"Failed to start Weaviate container: {stderr.decode('utf-8')} -> {stdout.decode('utf-8')}"
+            )
+
+        logger.info(
+            f"Started Weaviate container '{container_name}': {result.stdout.decode('utf-8')}"
+        )
 
         # Wait for health
-        cls._wait_for_healthy(http_port)
+        await cls._wait_for_healthy(http_port)
 
         # Return state for persistence
         # Include connection fields with keys matching configuration_schema
@@ -83,7 +93,7 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         }
 
     @classmethod
-    def stop(cls, state: dict[str, Any]) -> None:
+    async def stop(cls, state: dict[str, Any]) -> None:
         """Stop Weaviate container.
 
         Args:
@@ -98,7 +108,7 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             "docker_compose_file", str(Path(__file__).parent / "docker-compose.yml")
         )
 
-        cmd = cls._get_docker_compose_command() + [
+        cmd = await cls._get_docker_compose_command() + [
             "-f",
             docker_compose_file,
             "-p",
@@ -106,14 +116,25 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             "down",
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            logger.info(f"Stopped Weaviate container '{container_name}'")
-        else:
-            logger.error(f"Failed to stop container: {result.stderr}")
+        result = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await result.communicate()
+
+        if result.returncode != 0:
+            logger.error(f"Failed to stop Weaviate container: {stderr.decode('utf-8')}")
+            raise RuntimeError(
+                f"Failed to stop Weaviate container: {stderr.decode('utf-8')}"
+            )
+
+        logger.info(
+            f"Stopped Weaviate container '{container_name}': {result.stdout.decode('utf-8')}"
+        )
 
     @classmethod
-    def is_running(cls, state: dict[str, Any]) -> bool:
+    async def is_running(cls, state: dict[str, Any]) -> bool:
         """Check if Weaviate container is running.
 
         Args:
@@ -126,28 +147,27 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         if not container_name:
             return False
 
-        # Check via docker ps
-        try:
-            result = subprocess.run(
-                [
-                    "docker",
-                    "ps",
-                    "--filter",
-                    f"name={container_name}",
-                    "--format",
-                    "{{.Names}}",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            "ps",
+            "--filter",
+            f"name={container_name}",
+            "--format",
+            "{{.Names}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            logger.error(
+                f"Failed to check if container is running: {stderr.decode('utf-8')}"
             )
-            return container_name in result.stdout
-        except Exception as e:
-            logger.error(f"Error checking if running: {e}")
             return False
+        return container_name in stdout.decode("utf-8").splitlines()
 
     @classmethod
-    def status(cls, state: dict[str, Any]) -> str:
+    async def status(cls, state: dict[str, Any]) -> str:
         """Get status of Weaviate container.
 
         Args:
@@ -156,18 +176,18 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         Returns:
             Status: "running", "stopped", "starting", "healthy"
         """
-        if not cls.is_running(state):
+        if not await cls.is_running(state):
             return "stopped"
 
         # Check health
         http_port = state.get("httpPort", 8083)
-        if cls._check_health(http_port):
+        if await cls._check_health(http_port):
             return "healthy"
         else:
             return "starting"
 
     @classmethod
-    def _wait_for_healthy(cls, http_port: int, timeout: int = 60) -> None:
+    async def _wait_for_healthy(cls, http_port: int, timeout: float = 60.0) -> None:
         """Wait for Weaviate to be healthy.
 
         Args:
@@ -180,15 +200,15 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         start_time = time.time()
 
         while time.time() - start_time < timeout:
-            if cls._check_health(http_port):
+            if await cls._check_health(http_port):
                 logger.info("Weaviate is healthy")
                 return
-            time.sleep(2)
+            await asyncio.sleep(2.0)
 
         raise TimeoutError(f"Weaviate not healthy within {timeout}s")
 
     @classmethod
-    def _check_health(cls, http_port: int) -> bool:
+    async def _check_health(cls, http_port: int) -> bool:
         """Check if Weaviate is healthy.
 
         Args:
@@ -198,11 +218,13 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             True if healthy, False otherwise
         """
         try:
-            response = requests.get(
-                f"http://localhost:{http_port}/v1/.well-known/ready", timeout=2
-            )
-            return response.status_code == 200
-        except Exception:
+            with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(
+                    f"http://localhost:{http_port}/v1/.well-known/ready", timeout=2
+                )
+                return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Failed to check Weaviate health: {e}")
             return False
 
     @classmethod
@@ -233,16 +255,27 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         return env
 
     @classmethod
-    def _get_docker_compose_command(cls) -> list[str]:
+    async def _get_docker_compose_command(cls) -> list[str]:
         """Get docker compose command (handles v1 and v2).
 
         Returns:
             List of command parts
         """
-        try:
-            subprocess.run(
-                ["docker", "compose", "version"], capture_output=True, check=True
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            "compose",
+            "version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+
+        # If failed, use docker-compose as fallback
+        if proc.returncode != 0:
+            logger.error(
+                f"Failed to get docker compose version: {stderr.decode('utf-8')}"
             )
-            return ["docker", "compose"]
-        except (subprocess.CalledProcessError, FileNotFoundError):
             return ["docker-compose"]
+
+        # If successful, use docker compose
+        return ["docker", "compose"]
