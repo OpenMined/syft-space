@@ -6,13 +6,13 @@ from uuid import UUID
 from sqlmodel import select
 
 from syft_space.components.policies.entities import Policy
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class PolicyRepository(BaseRepository[Policy]):
+class PolicyRepository(AsyncBaseRepository[Policy]):
     """Repository for Policy CRUD operations."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         """Initialize the policy repository.
 
         Args:
@@ -20,7 +20,7 @@ class PolicyRepository(BaseRepository[Policy]):
         """
         super().__init__(db, Policy)
 
-    def get_all(self, tenant_id: UUID) -> list[Policy]:
+    async def get_all(self, tenant_id: UUID) -> list[Policy]:
         """Get all policies for a specific tenant.
 
         Args:
@@ -29,11 +29,12 @@ class PolicyRepository(BaseRepository[Policy]):
         Returns:
             List of policies
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Policy).where(Policy.tenant_id == tenant_id)
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_id(self, id: int, tenant_id: UUID) -> Policy | None:
+    async def get_by_id(self, id: int, tenant_id: UUID) -> Policy | None:
         """Get a policy by ID within a tenant.
 
         Args:
@@ -43,13 +44,16 @@ class PolicyRepository(BaseRepository[Policy]):
         Returns:
             Policy if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Policy).where(
                 Policy.id == id, Policy.tenant_id == tenant_id
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_by_endpoint_id(self, endpoint_id: UUID, tenant_id: UUID) -> list[Policy]:
+    async def get_by_endpoint_id(
+        self, endpoint_id: UUID, tenant_id: UUID
+    ) -> list[Policy]:
         """Get all policies for a specific endpoint within a tenant.
 
         Args:
@@ -59,13 +63,14 @@ class PolicyRepository(BaseRepository[Policy]):
         Returns:
             List of policies
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Policy).where(
                 Policy.endpoint_id == endpoint_id, Policy.tenant_id == tenant_id
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_endpoint_id_grouped(
+    async def get_by_endpoint_id_grouped(
         self, endpoint_id: UUID, tenant_id: UUID
     ) -> dict[str, list[Policy]]:
         """Get all policies for a specific endpoint within a tenant, grouped by policy_type.
@@ -77,13 +82,14 @@ class PolicyRepository(BaseRepository[Policy]):
         Returns:
             Dictionary mapping policy_type to list of policies
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Policy)
                 .where(Policy.endpoint_id == endpoint_id, Policy.tenant_id == tenant_id)
                 .order_by(Policy.policy_type)
             )
-            policies = list(session.exec(statement).all())
+            result = await session.exec(statement)
+            policies = list(result.all())
 
             # Group policies by policy_type
             grouped: dict[str, list[Policy]] = defaultdict(list)
@@ -92,7 +98,7 @@ class PolicyRepository(BaseRepository[Policy]):
 
             return grouped
 
-    def get_by_type(self, type_name: str, tenant_id: UUID) -> list[Policy]:
+    async def get_by_type(self, type_name: str, tenant_id: UUID) -> list[Policy]:
         """Get all policies of a specific type within a tenant.
 
         Args:
@@ -102,13 +108,14 @@ class PolicyRepository(BaseRepository[Policy]):
         Returns:
             List of policies
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Policy).where(
                 Policy.policy_type == type_name, Policy.tenant_id == tenant_id
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_name(self, name: str, tenant_id: UUID) -> Policy | None:
+    async def get_by_name(self, name: str, tenant_id: UUID) -> Policy | None:
         """Get a policy by name within a tenant.
 
         Args:
@@ -118,8 +125,9 @@ class PolicyRepository(BaseRepository[Policy]):
         Returns:
             Policy if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Policy).where(
                 Policy.name == name, Policy.tenant_id == tenant_id
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()

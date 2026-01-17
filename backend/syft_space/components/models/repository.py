@@ -8,13 +8,13 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from syft_space.components.models.entities import Model
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class ModelRepository(BaseRepository[Model]):
+class ModelRepository(AsyncBaseRepository[Model]):
     """Repository for Model CRUD operations."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         """Initialize the model repository.
 
         Args:
@@ -22,7 +22,7 @@ class ModelRepository(BaseRepository[Model]):
         """
         super().__init__(db, Model)
 
-    def get_all(self, tenant_id: UUID) -> list[Model]:
+    async def get_all(self, tenant_id: UUID) -> list[Model]:
         """Get all models for a specific tenant.
 
         Args:
@@ -31,15 +31,16 @@ class ModelRepository(BaseRepository[Model]):
         Returns:
             List of models
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Model)
                 .where(Model.tenant_id == tenant_id)
                 .options(selectinload(Model.endpoints))
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_id(self, id: int, tenant_id: UUID) -> Model | None:
+    async def get_by_id(self, id: int, tenant_id: UUID) -> Model | None:
         """Get a model by ID within a tenant.
 
         Args:
@@ -49,15 +50,16 @@ class ModelRepository(BaseRepository[Model]):
         Returns:
             Model if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Model)
                 .where(Model.id == id, Model.tenant_id == tenant_id)
                 .options(selectinload(Model.endpoints))
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_by_name(self, name: str, tenant_id: UUID) -> Model | None:
+    async def get_by_name(self, name: str, tenant_id: UUID) -> Model | None:
         """Get a model by name within a tenant.
 
         Args:
@@ -67,15 +69,16 @@ class ModelRepository(BaseRepository[Model]):
         Returns:
             Model if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Model)
                 .where(Model.name == name, Model.tenant_id == tenant_id)
                 .options(selectinload(Model.endpoints))
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def delete_by_name(self, name: str, tenant_id: UUID) -> bool:
+    async def delete_by_name(self, name: str, tenant_id: UUID) -> bool:
         """Delete a model by name within a tenant.
 
         Args:
@@ -85,18 +88,19 @@ class ModelRepository(BaseRepository[Model]):
         Returns:
             True if deleted, False if not found
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Model).where(
                 Model.name == name, Model.tenant_id == tenant_id
             )
-            obj = session.exec(statement).first()
+            result = await session.exec(statement)
+            obj = result.first()
             if obj:
-                session.delete(obj)
-                session.commit()
+                await session.delete(obj)
+                await session.commit()
                 return True
             return False
 
-    def get_by_type(self, type_name: str, tenant_id: UUID) -> list[Model]:
+    async def get_by_type(self, type_name: str, tenant_id: UUID) -> list[Model]:
         """Get all models of a specific type within a tenant.
 
         Args:
@@ -106,13 +110,14 @@ class ModelRepository(BaseRepository[Model]):
         Returns:
             List of models
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Model).where(
                 Model.dtype == type_name, Model.tenant_id == tenant_id
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def update_by_name(
+    async def update_by_name(
         self,
         name: str,
         tenant_id: UUID,
@@ -141,7 +146,7 @@ class ModelRepository(BaseRepository[Model]):
             ValueError: If name is being changed and new name already exists
             IntegrityError: If database unique constraint is violated (race condition)
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             # Load model by current name WITH LOCK to prevent concurrent modifications
             # This ensures no other transaction can modify/delete this model
             model_stmt = (
@@ -149,7 +154,8 @@ class ModelRepository(BaseRepository[Model]):
                 .where(Model.name == name, Model.tenant_id == tenant_id)
                 .with_for_update()
             )
-            model = session.exec(model_stmt).first()
+            result = await session.exec(model_stmt)
+            model = result.first()
 
             if not model:
                 return None
@@ -169,7 +175,8 @@ class ModelRepository(BaseRepository[Model]):
                         nowait=True
                     )  # Fail fast if locked by another transaction
                 )
-                existing = session.exec(existing_stmt).first()
+                existing_result = await session.exec(existing_stmt)
+                existing = existing_result.first()
 
                 if existing:
                     raise ValueError(
@@ -191,16 +198,17 @@ class ModelRepository(BaseRepository[Model]):
             # Save all changes in single commit
             session.add(model)
             try:
-                session.commit()
+                await session.commit()
                 # Reload model with endpoints eagerly loaded before returning
-                reloaded = session.exec(
+                reload_result = await session.exec(
                     select(Model)
                     .where(Model.id == model.id)
                     .options(selectinload(Model.endpoints))
-                ).first()
+                )
+                reloaded = reload_result.first()
                 return reloaded if reloaded else model
             except IntegrityError as e:
-                session.rollback()
+                await session.rollback()
                 # Re-raise as ValueError for consistent error handling
                 raise ValueError(
                     f"Model '{name_new}' already exists for this tenant"

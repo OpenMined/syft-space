@@ -6,13 +6,13 @@ from uuid import UUID
 from sqlmodel import select
 
 from syft_space.components.marketplaces.entities import Marketplace
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class MarketplaceRepository(BaseRepository[Marketplace]):
+class MarketplaceRepository(AsyncBaseRepository[Marketplace]):
     """Repository for Marketplace CRUD operations."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         """Initialize the marketplace repository.
 
         Args:
@@ -20,7 +20,7 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         """
         super().__init__(db, Marketplace)
 
-    def get_all(self, tenant_id: UUID) -> list[Marketplace]:
+    async def get_all(self, tenant_id: UUID) -> list[Marketplace]:
         """Get all marketplaces for a specific tenant.
 
         Args:
@@ -29,11 +29,12 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             List of marketplaces
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Marketplace).where(Marketplace.tenant_id == tenant_id)
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_id(self, id: UUID, tenant_id: UUID) -> Marketplace | None:
+    async def get_by_id(self, id: UUID, tenant_id: UUID) -> Marketplace | None:
         """Get a marketplace by ID within a tenant.
 
         Args:
@@ -43,13 +44,14 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             Marketplace if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Marketplace).where(
                 Marketplace.id == id, Marketplace.tenant_id == tenant_id
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_by_url(self, url: str, tenant_id: UUID) -> Marketplace | None:
+    async def get_by_url(self, url: str, tenant_id: UUID) -> Marketplace | None:
         """Get a marketplace by URL within a tenant.
 
         Args:
@@ -59,13 +61,14 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             Marketplace if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Marketplace).where(
                 Marketplace.url == url, Marketplace.tenant_id == tenant_id
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_default(self, tenant_id: UUID) -> Marketplace | None:
+    async def get_default(self, tenant_id: UUID) -> Marketplace | None:
         """Get the default marketplace for a tenant.
 
         Args:
@@ -74,13 +77,14 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             Default marketplace if exists, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Marketplace).where(
                 Marketplace.tenant_id == tenant_id, Marketplace.is_default.is_(True)
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_active(self, tenant_id: UUID) -> list[Marketplace]:
+    async def get_active(self, tenant_id: UUID) -> list[Marketplace]:
         """Get all active marketplaces for a tenant.
 
         Args:
@@ -89,13 +93,14 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             List of active marketplaces
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Marketplace).where(
                 Marketplace.tenant_id == tenant_id, Marketplace.is_active.is_(True)
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_ids(self, ids: list[UUID], tenant_id: UUID) -> list[Marketplace]:
+    async def get_by_ids(self, ids: list[UUID], tenant_id: UUID) -> list[Marketplace]:
         """Get multiple marketplaces by IDs within a tenant.
 
         Args:
@@ -105,13 +110,14 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             List of found marketplaces
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Marketplace).where(
                 Marketplace.id.in_(ids), Marketplace.tenant_id == tenant_id
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def update(
+    async def update(
         self,
         id: UUID,
         tenant_id: UUID,
@@ -144,11 +150,12 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             Updated marketplace if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Marketplace).where(
                 Marketplace.id == id, Marketplace.tenant_id == tenant_id
             )
-            marketplace = session.exec(statement).first()
+            result = await session.exec(statement)
+            marketplace = result.first()
 
             if not marketplace:
                 return None
@@ -175,11 +182,11 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
             marketplace.updated_at = datetime.now(timezone.utc)
 
             session.add(marketplace)
-            session.commit()
-            session.refresh(marketplace)
+            await session.commit()
+            await session.refresh(marketplace)
             return marketplace
 
-    def set_as_default(self, id: UUID, tenant_id: UUID) -> Marketplace | None:
+    async def set_as_default(self, id: UUID, tenant_id: UUID) -> Marketplace | None:
         """Set a marketplace as the default for a tenant.
 
         Unsets any existing default marketplace and sets the specified one as default.
@@ -191,12 +198,13 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             Updated marketplace if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             # Find the marketplace to set as default
             statement = select(Marketplace).where(
                 Marketplace.id == id, Marketplace.tenant_id == tenant_id
             )
-            marketplace = session.exec(statement).first()
+            result = await session.exec(statement)
+            marketplace = result.first()
 
             if not marketplace:
                 return None
@@ -207,7 +215,8 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
                 Marketplace.is_default.is_(True),
                 Marketplace.id != id,
             )
-            for other in session.exec(unset_statement).all():
+            unset_result = await session.exec(unset_statement)
+            for other in unset_result.all():
                 other.is_default = False
                 session.add(other)
 
@@ -215,11 +224,11 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
             marketplace.is_default = True
             marketplace.updated_at = datetime.now(timezone.utc)
             session.add(marketplace)
-            session.commit()
-            session.refresh(marketplace)
+            await session.commit()
+            await session.refresh(marketplace)
             return marketplace
 
-    def delete(self, id: UUID, tenant_id: UUID) -> bool:
+    async def delete(self, id: UUID, tenant_id: UUID) -> bool:
         """Delete a marketplace within a tenant.
 
         Args:
@@ -229,13 +238,14 @@ class MarketplaceRepository(BaseRepository[Marketplace]):
         Returns:
             True if deleted, False if not found
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Marketplace).where(
                 Marketplace.id == id, Marketplace.tenant_id == tenant_id
             )
-            marketplace = session.exec(statement).first()
+            result = await session.exec(statement)
+            marketplace = result.first()
             if marketplace:
-                session.delete(marketplace)
-                session.commit()
+                await session.delete(marketplace)
+                await session.commit()
                 return True
             return False

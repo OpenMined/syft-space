@@ -1,13 +1,13 @@
 """Tenant repository for database operations."""
 
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 from syft_space.components.tenants.entities import Tenant
 
 
-class TenantRepository(BaseRepository[Tenant]):
+class TenantRepository(AsyncBaseRepository[Tenant]):
     """Repository for Tenant CRUD operations."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         """Initialize the tenant repository.
 
         Args:
@@ -15,7 +15,7 @@ class TenantRepository(BaseRepository[Tenant]):
         """
         super().__init__(db, Tenant)
 
-    def get_by_name(self, name: str) -> Tenant | None:
+    async def get_by_name(self, name: str) -> Tenant | None:
         """Get a tenant by name.
 
         Args:
@@ -24,9 +24,9 @@ class TenantRepository(BaseRepository[Tenant]):
         Returns:
             Tenant if found, None otherwise
         """
-        return self.get_by_field("name", name)
+        return await self.get_by_field("name", name)
 
-    def get_by_domain(self, domain: str) -> Tenant | None:
+    async def get_by_domain(self, domain: str) -> Tenant | None:
         """Get a tenant by domain.
 
         Args:
@@ -35,4 +35,4 @@ class TenantRepository(BaseRepository[Tenant]):
         Returns:
             Tenant if found, None otherwise
         """
-        return self.get_by_field("domain", domain)
+        return await self.get_by_field("domain", domain)

@@ -1,6 +1,6 @@
 """Dataset repository for database operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -8,13 +8,13 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from syft_space.components.datasets.entities import Dataset
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class DatasetRepository(BaseRepository[Dataset]):
+class DatasetRepository(AsyncBaseRepository[Dataset]):
     """Repository for Dataset CRUD operations."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         """Initialize the dataset repository.
 
         Args:
@@ -22,7 +22,7 @@ class DatasetRepository(BaseRepository[Dataset]):
         """
         super().__init__(db, Dataset)
 
-    def create(self, obj: Dataset) -> Dataset:
+    async def create(self, obj: Dataset) -> Dataset:
         """Create a dataset and ensure endpoints relationship is accessible.
 
         Args:
@@ -31,18 +31,19 @@ class DatasetRepository(BaseRepository[Dataset]):
         Returns:
             Created dataset with endpoints relationship accessible
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             session.add(obj)
-            session.commit()
+            await session.commit()
             # Reload object with endpoints eagerly loaded
-            reloaded = session.exec(
+            result = await session.exec(
                 select(Dataset)
                 .where(Dataset.id == obj.id)
                 .options(selectinload(Dataset.endpoints))
-            ).first()
+            )
+            reloaded = result.first()
             return reloaded if reloaded else obj
 
-    def get_all(self, tenant_id: UUID) -> list[Dataset]:
+    async def get_all(self, tenant_id: UUID) -> list[Dataset]:
         """Get all datasets for a specific tenant.
 
         Args:
@@ -51,15 +52,16 @@ class DatasetRepository(BaseRepository[Dataset]):
         Returns:
             List of datasets with endpoints eagerly loaded
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Dataset)
                 .where(Dataset.tenant_id == tenant_id)
                 .options(selectinload(Dataset.endpoints))
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_id(self, id: UUID, tenant_id: UUID) -> Dataset | None:
+    async def get_by_id(self, id: UUID, tenant_id: UUID) -> Dataset | None:
         """Get a dataset by ID within a tenant.
 
         Includes tenant_id check for authorization - use this for API handlers.
@@ -71,15 +73,16 @@ class DatasetRepository(BaseRepository[Dataset]):
         Returns:
             Dataset with endpoints eagerly loaded if found or unauthorized, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Dataset)
                 .where(Dataset.id == id, Dataset.tenant_id == tenant_id)
                 .options(selectinload(Dataset.endpoints))
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_by_name(self, name: str, tenant_id: UUID) -> Dataset | None:
+    async def get_by_name(self, name: str, tenant_id: UUID) -> Dataset | None:
         """Get a dataset by name within a tenant.
 
         Args:
@@ -89,15 +92,16 @@ class DatasetRepository(BaseRepository[Dataset]):
         Returns:
             Dataset with endpoints eagerly loaded if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Dataset)
                 .where(Dataset.name == name, Dataset.tenant_id == tenant_id)
                 .options(selectinload(Dataset.endpoints))
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def delete_by_name(self, name: str, tenant_id: UUID) -> bool:
+    async def delete_by_name(self, name: str, tenant_id: UUID) -> bool:
         """Delete a dataset by name within a tenant.
 
         Endpoints attached to this dataset are automatically cascade deleted
@@ -110,18 +114,19 @@ class DatasetRepository(BaseRepository[Dataset]):
         Returns:
             True if deleted, False if not found
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Dataset).where(
                 Dataset.name == name, Dataset.tenant_id == tenant_id
             )
-            obj = session.exec(statement).first()
+            result = await session.exec(statement)
+            obj = result.first()
             if obj:
-                session.delete(obj)
-                session.commit()
+                await session.delete(obj)
+                await session.commit()
                 return True
             return False
 
-    def get_by_type(self, type_name: str, tenant_id: UUID) -> list[Dataset]:
+    async def get_by_type(self, type_name: str, tenant_id: UUID) -> list[Dataset]:
         """Get all datasets of a specific type within a tenant.
 
         Args:
@@ -131,25 +136,27 @@ class DatasetRepository(BaseRepository[Dataset]):
         Returns:
             List of datasets with endpoints eagerly loaded
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Dataset)
                 .where(Dataset.dtype == type_name, Dataset.tenant_id == tenant_id)
                 .options(selectinload(Dataset.endpoints))
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_all_with_provisioner_state_id(self) -> list[Dataset]:
+    async def get_all_with_provisioner_state_id(self) -> list[Dataset]:
         """Get all datasets that have a provisioner state ID set.
 
         Returns:
             List of datasets with provisioner_state_id not null
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Dataset).where(Dataset.provisioner_state_id.isnot(None))
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def update_by_name(
+    async def update_by_name(
         self,
         name: str,
         tenant_id: UUID,
@@ -178,7 +185,7 @@ class DatasetRepository(BaseRepository[Dataset]):
             ValueError: If name is being changed and new name already exists
             IntegrityError: If database unique constraint is violated (race condition)
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             # Load dataset by current name WITH LOCK to prevent concurrent modifications
             # This ensures no other transaction can modify/delete this dataset
             dataset_stmt = (
@@ -186,7 +193,8 @@ class DatasetRepository(BaseRepository[Dataset]):
                 .where(Dataset.name == name, Dataset.tenant_id == tenant_id)
                 .with_for_update()
             )
-            dataset = session.exec(dataset_stmt).first()
+            result = await session.exec(dataset_stmt)
+            dataset = result.first()
 
             if not dataset:
                 return None
@@ -206,7 +214,8 @@ class DatasetRepository(BaseRepository[Dataset]):
                         nowait=True
                     )  # Fail fast if locked by another transaction
                 )
-                existing = session.exec(existing_stmt).first()
+                existing_result = await session.exec(existing_stmt)
+                existing = existing_result.first()
 
                 if existing:
                     raise ValueError(
@@ -223,21 +232,22 @@ class DatasetRepository(BaseRepository[Dataset]):
                 dataset.tags = tags
 
             # Update timestamp
-            dataset.updated_at = datetime.utcnow()
+            dataset.updated_at = datetime.now(timezone.utc)
 
             # Save all changes in single commit
             session.add(dataset)
             try:
-                session.commit()
+                await session.commit()
                 # Reload dataset with endpoints eagerly loaded before returning
-                reloaded = session.exec(
+                reload_result = await session.exec(
                     select(Dataset)
                     .where(Dataset.id == dataset.id)
                     .options(selectinload(Dataset.endpoints))
-                ).first()
+                )
+                reloaded = reload_result.first()
                 return reloaded if reloaded else dataset
             except IntegrityError as e:
-                session.rollback()
+                await session.rollback()
                 # Re-raise as ValueError for consistent error handling
                 raise ValueError(
                     "Unique constraint violation: dataset name may already exist"
