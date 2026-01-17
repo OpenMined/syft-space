@@ -31,7 +31,7 @@ class ProvisionerManager:
 
         logger.info("Starting shared provisioners...")
         try:
-            await asyncio.to_thread(self.dataset_handler.startup_all_provisioners)
+            await self.dataset_handler.startup_all_provisioners()
             logger.info("Provisioner startup complete")
         except Exception as e:
             logger.error(f"Error during provisioner startup: {e}")
@@ -42,7 +42,7 @@ class ProvisionerManager:
 
         logger.info("Shutting down shared provisioners...")
         try:
-            await asyncio.to_thread(self.dataset_handler.shutdown_all_provisioners)
+            await self.dataset_handler.shutdown_all_provisioners()
             logger.info("Provisioner shutdown complete")
         except Exception as e:
             logger.error(f"Error during provisioner shutdown: {e}")

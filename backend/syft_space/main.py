@@ -75,7 +75,7 @@ from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.routes import build_settings_routes
 
 # Import database
-from syft_space.components.shared.database import AsyncDatabase, Database, SQLiteConfig
+from syft_space.components.shared.database import AsyncDatabase, SQLiteConfig
 
 # Import proxy service
 from syft_space.components.shared.proxy_service import ProxyService
@@ -92,6 +92,9 @@ from syft_space.config import app_settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - handles startup and shutdown events."""
+    # Run database migrations first (async)
+    await database.run_migrations(reset=app_settings.reset_db)
+
     # Get services from app.state
     proxy_service: ProxyService = getattr(app.state, "proxy_service", None)
     provisioner_manager: ProvisionerManager = getattr(
@@ -205,15 +208,9 @@ app.add_middleware(
 )
 
 
-# Initialize database
+# Initialize database (async-only)
 db_path = app_settings.sqlite_db_path.resolve()
 db_config = SQLiteConfig(db_path)
-
-# Sync database for migrations only
-sync_database = Database(db_config)
-sync_database.run_migrations(reset=app_settings.reset_db)
-
-# Async database for all repository operations
 database = AsyncDatabase(db_config)
 
 # Initialize repositories

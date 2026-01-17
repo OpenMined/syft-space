@@ -1,5 +1,6 @@
 """Ingestion manager for watch-based file ingestion."""
 
+import asyncio
 import threading
 from io import BytesIO
 from pathlib import Path
@@ -125,6 +126,26 @@ class IngestionManager:
         # Lock for thread-safe operations
         self._lock = threading.Lock()
 
+        # Event loop reference for async calls from worker thread
+        self._event_loop: asyncio.AbstractEventLoop | None = None
+
+    def _run_async(self, coro):
+        """Run an async coroutine from the worker thread.
+
+        Uses the stored event loop to run async code from a sync context.
+        Thread-safe via asyncio.run_coroutine_threadsafe.
+
+        Args:
+            coro: Coroutine to execute
+
+        Returns:
+            Result of the coroutine
+        """
+        if self._event_loop is None:
+            raise RuntimeError("Event loop not set. Call startup() first.")
+        future = asyncio.run_coroutine_threadsafe(coro, self._event_loop)
+        return future.result(timeout=60)  # 60 second timeout
+
     def _is_file_ingestable_dataset_type(self, dtype: str) -> bool:
         """Check if dataset type implements FileIngestableDatasetType.
 
@@ -211,13 +232,16 @@ class IngestionManager:
             file_size, file_mtime_ns = self._get_file_fingerprint(file_path)
             file_name = file_path.name
 
-            self._ingestion_repository.upsert_by_path(
-                tenant_id=tenant_id,
-                dataset_id=dataset_id,
-                file_path=str(file_path),
-                file_name=file_name,
-                file_size=file_size,
-                file_mtime_ns=file_mtime_ns,
+            # Async call from sync context (watchdog handler or worker thread)
+            self._run_async(
+                self._ingestion_repository.upsert_by_path(
+                    tenant_id=tenant_id,
+                    dataset_id=dataset_id,
+                    file_path=str(file_path),
+                    file_name=file_name,
+                    file_size=file_size,
+                    file_mtime_ns=file_mtime_ns,
+                )
             )
             return 1
         except OSError as e:
@@ -246,7 +270,10 @@ class IngestionManager:
             dataset_id: Dataset UUID
             file_path: Path object
         """
-        self._ingestion_repository.delete_by_path(dataset_id, str(file_path))
+        # Async call from sync context (watchdog handler)
+        self._run_async(
+            self._ingestion_repository.delete_by_path(dataset_id, str(file_path))
+        )
 
     def start_watcher(self, dataset: Dataset) -> bool:
         """Start file watcher for a dataset.
@@ -368,8 +395,10 @@ class IngestionManager:
 
     def _process_pending_jobs(self) -> None:
         """Process all pending ingestion jobs."""
-        # Get pending jobs (batch)
-        pending_jobs = self._ingestion_repository.get_pending_jobs(limit=50)
+        # Get pending jobs (batch) - async call from worker thread
+        pending_jobs = self._run_async(
+            self._ingestion_repository.get_pending_jobs(limit=50)
+        )
 
         if not pending_jobs:
             return
@@ -392,29 +421,41 @@ class IngestionManager:
         file_path = Path(job.file_path)
         if not file_path.exists():
             logger.warning(f"File does not exist: {file_path}")
-            self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.CANCELLED, "File does not exist"
+            self._run_async(
+                self._ingestion_repository.update_status(
+                    job.id, IngestionJobStatus.CANCELLED, "File does not exist"
+                )
             )
             return
 
         if not file_path.is_file():
             logger.warning(f"File is not a file: {file_path}")
-            self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.CANCELLED, "File is not a file"
+            self._run_async(
+                self._ingestion_repository.update_status(
+                    job.id, IngestionJobStatus.CANCELLED, "File is not a file"
+                )
             )
             return
 
         logger.debug(f"Processing ingestion job {job.id} {file_path}")
         # Update status to IN_PROGRESS
-        self._ingestion_repository.update_status(job.id, IngestionJobStatus.IN_PROGRESS)
+        self._run_async(
+            self._ingestion_repository.update_status(
+                job.id, IngestionJobStatus.IN_PROGRESS
+            )
+        )
 
         try:
             # Get dataset (internal - background worker has no tenant context)
-            dataset = self._dataset_repository.get_by_id(job.dataset_id, job.tenant_id)
+            dataset = self._run_async(
+                self._dataset_repository.get_by_id(job.dataset_id, job.tenant_id)
+            )
             if not dataset:
                 logger.warning(f"Dataset not found for job {job.id}")
-                self._ingestion_repository.update_status(
-                    job.id, IngestionJobStatus.CANCELLED, "Dataset not found"
+                self._run_async(
+                    self._ingestion_repository.update_status(
+                        job.id, IngestionJobStatus.CANCELLED, "Dataset not found"
+                    )
                 )
                 return
 
@@ -423,26 +464,32 @@ class IngestionManager:
                 current_size, current_mtime = self._get_file_fingerprint(file_path)
             except OSError as e:
                 logger.warning(f"Cannot stat file {file_path}: {e}")
-                self._ingestion_repository.update_status(
-                    job.id, IngestionJobStatus.FAILED, f"Cannot read file: {e}"
+                self._run_async(
+                    self._ingestion_repository.update_status(
+                        job.id, IngestionJobStatus.FAILED, f"Cannot read file: {e}"
+                    )
                 )
                 return
 
             if current_size != job.file_size or current_mtime != job.file_mtime_ns:
                 # File changed, create new job with updated fingerprint
                 logger.info(f"File changed during processing: {file_path}")
-                self._ingestion_repository.upsert_by_path(
-                    tenant_id=job.tenant_id,
-                    dataset_id=job.dataset_id,
-                    file_path=str(file_path),
-                    file_name=job.file_name,
-                    file_size=current_size,
-                    file_mtime_ns=current_mtime,
+                self._run_async(
+                    self._ingestion_repository.upsert_by_path(
+                        tenant_id=job.tenant_id,
+                        dataset_id=job.dataset_id,
+                        file_path=str(file_path),
+                        file_name=job.file_name,
+                        file_size=current_size,
+                        file_mtime_ns=current_mtime,
+                    )
                 )
-                self._ingestion_repository.update_status(
-                    job.id,
-                    IngestionJobStatus.CANCELLED,
-                    "File changed during processing",
+                self._run_async(
+                    self._ingestion_repository.update_status(
+                        job.id,
+                        IngestionJobStatus.CANCELLED,
+                        "File changed during processing",
+                    )
                 )
                 return
 
@@ -473,19 +520,23 @@ class IngestionManager:
                 # Create context (use system context for background ingestion)
                 ctx = Context(sender="system@openmined.org")
 
-                # Call ingest
+                # Call ingest (blocking call - runs in worker thread)
                 dataset_type.ingest(ctx, ingest_request)
 
             # Success
-            self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.COMPLETED
+            self._run_async(
+                self._ingestion_repository.update_status(
+                    job.id, IngestionJobStatus.COMPLETED
+                )
             )
             logger.info(f"Successfully ingested: {job.file_path}")
 
         except Exception as e:
             logger.error(f"Failed to ingest {job.file_path}: {str(e)}")
-            self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.FAILED, str(e)
+            self._run_async(
+                self._ingestion_repository.update_status(
+                    job.id, IngestionJobStatus.FAILED, str(e)
+                )
             )
 
     async def startup(self) -> None:
@@ -498,12 +549,17 @@ class IngestionManager:
         """
         logger.info("Starting ingestion manager...")
 
+        # Store event loop reference for worker thread to use
+        self._event_loop = asyncio.get_running_loop()
+
         # Initialize observer
         self._observer = Observer()
         self._observer.start()
 
         # Get all datasets that have provisioner (i.e., local datasets that need watching)
-        all_datasets = self._dataset_repository.get_all_with_provisioner_state_id()
+        all_datasets = (
+            await self._dataset_repository.get_all_with_provisioner_state_id()
+        )
 
         for dataset in all_datasets:
             if self._is_file_ingestable_dataset_type(dataset.dtype):
@@ -597,7 +653,7 @@ class IngestionManager:
 
         return job_count
 
-    def stop_dataset_ingestion(self, dataset_id: UUID) -> int:
+    async def stop_dataset_ingestion(self, dataset_id: UUID) -> int:
         """Stop ingestion for a dataset.
 
         Args:
@@ -610,7 +666,7 @@ class IngestionManager:
         self.stop_watcher(dataset_id)
 
         # Cancel pending jobs
-        cancelled_count = self._ingestion_repository.cancel_pending_by_dataset(
+        cancelled_count = await self._ingestion_repository.cancel_pending_by_dataset(
             dataset_id
         )
         logger.info(
@@ -619,7 +675,9 @@ class IngestionManager:
 
         return cancelled_count
 
-    def get_ingestion_stats(self, dataset_id: UUID, tenant_id: UUID) -> dict[str, int]:
+    async def get_ingestion_stats(
+        self, dataset_id: UUID, tenant_id: UUID
+    ) -> dict[str, int]:
         """Get aggregated job statistics for a dataset.
 
         Args:
@@ -629,9 +687,11 @@ class IngestionManager:
         Returns:
             Dict with counts per status and total
         """
-        return self._ingestion_repository.get_stats_by_dataset(dataset_id, tenant_id)
+        return await self._ingestion_repository.get_stats_by_dataset(
+            dataset_id, tenant_id
+        )
 
-    def get_ingestion_jobs(
+    async def get_ingestion_jobs(
         self,
         dataset_id: UUID,
         tenant_id: UUID,
@@ -651,11 +711,11 @@ class IngestionManager:
         Returns:
             List of IngestionJob entities
         """
-        return self._ingestion_repository.get_by_dataset(
+        return await self._ingestion_repository.get_by_dataset(
             dataset_id, tenant_id, status_filter, limit, offset
         )
 
-    def retry_failed_jobs(self, dataset_id: UUID, tenant_id: UUID) -> int:
+    async def retry_failed_jobs(self, dataset_id: UUID, tenant_id: UUID) -> int:
         """Reset all failed jobs to pending for retry.
 
         Args:
@@ -665,7 +725,9 @@ class IngestionManager:
         Returns:
             Number of jobs reset
         """
-        jobs_reset = self._ingestion_repository.reset_failed_jobs(dataset_id, tenant_id)
+        jobs_reset = await self._ingestion_repository.reset_failed_jobs(
+            dataset_id, tenant_id
+        )
 
         # Signal worker if jobs were reset
         if jobs_reset > 0:
@@ -673,7 +735,7 @@ class IngestionManager:
 
         return jobs_reset
 
-    def start_ingestion_by_id(self, dataset_id: UUID, tenant_id: UUID) -> int:
+    async def start_ingestion_by_id(self, dataset_id: UUID, tenant_id: UUID) -> int:
         """Start ingestion for a dataset by ID.
 
         Convenience method for auto-starting ingestion after dataset creation.
@@ -685,7 +747,7 @@ class IngestionManager:
         Returns:
             Number of jobs created, or 0 if not applicable
         """
-        dataset = self._dataset_repository.get_by_id(dataset_id, tenant_id)
+        dataset = await self._dataset_repository.get_by_id(dataset_id, tenant_id)
         if not dataset:
             logger.warning(f"Dataset not found for ingestion: {dataset_id}")
             return 0

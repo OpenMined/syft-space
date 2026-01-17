@@ -1,5 +1,7 @@
 """Marketplace utility functions."""
 
+import asyncio
+
 from fastapi import HTTPException
 from syft_accounting_sdk import ServiceException, UserClient
 
@@ -89,8 +91,8 @@ async def ensure_valid_accounting_credentials(
             email=creds["email"],
             password=creds["password"],
         )
-        # Call get_user_info to validate credentials
-        accounting_client.get_user_info()
+        # Blocking SDK call wrapped with to_thread
+        await asyncio.to_thread(accounting_client.get_user_info)
         return creds
     except ServiceException as e:
         # Check if it's an authentication error

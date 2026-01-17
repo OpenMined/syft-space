@@ -1,5 +1,6 @@
 """Endpoint handlers for business logic."""
 
+import asyncio
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -267,7 +268,10 @@ class EndpointHandler:
             try:
                 policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
                 policy_instance = policy_type_cls()
-                policy_context = policy_instance.pre_hook(configs, policy_context)
+                # Blocking policy hook call wrapped with to_thread
+                policy_context = await asyncio.to_thread(
+                    policy_instance.pre_hook, configs, policy_context
+                )
             except PolicyViolationError as e:
                 raise HTTPException(
                     status_code=403,
@@ -305,7 +309,10 @@ class EndpointHandler:
             try:
                 policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
                 policy_instance = policy_type_cls()
-                policy_context = policy_instance.post_hook(configs, policy_context)
+                # Blocking policy hook call wrapped with to_thread
+                policy_context = await asyncio.to_thread(
+                    policy_instance.post_hook, configs, policy_context
+                )
             except PolicyViolationError as e:
                 raise HTTPException(
                     status_code=403,
@@ -364,7 +371,10 @@ class EndpointHandler:
         )
 
         try:
-            search_result = dataset_instance.search(ctx, query, search_params)
+            # Blocking search call wrapped with to_thread
+            search_result = await asyncio.to_thread(
+                dataset_instance.search, ctx, query, search_params
+            )
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Dataset search failed: {str(e)}"
@@ -457,7 +467,10 @@ class EndpointHandler:
         )
 
         try:
-            chat_result = model_instance.chat(ctx, messages, chat_params)
+            # Blocking model chat call wrapped with to_thread
+            chat_result = await asyncio.to_thread(
+                model_instance.chat, ctx, messages, chat_params
+            )
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Model chat failed: {str(e)}"

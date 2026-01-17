@@ -1,5 +1,6 @@
 """Dataset handlers for business logic."""
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -103,8 +104,8 @@ class DatasetHandler:
             raise HTTPException(status_code=409, detail=str(e)) from e
 
         try:
-            # Start the provisioner
-            new_state_dict = provisioner_cls.start(config)
+            # Start the provisioner (blocking call wrapped with to_thread)
+            new_state_dict = await asyncio.to_thread(provisioner_cls.start, config)
             logger.info(f"Provisioner started for '{dtype}': {new_state_dict}")
 
             # Transition to RUNNING with actual state
@@ -164,7 +165,8 @@ class DatasetHandler:
             raise HTTPException(status_code=409, detail=str(e)) from e
 
         try:
-            provisioner_cls.stop(state.state)
+            # Stop the provisioner (blocking call wrapped with to_thread)
+            await asyncio.to_thread(provisioner_cls.stop, state.state)
             logger.info(f"Provisioner stopped for '{dtype}'")
 
             # Transition to STOPPED
@@ -207,9 +209,14 @@ class DatasetHandler:
             # Skip if already running
             if state.status == ProvisionerStatus.RUNNING.value:
                 provisioner_cls = self.registry.get_provisioner(state.dtype)
-                if provisioner_cls and provisioner_cls.is_running(state.state):
-                    logger.info(f"Provisioner '{state.dtype}' is already running")
-                    continue
+                if provisioner_cls:
+                    # Blocking call wrapped with to_thread
+                    is_running = await asyncio.to_thread(
+                        provisioner_cls.is_running, state.state
+                    )
+                    if is_running:
+                        logger.info(f"Provisioner '{state.dtype}' is already running")
+                        continue
 
             try:
                 # Use state.state as config (contains connection fields from last run)
@@ -508,7 +515,8 @@ class DatasetHandler:
             provisioner_cls = self.registry.get_provisioner(dataset.dtype)
 
             dataset_type = dataset_type_cls(dataset.configuration)
-            healthcheck_response = dataset_type.healthcheck()
+            # Blocking healthcheck call wrapped with to_thread
+            healthcheck_response = await asyncio.to_thread(dataset_type.healthcheck)
 
             message += f"Dataset type healthcheck: {healthcheck_response.message}. "
 
@@ -519,8 +527,9 @@ class DatasetHandler:
                 )
                 if provisioner_state is not None and provisioner_cls is not None:
                     try:
-                        provisioner_status = provisioner_cls.status(
-                            provisioner_state.state
+                        # Blocking status call wrapped with to_thread
+                        provisioner_status = await asyncio.to_thread(
+                            provisioner_cls.status, provisioner_state.state
                         )
                         message += f"Provisioner status: {provisioner_status}. "
                     except Exception as e:
@@ -557,7 +566,8 @@ class DatasetHandler:
         if not provisioner_cls or not state.state:
             return None
         try:
-            return provisioner_cls.status(state.state)
+            # Blocking status call wrapped with to_thread
+            return await asyncio.to_thread(provisioner_cls.status, state.state)
         except Exception:
             return "unknown"
 
