@@ -83,7 +83,7 @@ class ModelHandler:
             enabled=model_type_cls.enabled(),
         )
 
-    def create_model(
+    async def create_model(
         self, request: CreateModelRequest, tenant: Tenant
     ) -> ModelResponse:
         """Create a new model.
@@ -107,7 +107,7 @@ class ModelHandler:
             ) from None
 
         # Check if name already exists within tenant
-        existing = self.repository.get_by_name(request.name, tenant.id)
+        existing = await self.repository.get_by_name(request.name, tenant.id)
         if existing:
             raise HTTPException(
                 status_code=409, detail=f"Model '{request.name}' already exists"
@@ -124,11 +124,11 @@ class ModelHandler:
         )
 
         # Save to database
-        created = self.repository.create(model)
+        created = await self.repository.create(model)
 
         return ModelResponse.model_validate(created)
 
-    def list_models(self, tenant: Tenant) -> list[ModelListItem]:
+    async def list_models(self, tenant: Tenant) -> list[ModelListItem]:
         """List all models for a tenant.
 
         Args:
@@ -137,10 +137,10 @@ class ModelHandler:
         Returns:
             List of models
         """
-        models = self.repository.get_all(tenant.id)
+        models = await self.repository.get_all(tenant.id)
         return [ModelListItem.model_validate(model) for model in models]
 
-    def get_model(self, name: str, tenant: Tenant) -> ModelResponseWithEndpoints:
+    async def get_model(self, name: str, tenant: Tenant) -> ModelResponseWithEndpoints:
         """Get a specific model by name within a tenant.
 
         Args:
@@ -153,13 +153,13 @@ class ModelHandler:
         Raises:
             HTTPException: If model not found
         """
-        model = self.repository.get_by_name(name, tenant.id)
+        model = await self.repository.get_by_name(name, tenant.id)
         if not model:
             raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
         return ModelResponseWithEndpoints.model_validate(model)
 
-    def update_model(
+    async def update_model(
         self, name: str, request: UpdateModelRequest, tenant: Tenant
     ) -> ModelResponse:
         """Update a model by name within a tenant.
@@ -178,7 +178,7 @@ class ModelHandler:
         """
         # Update model
         try:
-            updated_model = self.repository.update_by_name(
+            updated_model = await self.repository.update_by_name(
                 name,
                 tenant.id,
                 name_new=request.name,
@@ -194,7 +194,7 @@ class ModelHandler:
 
         return ModelResponseWithEndpoints.model_validate(updated_model)
 
-    def delete_model(self, name: str, tenant: Tenant) -> dict:
+    async def delete_model(self, name: str, tenant: Tenant) -> dict:
         """Delete a model by name within a tenant.
 
         Args:
@@ -207,14 +207,14 @@ class ModelHandler:
         Raises:
             HTTPException: If model not found
         """
-        deleted = self.repository.delete_by_name(name, tenant.id)
+        deleted = await self.repository.delete_by_name(name, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
         return {"message": f"Successfully deleted model '{name}'"}
 
     # ============== Admin Endpoints ==============
-    def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
+    async def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
         """Check the health of a model.
 
         Args:
@@ -224,7 +224,7 @@ class ModelHandler:
         Returns:
             Healthcheck response
         """
-        model = self.repository.get_by_name(name, tenant.id)
+        model = await self.repository.get_by_name(name, tenant.id)
         if not model:
             raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 

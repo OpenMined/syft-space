@@ -81,7 +81,7 @@ class PolicyHandler:
             enabled=policy_type_cls.enabled(),
         )
 
-    def create_policy(
+    async def create_policy(
         self, request: CreatePolicyRequest, tenant: Tenant
     ) -> PolicyResponse:
         """Create a new policy.
@@ -122,11 +122,11 @@ class PolicyHandler:
         )
 
         # Save to database
-        created = self.repository.create(policy)
+        created = await self.repository.create(policy)
 
         return PolicyResponse.model_validate(created)
 
-    def list_policies(self, tenant: Tenant) -> list[PolicyListItem]:
+    async def list_policies(self, tenant: Tenant) -> list[PolicyListItem]:
         """List all policies for a tenant.
 
         Args:
@@ -135,10 +135,10 @@ class PolicyHandler:
         Returns:
             List of policies
         """
-        policies = self.repository.get_all(tenant.id)
+        policies = await self.repository.get_all(tenant.id)
         return [PolicyListItem.model_validate(p) for p in policies]
 
-    def get_policy(self, policy_id: UUID, tenant: Tenant) -> PolicyResponse:
+    async def get_policy(self, policy_id: UUID, tenant: Tenant) -> PolicyResponse:
         """Get a specific policy by ID within a tenant.
 
         Args:
@@ -151,7 +151,7 @@ class PolicyHandler:
         Raises:
             HTTPException: If policy not found
         """
-        policy = self.repository.get_by_id(policy_id, tenant.id)
+        policy = await self.repository.get_by_id(policy_id, tenant.id)
         if not policy:
             raise HTTPException(
                 status_code=404, detail=f"Policy '{policy_id}' not found"
@@ -159,7 +159,7 @@ class PolicyHandler:
 
         return PolicyResponse.model_validate(policy)
 
-    def update_policy(
+    async def update_policy(
         self, policy_id: UUID, request: UpdatePolicyRequest, tenant: Tenant
     ) -> PolicyResponse:
         """Update a policy (partial update).
@@ -176,7 +176,7 @@ class PolicyHandler:
             HTTPException: If policy not found or validation fails
         """
         # Get existing policy
-        policy = self.repository.get_by_id(policy_id, tenant.id)
+        policy = await self.repository.get_by_id(policy_id, tenant.id)
         if not policy:
             raise HTTPException(
                 status_code=404, detail=f"Policy '{policy_id}' not found"
@@ -208,10 +208,10 @@ class PolicyHandler:
         policy.updated_at = datetime.now(timezone.utc)
 
         # Save updates
-        updated = self.repository.update(policy)
+        updated = await self.repository.update(policy)
         return PolicyResponse.model_validate(updated)
 
-    def delete_policy(self, policy_id: UUID, tenant: Tenant) -> dict:
+    async def delete_policy(self, policy_id: UUID, tenant: Tenant) -> dict:
         """Delete a policy by ID within a tenant.
 
         Args:
@@ -225,14 +225,14 @@ class PolicyHandler:
             HTTPException: If policy not found
         """
         # First get the policy to verify it exists and belongs to tenant
-        policy = self.repository.get_by_id(policy_id, tenant.id)
+        policy = await self.repository.get_by_id(policy_id, tenant.id)
         if not policy:
             raise HTTPException(
                 status_code=404, detail=f"Policy '{policy_id}' not found"
             )
 
         # Now delete it using the base repository method
-        deleted = self.repository.delete(policy_id)
+        deleted = await self.repository.delete(policy_id)
         if not deleted:
             raise HTTPException(
                 status_code=404, detail=f"Policy '{policy_id}' not found"
@@ -240,7 +240,7 @@ class PolicyHandler:
 
         return {"message": f"Successfully deleted policy '{policy_id}'"}
 
-    def get_policies_by_endpoint(
+    async def get_policies_by_endpoint(
         self, endpoint_id: UUID, tenant: Tenant
     ) -> list[PolicyResponse]:
         """Get all policies for a specific endpoint within a tenant.
@@ -252,5 +252,5 @@ class PolicyHandler:
         Returns:
             List of policies
         """
-        policies = self.repository.get_by_endpoint_id(endpoint_id, tenant.id)
+        policies = await self.repository.get_by_endpoint_id(endpoint_id, tenant.id)
         return [PolicyResponse.model_validate(p) for p in policies]

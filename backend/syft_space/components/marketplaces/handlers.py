@@ -1,5 +1,6 @@
 """Marketplace handlers for business logic."""
 
+import asyncio
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -90,11 +91,13 @@ class MarketplaceHandler:
         )
 
         # Save to database
-        marketplace = self.repository.create(marketplace)
+        marketplace = await self.repository.create(marketplace)
 
         # Set as default if it matches the default marketplace URL
         if should_be_default:
-            marketplace = self.repository.set_as_default(marketplace.id, tenant.id)
+            marketplace = await self.repository.set_as_default(
+                marketplace.id, tenant.id
+            )
 
         return MarketplaceResponse.model_validate(marketplace)
 
@@ -134,11 +137,13 @@ class MarketplaceHandler:
         should_be_default = app_settings.default_marketplace_url == request.url
 
         # Check if the marketplace already exists with the same URL
-        existing_marketplace = self.repository.get_by_url(str(request.url), tenant.id)
+        existing_marketplace = await self.repository.get_by_url(
+            str(request.url), tenant.id
+        )
 
         if existing_marketplace:
             # Update the marketplace with the new credentials
-            marketplace = self.repository.update(
+            marketplace = await self.repository.update(
                 existing_marketplace.id,
                 tenant.id,
                 name=user_profile.full_name,
@@ -165,11 +170,13 @@ class MarketplaceHandler:
                 accounting_email=accounting_creds.email,
                 accounting_password=accounting_creds.password,
             )
-            marketplace = self.repository.create(marketplace)
+            marketplace = await self.repository.create(marketplace)
 
         # Set as default if it matches the default marketplace URL
         if should_be_default:
-            marketplace = self.repository.set_as_default(marketplace.id, tenant.id)
+            marketplace = await self.repository.set_as_default(
+                marketplace.id, tenant.id
+            )
 
         return MarketplaceResponse.model_validate(marketplace)
 
@@ -189,7 +196,7 @@ class MarketplaceHandler:
         async with SyftHubClient(marketplace_url) as syfthub_client:
             return await syfthub_client._is_username_available(username)
 
-    def list_marketplaces(
+    async def list_marketplaces(
         self, tenant: Tenant, url: str | None = None
     ) -> list[MarketplaceListItem]:
         """List all marketplaces for a tenant.
@@ -200,10 +207,10 @@ class MarketplaceHandler:
         Returns:
             List of marketplaces
         """
-        marketplaces = self.repository.get_all(tenant.id)
+        marketplaces = await self.repository.get_all(tenant.id)
         return [MarketplaceListItem.model_validate(m) for m in marketplaces]
 
-    def get_marketplace(self, id: UUID, tenant: Tenant) -> MarketplaceResponse:
+    async def get_marketplace(self, id: UUID, tenant: Tenant) -> MarketplaceResponse:
         """Get a specific marketplace by ID within a tenant.
 
         Args:
@@ -216,7 +223,7 @@ class MarketplaceHandler:
         Raises:
             HTTPException: If marketplace not found
         """
-        marketplace = self.repository.get_by_id(id, tenant.id)
+        marketplace = await self.repository.get_by_id(id, tenant.id)
         if not marketplace:
             raise HTTPException(
                 status_code=404, detail=f"Marketplace with ID '{id}' not found"
@@ -224,7 +231,7 @@ class MarketplaceHandler:
 
         return MarketplaceResponse.model_validate(marketplace)
 
-    def delete_marketplace(self, id: UUID, tenant: Tenant) -> dict:
+    async def delete_marketplace(self, id: UUID, tenant: Tenant) -> dict:
         """Delete a marketplace by ID within a tenant.
 
         Args:
@@ -238,7 +245,7 @@ class MarketplaceHandler:
             HTTPException: If marketplace not found or is default marketplace
         """
         # Check if marketplace exists and is not default
-        marketplace = self.repository.get_by_id(id, tenant.id)
+        marketplace = await self.repository.get_by_id(id, tenant.id)
         if not marketplace:
             raise HTTPException(
                 status_code=404, detail=f"Marketplace with ID '{id}' not found"
@@ -250,7 +257,7 @@ class MarketplaceHandler:
                 detail="Cannot delete the default marketplace (SyftHub)",
             )
 
-        deleted = self.repository.delete(id, tenant.id)
+        deleted = await self.repository.delete(id, tenant.id)
         if not deleted:
             raise HTTPException(
                 status_code=404, detail=f"Marketplace with ID '{id}' not found"
@@ -258,7 +265,7 @@ class MarketplaceHandler:
 
         return {"message": f"Successfully deleted marketplace '{marketplace.name}'"}
 
-    def get_default_marketplace(self, tenant: Tenant) -> Marketplace:
+    async def get_default_marketplace(self, tenant: Tenant) -> Marketplace:
         """Get the default marketplace for a tenant.
 
         Args:
@@ -270,7 +277,7 @@ class MarketplaceHandler:
         Raises:
             HTTPException: If no default marketplace found
         """
-        marketplace = self.repository.get_default(tenant.id)
+        marketplace = await self.repository.get_default(tenant.id)
         if not marketplace:
             raise HTTPException(
                 status_code=404,
@@ -292,7 +299,7 @@ class MarketplaceHandler:
         Raises:
             HTTPException: If no marketplace configured or balance fetch fails
         """
-        marketplace = self.get_default_marketplace(tenant)
+        marketplace = await self.get_default_marketplace(tenant)
 
         # Validate and potentially refresh credentials using utility
         creds = await ensure_valid_accounting_credentials(marketplace, self.repository)
@@ -303,7 +310,8 @@ class MarketplaceHandler:
                 email=creds["email"],
                 password=creds["password"],
             )
-            user_info = accounting_client.get_user_info()
+            # Wrap sync SDK call with asyncio.to_thread
+            user_info = await asyncio.to_thread(accounting_client.get_user_info)
             return BalanceResponse(balance=user_info.balance)
         except ServiceException as e:
             raise HTTPException(

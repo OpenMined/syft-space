@@ -38,13 +38,13 @@ class SettingsHandler:
         self.marketplace_repository = marketplace_repository
         self.proxy_service = proxy_service
 
-    def get_public_url(self) -> PublicUrlResponse:
+    async def get_public_url(self) -> PublicUrlResponse:
         """Get the current public URL from database (source of truth).
 
         Returns:
             Public URL response
         """
-        settings = self.settings_repository.get_settings()
+        settings = await self.settings_repository.get_settings()
         return PublicUrlResponse(public_url=settings.public_url)
 
     async def update_public_url(
@@ -68,7 +68,7 @@ class SettingsHandler:
         url_str = str(new_url) if new_url else None
 
         # Update database (source of truth)
-        self.settings_repository.update_public_url(url_str)
+        await self.settings_repository.update_public_url(url_str)
 
         # Sync to marketplace
         await self.sync_public_url_to_marketplace(tenant, url_str)
@@ -87,7 +87,7 @@ class SettingsHandler:
             url: Public URL to sync
         """
 
-        marketplace = self.marketplace_repository.get_default(tenant.id)
+        marketplace = await self.marketplace_repository.get_default(tenant.id)
 
         # If no default marketplace is configured, do nothing
         if not marketplace:
@@ -115,7 +115,7 @@ class SettingsHandler:
         for tenant in tenants:
             await self.update_public_url(tenant, app_settings.public_url)
 
-    def get_proxy_status(self) -> ProxyStatusResponse:
+    async def get_proxy_status(self) -> ProxyStatusResponse:
         """Get the current proxy tunnel status.
 
         Returns:
@@ -126,7 +126,7 @@ class SettingsHandler:
                 connected=False, public_url=None, has_token=False
             )
 
-        has_token = bool(self.settings_repository.get_ngrok_token())
+        has_token = bool(await self.settings_repository.get_ngrok_token())
         return ProxyStatusResponse(
             connected=self.proxy_service.is_connected(),
             public_url=self.proxy_service.get_public_url(),
