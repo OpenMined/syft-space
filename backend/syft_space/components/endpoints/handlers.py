@@ -1,6 +1,5 @@
 """Endpoint handlers for business logic."""
 
-import asyncio
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -462,10 +461,8 @@ class EndpointHandler:
         )
 
         try:
-            # Blocking model chat call wrapped with to_thread
-            chat_result = await asyncio.to_thread(
-                model_instance.chat, ctx, messages, chat_params
-            )
+            # Chat with the model
+            chat_result = await model_instance.chat(ctx, messages, chat_params)
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Model chat failed: {str(e)}"

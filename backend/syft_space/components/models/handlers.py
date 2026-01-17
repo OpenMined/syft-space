@@ -236,7 +236,7 @@ class ModelHandler:
 
         try:
             model_type = model_type_cls(model.configuration)
-            healthcheck_response = model_type.healthcheck()
+            healthcheck_response = await model_type.healthcheck()
         except Exception as e:
             return HealthcheckResponse(
                 status=HealthcheckStatus.UNHEALTHY,

@@ -17,7 +17,7 @@ from syft_space.components.shared.domain_types import (
 )
 
 try:
-    from openai import OpenAI
+    from openai import AsyncOpenAI
 
     enabled = True
 except ImportError:
@@ -46,9 +46,9 @@ class OpenAIModelType(BaseModelType):
             api_key = config.get("api_key", "")
             base_url = config.get("base_url")
             if base_url:
-                self.client = OpenAI(api_key=api_key, base_url=base_url)
+                self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             else:
-                self.client = OpenAI(api_key=api_key)
+                self.client = AsyncOpenAI(api_key=api_key)
 
     @classmethod
     def name(cls) -> str:
@@ -108,7 +108,7 @@ class OpenAIModelType(BaseModelType):
             "order": ["api_key", "model", "base_url"],
         }
 
-    def chat(
+    async def chat(
         self,
         ctx: Context,
         messages: list[ChatMessage],
@@ -168,7 +168,7 @@ class OpenAIModelType(BaseModelType):
             completion_params.update(params.extra_options)
 
         # Call OpenAI API
-        response = self.client.chat.completions.create(**completion_params)
+        response = await self.client.chat.completions.create(**completion_params)
 
         # Extract the first choice (OpenAI returns a list)
         choice = response.choices[0]
@@ -209,7 +209,7 @@ class OpenAIModelType(BaseModelType):
         """
         return enabled
 
-    def healthcheck(self) -> HealthcheckResponse:
+    async def healthcheck(self) -> HealthcheckResponse:
         """Check if the OpenAI API is healthy.
 
         Returns:
@@ -230,7 +230,7 @@ class OpenAIModelType(BaseModelType):
         try:
             # Try to make a simple API call to check connectivity
             # Use a minimal request to test the connection
-            self.client.models.list()
+            await self.client.models.list()
             return HealthcheckResponse(
                 status=HealthcheckStatus.HEALTHY,
                 message="OpenAI API is accessible",

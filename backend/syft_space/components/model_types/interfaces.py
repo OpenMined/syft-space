@@ -119,7 +119,7 @@ class BaseModelType(Protocol):
         """
         ...
 
-    def chat(
+    async def chat(
         self,
         ctx: Context,
         messages: list[ChatMessage],
@@ -137,7 +137,7 @@ class BaseModelType(Protocol):
         """
         ...
 
-    def healthcheck(self) -> HealthcheckResponse:
+    async def healthcheck(self) -> HealthcheckResponse:
         """Check if the model type is healthy.
 
         Returns:
@@ -176,7 +176,7 @@ class BaseModelTypeProvisioner(Protocol):
         """Get the name of the provisioner."""
         ...
 
-    def start(self, config: dict[str, Any]) -> None:
+    async def start(self, config: dict[str, Any]) -> None:
         """Start the model type provisioner.
 
         Args:
@@ -184,11 +184,11 @@ class BaseModelTypeProvisioner(Protocol):
         """
         ...
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """Stop the model type provisioner."""
         ...
 
-    def status(self) -> str:
+    async def status(self) -> str:
         """Get the status of the provisioner.
 
         Returns:
