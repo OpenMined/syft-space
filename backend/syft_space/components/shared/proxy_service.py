@@ -112,10 +112,8 @@ class ProxyService:
 
         # Persist token and public URL to database
         if persist:
-            await asyncio.to_thread(self._settings_repository.update_ngrok_token, token)
-            await asyncio.to_thread(
-                self._settings_repository.update_public_url, public_url
-            )
+            await self._settings_repository.update_ngrok_token(token)
+            await self._settings_repository.update_public_url(public_url)
 
         # Start reconnection monitor
         self._start_reconnect_monitor()
@@ -137,8 +135,8 @@ class ProxyService:
 
         # Clear from database
         if clear_token:
-            await asyncio.to_thread(self._settings_repository.update_ngrok_token, None)
-            await asyncio.to_thread(self._settings_repository.update_public_url, None)
+            await self._settings_repository.update_ngrok_token(None)
+            await self._settings_repository.update_public_url(None)
 
         logger.info("Ngrok tunnel disconnected")
 
@@ -147,7 +145,7 @@ class ProxyService:
 
         Called during application startup to restore tunnel connection.
         """
-        token = await asyncio.to_thread(self._settings_repository.get_ngrok_token)
+        token = await self._settings_repository.get_ngrok_token()
         if not token:
             logger.info("No ngrok token configured, skipping auto-connect")
             return
@@ -156,9 +154,7 @@ class ProxyService:
             # Connect but don't re-persist the token (it's already in DB)
             public_url = await self.connect(token, persist=False)
             # Update public URL in case it changed
-            await asyncio.to_thread(
-                self._settings_repository.update_public_url, public_url
-            )
+            await self._settings_repository.update_public_url(public_url)
             logger.info(f"Ngrok tunnel auto-connected: {public_url}")
         except Exception as e:
             logger.error(f"Failed to auto-connect ngrok tunnel: {e}")
@@ -248,7 +244,7 @@ class ProxyService:
         public_url = self._listener.url()
 
         # Update public URL in database (it may have changed)
-        await asyncio.to_thread(self._settings_repository.update_public_url, public_url)
+        await self._settings_repository.update_public_url(public_url)
 
     async def _close_listener(self) -> None:
         """Close the current listener if it exists."""

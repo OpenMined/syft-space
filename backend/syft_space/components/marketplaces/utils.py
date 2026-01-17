@@ -35,7 +35,7 @@ async def refresh_accounting_credentials(
         ) from e
 
     # Update marketplace with fresh credentials
-    repository.update(
+    await repository.update(
         marketplace.id,
         marketplace.tenant_id,
         accounting_url=str(creds.url),

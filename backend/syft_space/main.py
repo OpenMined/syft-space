@@ -75,7 +75,7 @@ from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.routes import build_settings_routes
 
 # Import database
-from syft_space.components.shared.database import Database, SQLiteConfig
+from syft_space.components.shared.database import AsyncDatabase, Database, SQLiteConfig
 
 # Import proxy service
 from syft_space.components.shared.proxy_service import ProxyService
@@ -98,12 +98,33 @@ async def lifespan(app: FastAPI):
         app.state, "provisioner_manager", None
     )
     ingestion_manager: IngestionManager = getattr(app.state, "ingestion_manager", None)
+    tenant_repository: TenantRepository = getattr(app.state, "tenant_repository", None)
+
+    # Create default tenant (async operation)
+    default_tenant = None
+    if tenant_repository:
+        default_tenant = await tenant_repository.get_by_name(
+            app_settings.default_tenant_name
+        )
+        if not default_tenant:
+            logger.info(f"Creating default tenant: {app_settings.default_tenant_name}")
+            default_tenant = await tenant_repository.create(
+                Tenant(
+                    name=app_settings.default_tenant_name,
+                    display_name="Root Tenant",
+                    is_active=True,
+                    meta={"description": "Default root tenant"},
+                )
+            )
+            logger.info(f"Default tenant created with ID: {default_tenant.id}")
+        else:
+            logger.info(f"Default tenant already exists: {default_tenant.name}")
+        app.state.default_tenant = default_tenant
 
     # Initialize settings from config (env var overwrites DB if set)
     settings_handler_local: SettingsHandler = getattr(
         app.state, "settings_handler", None
     )
-    default_tenant = getattr(app.state, "default_tenant", None)
     if settings_handler_local and default_tenant:
         try:
             await settings_handler_local.initialize_from_config(
@@ -187,30 +208,16 @@ app.add_middleware(
 # Initialize database
 db_path = app_settings.sqlite_db_path.resolve()
 db_config = SQLiteConfig(db_path)
-database = Database(db_config)
 
-# Run database migrations, optionally resetting the database
-database.run_migrations(reset=app_settings.reset_db)
+# Sync database for migrations only
+sync_database = Database(db_config)
+sync_database.run_migrations(reset=app_settings.reset_db)
 
-
-# Initialize tenant repository and create default tenant
-tenant_repository = TenantRepository(database)
-default_tenant = tenant_repository.get_by_name(app_settings.default_tenant_name)
-if not default_tenant:
-    logger.info(f"Creating default tenant: {app_settings.default_tenant_name}")
-    default_tenant = tenant_repository.create(
-        Tenant(
-            name=app_settings.default_tenant_name,
-            display_name="Root Tenant",
-            is_active=True,
-            meta={"description": "Default root tenant"},
-        )
-    )
-    logger.info(f"Default tenant created with ID: {default_tenant.id}")
-else:
-    logger.info(f"Default tenant already exists: {default_tenant.name}")
+# Async database for all repository operations
+database = AsyncDatabase(db_config)
 
 # Initialize repositories
+tenant_repository = TenantRepository(database)
 dataset_repository = DatasetRepository(database)
 provisioner_state_repository = ProvisionerStateRepository(database)
 model_repository = ModelRepository(database)
@@ -276,7 +283,8 @@ app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.proxy_service = proxy_service
 app.state.settings_handler = settings_handler
-app.state.default_tenant = default_tenant
+app.state.tenant_repository = tenant_repository
+app.state.default_tenant = None  # Set in lifespan after async creation
 
 # Create main API router with bearer auth for OpenAPI docs
 # Actual auth is handled by AdminKeyMiddleware
