@@ -89,7 +89,6 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
             # Set tenant in context for this request
             set_current_tenant(tenant)
-            logger.debug(f"Tenant set in context: {tenant.name}")
 
             # Process request
             response = await call_next(request)

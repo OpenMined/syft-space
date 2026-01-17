@@ -27,6 +27,7 @@ dependencies = [
     "watchdog>=4.0.0",
     "httpx>=0.24.0",
     "syft-accounting-sdk",
+    "sqlalchemy[asyncio]>=2.0.45",
 ]
 
 [project.optional-dependencies]

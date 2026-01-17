@@ -3680,6 +3680,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/bf/e1/3ccb13c643399d22289c6a9786c1a91e3dcbb68bce4beb44926ac2c557bf/sqlalchemy-2.0.45-py3-none-any.whl", hash = "sha256:5225a288e4c8cc2308dbdd874edad6e7d0fd38eac1e9e5f23503425c8eee20d0", size = 1936672, upload-time = "2025-12-09T21:54:52.608Z" },
 ]
 
+[package.optional-dependencies]
+asyncio = [
+    { name = "greenlet" },
+]
+
 [[package]]
 name = "sqlmodel"
 version = "0.0.31"
@@ -3744,6 +3749,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-multipart" },
     { name = "requests" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "sqlmodel" },
     { name = "syft-accounting-sdk" },
     { name = "uvicorn", extra = ["standard"] },
@@ -3822,6 +3828,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.1.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.45" },
     { name = "sqlmodel", specifier = ">=0.0.14" },
     { name = "syft-accounting-sdk", git = "https://github.com/OpenMined/accounting-sdk.git?rev=main" },
     { name = "syft-space", extras = ["build", "libs", "test", "lint", "pre-commit"], marker = "extra == 'dev'" },
