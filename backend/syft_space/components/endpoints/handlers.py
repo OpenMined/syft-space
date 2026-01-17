@@ -268,10 +268,8 @@ class EndpointHandler:
             try:
                 policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
                 policy_instance = policy_type_cls()
-                # Blocking policy hook call wrapped with to_thread
-                policy_context = await asyncio.to_thread(
-                    policy_instance.pre_hook, configs, policy_context
-                )
+                # Run pre-hook asynchronously
+                policy_context = await policy_instance.pre_hook(configs, policy_context)
             except PolicyViolationError as e:
                 raise HTTPException(
                     status_code=403,
@@ -309,9 +307,9 @@ class EndpointHandler:
             try:
                 policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
                 policy_instance = policy_type_cls()
-                # Blocking policy hook call wrapped with to_thread
-                policy_context = await asyncio.to_thread(
-                    policy_instance.post_hook, configs, policy_context
+                # Run post-hook asynchronously
+                policy_context = await policy_instance.post_hook(
+                    configs, policy_context
                 )
             except PolicyViolationError as e:
                 raise HTTPException(

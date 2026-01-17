@@ -106,7 +106,9 @@ class PolicyHandler:
 
         # Validate configuration against policy type schema
         try:
-            validated_config = policy_type_cls.validate_config(request.configuration)
+            validated_config = await policy_type_cls.validate_config(
+                request.configuration
+            )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
@@ -194,7 +196,7 @@ class PolicyHandler:
             # Validate against policy type schema
             try:
                 policy_type_cls = self.registry.get_policy_type(policy.policy_type)
-                validated_config = policy_type_cls.validate_config(merged_config)
+                validated_config = await policy_type_cls.validate_config(merged_config)
                 policy.configuration = validated_config
             except KeyError:
                 raise HTTPException(

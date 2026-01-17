@@ -158,7 +158,7 @@ class EndpointRateLimitPolicy(BasePolicyType):
         """
         return RateLimitConfig.model_json_schema(schema_generator=ConfigSchemaGenerator)
 
-    def pre_hook(
+    async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Pre-hook to enforce rate limiting with AND logic.
@@ -224,7 +224,7 @@ class EndpointRateLimitPolicy(BasePolicyType):
 
         return context
 
-    def post_hook(
+    async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Post-hook (no-op for rate limiting).
@@ -248,7 +248,7 @@ class EndpointRateLimitPolicy(BasePolicyType):
         return True
 
     @classmethod
-    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+    async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Validate configuration against RateLimitConfig schema.
 
         Args:
