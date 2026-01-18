@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING
 
 from loguru import logger
 
-if TYPE_CHECKING:
-    from syft_space.components.settings.repository import SettingsRepository
-    from syft_space.components.shared.lifecycle import LifecycleService
+from syft_space.components.settings.repository import SettingsRepository
+from syft_space.components.shared.lifecycle import LifecycleService
 
 
 class ProxyService(LifecycleService):
