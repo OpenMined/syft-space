@@ -18,6 +18,7 @@ from syft_space.components.ingestion.entities import IngestionJob, IngestionJobS
 from syft_space.components.ingestion.repository import IngestionJobRepository
 from syft_space.components.ingestion.utils import rglob_visible
 from syft_space.components.shared.domain_types import Context
+from syft_space.components.shared.lifecycle import LifecycleService
 
 if TYPE_CHECKING:
     from syft_space.components.datasets.repository import DatasetRepository
@@ -80,7 +81,7 @@ class DatasetFileEventHandler(FileSystemEventHandler):
         self.ingestion_manager.handle_file_deleted(self.dataset_id, src_path)
 
 
-class IngestionManager:
+class IngestionManager(LifecycleService):
     """Manages file watchers and ingestion job processing.
 
     Lifecycle:

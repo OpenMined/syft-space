@@ -10,9 +10,10 @@ from loguru import logger
 
 if TYPE_CHECKING:
     from syft_space.components.settings.repository import SettingsRepository
+    from syft_space.components.shared.lifecycle import LifecycleService
 
 
-class ProxyService:
+class ProxyService(LifecycleService):
     """Manages ngrok tunnel lifecycle with auto-reconnection.
 
     This service handles:
@@ -160,6 +161,13 @@ class ProxyService:
             logger.error(f"Failed to auto-connect ngrok tunnel: {e}")
             # Don't clear the token on auto-connect failure
             # User can retry or reconfigure
+
+    async def startup(self) -> None:
+        """Start the proxy service.
+
+        Implements LifecycleService protocol. Calls auto_connect_if_configured.
+        """
+        await self.auto_connect_if_configured()
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the proxy service.

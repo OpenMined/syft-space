@@ -5,9 +5,10 @@ import asyncio
 from loguru import logger
 
 from syft_space.components.datasets.handlers import DatasetHandler
+from syft_space.components.shared.lifecycle import LifecycleService
 
 
-class ProvisionerManager:
+class ProvisionerManager(LifecycleService):
     """Lightweight manager for shared dataset provisioner lifecycle.
 
     Manages startup and shutdown of dataset provisioners (e.g., Weaviate collections).
