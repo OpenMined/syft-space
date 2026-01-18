@@ -81,10 +81,14 @@ class AsyncDatabase:
         self.database_url = self.config.get_async_database_url()
         logger.info(f"Initializing async database with URL: {self.database_url}")
 
-        # Create async engine
+        # Create async engine with connection pool configuration
         self.engine: AsyncEngine = create_async_engine(
             self.database_url,
             echo=False,
+            pool_size=10,  # Base pool size (connections kept open)
+            max_overflow=5,  # Additional connections when pool is exhausted
+            pool_pre_ping=True,  # Verify connections before use
+            pool_recycle=3600,  # Recycle connections after 1 hour
         )
 
         # Configure PRAGMA for foreign key constraints
@@ -95,7 +99,7 @@ class AsyncDatabase:
                 cursor = dbapi_conn.cursor()
                 cursor.execute("PRAGMA foreign_keys=ON")
                 cursor.close()
-                logger.debug("SQLite PRAGMA foreign_keys=ON set for new connection")
+                # logger.debug("SQLite PRAGMA foreign_keys=ON set for new connection")
 
     @asynccontextmanager
     async def get_session(self) -> AsyncGenerator[SQLModelAsyncSession, None]:
