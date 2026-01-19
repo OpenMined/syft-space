@@ -1,9 +1,9 @@
 """Ingestion manager for watch-based file ingestion.
 
 Architecture:
-- Uses janus queue for sync→async bridging between watchdog and async processing
-- DatasetFileEventHandler (sync) pushes FileEvents to queue.sync_q
-- Event processor task (async) consumes from queue.async_q
+- Uses EventBridge for sync→async bridging between watchdog and async processing
+- DatasetFileEventHandler (sync) pushes events via EventBridge.push_created/push_deleted
+- Event processor task (async) consumes via EventBridge.pop()
 - Job processor task (async) processes pending ingestion jobs
 """
 
@@ -24,6 +24,7 @@ from syft_space.components.dataset_types.interfaces import IngestFile, IngestReq
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import Dataset
 from syft_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
+from syft_space.components.ingestion.event_bridge import EventBridge
 from syft_space.components.ingestion.events import FileEvent, FileEventType
 from syft_space.components.ingestion.repository import IngestionJobRepository
 from syft_space.components.ingestion.utils import rglob_visible
@@ -35,11 +36,10 @@ if TYPE_CHECKING:
 
 
 class DatasetFileEventHandler(FileSystemEventHandler):
-    """Watchdog event handler that pushes events to a janus queue.
+    """Watchdog event handler that pushes events via EventBridge.
 
-    Completely decoupled from IngestionManager:
-    - Only knows about FileEvent (data structure)
-    - Only knows about janus.Queue.sync_q (producer interface)
+    Decoupled from IngestionManager:
+    - Only knows about EventBridge (producer interface)
     - No callbacks, no manager reference, no async knowledge
     """
 
@@ -47,19 +47,19 @@ class DatasetFileEventHandler(FileSystemEventHandler):
         self,
         dataset_id: UUID,
         tenant_id: UUID,
-        event_queue: janus.Queue[FileEvent],
+        event_bridge: EventBridge,
     ):
         """Initialize the event handler.
 
         Args:
             dataset_id: Dataset UUID
             tenant_id: Tenant UUID
-            event_queue: Janus queue for pushing events
+            event_bridge: EventBridge for pushing events
         """
         super().__init__()
         self.dataset_id = dataset_id
         self.tenant_id = tenant_id
-        self._queue = event_queue.sync_q  # Sync producer side only
+        self._bridge = event_bridge
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Handle file created event."""
@@ -70,17 +70,13 @@ class DatasetFileEventHandler(FileSystemEventHandler):
         try:
             # Stat is sync - that's fine, we're in watchdog's thread
             stat = file_path.stat()
-            self._queue.put_nowait(
-                FileEvent(
-                    event_type=FileEventType.CREATED,
-                    dataset_id=self.dataset_id,
-                    tenant_id=self.tenant_id,
-                    file_path=file_path,
-                    file_size=stat.st_size,
-                    file_mtime_ns=stat.st_mtime_ns,
-                )
+            self._bridge.push_created(
+                dataset_id=self.dataset_id,
+                tenant_id=self.tenant_id,
+                file_path=file_path,
+                file_size=stat.st_size,
+                file_mtime_ns=stat.st_mtime_ns,
             )
-            logger.debug(f"Queued file created: {file_path}")
         except OSError as e:
             logger.warning(f"Failed to stat file {file_path}: {e}")
 
@@ -90,28 +86,24 @@ class DatasetFileEventHandler(FileSystemEventHandler):
             return
 
         file_path = SyncPath(event.src_path)
-        self._queue.put_nowait(
-            FileEvent(
-                event_type=FileEventType.DELETED,
-                dataset_id=self.dataset_id,
-                tenant_id=self.tenant_id,
-                file_path=file_path,
-            )
+        self._bridge.push_deleted(
+            dataset_id=self.dataset_id,
+            tenant_id=self.tenant_id,
+            file_path=file_path,
         )
-        logger.debug(f"Queued file deleted: {file_path}")
 
 
 class IngestionManager(LifecycleService):
     """Manages file watchers and ingestion job processing.
 
     Architecture:
-    - Janus queue bridges sync watchdog callbacks to async processing
+    - EventBridge bridges sync watchdog callbacks to async processing
     - Event processor task consumes file events and creates DB records
     - Job processor task processes pending ingestion jobs
 
     Lifecycle:
-    - startup(): Initialize queue, start tasks, start watchers
-    - shutdown(): Stop watchers, cancel tasks, close queue
+    - startup(): Initialize EventBridge, start tasks, start watchers
+    - shutdown(): Stop watchers, cancel tasks, close EventBridge
     """
 
     def __init__(
@@ -140,8 +132,8 @@ class IngestionManager(LifecycleService):
         # Track event handlers per dataset
         self._handlers: dict[UUID, DatasetFileEventHandler] = {}
 
-        # Janus queue - initialized in startup()
-        self._event_queue: janus.Queue[FileEvent] | None = None
+        # EventBridge for sync→async communication - initialized in startup()
+        self._event_bridge: EventBridge | None = None
 
         # Async primitives - initialized in startup()
         self._shutdown_event: asyncio.Event | None = None
@@ -171,8 +163,9 @@ class IngestionManager(LifecycleService):
         """Start the ingestion manager (fully async)."""
         logger.info("Starting ingestion manager...")
 
-        # Initialize janus queue for sync→async bridging
-        self._event_queue = janus.Queue()
+        # Initialize EventBridge for sync→async bridging
+        self._event_bridge = EventBridge()
+        await self._event_bridge.initialize()
 
         # Initialize async primitives
         self._shutdown_event = asyncio.Event()
@@ -245,10 +238,11 @@ class IngestionManager(LifecycleService):
             self._observer.join(timeout=5.0)
             self._observer = None
 
-        # Close janus queue BEFORE cancelling tasks
-        # This unblocks any tasks waiting on async_q.get() cleanly
-        if self._event_queue:
-            self._event_queue.close()
+        # Close EventBridge BEFORE cancelling tasks
+        # This unblocks any tasks waiting on pop() cleanly
+        if self._event_bridge:
+            await self._event_bridge.close()
+            self._event_bridge = None
 
         # Cancel and await all async tasks
         all_tasks = [
@@ -264,11 +258,6 @@ class IngestionManager(LifecycleService):
                 except asyncio.CancelledError:
                     pass
 
-        # Wait for queue to fully close after tasks are done
-        if self._event_queue:
-            await self._event_queue.wait_closed()
-            self._event_queue = None
-
         self._watches.clear()
         self._handlers.clear()
 
@@ -279,19 +268,16 @@ class IngestionManager(LifecycleService):
     # -------------------------------------------------------------------------
 
     async def _event_processor_loop(self) -> None:
-        """Process file events from the janus queue."""
+        """Process file events from the EventBridge."""
         logger.info("Event processor started")
 
         while not self._shutdown_event.is_set():
             try:
-                # Get event from async side of janus queue
-                event = await asyncio.wait_for(
-                    self._event_queue.async_q.get(), timeout=1.0
-                )
-                await self._process_file_event(event)
+                # Get event from EventBridge
+                event = await self._event_bridge.pop(timeout=1.0)
+                if event:
+                    await self._process_file_event(event)
 
-            except asyncio.TimeoutError:
-                continue  # Check shutdown flag
             except asyncio.CancelledError:
                 break
             except janus.AsyncQueueShutDown:
@@ -501,11 +487,11 @@ class IngestionManager(LifecycleService):
         # Use interface methods to get watched paths
         file_paths = dataset_type.watched_paths()
 
-        # Create handler with queue (decoupled - no manager reference)
+        # Create handler with EventBridge
         handler = DatasetFileEventHandler(
             dataset_id=dataset.id,
             tenant_id=dataset.tenant_id,
-            event_queue=self._event_queue,
+            event_bridge=self._event_bridge,
         )
         self._handlers[dataset.id] = handler
 
@@ -586,9 +572,9 @@ class IngestionManager(LifecycleService):
         # Scan files
         events = await self._scan_files(dataset)
 
-        # Push events to queue
+        # Push events via EventBridge
         for event in events:
-            await self._event_queue.async_q.put(event)
+            await self._event_bridge.push_async(event)
 
         # Start watcher
         await self._start_watcher(dataset)
@@ -628,7 +614,7 @@ class IngestionManager(LifecycleService):
                 try:
                     stat = await file_path.stat()
                     events.append(
-                        FileEvent(
+                        EventBridge.create_event(
                             event_type=FileEventType.CREATED,
                             dataset_id=dataset.id,
                             tenant_id=dataset.tenant_id,
