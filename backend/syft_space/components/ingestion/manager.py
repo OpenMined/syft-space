@@ -35,11 +35,57 @@ if TYPE_CHECKING:
     from syft_space.components.datasets.repository import DatasetRepository
 
 
+class WatchedPathFilter:
+    """Filters file paths based on watched directories and specific files.
+
+    Performance:
+    - File lookup: O(1) via set membership
+    - Directory check: O(d) where d = number of watched directories (typically small)
+
+    Note: Sets are NOT cleaned up on delete - user intent to watch persists
+    until watcher is stopped.
+    """
+
+    def __init__(self, watched_dirs: set[SyncPath], watched_files: set[SyncPath]):
+        """Initialize the filter.
+
+        Args:
+            watched_dirs: Directories to watch (accept all files under these)
+            watched_files: Specific files to watch (exact match only)
+        """
+        self._watched_dirs = watched_dirs
+        self._watched_files = watched_files
+
+    def is_watched(self, file_path: SyncPath) -> bool:
+        """Check if a file path should be processed.
+
+        Args:
+            file_path: Path to check
+
+        Returns:
+            True if file matches a watched file or is under a watched directory
+        """
+        # Exact file match (O(1))
+        if file_path in self._watched_files:
+            return True
+
+        # Under a watched directory (O(d), typically small)
+        for watched_dir in self._watched_dirs:
+            try:
+                file_path.relative_to(watched_dir)
+                return True
+            except ValueError:
+                continue
+
+        return False
+
+
 class DatasetFileEventHandler(FileSystemEventHandler):
     """Watchdog event handler that pushes events via EventBridge.
 
     Decoupled from IngestionManager:
     - Only knows about EventBridge (producer interface)
+    - Uses WatchedPathFilter to filter events
     - No callbacks, no manager reference, no async knowledge
     """
 
@@ -48,6 +94,7 @@ class DatasetFileEventHandler(FileSystemEventHandler):
         dataset_id: UUID,
         tenant_id: UUID,
         event_bridge: EventBridge,
+        path_filter: WatchedPathFilter,
     ):
         """Initialize the event handler.
 
@@ -55,11 +102,13 @@ class DatasetFileEventHandler(FileSystemEventHandler):
             dataset_id: Dataset UUID
             tenant_id: Tenant UUID
             event_bridge: EventBridge for pushing events
+            path_filter: Filter to determine which paths to process
         """
         super().__init__()
         self.dataset_id = dataset_id
         self.tenant_id = tenant_id
         self._bridge = event_bridge
+        self._path_filter = path_filter
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Handle file created event."""
@@ -67,6 +116,11 @@ class DatasetFileEventHandler(FileSystemEventHandler):
             return
 
         file_path = SyncPath(event.src_path)
+
+        # Filter unwatched files
+        if not self._path_filter.is_watched(file_path):
+            return
+
         try:
             # Stat is sync - that's fine, we're in watchdog's thread
             stat = file_path.stat()
@@ -86,6 +140,11 @@ class DatasetFileEventHandler(FileSystemEventHandler):
             return
 
         file_path = SyncPath(event.src_path)
+
+        # Filter unwatched files
+        if not self._path_filter.is_watched(file_path):
+            return
+
         self._bridge.push_deleted(
             dataset_id=self.dataset_id,
             tenant_id=self.tenant_id,
@@ -483,30 +542,42 @@ class IngestionManager(LifecycleService):
         # Instantiate dataset type to access interface methods
         dataset_type_cls = self._registry.get_dataset_type(dataset.dtype)
         dataset_type = dataset_type_cls(dataset.configuration)
+        raw_paths = dataset_type.watched_paths()
 
-        # Use interface methods to get watched paths
-        file_paths = dataset_type.watched_paths()
+        # Categorize paths and compute watch targets (deduplicated)
+        watched_dirs: set[SyncPath] = set()
+        watched_files: set[SyncPath] = set()
+        watch_schedule: dict[str, bool] = {}  # path_str -> recursive
 
-        # Create handler with EventBridge
-        handler = DatasetFileEventHandler(
-            dataset_id=dataset.id,
-            tenant_id=dataset.tenant_id,
-            event_bridge=self._event_bridge,
-        )
-        self._handlers[dataset.id] = handler
-
-        # Schedule watches for each path
-        watches = []
-        for path_str in file_paths:
+        for path_str in raw_paths:
             path = AsyncPath(path_str)
             if not await path.exists():
                 logger.warning(f"Cannot watch non-existent path: {path_str}")
                 continue
 
-            # Watch directory containing the file, or the directory itself
-            watch_path = str(path) if await path.is_dir() else str(await path.parent)
-            recursive = await path.is_dir()
+            if await path.is_dir():
+                watched_dirs.add(SyncPath(path_str))
+                watch_schedule[path_str] = True  # recursive
+            else:
+                watched_files.add(SyncPath(path_str))
+                parent = str(path.parent)
+                # Only add parent if not already scheduled (deduplication)
+                if parent not in watch_schedule:
+                    watch_schedule[parent] = False  # not recursive
 
+        # Create path filter and handler
+        path_filter = WatchedPathFilter(watched_dirs, watched_files)
+        handler = DatasetFileEventHandler(
+            dataset_id=dataset.id,
+            tenant_id=dataset.tenant_id,
+            event_bridge=self._event_bridge,
+            path_filter=path_filter,
+        )
+        self._handlers[dataset.id] = handler
+
+        # Schedule watches (deduplicated)
+        watches = []
+        for watch_path, recursive in watch_schedule.items():
             try:
                 watch = self._observer.schedule(
                     handler,
@@ -515,14 +586,14 @@ class IngestionManager(LifecycleService):
                 )
                 watches.append(watch)
                 logger.info(
-                    f"Started watching '{watch_path}' for dataset '{dataset.name}' "
+                    f"Watching '{watch_path}' for dataset '{dataset.name}' "
                     f"(recursive={recursive})"
                 )
             except Exception as e:
                 logger.error(f"Failed to watch path {watch_path}: {e}")
 
         self._watches[dataset.id] = watches
-        return True
+        return len(watches) > 0
 
     def stop_watcher(self, dataset_id: UUID) -> None:
         """Stop file watcher for a dataset.
