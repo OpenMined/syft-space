@@ -4,6 +4,7 @@ import asyncio
 import re
 import threading
 from io import BytesIO
+from pathlib import Path as SyncPath
 from typing import Any
 
 from anyio import Path as AsyncPath
@@ -117,10 +118,28 @@ class LocalFileDatasetType(FileIngestableDatasetType):
                     "title": "Ingest File Type Options",
                     "items": {
                         "type": "string",
-                        "enum": [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"],
+                        "enum": [
+                            ".pdf",
+                            ".json",
+                            ".txt",
+                            ".html",
+                            ".xlsx",
+                            ".docx",
+                            ".md",
+                            ".csv",
+                        ],
                     },
                     "uniqueItems": True,
-                    "default": [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"],
+                    "default": [
+                        ".pdf",
+                        ".json",
+                        ".txt",
+                        ".html",
+                        ".xlsx",
+                        ".docx",
+                        ".md",
+                        ".csv",
+                    ],
                 },
                 "filePaths": {
                     "type": "array",
@@ -229,12 +248,19 @@ class LocalFileDatasetType(FileIngestableDatasetType):
 
         # Convert the file to a document stream
         stream = BytesIO(file.file_handle.read())
-        document_stream = DocumentStream(name=file.filename, stream=stream)
-        conv_result = self.converter.convert(document_stream)
+
+        # If the file is a JSON or TXT file, read the content directly
+        if SyncPath(file.filename).suffix in [".json", ".txt"]:
+            content = stream.read().decode("utf-8")
+        else:
+            # Otherwise, convert the file to a document stream and export to markdown
+            document_stream = DocumentStream(name=file.filename, stream=stream)
+            conv_result = self.converter.convert(document_stream)
+            content = conv_result.document.export_to_markdown()
 
         # Return the parsed document content and metadata
         return {
-            "content": conv_result.document.export_to_markdown(),
+            "content": content,
             "file_name": file.filename,
             "file_type": file.content_type,
             "file_size": file.file_size or 0,

@@ -131,23 +131,4 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         """
         return await handler.get_marketplace(id, tenant)
 
-    @router.delete("/{id}", response_model=dict[str, str])
-    async def delete_marketplace(
-        id: UUID,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: MarketplaceHandler = Depends(get_handler),
-    ) -> dict[str, str]:
-        """Delete a marketplace.
-
-        Cannot delete the default marketplace (SyftHub).
-
-        Args:
-            id: Marketplace ID
-            tenant: Current tenant (injected)
-
-        Returns:
-            Success message
-        """
-        return await handler.delete_marketplace(id, tenant)
-
     return router
