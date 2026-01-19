@@ -25,9 +25,11 @@ dependencies = [
     "openai>=2.7.2",
     "ngrok>=1.4.0",
     "watchdog>=4.0.0",
+    "janus>=1.0.0",
     "httpx>=0.24.0",
     "syft-accounting-sdk",
     "sqlalchemy[asyncio]>=2.0.45",
+    "aiofiles>=25.1.0",
 ]
 
 [project.optional-dependencies]

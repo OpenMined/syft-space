@@ -1,5 +1,6 @@
 """Main FastAPI application."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -92,6 +93,32 @@ from syft_space.components.tenants.routes import build_tenant_routes
 from syft_space.config import app_settings
 
 
+async def _sync_public_url_safe(
+    handler: SettingsHandler, tenant: Tenant, url: str
+) -> None:
+    """Sync public URL to marketplace without blocking startup.
+
+    This is a fire-and-forget helper that wraps the marketplace sync with
+    timeout handling. If the sync fails or times out, the server continues
+    starting - the sync is not critical for basic operation.
+
+    Args:
+        handler: Settings handler instance
+        tenant: Tenant context
+        url: Public URL to sync
+    """
+    try:
+        await asyncio.wait_for(
+            handler.update_public_url(tenant, url),
+            timeout=10.0,  # 10 second timeout
+        )
+        logger.info("Public URL synced to marketplace successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Marketplace sync timed out - server will continue starting")
+    except Exception as e:
+        logger.warning(f"Marketplace sync failed: {e} - server will continue starting")
+
+
 async def _setup_tenant_and_settings(
     tenant_repo: TenantRepository,
     settings_hdlr: SettingsHandler,
@@ -160,8 +187,12 @@ async def lifespan(app: FastAPI):
         proxy_service.log_connection_info(app_settings.admin_api_key)
         public_url = proxy_service.get_public_url()
         if public_url and default_tenant:
-            await settings_handler.update_public_url(default_tenant, public_url)
+            # Fire-and-forget: Don't block startup on marketplace sync
+            asyncio.create_task(
+                _sync_public_url_safe(settings_handler, default_tenant, public_url)
+            )
 
+    logger.info("Application started")
     yield  # Application runs here
 
     # 6. Shutdown all services (reverse order: ingestion → provisioner → proxy)

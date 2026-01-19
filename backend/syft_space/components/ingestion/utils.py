@@ -1,13 +1,14 @@
-from collections.abc import Generator
-from pathlib import Path
+from collections.abc import AsyncGenerator
+
+from anyio import Path as AsyncPath
 
 GLOB_PATTERN = "*"
 
 
-def rglob_visible(
-    path: Path, pattern: str = GLOB_PATTERN
-) -> Generator[Path, None, None]:
+async def rglob_visible(
+    path: AsyncPath, pattern: str = GLOB_PATTERN
+) -> AsyncGenerator[AsyncPath, None]:
     """Like rglob but ignores hidden files and directories."""
-    for file_path in path.rglob(pattern):
+    async for file_path in path.rglob(pattern):
         if not any(part.startswith(".") for part in file_path.parts):
             yield file_path

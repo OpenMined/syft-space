@@ -337,15 +337,22 @@ class AsyncRefreshTokenAuth(httpx.Auth):
 class SyftHubClient:
     """Async HTTP client for SyftHub marketplace API with typed requests/responses."""
 
-    def __init__(self, base_url: str):
+    # Default timeout for HTTP requests (10 seconds)
+    DEFAULT_TIMEOUT = 10.0
+
+    def __init__(self, base_url: str, timeout: float | None = None):
         """Initialize SyftHub client.
 
         Args:
             base_url: Base URL for the SyftHub instance (str)
+            timeout: Request timeout in seconds (default: 10.0)
         """
         # Normalize URL (remove trailing slash)
         self.base_url = base_url.rstrip("/")
-        self._auth_client = httpx.AsyncClient(base_url=self.base_url)
+        self._timeout = httpx.Timeout(timeout or self.DEFAULT_TIMEOUT)
+        self._auth_client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=self._timeout
+        )
         self._client: httpx.AsyncClient | None = None
         self._tokens: TokenResponse | None = None
 
@@ -423,7 +430,9 @@ class SyftHubClient:
             access_token=tokens.access_token,
             refresh_token=tokens.refresh_token,
         )
-        self._client = httpx.AsyncClient(base_url=self.base_url, auth=auth)
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url, auth=auth, timeout=self._timeout
+        )
         return tokens
 
     async def accounting_credentials(self) -> AccountingResponse:

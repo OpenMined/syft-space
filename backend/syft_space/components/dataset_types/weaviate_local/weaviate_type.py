@@ -2,9 +2,11 @@
 
 import asyncio
 import re
+import threading
 from io import BytesIO
-from pathlib import Path
 from typing import Any
+
+from anyio import Path as AsyncPath
 
 from syft_space.components.dataset_types.interfaces import (
     FileIngestableDatasetType,
@@ -45,19 +47,35 @@ class LocalFileDatasetType(FileIngestableDatasetType):
 
     NAME = "local_file"
 
+    # Class-level lock for thread-safe lazy initialization of DocumentConverter
+    _converter_lock = threading.Lock()
+
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Local file dataset type.
 
         Args:
             config: Configuration dictionary with connection settings
         """
-        from docling.document_converter import DocumentConverter
-
         self.config = config
         self.config["httpPort"] = config.get("httpPort", DEFAULT_HTTP_PORT)
         self.config["grpcPort"] = config.get("grpcPort", DEFAULT_GRPC_PORT)
-        if enabled:
-            self.converter = DocumentConverter()
+
+        # Lazy initialization of DocumentConverter
+        self._converter = None
+
+    @property
+    def converter(self):
+        """Lazily initialize DocumentConverter on first use.
+
+        Thread-safe via double-checked locking. Lazy loading of DocumentConverter.
+        """
+        from docling.document_converter import DocumentConverter
+
+        if self._converter is None:
+            with self._converter_lock:
+                if self._converter is None:  # Double-check after acquiring lock
+                    self._converter = DocumentConverter()
+        return self._converter
 
     @classmethod
     def name(cls) -> str:
@@ -195,7 +213,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
                     f"filePaths item must be a string or object with 'path' and 'description' properties, got {type(file_path_item)}"
                 )
 
-            if not Path(file_path).exists():
+            if not await AsyncPath(file_path).exists():
                 raise ValueError(f"filePaths does not exist: {file_path}")
 
     def _parse_document(self, file: IngestFile) -> dict[str, Any]:

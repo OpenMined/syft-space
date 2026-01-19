@@ -65,12 +65,12 @@ class ProxyService(LifecycleService):
 
         public_url = self.get_public_url()
         public_url_str = (
-            f"{public_url}#authToken={admin_api_key}"
+            f"{public_url.rstrip('/')}/#/?authToken={admin_api_key}"
             if admin_api_key
             else str(public_url)
         )
         local_url_str = (
-            f"http://localhost:{self._port}#authToken={admin_api_key}"
+            f"http://localhost:{self._port}/#/?authToken={admin_api_key}"
             if admin_api_key
             else f"http://localhost:{self._port}"
         )
