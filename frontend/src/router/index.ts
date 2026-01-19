@@ -15,14 +15,24 @@ import UpdatesPage from '../pages/UpdatesPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 
+let onboardingStatusCache: boolean | null = null
+
 export async function checkOnboardingStatus(): Promise<boolean> {
+  if (onboardingStatusCache !== null) {
+    return onboardingStatusCache
+  }
   try {
     const marketplaces = await marketplacesApi.list()
-    return marketplaces.length > 0
+    onboardingStatusCache = marketplaces.length > 0
+    return onboardingStatusCache
   } catch {
     // If API fails, assume not onboarded
     return false
   }
+}
+
+export function clearOnboardingCache() {
+  onboardingStatusCache = null
 }
 
 const router = createRouter({

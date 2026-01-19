@@ -272,7 +272,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { loadGlobalData } from '@/lib/utils'
-import { checkOnboardingStatus } from '@/router'
+import { checkOnboardingStatus, clearOnboardingCache } from '@/router'
 
 const router = useRouter()
 const route = useRoute()
@@ -375,6 +375,9 @@ const handleCompleteSetup = async () => {
     // Complete the setup
     const setupSuccess = await completeSetup()
     if (setupSuccess) {
+      // Clear cache so next check gets fresh status
+      clearOnboardingCache()
+
       // Fetch global data now that onboarding is complete
       await loadGlobalData()
 
