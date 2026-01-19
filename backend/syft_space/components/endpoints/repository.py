@@ -7,13 +7,13 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from syft_space.components.endpoints.entities import Endpoint
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class EndpointRepository(BaseRepository[Endpoint]):
+class EndpointRepository(AsyncBaseRepository[Endpoint]):
     """Repository for Endpoint CRUD operations."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         """Initialize the endpoint repository.
 
         Args:
@@ -21,7 +21,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
         """
         super().__init__(db, Endpoint)
 
-    def get_all(self, tenant_id: UUID) -> list[Endpoint]:
+    async def get_all(self, tenant_id: UUID) -> list[Endpoint]:
         """Get all endpoints for a specific tenant.
 
         Args:
@@ -30,15 +30,16 @@ class EndpointRepository(BaseRepository[Endpoint]):
         Returns:
             List of endpoints
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Endpoint)
                 .where(Endpoint.tenant_id == tenant_id)
                 .options(selectinload(Endpoint.model), selectinload(Endpoint.dataset))
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_id(self, id: int, tenant_id: UUID) -> Endpoint | None:
+    async def get_by_id(self, id: int, tenant_id: UUID) -> Endpoint | None:
         """Get an endpoint by ID within a tenant.
 
         Args:
@@ -48,13 +49,14 @@ class EndpointRepository(BaseRepository[Endpoint]):
         Returns:
             Endpoint if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Endpoint).where(
                 Endpoint.id == id, Endpoint.tenant_id == tenant_id
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_by_slug(self, slug: str, tenant_id: UUID) -> Endpoint | None:
+    async def get_by_slug(self, slug: str, tenant_id: UUID) -> Endpoint | None:
         """Get an endpoint by slug within a tenant.
 
         Args:
@@ -64,7 +66,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
         Returns:
             Endpoint if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(Endpoint)
                 .where(Endpoint.slug == slug, Endpoint.tenant_id == tenant_id)
@@ -74,9 +76,10 @@ class EndpointRepository(BaseRepository[Endpoint]):
                     selectinload(Endpoint.policies),
                 )
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def delete_by_slug(self, slug: str, tenant_id: UUID) -> bool:
+    async def delete_by_slug(self, slug: str, tenant_id: UUID) -> bool:
         """Delete an endpoint by slug within a tenant.
 
         Args:
@@ -86,18 +89,21 @@ class EndpointRepository(BaseRepository[Endpoint]):
         Returns:
             True if deleted, False if not found
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Endpoint).where(
                 Endpoint.slug == slug, Endpoint.tenant_id == tenant_id
             )
-            obj = session.exec(statement).first()
+            result = await session.exec(statement)
+            obj = result.first()
             if obj:
-                session.delete(obj)
-                session.commit()
+                await session.delete(obj)
+                await session.commit()
                 return True
             return False
 
-    def get_by_dataset_id(self, dataset_id: UUID, tenant_id: UUID) -> list[Endpoint]:
+    async def get_by_dataset_id(
+        self, dataset_id: UUID, tenant_id: UUID
+    ) -> list[Endpoint]:
         """Get all endpoints using a specific dataset within a tenant.
 
         Args:
@@ -107,13 +113,14 @@ class EndpointRepository(BaseRepository[Endpoint]):
         Returns:
             List of endpoints
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Endpoint).where(
                 Endpoint.dataset_id == dataset_id, Endpoint.tenant_id == tenant_id
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def get_by_model_id(self, model_id: UUID, tenant_id: UUID) -> list[Endpoint]:
+    async def get_by_model_id(self, model_id: UUID, tenant_id: UUID) -> list[Endpoint]:
         """Get all endpoints using a specific model within a tenant.
 
         Args:
@@ -123,13 +130,14 @@ class EndpointRepository(BaseRepository[Endpoint]):
         Returns:
             List of endpoints
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Endpoint).where(
                 Endpoint.model_id == model_id, Endpoint.tenant_id == tenant_id
             )
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def add_publication(
+    async def add_publication(
         self, endpoint_id: UUID, marketplace_id: UUID, tenant_id: UUID
     ) -> Endpoint | None:
         """Add a marketplace ID to endpoint's published_to list.
@@ -142,11 +150,12 @@ class EndpointRepository(BaseRepository[Endpoint]):
         Returns:
             Updated endpoint if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Endpoint).where(
                 Endpoint.id == endpoint_id, Endpoint.tenant_id == tenant_id
             )
-            endpoint = session.exec(statement).first()
+            result = await session.exec(statement)
+            endpoint = result.first()
             if not endpoint:
                 return None
 
@@ -155,12 +164,12 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 endpoint.published_to = [*endpoint.published_to, marketplace_id_str]
                 endpoint.updated_at = datetime.now(timezone.utc)
                 session.add(endpoint)
-                session.commit()
-                session.refresh(endpoint)
+                await session.commit()
+                await session.refresh(endpoint)
 
             return endpoint
 
-    def remove_publication(
+    async def remove_publication(
         self, endpoint_id: UUID, marketplace_id: UUID, tenant_id: UUID
     ) -> Endpoint | None:
         """Remove a marketplace ID from endpoint's published_to list.
@@ -173,11 +182,12 @@ class EndpointRepository(BaseRepository[Endpoint]):
         Returns:
             Updated endpoint if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(Endpoint).where(
                 Endpoint.id == endpoint_id, Endpoint.tenant_id == tenant_id
             )
-            endpoint = session.exec(statement).first()
+            result = await session.exec(statement)
+            endpoint = result.first()
             if not endpoint:
                 return None
 
@@ -188,7 +198,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 ]
                 endpoint.updated_at = datetime.now(timezone.utc)
                 session.add(endpoint)
-                session.commit()
-                session.refresh(endpoint)
+                await session.commit()
+                await session.refresh(endpoint)
 
             return endpoint

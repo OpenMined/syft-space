@@ -81,7 +81,7 @@ class EndpointHandler:
         self.policy_registry = policy_registry
         self.marketplace_repository = marketplace_repository
 
-    def create_endpoint(
+    async def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
     ) -> EndpointCreateResponse:
         """Create a new endpoint.
@@ -104,7 +104,7 @@ class EndpointHandler:
             )
 
         # Check if slug already exists within tenant
-        existing = self.endpoint_repository.get_by_slug(request.slug, tenant.id)
+        existing = await self.endpoint_repository.get_by_slug(request.slug, tenant.id)
         if existing:
             raise HTTPException(
                 status_code=409, detail=f"Endpoint slug '{request.slug}' already exists"
@@ -112,7 +112,9 @@ class EndpointHandler:
 
         # Verify dataset exists if provided (within tenant)
         if request.dataset_id:
-            dataset = self.dataset_repository.get_by_id(request.dataset_id, tenant.id)
+            dataset = await self.dataset_repository.get_by_id(
+                request.dataset_id, tenant.id
+            )
             if not dataset:
                 raise HTTPException(
                     status_code=404, detail=f"Dataset '{request.dataset_id}' not found"
@@ -120,7 +122,7 @@ class EndpointHandler:
 
         # Verify model exists if provided (within tenant)
         if request.model_id:
-            model = self.model_repository.get_by_id(request.model_id, tenant.id)
+            model = await self.model_repository.get_by_id(request.model_id, tenant.id)
             if not model:
                 raise HTTPException(
                     status_code=404, detail=f"Model '{request.model_id}' not found"
@@ -141,11 +143,11 @@ class EndpointHandler:
         )
 
         # Save to database
-        created = self.endpoint_repository.create(endpoint)
+        created = await self.endpoint_repository.create(endpoint)
 
         return EndpointCreateResponse.model_validate(created)
 
-    def list_endpoints(self, tenant: Tenant) -> list[EndpointListItem]:
+    async def list_endpoints(self, tenant: Tenant) -> list[EndpointListItem]:
         """List all endpoints for a tenant.
 
         Args:
@@ -154,10 +156,10 @@ class EndpointHandler:
         Returns:
             List of endpoints
         """
-        endpoints = self.endpoint_repository.get_all(tenant.id)
+        endpoints = await self.endpoint_repository.get_all(tenant.id)
         return [EndpointListItem.model_validate(ep) for ep in endpoints]
 
-    def get_endpoint(self, slug: str, tenant: Tenant) -> EndpointDetailResponse:
+    async def get_endpoint(self, slug: str, tenant: Tenant) -> EndpointDetailResponse:
         """Get a specific endpoint by slug within a tenant.
 
         Args:
@@ -170,13 +172,13 @@ class EndpointHandler:
         Raises:
             HTTPException: If endpoint not found
         """
-        endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
         return EndpointDetailResponse.model_validate(endpoint)
 
-    def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
+    async def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
         """Delete an endpoint by slug within a tenant.
 
         Args:
@@ -189,13 +191,13 @@ class EndpointHandler:
         Raises:
             HTTPException: If endpoint not found
         """
-        deleted = self.endpoint_repository.delete_by_slug(slug, tenant.id)
+        deleted = await self.endpoint_repository.delete_by_slug(slug, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
         return {"message": f"Successfully deleted endpoint '{slug}'"}
 
-    def query_endpoint(
+    async def query_endpoint(
         self,
         slug: str,
         request: AuthenticatedQueryRequest,
@@ -215,7 +217,7 @@ class EndpointHandler:
             HTTPException: If endpoint not found or query fails
         """
         # Get endpoint
-        endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
@@ -227,10 +229,12 @@ class EndpointHandler:
         metadata: dict = {}
         if self.marketplace_repository:
             try:
-                default_marketplace = self.marketplace_repository.get_default(tenant.id)
+                default_marketplace = await self.marketplace_repository.get_default(
+                    tenant.id
+                )
                 if default_marketplace:
                     # Validate credentials upfront (refreshes from SyftHub if expired)
-                    creds = ensure_valid_accounting_credentials(
+                    creds = await ensure_valid_accounting_credentials(
                         default_marketplace, self.marketplace_repository
                     )
                     # Inject validated accounting credentials
@@ -242,7 +246,7 @@ class EndpointHandler:
                 pass
 
         # Get policies grouped by type and extract configurations
-        policies_by_type = self.policy_repository.get_by_endpoint_id_grouped(
+        policies_by_type = await self.policy_repository.get_by_endpoint_id_grouped(
             endpoint.id, tenant.id
         )
         configs_by_type: dict[str, list[dict]] = {
@@ -263,7 +267,8 @@ class EndpointHandler:
             try:
                 policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
                 policy_instance = policy_type_cls()
-                policy_context = policy_instance.pre_hook(configs, policy_context)
+                # Run pre-hook asynchronously
+                policy_context = await policy_instance.pre_hook(configs, policy_context)
             except PolicyViolationError as e:
                 raise HTTPException(
                     status_code=403,
@@ -281,14 +286,14 @@ class EndpointHandler:
             response_type in [ResponseType.RAW, ResponseType.BOTH]
             and endpoint.dataset_id
         ):
-            references = self._search_dataset(endpoint, request)
+            references = await self._search_dataset(endpoint, request)
 
         # Chat with model if needed
         if (
             response_type in [ResponseType.SUMMARY, ResponseType.BOTH]
             and endpoint.model_id
         ):
-            summary = self._chat_with_model(endpoint, request, references)
+            summary = await self._chat_with_model(endpoint, request, references)
 
         # Create response
         query_response = QueryEndpointResponse(summary=summary, references=references)
@@ -301,7 +306,10 @@ class EndpointHandler:
             try:
                 policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
                 policy_instance = policy_type_cls()
-                policy_context = policy_instance.post_hook(configs, policy_context)
+                # Run post-hook asynchronously
+                policy_context = await policy_instance.post_hook(
+                    configs, policy_context
+                )
             except PolicyViolationError as e:
                 raise HTTPException(
                     status_code=403,
@@ -310,7 +318,7 @@ class EndpointHandler:
 
         return QueryEndpointResponse.model_validate(policy_context.response)
 
-    def _search_dataset(
+    async def _search_dataset(
         self, endpoint: Endpoint, request: AuthenticatedQueryRequest
     ) -> ReferencesResponse:
         """Search the dataset.
@@ -326,7 +334,7 @@ class EndpointHandler:
             HTTPException: If search fails
         """
         # Get dataset (use endpoint's tenant_id for authorization)
-        dataset = self.dataset_repository.get_by_id(
+        dataset = await self.dataset_repository.get_by_id(
             endpoint.dataset_id, endpoint.tenant_id
         )
         if not dataset:
@@ -360,7 +368,7 @@ class EndpointHandler:
         )
 
         try:
-            search_result = dataset_instance.search(ctx, query, search_params)
+            search_result = await dataset_instance.search(ctx, query, search_params)
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Dataset search failed: {str(e)}"
@@ -383,7 +391,7 @@ class EndpointHandler:
             cost=0.0,  # TODO: Implement cost tracking
         )
 
-    def _chat_with_model(
+    async def _chat_with_model(
         self,
         endpoint: Endpoint,
         request: AuthenticatedQueryRequest,
@@ -403,7 +411,9 @@ class EndpointHandler:
             HTTPException: If chat fails
         """
         # Get model (use endpoint's tenant_id for authorization)
-        model = self.model_repository.get_by_id(endpoint.model_id, endpoint.tenant_id)
+        model = await self.model_repository.get_by_id(
+            endpoint.model_id, endpoint.tenant_id
+        )
         if not model:
             raise HTTPException(status_code=500, detail="Model not found")
 
@@ -451,7 +461,8 @@ class EndpointHandler:
         )
 
         try:
-            chat_result = model_instance.chat(ctx, messages, chat_params)
+            # Chat with the model
+            chat_result = await model_instance.chat(ctx, messages, chat_params)
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Model chat failed: {str(e)}"
@@ -481,7 +492,7 @@ class EndpointHandler:
             provider_info=ProviderInfo(api_version="v1"),
         )
 
-    def publish_endpoint(
+    async def publish_endpoint(
         self,
         slug: str,
         marketplace_ids: list[UUID] | None,
@@ -516,14 +527,14 @@ class EndpointHandler:
             )
 
         # Get endpoint
-        endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
         # Get marketplaces to publish to
         if publish_to_all_marketplaces:
             # Get all active marketplaces (flag takes precedence)
-            marketplaces = self.marketplace_repository.get_active(tenant.id)
+            marketplaces = await self.marketplace_repository.get_active(tenant.id)
             if not marketplaces:
                 raise HTTPException(
                     status_code=400,
@@ -531,7 +542,7 @@ class EndpointHandler:
                 )
         else:
             # Get specific marketplaces by IDs
-            marketplaces = self.marketplace_repository.get_by_ids(
+            marketplaces = await self.marketplace_repository.get_by_ids(
                 marketplace_ids, tenant.id
             )
             found_ids = {m.id for m in marketplaces}
@@ -547,7 +558,7 @@ class EndpointHandler:
         # Publish to each marketplace
         results: list[PublishResult] = []
         for marketplace in marketplaces:
-            result = self._publish_to_marketplace(endpoint, marketplace)
+            result = await self._publish_to_marketplace(endpoint, marketplace)
             results.append(result)
 
         return PublishEndpointResponse(
@@ -555,7 +566,7 @@ class EndpointHandler:
             results=results,
         )
 
-    def _publish_to_marketplace(
+    async def _publish_to_marketplace(
         self,
         endpoint: Endpoint,
         marketplace: Marketplace,
@@ -588,9 +599,11 @@ class EndpointHandler:
             )
 
         try:
-            with SyftHubClient(base_url=marketplace.url) as client:
+            async with SyftHubClient(base_url=marketplace.url) as client:
                 # Note: marketplace.email is used as username
-                client.login(username=marketplace.email, password=marketplace.password)
+                await client.login(
+                    username=marketplace.email, password=marketplace.password
+                )
 
                 endpoint_type = (
                     "model" if endpoint.model_id is not None else "data_source"
@@ -627,7 +640,7 @@ class EndpointHandler:
                         }
                     ],
                 }
-                client.publish_endpoint(payload, overwrite=True)
+                await client.publish_endpoint(payload, overwrite=True)
 
         except SyftHubError as e:
             return PublishResult(
@@ -639,7 +652,7 @@ class EndpointHandler:
 
         try:
             # Record the publication in endpoint's published_to list
-            self.endpoint_repository.add_publication(
+            await self.endpoint_repository.add_publication(
                 endpoint.id, marketplace.id, endpoint.tenant_id
             )
 
@@ -657,7 +670,7 @@ class EndpointHandler:
                 error=str(e),
             )
 
-    def check_slug_availability(
+    async def check_slug_availability(
         self,
         slug: str,
         marketplace_ids: list[UUID] | None,
@@ -676,7 +689,7 @@ class EndpointHandler:
             Availability status for local and each requested marketplace
         """
         # Check local availability
-        existing_endpoint = self.endpoint_repository.get_by_slug(slug, tenant.id)
+        existing_endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
         local_available = existing_endpoint is None
 
         # Determine if we need to check marketplaces
@@ -700,11 +713,11 @@ class EndpointHandler:
         # Get marketplaces to check
         if check_all_marketplaces:
             # Get all active marketplaces (flag takes precedence)
-            marketplaces = self.marketplace_repository.get_active(tenant.id)
+            marketplaces = await self.marketplace_repository.get_active(tenant.id)
             missing_ids: set[UUID] = set()
         else:
             # Get specific marketplaces by IDs
-            marketplaces = self.marketplace_repository.get_by_ids(
+            marketplaces = await self.marketplace_repository.get_by_ids(
                 marketplace_ids, tenant.id
             )
             found_ids = {m.id for m in marketplaces}
@@ -725,7 +738,7 @@ class EndpointHandler:
 
         # Check each found marketplace
         for marketplace in marketplaces:
-            result = self._check_marketplace_availability(slug, marketplace)
+            result = await self._check_marketplace_availability(slug, marketplace)
             marketplace_results.append(result)
 
         return SlugAvailabilityResponse(
@@ -734,7 +747,7 @@ class EndpointHandler:
             marketplaces=marketplace_results,
         )
 
-    def _check_marketplace_availability(
+    async def _check_marketplace_availability(
         self,
         slug: str,
         marketplace: Marketplace,
@@ -765,9 +778,11 @@ class EndpointHandler:
             )
 
         try:
-            with SyftHubClient(base_url=marketplace.url) as client:
-                client.login(username=marketplace.email, password=marketplace.password)
-                exists = client.endpoint_exists(slug)
+            async with SyftHubClient(base_url=marketplace.url) as client:
+                await client.login(
+                    username=marketplace.email, password=marketplace.password
+                )
+                exists = await client.endpoint_exists(slug)
                 return MarketplaceAvailabilityResult(
                     marketplace_id=marketplace.id,
                     available=not exists,

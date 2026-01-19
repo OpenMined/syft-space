@@ -1,5 +1,6 @@
 """Main FastAPI application."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -75,7 +76,10 @@ from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.routes import build_settings_routes
 
 # Import database
-from syft_space.components.shared.database import Database, SQLiteConfig
+from syft_space.components.shared.database import AsyncDatabase, SQLiteConfig
+
+# Import lifecycle protocol
+from syft_space.components.shared.lifecycle import LifecycleService
 
 # Import proxy service
 from syft_space.components.shared.proxy_service import ProxyService
@@ -89,65 +93,114 @@ from syft_space.components.tenants.routes import build_tenant_routes
 from syft_space.config import app_settings
 
 
+async def _sync_public_url_safe(
+    handler: SettingsHandler, tenant: Tenant, url: str
+) -> None:
+    """Sync public URL to marketplace without blocking startup.
+
+    This is a fire-and-forget helper that wraps the marketplace sync with
+    timeout handling. If the sync fails or times out, the server continues
+    starting - the sync is not critical for basic operation.
+
+    Args:
+        handler: Settings handler instance
+        tenant: Tenant context
+        url: Public URL to sync
+    """
+    try:
+        await asyncio.wait_for(
+            handler.update_public_url(tenant, url),
+            timeout=10.0,  # 10 second timeout
+        )
+        logger.info("Public URL synced to marketplace successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Marketplace sync timed out - server will continue starting")
+    except Exception as e:
+        logger.warning(f"Marketplace sync failed: {e} - server will continue starting")
+
+
+async def _setup_tenant_and_settings(
+    tenant_repo: TenantRepository,
+    settings_hdlr: SettingsHandler,
+) -> Tenant | None:
+    """Create default tenant and initialize settings.
+
+    Args:
+        tenant_repo: Repository for tenant operations
+        settings_hdlr: Handler for settings initialization
+
+    Returns:
+        The default tenant, or None if creation failed
+    """
+    default_tenant = await tenant_repo.get_by_name(app_settings.default_tenant_name)
+    if not default_tenant:
+        logger.info(f"Creating default tenant: {app_settings.default_tenant_name}")
+        default_tenant = await tenant_repo.create(
+            Tenant(
+                name=app_settings.default_tenant_name,
+                display_name="Root Tenant",
+                is_active=True,
+                meta={"description": "Default root tenant"},
+            )
+        )
+        logger.info(f"Default tenant created with ID: {default_tenant.id}")
+    else:
+        logger.info(f"Default tenant already exists: {default_tenant.name}")
+
+    # Initialize settings from config (env var overwrites DB if set)
+    try:
+        await settings_hdlr.initialize_from_config(tenants=[default_tenant])
+    except Exception as e:
+        logger.error(f"⚠️  Warning: Failed to initialize settings from config: {e}")
+
+    return default_tenant
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - handles startup and shutdown events."""
-    # Get services from app.state
-    proxy_service: ProxyService = getattr(app.state, "proxy_service", None)
-    provisioner_manager: ProvisionerManager = getattr(
-        app.state, "provisioner_manager", None
+    # 1. Run database migrations
+    await database.run_migrations(reset=app_settings.reset_db)
+
+    # 2. Setup tenant and settings
+    default_tenant = await _setup_tenant_and_settings(
+        tenant_repository, settings_handler
     )
-    ingestion_manager: IngestionManager = getattr(app.state, "ingestion_manager", None)
+    app.state.default_tenant = default_tenant
 
-    # Startup: Auto-connect proxy if configured
-    if proxy_service:
+    # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion)
+    services: list[tuple[str, LifecycleService]] = [
+        ("proxy", proxy_service),
+        ("provisioner", provisioner_manager),
+        ("ingestion", ingestion_manager),
+    ]
+
+    # 4. Start all services
+    for name, service in services:
         try:
-            await proxy_service.auto_connect_if_configured()
-            if proxy_service.is_connected():
-                proxy_service.log_connection_info(app_settings.admin_api_key)
-                public_url = proxy_service.get_public_url()
-                if public_url:
-                    default_tenant = app.state.default_tenant
-                    settings_handler.update_public_url(default_tenant, public_url)
+            await service.startup()
         except Exception as e:
-            logger.error(f"⚠️  Warning: Failed to auto-connect ngrok tunnel: {e}")
-            logger.error("   Continuing without ngrok...\n")
+            logger.error(f"Failed to start {name}: {e}")
 
-    # Startup order: provisioners first, then ingestion
-    if provisioner_manager:
-        try:
-            await provisioner_manager.startup()
-        except Exception as e:
-            logger.error(f"Failed to start provisioners: {e}")
+    # 5. Post-startup: Log proxy connection and update settings
+    if proxy_service.is_connected():
+        proxy_service.log_connection_info(app_settings.admin_api_key)
+        public_url = proxy_service.get_public_url()
+        if public_url and default_tenant:
+            # Fire-and-forget: Don't block startup on marketplace sync
+            asyncio.create_task(
+                _sync_public_url_safe(settings_handler, default_tenant, public_url)
+            )
 
-    if ingestion_manager:
-        try:
-            await ingestion_manager.startup()
-        except Exception as e:
-            logger.error(f"Failed to start ingestion manager: {e}")
-
+    logger.info("Application started")
     yield  # Application runs here
 
-    # Shutdown order: ingestion first, then provisioners, then proxy
-    if ingestion_manager:
+    # 6. Shutdown all services (reverse order: ingestion → provisioner → proxy)
+    for name, service in reversed(services):
         try:
-            await ingestion_manager.shutdown()
+            await service.shutdown()
         except Exception as e:
-            logger.error(f"Error shutting down ingestion manager: {e}")
-
-    if provisioner_manager:
-        try:
-            await provisioner_manager.shutdown()
-        except Exception as e:
-            logger.error(f"Error shutting down provisioners: {e}")
-
-    # Shutdown: Clean up proxy service
-    if proxy_service:
-        try:
-            await proxy_service.shutdown()
-            logger.info("✅ Proxy service shutdown complete")
-        except Exception as e:
-            logger.error(f"⚠️  Warning: Error shutting down proxy service: {e}")
+            logger.error(f"Error shutting down {name}: {e}")
 
 
 # Initialize FastAPI app
@@ -170,33 +223,13 @@ app.add_middleware(
 )
 
 
-# Initialize database
+# Initialize database (async-only)
 db_path = app_settings.sqlite_db_path.resolve()
 db_config = SQLiteConfig(db_path)
-database = Database(db_config)
-
-# Run database migrations, optionally resetting the database
-database.run_migrations(reset=app_settings.reset_db)
-
-
-# Initialize tenant repository and create default tenant
-tenant_repository = TenantRepository(database)
-default_tenant = tenant_repository.get_by_name(app_settings.default_tenant_name)
-if not default_tenant:
-    logger.info(f"Creating default tenant: {app_settings.default_tenant_name}")
-    default_tenant = tenant_repository.create(
-        Tenant(
-            name=app_settings.default_tenant_name,
-            display_name="Root Tenant",
-            is_active=True,
-            meta={"description": "Default root tenant"},
-        )
-    )
-    logger.info(f"Default tenant created with ID: {default_tenant.id}")
-else:
-    logger.info(f"Default tenant already exists: {default_tenant.name}")
+database = AsyncDatabase(db_config)
 
 # Initialize repositories
+tenant_repository = TenantRepository(database)
 dataset_repository = DatasetRepository(database)
 provisioner_state_repository = ProvisionerStateRepository(database)
 model_repository = ModelRepository(database)
@@ -245,9 +278,6 @@ settings_handler = SettingsHandler(
     settings_repository, marketplace_repository, proxy_service
 )
 
-# Initialize settings from config on startup (env var overwrites DB if set)
-settings_handler.initialize_from_config(tenants=[default_tenant])
-
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
     dataset_repository=dataset_repository,
@@ -265,7 +295,8 @@ app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.proxy_service = proxy_service
 app.state.settings_handler = settings_handler
-app.state.default_tenant = default_tenant
+app.state.tenant_repository = tenant_repository
+app.state.default_tenant = None  # Set in lifespan after async creation
 
 # Create main API router with bearer auth for OpenAPI docs
 # Actual auth is handled by AdminKeyMiddleware

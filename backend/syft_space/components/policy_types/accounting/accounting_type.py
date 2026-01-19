@@ -1,5 +1,6 @@
 """Accounting policy type implementation."""
 
+import asyncio
 from enum import Enum
 from typing import Any
 
@@ -125,7 +126,7 @@ class AccountingPolicy(BasePolicyType):
         """
         return matches_any_pattern(user_email, config.applied_to)
 
-    def pre_hook(
+    async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Pre-hook to create delegated transactions before endpoint execution.
@@ -184,7 +185,7 @@ class AccountingPolicy(BasePolicyType):
 
             transaction = None
             try:
-                transaction = self._create_transaction(
+                transaction = await self._create_transaction(
                     credentials,
                     context.sender_email,
                     amount,
@@ -195,7 +196,7 @@ class AccountingPolicy(BasePolicyType):
                 total_amount += amount
             except Exception as e:
                 if transaction:
-                    self._cancel_transaction(credentials, transaction.id)
+                    await self._cancel_transaction(credentials, transaction.id)
 
                 raise PolicyViolationError(
                     message=f"Failed to create accounting transaction: {e}",
@@ -208,7 +209,7 @@ class AccountingPolicy(BasePolicyType):
         context.metadata["accounting_total_amount"] = total_amount
         return context
 
-    def _create_transaction(
+    async def _create_transaction(
         self,
         credentials: AccountingCredentials,
         sender_email: str,
@@ -222,14 +223,16 @@ class AccountingPolicy(BasePolicyType):
             email=str(credentials.email),
             password=credentials.password,
         )
-        return accounting_client.create_delegated_transaction(
+        # Wrap blocking SDK call with asyncio.to_thread
+        return await asyncio.to_thread(
+            accounting_client.create_delegated_transaction,
             senderEmail=sender_email,
             amount=amount,
             token=transaction_token,
             appEpPath=endpoint_slug,
         )
 
-    def post_hook(
+    async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Post-hook to confirm transactions after successful endpoint execution.
@@ -261,10 +264,10 @@ class AccountingPolicy(BasePolicyType):
         # Confirm all transactions
         for transaction in transactions:
             try:
-                self._confirm_transaction(credentials, transaction["id"])
+                await self._confirm_transaction(credentials, transaction["id"])
             except Exception as e:
                 if transaction.get("id"):
-                    self._cancel_transaction(credentials, transaction["id"])
+                    await self._cancel_transaction(credentials, transaction["id"])
 
                 raise PolicyViolationError(
                     message=f"Failed to confirm accounting transaction: {e}",
@@ -284,7 +287,7 @@ class AccountingPolicy(BasePolicyType):
 
         return context
 
-    def _cancel_transaction(
+    async def _cancel_transaction(
         self, credentials: AccountingCredentials, transaction_id: str
     ) -> None:
         """Cancel a transaction with the accounting service."""
@@ -293,9 +296,13 @@ class AccountingPolicy(BasePolicyType):
             email=str(credentials.email),
             password=credentials.password,
         )
-        accounting_client.cancel_transaction(id=transaction_id)
+        # Wrap blocking SDK call with asyncio.to_thread
+        await asyncio.to_thread(
+            accounting_client.cancel_transaction,
+            id=transaction_id,
+        )
 
-    def _confirm_transaction(
+    async def _confirm_transaction(
         self, credentials: AccountingCredentials, transaction_id: str
     ) -> None:
         """Confirm a transaction with the accounting service."""
@@ -304,7 +311,11 @@ class AccountingPolicy(BasePolicyType):
             email=str(credentials.email),
             password=credentials.password,
         )
-        accounting_client.confirm_transaction(id=transaction_id)
+        # Wrap blocking SDK call with asyncio.to_thread
+        await asyncio.to_thread(
+            accounting_client.confirm_transaction,
+            id=transaction_id,
+        )
 
     @classmethod
     def enabled(cls) -> bool:
@@ -316,7 +327,7 @@ class AccountingPolicy(BasePolicyType):
         return True
 
     @classmethod
-    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+    async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Validate configuration against AccountingConfig schema.
 
         Args:

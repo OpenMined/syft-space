@@ -126,8 +126,10 @@ class BaseDatasetType(Protocol):
         ...
 
     @classmethod
-    def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
         """Validate the configuration for the dataset type.
+
+        Made async to support future connection testing during validation.
 
         Args:
             configuration: Configuration dictionary to validate
@@ -137,7 +139,7 @@ class BaseDatasetType(Protocol):
         """
         ...
 
-    def search(
+    async def search(
         self, ctx: Context, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
         """Search the dataset for the given query.
@@ -152,7 +154,7 @@ class BaseDatasetType(Protocol):
         """
         ...
 
-    def healthcheck(self) -> HealthcheckResponse:
+    async def healthcheck(self) -> HealthcheckResponse:
         """Check if the dataset type is healthy.
 
         Returns:
@@ -197,7 +199,7 @@ class IngestableDatasetType(BaseDatasetType):
     For file-based ingestion with watching, see FileIngestableDatasetType.
     """
 
-    def ingest(self, ctx: Context, request: IngestRequest) -> None:
+    async def ingest(self, ctx: Context, request: IngestRequest) -> None:
         """Ingest data into the dataset.
 
         Args:
@@ -255,7 +257,7 @@ class BaseDatasetTypeProvisioner(Protocol):
         ...
 
     @classmethod
-    def start(cls, config: dict[str, Any]) -> dict[str, Any]:
+    async def start(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Start/provision the resource.
 
         Args:
@@ -273,7 +275,7 @@ class BaseDatasetTypeProvisioner(Protocol):
         ...
 
     @classmethod
-    def stop(cls, state: dict[str, Any]) -> None:
+    async def stop(cls, state: dict[str, Any]) -> None:
         """Stop the provisioned resource.
 
         Args:
@@ -282,7 +284,7 @@ class BaseDatasetTypeProvisioner(Protocol):
         ...
 
     @classmethod
-    def is_running(cls, state: dict[str, Any]) -> bool:
+    async def is_running(cls, state: dict[str, Any]) -> bool:
         """Check if resource is currently running.
 
         Uses state to re-discover the resource (important after restart).
@@ -296,7 +298,7 @@ class BaseDatasetTypeProvisioner(Protocol):
         ...
 
     @classmethod
-    def status(cls, state: dict[str, Any]) -> str:
+    async def status(cls, state: dict[str, Any]) -> str:
         """Get detailed status of the resource.
 
         Args:

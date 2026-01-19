@@ -31,11 +31,11 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
         return handler
 
     @router.get("/public-url", response_model=PublicUrlResponse)
-    def get_public_url(
+    async def get_public_url(
         handler: SettingsHandler = Depends(get_handler),
     ) -> PublicUrlResponse:
         """Get the current public URL."""
-        return handler.get_public_url()
+        return await handler.get_public_url()
 
     @router.patch("/public-url", response_model=PublicUrlResponse)
     async def update_public_url(
@@ -47,14 +47,14 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
 
         Updates the local configuration and syncs to the marketplace.
         """
-        return handler.update_public_url(tenant, request.public_url)
+        return await handler.update_public_url(tenant, request.public_url)
 
     @router.get("/proxy", response_model=ProxyStatusResponse)
-    def get_proxy_status(
+    async def get_proxy_status(
         handler: SettingsHandler = Depends(get_handler),
     ) -> ProxyStatusResponse:
         """Get the current proxy tunnel status."""
-        return handler.get_proxy_status()
+        return await handler.get_proxy_status()
 
     @router.post("/proxy", response_model=ProxyStatusResponse)
     async def configure_proxy(

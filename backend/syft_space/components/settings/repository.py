@@ -3,42 +3,42 @@
 from datetime import datetime, timezone
 
 from syft_space.components.settings.entities import Settings
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class SettingsRepository(BaseRepository[Settings]):
+class SettingsRepository(AsyncBaseRepository[Settings]):
     """Repository for Settings CRUD operations.
 
     TODO: Add multi-tenant support.
     """
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         super().__init__(db, Settings)
 
-    def get_settings(self) -> Settings:
+    async def get_settings(self) -> Settings:
         """Get the settings."""
-        settings = self.get_all()
+        settings = await self.get_all()
         if len(settings) > 0:
             return settings[0]
         # Create a new settings object if no settings exist
         settings = Settings(public_url=None, ngrok_token=None)
-        return self.create(settings)
+        return await self.create(settings)
 
-    def update_public_url(self, url: str | None) -> Settings:
+    async def update_public_url(self, url: str | None) -> Settings:
         """Update the public_url setting."""
-        settings = self.get_settings()
+        settings = await self.get_settings()
         settings.public_url = url
         settings.updated_at = datetime.now(timezone.utc)
-        return self.update(settings)
+        return await self.update(settings)
 
-    def get_ngrok_token(self) -> str:
+    async def get_ngrok_token(self) -> str:
         """Get the stored ngrok token."""
-        settings = self.get_settings()
+        settings = await self.get_settings()
         return settings.ngrok_token
 
-    def update_ngrok_token(self, token: str | None) -> Settings:
+    async def update_ngrok_token(self, token: str | None) -> Settings:
         """Update the ngrok token setting."""
-        settings = self.get_settings()
+        settings = await self.get_settings()
         settings.ngrok_token = token
         settings.updated_at = datetime.now(timezone.utc)
-        return self.update(settings)
+        return await self.update(settings)

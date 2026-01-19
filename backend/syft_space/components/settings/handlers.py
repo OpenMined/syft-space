@@ -38,16 +38,16 @@ class SettingsHandler:
         self.marketplace_repository = marketplace_repository
         self.proxy_service = proxy_service
 
-    def get_public_url(self) -> PublicUrlResponse:
+    async def get_public_url(self) -> PublicUrlResponse:
         """Get the current public URL from database (source of truth).
 
         Returns:
             Public URL response
         """
-        settings = self.settings_repository.get_settings()
+        settings = await self.settings_repository.get_settings()
         return PublicUrlResponse(public_url=settings.public_url)
 
-    def update_public_url(
+    async def update_public_url(
         self, tenant: Tenant, new_url: HttpUrl | str
     ) -> PublicUrlResponse:
         """Update the public URL.
@@ -68,10 +68,10 @@ class SettingsHandler:
         url_str = str(new_url) if new_url else None
 
         # Update database (source of truth)
-        self.settings_repository.update_public_url(url_str)
+        await self.settings_repository.update_public_url(url_str)
 
         # Sync to marketplace
-        self.sync_public_url_to_marketplace(tenant, url_str)
+        await self.sync_public_url_to_marketplace(tenant, url_str)
 
         # Update app settings
         app_settings.public_url = HttpUrl(url_str) if url_str else None
@@ -79,7 +79,7 @@ class SettingsHandler:
         # Return response
         return PublicUrlResponse(public_url=url_str)
 
-    def sync_public_url_to_marketplace(self, tenant: Tenant, url: str) -> None:
+    async def sync_public_url_to_marketplace(self, tenant: Tenant, url: str) -> None:
         """Sync public URL to marketplace (helper method).
 
         Args:
@@ -87,7 +87,7 @@ class SettingsHandler:
             url: Public URL to sync
         """
 
-        marketplace = self.marketplace_repository.get_default(tenant.id)
+        marketplace = await self.marketplace_repository.get_default(tenant.id)
 
         # If no default marketplace is configured, do nothing
         if not marketplace:
@@ -95,16 +95,16 @@ class SettingsHandler:
 
         try:
             logger.info(f"Syncing public URL {url} to marketplace {marketplace.url}")
-            with SyftHubClient(str(marketplace.url)) as syfthub:
-                syfthub.login(marketplace.email, marketplace.password)
-                syfthub.update_profile(domain=url)
+            async with SyftHubClient(str(marketplace.url)) as syfthub:
+                await syfthub.login(marketplace.email, marketplace.password)
+                await syfthub.update_profile(domain=url)
         except SyftHubError as e:
             raise HTTPException(
                 status_code=e.status_code,
                 detail=f"Failed to sync public URL to marketplace: {e.message}",
             ) from e
 
-    def initialize_from_config(self, tenants: list[Tenant]) -> None:
+    async def initialize_from_config(self, tenants: list[Tenant]) -> None:
         """Initialize settings from config on startup.
 
         If SYFT_PUBLIC_URL env var is set, it overwrites the database value.
@@ -113,18 +113,20 @@ class SettingsHandler:
             return
 
         for tenant in tenants:
-            self.update_public_url(tenant, app_settings.public_url)
+            await self.update_public_url(tenant, app_settings.public_url)
 
-    def get_proxy_status(self) -> ProxyStatusResponse:
+    async def get_proxy_status(self) -> ProxyStatusResponse:
         """Get the current proxy tunnel status.
 
         Returns:
             Proxy status response with connection status, public URL, and token presence
         """
         if self.proxy_service is None:
-            return ProxyStatusResponse(connected=False, public_url=None, has_token=False)
+            return ProxyStatusResponse(
+                connected=False, public_url=None, has_token=False
+            )
 
-        has_token = bool(self.settings_repository.get_ngrok_token())
+        has_token = bool(await self.settings_repository.get_ngrok_token())
         return ProxyStatusResponse(
             connected=self.proxy_service.is_connected(),
             public_url=self.proxy_service.get_public_url(),
@@ -159,10 +161,12 @@ class SettingsHandler:
             logger.error(f"Failed to connect to ngrok: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-        self.sync_public_url_to_marketplace(tenant, public_url)
+        await self.sync_public_url_to_marketplace(tenant, public_url)
         self.proxy_service.log_connection_info(app_settings.admin_api_key)
 
-        return ProxyStatusResponse(connected=True, public_url=public_url, has_token=True)
+        return ProxyStatusResponse(
+            connected=True, public_url=public_url, has_token=True
+        )
 
     async def disconnect_proxy(self, tenant: Tenant) -> ProxyStatusResponse:
         """Disconnect the ngrok proxy tunnel and clear configuration.
@@ -180,5 +184,5 @@ class SettingsHandler:
             )
 
         await self.proxy_service.disconnect()
-        self.sync_public_url_to_marketplace(tenant, "")
+        await self.sync_public_url_to_marketplace(tenant, "")
         return ProxyStatusResponse(connected=False, public_url=None, has_token=False)

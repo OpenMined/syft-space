@@ -17,13 +17,13 @@ class TenantHandler:
 
     def __init__(self, repository: TenantRepository):
         """Initialize the tenant handler.
-        cc
-                Args:
-                    repository: Tenant repository
+
+        Args:
+            repository: Tenant repository
         """
         self.repository = repository
 
-    def create_tenant(self, request: CreateTenantRequest) -> TenantResponse:
+    async def create_tenant(self, request: CreateTenantRequest) -> TenantResponse:
         """Create a new tenant.
 
         Args:
@@ -43,7 +43,7 @@ class TenantHandler:
             )
 
         # Check if name already exists
-        existing = self.repository.get_by_name(request.name)
+        existing = await self.repository.get_by_name(request.name)
         if existing:
             raise HTTPException(
                 status_code=409, detail=f"Tenant '{request.name}' already exists"
@@ -51,7 +51,7 @@ class TenantHandler:
 
         # Check if domain already exists (if provided)
         if request.domain:
-            existing_domain = self.repository.get_by_domain(request.domain)
+            existing_domain = await self.repository.get_by_domain(request.domain)
             if existing_domain:
                 raise HTTPException(
                     status_code=409,
@@ -68,20 +68,20 @@ class TenantHandler:
         )
 
         # Save to database
-        created = self.repository.create(tenant)
+        created = await self.repository.create(tenant)
 
         return TenantResponse.model_validate(created)
 
-    def list_tenants(self) -> list[TenantListItem]:
+    async def list_tenants(self) -> list[TenantListItem]:
         """List all tenants.
 
         Returns:
             List of tenants
         """
-        tenants = self.repository.get_all()
+        tenants = await self.repository.get_all()
         return [TenantListItem.model_validate(t) for t in tenants]
 
-    def get_tenant(self, name: str) -> TenantResponse:
+    async def get_tenant(self, name: str) -> TenantResponse:
         """Get a specific tenant by name.
 
         Args:
@@ -93,7 +93,7 @@ class TenantHandler:
         Raises:
             HTTPException: If tenant not found
         """
-        tenant = self.repository.get_by_name(name)
+        tenant = await self.repository.get_by_name(name)
         if not tenant:
             raise HTTPException(status_code=404, detail=f"Tenant '{name}' not found")
 

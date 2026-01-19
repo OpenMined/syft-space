@@ -56,7 +56,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 tenant_name = request.headers.get("X-Tenant-Name")
                 if tenant_name:
                     # Tenant header provided - must be valid
-                    tenant = self.tenant_repository.get_by_name(tenant_name)
+                    tenant = await self.tenant_repository.get_by_name(tenant_name)
                     if tenant is None:
                         return Response(
                             status_code=404,
@@ -89,7 +89,6 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
             # Set tenant in context for this request
             set_current_tenant(tenant)
-            logger.debug(f"Tenant set in context: {tenant.name}")
 
             # Process request
             response = await call_next(request)
@@ -110,7 +109,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         Returns:
             Default tenant object
         """
-        return self.tenant_repository.get_by_name(app_settings.default_tenant_name)
+        return await self.tenant_repository.get_by_name(
+            app_settings.default_tenant_name
+        )
 
     def _extract_subdomain(self, host: str) -> str:
         """Extract subdomain from host header.

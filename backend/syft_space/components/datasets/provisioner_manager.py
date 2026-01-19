@@ -5,9 +5,10 @@ import asyncio
 from loguru import logger
 
 from syft_space.components.datasets.handlers import DatasetHandler
+from syft_space.components.shared.lifecycle import LifecycleService
 
 
-class ProvisionerManager:
+class ProvisionerManager(LifecycleService):
     """Lightweight manager for shared dataset provisioner lifecycle.
 
     Manages startup and shutdown of dataset provisioners (e.g., Weaviate collections).
@@ -31,7 +32,7 @@ class ProvisionerManager:
 
         logger.info("Starting shared provisioners...")
         try:
-            await asyncio.to_thread(self.dataset_handler.startup_all_provisioners)
+            await self.dataset_handler.startup_all_provisioners()
             logger.info("Provisioner startup complete")
         except Exception as e:
             logger.error(f"Error during provisioner startup: {e}")
@@ -42,7 +43,7 @@ class ProvisionerManager:
 
         logger.info("Shutting down shared provisioners...")
         try:
-            await asyncio.to_thread(self.dataset_handler.shutdown_all_provisioners)
+            await self.dataset_handler.shutdown_all_provisioners()
             logger.info("Provisioner shutdown complete")
         except Exception as e:
             logger.error(f"Error during provisioner shutdown: {e}")

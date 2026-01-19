@@ -1,6 +1,7 @@
 """Provisioner state repository for database operations."""
 
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, or_
@@ -13,7 +14,7 @@ from syft_space.components.datasets.entities import (
     ProvisionerState,
     ProvisionerStatus,
 )
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 # Valid status transitions
 # from_status -> [allowed_to_statuses]
@@ -36,7 +37,7 @@ ALLOWED_TRANSITIONS: dict[str | None, list[ProvisionerStatus]] = {
 }
 
 
-class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
+class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
     """Repository for ProvisionerState CRUD operations.
 
     Provisioner states are dtype-based (one per dataset type). Multiple datasets
@@ -51,7 +52,7 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
     - delete_by_dtype(): Delete provisioner state
     """
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         """Initialize the provisioner state repository.
 
         Args:
@@ -59,7 +60,7 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
         """
         super().__init__(db, ProvisionerState)
 
-    def get_by_dtype(self, dtype: str) -> ProvisionerState | None:
+    async def get_by_dtype(self, dtype: str) -> ProvisionerState | None:
         """Get provisioner state by dtype.
 
         Primary lookup method - there's at most one provisioner per dtype.
@@ -70,11 +71,24 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
         Returns:
             ProvisionerState if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(ProvisionerState).where(ProvisionerState.dtype == dtype)
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_running_by_dtype(self, dtype: str) -> ProvisionerState | None:
+    async def get_by_id(self, id: UUID) -> ProvisionerState | None:
+        """Get provisioner state by ID.
+
+        Args:
+            id: ProvisionerState UUID
+
+        Returns:
+            ProvisionerState if found, None otherwise
+        """
+        async with self.db.get_session() as session:
+            return await session.get(ProvisionerState, id)
+
+    async def get_running_by_dtype(self, dtype: str) -> ProvisionerState | None:
         """Get running provisioner state by dtype.
 
         Args:
@@ -83,7 +97,7 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
         Returns:
             Running or starting ProvisionerState if found, None otherwise
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(ProvisionerState).where(
                 ProvisionerState.dtype == dtype,
                 or_(
@@ -91,23 +105,25 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
                     ProvisionerState.status == ProvisionerStatus.STARTING.value,
                 ),
             )
-            return session.exec(statement).first()
+            result = await session.exec(statement)
+            return result.first()
 
-    def get_all(self) -> list[ProvisionerState]:
+    async def get_all(self) -> list[ProvisionerState]:
         """Get all provisioner states.
 
         Returns:
             List of all ProvisionerState records
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = select(ProvisionerState)
-            return list(session.exec(statement).all())
+            result = await session.exec(statement)
+            return list(result.all())
 
-    def upsert_status(
+    async def upsert_status(
         self,
         dtype: str,
         status: ProvisionerStatus,
-        state: dict | None = None,
+        state: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> ProvisionerState:
         """Create or update provisioner state with status transition guards.
@@ -136,11 +152,12 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
             ProvisionerBusyError: If provisioner is busy (STARTING/STOPPING)
             InvalidProvisionerTransitionError: If transition is not allowed
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             # Check for existing record
-            existing = session.exec(
+            result = await session.exec(
                 select(ProvisionerState).where(ProvisionerState.dtype == dtype)
-            ).first()
+            )
+            existing = result.first()
 
             current_status = existing.status if existing else None
 
@@ -175,8 +192,8 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
                     existing.stopped_at = now
 
                 session.add(existing)
-                session.commit()
-                session.refresh(existing)
+                await session.commit()
+                await session.refresh(existing)
                 return existing
             else:
                 # Create new record
@@ -193,11 +210,11 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
                 )
 
                 session.add(provisioner_state)
-                session.commit()
-                session.refresh(provisioner_state)
+                await session.commit()
+                await session.refresh(provisioner_state)
                 return provisioner_state
 
-    def count_datasets_by_provisioner(self, state_id: UUID) -> int:
+    async def count_datasets_by_provisioner(self, state_id: UUID) -> int:
         """Count datasets using a specific provisioner state.
 
         Args:
@@ -206,16 +223,16 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
         Returns:
             Number of datasets attached to this provisioner
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             statement = (
                 select(func.count())
                 .select_from(Dataset)
                 .where(Dataset.provisioner_state_id == state_id)
             )
-            result = session.exec(statement).first()
-            return result or 0
+            result = await session.exec(statement)
+            return result.first() or 0
 
-    def delete_by_dtype(self, dtype: str) -> bool:
+    async def delete_by_dtype(self, dtype: str) -> bool:
         """Delete provisioner state by dtype.
 
         Warning: This does not check for attached datasets. Use
@@ -227,13 +244,14 @@ class ProvisionerStateRepository(BaseRepository[ProvisionerState]):
         Returns:
             True if deleted, False if not found
         """
-        with self.db.get_session() as session:
-            provisioner_state = session.exec(
+        async with self.db.get_session() as session:
+            result = await session.exec(
                 select(ProvisionerState).where(ProvisionerState.dtype == dtype)
-            ).first()
+            )
+            provisioner_state = result.first()
 
             if provisioner_state:
-                session.delete(provisioner_state)
-                session.commit()
+                await session.delete(provisioner_state)
+                await session.commit()
                 return True
             return False

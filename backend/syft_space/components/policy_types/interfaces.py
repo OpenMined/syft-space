@@ -91,7 +91,7 @@ class BasePolicyType(Protocol):
         """
         ...
 
-    def pre_hook(
+    async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Pre-hook executed before endpoint processing.
@@ -111,7 +111,7 @@ class BasePolicyType(Protocol):
         """
         ...
 
-    def post_hook(
+    async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Post-hook executed after endpoint processing.
@@ -142,8 +142,10 @@ class BasePolicyType(Protocol):
         ...
 
     @classmethod
-    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+    async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Validate and normalize configuration.
+
+        Any additional network connection tests can be performed here.
 
         Args:
             config: Configuration dictionary to validate

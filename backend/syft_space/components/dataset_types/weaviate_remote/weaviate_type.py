@@ -100,7 +100,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
         )
 
     @classmethod
-    def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
         """Validate the configuration for the dataset type.
 
         Args:
@@ -116,7 +116,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
         """Get the name of the collection."""
         return self.config.collection_name
 
-    def search(
+    async def search(
         self, ctx: Context, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
         """Search the dataset for the given query.
@@ -143,7 +143,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             else DEFAULT_SIMILARITY_THRESHOLD
         )
 
-        with weaviate.connect_to_custom(
+        async with weaviate.use_async_with_custom(
             http_host=self.config.http_url.host,
             http_port=self.config.http_url.port,
             http_secure=self.config.http_url.scheme == "https",
@@ -152,9 +152,10 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             grpc_secure=self.config.grpc_url.scheme == "https",
             auth_credentials=Auth.api_key(self.config.api_key),
         ) as client:
+            # Get the collection
             collection = client.collections.get(self.collection_name)
 
-            results = collection.query.near_text(
+            results = await collection.query.near_text(
                 query=query,
                 limit=params.limit,
                 certainty=similarity_threshold,
@@ -221,7 +222,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
         """
         return ["http_url", "grpc_url", "api_key", "collection_name"]
 
-    def healthcheck(self) -> HealthcheckResponse:
+    async def healthcheck(self) -> HealthcheckResponse:
         """Check if the dataset type is healthy.
 
         Returns:
@@ -234,7 +235,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             )
 
         try:
-            with weaviate.connect_to_custom(
+            async with weaviate.use_async_with_custom(
                 http_host=self.config.http_url.host,
                 http_port=self.config.http_url.port,
                 http_secure=self.config.http_url.scheme == "https",
@@ -243,9 +244,10 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
                 grpc_secure=self.config.grpc_url.scheme == "https",
                 auth_credentials=Auth.api_key(self.config.api_key),
             ) as client:
-                if client.is_ready():
+                if await client.is_ready():
                     return HealthcheckResponse(
-                        status=HealthcheckStatus.HEALTHY, message="Weaviate is healthy"
+                        status=HealthcheckStatus.HEALTHY,
+                        message="Weaviate is healthy",
                     )
         except Exception as e:
             return HealthcheckResponse(
@@ -254,5 +256,6 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             )
 
         return HealthcheckResponse(
-            status=HealthcheckStatus.UNHEALTHY, message="Weaviate is unhealthy"
+            status=HealthcheckStatus.UNHEALTHY,
+            message="Weaviate is unhealthy",
         )

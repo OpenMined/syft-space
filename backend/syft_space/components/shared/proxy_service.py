@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING
 
 from loguru import logger
 
-if TYPE_CHECKING:
-    from syft_space.components.settings.repository import SettingsRepository
+from syft_space.components.settings.repository import SettingsRepository
+from syft_space.components.shared.lifecycle import LifecycleService
 
 
-class ProxyService:
+class ProxyService(LifecycleService):
     """Manages ngrok tunnel lifecycle with auto-reconnection.
 
     This service handles:
@@ -66,12 +65,12 @@ class ProxyService:
 
         public_url = self.get_public_url()
         public_url_str = (
-            f"{public_url}#authToken={admin_api_key}"
+            f"{public_url.rstrip('/')}/#/?authToken={admin_api_key}"
             if admin_api_key
             else str(public_url)
         )
         local_url_str = (
-            f"http://localhost:{self._port}#authToken={admin_api_key}"
+            f"http://localhost:{self._port}/#/?authToken={admin_api_key}"
             if admin_api_key
             else f"http://localhost:{self._port}"
         )
@@ -112,10 +111,8 @@ class ProxyService:
 
         # Persist token and public URL to database
         if persist:
-            await asyncio.to_thread(self._settings_repository.update_ngrok_token, token)
-            await asyncio.to_thread(
-                self._settings_repository.update_public_url, public_url
-            )
+            await self._settings_repository.update_ngrok_token(token)
+            await self._settings_repository.update_public_url(public_url)
 
         # Start reconnection monitor
         self._start_reconnect_monitor()
@@ -137,8 +134,8 @@ class ProxyService:
 
         # Clear from database
         if clear_token:
-            await asyncio.to_thread(self._settings_repository.update_ngrok_token, None)
-            await asyncio.to_thread(self._settings_repository.update_public_url, None)
+            await self._settings_repository.update_ngrok_token(None)
+            await self._settings_repository.update_public_url(None)
 
         logger.info("Ngrok tunnel disconnected")
 
@@ -147,7 +144,7 @@ class ProxyService:
 
         Called during application startup to restore tunnel connection.
         """
-        token = await asyncio.to_thread(self._settings_repository.get_ngrok_token)
+        token = await self._settings_repository.get_ngrok_token()
         if not token:
             logger.info("No ngrok token configured, skipping auto-connect")
             return
@@ -156,14 +153,19 @@ class ProxyService:
             # Connect but don't re-persist the token (it's already in DB)
             public_url = await self.connect(token, persist=False)
             # Update public URL in case it changed
-            await asyncio.to_thread(
-                self._settings_repository.update_public_url, public_url
-            )
+            await self._settings_repository.update_public_url(public_url)
             logger.info(f"Ngrok tunnel auto-connected: {public_url}")
         except Exception as e:
             logger.error(f"Failed to auto-connect ngrok tunnel: {e}")
             # Don't clear the token on auto-connect failure
             # User can retry or reconfigure
+
+    async def startup(self) -> None:
+        """Start the proxy service.
+
+        Implements LifecycleService protocol. Calls auto_connect_if_configured.
+        """
+        await self.auto_connect_if_configured()
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the proxy service.
@@ -248,7 +250,7 @@ class ProxyService:
         public_url = self._listener.url()
 
         # Update public URL in database (it may have changed)
-        await asyncio.to_thread(self._settings_repository.update_public_url, public_url)
+        await self._settings_repository.update_public_url(public_url)
 
     async def _close_listener(self) -> None:
         """Close the current listener if it exists."""

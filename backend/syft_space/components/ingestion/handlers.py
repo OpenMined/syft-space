@@ -38,7 +38,7 @@ class IngestionHandler:
         self.ingestion_manager = ingestion_manager
         self.dataset_repository = dataset_repository
 
-    def _get_dataset_or_404(self, dataset_id: UUID, tenant: Tenant):
+    async def _get_dataset_or_404(self, dataset_id: UUID, tenant: Tenant):
         """Get dataset by ID or raise 404.
 
         Args:
@@ -51,14 +51,14 @@ class IngestionHandler:
         Raises:
             HTTPException: If dataset not found or doesn't belong to tenant
         """
-        dataset = self.dataset_repository.get_by_id(dataset_id, tenant.id)
+        dataset = await self.dataset_repository.get_by_id(dataset_id, tenant.id)
         if not dataset:
             raise HTTPException(
                 status_code=404, detail=f"Dataset '{dataset_id}' not found"
             )
         return dataset
 
-    def get_ingestion_status(
+    async def get_ingestion_status(
         self, dataset_id: UUID, tenant: Tenant
     ) -> IngestionStatusResponse:
         """Get ingestion status for a dataset.
@@ -70,9 +70,9 @@ class IngestionHandler:
         Returns:
             Ingestion status with progress information
         """
-        dataset = self._get_dataset_or_404(dataset_id, tenant)
+        dataset = await self._get_dataset_or_404(dataset_id, tenant)
 
-        stats = self.ingestion_manager.get_ingestion_stats(dataset.id, tenant.id)
+        stats = await self.ingestion_manager.get_ingestion_stats(dataset.id, tenant.id)
 
         is_watching = self.ingestion_manager.is_watching(dataset.id)
 
@@ -88,7 +88,7 @@ class IngestionHandler:
             cancelled=stats["cancelled"],
         )
 
-    def list_ingestion_jobs(
+    async def list_ingestion_jobs(
         self,
         dataset_id: UUID,
         tenant: Tenant,
@@ -108,10 +108,10 @@ class IngestionHandler:
         Returns:
             Paginated list of ingestion jobs
         """
-        dataset = self._get_dataset_or_404(dataset_id, tenant)
+        dataset = await self._get_dataset_or_404(dataset_id, tenant)
 
         status_list = [status_filter] if status_filter else None
-        jobs = self.ingestion_manager.get_ingestion_jobs(
+        jobs = await self.ingestion_manager.get_ingestion_jobs(
             dataset.id,
             tenant.id,
             status_filter=status_list,
@@ -120,7 +120,7 @@ class IngestionHandler:
         )
 
         # Get total count for pagination
-        stats = self.ingestion_manager.get_ingestion_stats(dataset.id, tenant.id)
+        stats = await self.ingestion_manager.get_ingestion_stats(dataset.id, tenant.id)
         total = (
             stats.get(status_filter.value, stats["total"])
             if status_filter
@@ -134,7 +134,7 @@ class IngestionHandler:
             offset=offset,
         )
 
-    def start_ingestion(
+    async def start_ingestion(
         self, dataset_id: UUID, tenant: Tenant
     ) -> StartIngestionResponse:
         """Start ingestion for a dataset.
@@ -148,7 +148,7 @@ class IngestionHandler:
         Returns:
             Start ingestion response
         """
-        dataset = self._get_dataset_or_404(dataset_id, tenant)
+        dataset = await self._get_dataset_or_404(dataset_id, tenant)
 
         # Check if already watching
         if self.ingestion_manager.is_watching(dataset.id):
@@ -159,7 +159,7 @@ class IngestionHandler:
             )
 
         try:
-            jobs_created = self.ingestion_manager.start_dataset_ingestion(dataset)
+            jobs_created = await self.ingestion_manager.start_dataset_ingestion(dataset)
             return StartIngestionResponse(
                 message=f"Started ingestion for dataset '{dataset.name}'",
                 jobs_created=jobs_created,
@@ -168,7 +168,9 @@ class IngestionHandler:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-    def stop_ingestion(self, dataset_id: UUID, tenant: Tenant) -> StopIngestionResponse:
+    async def stop_ingestion(
+        self, dataset_id: UUID, tenant: Tenant
+    ) -> StopIngestionResponse:
         """Stop ingestion for a dataset.
 
         Stops watcher and cancels pending jobs.
@@ -180,7 +182,7 @@ class IngestionHandler:
         Returns:
             Stop ingestion response
         """
-        dataset = self._get_dataset_or_404(dataset_id, tenant)
+        dataset = await self._get_dataset_or_404(dataset_id, tenant)
 
         if not self.ingestion_manager.is_watching(dataset.id):
             return StopIngestionResponse(
@@ -188,13 +190,13 @@ class IngestionHandler:
                 jobs_cancelled=0,
             )
 
-        jobs_cancelled = self.ingestion_manager.stop_dataset_ingestion(dataset.id)
+        jobs_cancelled = await self.ingestion_manager.stop_dataset_ingestion(dataset.id)
         return StopIngestionResponse(
             message=f"Stopped ingestion for dataset '{dataset.name}'",
             jobs_cancelled=jobs_cancelled,
         )
 
-    def retry_failed_jobs(
+    async def retry_failed_jobs(
         self, dataset_id: UUID, tenant: Tenant
     ) -> RetryIngestionResponse:
         """Retry failed ingestion jobs for a dataset.
@@ -208,9 +210,11 @@ class IngestionHandler:
         Returns:
             Retry response
         """
-        dataset = self._get_dataset_or_404(dataset_id, tenant)
+        dataset = await self._get_dataset_or_404(dataset_id, tenant)
 
-        jobs_reset = self.ingestion_manager.retry_failed_jobs(dataset.id, tenant.id)
+        jobs_reset = await self.ingestion_manager.retry_failed_jobs(
+            dataset.id, tenant.id
+        )
 
         return RetryIngestionResponse(
             message=f"Reset {jobs_reset} failed jobs to pending",

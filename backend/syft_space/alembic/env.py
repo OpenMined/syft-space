@@ -1,8 +1,12 @@
-"""Alembic environment configuration for SQLModel."""
+"""Alembic environment configuration for SQLModel with async support."""
 
+import asyncio
 from logging.config import fileConfig
 
 from alembic import context
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
 from syft_space.components.datasets.entities import (  # noqa: F401
@@ -28,11 +32,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set database URL - use existing config value if set (from Database.run_migrations()),
-# otherwise fall back to app_settings (for CLI usage)
+# Set async database URL if not already set (for CLI usage)
 if not config.get_main_option("sqlalchemy.url"):
     db_config = SQLiteConfig(app_settings.sqlite_db_path)
-    config.set_main_option("sqlalchemy.url", db_config.get_database_url())
+    config.set_main_option("sqlalchemy.url", db_config.get_async_database_url())
 
 # Set target metadata for 'autogenerate' support
 # SQLModel uses SQLModel.metadata just like SQLAlchemy's Base.metadata
@@ -64,30 +67,54 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
+def do_run_migrations(connection: Connection) -> None:
+    """Sync migration runner called via run_sync."""
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        # Important for SQLModel: compare types properly
+        compare_type=True,
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    """Run migrations with async engine.
 
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    from sqlalchemy import engine_from_config, pool
-
-    connectable = engine_from_config(
+    connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            # Important for SQLModel: compare types properly
-            compare_type=True,
-        )
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
 
-        with context.begin_transaction():
-            context.run_migrations()
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode.
+
+    Supports two modes:
+    1. Programmatic: Connection passed via config.attributes["connection"]
+       (from AsyncDatabase.run_migrations())
+    2. CLI: Creates new async engine and runs migrations
+    """
+    # Check if connection was passed programmatically
+    connectable = config.attributes.get("connection", None)
+
+    if connectable is not None:
+        # Programmatic: use existing connection from AsyncDatabase.run_migrations()
+        do_run_migrations(connectable)
+    else:
+        # CLI: create new async engine
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

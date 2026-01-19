@@ -80,7 +80,7 @@ class EndpointAccessPolicy(BasePolicyType):
             schema_generator=ConfigSchemaGenerator
         )
 
-    def pre_hook(
+    async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Pre-hook to enforce access control with OR logic.
@@ -124,7 +124,7 @@ class EndpointAccessPolicy(BasePolicyType):
             details={"user": user_email, "reasons": denial_reasons},
         )
 
-    def post_hook(
+    async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Post-hook (no-op for access control).
@@ -148,7 +148,7 @@ class EndpointAccessPolicy(BasePolicyType):
         return True
 
     @classmethod
-    def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
+    async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Validate configuration against AccessPolicyConfig schema.
 
         Args:

@@ -27,16 +27,16 @@ def build_tenant_routes(handler: TenantHandler) -> APIRouter:
 
         Only available when multi-tenancy is enabled.
         """
-        return handler.create_tenant(request)
+        return await handler.create_tenant(request)
 
     @router.get("", response_model=list[TenantListItem])
     async def list_tenants() -> list[TenantListItem]:
         """List all tenants."""
-        return handler.list_tenants()
+        return await handler.list_tenants()
 
     @router.get("/{name}", response_model=TenantResponse)
     async def get_tenant(name: str) -> TenantResponse:
         """Get tenant details by name."""
-        return handler.get_tenant(name)
+        return await handler.get_tenant(name)
 
     return router

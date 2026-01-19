@@ -57,7 +57,7 @@ class DatasetHandler:
 
     # ============== Private Provisioner Lifecycle Methods ==============
 
-    def _ensure_provisioner_running(
+    async def _ensure_provisioner_running(
         self, dtype: str, config: dict[str, Any]
     ) -> ProvisionerState | None:
         """Ensure a provisioner is running for the given dtype.
@@ -85,7 +85,7 @@ class DatasetHandler:
             return None
 
         # Check if already running
-        existing = self.provisioner_state_repository.get_running_by_dtype(dtype)
+        existing = await self.provisioner_state_repository.get_running_by_dtype(dtype)
         if existing:
             logger.info(f"Reusing existing provisioner for dtype '{dtype}'")
             return existing
@@ -93,7 +93,7 @@ class DatasetHandler:
         # Transition to STARTING (creates or updates, guards checked)
         logger.info(f"Starting provisioner for dtype '{dtype}'")
         try:
-            self.provisioner_state_repository.upsert_status(
+            await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.STARTING,
             )
@@ -104,18 +104,18 @@ class DatasetHandler:
 
         try:
             # Start the provisioner
-            new_state_dict = provisioner_cls.start(config)
+            new_state_dict = await provisioner_cls.start(config)
             logger.info(f"Provisioner started for '{dtype}': {new_state_dict}")
 
             # Transition to RUNNING with actual state
-            return self.provisioner_state_repository.upsert_status(
+            return await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.RUNNING,
                 state=new_state_dict,
             )
         except Exception as e:
             logger.error(f"Failed to start provisioner for '{dtype}': {e}")
-            self.provisioner_state_repository.upsert_status(
+            await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.ERROR,
                 error=str(e),
@@ -125,7 +125,7 @@ class DatasetHandler:
                 detail=f"Failed to start provisioner for '{dtype}': {str(e)}",
             ) from e
 
-    def _stop_provisioner(self, dtype: str) -> None:
+    async def _stop_provisioner(self, dtype: str) -> None:
         """Stop a provisioner for the given dtype.
 
         This is the single source of truth for stopping provisioners. It:
@@ -144,7 +144,7 @@ class DatasetHandler:
         if provisioner_cls is None:
             return  # Remote type - nothing to stop
 
-        state = self.provisioner_state_repository.get_by_dtype(dtype)
+        state = await self.provisioner_state_repository.get_by_dtype(dtype)
         if not state:
             return  # No provisioner state exists
 
@@ -154,7 +154,7 @@ class DatasetHandler:
         # Transition to STOPPING (guards checked)
         logger.info(f"Stopping provisioner for dtype '{dtype}'")
         try:
-            self.provisioner_state_repository.upsert_status(
+            await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.STOPPING,
             )
@@ -164,17 +164,18 @@ class DatasetHandler:
             raise HTTPException(status_code=409, detail=str(e)) from e
 
         try:
-            provisioner_cls.stop(state.state)
+            # Stop the provisioner
+            await provisioner_cls.stop(state.state)
             logger.info(f"Provisioner stopped for '{dtype}'")
 
             # Transition to STOPPED
-            self.provisioner_state_repository.upsert_status(
+            await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.STOPPED,
             )
         except Exception as e:
             logger.error(f"Failed to stop provisioner for '{dtype}': {e}")
-            self.provisioner_state_repository.upsert_status(
+            await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.ERROR,
                 error=str(e),
@@ -183,18 +184,18 @@ class DatasetHandler:
 
     # ============== ProvisionerManager Interface ==============
 
-    def startup_all_provisioners(self) -> None:
+    async def startup_all_provisioners(self) -> None:
         """Start all provisioners that have datasets attached.
 
         Called by ProvisionerManager during app startup. Iterates over all
         provisioner states and starts those with attached datasets.
         """
-        states = self.provisioner_state_repository.get_all()
+        states = await self.provisioner_state_repository.get_all()
 
         for state in states:
             # Skip provisioners with no datasets attached
             dataset_count = (
-                self.provisioner_state_repository.count_datasets_by_provisioner(
+                await self.provisioner_state_repository.count_datasets_by_provisioner(
                     state.id
                 )
             )
@@ -207,25 +208,27 @@ class DatasetHandler:
             # Skip if already running
             if state.status == ProvisionerStatus.RUNNING.value:
                 provisioner_cls = self.registry.get_provisioner(state.dtype)
-                if provisioner_cls and provisioner_cls.is_running(state.state):
-                    logger.info(f"Provisioner '{state.dtype}' is already running")
-                    continue
+                if provisioner_cls:
+                    is_running = await provisioner_cls.is_running(state.state)
+                    if is_running:
+                        logger.info(f"Provisioner '{state.dtype}' is already running")
+                        continue
 
             try:
                 # Use state.state as config (contains connection fields from last run)
                 config = state.state.copy() if state.state else {}
-                self._ensure_provisioner_running(state.dtype, config)
+                await self._ensure_provisioner_running(state.dtype, config)
             except Exception as e:
                 logger.error(f"Failed to start provisioner '{state.dtype}': {e}")
                 # Continue with other provisioners
 
-    def shutdown_all_provisioners(self) -> None:
+    async def shutdown_all_provisioners(self) -> None:
         """Stop all running provisioners.
 
         Called by ProvisionerManager during app shutdown. Iterates over all
         provisioner states and stops those that are running.
         """
-        states = self.provisioner_state_repository.get_all()
+        states = await self.provisioner_state_repository.get_all()
 
         for state in states:
             if state.status not in (
@@ -235,7 +238,7 @@ class DatasetHandler:
                 continue
 
             try:
-                self._stop_provisioner(state.dtype)
+                await self._stop_provisioner(state.dtype)
             except Exception as e:
                 logger.error(f"Failed to stop provisioner '{state.dtype}': {e}")
                 # Continue with other provisioners - best effort shutdown
@@ -294,7 +297,7 @@ class DatasetHandler:
 
     # ============== Dataset CRUD Methods ==============
 
-    def create_dataset(
+    async def create_dataset(
         self, request: CreateDatasetRequest, tenant: Tenant
     ) -> DatasetResponse:
         """Create a new dataset.
@@ -324,21 +327,21 @@ class DatasetHandler:
 
         # Validate configuration
         try:
-            dataset_type.validate_configuration(request.configuration)
+            await dataset_type.validate_configuration(request.configuration)
         except Exception as e:
             raise HTTPException(
                 status_code=400, detail=f"Invalid configuration: {str(e)}"
             ) from e
 
         # Check if name already exists within tenant
-        existing = self.repository.get_by_name(request.name, tenant.id)
+        existing = await self.repository.get_by_name(request.name, tenant.id)
         if existing:
             raise HTTPException(
                 status_code=409, detail=f"Dataset '{request.name}' already exists"
             )
 
         # Ensure provisioner is running (for local types)
-        provisioner_state = self._ensure_provisioner_running(
+        provisioner_state = await self._ensure_provisioner_running(
             request.dtype, request.configuration
         )
 
@@ -365,10 +368,10 @@ class DatasetHandler:
         )
 
         # Save to database and build response
-        created_dataset = self.repository.create(dataset)
+        created_dataset = await self.repository.create(dataset)
         return DatasetResponse.from_dataset(created_dataset, provisioner_state)
 
-    def list_datasets(self, tenant: Tenant) -> list[DatasetListItem]:
+    async def list_datasets(self, tenant: Tenant) -> list[DatasetListItem]:
         """List all datasets for a tenant.
 
         Args:
@@ -377,20 +380,18 @@ class DatasetHandler:
         Returns:
             List of datasets
         """
-        datasets = self.repository.get_all(tenant.id)
-        return [
-            DatasetListItem.from_dataset(
-                ds,
-                (
-                    self.provisioner_state_repository.get_by_id(ds.provisioner_state_id)
-                    if ds.provisioner_state_id
-                    else None
-                ),
-            )
-            for ds in datasets
-        ]
+        datasets = await self.repository.get_all(tenant.id)
+        result = []
+        for ds in datasets:
+            provisioner_state = None
+            if ds.provisioner_state_id:
+                provisioner_state = await self.provisioner_state_repository.get_by_id(
+                    ds.provisioner_state_id
+                )
+            result.append(DatasetListItem.from_dataset(ds, provisioner_state))
+        return result
 
-    def get_dataset(self, name: str, tenant: Tenant) -> DatasetResponse:
+    async def get_dataset(self, name: str, tenant: Tenant) -> DatasetResponse:
         """Get a specific dataset by name within a tenant.
 
         Args:
@@ -403,19 +404,19 @@ class DatasetHandler:
         Raises:
             HTTPException: If dataset not found
         """
-        dataset = self.repository.get_by_name(name, tenant.id)
+        dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
         provisioner_state = None
         if dataset.provisioner_state_id:
-            provisioner_state = self.provisioner_state_repository.get_by_dtype(
+            provisioner_state = await self.provisioner_state_repository.get_by_dtype(
                 dataset.dtype
             )
 
         return DatasetResponse.from_dataset(dataset, provisioner_state)
 
-    def update_dataset(
+    async def update_dataset(
         self, name: str, request: UpdateDatasetRequest, tenant: Tenant
     ) -> DatasetResponse:
         """Update a dataset by name within a tenant.
@@ -434,7 +435,7 @@ class DatasetHandler:
         """
         # Update dataset
         try:
-            updated_dataset = self.repository.update_by_name(
+            updated_dataset = await self.repository.update_by_name(
                 name,
                 tenant.id,
                 name_new=request.name,
@@ -451,13 +452,13 @@ class DatasetHandler:
         # Get provisioner state if exists
         provisioner_state = None
         if updated_dataset.provisioner_state_id:
-            provisioner_state = self.provisioner_state_repository.get_by_dtype(
+            provisioner_state = await self.provisioner_state_repository.get_by_dtype(
                 updated_dataset.dtype
             )
 
         return DatasetResponse.from_dataset(updated_dataset, provisioner_state)
 
-    def delete_dataset(self, name: str, tenant: Tenant) -> dict:
+    async def delete_dataset(self, name: str, tenant: Tenant) -> dict:
         """Delete a dataset by name within a tenant.
 
         IMPORTANT: Does NOT stop the provisioner. Resource lifecycle is independent.
@@ -473,7 +474,7 @@ class DatasetHandler:
         Raises:
             HTTPException: If dataset not found
         """
-        dataset = self.repository.get_by_name(name, tenant.id)
+        dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
@@ -482,13 +483,13 @@ class DatasetHandler:
                 f"Dataset '{name}' was linked to provisioner, keeping provisioner running"
             )
 
-        deleted = self.repository.delete_by_name(name, tenant.id)
+        deleted = await self.repository.delete_by_name(name, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
         return {"message": f"Successfully deleted dataset '{name}'"}
 
-    def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
+    async def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
         """Check the health of a dataset.
 
         Args:
@@ -500,7 +501,7 @@ class DatasetHandler:
         """
         message = ""
         try:
-            dataset = self.repository.get_by_name(name, tenant.id)
+            dataset = await self.repository.get_by_name(name, tenant.id)
             if not dataset:
                 raise HTTPException(
                     status_code=404, detail=f"Dataset '{name}' not found"
@@ -510,18 +511,18 @@ class DatasetHandler:
             provisioner_cls = self.registry.get_provisioner(dataset.dtype)
 
             dataset_type = dataset_type_cls(dataset.configuration)
-            healthcheck_response = dataset_type.healthcheck()
+            healthcheck_response = await dataset_type.healthcheck()
 
             message += f"Dataset type healthcheck: {healthcheck_response.message}. "
 
             provisioner_status = None
             if dataset.provisioner_state_id:
-                provisioner_state = self.provisioner_state_repository.get_by_dtype(
-                    dataset.dtype
+                provisioner_state = (
+                    await self.provisioner_state_repository.get_by_dtype(dataset.dtype)
                 )
                 if provisioner_state is not None and provisioner_cls is not None:
                     try:
-                        provisioner_status = provisioner_cls.status(
+                        provisioner_status = await provisioner_cls.status(
                             provisioner_state.state
                         )
                         message += f"Provisioner status: {provisioner_status}. "
@@ -544,7 +545,9 @@ class DatasetHandler:
 
     # ============== Admin Provisioner Endpoints ==============
 
-    def _get_actual_provisioner_status(self, state: ProvisionerState) -> str | None:
+    async def _get_actual_provisioner_status(
+        self, state: ProvisionerState
+    ) -> str | None:
         """Get the actual live status from a provisioner.
 
         Args:
@@ -557,11 +560,11 @@ class DatasetHandler:
         if not provisioner_cls or not state.state:
             return None
         try:
-            return provisioner_cls.status(state.state)
+            return await provisioner_cls.status(state.state)
         except Exception:
             return "unknown"
 
-    def list_provisioners(self) -> list[ProvisionerInfoResponse]:
+    async def list_provisioners(self) -> list[ProvisionerInfoResponse]:
         """List all provisioner states with their status.
 
         Admin endpoint to view all provisioner states.
@@ -569,13 +572,13 @@ class DatasetHandler:
         Returns:
             List of provisioner info responses
         """
-        states = self.provisioner_state_repository.get_all()
+        states = await self.provisioner_state_repository.get_all()
         result = []
 
         for state in states:
-            actual_status = self._get_actual_provisioner_status(state)
+            actual_status = await self._get_actual_provisioner_status(state)
             dataset_count = (
-                self.provisioner_state_repository.count_datasets_by_provisioner(
+                await self.provisioner_state_repository.count_datasets_by_provisioner(
                     state.id
                 )
             )
@@ -585,7 +588,7 @@ class DatasetHandler:
 
         return result
 
-    def start_provisioner_by_dtype(
+    async def start_provisioner_by_dtype(
         self, dtype: str, config: dict[str, Any]
     ) -> ProvisionerActionResponse:
         """Start a provisioner for a specific dtype (admin action).
@@ -605,7 +608,7 @@ class DatasetHandler:
             )
 
         # Check if already running
-        existing = self.provisioner_state_repository.get_running_by_dtype(dtype)
+        existing = await self.provisioner_state_repository.get_running_by_dtype(dtype)
         if existing:
             return ProvisionerActionResponse(
                 message=f"Provisioner for '{dtype}' is already running",
@@ -613,14 +616,14 @@ class DatasetHandler:
             )
 
         # Use the shared method
-        self._ensure_provisioner_running(dtype, config)
+        await self._ensure_provisioner_running(dtype, config)
 
         return ProvisionerActionResponse(
             message=f"Provisioner for '{dtype}' started",
             status="running",
         )
 
-    def stop_provisioner_by_dtype(self, dtype: str) -> ProvisionerActionResponse:
+    async def stop_provisioner_by_dtype(self, dtype: str) -> ProvisionerActionResponse:
         """Stop a provisioner for a specific dtype (admin action).
 
         Args:
@@ -636,7 +639,7 @@ class DatasetHandler:
                 detail=f"No provisioner registered for dtype '{dtype}'",
             )
 
-        state = self.provisioner_state_repository.get_by_dtype(dtype)
+        state = await self.provisioner_state_repository.get_by_dtype(dtype)
         if not state:
             return ProvisionerActionResponse(
                 message=f"No provisioner found for '{dtype}'",
@@ -650,7 +653,7 @@ class DatasetHandler:
             )
 
         try:
-            self._stop_provisioner(dtype)
+            await self._stop_provisioner(dtype)
             return ProvisionerActionResponse(
                 message=f"Provisioner for '{dtype}' stopped",
                 status="stopped",
@@ -661,7 +664,9 @@ class DatasetHandler:
                 status="error",
             )
 
-    def delete_provisioner_by_dtype(self, dtype: str) -> ProvisionerActionResponse:
+    async def delete_provisioner_by_dtype(
+        self, dtype: str
+    ) -> ProvisionerActionResponse:
         """Delete a provisioner for a specific dtype (admin action).
 
         Stops and deletes the provisioner state record.
@@ -683,7 +688,7 @@ class DatasetHandler:
                 detail=f"No provisioner registered for dtype '{dtype}'",
             )
 
-        existing = self.provisioner_state_repository.get_by_dtype(dtype)
+        existing = await self.provisioner_state_repository.get_by_dtype(dtype)
         if not existing:
             return ProvisionerActionResponse(
                 message=f"No provisioner found for '{dtype}'",
@@ -691,8 +696,10 @@ class DatasetHandler:
             )
 
         # Check if any datasets are attached
-        dataset_count = self.provisioner_state_repository.count_datasets_by_provisioner(
-            existing.id
+        dataset_count = (
+            await self.provisioner_state_repository.count_datasets_by_provisioner(
+                existing.id
+            )
         )
         if dataset_count > 0:
             raise HTTPException(
@@ -706,19 +713,21 @@ class DatasetHandler:
             ProvisionerStatus.STARTING.value,
         ):
             try:
-                self._stop_provisioner(dtype)
+                await self._stop_provisioner(dtype)
             except Exception as e:
                 logger.warning(f"Error stopping provisioner during delete: {e}")
 
         # Delete the record
-        self.provisioner_state_repository.delete_by_dtype(dtype)
+        await self.provisioner_state_repository.delete_by_dtype(dtype)
 
         return ProvisionerActionResponse(
             message=f"Provisioner for '{dtype}' stopped and deleted",
             status="deleted",
         )
 
-    def get_provisioner_status_by_dtype(self, dtype: str) -> ProvisionerInfoResponse:
+    async def get_provisioner_status_by_dtype(
+        self, dtype: str
+    ) -> ProvisionerInfoResponse:
         """Get detailed status of a provisioner by dtype.
 
         Args:
@@ -730,15 +739,17 @@ class DatasetHandler:
         Raises:
             HTTPException: If provisioner not found
         """
-        state = self.provisioner_state_repository.get_by_dtype(dtype)
+        state = await self.provisioner_state_repository.get_by_dtype(dtype)
         if not state:
             raise HTTPException(
                 status_code=404, detail=f"Provisioner for '{dtype}' not found"
             )
 
-        actual_status = self._get_actual_provisioner_status(state)
-        dataset_count = self.provisioner_state_repository.count_datasets_by_provisioner(
-            state.id
+        actual_status = await self._get_actual_provisioner_status(state)
+        dataset_count = (
+            await self.provisioner_state_repository.count_datasets_by_provisioner(
+                state.id
+            )
         )
 
         return ProvisionerInfoResponse.from_state(state, actual_status, dataset_count)

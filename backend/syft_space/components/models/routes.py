@@ -90,7 +90,7 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
         Returns:
             Created model details
         """
-        return handler.create_model(request, tenant)
+        return await handler.create_model(request, tenant)
 
     @router.get("/", response_model=list[ModelListItem])
     async def list_models(
@@ -105,7 +105,7 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
         Returns:
             List of models with summary information
         """
-        return handler.list_models(tenant)
+        return await handler.list_models(tenant)
 
     @router.get("/{name}", response_model=ModelResponseWithEndpoints)
     async def get_model(
@@ -122,7 +122,7 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
         Returns:
             Model details including configuration and connected endpoints
         """
-        return handler.get_model(name, tenant)
+        return await handler.get_model(name, tenant)
 
     @router.patch("/{name}", response_model=ModelResponse)
     async def update_model(
@@ -148,7 +148,7 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
             404 Not Found: If model not found
             409 Conflict: If new name already exists
         """
-        return handler.update_model(name, request, tenant)
+        return await handler.update_model(name, request, tenant)
 
     @router.delete("/{name}", response_model=dict[str, str])
     async def delete_model(
@@ -165,7 +165,7 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
         Returns:
             Success message
         """
-        return handler.delete_model(name, tenant)
+        return await handler.delete_model(name, tenant)
 
     @router.get("/{name}/health", response_model=HealthcheckResponse)
     async def healthcheck(
@@ -182,6 +182,6 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
         Returns:
             Healthcheck response
         """
-        return handler.healthcheck(name, tenant)
+        return await handler.healthcheck(name, tenant)
 
     return router

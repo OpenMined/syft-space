@@ -89,7 +89,7 @@ def build_policy_routes(handler: PolicyHandler) -> APIRouter:
         Returns:
             Created policy details
         """
-        return handler.create_policy(request, tenant)
+        return await handler.create_policy(request, tenant)
 
     @router.get("/", response_model=list[PolicyListItem])
     async def list_policies(
@@ -104,7 +104,7 @@ def build_policy_routes(handler: PolicyHandler) -> APIRouter:
         Returns:
             List of policies with summary information
         """
-        return handler.list_policies(tenant)
+        return await handler.list_policies(tenant)
 
     @router.get("/{policy_id}", response_model=PolicyResponse)
     async def get_policy(
@@ -121,7 +121,7 @@ def build_policy_routes(handler: PolicyHandler) -> APIRouter:
         Returns:
             Policy details including configuration
         """
-        return handler.get_policy(policy_id, tenant)
+        return await handler.get_policy(policy_id, tenant)
 
     @router.patch("/{policy_id}", response_model=PolicyResponse)
     async def update_policy(
@@ -140,7 +140,7 @@ def build_policy_routes(handler: PolicyHandler) -> APIRouter:
         Returns:
             Updated policy details
         """
-        return handler.update_policy(policy_id, request, tenant)
+        return await handler.update_policy(policy_id, request, tenant)
 
     @router.delete("/{policy_id}", response_model=dict[str, str])
     async def delete_policy(
@@ -157,6 +157,6 @@ def build_policy_routes(handler: PolicyHandler) -> APIRouter:
         Returns:
             Success message
         """
-        return handler.delete_policy(policy_id, tenant)
+        return await handler.delete_policy(policy_id, tenant)
 
     return router

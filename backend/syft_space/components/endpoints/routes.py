@@ -37,7 +37,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """Dependency to get the endpoint handler."""
         return handler
 
-    def get_verified_sender_email(
+    async def get_verified_sender_email(
         request: Request,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: EndpointHandler = Depends(get_handler),
@@ -55,11 +55,11 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Raises:
             HTTPException: If no marketplace configured or token invalid
         """
-        marketplace = handler.marketplace_repository.get_default(tenant.id)
+        marketplace = await handler.marketplace_repository.get_default(tenant.id)
         if not marketplace:
             raise HTTPException(status_code=400, detail="No marketplace configured")
 
-        return get_verified_user_email(request, marketplace)
+        return await get_verified_user_email(request, marketplace)
 
     @router.post("/", response_model=EndpointCreateResponse, status_code=201)
     async def create_endpoint(
@@ -76,7 +76,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             Created endpoint details
         """
-        return handler.create_endpoint(request, tenant)
+        return await handler.create_endpoint(request, tenant)
 
     @router.get("/", response_model=list[EndpointListItem])
     async def list_endpoints(
@@ -91,7 +91,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             List of endpoints with summary information
         """
-        return handler.list_endpoints(tenant)
+        return await handler.list_endpoints(tenant)
 
     @router.post("/validate-slug", response_model=SlugAvailabilityResponse)
     async def validate_slug(
@@ -113,7 +113,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             Availability status for local and each requested marketplace
         """
-        return handler.check_slug_availability(
+        return await handler.check_slug_availability(
             request.slug,
             request.marketplace_ids,
             request.check_all_marketplaces,
@@ -135,7 +135,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             Endpoint details
         """
-        return handler.get_endpoint(slug, tenant)
+        return await handler.get_endpoint(slug, tenant)
 
     @public_route
     @router.post("/{slug}/query", response_model=QueryEndpointResponse)
@@ -165,7 +165,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """
         # Create authenticated request with verified sender email
         auth_request = AuthenticatedQueryRequest.from_request(request, sender_email)
-        return handler.query_endpoint(slug, auth_request, tenant)
+        return await handler.query_endpoint(slug, auth_request, tenant)
 
     @router.post("/{slug}/publish", response_model=PublishEndpointResponse)
     async def publish_endpoint(
@@ -184,7 +184,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             Publish results for each marketplace
         """
-        return handler.publish_endpoint(
+        return await handler.publish_endpoint(
             slug,
             request.marketplace_ids,
             request.publish_to_all_marketplaces,
@@ -206,6 +206,6 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         Returns:
             Success message
         """
-        return handler.delete_endpoint(slug, tenant)
+        return await handler.delete_endpoint(slug, tenant)
 
     return router

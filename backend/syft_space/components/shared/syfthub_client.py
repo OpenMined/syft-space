@@ -1,6 +1,7 @@
 """SyftHub marketplace API client using httpx."""
 
-import threading
+import asyncio
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -294,19 +295,21 @@ def _handle_response_raw(response: httpx.Response) -> dict[str, Any]:
 # =============================================================================
 
 
-class RefreshTokenAuth(httpx.Auth):
+class AsyncRefreshTokenAuth(httpx.Auth):
     """Auto-refresh auth that handles 401s by refreshing the access token."""
 
+    requires_response_body = True
+
     def __init__(
-        self, auth_client: httpx.Client, access_token: str, refresh_token: str
+        self, auth_client: httpx.AsyncClient, access_token: str, refresh_token: str
     ):
         self.auth_client = auth_client
         self.access_token = access_token
         self.refresh_token = refresh_token
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
 
-    def _refresh(self) -> None:
-        response = self.auth_client.post(
+    async def _refresh(self) -> None:
+        response = await self.auth_client.post(
             "/api/v1/auth/refresh",
             json={"refresh_token": self.refresh_token},
         )
@@ -314,12 +317,14 @@ class RefreshTokenAuth(httpx.Auth):
         self.access_token = tokens.access_token
         self.refresh_token = tokens.refresh_token
 
-    def auth_flow(self, request: httpx.Request):
+    async def async_auth_flow(
+        self, request: httpx.Request
+    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
         request.headers["Authorization"] = f"Bearer {self.access_token}"
         response = yield request
         if response.status_code == 401:
-            with self._lock:
-                self._refresh()
+            async with self._lock:
+                await self._refresh()
             request.headers["Authorization"] = f"Bearer {self.access_token}"
             yield request
 
@@ -330,18 +335,25 @@ class RefreshTokenAuth(httpx.Auth):
 
 
 class SyftHubClient:
-    """HTTP client for SyftHub marketplace API with typed requests/responses."""
+    """Async HTTP client for SyftHub marketplace API with typed requests/responses."""
 
-    def __init__(self, base_url: str):
+    # Default timeout for HTTP requests (10 seconds)
+    DEFAULT_TIMEOUT = 10.0
+
+    def __init__(self, base_url: str, timeout: float | None = None):
         """Initialize SyftHub client.
 
         Args:
             base_url: Base URL for the SyftHub instance (str)
+            timeout: Request timeout in seconds (default: 10.0)
         """
         # Normalize URL (remove trailing slash)
         self.base_url = base_url.rstrip("/")
-        self._auth_client = httpx.Client(base_url=self.base_url)
-        self._client: httpx.Client | None = None
+        self._timeout = httpx.Timeout(timeout or self.DEFAULT_TIMEOUT)
+        self._auth_client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=self._timeout
+        )
+        self._client: httpx.AsyncClient | None = None
         self._tokens: TokenResponse | None = None
 
     @property
@@ -354,7 +366,7 @@ class SyftHubClient:
         """Get current tokens (if authenticated)."""
         return self._tokens
 
-    def register(
+    async def register(
         self,
         username: str,
         email: str,
@@ -382,19 +394,21 @@ class SyftHubClient:
         if accounting_password:
             payload["accounting_password"] = accounting_password
 
-        response = self._auth_client.post("/api/v1/auth/register", json=payload)
+        response = await self._auth_client.post("/api/v1/auth/register", json=payload)
         return _handle_response(response, RegisterResponse)
 
-    def _is_username_available(self, username: str) -> bool:
+    async def _is_username_available(self, username: str) -> bool:
         """
         Check if a username is available.
         Returns:
             True if username is available, False otherwise.
         """
-        response = self._auth_client.get(f"/api/v1/users/check-username/{username}")
+        response = await self._auth_client.get(
+            f"/api/v1/users/check-username/{username}"
+        )
         return _handle_response_raw(response)["available"]
 
-    def login(self, username: str, password: str) -> TokenResponse:
+    async def login(self, username: str, password: str) -> TokenResponse:
         """
         Login and setup authenticated client.
 
@@ -403,7 +417,7 @@ class SyftHubClient:
             ValidationError: Invalid request data
             ServerError: Server-side error
         """
-        response = self._auth_client.post(
+        response = await self._auth_client.post(
             "/api/v1/auth/login",
             data={"username": username, "password": password},
         )
@@ -411,15 +425,17 @@ class SyftHubClient:
         self._tokens = tokens
 
         # Setup authenticated client with auto-refresh
-        auth = RefreshTokenAuth(
+        auth = AsyncRefreshTokenAuth(
             auth_client=self._auth_client,
             access_token=tokens.access_token,
             refresh_token=tokens.refresh_token,
         )
-        self._client = httpx.Client(base_url=self.base_url, auth=auth)
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url, auth=auth, timeout=self._timeout
+        )
         return tokens
 
-    def accounting_credentials(self) -> AccountingResponse:
+    async def accounting_credentials(self) -> AccountingResponse:
         """
         Get accounting credentials for current user.
         Returns:
@@ -431,10 +447,10 @@ class SyftHubClient:
             ServerError: Server-side error
         """
         self._require_auth()
-        response = self._client.get("/api/v1/users/me/accounting")  # type: ignore
+        response = await self._client.get("/api/v1/users/me/accounting")  # type: ignore
         return _handle_response(response, AccountingResponse)
 
-    def endpoint_exists(self, slug: str) -> bool:
+    async def endpoint_exists(self, slug: str) -> bool:
         """Check if an endpoint exists on SyftHub.
         Args:
             slug: Slug of the endpoint
@@ -442,10 +458,10 @@ class SyftHubClient:
             True if endpoint exists, False otherwise.
         """
         self._require_auth()
-        response = self._client.get(f"/api/v1/endpoints/{slug}/exists")  # type: ignore
+        response = await self._client.get(f"/api/v1/endpoints/{slug}/exists")  # type: ignore
         return _handle_response_raw(response)
 
-    def publish_endpoint(
+    async def publish_endpoint(
         self, payload: dict[str, Any], overwrite: bool = False
     ) -> dict[str, Any]:
         """
@@ -462,25 +478,25 @@ class SyftHubClient:
             ServerError: Server-side error
         """
         self._require_auth()
-        response = self._client.post("/api/v1/endpoints", json=payload)  # type: ignore
+        response = await self._client.post("/api/v1/endpoints", json=payload)  # type: ignore
 
         if overwrite and response.status_code == 400:
             # Endpoint already exists, try to update it
-            response = self._client.patch(
+            response = await self._client.patch(
                 f"/api/v1/endpoints/slug/{payload['slug']}", json=payload
             )  # type: ignore
         return _handle_response_raw(response)
 
-    def profile(self) -> UserProfile:
+    async def profile(self) -> UserProfile:
         """Get the profile of the current user.
         Returns:
             UserProfile: User profile
         """
         self._require_auth()
-        response = self._client.get("/api/v1/users/me")  # type: ignore
+        response = await self._client.get("/api/v1/users/me")  # type: ignore
         return _handle_response(response, UserProfile)
 
-    def update_profile(
+    async def update_profile(
         self,
         domain: str | None = None,
         username: str | None = None,
@@ -504,10 +520,10 @@ class SyftHubClient:
             "full_name": full_name,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
-        response = self._client.put("api/v1/users/me", json=payload)  # type: ignore
+        response = await self._client.put("api/v1/users/me", json=payload)  # type: ignore
         return _handle_response(response, UserProfile)
 
-    def verify_satellite_token(self, token: str) -> SatelliteToken:
+    async def verify_satellite_token(self, token: str) -> SatelliteToken:
         """Verify a satellite token.
         Args:
             token: Satellite token
@@ -515,21 +531,21 @@ class SyftHubClient:
             SatelliteToken: Verify satellite token response
         """
         self._require_auth()
-        response = self._client.post("/api/v1/verify", json={"token": token})  # type: ignore
+        response = await self._client.post("/api/v1/verify", json={"token": token})  # type: ignore
         return _handle_response(response, SatelliteToken)
 
     def _require_auth(self) -> None:
         if self._client is None:
             raise NotAuthenticatedError()
 
-    def close(self) -> None:
+    async def close(self) -> None:
         """Close HTTP clients."""
-        self._auth_client.close()
+        await self._auth_client.aclose()
         if self._client:
-            self._client.close()
+            await self._client.aclose()
 
-    def __enter__(self) -> "SyftHubClient":
+    async def __aenter__(self) -> "SyftHubClient":
         return self
 
-    def __exit__(self, *args: Any) -> None:
-        self.close()
+    async def __aexit__(self, *args: Any) -> None:
+        await self.close()

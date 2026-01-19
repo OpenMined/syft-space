@@ -8,10 +8,10 @@ from sqlalchemy import func
 from sqlmodel import select
 
 from syft_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
-from syft_space.components.shared.database import BaseRepository, Database
+from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class IngestionJobRepository(BaseRepository[IngestionJob]):
+class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
     """Repository for IngestionJob CRUD operations.
 
     Key operations:
@@ -23,7 +23,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
     - cancel_pending_by_dataset(): Cancel all pending jobs for a dataset
     """
 
-    def __init__(self, db: Database):
+    def __init__(self, db: AsyncDatabase):
         """Initialize the ingestion job repository.
 
         Args:
@@ -31,7 +31,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         """
         super().__init__(db, IngestionJob)
 
-    def upsert_by_path(
+    async def upsert_by_path(
         self,
         tenant_id: UUID,
         dataset_id: UUID,
@@ -58,13 +58,14 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Returns:
             Created or updated IngestionJob
         """
-        with self.db.get_session() as session:
-            existing = session.exec(
+        async with self.db.get_session() as session:
+            result = await session.exec(
                 select(IngestionJob).where(
                     IngestionJob.dataset_id == dataset_id,
                     IngestionJob.file_path == file_path,
                 )
-            ).first()
+            )
+            existing = result.first()
 
             now = datetime.now(timezone.utc)
 
@@ -95,8 +96,8 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                 # Keep retry_count for tracking history
 
                 session.add(existing)
-                session.commit()
-                session.refresh(existing)
+                await session.commit()
+                await session.refresh(existing)
                 return existing
             else:
                 # Create new job
@@ -112,11 +113,11 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                     updated_at=now,
                 )
                 session.add(job)
-                session.commit()
-                session.refresh(job)
+                await session.commit()
+                await session.refresh(job)
                 return job
 
-    def get_pending_jobs(
+    async def get_pending_jobs(
         self,
         dataset_id: UUID | None = None,
         limit: int = 100,
@@ -130,7 +131,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Returns:
             List of pending IngestionJobs ordered by created_at
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             stmt = select(IngestionJob).where(
                 IngestionJob.status == IngestionJobStatus.PENDING.value
             )
@@ -139,9 +140,10 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                 stmt = stmt.where(IngestionJob.dataset_id == dataset_id)
 
             stmt = stmt.order_by(IngestionJob.created_at).limit(limit)
-            return list(session.exec(stmt).all())
+            result = await session.exec(stmt)
+            return list(result.all())
 
-    def get_by_dataset(
+    async def get_by_dataset(
         self,
         dataset_id: UUID,
         tenant_id: UUID,
@@ -161,7 +163,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Returns:
             List of IngestionJobs
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             stmt = select(IngestionJob).where(
                 IngestionJob.dataset_id == dataset_id,
                 IngestionJob.tenant_id == tenant_id,
@@ -176,9 +178,10 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                 .offset(offset)
                 .limit(limit)
             )
-            return list(session.exec(stmt).all())
+            result = await session.exec(stmt)
+            return list(result.all())
 
-    def update_status(
+    async def update_status(
         self,
         job_id: UUID,
         status: IngestionJobStatus,
@@ -194,8 +197,8 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Returns:
             Updated job or None if not found
         """
-        with self.db.get_session() as session:
-            job = session.get(IngestionJob, job_id)
+        async with self.db.get_session() as session:
+            job = await session.get(IngestionJob, job_id)
             if not job:
                 return None
 
@@ -214,11 +217,13 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                 job.completed_at = now
 
             session.add(job)
-            session.commit()
-            session.refresh(job)
+            await session.commit()
+            await session.refresh(job)
             return job
 
-    def get_stats_by_dataset(self, dataset_id: UUID, tenant_id: UUID) -> dict[str, int]:
+    async def get_stats_by_dataset(
+        self, dataset_id: UUID, tenant_id: UUID
+    ) -> dict[str, int]:
         """Get aggregated job statistics for a dataset.
 
         Args:
@@ -228,7 +233,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Returns:
             Dict with counts per status and total
         """
-        with self.db.get_session() as session:
+        async with self.db.get_session() as session:
             # Get counts grouped by status
             stmt = (
                 select(IngestionJob.status, func.count())
@@ -238,7 +243,8 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                 )
                 .group_by(IngestionJob.status)
             )
-            results = session.exec(stmt).all()
+            result = await session.exec(stmt)
+            results = result.all()
 
             stats = {
                 "pending": 0,
@@ -255,7 +261,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
 
             return stats
 
-    def cancel_pending_by_dataset(self, dataset_id: UUID) -> int:
+    async def cancel_pending_by_dataset(self, dataset_id: UUID) -> int:
         """Cancel all pending jobs for a dataset.
 
         Args:
@@ -264,13 +270,14 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Returns:
             Number of jobs cancelled
         """
-        with self.db.get_session() as session:
-            jobs = session.exec(
+        async with self.db.get_session() as session:
+            result = await session.exec(
                 select(IngestionJob).where(
                     IngestionJob.dataset_id == dataset_id,
                     IngestionJob.status == IngestionJobStatus.PENDING.value,
                 )
-            ).all()
+            )
+            jobs = result.all()
 
             now = datetime.now(timezone.utc)
             count = 0
@@ -281,10 +288,10 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                 session.add(job)
                 count += 1
 
-            session.commit()
+            await session.commit()
             return count
 
-    def delete_by_path(self, dataset_id: UUID, file_path: str) -> bool:
+    async def delete_by_path(self, dataset_id: UUID, file_path: str) -> bool:
         """Delete a job by file path (for file deletion events).
 
         Args:
@@ -294,21 +301,22 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Returns:
             True if deleted, False if not found
         """
-        with self.db.get_session() as session:
-            job = session.exec(
+        async with self.db.get_session() as session:
+            result = await session.exec(
                 select(IngestionJob).where(
                     IngestionJob.dataset_id == dataset_id,
                     IngestionJob.file_path == file_path,
                 )
-            ).first()
+            )
+            job = result.first()
 
             if job:
-                session.delete(job)
-                session.commit()
+                await session.delete(job)
+                await session.commit()
                 return True
             return False
 
-    def reset_failed_jobs(self, dataset_id: UUID, tenant_id: UUID) -> int:
+    async def reset_failed_jobs(self, dataset_id: UUID, tenant_id: UUID) -> int:
         """Reset all failed jobs to pending for retry.
 
         Args:
@@ -318,14 +326,15 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Returns:
             Number of jobs reset
         """
-        with self.db.get_session() as session:
-            jobs = session.exec(
+        async with self.db.get_session() as session:
+            result = await session.exec(
                 select(IngestionJob).where(
                     IngestionJob.dataset_id == dataset_id,
                     IngestionJob.tenant_id == tenant_id,
                     IngestionJob.status == IngestionJobStatus.FAILED.value,
                 )
-            ).all()
+            )
+            jobs = result.all()
 
             now = datetime.now(timezone.utc)
             count = 0
@@ -338,5 +347,5 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                 session.add(job)
                 count += 1
 
-            session.commit()
+            await session.commit()
             return count
