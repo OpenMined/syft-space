@@ -152,7 +152,8 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             grpc_secure=self.config.grpc_url.scheme == "https",
             auth_credentials=Auth.api_key(self.config.api_key),
         ) as client:
-            collection = await client.collections.get(self.collection_name)
+            # Get the collection
+            collection = client.collections.get(self.collection_name)
 
             results = await collection.query.near_text(
                 query=query,

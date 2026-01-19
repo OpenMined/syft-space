@@ -75,7 +75,7 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             )
 
         logger.info(
-            f"Started Weaviate container '{container_name}': {result.stdout.decode('utf-8')}"
+            f"Started Weaviate container '{container_name}': {stdout.decode('utf-8')}"
         )
 
         # Wait for health
@@ -130,7 +130,7 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             )
 
         logger.info(
-            f"Stopped Weaviate container '{container_name}': {result.stdout.decode('utf-8')}"
+            f"Stopped Weaviate container '{container_name}': {stdout.decode('utf-8')}"
         )
 
     @classmethod
@@ -218,7 +218,7 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             True if healthy, False otherwise
         """
         try:
-            with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(
                     f"http://localhost:{http_port}/v1/.well-known/ready", timeout=2
                 )

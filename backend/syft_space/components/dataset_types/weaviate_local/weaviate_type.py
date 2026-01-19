@@ -1,5 +1,6 @@
 """Weaviate dataset type implementation."""
 
+import asyncio
 import re
 from io import BytesIO
 from pathlib import Path
@@ -234,23 +235,27 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         async with weaviate.use_async_with_local(
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
-            # Ensure collection exists
-            collection_exists = await client.collections.exists(self.collection_name)
+            # Get the collection
+            collection = client.collections.get(self.collection_name)
+
+            # Check if collection exists
+            collection_exists = await collection.exists()
             if not collection_exists:
                 # Create the collection
-                await client.collections.create(
+                collection = await client.collections.create(
                     self.collection_name,
                     vectorizer_config=Configure.Vectorizer.text2vec_transformers(),
                 )
 
-            # Ingest the data into the data source
-            collection = await client.collections.get(self.collection_name)
+            # Ingest the data into the collection
             for file in request.files:
                 if file.content_type not in self.allowed_extensions():
                     raise ValueError(
                         f"Unsupported file type: {file.content_type}"
                     ) from None
-                parsed_document = self._parse_document(file)
+
+                # Run CPU-bound docling parsing in executor to avoid blocking event loop
+                parsed_document = await asyncio.to_thread(self._parse_document, file)
                 await collection.data.insert(parsed_document)
 
     @property
@@ -289,7 +294,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
             port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
         ) as client:
             # Get the collection
-            collection = await client.collections.get(self.collection_name)
+            collection = client.collections.get(self.collection_name)
 
             # Perform the search
             results = await collection.query.near_text(
@@ -302,7 +307,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
             )
 
             # Process the results
-            for result in results.get("objects", []):
+            for result in results.objects:
                 documents.append(
                     SearchedDocument(
                         document_id=str(result.uuid),

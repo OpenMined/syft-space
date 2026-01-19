@@ -87,7 +87,6 @@ class AsyncDatabase:
             echo=False,
             pool_size=10,  # Base pool size (connections kept open)
             max_overflow=5,  # Additional connections when pool is exhausted
-            pool_pre_ping=True,  # Verify connections before use
             pool_recycle=3600,  # Recycle connections after 1 hour
         )
 
