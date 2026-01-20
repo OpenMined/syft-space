@@ -99,6 +99,9 @@ class ProxyService(LifecycleService):
         if self._shutdown_event is None:
             self._shutdown_event = asyncio.Event()
 
+        # Clear current token FIRST to prevent reconnect loop from using old token
+        self._current_token = None
+
         # Disconnect existing connection if any
         await self._close_listener()
 
@@ -108,7 +111,7 @@ class ProxyService(LifecycleService):
         # Set auth token and create tunnel
         ngrok.set_auth_token(token)
         self._listener = await ngrok.forward(self._port)
-        self._current_token = token
+        self._current_token = token  # Set new token AFTER successful connection
         public_url = self._listener.url()
 
         logger.info(f"Ngrok tunnel established: {public_url}")
@@ -264,8 +267,14 @@ class ProxyService(LifecycleService):
     async def _close_listener(self) -> None:
         """Close the current listener if it exists."""
         if self._listener is not None:
+            import ngrok
+
             try:
+                url = self._listener.url()
                 await self._listener.close()
+                # Fully disconnect from ngrok service to clear session state
+                if url:
+                    ngrok.disconnect(url)
             except Exception as e:
                 logger.warning(f"Error closing ngrok listener: {e}")
             finally:
