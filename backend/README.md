@@ -130,6 +130,70 @@ curl -X POST http://localhost:8000/api/v1/endpoints/doc-qa/query \
   }'
 ```
 
+## Docker
+
+### Build the Image
+
+```bash
+# Build frontend first (required)
+cd frontend && bun install && bun run build && cd ..
+
+# Build Docker image
+docker build -t syft-space-server .
+```
+
+### Run with Environment Variables
+
+```bash
+docker run -d -p 8080:8080 \
+  -e SYFT_DEBUG=false \
+  -e SYFT_ADMIN_API_KEY=your-secret-key \
+  -e SYFT_SQLITE_DB_PATH=/data/app.db \
+  -e SYFT_DEFAULT_MARKETPLACE_URL=https://syfthub.openmined.org \
+  -v syft-data:/data \
+  syft-space-server
+```
+
+### Run with .env File (Recommended)
+
+```bash
+# Create .env from example
+cp .env.example .env
+# Edit with your values
+vim .env
+
+# Run with env file
+docker run -d -p 8080:8080 \
+  --env-file .env \
+  -v syft-data:/data \
+  syft-space-server
+```
+
+### Run with Docker Compose (Production)
+
+```bash
+# Create .env in project root
+cp .env.example .env
+
+# Start services
+docker compose up -d
+```
+
+### Available Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SYFT_PORT` | `8080` | Server port |
+| `SYFT_DEBUG` | `false` | Enable debug mode |
+| `SYFT_SQLITE_DB_PATH` | `/data/app.db` | Database path |
+| `SYFT_RESET_DB` | `false` | Reset database on startup (destroys data) |
+| `SYFT_ADMIN_API_KEY` | (empty) | API key for protected endpoints; empty = dev mode |
+| `SYFT_ENABLE_MULTI_TENANCY` | `false` | Enable multi-tenancy support |
+| `SYFT_DEFAULT_TENANT_NAME` | `root` | Default tenant name |
+| `SYFT_DEFAULT_ACCOUNTING_URL` | `https://syftaccounting...` | Accounting service URL |
+| `SYFT_DEFAULT_MARKETPLACE_URL` | `https://syfthub.openmined.org` | Marketplace URL |
+| `SYFT_PUBLIC_URL` | (none) | Public URL for callbacks/webhooks |
+
 ## Project Structure
 
 ```
