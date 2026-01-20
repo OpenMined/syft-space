@@ -7,6 +7,7 @@ services:
     image: syft-space-server:latest
     container_name: syft-space-server
     restart: unless-stopped
+    stop_grace_period: 15s  # Allow time for provisioner shutdown
 
     ports:
       - "${SYFT_PORT:-8080}:8080"
@@ -14,8 +15,14 @@ services:
     volumes:
       # Persist SQLite database
       - syft-space-data:/data
+      - ${HOME}:/root
+      # macOS Docker Desktop socket location
+      - ${HOME}/.docker/run/docker.sock:/var/run/docker.sock
 
     environment:
+      # Docker socket (override config from mounted home)
+      - DOCKER_HOST=unix:///var/run/docker.sock
+
       # Application port
       - SYFT_PORT=8080
 
@@ -41,6 +48,10 @@ services:
 
       # Public URL (optional - for callbacks/webhooks)
       - SYFT_PUBLIC_URL=${SYFT_PUBLIC_URL:-}
+
+    # Enable host.docker.internal on Linux (already works on macOS/Windows)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     # Health check using Python (no curl in distroless image)
     healthcheck:

@@ -33,11 +33,12 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
         """
         async with self.db.get_session() as session:
             session.add(obj)
+            obj_id = obj.id
             await session.commit()
             # Reload object with endpoints eagerly loaded
             result = await session.exec(
                 select(Dataset)
-                .where(Dataset.id == obj.id)
+                .where(Dataset.id == obj_id)
                 .options(selectinload(Dataset.endpoints))
             )
             reloaded = result.first()
@@ -236,12 +237,13 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
 
             # Save all changes in single commit
             session.add(dataset)
+            dataset_id = dataset.id
             try:
                 await session.commit()
                 # Reload dataset with endpoints eagerly loaded before returning
                 reload_result = await session.exec(
                     select(Dataset)
-                    .where(Dataset.id == dataset.id)
+                    .where(Dataset.id == dataset_id)
                     .options(selectinload(Dataset.endpoints))
                 )
                 reloaded = reload_result.first()

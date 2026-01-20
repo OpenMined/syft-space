@@ -36,7 +36,16 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.5
 DEFAULT_HTTP_PORT = 8083
 DEFAULT_GRPC_PORT = 50051
 
-DEFAULT_INGEST_FILE_TYPE_OPTIONS = [".pdf", ".txt", ".html", ".xlsx", ".docx", ".md"]
+DEFAULT_INGEST_FILE_TYPE_OPTIONS = [
+    ".pdf",
+    ".txt",
+    ".html",
+    ".xlsx",
+    ".docx",
+    ".md",
+    ".csv",
+    ".json",
+]
 
 
 class LocalFileDatasetType(FileIngestableDatasetType):
@@ -97,6 +106,13 @@ class LocalFileDatasetType(FileIngestableDatasetType):
     def icon(cls) -> str:
         """Get the icon for the dataset type."""
         return "🕸️"
+
+    @classmethod
+    def host(cls) -> str:
+        """Get the host of the dataset type."""
+        import os
+
+        return os.getenv("DOCKER_NETWORK_HOST", "localhost")
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
@@ -277,7 +293,9 @@ class LocalFileDatasetType(FileIngestableDatasetType):
             raise ImportError("Weaviate and docling are required for ingestion")
 
         async with weaviate.use_async_with_local(
-            port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
+            host=self.host(),
+            port=self.config["httpPort"],
+            grpc_port=self.config["grpcPort"],
         ) as client:
             # Get the collection
             collection = client.collections.get(self.collection_name)
@@ -335,7 +353,9 @@ class LocalFileDatasetType(FileIngestableDatasetType):
         )
 
         async with weaviate.use_async_with_local(
-            port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
+            host=self.host(),
+            port=self.config["httpPort"],
+            grpc_port=self.config["grpcPort"],
         ) as client:
             # Get the collection
             collection = client.collections.get(self.collection_name)
@@ -405,7 +425,9 @@ class LocalFileDatasetType(FileIngestableDatasetType):
 
         try:
             async with weaviate.use_async_with_local(
-                port=self.config["httpPort"], grpc_port=self.config["grpcPort"]
+                host=self.host(),
+                port=self.config["httpPort"],
+                grpc_port=self.config["grpcPort"],
             ) as client:
                 if await client.is_ready():
                     return HealthcheckResponse(

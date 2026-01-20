@@ -189,8 +189,34 @@ class DatasetHandler:
 
         Called by ProvisionerManager during app startup. Iterates over all
         provisioner states and starts those with attached datasets.
+
+        Also performs recovery for provisioners stuck in transient states
+        (STOPPING/STARTING) from interrupted previous shutdown.
         """
         states = await self.provisioner_state_repository.get_all()
+
+        # RECOVERY: Reset stuck STOPPING/STARTING states from interrupted shutdown
+        # This can happen if uvicorn reload kills the process during provisioner stop
+        recovery_needed = False
+        for state in states:
+            if state.status in (
+                ProvisionerStatus.STOPPING.value,
+                ProvisionerStatus.STARTING.value,
+            ):
+                logger.warning(
+                    f"Provisioner '{state.dtype}' stuck in {state.status}, "
+                    "resetting to ERROR for recovery"
+                )
+                await self.provisioner_state_repository.force_status_update(
+                    dtype=state.dtype,
+                    status=ProvisionerStatus.ERROR,
+                    error=f"Reset from stuck {state.status} state during startup recovery",
+                )
+                recovery_needed = True
+
+        # Re-fetch states after recovery to get updated status
+        if recovery_needed:
+            states = await self.provisioner_state_repository.get_all()
 
         for state in states:
             # Skip provisioners with no datasets attached

@@ -121,7 +121,23 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await result.communicate()
+
+        try:
+            # Add 30 second timeout to prevent indefinite hang during shutdown
+            stdout, stderr = await asyncio.wait_for(
+                result.communicate(),
+                timeout=60.0,
+            )
+        except asyncio.TimeoutError as e:
+            # Kill the process if it times out
+            logger.error(
+                f"Docker compose down timed out after 30s for '{container_name}': {e}"
+            )
+            result.kill()
+            await result.wait()
+            raise RuntimeError(
+                f"Docker compose down timed out after 30s for '{container_name}'"
+            ) from e
 
         if result.returncode != 0:
             logger.error(f"Failed to stop Weaviate container: {stderr.decode('utf-8')}")
@@ -217,14 +233,15 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         Returns:
             True if healthy, False otherwise
         """
+        host = cls._get_docker_host()
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(
-                    f"http://localhost:{http_port}/v1/.well-known/ready", timeout=2
+                    f"http://{host}:{http_port}/v1/.well-known/ready", timeout=2
                 )
                 return response.status_code == 200
         except Exception as e:
-            logger.error(f"Failed to check Weaviate health: {e}")
+            logger.error(f"Failed to check Weaviate health at {host}:{http_port}: {e}")
             return False
 
     @classmethod
@@ -255,6 +272,17 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         return env
 
     @classmethod
+    def _get_docker_host(cls) -> str:
+        """Get the Docker host address for health checks.
+
+        Returns DOCKER_NETWORK_HOST env var if set, otherwise 'localhost'.
+        This allows the code to work both locally and inside Docker containers.
+        """
+        import os
+
+        return os.getenv("DOCKER_NETWORK_HOST", "localhost")
+
+    @classmethod
     async def _get_docker_compose_command(cls) -> list[str]:
         """Get docker compose command (handles v1 and v2).
 
@@ -272,8 +300,8 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
 
         # If failed, use docker-compose as fallback
         if proc.returncode != 0:
-            logger.error(
-                f"Failed to get docker compose version: {stderr.decode('utf-8')}"
+            logger.debug(
+                f"docker compose v2 plugin not available, using docker-compose: {stderr.decode('utf-8')}"
             )
             return ["docker-compose"]
 

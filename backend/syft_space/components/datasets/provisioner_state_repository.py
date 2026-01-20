@@ -214,6 +214,44 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
                 await session.refresh(provisioner_state)
                 return provisioner_state
 
+    async def force_status_update(
+        self,
+        dtype: str,
+        status: ProvisionerStatus,
+        error: str | None = None,
+    ) -> ProvisionerState | None:
+        """Force update status bypassing transition guards.
+
+        WARNING: Only use for recovery scenarios during startup.
+        Bypasses all state transition validation.
+
+        Args:
+            dtype: Dataset type name
+            status: Target status (typically ERROR for recovery)
+            error: Optional error message
+
+        Returns:
+            Updated ProvisionerState or None if not found
+        """
+        async with self.db.get_session() as session:
+            result = await session.exec(
+                select(ProvisionerState).where(ProvisionerState.dtype == dtype)
+            )
+            existing = result.first()
+            if not existing:
+                return None
+
+            now = datetime.now(timezone.utc)
+            existing.status = status.value
+            existing.error = error
+            existing.updated_at = now
+            existing.stopped_at = now
+
+            session.add(existing)
+            await session.commit()
+            await session.refresh(existing)
+            return existing
+
     async def count_datasets_by_provisioner(self, state_id: UUID) -> int:
         """Count datasets using a specific provisioner state.
 

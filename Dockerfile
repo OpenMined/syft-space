@@ -34,7 +34,7 @@ COPY backend/syft_space/__init__.py ./backend/syft_space/
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 RUN uv venv /app/.venv --python python${PYTHON_VERSION} && \
-    uv pip install --python /app/.venv/bin/python -e "./backend/" --no-cache
+    uv pip install --python /app/.venv/bin/python -e "./backend[libs]" --no-cache
 
 # ============================================================================
 # Stage 2: Production
@@ -43,7 +43,12 @@ RUN uv venv /app/.venv --python python${PYTHON_VERSION} && \
 FROM cgr.dev/chainguard/wolfi-base AS production
 
 ARG PYTHON_VERSION
-RUN apk update && apk add --no-cache python-${PYTHON_VERSION}
+RUN apk update && apk add --no-cache \
+    python-${PYTHON_VERSION} \
+    docker-cli \
+    docker-compose \
+    && mkdir -p /usr/local/lib/docker/cli-plugins \
+    && ln -s /usr/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
 
 WORKDIR /app
 
@@ -59,7 +64,8 @@ COPY frontend/dist ./frontend/dist
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     SYFT_PORT=8080 \
-    SYFT_SQLITE_DB_PATH=/data/app.db
+    SYFT_SQLITE_DB_PATH=/data/app.db \
+    DOCKER_NETWORK_HOST=host.docker.internal
 
 EXPOSE 8080
 

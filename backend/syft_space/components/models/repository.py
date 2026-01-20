@@ -197,12 +197,13 @@ class ModelRepository(AsyncBaseRepository[Model]):
 
             # Save all changes in single commit
             session.add(model)
+            model_id = model.id
             try:
                 await session.commit()
                 # Reload model with endpoints eagerly loaded before returning
                 reload_result = await session.exec(
                     select(Model)
-                    .where(Model.id == model.id)
+                    .where(Model.id == model_id)
                     .options(selectinload(Model.endpoints))
                 )
                 reloaded = reload_result.first()
