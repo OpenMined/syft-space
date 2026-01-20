@@ -471,9 +471,17 @@ class PublishEndpointResponse(BaseModel):
     )
 
 
+class UnpublishResult(BaseModel):
+    """Result of unpublishing from a single marketplace."""
+
+    marketplace_id: UUID = Field(..., description="Marketplace ID")
+    marketplace_name: str = Field(..., description="Marketplace name")
+    success: bool = Field(..., description="Whether unpublishing succeeded")
+    message: str | None = Field(default=None, description="Success message")
+    error: str | None = Field(default=None, description="Error message if failed")
+
+
 # Slug Availability Check Models
-
-
 class SlugAvailabilityRequest(BaseModel):
     """Request model for checking slug availability."""
 

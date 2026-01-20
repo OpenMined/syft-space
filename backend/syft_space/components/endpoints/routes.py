@@ -17,6 +17,7 @@ from syft_space.components.endpoints.schemas import (
     QueryEndpointResponse,
     SlugAvailabilityRequest,
     SlugAvailabilityResponse,
+    UnpublishResult,
     UpdateEndpointRequest,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
@@ -212,6 +213,25 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
             request.publish_to_all_marketplaces,
             tenant,
         )
+
+    @router.delete("/{slug}/unpublish", response_model=list[UnpublishResult])
+    async def unpublish_endpoint(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> list[UnpublishResult]:
+        """Unpublish an endpoint.
+        Args:
+            slug: Endpoint slug
+            tenant: Current tenant (injected)
+            handler: Endpoint handler (injected)
+        Returns:
+            Unpublish results for each marketplace
+        Raises:
+            HTTPException: If endpoint not found or marketplace not found
+            HTTPException: If endpoint is not published
+        """
+        return await handler.unpublish_endpoint(slug, tenant)
 
     @router.delete("/{slug}", response_model=dict[str, str])
     async def delete_endpoint(

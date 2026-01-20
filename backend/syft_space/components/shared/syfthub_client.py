@@ -496,6 +496,21 @@ class SyftHubClient:
         response = await self._client.get("/api/v1/users/me")  # type: ignore
         return _handle_response(response, UserProfile)
 
+    async def unpublish_endpoint(self, endpoint_slug: str) -> bool:
+        """Unpublish an endpoint from SyftHub.
+
+        Args:
+            endpoint_slug: Slug of the endpoint
+
+        Returns:
+            True if endpoint was unpublished successfully
+        """
+        self._require_auth()
+        response = await self._client.delete(f"/api/v1/endpoints/slug/{endpoint_slug}")  # type: ignore
+
+        result = _handle_response_raw(response)
+        return result is True
+
     async def update_profile(
         self,
         domain: str | None = None,
