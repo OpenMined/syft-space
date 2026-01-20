@@ -10,7 +10,7 @@
 
 A space where you can turn data and models into shareable workflows — exposing them through secure endpoints under your own rules for privacy, payments, and human oversight.
 
-## What This Project Does
+## At a Glance
 
 Syft Space Server lets you create **secure, shareable AI endpoints**. In plain terms, it helps you:
 
@@ -21,7 +21,7 @@ Syft Space Server lets you create **secure, shareable AI endpoints**. In plain t
 
 Think of it as your personal control plane for AI workflows — you decide who can access what, under what terms.
 
-## Why You Might Want to Use It
+## Why Syft Space?
 
 - **Own your data** — self-host instead of sending everything to third parties
 - **Control access** — define policies for privacy, payments, and oversight
@@ -132,7 +132,7 @@ When `SYFT_ADMIN_API_KEY` is empty, the server runs in development mode with no 
 
 See `.env.example` for all available options.
 
-## API Documentation
+## API Docs
 
 Interactive API documentation is available at:
 
