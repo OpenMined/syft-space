@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import HTTPException
+from loguru import logger
 
 from syft_space.components.dataset_types.interfaces import SearchParameters
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
@@ -647,32 +648,26 @@ class EndpointHandler:
                 success=False,
                 error="Marketplace credentials not configured",
             )
-
         try:
             async with SyftHubClient(base_url=marketplace.url) as client:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
-                success = await client.unpublish_endpoint(endpoint.slug)
 
-                if success:
-                    # Remove from published_to list
-                    await self.endpoint_repository.remove_publication(
-                        endpoint.id, marketplace.id, endpoint.tenant_id
-                    )
-                    return UnpublishResult(
-                        marketplace_id=marketplace.id,
-                        marketplace_name=marketplace.name,
-                        success=True,
-                        message=f"Unpublished successfully from {marketplace.name}",
-                    )
-                else:
-                    return UnpublishResult(
-                        marketplace_id=marketplace.id,
-                        marketplace_name=marketplace.name,
-                        success=False,
-                        error=f"Failed to unpublish from {marketplace.name}",
-                    )
+                # Unpublish endpoint
+                await client.unpublish_endpoint(endpoint.slug)
+
+                # Remove from published_to list
+                await self.endpoint_repository.remove_publication(
+                    endpoint.id, marketplace.id, endpoint.tenant_id
+                )
+                return UnpublishResult(
+                    marketplace_id=marketplace.id,
+                    marketplace_name=marketplace.name,
+                    success=True,
+                    message=f"Unpublished successfully from {marketplace.name}",
+                )
+
         except SyftHubError as e:
             return UnpublishResult(
                 marketplace_id=marketplace.id,
@@ -681,6 +676,9 @@ class EndpointHandler:
                 error=e.message,
             )
         except Exception as e:
+            logger.error(
+                f"Failed to unpublish endpoint {endpoint.slug} from {marketplace.name}: {str(e)}"
+            )
             return UnpublishResult(
                 marketplace_id=marketplace.id,
                 marketplace_name=marketplace.name,

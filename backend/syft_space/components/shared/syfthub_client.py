@@ -508,8 +508,13 @@ class SyftHubClient:
         self._require_auth()
         response = await self._client.delete(f"/api/v1/endpoints/slug/{endpoint_slug}")  # type: ignore
 
-        result = _handle_response_raw(response)
-        return result is True
+        logger.info(
+            f"Unpublish endpoint response: {response.status_code}: {response.content}"
+        )
+
+        _raise_for_status(response)
+
+        return True
 
     async def update_profile(
         self,
