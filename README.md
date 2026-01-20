@@ -38,21 +38,24 @@ Or for running from source:
 
 ## Quick Start
 
-The fastest way to get started is with Docker:
+The fastest way to get started is with the pre-built Docker image:
 
 ```bash
-# Clone the repository
-git clone https://github.com/OpenMined/syft-space.git
-cd syft-space
-
-# Copy the example environment file
-cp .env.example .env
-
-# Start with Docker Compose
-docker compose up -d
+docker run -d -p 8080:8080 -v syft-data:/data --name syft-space ghcr.io/openmined/syft-space:latest
 ```
 
 Open your browser to [http://localhost:8080](http://localhost:8080) to access the application.
+
+### Using Docker Compose
+
+For more control over configuration, clone the repository and use Docker Compose:
+
+```bash
+git clone https://github.com/OpenMined/syft-space.git
+cd syft-space
+cp .env.example .env
+docker compose up -d
+```
 
 ## Installation
 

@@ -183,8 +183,8 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to start {name}: {e}")
 
     # 5. Post-startup: Log proxy connection and update settings
+    proxy_service.log_connection_info(app_settings.admin_api_key)
     if proxy_service.is_connected():
-        proxy_service.log_connection_info(app_settings.admin_api_key)
         public_url = proxy_service.get_public_url()
         if public_url and default_tenant:
             # Fire-and-forget: Don't block startup on marketplace sync

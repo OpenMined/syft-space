@@ -22,13 +22,12 @@ class ProvisionerManager(LifecycleService):
             dataset_handler: Handler with provisioner business logic
         """
         self.dataset_handler = dataset_handler
-        self._shutdown_event = asyncio.Event()
+        self._shutdown_event: asyncio.Event | None = None  # Initialized in startup()
 
     async def startup(self) -> None:
         """Start all provisioners that have at least one dataset."""
-        if self._shutdown_event.is_set():
-            logger.warning("Shutdown already initiated, skipping startup")
-            return
+        # Initialize async primitives in async context (not in __init__)
+        self._shutdown_event = asyncio.Event()
 
         logger.info("Starting shared provisioners...")
         try:
@@ -39,7 +38,8 @@ class ProvisionerManager(LifecycleService):
 
     async def shutdown(self) -> None:
         """Stop all running provisioners gracefully."""
-        self._shutdown_event.set()
+        if self._shutdown_event:
+            self._shutdown_event.set()
 
         logger.info("Shutting down shared provisioners...")
         try:

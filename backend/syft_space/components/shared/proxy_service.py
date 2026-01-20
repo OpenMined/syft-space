@@ -41,7 +41,7 @@ class ProxyService(LifecycleService):
         self._port = port or int(os.getenv("SYFT_PORT", "8080"))
         self._listener = None
         self._current_token: str | None = None
-        self._shutdown_event = asyncio.Event()
+        self._shutdown_event: asyncio.Event | None = None  # Initialized in startup()
         self._reconnect_task: asyncio.Task | None = None
 
     def is_connected(self) -> bool:
@@ -66,7 +66,7 @@ class ProxyService(LifecycleService):
         public_url = self.get_public_url()
         public_url_str = (
             f"{public_url.rstrip('/')}/#/?authToken={admin_api_key}"
-            if admin_api_key
+            if admin_api_key and public_url
             else str(public_url)
         )
         local_url_str = (
@@ -94,6 +94,10 @@ class ProxyService(LifecycleService):
             Exception: If connection fails (invalid token, network issues, etc.)
         """
         import ngrok
+
+        # Ensure shutdown event exists (connect can be called before startup)
+        if self._shutdown_event is None:
+            self._shutdown_event = asyncio.Event()
 
         # Disconnect existing connection if any
         await self._close_listener()
@@ -165,6 +169,8 @@ class ProxyService(LifecycleService):
 
         Implements LifecycleService protocol. Calls auto_connect_if_configured.
         """
+        # Initialize async primitives in async context (not in __init__)
+        self._shutdown_event = asyncio.Event()
         await self.auto_connect_if_configured()
 
     async def shutdown(self) -> None:
@@ -173,7 +179,8 @@ class ProxyService(LifecycleService):
         Called during application shutdown.
         """
         logger.info("Shutting down proxy service...")
-        self._shutdown_event.set()
+        if self._shutdown_event:
+            self._shutdown_event.set()
 
         # Stop reconnect task
         await self._stop_reconnect_task()
@@ -188,13 +195,15 @@ class ProxyService(LifecycleService):
         if self._reconnect_task is not None and not self._reconnect_task.done():
             return  # Already running
 
-        self._shutdown_event.clear()
+        if self._shutdown_event:
+            self._shutdown_event.clear()
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
     async def _stop_reconnect_task(self) -> None:
         """Stop the reconnection monitor task."""
         if self._reconnect_task is not None:
-            self._shutdown_event.set()
+            if self._shutdown_event:
+                self._shutdown_event.set()
             try:
                 # Wait for task to complete with timeout
                 await asyncio.wait_for(self._reconnect_task, timeout=5.0)
