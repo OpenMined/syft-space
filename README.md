@@ -41,10 +41,50 @@ Or for running from source:
 The fastest way to get started is with the pre-built Docker image:
 
 ```bash
-docker run -d -p 8080:8080 -v syft-data:/data --name syft-space ghcr.io/openmined/syft-space:latest
+docker run -d \
+    --name syft-space \
+    -p 8080:8080 \
+    -v syft-space-data:/data \
+    ghcr.io/openmined/syft-space:latest
 ```
 
 Open your browser to [http://localhost:8080](http://localhost:8080) to access the application.
+
+## Docker Usage
+
+### With Local Directory Mount
+
+Mount your local home directory to access local files from within the container:
+
+```bash
+docker run -d \
+    --name syft-space \
+    --restart unless-stopped \
+    -p 8080:8080 \
+    -v syft-space-data:/data \
+    -v ${HOME}:/root \
+    -v ${HOME}/.docker/run/docker.sock:/var/run/docker.sock \
+    -e DOCKER_HOST=unix:///var/run/docker.sock \
+    --add-host=host.docker.internal:host-gateway \
+    ghcr.io/openmined/syft-space:latest
+```
+
+### With Environment Variables
+
+Run with custom environment variables for authentication and debugging:
+
+```bash
+docker run -d \
+    --name syft-space \
+    --restart unless-stopped \
+    -p 8080:8080 \
+    -v syft-space-data:/data \
+    -e SYFT_PORT=8080 \
+    -e SYFT_DEBUG=true \
+    -e SYFT_ADMIN_API_KEY=your-secret-key \
+    -e SYFT_SQLITE_DB_PATH=/data/app.db \
+    ghcr.io/openmined/syft-space:latest
+```
 
 ### Using Docker Compose
 
@@ -57,39 +97,19 @@ cp .env.example .env
 docker compose up -d
 ```
 
-## Installation
-
-### Option 1: Using Docker (Recommended)
-
-Docker is the simplest way to run Syft Space Server.
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/OpenMined/syft-space.git
-   cd syft-space
-   ```
-
-2. **Create your environment file:**
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **Start the server:**
-   ```bash
-   docker compose up -d
-   ```
-
-4. **Check that it's running:**
-   ```bash
-   curl http://localhost:8080/health
-   ```
-
 To stop the server:
+
 ```bash
 docker compose down
 ```
 
-### Option 2: Running from Source
+To check that it's running:
+
+```bash
+curl http://localhost:8080/health
+```
+
+## Running from Source
 
 If you prefer to run the code directly:
 
@@ -108,9 +128,9 @@ If you prefer to run the code directly:
 
 3. **Access the application** at [http://localhost:8080](http://localhost:8080)
 
-#### Running the Frontend Separately (for development)
+### Frontend Development
 
-If you're working on the frontend:
+If you're working on the frontend separately:
 
 ```bash
 cd frontend
@@ -123,13 +143,14 @@ For detailed reference to frontend and development instructions, see [`frontend/
 
 ## Configuration
 
-The server works out of the box with sensible defaults. For customization, edit the `.env` file:
+The server works out of the box with sensible defaults. For customization, edit the `.env` file or pass environment variables to Docker:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SYFT_PORT` | `8080` | Port the server runs on |
 | `SYFT_DEBUG` | `false` | Enable detailed logging |
 | `SYFT_ADMIN_API_KEY` | (empty) | Set this to require authentication |
+| `SYFT_SQLITE_DB_PATH` | `~/.syai-server/app.db` | Path to SQLite database file |
 
 When `SYFT_ADMIN_API_KEY` is empty, the server runs in development mode with no authentication required. Set a value to enable API key authentication.
 
