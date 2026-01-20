@@ -17,6 +17,8 @@ from syft_space.components.endpoints.schemas import (
     QueryEndpointResponse,
     SlugAvailabilityRequest,
     SlugAvailabilityResponse,
+    UnpublishResult,
+    UpdateEndpointRequest,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -137,6 +139,27 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """
         return await handler.get_endpoint(slug, tenant)
 
+    @router.patch("/{slug}", response_model=EndpointDetailResponse)
+    async def update_endpoint(
+        slug: str,
+        request: UpdateEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> EndpointDetailResponse:
+        """Update an endpoint's metadata.
+
+        Allows partial updates to name, summary, and description.
+
+        Args:
+            slug: Endpoint slug
+            request: Update request with fields to update
+            tenant: Current tenant (injected)
+
+        Returns:
+            Updated endpoint details
+        """
+        return await handler.update_endpoint(slug, request, tenant)
+
     @public_route
     @router.post("/{slug}/query", response_model=QueryEndpointResponse)
     async def query_endpoint(
@@ -190,6 +213,25 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
             request.publish_to_all_marketplaces,
             tenant,
         )
+
+    @router.delete("/{slug}/unpublish", response_model=list[UnpublishResult])
+    async def unpublish_endpoint(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> list[UnpublishResult]:
+        """Unpublish an endpoint.
+        Args:
+            slug: Endpoint slug
+            tenant: Current tenant (injected)
+            handler: Endpoint handler (injected)
+        Returns:
+            Unpublish results for each marketplace
+        Raises:
+            HTTPException: If endpoint not found or marketplace not found
+            HTTPException: If endpoint is not published
+        """
+        return await handler.unpublish_endpoint(slug, tenant)
 
     @router.delete("/{slug}", response_model=dict[str, str])
     async def delete_endpoint(

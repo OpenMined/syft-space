@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import HTTPException
+from loguru import logger
 
 from syft_space.components.dataset_types.interfaces import SearchParameters
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
@@ -26,12 +27,12 @@ from syft_space.components.endpoints.schemas import (
     SlugAvailabilityResponse,
     SummaryResponse,
     TokenUsage,
+    UnpublishResult,
+    UpdateEndpointRequest,
 )
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
-from syft_space.components.marketplaces.utils import (
-    ensure_valid_accounting_credentials,
-)
+from syft_space.components.marketplaces.utils import ensure_valid_accounting_credentials
 from syft_space.components.model_types.interfaces import ChatMessage, ChatParameters
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
@@ -177,6 +178,34 @@ class EndpointHandler:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
         return EndpointDetailResponse.model_validate(endpoint)
+
+    async def update_endpoint(
+        self, slug: str, request: UpdateEndpointRequest, tenant: Tenant
+    ) -> EndpointDetailResponse:
+        """Update an endpoint by slug within a tenant.
+
+        Args:
+            slug: Endpoint slug
+            request: Update request with fields to update
+            tenant: Tenant context
+
+        Returns:
+            Updated endpoint details
+
+        Raises:
+            HTTPException: If endpoint not found
+        """
+        updated_endpoint = await self.endpoint_repository.update_by_slug(
+            slug,
+            tenant.id,
+            name=request.name,
+            summary=request.summary,
+            description=request.description,
+        )
+        if not updated_endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        return EndpointDetailResponse.model_validate(updated_endpoint)
 
     async def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
         """Delete an endpoint by slug within a tenant.
@@ -565,6 +594,97 @@ class EndpointHandler:
             endpoint_slug=slug,
             results=results,
         )
+
+    async def unpublish_endpoint(
+        self, slug: str, tenant: Tenant
+    ) -> list[UnpublishResult]:
+        """Unpublish an endpoint from all its marketplaces."""
+        if not self.marketplace_repository:
+            raise HTTPException(
+                status_code=500,
+                detail="Marketplace publishing is not configured",
+            )
+
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        if not endpoint.published_to:
+            raise HTTPException(status_code=400, detail="Endpoint is not published")
+
+        # Convert string IDs to UUIDs
+        marketplace_ids = [UUID(mid) for mid in endpoint.published_to]
+        marketplaces = await self.marketplace_repository.get_by_ids(
+            marketplace_ids, tenant.id
+        )
+        if not marketplaces:
+            raise HTTPException(status_code=404, detail="Marketplaces not found")
+
+        results: list[UnpublishResult] = []
+        for marketplace in marketplaces:
+            result = await self._unpublish_endpoint(endpoint, marketplace)
+            results.append(result)
+
+        return results
+
+    async def _unpublish_endpoint(
+        self,
+        endpoint: Endpoint,
+        marketplace: Marketplace,
+    ) -> UnpublishResult:
+        """Unpublish an endpoint from a marketplace using SDK.
+
+        Args:
+            endpoint: Endpoint to unpublish
+            marketplace: Marketplace to unpublish from
+
+        Returns:
+            UnpublishResult with success/failure status
+        """
+        if not marketplace.email or not marketplace.password:
+            return UnpublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error="Marketplace credentials not configured",
+            )
+        try:
+            async with SyftHubClient(base_url=marketplace.url) as client:
+                await client.login(
+                    username=marketplace.email, password=marketplace.password
+                )
+
+                # Unpublish endpoint
+                await client.unpublish_endpoint(endpoint.slug)
+
+                # Remove from published_to list
+                await self.endpoint_repository.remove_publication(
+                    endpoint.id, marketplace.id, endpoint.tenant_id
+                )
+                return UnpublishResult(
+                    marketplace_id=marketplace.id,
+                    marketplace_name=marketplace.name,
+                    success=True,
+                    message=f"Unpublished successfully from {marketplace.name}",
+                )
+
+        except SyftHubError as e:
+            return UnpublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=e.message,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to unpublish endpoint {endpoint.slug} from {marketplace.name}: {str(e)}"
+            )
+            return UnpublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=str(e),
+            )
 
     async def _publish_to_marketplace(
         self,
