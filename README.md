@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://avatars.githubusercontent.com/u/30185530?s=200&v=4" alt="OpenMined Logo" width="100">
+</p>
+
 # Syft Space Server
 
 A friendly platform for building AI-powered search and question-answering tools. Connect your documents to language models and query them through simple API endpoints.
