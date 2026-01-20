@@ -134,7 +134,7 @@ curl -X POST http://localhost:8000/api/v1/endpoints/doc-qa/query \
 
 ```
 backend/
-├── syftai_space/
+├── syft_space/
 │  ├── components/
 │  │   ├── dataset_types/       # Dataset type definitions and provisioners
 │  │   │   ├── interfaces.py    # Base protocols
@@ -156,7 +156,7 @@ backend/
 
 The server uses environment variables and defaults:
 
-- **Database**: SQLite at `~/.syftai/syftai.db` (configurable via `database_path`)
+- **Database**: SQLite at `~/.syft-space/app.db` (configurable via `database_path`)
 - **CORS**: Allows `http://localhost:5173` by default (frontend)
 - **Debug Mode**: Set via `debug` config
 

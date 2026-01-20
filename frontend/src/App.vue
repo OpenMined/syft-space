@@ -3,12 +3,11 @@ import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import AppNavbar from './components/AppNavbar.vue'
 import { useTheme } from './composables/useTheme'
-import { useUserStore } from './stores/user'
+import { loadGlobalData } from './lib/utils'
 import { Toaster } from '@/components/ui/sonner'
 import 'vue-sonner/style.css'
 
 const route = useRoute()
-const userStore = useUserStore()
 
 const showNavbar = computed(
   () =>
@@ -21,10 +20,9 @@ const showNavbar = computed(
 // Initialize theme support
 useTheme()
 
-// Fetch user data on app load so it's available everywhere
+// Fetch global data on app load so it's available everywhere
 onMounted(() => {
-  userStore.fetchMarketplaceInfo()
-  userStore.fetchBalance()
+  loadGlobalData()
 })
 </script>
 

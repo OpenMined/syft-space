@@ -105,29 +105,63 @@
                 v-model="networkMode"
                 class="mt-1 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
               />
-              <div class="space-y-1 flex-1">
+              <div class="flex-1">
                 <Label for="subdomain" class="font-medium cursor-pointer">
-                  Use a subdomain provided by SyftHub
+                  Use a URL provided by SyftHub
                   <Badge variant="secondary" class="ml-2">Recommended</Badge>
                 </Label>
-                <p class="text-sm text-muted-foreground">
-                  Your space is accessible at
-                  <code class="bg-muted px-2 py-0.5 rounded text-xs">
-                    https://{{ userStore.username || 'yourusername' }}.syfthub.net
-                  </code>
-                </p>
               </div>
             </div>
 
-            <!-- Subdomain conditional field -->
-            <div v-if="networkMode === 'subdomain'" class="ml-7 space-y-2">
-              <Label for="dev-token">Developer Token</Label>
-              <Input
-                id="dev-token"
-                v-model="devToken"
-                type="password"
-                placeholder="Enter your SyftHub developer token"
-              />
+            <!-- Subdomain conditional content -->
+            <div v-if="networkMode === 'subdomain'" class="ml-7">
+              <!-- State: Connected (has_token + not editing) -->
+              <div
+                v-if="proxyStatus.hasToken && !isEditingToken"
+                class="p-4 bg-muted/50 rounded-lg border space-y-3"
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div
+                      class="h-2 w-2 rounded-full"
+                      :class="proxyStatus.connected ? 'bg-green-500' : 'bg-yellow-500'"
+                    />
+                    <span class="text-sm font-medium">
+                      {{ proxyStatus.connected ? 'Connected' : 'Disconnected' }}
+                    </span>
+                  </div>
+                  <Button variant="ghost" size="sm" @click="isEditingToken = true">
+                    <Pencil class="h-4 w-4 mr-1" />
+                    Update Token
+                  </Button>
+                </div>
+
+                <div v-if="proxyStatus.publicUrl" class="text-sm">
+                  <span class="text-muted-foreground">Public URL:</span>
+                  <a
+                    :href="proxyStatus.publicUrl"
+                    target="_blank"
+                    class="ml-2 bg-muted px-2 py-0.5 rounded text-xs font-mono hover:bg-muted/80 inline-flex items-center gap-1"
+                  >
+                    {{ proxyStatus.publicUrl }}
+                    <ExternalLink class="h-3 w-3" />
+                  </a>
+                </div>
+              </div>
+
+              <!-- State: Not configured OR editing -->
+              <div v-else class="space-y-2">
+                <Label for="dev-token">Developer Token</Label>
+                <Input
+                  id="dev-token"
+                  v-model="devToken"
+                  type="password"
+                  placeholder="Enter your SyftHub developer token"
+                />
+                <div v-if="proxyStatus.hasToken" class="flex gap-2 mt-2">
+                  <Button variant="ghost" size="sm" @click="cancelEditToken"> Cancel </Button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -157,7 +191,7 @@
               <Label for="custom-domain">Your Public URL</Label>
               <Input
                 id="custom-domain"
-                v-model="publicUrl"
+                v-model="customUrl"
                 type="url"
                 placeholder="https://my-space.example.com"
               />
@@ -171,15 +205,19 @@
 
       <!-- Save Button -->
       <div class="mt-8 flex justify-end">
-        <Button> Save Changes </Button>
+        <Button :disabled="saving" @click="saveChanges">
+          <Loader2 v-if="saving" class="h-4 w-4 mr-2 animate-spin" />
+          Save Changes
+        </Button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Settings, Globe, User, ExternalLink } from 'lucide-vue-next'
+import { ref, reactive, onMounted } from 'vue'
+import { Settings, Globe, User, ExternalLink, Pencil, Loader2 } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
@@ -192,9 +230,17 @@ const userStore = useUserStore()
 
 const loadingAccount = ref(true)
 const loadingNetwork = ref(true)
+const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
 const devToken = ref('')
-const publicUrl = ref('')
+const customUrl = ref('')
+const isEditingToken = ref(false)
+
+const proxyStatus = reactive({
+  connected: false,
+  publicUrl: null as string | null,
+  hasToken: false,
+})
 
 const fetchAccountInfo = async () => {
   loadingAccount.value = true
@@ -205,13 +251,23 @@ const fetchAccountInfo = async () => {
   }
 }
 
-const fetchPublicUrl = async () => {
+const fetchNetworkConfig = async () => {
   loadingNetwork.value = true
   try {
-    const response = await settingsApi.getPublicUrl()
-    if (response.public_url) {
-      publicUrl.value = response.public_url
+    const [publicUrlRes, proxyRes] = await Promise.all([
+      settingsApi.getPublicUrl(),
+      settingsApi.getProxyStatus(),
+    ])
+
+    proxyStatus.connected = proxyRes.connected
+    proxyStatus.publicUrl = proxyRes.public_url
+    proxyStatus.hasToken = proxyRes.has_token
+
+    if (proxyRes.has_token) {
+      networkMode.value = 'subdomain'
+    } else if (publicUrlRes.public_url) {
       networkMode.value = 'custom'
+      customUrl.value = publicUrlRes.public_url
     }
   } catch {
     // If API fails, keep default subdomain mode
@@ -220,8 +276,52 @@ const fetchPublicUrl = async () => {
   }
 }
 
+const cancelEditToken = () => {
+  isEditingToken.value = false
+  devToken.value = ''
+}
+
+const saveChanges = async () => {
+  saving.value = true
+  try {
+    if (networkMode.value === 'subdomain') {
+      if (devToken.value) {
+        const result = await settingsApi.configureProxy({ ngrok_token: devToken.value })
+        proxyStatus.connected = result.connected
+        proxyStatus.publicUrl = result.public_url
+        proxyStatus.hasToken = result.has_token
+        devToken.value = ''
+        isEditingToken.value = false
+        toast.success('Proxy configured successfully')
+      } else if (!proxyStatus.hasToken) {
+        toast.error('Please enter your developer token')
+        return
+      }
+    } else {
+      if (!customUrl.value) {
+        toast.error('Please enter your public URL')
+        return
+      }
+
+      if (proxyStatus.hasToken) {
+        await settingsApi.disconnectProxy()
+        proxyStatus.connected = false
+        proxyStatus.publicUrl = null
+        proxyStatus.hasToken = false
+      }
+
+      await settingsApi.updatePublicUrl({ public_url: customUrl.value })
+      toast.success('Public URL updated successfully')
+    }
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to save settings')
+  } finally {
+    saving.value = false
+  }
+}
+
 onMounted(() => {
   fetchAccountInfo()
-  fetchPublicUrl()
+  fetchNetworkConfig()
 })
 </script>

@@ -15,7 +15,7 @@ import UpdatesPage from '../pages/UpdatesPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 
-async function checkOnboardingStatus(): Promise<boolean> {
+export async function checkOnboardingStatus(): Promise<boolean> {
   try {
     const marketplaces = await marketplacesApi.list()
     return marketplaces.length > 0

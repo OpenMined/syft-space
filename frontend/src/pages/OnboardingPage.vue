@@ -176,19 +176,11 @@
                       v-model="networkMode"
                       class="mt-1 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
                     />
-                    <div class="space-y-1 flex-1">
+                    <div class="flex-1">
                       <Label for="subdomain" class="font-medium cursor-pointer">
-                        Use a subdomain provided by SyftHub
+                        Use a URL provided by SyftHub
                         <Badge variant="secondary" class="ml-2">Recommended</Badge>
                       </Label>
-                      <p class="body-sm text-muted-foreground">
-                        We'll make your space accessible at
-                        <code class="bg-muted px-2 py-0.5 rounded text-xs">
-                          https://{{
-                            registerForm.username || signinForm.username || 'yourusername'
-                          }}.syfthub.net
-                        </code>
-                      </p>
                     </div>
                   </div>
 
@@ -268,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { CheckCircle, XCircle, Loader2, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -279,9 +271,24 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
 import { useOnboarding } from '@/composables/useOnboarding'
+import { loadGlobalData } from '@/lib/utils'
+import { checkOnboardingStatus } from '@/router'
 
 const router = useRouter()
 const route = useRoute()
+
+// Check if already onboarded and redirect if so
+onMounted(async () => {
+  const isOnboarded = await checkOnboardingStatus()
+  if (isOnboarded) {
+    const nextUrl = route.query.next as string | undefined
+    if (nextUrl) {
+      router.replace(nextUrl)
+    } else {
+      router.replace({ name: 'home' })
+    }
+  }
+})
 
 // Use onboarding composable
 const {
@@ -290,6 +297,7 @@ const {
   signinForm,
   networkMode,
   publicUrl,
+  devToken,
   checkingUsername,
   usernameAvailable,
   authError,
@@ -301,7 +309,6 @@ const {
 } = useOnboarding()
 
 // Additional form state
-const devToken = ref('')
 const confirmPassword = ref('')
 const isSubmitting = ref(false)
 
@@ -365,18 +372,12 @@ const handleCompleteSetup = async () => {
       return
     }
 
-    // Update the public URL based on network mode
-    if (networkMode.value === 'subdomain') {
-      // For subdomain, construct the URL
-      const username =
-        authMode.value === 'register' ? registerForm.value.username : signinForm.value.username
-      publicUrl.value = `https://${username}.syfthub.net`
-    }
-    // For custom domain, publicUrl is already set by user input
-
     // Complete the setup
     const setupSuccess = await completeSetup()
     if (setupSuccess) {
+      // Fetch global data now that onboarding is complete
+      await loadGlobalData()
+
       // Redirect to the original destination or home
       const nextUrl = route.query.next as string | undefined
       if (nextUrl) {

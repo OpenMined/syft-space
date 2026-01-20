@@ -1,11 +1,11 @@
 services:
-  syftai-server:
+  syft-space-server:
     build:
       context: .
       dockerfile: Dockerfile
       target: production  # Use 'development' for dev builds
-    image: syftai-server:latest
-    container_name: syftai-server
+    image: syft-space-server:latest
+    container_name: syft-space-server
     restart: unless-stopped
 
     ports:
@@ -13,7 +13,7 @@ services:
 
     volumes:
       # Persist SQLite database
-      - syftai-data:/data
+      - syft-space-data:/data
 
     environment:
       # Application port
@@ -61,9 +61,9 @@ services:
           memory: 512M
 
 volumes:
-  syftai-data:
+  syft-space-data:
     driver: local
 
 networks:
   default:
-    name: syftai-network
+    name: syft-space-network
