@@ -1,4 +1,4 @@
-# <img src="https://avatars.githubusercontent.com/u/30185530?s=200&v=4" alt="OpenMined" width="32" align="center"> Syft Space Server
+# <a href="https://github.com/OpenMined"><img src="https://avatars.githubusercontent.com/u/30185530?s=200&v=4" alt="OpenMined" width="32" align="center"></a> Syft Space Server
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![Node.js](https://img.shields.io/badge/node.js-20%2B-green)](https://nodejs.org/)
@@ -8,24 +8,33 @@
 [![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet)](https://github.com/astral-sh/uv)
 [![Bun](https://img.shields.io/badge/bun-runtime-f9f1e1)](https://bun.sh/)
 
-A friendly platform for building AI-powered search and question-answering tools. Connect your documents to language models and query them through simple API endpoints.
+A space where you can turn data and models into shareable workflows — exposing them through secure endpoints under your own rules for privacy, payments, and human oversight.
 
 ## What This Project Does
 
-Syft Space Server helps you create **RAG (Retrieval-Augmented Generation) endpoints**. In plain terms, it lets you:
+Syft Space Server lets you create **secure, shareable AI endpoints**. In plain terms, it helps you:
 
-- **Upload documents** to a searchable database
-- **Connect language models** (like OpenAI-compatible APIs)
-- **Create endpoints** that combine your documents with AI to answer questions
+- **Connect your data** to searchable vector databases
+- **Integrate language models** (OpenAI-compatible APIs)
+- **Build endpoints** that combine data and models into queryable workflows
+- **Set your own rules** for access control, rate limiting, and usage tracking
 
-Think of it as a bridge between your data and AI models, wrapped in an easy-to-use interface.
+Think of it as your personal control plane for AI workflows — you decide who can access what, under what terms.
 
 ## Why You Might Want to Use It
 
-- **Build AI search tools** without managing complex infrastructure
-- **Self-host your data** instead of sending everything to third-party services
-- **Create custom Q&A bots** trained on your own documents
-- **Experiment with RAG** using a visual interface
+- **Own your data** — self-host instead of sending everything to third parties
+- **Control access** — define policies for privacy, payments, and oversight
+- **Share securely** — expose endpoints without exposing raw data
+- **Stay flexible** — works with your existing models and databases
+
+## Prerequisites
+
+- **Docker** (recommended) - [Install Docker](https://docs.docker.com/get-docker/)
+
+Or for running from source:
+- **Python 3.10+** - [Download Python](https://www.python.org/downloads/)
+- **Bun** - [Install Bun](https://bun.sh/)
 
 ## Quick Start
 
@@ -107,7 +116,7 @@ bun dev
 ```
 
 The frontend development server runs at [http://localhost:5173](http://localhost:5173).
-For detailed reference to frontend and developement instructions, see [`frontend/README.md`](frontend/README.md).
+For detailed reference to frontend and development instructions, see [`frontend/README.md`](frontend/README.md).
 
 ## Configuration
 
