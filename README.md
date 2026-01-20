@@ -1,10 +1,14 @@
-<p align="center">
-  <img src="https://avatars.githubusercontent.com/u/30185530?s=200&v=4" alt="OpenMined Logo" width="100">
-</p>
-
-# Syft Space Server
+# <img src="https://avatars.githubusercontent.com/u/30185530?s=200&v=4" alt="OpenMined" width="32" align="center"> Syft Space Server
 
 A friendly platform for building AI-powered search and question-answering tools. Connect your documents to language models and query them through simple API endpoints.
+
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![Node.js](https://img.shields.io/badge/node.js-20%2B-green)](https://nodejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.116-009688)](https://fastapi.tiangolo.com/)
+[![Vue](https://img.shields.io/badge/Vue-3-4FC08D)](https://vuejs.org/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet)](https://github.com/astral-sh/uv)
+[![Bun](https://img.shields.io/badge/bun-runtime-f9f1e1)](https://bun.sh/)
 
 ## What This Project Does
 
