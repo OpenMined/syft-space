@@ -101,6 +101,58 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 return True
             return False
 
+    async def update_by_slug(
+        self,
+        slug: str,
+        tenant_id: UUID,
+        *,
+        name: str | None = None,
+        summary: str | None = None,
+        description: str | None = None,
+    ) -> Endpoint | None:
+        """Update an endpoint by slug within a tenant.
+
+        Args:
+            slug: Endpoint slug
+            tenant_id: Tenant ID
+            name: New endpoint name
+            summary: Updated summary
+            description: Updated markdown description
+
+        Returns:
+            Updated endpoint if found, None otherwise
+        """
+        async with self.db.get_session() as session:
+            statement = (
+                select(Endpoint)
+                .where(Endpoint.slug == slug, Endpoint.tenant_id == tenant_id)
+                .options(
+                    selectinload(Endpoint.model),
+                    selectinload(Endpoint.dataset),
+                    selectinload(Endpoint.policies),
+                )
+            )
+            result = await session.exec(statement)
+            endpoint = result.first()
+
+            if not endpoint:
+                return None
+
+            # Update fields if provided
+            if name is not None:
+                endpoint.name = name
+            if summary is not None:
+                endpoint.summary = summary
+            if description is not None:
+                endpoint.description = description
+
+            endpoint.updated_at = datetime.now(timezone.utc)
+            session.add(endpoint)
+            await session.commit()
+            await session.refresh(endpoint)
+
+            return endpoint
+
     async def get_by_dataset_id(
         self, dataset_id: UUID, tenant_id: UUID
     ) -> list[Endpoint]:

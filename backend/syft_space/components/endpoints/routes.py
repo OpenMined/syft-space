@@ -17,6 +17,7 @@ from syft_space.components.endpoints.schemas import (
     QueryEndpointResponse,
     SlugAvailabilityRequest,
     SlugAvailabilityResponse,
+    UpdateEndpointRequest,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -136,6 +137,27 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
             Endpoint details
         """
         return await handler.get_endpoint(slug, tenant)
+
+    @router.patch("/{slug}", response_model=EndpointDetailResponse)
+    async def update_endpoint(
+        slug: str,
+        request: UpdateEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> EndpointDetailResponse:
+        """Update an endpoint's metadata.
+
+        Allows partial updates to name, summary, and description.
+
+        Args:
+            slug: Endpoint slug
+            request: Update request with fields to update
+            tenant: Current tenant (injected)
+
+        Returns:
+            Updated endpoint details
+        """
+        return await handler.update_endpoint(slug, request, tenant)
 
     @public_route
     @router.post("/{slug}/query", response_model=QueryEndpointResponse)

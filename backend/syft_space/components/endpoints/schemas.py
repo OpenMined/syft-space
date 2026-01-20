@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from syft_space.components.endpoints.entities import ResponseType
 
@@ -62,6 +62,34 @@ class CreateEndpointRequest(BaseModel):
                 "response_type": "both",
                 "published": True,
                 "tags": "legal,qa,documents",
+            }
+        }
+
+
+class UpdateEndpointRequest(BaseModel):
+    """Request model for updating an endpoint (partial update)."""
+
+    name: str | None = Field(None, description="New endpoint name")
+    summary: str | None = Field(None, description="Updated summary")
+    description: str | None = Field(None, description="Updated markdown description")
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(self) -> "UpdateEndpointRequest":
+        """Ensure at least one field is provided for update."""
+        if self.name is None and self.summary is None and self.description is None:
+            raise ValueError(
+                "At least one field (name, summary, or description) must be provided"
+            )
+        return self
+
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "name": "Updated Endpoint Name",
+                "summary": "Updated summary text",
+                "description": "# Updated Description\nMarkdown content here",
             }
         }
 

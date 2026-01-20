@@ -26,12 +26,11 @@ from syft_space.components.endpoints.schemas import (
     SlugAvailabilityResponse,
     SummaryResponse,
     TokenUsage,
+    UpdateEndpointRequest,
 )
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
-from syft_space.components.marketplaces.utils import (
-    ensure_valid_accounting_credentials,
-)
+from syft_space.components.marketplaces.utils import ensure_valid_accounting_credentials
 from syft_space.components.model_types.interfaces import ChatMessage, ChatParameters
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
@@ -177,6 +176,34 @@ class EndpointHandler:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
         return EndpointDetailResponse.model_validate(endpoint)
+
+    async def update_endpoint(
+        self, slug: str, request: UpdateEndpointRequest, tenant: Tenant
+    ) -> EndpointDetailResponse:
+        """Update an endpoint by slug within a tenant.
+
+        Args:
+            slug: Endpoint slug
+            request: Update request with fields to update
+            tenant: Tenant context
+
+        Returns:
+            Updated endpoint details
+
+        Raises:
+            HTTPException: If endpoint not found
+        """
+        updated_endpoint = await self.endpoint_repository.update_by_slug(
+            slug,
+            tenant.id,
+            name=request.name,
+            summary=request.summary,
+            description=request.description,
+        )
+        if not updated_endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        return EndpointDetailResponse.model_validate(updated_endpoint)
 
     async def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
         """Delete an endpoint by slug within a tenant.
