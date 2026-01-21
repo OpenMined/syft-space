@@ -14,6 +14,7 @@ from syft_space.components.marketplaces.schemas import (
     MarketplaceListItem,
     MarketplaceResponse,
     RegisterMarketplaceRequest,
+    TransactionResponse,
 )
 from syft_space.components.marketplaces.utils import (
     ensure_valid_accounting_credentials,
@@ -310,11 +311,86 @@ class MarketplaceHandler:
                 email=creds["email"],
                 password=creds["password"],
             )
-            # Wrap sync SDK call with asyncio.to_thread
-            user_info = await asyncio.to_thread(accounting_client.get_user_info)
-            return BalanceResponse(balance=user_info.balance)
+            # Fetch both user info and transactions in parallel
+            user_info, transactions = await asyncio.gather(
+                asyncio.to_thread(accounting_client.get_user_info),
+                asyncio.to_thread(accounting_client.get_transaction_history),
+            )
+
+            # Sort by created_at descending and get last 3
+            sorted_transactions = sorted(
+                transactions, key=lambda t: t.createdAt, reverse=True
+            )[:3]
+
+            recent_transactions = [
+                TransactionResponse(
+                    id=t.id,
+                    sender_email=t.senderEmail,
+                    recipient_email=t.recipientEmail,
+                    amount=t.amount,
+                    status=t.status.value,
+                    created_at=t.createdAt,
+                    app_name=t.appName,
+                    app_ep_path=t.appEpPath,
+                )
+                for t in sorted_transactions
+            ]
+
+            return BalanceResponse(
+                balance=user_info.balance,
+                recent_transactions=recent_transactions,
+            )
         except ServiceException as e:
             raise HTTPException(
                 status_code=e.status_code,
                 detail=f"Failed to get balance: {e.message}",
+            ) from e
+
+    async def get_transactions(self, tenant: Tenant) -> list[TransactionResponse]:
+        """Get all transactions for the default marketplace.
+
+        Args:
+            tenant: Tenant context
+
+        Returns:
+            List of all transactions sorted by date descending
+
+        Raises:
+            HTTPException: If no marketplace configured or fetch fails
+        """
+        marketplace = await self.get_default_marketplace(tenant)
+        creds = await ensure_valid_accounting_credentials(marketplace, self.repository)
+
+        try:
+            accounting_client = UserClient(
+                url=creds["url"],
+                email=creds["email"],
+                password=creds["password"],
+            )
+            all_transactions = await asyncio.to_thread(
+                accounting_client.get_transaction_history
+            )
+
+            # Sort by created_at descending
+            sorted_transactions = sorted(
+                all_transactions, key=lambda t: t.createdAt, reverse=True
+            )
+
+            return [
+                TransactionResponse(
+                    id=t.id,
+                    sender_email=t.senderEmail,
+                    recipient_email=t.recipientEmail,
+                    amount=t.amount,
+                    status=t.status.value,
+                    created_at=t.createdAt,
+                    app_name=t.appName,
+                    app_ep_path=t.appEpPath,
+                )
+                for t in sorted_transactions
+            ]
+        except ServiceException as e:
+            raise HTTPException(
+                status_code=e.status_code,
+                detail=f"Failed to get transactions: {e.message}",
             ) from e

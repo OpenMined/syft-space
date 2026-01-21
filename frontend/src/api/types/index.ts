@@ -332,9 +332,21 @@ export interface MarketplaceListItem {
   is_active: boolean
 }
 
+export interface TransactionResponse {
+  id: string
+  sender_email: string
+  recipient_email: string
+  amount: number
+  status: string
+  created_at: string
+  app_name?: string
+  app_ep_path?: string
+}
+
 export interface BalanceResponse {
   balance: number
   currency: string
+  recent_transactions: TransactionResponse[]
 }
 
 // Slug Availability API types

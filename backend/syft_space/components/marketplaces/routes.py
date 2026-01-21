@@ -11,6 +11,7 @@ from syft_space.components.marketplaces.schemas import (
     MarketplaceListItem,
     MarketplaceResponse,
     RegisterMarketplaceRequest,
+    TransactionResponse,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -101,7 +102,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: MarketplaceHandler = Depends(get_handler),
     ) -> BalanceResponse:
-        """Get account balance for the default marketplace.
+        """Get account balance and recent transactions for the default marketplace.
 
         Validates accounting credentials before fetching balance.
         If credentials are expired, refreshes them from SyftHub.
@@ -110,9 +111,24 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
             tenant: Current tenant (injected)
 
         Returns:
-            Balance information
+            Balance information with recent transactions
         """
         return await handler.get_balance(tenant)
+
+    @router.get("/transactions", response_model=list[TransactionResponse])
+    async def get_transactions(
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: MarketplaceHandler = Depends(get_handler),
+    ) -> list[TransactionResponse]:
+        """Get all transactions for the default marketplace.
+
+        Args:
+            tenant: Current tenant (injected)
+
+        Returns:
+            List of all transactions sorted by date descending
+        """
+        return await handler.get_transactions(tenant)
 
     @router.get("/{id}", response_model=MarketplaceResponse)
     async def get_marketplace(
