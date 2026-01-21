@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { ArrowDownLeft, ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -64,7 +59,7 @@ watch(
     if (isOpen && allTransactions.value.length === 0) {
       fetchTransactions()
     }
-  }
+  },
 )
 
 const formatTimeAgo = (dateString: string): string => {
@@ -125,10 +120,14 @@ const truncateEmail = (email: string): string => {
 
         <!-- Transaction list -->
         <div v-else class="space-y-1">
-          <div v-for="transaction in paginatedTransactions" :key="transaction.id"
-            class="flex items-center gap-3 py-2 px-2 rounded-lg hover:bg-muted/50">
+          <div
+            v-for="transaction in paginatedTransactions"
+            :key="transaction.id"
+            class="flex items-center gap-3 py-2 px-2 rounded-lg hover:bg-muted/50"
+          >
             <div
-              class="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
+              class="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0"
+            >
               <ArrowDownLeft class="h-4 w-4 text-green-600 dark:text-green-400" />
             </div>
             <div class="flex-1 min-w-0">
@@ -164,18 +163,30 @@ const truncateEmail = (email: string): string => {
         </div>
 
         <!-- Pagination -->
-        <div v-if="!loading && !error && allTransactions.length > 0"
-          class="flex items-center justify-between pt-2 border-t border-border">
+        <div
+          v-if="!loading && !error && allTransactions.length > 0"
+          class="flex items-center justify-between pt-2 border-t border-border"
+        >
           <p class="text-sm text-muted-foreground">
             Page {{ currentPage }} of {{ totalPages }} ({{ total }} total)
           </p>
           <div v-if="totalPages > 1" class="flex items-center gap-1">
-            <Button variant="outline" size="icon" class="h-8 w-8" :disabled="currentPage <= 1"
-              @click="goToPage(currentPage - 1)">
+            <Button
+              variant="outline"
+              size="icon"
+              class="h-8 w-8"
+              :disabled="currentPage <= 1"
+              @click="goToPage(currentPage - 1)"
+            >
               <ChevronLeft class="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" class="h-8 w-8" :disabled="currentPage >= totalPages"
-              @click="goToPage(currentPage + 1)">
+            <Button
+              variant="outline"
+              size="icon"
+              class="h-8 w-8"
+              :disabled="currentPage >= totalPages"
+              @click="goToPage(currentPage + 1)"
+            >
               <ChevronRight class="h-4 w-4" />
             </Button>
           </div>

@@ -6,9 +6,7 @@
       <div class="mb-8">
         <div class="flex items-center justify-between">
           <h1 class="heading-1 text-foreground">Create Remote Weaviate Dataset</h1>
-          <Badge variant="outline" class="text-orange-600 border-orange-300">
-            Experimental
-          </Badge>
+          <Badge variant="outline" class="text-orange-600 border-orange-300"> Experimental </Badge>
         </div>
         <p class="text-muted-foreground mt-2">
           Connect to an existing Weaviate instance to use as a data source for your endpoints.
@@ -71,7 +69,9 @@
                     <Plus class="h-4 w-4" />
                   </Button>
                 </div>
-                <p class="text-sm text-muted-foreground">Tags help organize and discover datasets.</p>
+                <p class="text-sm text-muted-foreground">
+                  Tags help organize and discover datasets.
+                </p>
 
                 <!-- Popular Tags Suggestions -->
                 <div class="flex items-center gap-2 flex-wrap">

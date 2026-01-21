@@ -174,11 +174,7 @@ const tabs = [
         <!-- Balance Dropdown -->
         <DropdownMenu v-model:open="balanceDropdownOpen">
           <DropdownMenuTrigger as-child>
-            <Button
-              variant="outline"
-              size="sm"
-              class="flex items-center gap-2 px-3 py-1.5 h-auto"
-            >
+            <Button variant="outline" size="sm" class="flex items-center gap-2 px-3 py-1.5 h-auto">
               <span class="text-sm text-muted-foreground">Balance:</span>
               <!-- Loading state -->
               <template v-if="userStore.balanceLoading">
