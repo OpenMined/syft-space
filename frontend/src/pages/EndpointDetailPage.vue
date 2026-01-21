@@ -1288,6 +1288,9 @@ const confirmDeletePolicy = async () => {
 
     showDeletePolicyDialog.value = false
     policyToDelete.value = null
+
+    // Publish changes to marketplace
+    await publishToMarketplace()
   } catch (error) {
     console.error('Failed to delete policy:', error)
     // TODO: Show error toast/notification
@@ -1305,6 +1308,19 @@ const getPolicyTypeLabel = (type: string) => {
       return 'Pricing'
     default:
       return 'Policy'
+  }
+}
+
+// Publish endpoint changes to marketplace
+const publishToMarketplace = async () => {
+  if (!endpoint.value?.slug) return
+
+  try {
+    await endpointsApi.publish(endpoint.value.slug, {
+      publish_to_all_marketplaces: true,
+    })
+  } catch (err) {
+    console.error('Failed to publish to marketplace:', err)
   }
 }
 
@@ -1371,6 +1387,9 @@ const handleAddPolicy = async () => {
     // Close the dialog and reset forms
     showAddPolicyDialog.value = false
     resetPolicyForm(selectedPolicyType.value)
+
+    // Publish changes to marketplace
+    await publishToMarketplace()
   } catch (error) {
     console.error('Failed to create policy:', error)
     // Error is handled by the composable
