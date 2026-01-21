@@ -18,4 +18,7 @@ class Settings(SQLModel, table=True):
     ngrok_token: str | None = Field(
         default=None, description="Ngrok authentication token for proxy tunnel"
     )
+    ngrok_username: str | None = Field(
+        default=None, description="Username for ngrok subdomain"
+    )
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
