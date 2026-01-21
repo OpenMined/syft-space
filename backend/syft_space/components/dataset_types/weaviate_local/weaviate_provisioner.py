@@ -180,7 +180,12 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
                 f"Failed to check if container is running: {stderr.decode('utf-8')}"
             )
             return False
-        return container_name in stdout.decode("utf-8").splitlines()
+
+        std_out = (
+            stdout.decode("utf-8").splitlines() + stderr.decode("utf-8").splitlines()
+        )
+        result = all(container_name in line for line in std_out)
+        return result
 
     @classmethod
     async def status(cls, state: dict[str, Any]) -> str:
@@ -190,15 +195,16 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
             state: State dict from start()
 
         Returns:
-            Status: "running", "stopped", "starting", "healthy"
+            Status: "running", "stopped", "starting"
         """
         if not await cls.is_running(state):
             return "stopped"
 
         # Check health
         http_port = state.get("httpPort", 8083)
-        if await cls._check_health(http_port):
-            return "healthy"
+        is_healthy = await cls._check_health(http_port)
+        if is_healthy:
+            return "running"
         else:
             return "starting"
 
@@ -237,9 +243,9 @@ class LocalFileBasedProvisioner(BaseDatasetTypeProvisioner):
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(
-                    f"http://{host}:{http_port}/v1/.well-known/ready", timeout=2
+                    f"http://{host}:{http_port}/v1/.well-known/ready", timeout=5.0
                 )
-                return response.status_code == 200
+                return response.is_success
         except Exception as e:
             logger.error(f"Failed to check Weaviate health at {host}:{http_port}: {e}")
             return False
