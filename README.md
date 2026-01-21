@@ -65,6 +65,7 @@ docker run -d \
     -v syft-space-data:/data \
     -v ${HOME}:/root \
     -v ${HOME}/.docker/run/docker.sock:/var/run/docker.sock \
+    -v /dev/null:/root/.docker/config.json \
     -e DOCKER_HOST=unix:///var/run/docker.sock \
     --add-host=host.docker.internal:host-gateway \
     ghcr.io/openmined/syft-space:latest
