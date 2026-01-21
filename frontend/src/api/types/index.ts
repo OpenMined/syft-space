@@ -374,6 +374,14 @@ export interface PublishEndpointResponse {
   results: PublishResult[]
 }
 
+export interface UnpublishResult {
+  marketplace_id: string
+  marketplace_name: string
+  success: boolean
+  message?: string | null
+  error?: string | null
+}
+
 export interface UpdateEndpointRequest {
   name?: string
   summary?: string

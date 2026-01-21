@@ -141,60 +141,51 @@
 
   <!-- Delete Confirmation Dialog -->
   <Dialog v-model:open="showDeleteDialog">
-    <DialogContent class="sm:max-w-[600px]">
-      <div class="space-y-4">
-        <div>
-          <h3 class="body-sm font-semibold text-destructive">Danger Zone</h3>
-          <p class="body-sm text-muted-foreground mt-1">
-            Permanently delete this endpoint and all associated data.
-          </p>
-        </div>
-        <DialogHeader>
-          <DialogTitle>Delete endpoint</DialogTitle>
-          <DialogDescription>
-            This action cannot be undone. Please type
-            <span class="font-medium text-foreground"> {{ endpointToDelete?.name }} </span>
-            to confirm deletion.
-          </DialogDescription>
-        </DialogHeader>
-        <div class="space-y-2">
-          <Label class="body-sm text-muted-foreground">Confirm name</Label>
-          <Input
-            v-model="deleteNameConfirm"
-            :placeholder="endpointToDelete?.name || 'endpoint-name'"
-          />
-          <p
-            class="body-sm"
-            :class="
-              deleteNameConfirm === endpointToDelete?.name
-                ? 'text-success'
-                : 'text-muted-foreground'
-            "
-          >
-            {{
-              deleteNameConfirm === endpointToDelete?.name
-                ? 'Name matches'
-                : 'Enter the endpoint name exactly'
-            }}
-          </p>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" @click="cancelDeleteEndpoint" :disabled="isDeleting"
-            >Cancel</Button
-          >
-          <Button
-            variant="destructive"
-            :disabled="deleteNameConfirm !== endpointToDelete?.name || isDeleting"
-            @click="confirmDeleteEndpoint"
-          >
-            <div v-if="isDeleting" class="flex items-center gap-2">
-              <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              Deleting...
-            </div>
-            <span v-else>Delete Endpoint</span>
-          </Button>
-        </DialogFooter>
+    <DialogContent class="sm:max-w-[425px]">
+      <DialogHeader>
+        <DialogTitle class="text-destructive">Delete endpoint</DialogTitle>
+        <DialogDescription>
+          This will permanently delete this endpoint and remove it from SyftHub. This action cannot
+          be undone.
+        </DialogDescription>
+      </DialogHeader>
+      <div class="space-y-2">
+        <Label class="gap-1">
+          Type <span class="font-semibold text-foreground">{{ endpointToDelete?.name }}</span> to
+          confirm
+        </Label>
+        <Input
+          v-model="deleteNameConfirm"
+          :placeholder="endpointToDelete?.name || 'endpoint-name'"
+        />
+        <p
+          v-if="deleteNameConfirm"
+          class="text-sm"
+          :class="
+            deleteNameConfirm === endpointToDelete?.name
+              ? 'text-success'
+              : 'text-muted-foreground'
+          "
+        >
+          {{ deleteNameConfirm === endpointToDelete?.name ? 'Name matches' : 'Name does not match' }}
+        </p>
       </div>
+      <DialogFooter>
+        <Button variant="outline" @click="cancelDeleteEndpoint" :disabled="isDeleting">
+          Cancel
+        </Button>
+        <Button
+          variant="destructive"
+          :disabled="deleteNameConfirm !== endpointToDelete?.name || isDeleting"
+          @click="confirmDeleteEndpoint"
+        >
+          <div v-if="isDeleting" class="flex items-center gap-2">
+            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            Deleting...
+          </div>
+          <span v-else>Delete Endpoint</span>
+        </Button>
+      </DialogFooter>
     </DialogContent>
   </Dialog>
 </template>
@@ -220,6 +211,7 @@ import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useEndpointsStore } from '@/stores/endpoints'
 import type { EndpointItem } from '@/stores/endpoints'
 import { endpointsApi } from '@/api/endpoints/endpoints'
+import { toast } from 'vue-sonner'
 
 const endpointsStore = useEndpointsStore()
 
@@ -296,6 +288,18 @@ const confirmDeleteEndpoint = async () => {
         throw new Error('Endpoint slug is undefined')
       }
 
+      // Unpublish from SyftHub first if published
+      if (endpointToDelete.value.published) {
+        try {
+          await endpointsApi.unpublish(endpointToDelete.value.slug)
+        } catch (unpublishError) {
+          console.error('Failed to unpublish endpoint:', unpublishError)
+          toast.error('Failed to remove endpoint from SyftHub. Please try again.')
+          isDeleting.value = false
+          return
+        }
+      }
+
       // Call the delete API
       await endpointsApi.delete(endpointToDelete.value.slug)
 
@@ -305,14 +309,15 @@ const confirmDeleteEndpoint = async () => {
         endpointsStore.endpoints.splice(index, 1)
       }
 
+      toast.success('Endpoint deleted successfully')
+
       // Reset dialog state
       showDeleteDialog.value = false
       endpointToDelete.value = null
       deleteNameConfirm.value = ''
     } catch (error) {
       console.error('Failed to delete endpoint:', error)
-      // You might want to show an error toast here
-      // For now, just log the error and close the dialog
+      toast.error('Failed to delete endpoint. Please try again.')
     } finally {
       isDeleting.value = false
     }
