@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from loguru import logger
 from pydantic import HttpUrl
 
+from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.schemas import (
@@ -70,8 +71,12 @@ class SettingsHandler:
         # Update database (source of truth)
         await self.settings_repository.update_public_url(url_str)
 
-        # Sync to marketplace
-        await self.sync_public_url_to_marketplace(tenant, url_str)
+        # Get default marketplace
+        marketplace = await self.marketplace_repository.get_default(tenant.id)
+
+        if marketplace is not None:
+            # Sync to marketplace
+            await self.sync_public_url_to_marketplace(marketplace, url_str)
 
         # Update app settings
         app_settings.public_url = HttpUrl(url_str) if url_str else None
@@ -79,19 +84,15 @@ class SettingsHandler:
         # Return response
         return PublicUrlResponse(public_url=url_str)
 
-    async def sync_public_url_to_marketplace(self, tenant: Tenant, url: str) -> None:
+    async def sync_public_url_to_marketplace(
+        self, marketplace: Marketplace, url: str
+    ) -> None:
         """Sync public URL to marketplace (helper method).
 
         Args:
-            tenant: Tenant context
+            marketplace: Marketplace to sync to
             url: Public URL to sync
         """
-
-        marketplace = await self.marketplace_repository.get_default(tenant.id)
-
-        # If no default marketplace is configured, do nothing
-        if not marketplace:
-            return
 
         try:
             logger.info(f"Syncing public URL {url} to marketplace {marketplace.url}")
@@ -155,13 +156,22 @@ class SettingsHandler:
                 detail="Ngrok proxy service not configured",
             )
 
+        # Get default marketplace
+        marketplace = await self.marketplace_repository.get_default(tenant.id)
+
+        if not marketplace:
+            raise HTTPException(
+                status_code=404,
+                detail="No default marketplace configured",
+            )
+
         try:
-            public_url = await self.proxy_service.connect(token)
+            public_url = await self.proxy_service.connect(token, marketplace.username)
         except Exception as e:
             logger.error(f"Failed to connect to ngrok: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-        await self.sync_public_url_to_marketplace(tenant, public_url)
+        await self.sync_public_url_to_marketplace(marketplace, public_url)
         self.proxy_service.log_connection_info(app_settings.admin_api_key)
 
         return ProxyStatusResponse(
@@ -183,6 +193,10 @@ class SettingsHandler:
                 detail="Ngrok proxy service not configured",
             )
 
+        marketplace = await self.marketplace_repository.get_default(tenant.id)
+
         await self.proxy_service.disconnect()
-        await self.sync_public_url_to_marketplace(tenant, "")
+        if marketplace is not None:
+            await self.sync_public_url_to_marketplace(marketplace, "")
+
         return ProxyStatusResponse(connected=False, public_url=None, has_token=False)

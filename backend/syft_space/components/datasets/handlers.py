@@ -541,7 +541,7 @@ class DatasetHandler:
 
             message += f"Dataset type healthcheck: {healthcheck_response.message}. "
 
-            provisioner_status = None
+            provisioner_health = None
             if dataset.provisioner_state_id:
                 provisioner_state = (
                     await self.provisioner_state_repository.get_by_dtype(dataset.dtype)
@@ -551,14 +551,23 @@ class DatasetHandler:
                         provisioner_status = await provisioner_cls.status(
                             provisioner_state.state
                         )
-                        message += f"Provisioner status: {provisioner_status}. "
+                        provisioner_health = (
+                            HealthcheckStatus.HEALTHY.value
+                            if provisioner_status
+                            in (
+                                ProvisionerStatus.RUNNING.value,
+                                ProvisionerStatus.STARTING.value,
+                            )
+                            else HealthcheckStatus.UNHEALTHY.value
+                        )
                     except Exception as e:
-                        provisioner_status = HealthcheckStatus.UNHEALTHY
+                        provisioner_health = HealthcheckStatus.UNHEALTHY.value
                         message += f"Failed to check provisioner status: {str(e)}"
+                    message += f"Provisioner status: {provisioner_health}. "
 
             return HealthcheckResponse(
                 dataset_type_status=healthcheck_response.status,
-                provisioner_status=provisioner_status,
+                provisioner_status=provisioner_health,
                 message=message,
             )
         except Exception as e:

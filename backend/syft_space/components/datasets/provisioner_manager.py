@@ -29,7 +29,12 @@ class ProvisionerManager(LifecycleService):
         # Initialize async primitives in async context (not in __init__)
         self._shutdown_event = asyncio.Event()
 
-        logger.info("Starting shared provisioners...")
+        logger.info("Starting shared provisioners in background...")
+        # Fire-and-forget: Start provisioners without blocking server startup
+        asyncio.create_task(self._startup_provisioners_background())
+
+    async def _startup_provisioners_background(self) -> None:
+        """Background task to start all provisioners."""
         try:
             await self.dataset_handler.startup_all_provisioners()
             logger.info("Provisioner startup complete")
