@@ -301,9 +301,18 @@ const tabs = [
                       <ArrowDownLeft class="h-4 w-4 text-green-600 dark:text-green-400" />
                     </div>
                     <div class="flex-1 min-w-0">
-                      <p class="text-sm font-medium truncate">
-                        From {{ truncateEmail(transaction.sender_email) }}
-                      </p>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger as-child>
+                            <p class="text-sm font-medium truncate cursor-default">
+                              From {{ truncateEmail(transaction.sender_email) }}
+                            </p>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{{ transaction.sender_email }}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger as-child>
@@ -318,7 +327,7 @@ const tabs = [
                       </TooltipProvider>
                     </div>
                     <span class="text-sm font-semibold text-green-600 dark:text-green-400">
-                      +{{ formatPrice(transaction.amount) }}
+                      +${{ formatPrice(transaction.amount) }}
                     </span>
                   </div>
                 </template>
