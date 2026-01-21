@@ -8,7 +8,11 @@
       <div class="space-y-4 py-4 overflow-y-auto flex-1 -mr-6 pr-6">
         <div class="space-y-2">
           <Label class="body-sm font-medium text-foreground">Name</Label>
-          <Input :model-value="endpoint?.name || ''" disabled class="w-full font-mono body-sm bg-muted" />
+          <Input
+            :model-value="endpoint?.name || ''"
+            disabled
+            class="w-full font-mono body-sm bg-muted"
+          />
           <p class="body-sm text-muted-foreground">Name cannot be changed after creation</p>
         </div>
         <div class="space-y-2">
@@ -150,7 +154,7 @@ watch(
       }
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 // Reset when dialog closes
@@ -160,7 +164,7 @@ watch(
     if (!isOpen) {
       isPreviewMode.value = false
     }
-  }
+  },
 )
 
 const handleCancel = () => {

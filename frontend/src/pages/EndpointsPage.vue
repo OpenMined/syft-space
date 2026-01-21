@@ -162,12 +162,12 @@
           v-if="deleteNameConfirm"
           class="text-sm"
           :class="
-            deleteNameConfirm === endpointToDelete?.name
-              ? 'text-success'
-              : 'text-muted-foreground'
+            deleteNameConfirm === endpointToDelete?.name ? 'text-success' : 'text-muted-foreground'
           "
         >
-          {{ deleteNameConfirm === endpointToDelete?.name ? 'Name matches' : 'Name does not match' }}
+          {{
+            deleteNameConfirm === endpointToDelete?.name ? 'Name matches' : 'Name does not match'
+          }}
         </p>
       </div>
       <DialogFooter>
