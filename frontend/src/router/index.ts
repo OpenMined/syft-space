@@ -13,6 +13,7 @@ import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
 import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
 import UpdatesPage from '../pages/UpdatesPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
+import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 
 let onboardingStatusCache: boolean | null = null
@@ -111,6 +112,11 @@ const router = createRouter({
       path: '/onboarding',
       name: 'onboarding',
       component: OnboardingPage,
+    },
+    {
+      path: '/experimental-rwdt',
+      name: 'experimental-remote-weaviate-dataset',
+      component: ExperimentalRemoteWeaviateDatasetPage,
     },
   ],
 })
