@@ -10,7 +10,7 @@ from loguru import logger
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.shared.lifecycle import LifecycleService
 
-NGROK_DOMAIN_FORMAT = "{username}.openmined.ngrok.app"
+NGROK_DOMAIN_FORMAT = "{username}.syfthub.ngrok.app"
 
 
 class ProxyService(LifecycleService):
@@ -68,20 +68,24 @@ class ProxyService(LifecycleService):
 
         public_url = self.get_public_url()
         public_url_str = (
-            f"{public_url.rstrip('/')}/#/?authToken={admin_api_key}"
+            f"{public_url.rstrip('/')}/frontend/#/?authToken={admin_api_key}"
             if admin_api_key and public_url
             else str(public_url)
         )
         local_url_str = (
-            f"http://localhost:{self._port}/#/?authToken={admin_api_key}"
+            f"http://localhost:{self._port}/frontend/#/?authToken={admin_api_key}"
             if admin_api_key
             else f"http://localhost:{self._port}"
         )
-        logger.info("\n" + "=" * 70)
-        logger.info("🚀 Ngrok tunnel established!")
-        logger.info(f"📡 Public URL: {public_url_str}")
-        logger.info(f"🔗 Local URL: {local_url_str}")
-        logger.info("=" * 70 + "\n")
+        print()
+        print("=" * 70)
+        print("  Ngrok tunnel established!")
+        print()
+        print(f"  Public URL: {public_url_str}")
+        print(f"  Local URL:  {local_url_str}")
+        print()
+        print("=" * 70)
+        print()
 
     async def connect(self, token: str, username: str, persist: bool = True) -> str:
         """Connect to ngrok with the provided token.
