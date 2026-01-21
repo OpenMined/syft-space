@@ -56,6 +56,14 @@ RUN apk update && apk add --no-cache \
     python-${PYTHON_VERSION} \
     docker-cli \
     docker-compose \
+    # Required for docling document processing
+    libxcb \
+    libglvnd \
+    glib \
+    freetype \
+    fontconfig \
+    libxml2 \
+    libxslt \
     && mkdir -p /usr/local/lib/docker/cli-plugins \
     && ln -s /usr/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
 
