@@ -33,10 +33,16 @@ COPY backend/pyproject.toml backend/README.md ./backend/
 COPY backend/syft_space/__init__.py ./backend/syft_space/
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+
+# 1. Install base deps (fast, frequently cached)
 RUN uv venv /app/.venv --python python${PYTHON_VERSION} && \
     uv pip install --python /app/.venv/bin/python -e "./backend"
 
-# Install heavy optional deps separately (slower, but cached independently)
+# 2. Install CPU-only PyTorch (avoids 4GB+ CUDA packages)
+RUN uv pip install --python /app/.venv/bin/python \
+    torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# 3. Install heavy optional deps (docling will use existing torch)
 RUN uv pip install --python /app/.venv/bin/python -e "./backend[libs]"
 
 # ============================================================================
