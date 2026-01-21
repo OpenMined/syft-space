@@ -44,6 +44,7 @@ The fastest way to get started is with the pre-built Docker image:
 docker run -d \
     --name syft-space \
     -p 8080:8080 \
+    -v ${HOME}/.docker/run/docker.sock:/var/run/docker.sock \
     -v syft-space-data:/data \
     ghcr.io/openmined/syft-space:latest
 ```
