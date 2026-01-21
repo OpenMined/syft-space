@@ -7,6 +7,7 @@ import type {
   SlugAvailabilityResponse,
   PublishEndpointRequest,
   PublishEndpointResponse,
+  UpdateEndpointRequest,
 } from '../types'
 
 export const endpointsApi = {
@@ -27,6 +28,11 @@ export const endpointsApi = {
 
   delete: async (slug: string): Promise<{ message: string }> => {
     const response = await apiClient.delete<{ message: string }>(`/endpoints/${slug}`)
+    return response.data
+  },
+
+  update: async (slug: string, request: UpdateEndpointRequest): Promise<EndpointResponse> => {
+    const response = await apiClient.patch<EndpointResponse>(`/endpoints/${slug}`, request)
     return response.data
   },
 

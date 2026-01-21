@@ -374,6 +374,12 @@ export interface PublishEndpointResponse {
   results: PublishResult[]
 }
 
+export interface UpdateEndpointRequest {
+  name?: string
+  summary?: string
+  description?: string
+}
+
 // Settings API types
 export interface PublicUrlResponse {
   public_url: string | null

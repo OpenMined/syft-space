@@ -164,23 +164,43 @@
             </div>
           </div>
           <!-- Quick Actions -->
-          <div class="flex items-center gap-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <Button v-if="!endpoint.published" variant="default">
-                    <Send class="h-4 w-4 mr-2" />
-                    Publish
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Make this endpoint publicly available</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button v-if="!endpoint.published" variant="default">
+                      <Send class="h-4 w-4 mr-2" />
+                      Publish
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Make this endpoint publicly available</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <Button variant="outline" @click="openEditDialog">
+                <Pencil class="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                class="text-destructive hover:text-destructive"
+                @click="
+                  () => {
+                    deleteNameConfirm = ''
+                    showDeleteDialog = true
+                  }
+                "
+              >
+                <Trash2 class="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+            </div>
             <Button
               v-if="syftHubUrl"
               variant="outline"
+              class="w-full"
               as="a"
               :href="syftHubUrl"
               target="_blank"
@@ -188,19 +208,6 @@
             >
               <ExternalLink class="h-4 w-4 mr-2" />
               View on SyftHub
-            </Button>
-            <Button
-              variant="outline"
-              class="text-destructive hover:text-destructive"
-              @click="
-                () => {
-                  deleteNameConfirm = ''
-                  showDeleteDialog = true
-                }
-              "
-            >
-              <Trash2 class="h-4 w-4 mr-2" />
-              Delete
             </Button>
           </div>
         </div>
@@ -906,6 +913,13 @@
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Edit Endpoint Dialog -->
+  <EditEndpointDialog
+    v-model:open="showEditDialog"
+    :endpoint="endpointForEdit"
+    @saved="handleEditSaved"
+  />
 </template>
 
 <script setup lang="ts">
@@ -928,6 +942,7 @@ import {
   Database,
   Plus,
   ExternalLink,
+  Pencil,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -962,6 +977,7 @@ import {
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import { policiesApi } from '@/api/policies/policies'
+import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
 import type { EndpointResponse } from '@/api/types'
@@ -989,6 +1005,7 @@ const isDeleting = ref(false)
 const showDeletePolicyDialog = ref(false)
 const policyToDelete = ref<{ id: string; name: string } | null>(null)
 const showAddPolicyDialog = ref(false)
+const showEditDialog = ref(false)
 const selectedPolicyType = ref('')
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
@@ -1041,6 +1058,30 @@ const getFormDataForType = (policyType: string) => {
 const syftHubUrl = computed(() =>
   endpoint.value?.slug ? userStore.getEndpointUrlInMarketplace(endpoint.value.slug) : null,
 )
+
+// Computed endpoint data for edit dialog
+const endpointForEdit = computed(() => {
+  if (!endpoint.value) return null
+  return {
+    slug: endpoint.value.slug,
+    name: endpoint.value.name,
+    summary: endpoint.value.summary,
+    description: endpoint.value.description,
+  }
+})
+
+// Edit dialog handlers
+const openEditDialog = () => {
+  showEditDialog.value = true
+}
+
+const handleEditSaved = (data: { summary: string; description: string }) => {
+  // Update local endpoint data
+  if (endpoint.value) {
+    endpoint.value.summary = data.summary
+    endpoint.value.description = data.description
+  }
+}
 
 // Parse tags into languages, domains, and other tags
 const parsedTags = computed(() => {

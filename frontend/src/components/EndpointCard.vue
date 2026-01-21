@@ -57,11 +57,27 @@
       </div>
 
       <div class="ml-4 text-right">
-        <div class="flex items-center gap-2">
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center gap-2">
+            <Button variant="outline" size="sm" @click.stop="handleEditEndpoint">
+              <Pencil class="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="text-destructive hover:text-destructive"
+              @click.stop="handleDeleteEndpoint"
+            >
+              <Trash2 class="h-4 w-4 mr-2" />
+              Delete
+            </Button>
+          </div>
           <Button
             v-if="syftHubUrl"
             variant="outline"
             size="sm"
+            class="w-full"
             as="a"
             :href="syftHubUrl"
             target="_blank"
@@ -70,15 +86,6 @@
           >
             <ExternalLink class="h-4 w-4 mr-2" />
             View on SyftHub
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            class="text-destructive hover:text-destructive"
-            @click.stop="handleDeleteEndpoint"
-          >
-            <Trash2 class="h-4 w-4 mr-2" />
-            Delete
           </Button>
         </div>
       </div>
@@ -89,7 +96,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ExternalLink, Trash2 } from 'lucide-vue-next'
+import { ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -105,6 +112,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   delete: [endpoint: EndpointItem]
+  edit: [endpoint: EndpointItem]
 }>()
 
 const syftHubUrl = computed(() =>
@@ -117,6 +125,10 @@ const handleCardClick = () => {
 
 const handleDeleteEndpoint = () => {
   emit('delete', props.endpoint)
+}
+
+const handleEditEndpoint = () => {
+  emit('edit', props.endpoint)
 }
 
 // Get preview paths for endpoint card

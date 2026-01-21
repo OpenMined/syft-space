@@ -93,6 +93,7 @@
         :key="endpoint.id"
         :endpoint="endpoint"
         @delete="handleDeleteEndpoint"
+        @edit="handleEditEndpoint"
       />
     </div>
 
@@ -130,6 +131,13 @@
 
   <!-- Create Endpoint Modal -->
   <CreateEndpointModal v-model:open="showCreateEndpointModal" />
+
+  <!-- Edit Endpoint Dialog -->
+  <EditEndpointDialog
+    v-model:open="showEditDialog"
+    :endpoint="endpointToEdit"
+    @saved="handleEditSaved"
+  />
 
   <!-- Delete Confirmation Dialog -->
   <Dialog v-model:open="showDeleteDialog">
@@ -208,6 +216,7 @@ import {
 } from '@/components/ui/dialog'
 import EndpointCard from '@/components/EndpointCard.vue'
 import CreateEndpointModal from '@/components/CreateEndpointModal.vue'
+import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useEndpointsStore } from '@/stores/endpoints'
 import type { EndpointItem } from '@/stores/endpoints'
 import { endpointsApi } from '@/api/endpoints/endpoints'
@@ -225,6 +234,9 @@ const showDeleteDialog = ref(false)
 const endpointToDelete = ref<EndpointItem | null>(null)
 const deleteNameConfirm = ref('')
 const isDeleting = ref(false)
+
+const showEditDialog = ref(false)
+const endpointToEdit = ref<{ slug: string; name: string; summary: string } | null>(null)
 
 const filteredEndpoints = computed(() => {
   return endpointsStore.endpoints.filter((endpoint: EndpointItem) => {
@@ -247,6 +259,26 @@ const handleDeleteEndpoint = (endpoint: EndpointItem) => {
   endpointToDelete.value = endpoint
   deleteNameConfirm.value = ''
   showDeleteDialog.value = true
+}
+
+const handleEditEndpoint = (endpoint: EndpointItem) => {
+  endpointToEdit.value = {
+    slug: endpoint.slug,
+    name: endpoint.name,
+    summary: endpoint.summary,
+  }
+  showEditDialog.value = true
+}
+
+const handleEditSaved = (data: { summary: string }) => {
+  // Update the store
+  if (endpointToEdit.value) {
+    const index = endpointsStore.endpoints.findIndex((e) => e.slug === endpointToEdit.value!.slug)
+    if (index > -1 && endpointsStore.endpoints[index]) {
+      endpointsStore.endpoints[index].summary = data.summary
+    }
+  }
+  endpointToEdit.value = null
 }
 
 const cancelDeleteEndpoint = () => {
