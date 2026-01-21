@@ -34,7 +34,10 @@ COPY backend/syft_space/__init__.py ./backend/syft_space/
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 RUN uv venv /app/.venv --python python${PYTHON_VERSION} && \
-    uv pip install --python /app/.venv/bin/python -e "./backend[libs]" --no-cache
+    uv pip install --python /app/.venv/bin/python -e "./backend"
+
+# Install heavy optional deps separately (slower, but cached independently)
+RUN uv pip install --python /app/.venv/bin/python -e "./backend[libs]"
 
 # ============================================================================
 # Stage 2: Production
