@@ -44,7 +44,7 @@ let balanceRefreshInterval: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   balanceRefreshInterval = setInterval(() => {
     userStore.fetchBalance(true)
-  }, 5000)
+  }, 30000)
 })
 
 onUnmounted(() => {
