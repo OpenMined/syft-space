@@ -332,9 +332,21 @@ export interface MarketplaceListItem {
   is_active: boolean
 }
 
+export interface TransactionResponse {
+  id: string
+  sender_email: string
+  recipient_email: string
+  amount: number
+  status: string
+  created_at: string
+  app_name?: string
+  app_ep_path?: string
+}
+
 export interface BalanceResponse {
   balance: number
   currency: string
+  recent_transactions: TransactionResponse[]
 }
 
 // Slug Availability API types
@@ -372,6 +384,20 @@ export interface PublishResult {
 export interface PublishEndpointResponse {
   endpoint_slug: string
   results: PublishResult[]
+}
+
+export interface UnpublishResult {
+  marketplace_id: string
+  marketplace_name: string
+  success: boolean
+  message?: string | null
+  error?: string | null
+}
+
+export interface UpdateEndpointRequest {
+  name?: string
+  summary?: string
+  description?: string
 }
 
 // Settings API types

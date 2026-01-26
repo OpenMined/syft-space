@@ -5,6 +5,7 @@ import type {
   MarketplaceResponse,
   MarketplaceListItem,
   BalanceResponse,
+  TransactionResponse,
 } from '../types'
 
 export const marketplacesApi = {
@@ -33,9 +34,15 @@ export const marketplacesApi = {
     return response.data
   },
 
-  // Get account balance
+  // Get account balance with recent transactions
   getBalance: async (): Promise<BalanceResponse> => {
     const response = await apiClient.get('/marketplaces/balance')
+    return response.data
+  },
+
+  // Get all transactions
+  getTransactions: async (): Promise<TransactionResponse[]> => {
+    const response = await apiClient.get('/marketplaces/transactions')
     return response.data
   },
 

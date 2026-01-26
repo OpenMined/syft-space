@@ -100,8 +100,24 @@ class MarketplaceListItem(BaseModel):
         from_attributes = True
 
 
+class TransactionResponse(BaseModel):
+    """Response model for a transaction."""
+
+    id: str = Field(..., description="Transaction ID")
+    sender_email: str = Field(..., description="Sender's email")
+    recipient_email: str = Field(..., description="Recipient's email")
+    amount: float = Field(..., description="Transaction amount")
+    status: str = Field(..., description="Transaction status")
+    created_at: datetime = Field(..., description="Transaction creation timestamp")
+    app_name: str | None = Field(None, description="Application name")
+    app_ep_path: str | None = Field(None, description="Application endpoint path")
+
+
 class BalanceResponse(BaseModel):
     """Response model for account balance."""
 
     balance: float = Field(..., description="Current account balance")
     currency: str = Field(default="USD", description="Currency unit")
+    recent_transactions: list[TransactionResponse] = Field(
+        default_factory=list, description="Recent transactions (last 3)"
+    )

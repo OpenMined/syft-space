@@ -164,23 +164,43 @@
             </div>
           </div>
           <!-- Quick Actions -->
-          <div class="flex items-center gap-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <Button v-if="!endpoint.published" variant="default">
-                    <Send class="h-4 w-4 mr-2" />
-                    Publish
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Make this endpoint publicly available</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button v-if="!endpoint.published" variant="default">
+                      <Send class="h-4 w-4 mr-2" />
+                      Publish
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Make this endpoint publicly available</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <Button variant="outline" @click="openEditDialog">
+                <Pencil class="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                class="text-destructive hover:text-destructive"
+                @click="
+                  () => {
+                    deleteNameConfirm = ''
+                    showDeleteDialog = true
+                  }
+                "
+              >
+                <Trash2 class="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+            </div>
             <Button
               v-if="syftHubUrl"
               variant="outline"
+              class="w-full"
               as="a"
               :href="syftHubUrl"
               target="_blank"
@@ -188,19 +208,6 @@
             >
               <ExternalLink class="h-4 w-4 mr-2" />
               View on SyftHub
-            </Button>
-            <Button
-              variant="outline"
-              class="text-destructive hover:text-destructive"
-              @click="
-                () => {
-                  deleteNameConfirm = ''
-                  showDeleteDialog = true
-                }
-              "
-            >
-              <Trash2 class="h-4 w-4 mr-2" />
-              Delete
             </Button>
           </div>
         </div>
@@ -674,53 +681,43 @@
 
   <!-- Delete Confirmation Dialog -->
   <Dialog v-model:open="showDeleteDialog">
-    <DialogContent class="sm:max-w-[600px]">
-      <div class="space-y-4">
-        <div>
-          <h3 class="body-sm font-semibold text-destructive">Danger Zone</h3>
-          <p class="body-sm text-muted-foreground mt-1">
-            Permanently delete this endpoint and all associated data.
-          </p>
-        </div>
-        <DialogHeader>
-          <DialogTitle>Delete endpoint</DialogTitle>
-          <DialogDescription>
-            This action cannot be undone. Please type
-            <span class="font-medium text-foreground"> {{ endpoint?.name }} </span>
-            to confirm deletion.
-          </DialogDescription>
-        </DialogHeader>
-        <div class="space-y-2">
-          <Label class="body-sm text-muted-foreground">Confirm name</Label>
-          <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'endpoint-name'" />
-          <p
-            class="body-sm"
-            :class="deleteNameConfirm === endpoint?.name ? 'text-success' : 'text-muted-foreground'"
-          >
-            {{
-              deleteNameConfirm === endpoint?.name
-                ? 'Name matches'
-                : 'Enter the endpoint name exactly'
-            }}
-          </p>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" @click="showDeleteDialog = false" :disabled="isDeleting"
-            >Cancel</Button
-          >
-          <Button
-            variant="destructive"
-            :disabled="deleteNameConfirm !== endpoint?.name || isDeleting"
-            @click="deleteEndpoint"
-          >
-            <div v-if="isDeleting" class="flex items-center gap-2">
-              <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              Deleting...
-            </div>
-            <span v-else>Delete Endpoint</span>
-          </Button>
-        </DialogFooter>
+    <DialogContent class="sm:max-w-[425px]">
+      <DialogHeader>
+        <DialogTitle class="text-destructive">Delete endpoint</DialogTitle>
+        <DialogDescription>
+          This will permanently delete this endpoint and remove it from SyftHub. This action cannot
+          be undone.
+        </DialogDescription>
+      </DialogHeader>
+      <div class="space-y-2">
+        <Label class="gap-1">
+          Type <span class="font-semibold text-foreground">{{ endpoint?.name }}</span> to confirm
+        </Label>
+        <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'endpoint-name'" />
+        <p
+          v-if="deleteNameConfirm"
+          class="text-sm"
+          :class="deleteNameConfirm === endpoint?.name ? 'text-success' : 'text-muted-foreground'"
+        >
+          {{ deleteNameConfirm === endpoint?.name ? 'Name matches' : 'Name does not match' }}
+        </p>
       </div>
+      <DialogFooter>
+        <Button variant="outline" @click="showDeleteDialog = false" :disabled="isDeleting">
+          Cancel
+        </Button>
+        <Button
+          variant="destructive"
+          :disabled="deleteNameConfirm !== endpoint?.name || isDeleting"
+          @click="deleteEndpoint"
+        >
+          <div v-if="isDeleting" class="flex items-center gap-2">
+            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            Deleting...
+          </div>
+          <span v-else>Delete Endpoint</span>
+        </Button>
+      </DialogFooter>
     </DialogContent>
   </Dialog>
 
@@ -906,6 +903,13 @@
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Edit Endpoint Dialog -->
+  <EditEndpointDialog
+    v-model:open="showEditDialog"
+    :endpoint="endpointForEdit"
+    @saved="handleEditSaved"
+  />
 </template>
 
 <script setup lang="ts">
@@ -928,6 +932,7 @@ import {
   Database,
   Plus,
   ExternalLink,
+  Pencil,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -960,8 +965,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { endpointsApi } from '@/api/endpoints/endpoints'
+import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import { policiesApi } from '@/api/policies/policies'
+import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
 import type { EndpointResponse } from '@/api/types'
@@ -989,6 +996,7 @@ const isDeleting = ref(false)
 const showDeletePolicyDialog = ref(false)
 const policyToDelete = ref<{ id: string; name: string } | null>(null)
 const showAddPolicyDialog = ref(false)
+const showEditDialog = ref(false)
 const selectedPolicyType = ref('')
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
@@ -1041,6 +1049,30 @@ const getFormDataForType = (policyType: string) => {
 const syftHubUrl = computed(() =>
   endpoint.value?.slug ? userStore.getEndpointUrlInMarketplace(endpoint.value.slug) : null,
 )
+
+// Computed endpoint data for edit dialog
+const endpointForEdit = computed(() => {
+  if (!endpoint.value) return null
+  return {
+    slug: endpoint.value.slug,
+    name: endpoint.value.name,
+    summary: endpoint.value.summary,
+    description: endpoint.value.description,
+  }
+})
+
+// Edit dialog handlers
+const openEditDialog = () => {
+  showEditDialog.value = true
+}
+
+const handleEditSaved = (data: { summary: string; description: string }) => {
+  // Update local endpoint data
+  if (endpoint.value) {
+    endpoint.value.summary = data.summary
+    endpoint.value.description = data.description
+  }
+}
 
 // Parse tags into languages, domains, and other tags
 const parsedTags = computed(() => {
@@ -1245,17 +1277,29 @@ const deleteEndpoint = async () => {
 
   isDeleting.value = true
   try {
+    // Unpublish from SyftHub first if published
+    if (endpoint.value.published) {
+      try {
+        await endpointsApi.unpublish(endpoint.value.slug)
+      } catch (unpublishError) {
+        console.error('Failed to unpublish endpoint:', unpublishError)
+        toast.error('Failed to remove endpoint from SyftHub. Please try again.')
+        isDeleting.value = false
+        return
+      }
+    }
+
     // Call the delete API
     await endpointsApi.delete(endpoint.value.slug)
+
+    toast.success('Endpoint deleted successfully')
 
     // Close dialog and navigate away
     showDeleteDialog.value = false
     router.push('/endpoints')
   } catch (error) {
     console.error('Failed to delete endpoint:', error)
-    // You might want to show an error toast here
-    // For now, just close the dialog
-    showDeleteDialog.value = false
+    toast.error('Failed to delete endpoint. Please try again.')
   } finally {
     isDeleting.value = false
   }

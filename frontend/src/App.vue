@@ -13,6 +13,7 @@ const showNavbar = computed(
   () =>
     route.name !== 'create' &&
     !route.path.startsWith('/create/') &&
+    !route.path.startsWith('/experimental') &&
     route.name !== 'updates' &&
     route.name !== 'onboarding',
 )

@@ -7,6 +7,8 @@ import type {
   SlugAvailabilityResponse,
   PublishEndpointRequest,
   PublishEndpointResponse,
+  UnpublishResult,
+  UpdateEndpointRequest,
 } from '../types'
 
 export const endpointsApi = {
@@ -30,6 +32,11 @@ export const endpointsApi = {
     return response.data
   },
 
+  update: async (slug: string, request: UpdateEndpointRequest): Promise<EndpointResponse> => {
+    const response = await apiClient.patch<EndpointResponse>(`/endpoints/${slug}`, request)
+    return response.data
+  },
+
   validateSlug: async (request: SlugAvailabilityRequest): Promise<SlugAvailabilityResponse> => {
     const response = await apiClient.post<SlugAvailabilityResponse>(
       '/endpoints/validate-slug',
@@ -46,6 +53,11 @@ export const endpointsApi = {
       `/endpoints/${slug}/publish`,
       request,
     )
+    return response.data
+  },
+
+  unpublish: async (slug: string): Promise<UnpublishResult[]> => {
+    const response = await apiClient.delete<UnpublishResult[]>(`/endpoints/${slug}/unpublish`)
     return response.data
   },
 }

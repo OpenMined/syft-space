@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { marketplacesApi } from '@/api/endpoints/marketplaces'
 import { formatPrice } from '@/lib/formatters'
+import type { TransactionResponse } from '@/api/types'
 
 export const useUserStore = defineStore('user', () => {
   const name = ref<string | null>(null)
@@ -10,6 +11,8 @@ export const useUserStore = defineStore('user', () => {
   const balance = ref<number | null>(null)
   const currency = ref('USD')
   const balanceLoading = ref(false)
+  const balanceError = ref(false)
+  const transactions = ref<TransactionResponse[]>([])
   const marketplaceLoading = ref(false)
   const marketplaceUrl = ref<string | null>(null)
   const authToken = ref('')
@@ -32,17 +35,30 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  const fetchBalance = async () => {
-    balanceLoading.value = true
+  const fetchBalance = async (silent = false) => {
+    if (!silent) {
+      balanceLoading.value = true
+      balanceError.value = false
+    }
     try {
       const response = await marketplacesApi.getBalance()
       balance.value = response.balance
       currency.value = response.currency
+      transactions.value = response.recent_transactions
+      if (silent) {
+        balanceError.value = false
+      }
     } catch (error) {
       console.error('Failed to fetch balance:', error)
-      balance.value = null
+      if (!silent) {
+        balance.value = null
+        balanceError.value = true
+        transactions.value = []
+      }
     } finally {
-      balanceLoading.value = false
+      if (!silent) {
+        balanceLoading.value = false
+      }
     }
   }
 
@@ -71,6 +87,8 @@ export const useUserStore = defineStore('user', () => {
     balance,
     currency,
     balanceLoading,
+    balanceError,
+    transactions,
     marketplaceLoading,
     marketplaceUrl,
     authToken,

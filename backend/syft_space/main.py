@@ -1,5 +1,9 @@
 """Main FastAPI application."""
 
+# Configure unified logging FIRST, before any other imports
+# ruff: noqa: E402
+import syft_space.components.shared.logging_config  # noqa: F401, I001
+
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -192,7 +196,6 @@ async def lifespan(app: FastAPI):
                 _sync_public_url_safe(settings_handler, default_tenant, public_url)
             )
 
-    logger.info("Application started")
     yield  # Application runs here
 
     # 6. Shutdown all services (reverse order: ingestion → provisioner → proxy)
@@ -216,7 +219,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "https://*.syfthub.ngrok.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
