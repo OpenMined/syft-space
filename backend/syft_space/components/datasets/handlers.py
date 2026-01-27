@@ -114,7 +114,7 @@ class DatasetHandler:
                 state=new_state_dict,
             )
         except Exception as e:
-            logger.error(f"Failed to start provisioner for '{dtype}': {e}")
+            # Error already logged by provisioner, just update state and raise
             await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.ERROR,
@@ -244,9 +244,9 @@ class DatasetHandler:
                 # Use state.state as config (contains connection fields from last run)
                 config = state.state.copy() if state.state else {}
                 await self._ensure_provisioner_running(state.dtype, config)
-            except Exception as e:
-                logger.error(f"Failed to start provisioner '{state.dtype}': {e}")
-                # Continue with other provisioners
+            except Exception:  # nosec B110 - error already logged by provisioner
+                # Continue starting other provisioners
+                pass
 
     async def shutdown_all_provisioners(self) -> None:
         """Stop all running provisioners.
