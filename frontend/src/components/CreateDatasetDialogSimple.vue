@@ -265,7 +265,13 @@ const isFormValid = computed(() => {
 // Utility function to generate collection name using UUID hex
 const generateCollectionName = (): string => {
   // Generate a random UUID and return its hex representation without dashes
-  return crypto.randomUUID().replace(/-/g, '')
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replace(/-/g, '')
+  }
+  // Fallback for environments without randomUUID (e.g., some Tauri webviews)
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 // Methods

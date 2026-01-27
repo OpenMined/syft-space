@@ -332,8 +332,24 @@
             Quick Start Guide
           </h3>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <button
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <a
+              href="http://syft.docs.openmined.org/space/quickstart"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="group flex items-center gap-3 p-3 bg-card rounded-lg border border-border hover:border-border/60 transition-colors"
+            >
+              <Zap class="w-4 h-4 text-green-600 dark:text-green-400" />
+              <div class="text-left">
+                <div class="body-sm font-medium text-foreground">Quickstart</div>
+                <div class="body-sm text-muted-foreground">Get started fast</div>
+              </div>
+            </a>
+
+            <a
+              href="http://syft.docs.openmined.org/space/components/datasets"
+              target="_blank"
+              rel="noopener noreferrer"
               class="group flex items-center gap-3 p-3 bg-card rounded-lg border border-border hover:border-border/60 transition-colors"
             >
               <FileText class="w-4 h-4 text-blue-600 dark:text-blue-400" />
@@ -341,27 +357,33 @@
                 <div class="body-sm font-medium text-foreground">Publish Documents</div>
                 <div class="body-sm text-muted-foreground">Share PDFs securely</div>
               </div>
-            </button>
+            </a>
 
-            <button
+            <a
+              href="http://syft.docs.openmined.org/space/components/models"
+              target="_blank"
+              rel="noopener noreferrer"
               class="group flex items-center gap-3 p-3 bg-card rounded-lg border border-border hover:border-border/60 transition-colors"
             >
-              <Zap class="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <Brain class="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               <div class="text-left">
                 <div class="body-sm font-medium text-foreground">Connect AI Models</div>
                 <div class="body-sm text-muted-foreground">Link AI endpoints</div>
               </div>
-            </button>
+            </a>
 
-            <button
+            <a
+              href="http://syft.docs.openmined.org/space/components/policies"
+              target="_blank"
+              rel="noopener noreferrer"
               class="group flex items-center gap-3 p-3 bg-card rounded-lg border border-border hover:border-border/60 transition-colors"
             >
               <Shield class="w-4 h-4 text-purple-600 dark:text-purple-400" />
               <div class="text-left">
-                <div class="body-sm font-medium text-foreground">Configure Access</div>
+                <div class="body-sm font-medium text-foreground">Configure Policies</div>
                 <div class="body-sm text-muted-foreground">Set permissions</div>
               </div>
-            </button>
+            </a>
           </div>
         </div>
       </div>
