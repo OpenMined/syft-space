@@ -50,7 +50,7 @@ Download the native app for a system tray experience with automatic server manag
 - **macOS**: Download `.dmg` from [Releases](https://github.com/OpenMined/syft-space/releases)
 - **Linux**: Download `.AppImage`, `.deb`, or `.rpm` from [Releases](https://github.com/OpenMined/syft-space/releases)
 
-See the [Desktop App Guide](docs/installation/desktop-app.md) for detailed instructions.
+See the [Desktop App Guide](http://syft.docs.openmined.org/space/installation) for detailed instructions.
 
 ### Option 2: Docker (Recommended for Cloud/Server)
 
@@ -65,7 +65,7 @@ docker run -d \
 
 Open [http://localhost:8080](http://localhost:8080) to access the interface.
 
-See the [Docker Installation Guide](docs/installation/docker.md) for advanced configuration.
+See the [Docker Installation Guide](http://syft.docs.openmined.org/space/installation/docker) for advanced configuration.
 
 ### Option 3: From Source
 
@@ -145,11 +145,15 @@ syft-space/
 
 ## Documentation
 
-- [Quick Start](docs/quickstart.md) — Get started in 3 steps: add data, create endpoint, publish
-- [Introduction](docs/intro.md) — Understand the concepts
-- [Components Overview](docs/components/overview.md) — Datasets, models, endpoints, and policies
-- [API Reference](docs/api.md) — REST API documentation
-- [Development Guide](docs/development.md) — Contributing and local setup
+- [Quick Start](http://syft.docs.openmined.org/quickstart) — Get started in 3 steps: add data, create endpoint, publish
+- [Introduction](http://syft.docs.openmined.org/space) — Understand the concepts
+- [Components Overview](http://syft.docs.openmined.org/space/components/overview) — Datasets, models, endpoints, and policies
+- [Datasets](http://syft.docs.openmined.org/space/components/datasets) — Managing your data sources
+- [Models](http://syft.docs.openmined.org/space/components/models) — AI providers and configuration
+- [Endpoints](http://syft.docs.openmined.org/space/components/endpoints) — Queryable RAG services
+- [Policies](http://syft.docs.openmined.org/space/components/policies) — Access control and rate limiting
+- [API Reference](http://syft.docs.openmined.org/space/api) — REST API documentation
+- [Installation Guide](http://syft.docs.openmined.org/installation) — Complete setup instructions
 
 Interactive API docs available at [http://localhost:8080/docs](http://localhost:8080/docs) when running.
 
@@ -163,7 +167,7 @@ The network gets better as more Spaces join. But the architecture matters: we're
 
 ## Contributing
 
-Contributions are welcome! See the [Development Guide](docs/development.md) for setup instructions and contribution guidelines.
+Contributions are welcome! See the [Development Documentation](http://syft.docs.openmined.org) for setup instructions and contribution guidelines.
 
 ## License
 
