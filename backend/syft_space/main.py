@@ -179,14 +179,20 @@ async def lifespan(app: FastAPI):
         ("ingestion", ingestion_manager),
     ]
 
-    # 4. Start all services
+    # 4. Create coordination event for provisioner → ingestion ordering
+    # This event ensures ingestion waits for provisioners to be ready
+    provisioner_ready_event = asyncio.Event()
+    provisioner_manager.set_startup_complete_event(provisioner_ready_event)
+    ingestion_manager.set_provisioner_ready_event(provisioner_ready_event)
+
+    # 5. Start all services
     for name, service in services:
         try:
             await service.startup()
         except Exception as e:
             logger.error(f"Failed to start {name}: {e}")
 
-    # 5. Post-startup: Log proxy connection and update settings
+    # 6. Post-startup: Log proxy connection and update settings
     proxy_service.log_connection_info(app_settings.admin_api_key)
     if proxy_service.is_connected():
         public_url = proxy_service.get_public_url()
@@ -198,7 +204,7 @@ async def lifespan(app: FastAPI):
 
     yield  # Application runs here
 
-    # 6. Shutdown all services (reverse order: ingestion → provisioner → proxy)
+    # 7. Shutdown all services (reverse order: ingestion → provisioner → proxy)
     for name, service in reversed(services):
         try:
             await service.shutdown()
