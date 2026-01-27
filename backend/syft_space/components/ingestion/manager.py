@@ -200,6 +200,15 @@ class IngestionManager(LifecycleService):
         self._event_processor_task: asyncio.Task | None = None
         self._job_processor_task: asyncio.Task | None = None
         self._startup_init_task: asyncio.Task | None = None
+        self._provisioner_ready_event: asyncio.Event | None = None  # Set by main.py
+
+    def set_provisioner_ready_event(self, event: asyncio.Event) -> None:
+        """Set the event to wait on before starting dataset watchers.
+
+        Args:
+            event: Event to wait for before starting ingestion
+        """
+        self._provisioner_ready_event = event
 
     def _is_file_ingestable_dataset_type(self, dtype: str) -> bool:
         """Check if dataset type implements FileIngestableDatasetType."""
@@ -259,6 +268,12 @@ class IngestionManager(LifecycleService):
         This runs as a fire-and-forget task so startup() completes immediately,
         allowing the FastAPI lifespan to yield and the server to start serving.
         """
+        # Wait for provisioner startup to complete before starting watchers
+        if self._provisioner_ready_event:
+            logger.info("Waiting for provisioner startup to complete...")
+            await self._provisioner_ready_event.wait()
+            logger.info("Provisioner startup complete, starting dataset watchers")
+
         try:
             all_datasets = (
                 await self._dataset_repository.get_all_with_provisioner_state_id()
