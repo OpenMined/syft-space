@@ -93,6 +93,12 @@ class HeartbeatManager(LifecycleService):
             logger.info("Heartbeat manager is disabled")
             return
 
+        # Check if heartbeat manager is already running
+        # Just a safety check to prevent multiple startup calls
+        if self._heartbeat_task is not None and not self._heartbeat_task.done():
+            logger.warning("Heartbeat manager already running, skipping startup")
+            return
+
         logger.info("Starting heartbeat manager...")
 
         # Initialize async primitives
