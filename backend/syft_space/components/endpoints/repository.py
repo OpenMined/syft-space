@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import selectinload
-from sqlmodel import select
+from sqlmodel import or_, select
 
 from syft_space.components.endpoints.entities import Endpoint
 from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
@@ -254,3 +254,28 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 await session.refresh(endpoint)
 
             return endpoint
+
+    async def get_published_endpoints(self, tenant_id: UUID) -> list[Endpoint]:
+        """Get all endpoints that are published to at least one marketplace.
+
+        Args:
+            tenant_id: Tenant ID
+
+        Returns:
+            List of published endpoints with policies eagerly loaded
+        """
+        async with self.db.get_session() as session:
+            statement = (
+                select(Endpoint)
+                .where(
+                    Endpoint.tenant_id == tenant_id,
+                    or_(Endpoint.published_to.isnot(None), Endpoint.published_to != []),
+                )
+                .options(
+                    selectinload(Endpoint.model),
+                    selectinload(Endpoint.dataset),
+                    selectinload(Endpoint.policies),
+                )
+            )
+            result = await session.exec(statement)
+            return list(result.all())

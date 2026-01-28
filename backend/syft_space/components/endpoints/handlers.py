@@ -1,5 +1,6 @@
 """Endpoint handlers for business logic."""
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -725,41 +726,7 @@ class EndpointHandler:
                     username=marketplace.email, password=marketplace.password
                 )
 
-                endpoint_type = (
-                    "model" if endpoint.model_id is not None else "data_source"
-                )
-                policies = [
-                    {
-                        "type": policy.policy_type,
-                        "version": "1.0",
-                        "enabled": True,
-                        "description": policy.name,
-                        "config": policy.configuration,
-                    }
-                    for policy in endpoint.policies
-                ]
-                connection_config = {
-                    "path": f"/api/v1/endpoints/{endpoint.slug}/query",
-                }
-
-                payload = {
-                    "name": endpoint.name,
-                    "description": endpoint.summary or "",
-                    "type": endpoint_type,
-                    "visibility": "public",
-                    "version": "0.1.0",
-                    "readme": endpoint.description or "",
-                    "slug": endpoint.slug,
-                    "policies": policies,
-                    "connect": [
-                        {
-                            "type": "https",
-                            "enabled": True,
-                            "description": "",
-                            "config": connection_config,
-                        }
-                    ],
-                }
+                payload = self._build_publish_payload(endpoint)
                 await client.publish_endpoint(payload, overwrite=True)
 
         except SyftHubError as e:
@@ -920,3 +887,125 @@ class EndpointHandler:
                 available=None,
                 error=str(e),
             )
+
+    def _build_publish_payload(self, endpoint: Endpoint) -> dict[str, Any]:
+        """Build the publish payload for an endpoint.
+
+        Args:
+            endpoint: Endpoint entity
+
+        Returns:
+            Dict payload for publish/sync APIs
+        """
+        endpoint_type = "model" if endpoint.model_id is not None else "data_source"
+
+        policies = [
+            {
+                "type": policy.policy_type,
+                "version": "1.0",
+                "enabled": True,
+                "description": policy.name,
+                "config": policy.configuration,
+            }
+            for policy in endpoint.policies
+        ]
+
+        connection_config = {
+            "path": f"/api/v1/endpoints/{endpoint.slug}/query",
+        }
+
+        return {
+            "name": endpoint.name,
+            "description": endpoint.summary or "",
+            "type": endpoint_type,
+            "visibility": "public",
+            "version": "0.1.0",
+            "readme": endpoint.description or "",
+            "slug": endpoint.slug,
+            "policies": policies,
+            "connect": [
+                {
+                    "type": "https",
+                    "enabled": True,
+                    "description": "",
+                    "config": connection_config,
+                }
+            ],
+        }
+
+    async def sync_endpoints_to_marketplaces(
+        self, tenant: Tenant
+    ) -> dict[str, list[str]]:
+        """Sync all published endpoints to their respective marketplaces.
+
+        Groups endpoints by marketplace and calls sync_endpoints API for each.
+
+        Args:
+            tenant: Tenant context
+
+        Returns:
+            Dict mapping marketplace_id -> list of synced endpoint slugs
+        """
+        if not self.marketplace_repository:
+            logger.warning("Marketplace repository not configured, skipping sync")
+            return {}
+
+        # Get all published endpoints
+        endpoints = await self.endpoint_repository.get_published_endpoints(tenant.id)
+        if not endpoints:
+            logger.debug("No published endpoints to sync")
+            return {}
+
+        # Group endpoints by marketplace
+        marketplace_endpoints: dict[UUID, list[Endpoint]] = {}
+        for endpoint in endpoints:
+            for marketplace_id in endpoint.published_to:
+                marketplace_endpoints.setdefault(marketplace_id, []).append(endpoint)
+
+        results: dict[str, list[str]] = {}
+
+        # Sync to each marketplace
+        for marketplace_id, eps in marketplace_endpoints.items():
+            try:
+                marketplace = await self.marketplace_repository.get_by_id(
+                    UUID(marketplace_id), tenant.id
+                )
+                if not marketplace:
+                    logger.warning(f"Marketplace {marketplace_id} not found, skipping")
+                    continue
+
+                if not marketplace.is_active:
+                    logger.warning(f"Marketplace {marketplace_id} not active, skipping")
+                    continue
+
+                if not marketplace.email or not marketplace.password:
+                    logger.warning(
+                        f"Marketplace {marketplace_id} missing credentials, skipping"
+                    )
+                    continue
+
+                # Build payloads
+                payloads = [self._build_publish_payload(ep) for ep in eps]
+
+                # Call sync API
+                async with SyftHubClient(base_url=marketplace.url) as client:
+                    await client.login(
+                        username=marketplace.email, password=marketplace.password
+                    )
+                    await client.sync_endpoints(payloads)
+
+                results[marketplace_id] = [ep.slug for ep in eps]
+                logger.info(
+                    f"Synced {len(eps)} endpoints to marketplace {marketplace.name}"
+                )
+
+            except SyftHubError as e:
+                logger.warning(
+                    f"Failed to sync to marketplace {marketplace_id}: {e.message}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error syncing to marketplace {marketplace_id}: {e}"
+                )
+
+        return results

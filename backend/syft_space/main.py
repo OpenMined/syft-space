@@ -123,6 +123,35 @@ async def _sync_public_url_safe(
         logger.warning(f"Marketplace sync failed: {e} - server will continue starting")
 
 
+async def _sync_endpoints_safe(handler: EndpointHandler, tenant: Tenant) -> None:
+    """Sync published endpoints to marketplaces without blocking startup.
+
+    This is a fire-and-forget helper that syncs all published endpoints to their
+    respective marketplaces. If the sync fails or times out, the server continues
+    operating - eventual consistency is achieved via frontend publish calls.
+
+    Args:
+        handler: Endpoint handler instance
+        tenant: Tenant context
+    """
+    try:
+        results = await asyncio.wait_for(
+            handler.sync_endpoints_to_marketplaces(tenant),
+            timeout=60.0,  # 60 second timeout for multi-marketplace sync
+        )
+        if results:
+            total = sum(len(slugs) for slugs in results.values())
+            logger.info(
+                f"Startup endpoint sync completed: {total} endpoints to {len(results)} marketplaces"
+            )
+        else:
+            logger.debug("No published endpoints to sync on startup")
+    except asyncio.TimeoutError:
+        logger.warning("Endpoint sync timed out - server will continue running")
+    except Exception as e:
+        logger.warning(f"Endpoint sync failed: {e} - server will continue running")
+
+
 async def _setup_tenant_and_settings(
     tenant_repo: TenantRepository,
     settings_hdlr: SettingsHandler,
@@ -202,9 +231,13 @@ async def lifespan(app: FastAPI):
                 _sync_public_url_safe(settings_handler, default_tenant, public_url)
             )
 
+    # 7. Fire-and-forget: Sync published endpoints to marketplaces
+    if default_tenant:
+        asyncio.create_task(_sync_endpoints_safe(endpoint_handler, default_tenant))
+
     yield  # Application runs here
 
-    # 7. Shutdown all services (reverse order: ingestion → provisioner → proxy)
+    # 8. Shutdown all services (reverse order: ingestion → provisioner → proxy)
     for name, service in reversed(services):
         try:
             await service.shutdown()

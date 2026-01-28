@@ -554,6 +554,21 @@ class SyftHubClient:
         response = await self._client.post("/api/v1/verify", json={"token": token})  # type: ignore
         return _handle_response(response, SatelliteToken)
 
+    async def sync_endpoints(self, payload: list[dict[str, Any]]) -> dict[str, Any]:
+        """Sync endpoints to SyftHub.
+
+        It is used to sync endpoints from the database to SyftHub.
+        This is a destructive operation that will overwrite the existing endpoints with the new ones.
+
+        Args:
+            payload: List of endpoints to sync
+        Returns:
+            dict[str, Any]: Sync endpoints response
+        """
+        self._require_auth()
+        response = await self._client.post("/api/v1/endpoints/sync", json=payload)  # type: ignore
+        return _handle_response_raw(response)
+
     def _require_auth(self) -> None:
         if self._client is None:
             raise NotAuthenticatedError()
