@@ -566,7 +566,9 @@ class SyftHubClient:
             dict[str, Any]: Sync endpoints response
         """
         self._require_auth()
-        response = await self._client.post("/api/v1/endpoints/sync", json=payload)  # type: ignore
+        response = await self._client.post(
+            "/api/v1/endpoints/sync", json={"endpoints": payload}
+        )  # type: ignore
         return _handle_response_raw(response)
 
     def _require_auth(self) -> None:
