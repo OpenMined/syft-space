@@ -123,6 +123,35 @@ async def _sync_public_url_safe(
         logger.warning(f"Marketplace sync failed: {e} - server will continue starting")
 
 
+async def _sync_endpoints_safe(handler: EndpointHandler, tenant: Tenant) -> None:
+    """Sync published endpoints to marketplaces without blocking startup.
+
+    This is a fire-and-forget helper that syncs all published endpoints to their
+    respective marketplaces. If the sync fails or times out, the server continues
+    operating - eventual consistency is achieved via frontend publish calls.
+
+    Args:
+        handler: Endpoint handler instance
+        tenant: Tenant context
+    """
+    try:
+        results = await asyncio.wait_for(
+            handler.sync_endpoints_to_marketplaces(tenant),
+            timeout=60.0,  # 60 second timeout for multi-marketplace sync
+        )
+        if results:
+            total = sum(len(slugs) for slugs in results.values())
+            logger.info(
+                f"Startup endpoint sync completed: {total} endpoints to {len(results)} marketplaces"
+            )
+        else:
+            logger.debug("No published endpoints to sync on startup")
+    except asyncio.TimeoutError:
+        logger.warning("Endpoint sync timed out - server will continue running")
+    except Exception as e:
+        logger.warning(f"Endpoint sync failed: {e} - server will continue running")
+
+
 async def _setup_tenant_and_settings(
     tenant_repo: TenantRepository,
     settings_hdlr: SettingsHandler,
@@ -179,14 +208,20 @@ async def lifespan(app: FastAPI):
         ("ingestion", ingestion_manager),
     ]
 
-    # 4. Start all services
+    # 4. Create coordination event for provisioner → ingestion ordering
+    # This event ensures ingestion waits for provisioners to be ready
+    provisioner_ready_event = asyncio.Event()
+    provisioner_manager.set_startup_complete_event(provisioner_ready_event)
+    ingestion_manager.set_provisioner_ready_event(provisioner_ready_event)
+
+    # 5. Start all services
     for name, service in services:
         try:
             await service.startup()
         except Exception as e:
             logger.error(f"Failed to start {name}: {e}")
 
-    # 5. Post-startup: Log proxy connection and update settings
+    # 6. Post-startup: Log proxy connection and update settings
     proxy_service.log_connection_info(app_settings.admin_api_key)
     if proxy_service.is_connected():
         public_url = proxy_service.get_public_url()
@@ -196,9 +231,13 @@ async def lifespan(app: FastAPI):
                 _sync_public_url_safe(settings_handler, default_tenant, public_url)
             )
 
+    # 7. Fire-and-forget: Sync published endpoints to marketplaces
+    if default_tenant:
+        asyncio.create_task(_sync_endpoints_safe(endpoint_handler, default_tenant))
+
     yield  # Application runs here
 
-    # 6. Shutdown all services (reverse order: ingestion → provisioner → proxy)
+    # 8. Shutdown all services (reverse order: ingestion → provisioner → proxy)
     for name, service in reversed(services):
         try:
             await service.shutdown()
