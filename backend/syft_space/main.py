@@ -2,8 +2,6 @@
 
 # Configure unified logging FIRST, before any other imports
 # ruff: noqa: E402
-import syft_space.components.shared.logging_config  # noqa: F401, I001
-
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+
+import syft_space.components.shared.logging_config  # noqa: F401, I001
 
 # Import auth components
 from syft_space.components.auth.dependencies import bearer_scheme
@@ -81,6 +81,9 @@ from syft_space.components.settings.routes import build_settings_routes
 
 # Import database
 from syft_space.components.shared.database import AsyncDatabase, SQLiteConfig
+
+# Import heartbeat manager
+from syft_space.components.shared.heartbeat_manager import HeartbeatManager
 
 # Import lifecycle protocol
 from syft_space.components.shared.lifecycle import LifecycleService
@@ -201,12 +204,17 @@ async def lifespan(app: FastAPI):
     )
     app.state.default_tenant = default_tenant
 
-    # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion)
+    # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion → heartbeat)
     services: list[tuple[str, LifecycleService]] = [
         ("proxy", proxy_service),
         ("provisioner", provisioner_manager),
         ("ingestion", ingestion_manager),
+        ("heartbeat", heartbeat_manager),
     ]
+
+    # 3.1. Set tenant ID for heartbeat manager
+    if default_tenant:
+        heartbeat_manager.set_tenant_id(default_tenant.id)
 
     # 4. Create coordination event for provisioner → ingestion ordering
     # This event ensures ingestion waits for provisioners to be ready
@@ -333,9 +341,15 @@ ingestion_handler = IngestionHandler(
 
 # Initialize lifecycle managers (independent, ordered in lifespan)
 provisioner_manager = ProvisionerManager(dataset_handler)
+heartbeat_manager = HeartbeatManager(
+    marketplace_repository=marketplace_repository,
+    proxy_service=proxy_service,
+    enabled=app_settings.heartbeat_enabled,
+)
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.proxy_service = proxy_service
+app.state.heartbeat_manager = heartbeat_manager
 app.state.settings_handler = settings_handler
 app.state.tenant_repository = tenant_repository
 app.state.default_tenant = None  # Set in lifespan after async creation
