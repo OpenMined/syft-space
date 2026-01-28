@@ -8,15 +8,15 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from backend.syft_space.components.shared.lifecycle import LifecycleService
 from loguru import logger
 
 from syft_space.components.marketplaces.entities import Marketplace
+from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 
 if TYPE_CHECKING:
     from syft_space.components.marketplaces.repository import MarketplaceRepository
-    from syft_space.components.shared.proxy_service import ProxyService
+    from syft_space.components.settings.repository import SettingsRepository
 
 
 @dataclass
@@ -36,6 +36,7 @@ class HeartbeatManager(LifecycleService):
     - Exponential backoff: Starts frequent, increases interval on success
     - Jitter: 10-15% randomness to prevent thundering herd
     - Failure recovery: Resets to aggressive (small) interval on failure
+    - Failure backoff: After repeated failures, backs off instead of aggressive retry
     - Multi-marketplace support: Sends heartbeats to all active marketplaces
     - TTL > interval: TTL is 3x the interval to tolerate missed heartbeats
     """
@@ -47,27 +48,31 @@ class HeartbeatManager(LifecycleService):
     TTL_MULTIPLIER = 3.0  # TTL = interval * 3 (tolerance for missed heartbeats)
     JITTER_MIN = 0.10  # 10% minimum jitter
     JITTER_MAX = 0.15  # 15% maximum jitter
-    PROXY_POLL_INTERVAL = 5.0  # Poll proxy connection every 5 seconds
+    POLL_INTERVAL = 5.0  # Poll for public_url every 5 seconds
+    MAX_CONSECUTIVE_FAILURES = 10  # After this many failures, start backing off
 
     def __init__(
         self,
         marketplace_repository: MarketplaceRepository,
-        proxy_service: ProxyService,
+        settings_repository: SettingsRepository,
         enabled: bool = True,
     ) -> None:
         """Initialize the heartbeat manager.
 
         Args:
             marketplace_repository: Repository for accessing marketplace credentials
-            proxy_service: Service for getting current public URL
+            settings_repository: Repository for accessing public_url setting
             enabled: Whether heartbeat manager is enabled
         """
         self._marketplace_repository = marketplace_repository
-        self._proxy_service = proxy_service
+        self._settings_repository = settings_repository
         self._enabled = enabled
 
         # Per-marketplace state tracking
         self._states: dict[UUID, HeartbeatState] = {}
+
+        # Track if we had a public URL (for detecting removal)
+        self._had_public_url = False
 
         # Async primitives - initialized in startup()
         self._shutdown_event: asyncio.Event | None = None
@@ -124,15 +129,16 @@ class HeartbeatManager(LifecycleService):
         logger.info("Heartbeat manager shutdown complete")
 
     async def _heartbeat_loop(self) -> None:
-        """Main heartbeat loop - waits for proxy, then sends heartbeats."""
-        logger.info("Heartbeat loop started, waiting for proxy connection...")
+        """Main heartbeat loop - waits for public_url, then sends heartbeats."""
+        logger.info("Heartbeat loop started, waiting for public_url to be set...")
 
-        # Wait for proxy to be connected before starting heartbeats
-        if not await self._wait_for_proxy():
-            logger.info("Heartbeat loop stopped (shutdown during proxy wait)")
+        # Wait for public_url to be set before starting heartbeats
+        if not await self._wait_for_public_url():
+            logger.info("Heartbeat loop stopped (shutdown during public_url wait)")
             return
 
-        logger.info("Proxy connected, beginning heartbeat cycle")
+        logger.info("Public URL available, beginning heartbeat cycle")
+        self._had_public_url = True
 
         while not self._shutdown_event.is_set():
             try:
@@ -166,20 +172,23 @@ class HeartbeatManager(LifecycleService):
 
         logger.info("Heartbeat loop stopped")
 
-    async def _wait_for_proxy(self) -> bool:
-        """Wait for proxy service to be connected.
+    async def _wait_for_public_url(self) -> bool:
+        """Wait for public_url to be set in settings.
+
+        Works whether URL is set by proxy or manually by user.
 
         Returns:
-            True if proxy is connected, False if shutdown was requested
+            True if public_url is available, False if shutdown was requested
         """
         while not self._shutdown_event.is_set():
-            if self._proxy_service.is_connected():
+            public_url = await self._settings_repository.get_public_url()
+            if public_url:
                 return True
 
-            # Poll every PROXY_POLL_INTERVAL seconds
+            # Poll every POLL_INTERVAL seconds
             try:
                 await asyncio.wait_for(
-                    self._shutdown_event.wait(), timeout=self.PROXY_POLL_INTERVAL
+                    self._shutdown_event.wait(), timeout=self.POLL_INTERVAL
                 )
                 return False  # Shutdown requested
             except asyncio.TimeoutError:
@@ -203,17 +212,32 @@ class HeartbeatManager(LifecycleService):
             logger.warning("Tenant ID not set, skipping heartbeat")
             return
 
-        # Get public URL from proxy
-        public_url = self._proxy_service.get_public_url()
+        # Get public URL from settings
+        public_url = await self._settings_repository.get_public_url()
         if not public_url:
-            logger.debug("No public URL available, skipping heartbeat")
+            # URL was removed - reset all states
+            if self._had_public_url and self._states:
+                logger.info("Public URL removed, resetting heartbeat intervals")
+                for state in self._states.values():
+                    state.current_interval = self.INITIAL_INTERVAL
+                    state.consecutive_successes = 0
+            self._had_public_url = False
             return
+
+        self._had_public_url = True
 
         # Get all active marketplaces
         marketplaces = await self._marketplace_repository.get_active(self._tenant_id)
         if not marketplaces:
             logger.debug("No active marketplaces, skipping heartbeat")
             return
+
+        # Prune stale marketplace states (for removed marketplaces)
+        active_ids = {m.id for m in marketplaces}
+        stale_ids = set(self._states.keys()) - active_ids
+        for stale_id in stale_ids:
+            del self._states[stale_id]
+            logger.debug(f"Pruned stale heartbeat state for marketplace {stale_id}")
 
         # Send heartbeats concurrently
         tasks = [
@@ -312,7 +336,8 @@ class HeartbeatManager(LifecycleService):
 
         Algorithm:
         - On success: Double the interval (up to MAX_INTERVAL)
-        - On failure: Reset to INITIAL_INTERVAL for aggressive retry
+        - On failure (< MAX_CONSECUTIVE_FAILURES): Reset to INITIAL_INTERVAL
+        - On failure (>= MAX_CONSECUTIVE_FAILURES): Back off exponentially
         - Add jitter (10-15%) to prevent thundering herd
 
         Args:
@@ -328,8 +353,14 @@ class HeartbeatManager(LifecycleService):
                 state.current_interval * self.BACKOFF_FACTOR, self.MAX_INTERVAL
             )
         else:
-            # Reset to aggressive retry on failure
-            new_interval = self.INITIAL_INTERVAL
+            # After many consecutive failures, back off instead of aggressive retry
+            if state.consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
+                new_interval = min(
+                    state.current_interval * self.BACKOFF_FACTOR, self.MAX_INTERVAL
+                )
+            else:
+                # Reset to aggressive retry on failure
+                new_interval = self.INITIAL_INTERVAL
 
         # Apply jitter (10-15% randomness)
         jitter_factor = 1.0 + secrets.SystemRandom().uniform(

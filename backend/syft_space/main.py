@@ -343,7 +343,7 @@ ingestion_handler = IngestionHandler(
 provisioner_manager = ProvisionerManager(dataset_handler)
 heartbeat_manager = HeartbeatManager(
     marketplace_repository=marketplace_repository,
-    proxy_service=proxy_service,
+    settings_repository=settings_repository,
     enabled=app_settings.heartbeat_enabled,
 )
 app.state.provisioner_manager = provisioner_manager
