@@ -61,6 +61,12 @@ class AppSettings(BaseSettings):
         description="Public URL for the Syft Space",
     )
 
+    # Heartbeat settings
+    heartbeat_enabled: bool = Field(
+        default=True,
+        description="Enable heartbeat manager for sending presence to marketplaces",
+    )
+
     @field_validator("public_url", mode="before")
     @classmethod
     def validate_public_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:

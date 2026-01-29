@@ -2,8 +2,6 @@
 
 # Configure unified logging FIRST, before any other imports
 # ruff: noqa: E402
-import syft_space.components.shared.logging_config  # noqa: F401, I001
-
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+
+import syft_space.components.shared.logging_config  # noqa: F401, I001
 
 # Import auth components
 from syft_space.components.auth.dependencies import bearer_scheme
@@ -82,6 +82,9 @@ from syft_space.components.settings.routes import build_settings_routes
 # Import database
 from syft_space.components.shared.database import AsyncDatabase, SQLiteConfig
 
+# Import heartbeat manager
+from syft_space.components.shared.heartbeat_manager import HeartbeatManager
+
 # Import lifecycle protocol
 from syft_space.components.shared.lifecycle import LifecycleService
 
@@ -121,6 +124,35 @@ async def _sync_public_url_safe(
         logger.warning("Marketplace sync timed out - server will continue starting")
     except Exception as e:
         logger.warning(f"Marketplace sync failed: {e} - server will continue starting")
+
+
+async def _sync_endpoints_safe(handler: EndpointHandler, tenant: Tenant) -> None:
+    """Sync published endpoints to marketplaces without blocking startup.
+
+    This is a fire-and-forget helper that syncs all published endpoints to their
+    respective marketplaces. If the sync fails or times out, the server continues
+    operating - eventual consistency is achieved via frontend publish calls.
+
+    Args:
+        handler: Endpoint handler instance
+        tenant: Tenant context
+    """
+    try:
+        results = await asyncio.wait_for(
+            handler.sync_endpoints_to_marketplaces(tenant),
+            timeout=60.0,  # 60 second timeout for multi-marketplace sync
+        )
+        if results:
+            total = sum(len(slugs) for slugs in results.values())
+            logger.info(
+                f"Startup endpoint sync completed: {total} endpoints to {len(results)} marketplaces"
+            )
+        else:
+            logger.debug("No published endpoints to sync on startup")
+    except asyncio.TimeoutError:
+        logger.warning("Endpoint sync timed out - server will continue running")
+    except Exception as e:
+        logger.warning(f"Endpoint sync failed: {e} - server will continue running")
 
 
 async def _setup_tenant_and_settings(
@@ -172,12 +204,17 @@ async def lifespan(app: FastAPI):
     )
     app.state.default_tenant = default_tenant
 
-    # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion)
+    # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion → heartbeat)
     services: list[tuple[str, LifecycleService]] = [
         ("proxy", proxy_service),
         ("provisioner", provisioner_manager),
         ("ingestion", ingestion_manager),
+        ("heartbeat", heartbeat_manager),
     ]
+
+    # 3.1. Set tenant ID for heartbeat manager
+    if default_tenant:
+        heartbeat_manager.set_tenant_id(default_tenant.id)
 
     # 4. Create coordination event for provisioner → ingestion ordering
     # This event ensures ingestion waits for provisioners to be ready
@@ -202,9 +239,13 @@ async def lifespan(app: FastAPI):
                 _sync_public_url_safe(settings_handler, default_tenant, public_url)
             )
 
+    # 7. Fire-and-forget: Sync published endpoints to marketplaces
+    if default_tenant:
+        asyncio.create_task(_sync_endpoints_safe(endpoint_handler, default_tenant))
+
     yield  # Application runs here
 
-    # 7. Shutdown all services (reverse order: ingestion → provisioner → proxy)
+    # 8. Shutdown all services (reverse order: ingestion → provisioner → proxy)
     for name, service in reversed(services):
         try:
             await service.shutdown()
@@ -300,9 +341,15 @@ ingestion_handler = IngestionHandler(
 
 # Initialize lifecycle managers (independent, ordered in lifespan)
 provisioner_manager = ProvisionerManager(dataset_handler)
+heartbeat_manager = HeartbeatManager(
+    marketplace_repository=marketplace_repository,
+    settings_repository=settings_repository,
+    enabled=app_settings.heartbeat_enabled,
+)
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.proxy_service = proxy_service
+app.state.heartbeat_manager = heartbeat_manager
 app.state.settings_handler = settings_handler
 app.state.tenant_repository = tenant_repository
 app.state.default_tenant = None  # Set in lifespan after async creation
