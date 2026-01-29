@@ -3,6 +3,7 @@
 import asyncio
 import re
 import threading
+import uuid
 from io import BytesIO
 from pathlib import Path as SyncPath
 from typing import Any
@@ -127,7 +128,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
                 "collectionName": {
                     "type": "string",
                     "title": "Collection Name",
-                    "description": "The name of the weaviate collection to ingest the data into",
+                    "description": "The name of the weaviate collection to ingest the data into. If not provided, a unique identifier will be auto-generated.",
                 },
                 "ingestFileTypeOptions": {
                     "type": "array",
@@ -178,7 +179,7 @@ class LocalFileDatasetType(FileIngestableDatasetType):
                     "default": [],
                 },
             },
-            "required": ["collectionName", "filePaths"],
+            "required": ["filePaths"],
         }
 
     def watched_paths(self) -> list[str]:
@@ -218,9 +219,9 @@ class LocalFileDatasetType(FileIngestableDatasetType):
 
         # TODO: Maybe use Pydantic model to validate configuration
 
-        # Check if required fields are present
-        if "collectionName" not in configuration:
-            raise ValueError("collectionName is required")
+        # Generate collectionName if not provided
+        if "collectionName" not in configuration or not configuration["collectionName"]:
+            configuration["collectionName"] = uuid.uuid4().hex
 
         # Validate collectionName,
         # it can only contain letters, numbers, and underscores (_), and spaces are not allowed.

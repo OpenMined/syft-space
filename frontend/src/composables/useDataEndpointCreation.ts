@@ -72,11 +72,6 @@ export function useDataEndpointCreation() {
   // Computed
   const isLoading = computed(() => isCreating.value)
 
-  // Helper functions
-  const generateCollectionName = (): string => {
-    return crypto.randomUUID().replace(/-/g, '')
-  }
-
   // Get provider configuration for model creation
   const getProviderConfig = (provider: string) => {
     switch (provider) {
@@ -148,7 +143,6 @@ export function useDataEndpointCreation() {
       summary: `Dataset for ${data.summary}`,
       tags: data.tags.join(','),
       configuration: {
-        collectionName: generateCollectionName(),
         filePaths: filePathsWithDescriptions,
       },
     }
