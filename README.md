@@ -4,171 +4,220 @@
 [![Node.js](https://img.shields.io/badge/node.js-20%2B-green)](https://nodejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.116-009688)](https://fastapi.tiangolo.com/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D)](https://vuejs.org/)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet)](https://github.com/astral-sh/uv)
-[![Bun](https://img.shields.io/badge/bun-runtime-f9f1e1)](https://bun.sh/)
+[![License](https://img.shields.io/github/license/OpenMined/syft-space)](LICENSE)
 
-**Collective Intelligence, Individual Control.** Syft Space connects knowledge across a decentralized network—each Space contributes while keeping data under its owner's control.
+> **Make your knowledge queryable without giving it up.** Syft Space lets you create AI-powered endpoints that others can query while your data stays under your control.
 
-![Syft Space Dashboard](image.png)
+![Syft Space Dashboard](homepage.png)
 
 ## What is Syft Space?
 
 A Syft Space is a decentralized node operated by anyone with knowledge to share: a publisher, a research lab, a journalist, an institution, or just an individual.
 
-Each Space holds data locally and makes it queryable on terms the operator defines—attribution, control, traceability, payments, or extra layers of privacy-preserving tools if sensitive. Knowledge stays at the source; AI queries it in place.
+You add your documents, connect an AI model, and create endpoints that others can query. You control who gets access, what they can ask, and whether they pay.
 
-Like querying a hospital's medical database: you get answers based on their clinical data, but you never see patient records. Or asking questions about a paywalled research journal: you access the knowledge without copying the content. Syft Space respects IP and privacy—you share insights, not sources.
+**Key Benefits:**
+- **🔒 Privacy-First**: Your data never leaves your control
+- **🎯 Selective Sharing**: Share insights, not raw data  
+- **💰 Monetization**: Set your own pricing and access rules
+- **🔍 AI-Powered**: Make any document collection searchable with AI
+- **🌐 Decentralized**: Part of a growing network while maintaining independence
+
+Think of it like creating an API for your knowledge - others get answers without seeing your source material.
+
+## 🏗️ Architecture
+
+Syft Space is a full-stack application that creates a bridge between your private data and AI models, allowing controlled access through secure endpoints.
+
+![Syft Space Architecture](fullsetup.png)
+
+**Core Architecture:**
+- **Frontend**: Vue 3 web interface for management and configuration
+- **Backend**: FastAPI server handling requests, policies, and data processing  
+- **Vector Databases**: Local or remote databases (Weaviate, Qdrant, ChromaDB) for document indexing
+- **AI Models**: Integration with OpenAI, Anthropic, Ollama, vLLM, and other providers
+- **SyftHub Integration**: Optional publishing to the decentralized knowledge network
+
+The system automatically provisions Docker containers for local vector databases and provides a unified API for querying across different data sources and AI models.
 
 ## How It Works
 
-Syft Space has three building blocks:
+Build your knowledge hub with four core components:
 
-| Component | What It Does |
-|-----------|--------------|
-| **Datasets** | Your documents, files, or vector databases—the knowledge you want to make queryable |
-| **Models** | AI providers (OpenAI, Anthropic, Ollama, vLLM) that understand questions and generate answers |
-| **Endpoints** | Combine datasets + models into queryable RAG services with a simple URL |
-| **Policies** | Rate limiting, access control, usage tracking, and pricing—your rules |
+### 📚 **Datasets** 
+Upload documents or connect vector databases. Files are automatically indexed for AI search.
 
-**That's it.** Resources in, endpoint out, policies to control the flow.
+### 🤖 **Models**
+Connect OpenAI, Anthropic, Ollama, vLLM, or any OpenAI-compatible provider.
 
-## Who Is This For?
+### 🔗 **Endpoints**
+Combine datasets and models into queryable RAG endpoints anyone can use.
 
-- **Researchers** who want their papers to be discoverable and citable
-- **Organizations** with documentation, FAQs, or internal knowledge bases
-- **Data owners** who want to monetize insights without exposing raw data
-- **Teams** who need AI-powered search over their collective knowledge
-- **Individuals** with expertise they want to make accessible on their terms
+### 🛡️ **Policies**
+Control access, set rate limits, and configure pricing for your endpoints.
 
-## Installation
+```
+[Your Data] + [AI Model] → [Queryable Endpoint] + [Your Rules] = [Controlled Knowledge Sharing]
+```
 
-### Option 1: Desktop App (Recommended for Local Use)
+## Use Cases
 
-Download the native app for a system tray experience with automatic server management.
+- **📊 Publishers & Creators** — Make your content AI-queryable for your audience while maintaining attribution and control
+- **🎓 Researchers** — Turn your papers and notes into a searchable knowledge assistant that others can query
+- **🏢 Organizations** — Build AI-powered customer support from your documentation without exposing internal details
+- **👥 Teams** — Create searchable knowledge hubs from scattered wikis, docs, and guides  
+- **💡 Data Monetization** — Share valuable insights from your data without exposing the underlying information
 
+## 🚀 Getting Started
+
+### Step 1: Install Syft Space
+
+**Prerequisites:** 4GB RAM minimum, 8GB recommended
+
+Choose your installation method:
+
+#### Option A: Desktop App (Recommended for beginners)
 - **macOS**: Download `.dmg` from [Releases](https://github.com/OpenMined/syft-space/releases)
 - **Linux**: Download `.AppImage`, `.deb`, or `.rpm` from [Releases](https://github.com/OpenMined/syft-space/releases)
 
-See the [Desktop App Guide](http://syft.docs.openmined.org/space/installation) for detailed instructions.
+**Features:** One-click setup, system tray integration, auto-updates
 
-### Option 2: Docker (Recommended for Cloud/Server)
-
+#### Option B: Docker (Production ready)
 ```bash
 docker run -d \
-  --name syft-space \
-  -p 8080:8080 \
-  -v syft-data:/data \
-  -e SYFT_SQLITE_DB_PATH=/data/app.db \
-  openmined/syft-space:latest
+    --name syft-space \
+    --restart unless-stopped \
+    -p 8080:8080 \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v /dev/null:/root/.docker/config.json \
+    -v syft-space-data:/data \
+    ghcr.io/openmined/syft-space:latest
 ```
 
-Open [http://localhost:8080](http://localhost:8080) to access the interface.
-
-See the [Docker Installation Guide](http://syft.docs.openmined.org/space/installation/docker) for advanced configuration.
-
-### Option 3: From Source
-
+#### Option C: From Source (Development)
 ```bash
 git clone https://github.com/OpenMined/syft-space.git
 cd syft-space
 ./run.sh
 ```
 
-## Developer Token (Local Deployments)
+### Step 2: Register Your Account
+1. Open [http://localhost:8080](http://localhost:8080) in your browser
+2. Click **"Register"** and create your account
+3. **Important**: Add your developer token (for local) or public IP (for VM deployment)
 
-Running Syft Space on your local machine? You'll need a **developer token** from OpenMined to make your Space reachable by others.
+### Step 3: Add Your Data
+1. Go to **Datasets** → **Add Dataset**
+2. Upload documents, files, or connect a vector database
+3. Wait for automatic processing and indexing
 
-- **Required for**: Publishing endpoints and receiving queries on local machines
-- **Not required for**: VM/cloud deployments with public URLs, or local-only testing
-- **How to get one**: Contact OpenMined directly (beta program)
-- **Configure in**: Onboarding (first launch) or Settings → Network
+### Step 4: Create an Endpoint
+1. Go to **Endpoints** → **Add Endpoint**
+2. Select your dataset and choose an AI model
+3. Configure output type (search, AI summary, or both)
+4. Set access policies and pricing
 
-Without a token, you can still use Syft Space locally for development and query other published endpoints.
+### Step 5: Test & Publish
+1. Test your endpoint with the built-in query interface
+2. Click **Publish** → Choose visibility (Organization or Public)
+3. Your endpoint is now live at [syfthub.openmined.org](https://syfthub.openmined.org)
 
-**Query other Spaces:** Discover and query Spaces shared by others at [syfthub.openmined.org](https://syfthub.openmined.org)
-
-## Quick Start
-
-1. **Install** Syft Space (desktop app or Docker)
-2. **Set up connectivity** — enter your developer token during onboarding if running locally
-3. **Add your resources** — upload documents or connect a database, configure an AI model
-4. **Create an endpoint** — combine your dataset and model
-5. **Set your policies** — decide who can access and on what terms
-6. **Share** — give out your endpoint URL and start answering questions
-
-### Example: Query an Endpoint
-
+**Example API Query:**
 ```bash
 curl -X POST http://localhost:8080/api/v1/endpoints/my-docs/query \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-token" \
-  -d '{
-    "messages": [
-      {"role": "user", "content": "What are the main topics in my documents?"}
-    ]
-  }'
+  -d '{"messages": [{"role": "user", "content": "What are the main topics?"}]}'
 ```
 
-## Key Features
+## 🔑 Developer Token
 
-- **Multi-database support**: Weaviate, Qdrant, ChromaDB, or remote data sources
-- **Multi-model support**: OpenAI, Anthropic, vLLM, Ollama, and other providers
-- **Auto-provisioning**: Automatically manages Docker containers for local databases
-- **Desktop & web interface**: Run it as an app or deploy as a service
-- **Usage analytics**: Monitor costs, tokens, and performance
-- **Marketplace integration**: Publish to SyftHub for discovery
+**Required for local deployments only.** If you're running Syft Space locally (not on a VM with public IP), you'll need a developer token to publish endpoints.
 
-## Configuration
+| Scenario | Token Required? |
+|----------|----------------|
+| 🏠 Local machine | ✅ Yes - get from OpenMined |
+| ☁️ Cloud VM/Server | ❌ No - uses public IP |
+| 🧪 Local development only | ❌ No - for testing only |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SYFT_PORT` | `8080` | Port the server runs on |
-| `SYFT_DEBUG` | `false` | Enable detailed logging |
-| `SYFT_ADMIN_API_KEY` | (empty) | Admin authentication key |
-| `SYFT_SQLITE_DB_PATH` | `/data/app.db` | Path to SQLite database |
-| `SYFT_PUBLIC_URL` | auto-detected | Public URL for the instance |
+**Getting a token:** Contact OpenMined directly (currently in beta)  
+**Configure:** During onboarding or in Settings → Network
 
-See `.env.example` for all available options.
+## ✨ Key Features
 
-## Project Structure
+- **🗄️ Multi-database support**: Weaviate, Qdrant, ChromaDB, or remote data sources
+- **🤖 Multi-model support**: OpenAI, Anthropic, vLLM, Ollama, and other providers  
+- **⚙️ Auto-provisioning**: Automatically manages Docker containers for local databases
+- **💻 Desktop & web interface**: Run it as an app or deploy as a service
+- **📊 Usage analytics**: Monitor costs, tokens, and performance
+- **🌐 Marketplace integration**: Publish to SyftHub for discovery
+
+
+## 📁 Project Structure
 
 ```
 syft-space/
 ├── backend/         # Python FastAPI server
-│   └── syft_space/  # Main application code
+│   └── syft_space/  # Main application code  
 ├── frontend/        # Vue 3 web interface
 ├── docs/            # Documentation
 ├── Dockerfile       # Container build
 └── docker-compose.yml
 ```
 
-## Documentation
+## 📚 Documentation
 
-- [Quick Start](http://syft.docs.openmined.org/quickstart) — Get started in 3 steps: add data, create endpoint, publish
-- [Introduction](http://syft.docs.openmined.org/space) — Understand the concepts
-- [Components Overview](http://syft.docs.openmined.org/space/components/overview) — Datasets, models, endpoints, and policies
+- **[Quick Start](http://syft.docs.openmined.org/quickstart)** — Get started in 3 steps: add data, create endpoint, publish
+- **[Introduction](http://syft.docs.openmined.org/space)** — Understand the concepts
+- **[Components Overview](http://syft.docs.openmined.org/space/components/overview)** — Datasets, models, endpoints, and policies
+- **[API Reference](http://syft.docs.openmined.org/space/api)** — REST API documentation
+- **[Installation Guide](http://syft.docs.openmined.org/installation)** — Complete setup instructions
+
+### Component Guides
 - [Datasets](http://syft.docs.openmined.org/space/components/datasets) — Managing your data sources
-- [Models](http://syft.docs.openmined.org/space/components/models) — AI providers and configuration
+- [Models](http://syft.docs.openmined.org/space/components/models) — AI providers and configuration  
 - [Endpoints](http://syft.docs.openmined.org/space/components/endpoints) — Queryable RAG services
 - [Policies](http://syft.docs.openmined.org/space/components/policies) — Access control and rate limiting
-- [API Reference](http://syft.docs.openmined.org/space/api) — REST API documentation
-- [Installation Guide](http://syft.docs.openmined.org/installation) — Complete setup instructions
 
-Interactive API docs available at [http://localhost:8080/docs](http://localhost:8080/docs) when running.
+**Interactive API docs:** [http://localhost:8080/docs](http://localhost:8080/docs) (when running locally)
 
-## Part of the Syft Network
+## 🌐 Part of the Syft Network
 
-Your Space can connect to **[SyftHub](https://syfthub.openmined.org)**, a registry that maps who has knowledge, what they're willing to share, and how to reach them. When someone queries the network, their request is routed to the relevant Spaces. Each Space that contributes to an answer is tracked—attribution is built into how the system works.
+A Space connects to **[SyftHub](https://syfthub.openmined.org)** — a decentralized registry where knowledge providers meet knowledge seekers.
 
-**Query other Spaces:** Discover and query Spaces shared by others at [syfthub.openmined.org](https://syfthub.openmined.org)
+**How it works:**
+- 📍 **Discovery**: Others find your published endpoints through SyftHub
+- 🔍 **Querying**: Users can search and query across multiple Spaces
+- 📝 **Attribution**: Every contribution is tracked and credited automatically
+- 🏗️ **Open Architecture**: Built on open protocols — no single point of control
 
-The network gets better as more Spaces join. But the architecture matters: we're building on open protocols so that no single entity—including us—controls the whole. The infrastructure belongs to everyone who participates.
+The network grows stronger as more Spaces join, but each Space maintains full autonomy over its data and policies.
 
-## Contributing
+## 🤝 Contributing
 
-Contributions are welcome! See the [Development Documentation](http://syft.docs.openmined.org) for setup instructions and contribution guidelines.
+We welcome contributions! Here's how to get started:
 
-## License
+1. **Fork the repository** and clone it locally
+2. **Set up development environment** (see [Development Guide](http://syft.docs.openmined.org))
+3. **Create a feature branch** for your changes
+4. **Submit a pull request** with a clear description
 
-This project is part of the OpenMined ecosystem. See the repository for license details.
+**Development setup:**
+```bash
+git clone https://github.com/your-fork/syft-space.git
+cd syft-space
+./run.sh
+```
+
+See the [Development Documentation](http://syft.docs.openmined.org) for detailed setup and contribution guidelines.
+
+## 📄 License
+
+This project is part of the OpenMined ecosystem and is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+  <strong>Built with ❤️ by the <a href="https://github.com/OpenMined">OpenMined</a> community</strong><br>
+  <em>Making AI safer through privacy-preserving technology</em>
+</div>
