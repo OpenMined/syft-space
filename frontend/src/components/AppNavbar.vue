@@ -101,6 +101,11 @@ const refreshBalance = async () => {
   isRefreshing.value = false
 }
 
+const openTransactionsDialog = () => {
+  transactionsDialogOpen.value = true
+  balanceDropdownOpen.value = false
+}
+
 const currentRouteName = computed(() => route.name as string)
 
 const routeMapping: Record<string, string[]> = {
@@ -335,12 +340,7 @@ const tabs = [
 
             <!-- Footer Actions -->
             <div class="p-2">
-              <Button
-                variant="default"
-                size="sm"
-                class="w-full"
-                @click="transactionsDialogOpen = true; balanceDropdownOpen = false"
-              >
+              <Button variant="default" size="sm" class="w-full" @click="openTransactionsDialog">
                 View All
               </Button>
             </div>

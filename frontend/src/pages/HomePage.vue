@@ -15,8 +15,8 @@
             <span class="font-medium text-primary">Syft Space</span>
           </h1>
           <p class="body-lg text-muted-foreground max-w-2xl">
-            A space where your documents and AI models are ready to help the world — without
-            leaving home. Open the door on your terms, set a fair price, and see your contribution
+            A space where your documents and AI models are ready to help the world — without leaving
+            home. Open the door on your terms, set a fair price, and see your contribution
             recognized.
           </p>
         </div>

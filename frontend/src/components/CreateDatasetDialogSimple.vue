@@ -4,7 +4,7 @@
       <DialogHeader>
         <DialogTitle class="heading-3">{{
           props.dataset ? 'Edit Dataset' : 'Create Dataset'
-          }}</DialogTitle>
+        }}</DialogTitle>
       </DialogHeader>
 
       <div class="space-y-6 mt-6">
@@ -13,14 +13,23 @@
           <Label for="dataset-name" class="text-sm font-medium">
             Dataset Name <span class="text-red-500">*</span>
           </Label>
-          <Input id="dataset-name" v-model="formData.name" placeholder="e.g., Legal Documents Store" class="w-full" />
+          <Input
+            id="dataset-name"
+            v-model="formData.name"
+            placeholder="e.g., Legal Documents Store"
+            class="w-full"
+          />
           <p class="text-sm text-muted-foreground">Give your dataset a descriptive name</p>
         </div>
 
         <!-- File Explorer -->
         <div v-if="!props.dataset" class="space-y-4">
-          <FileExplorer ref="fileExplorerRef" v-model="formData.selectedFiles" :show-hidden="false"
-            :allow-multiple="true" />
+          <FileExplorer
+            ref="fileExplorerRef"
+            v-model="formData.selectedFiles"
+            :show-hidden="false"
+            :allow-multiple="true"
+          />
 
           <!-- Selected Items with Descriptions -->
           <div v-if="formData.selectedFiles.length > 0" class="space-y-3">
@@ -31,20 +40,33 @@
                   {{ formData.selectedFiles.length }}
                 </Badge>
               </div>
-              <Button v-if="!props.dataset" @click="clearAllFiles" variant="ghost" size="sm"
-                class="h-8 text-xs text-muted-foreground hover:text-destructive">
+              <Button
+                v-if="!props.dataset"
+                @click="clearAllFiles"
+                variant="ghost"
+                size="sm"
+                class="h-8 text-xs text-muted-foreground hover:text-destructive"
+              >
                 <X class="h-3 w-3 mr-1" />
                 Clear all
               </Button>
             </div>
 
             <div class="rounded-lg border border-border bg-muted/30 divide-y divide-border">
-              <div v-for="(file, index) in formData.selectedFiles" :key="file"
-                class="p-4 first:rounded-t-lg last:rounded-b-lg hover:bg-muted/50 transition-colors">
+              <div
+                v-for="(file, index) in formData.selectedFiles"
+                :key="file"
+                class="p-4 first:rounded-t-lg last:rounded-b-lg hover:bg-muted/50 transition-colors"
+              >
                 <div class="flex items-start gap-3">
-                  <div class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0">
-                    <component :is="getFileIcon(file, false, fileExplorerRef?.rootNodes)" class="h-4 w-4"
-                      :class="getFileIconColor(file, fileExplorerRef?.rootNodes)" />
+                  <div
+                    class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0"
+                  >
+                    <component
+                      :is="getFileIcon(file, false, fileExplorerRef?.rootNodes)"
+                      class="h-4 w-4"
+                      :class="getFileIconColor(file, fileExplorerRef?.rootNodes)"
+                    />
                   </div>
                   <div class="flex-1 min-w-0 space-y-3">
                     <div class="flex items-start justify-between gap-2">
@@ -56,13 +78,21 @@
                           {{ file }}
                         </p>
                       </div>
-                      <Button v-if="!props.dataset" @click="removeFile(index)" variant="ghost" size="sm"
-                        class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex-shrink-0">
+                      <Button
+                        v-if="!props.dataset"
+                        @click="removeFile(index)"
+                        variant="ghost"
+                        size="sm"
+                        class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex-shrink-0"
+                      >
                         <X class="h-4 w-4" />
                       </Button>
                     </div>
-                    <Input v-model="fileDescriptions[file]" placeholder="Add a description (optional)..."
-                      class="text-sm h-9 bg-background" />
+                    <Input
+                      v-model="fileDescriptions[file]"
+                      placeholder="Add a description (optional)..."
+                      class="text-sm h-9 bg-background"
+                    />
                   </div>
                 </div>
               </div>
@@ -73,8 +103,12 @@
         <!-- Summary -->
         <div class="space-y-2">
           <Label for="summary" class="text-sm font-medium"> Summary (Optional) </Label>
-          <Input id="summary" v-model="formData.summary"
-            placeholder="Describe what this dataset contains and how it can be used..." class="w-full" />
+          <Input
+            id="summary"
+            v-model="formData.summary"
+            placeholder="Describe what this dataset contains and how it can be used..."
+            class="w-full"
+          />
           <p class="text-sm text-muted-foreground">
             A brief description of your dataset's contents
           </p>
@@ -85,8 +119,13 @@
           <Label for="topics" class="text-sm font-medium"> Tags (Optional) </Label>
           <div class="space-y-2">
             <div class="flex gap-2">
-              <Input id="topics" v-model="tagInput" @keydown.enter.prevent="addTag"
-                placeholder="Add keywords like: legal, medical, research, finance" class="flex-1" />
+              <Input
+                id="topics"
+                v-model="tagInput"
+                @keydown.enter.prevent="addTag"
+                placeholder="Add keywords like: legal, medical, research, finance"
+                class="flex-1"
+              />
               <Button @click="addTag" variant="outline" :disabled="!tagInput.trim()">
                 <Plus class="h-4 w-4" />
               </Button>
@@ -96,17 +135,32 @@
             <!-- Popular Tags Suggestions -->
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-xs text-muted-foreground">Popular:</span>
-              <Button v-for="suggestion in popularTags" :key="suggestion" @click="addSuggestedTag(suggestion)"
-                variant="ghost" size="sm" class="h-6 px-2 text-xs" :disabled="formData.tags.includes(suggestion)">
+              <Button
+                v-for="suggestion in popularTags"
+                :key="suggestion"
+                @click="addSuggestedTag(suggestion)"
+                variant="ghost"
+                size="sm"
+                class="h-6 px-2 text-xs"
+                :disabled="formData.tags.includes(suggestion)"
+              >
                 {{ suggestion }}
               </Button>
             </div>
 
             <!-- Selected Tags -->
             <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-3">
-              <Badge v-for="(tag, index) in formData.tags" :key="index" variant="secondary" class="px-3 py-1">
+              <Badge
+                v-for="(tag, index) in formData.tags"
+                :key="index"
+                variant="secondary"
+                class="px-3 py-1"
+              >
                 {{ tag }}
-                <button @click="removeTag(index)" class="ml-2 hover:text-destructive transition-colors">
+                <button
+                  @click="removeTag(index)"
+                  class="ml-2 hover:text-destructive transition-colors"
+                >
                   <X class="h-3 w-3" />
                 </button>
               </Badge>
