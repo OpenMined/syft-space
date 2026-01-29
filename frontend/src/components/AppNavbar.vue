@@ -27,6 +27,7 @@ import { useUserStore } from '@/stores/user'
 import { useInboxStore } from '@/stores/inbox'
 import { formatPrice } from '@/lib/formatters'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import SyftLogo from '@/assets/syftbox-logo.svg'
 import TransactionsDialog from '@/components/TransactionsDialog.vue'
 
 const router = useRouter()
@@ -100,6 +101,11 @@ const refreshBalance = async () => {
   isRefreshing.value = false
 }
 
+const openTransactionsDialog = () => {
+  transactionsDialogOpen.value = true
+  balanceDropdownOpen.value = false
+}
+
 const currentRouteName = computed(() => route.name as string)
 
 const routeMapping: Record<string, string[]> = {
@@ -130,11 +136,7 @@ const tabs = [
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center h-16 gap-6">
       <!-- Logo and App Name -->
       <div class="flex items-center space-x-3">
-        <div
-          class="h-8 w-8 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center"
-        >
-          <span class="text-primary-foreground font-bold text-base">S</span>
-        </div>
+        <img :src="SyftLogo" alt="Syft Space" class="h-8 w-8" />
         <span class="text-lg font-bold text-foreground tracking-tight">
           Syft Space
           <span class="ml-1 text-xs font-semibold text-primary align-top">BETA</span>
@@ -338,12 +340,7 @@ const tabs = [
 
             <!-- Footer Actions -->
             <div class="p-2">
-              <Button
-                variant="default"
-                size="sm"
-                class="w-full"
-                @click="transactionsDialogOpen = true; balanceDropdownOpen = false"
-              >
+              <Button variant="default" size="sm" class="w-full" @click="openTransactionsDialog">
                 View All
               </Button>
             </div>

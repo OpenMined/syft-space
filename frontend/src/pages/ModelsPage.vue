@@ -7,8 +7,8 @@
         <h1 class="heading-3">Your Models</h1>
       </div>
       <p class="body-lg text-muted-foreground md:max-w-[60%]">
-        Models here are accessible only for your private use. They're ideal for building powerful
-        flows on your machine; expose them to others later by creating endpoints.
+        Models that live on your machine and work for you. Use endpoints to make them queryable by
+        others, on your terms.
       </p>
     </div>
 

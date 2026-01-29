@@ -7,8 +7,8 @@
         <h1 class="heading-3">Your Datasets</h1>
       </div>
       <p class="body-lg text-muted-foreground md:max-w-[60%]">
-        Datasets are local data sources only you can see and use. Power AI workflows and queries
-        locally; share access later via endpoints.
+        Data that lives on your machine and works for you. Use endpoints to make it queryable by
+        others, on your terms.
       </p>
     </div>
 

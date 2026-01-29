@@ -1,1 +1,0 @@
-import{c as e,d as t,l as n,s as r,u as i}from"./index-Bb7gLZzG.js";export{r as autoCloseTags,e as html,n as htmlCompletionSource,i as htmlCompletionSourceWith,t as htmlLanguage};
