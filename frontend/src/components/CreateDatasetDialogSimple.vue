@@ -262,12 +262,6 @@ const isFormValid = computed(() => {
   return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
 })
 
-// Utility function to generate collection name using UUID hex
-const generateCollectionName = (): string => {
-  // Generate a random UUID and return its hex representation without dashes
-  return crypto.randomUUID().replace(/-/g, '')
-}
-
 // Methods
 const getFileName = (path: string) => {
   return path.split('/').pop() || path
@@ -341,7 +335,6 @@ const handleCreate = async () => {
         summary: formData.value.summary.trim() || '',
         tags: formData.value.tags.join(','),
         configuration: {
-          collectionName: generateCollectionName(),
           filePaths: filePathsWithDescriptions,
         },
       }

@@ -24,7 +24,7 @@ export interface CreateDatasetRequest {
   summary: string
   tags: string
   configuration: {
-    collectionName: string
+    collectionName?: string
     filePaths: FilePathItem[]
   }
 }
