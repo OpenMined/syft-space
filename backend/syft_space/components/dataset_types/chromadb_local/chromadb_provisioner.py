@@ -63,6 +63,18 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
                             "data_path": str(data_path),
                             "httpPort": http_port,
                         }
+                    else:
+                        # Process exists but not healthy - stop it first
+                        logger.warning(
+                            f"ChromaDB process {existing_pid} unhealthy, stopping..."
+                        )
+                        await cls.stop({"pid": existing_pid, "pid_file": str(pid_file)})
+                else:
+                    # PID file exists but process is dead - clean up stale file
+                    logger.info(
+                        f"Cleaning up stale PID file (process {existing_pid} not running)"
+                    )
+                    await pid_file.unlink()
             except (ValueError, Exception) as e:
                 logger.warning(f"Error checking existing PID: {e}")
 
