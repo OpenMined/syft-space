@@ -263,14 +263,6 @@ app = FastAPI(
     swagger_ui_parameters={"persistAuthorization": True},
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://*.syfthub.ngrok.app"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 # Initialize database (async-only)
@@ -385,6 +377,13 @@ discover_public_routes(app)
 # Add middleware (execution order is reverse of registration)
 app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
 app.add_middleware(AdminKeyMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "tauri://localhost", "https://*.syfthub.ngrok.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount static files (if frontend exists)
 # Frontend is a sibling directory to backend
@@ -412,4 +411,4 @@ async def redirect_root():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=app_settings.port)
