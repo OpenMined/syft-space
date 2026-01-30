@@ -2,13 +2,13 @@
 
 
 a = Analysis(
-    ['backend/syft_space/main.py'],
+    ['syft_space/main.py'],
     pathex=[],
     binaries=[],
     datas=[
-        ('backend/syft_space/alembic.ini', 'syft_space'),
-        ('backend/syft_space/alembic', 'syft_space/alembic'),
-        ('backend/syft_space/components/dataset_types/weaviate_local/docker-compose.yml',
+        ('syft_space/alembic.ini', 'syft_space'),
+        ('syft_space/alembic', 'syft_space/alembic'),
+        ('syft_space/components/dataset_types/weaviate_local/docker-compose.yml',
         'syft_space/components/dataset_types/weaviate_local'),
     ],
     hiddenimports=['aiosqlite'],
