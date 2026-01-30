@@ -141,23 +141,6 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                     self._converter = DocumentConverter()
         return self._converter
 
-    @property
-    def embedding_fn(self):
-        """Lazily initialize SentenceTransformer embedding function.
-
-        Thread-safe via double-checked locking.
-        """
-        if not enabled:
-            raise ImportError("chromadb required for embeddings")
-
-        if self._embedding_fn is None:
-            with self._embedding_fn_lock:
-                if self._embedding_fn is None:
-                    self._embedding_fn = SentenceTransformerEmbeddingFunction(
-                        model_name=EMBEDDING_MODEL
-                    )
-        return self._embedding_fn
-
     async def get_client(self) -> "chromadb.AsyncClientAPI":
         """Get or create the ChromaDB async client.
 
@@ -256,6 +239,23 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         """Get the name of the collection."""
         return f"Collection_{self.config.collection_name}"
 
+    def _generate_embeddings(self, texts: list[str]) -> list:
+        """Generate embeddings for texts (runs in thread pool).
+
+        Thread-safe lazy initialization ensures model loading
+        happens in the thread pool, not blocking the event loop.
+        """
+        if not enabled:
+            raise ImportError("chromadb required for embeddings")
+
+        if self._embedding_fn is None:
+            with self._embedding_fn_lock:
+                if self._embedding_fn is None:
+                    self._embedding_fn = SentenceTransformerEmbeddingFunction(
+                        model_name=EMBEDDING_MODEL
+                    )
+        return self._embedding_fn(texts)
+
     def _parse_document(self, file: IngestFile) -> dict[str, Any]:
         """Parse the document into a dictionary.
 
@@ -315,7 +315,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
 
             # Generate embeddings in executor (CPU-bound)
             embeddings = await asyncio.to_thread(
-                self.embedding_fn, [parsed_doc["content"]]
+                self._generate_embeddings, [parsed_doc["content"]]
             )
 
             # Generate unique ID based on filename and content hash
@@ -376,7 +376,9 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                 )
 
             # Generate query embedding in executor (CPU-bound)
-            query_embedding = await asyncio.to_thread(self.embedding_fn, [query])
+            query_embedding = await asyncio.to_thread(
+                self._generate_embeddings, [query]
+            )
 
             # Query with embedding
             results = await collection.query(
