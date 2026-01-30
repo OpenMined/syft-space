@@ -49,14 +49,14 @@ DEFAULT_INGEST_FILE_TYPE_OPTIONS = [
 ]
 
 
-class LocalFileDatasetType(FileIngestableDatasetType):
+class LocalFSWeaviateDatasetType(FileIngestableDatasetType):
     """Local file dataset type that allows you to store and query your data.
 
     It uses the weaviate vector database to store and query your data.
     Implements FileIngestableDatasetType for watch-based file ingestion.
     """
 
-    NAME = "local_file"
+    NAME = "weaviate_local"
 
     # Class-level lock for thread-safe lazy initialization of DocumentConverter
     _converter_lock = threading.Lock()
