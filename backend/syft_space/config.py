@@ -15,6 +15,12 @@ class AppSettings(BaseSettings):
         env_prefix="SYFT_",
     )
 
+    # Server settings
+    port: int = Field(
+        default=8080,
+        description="Port for the server to listen on",
+    )
+
     # Database settings
     sqlite_db_path: Path = Path(
         "~/.syft-space/app.db"
