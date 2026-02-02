@@ -62,6 +62,8 @@ pre-commit = [
 libs = [
     "weaviate-client>=4.17.0",
     "docling>=2.55.0",
+    "chromadb>=0.5.0",
+    "sentence-transformers>=2.2.0",
 ]
 
 # All development dependencies (includes test, lint, pre-commit)

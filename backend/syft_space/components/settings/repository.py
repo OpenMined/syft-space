@@ -24,6 +24,11 @@ class SettingsRepository(AsyncBaseRepository[Settings]):
         settings = Settings(public_url=None, ngrok_token=None)
         return await self.create(settings)
 
+    async def get_public_url(self) -> str | None:
+        """Get the stored public URL."""
+        settings = await self.get_settings()
+        return settings.public_url
+
     async def update_public_url(self, url: str | None) -> Settings:
         """Update the public_url setting."""
         settings = await self.get_settings()

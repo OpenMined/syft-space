@@ -19,7 +19,8 @@
     "lint:oxlint": "oxlint . --fix -D correctness --ignore-pattern=dist",
     "lint:eslint": "eslint . --fix",
     "lint": "run-s lint:*",
-    "format": "prettier --write src/"
+    "format": "prettier --write src/",
+    "check": "run-s format lint typecheck"
   },
   "dependencies": {
     "@tailwindcss/vite": "4.1.13",

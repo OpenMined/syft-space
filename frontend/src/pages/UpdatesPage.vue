@@ -24,8 +24,8 @@
         </div>
 
         <p class="mt-2 text-white/80">
-          A Space where you can turn data and models into shareable workflows — exposing them
-          through secure endpoints under your own rules for privacy, payments, and human oversight.
+          A space where your documents and AI models are ready to help the world — without leaving
+          home. Open the door on your terms, set a fair price, and see your contribution recognized.
         </p>
       </div>
 
