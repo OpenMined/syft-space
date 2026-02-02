@@ -184,6 +184,84 @@
 
           <Separator />
 
+          <!-- Additional Headers Section -->
+          <div class="space-y-6">
+            <div class="flex items-center gap-2 mb-4">
+              <Key class="w-5 h-5 text-primary" />
+              <h2 class="heading-3 text-foreground">Additional Headers</h2>
+              <Badge variant="outline" class="text-muted-foreground"> Optional </Badge>
+            </div>
+
+            <p class="text-sm text-muted-foreground">
+              Add HTTP headers for third-party API keys used by Weaviate vectorizers (e.g., Cohere,
+              OpenAI, HuggingFace).
+            </p>
+
+            <!-- Header Input -->
+            <div class="space-y-2">
+              <div class="flex gap-2">
+                <Input
+                  v-model="headerKeyInput"
+                  placeholder="Header name (e.g., X-Cohere-Api-Key)"
+                  class="flex-1 font-mono"
+                />
+                <Input
+                  v-model="headerValueInput"
+                  type="password"
+                  placeholder="Header value"
+                  class="flex-1 font-mono"
+                  autocomplete="new-password"
+                />
+                <Button
+                  @click="addHeader"
+                  variant="outline"
+                  :disabled="!headerKeyInput.trim() || !headerValueInput.trim()"
+                >
+                  <Plus class="h-4 w-4" />
+                </Button>
+              </div>
+
+              <!-- Common Header Suggestions -->
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs text-muted-foreground">Common:</span>
+                <Button
+                  v-for="suggestion in commonHeaderKeys"
+                  :key="suggestion"
+                  @click="addSuggestedHeaderKey(suggestion)"
+                  variant="ghost"
+                  size="sm"
+                  class="h-6 px-2 text-xs font-mono"
+                  :disabled="formData.configuration.headers.some((h) => h.key === suggestion)"
+                >
+                  {{ suggestion }}
+                </Button>
+              </div>
+
+              <!-- Added Headers -->
+              <div
+                v-if="formData.configuration.headers.length > 0"
+                class="flex flex-col gap-2 mt-3"
+              >
+                <div
+                  v-for="(header, index) in formData.configuration.headers"
+                  :key="index"
+                  class="flex items-center gap-2 p-2 bg-muted/50 rounded-md"
+                >
+                  <Badge variant="outline" class="font-mono">{{ header.key }}</Badge>
+                  <span class="text-sm text-muted-foreground font-mono">•••••••••</span>
+                  <button
+                    @click="removeHeader(index)"
+                    class="ml-auto hover:text-destructive transition-colors"
+                  >
+                    <X class="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
           <!-- Schema Configuration Section -->
           <div class="space-y-6">
             <div class="flex items-center gap-2 mb-4">
@@ -360,6 +438,7 @@ import {
   ChevronRight,
   Loader2,
   AlertCircle,
+  Key,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -382,6 +461,7 @@ const formData = ref({
     grpc_url: '',
     api_key: '',
     collection_name: '',
+    headers: [] as { key: string; value: string }[],
     default_similarity_threshold: 0.5,
     content_property: '',
     metadata_properties: [] as string[],
@@ -390,6 +470,8 @@ const formData = ref({
 
 const tagInput = ref('')
 const metadataInput = ref('')
+const headerKeyInput = ref('')
+const headerValueInput = ref('')
 const isCreating = ref(false)
 const creationError = ref('')
 const showJsonPreview = ref(false)
@@ -399,6 +481,14 @@ const popularTags = ['news', 'articles', 'research', 'data', 'embeddings', 'rag'
 
 // Common metadata property suggestions
 const commonMetadataProperties = ['headline', 'author', 'url', 'title', 'date', 'source', 'topics']
+
+// Common header key suggestions (for third-party API keys)
+const commonHeaderKeys = [
+  'X-Cohere-Api-Key',
+  'X-OpenAI-Api-Key',
+  'X-HuggingFace-Api-Key',
+  'X-Voyageai-Api-Key',
+]
 
 // Computed
 const isFormValid = computed(() => {
@@ -413,7 +503,28 @@ const isFormValid = computed(() => {
   )
 })
 
+const headersAsObject = computed(() => {
+  if (formData.value.configuration.headers.length === 0) return null
+  return formData.value.configuration.headers.reduce(
+    (acc, h) => {
+      acc[h.key] = h.value
+      return acc
+    },
+    {} as Record<string, string>,
+  )
+})
+
 const jsonPreview = computed(() => {
+  const headersPreview = formData.value.configuration.headers.length > 0
+    ? formData.value.configuration.headers.reduce(
+        (acc, h) => {
+          acc[h.key] = '***'
+          return acc
+        },
+        {} as Record<string, string>,
+      )
+    : null
+
   const payload = {
     name: formData.value.name,
     dtype: 'remote_weaviate',
@@ -424,6 +535,7 @@ const jsonPreview = computed(() => {
       grpc_url: formData.value.configuration.grpc_url,
       api_key: formData.value.configuration.api_key ? '***' : '',
       collection_name: formData.value.configuration.collection_name,
+      headers: headersPreview,
       default_similarity_threshold: formData.value.configuration.default_similarity_threshold,
       content_property: formData.value.configuration.content_property,
       metadata_properties:
@@ -472,6 +584,26 @@ const removeMetadataProperty = (index: number) => {
   formData.value.configuration.metadata_properties.splice(index, 1)
 }
 
+const addHeader = () => {
+  const key = headerKeyInput.value.trim()
+  const value = headerValueInput.value.trim()
+  if (key && value && !formData.value.configuration.headers.some((h) => h.key === key)) {
+    formData.value.configuration.headers.push({ key, value })
+    headerKeyInput.value = ''
+    headerValueInput.value = ''
+  }
+}
+
+const addSuggestedHeaderKey = (key: string) => {
+  if (!formData.value.configuration.headers.some((h) => h.key === key)) {
+    headerKeyInput.value = key
+  }
+}
+
+const removeHeader = (index: number) => {
+  formData.value.configuration.headers.splice(index, 1)
+}
+
 const handleCreate = async () => {
   if (!isFormValid.value) return
 
@@ -489,6 +621,7 @@ const handleCreate = async () => {
         grpc_url: formData.value.configuration.grpc_url.trim(),
         api_key: formData.value.configuration.api_key.trim(),
         collection_name: formData.value.configuration.collection_name.trim(),
+        headers: headersAsObject.value,
         default_similarity_threshold: formData.value.configuration.default_similarity_threshold,
         content_property: formData.value.configuration.content_property.trim(),
         metadata_properties:

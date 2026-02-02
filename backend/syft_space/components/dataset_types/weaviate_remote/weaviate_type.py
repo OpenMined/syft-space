@@ -37,6 +37,11 @@ class RemoteWeaviateConfiguration(BaseModel):
     grpc_url: HttpUrl = Field(..., description="The gRPC URL of the Weaviate server.")
     api_key: str = Field(..., description="The API key for the Weaviate server")
     collection_name: str = Field(..., description="The name of the Weaviate collection")
+    headers: dict[str, str] | None = Field(
+        default=None,
+        description="Additional HTTP headers for third-party API keys (e.g., {'X-Cohere-Api-Key': 'key', 'X-OpenAI-Api-Key': 'key'})",
+        json_schema_extra={"secret": True},
+    )
     default_similarity_threshold: float = Field(
         default=DEFAULT_SIMILARITY_THRESHOLD,
         description="The default similarity threshold for the Weaviate collection",
@@ -151,6 +156,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             grpc_port=self.config.grpc_url.port,
             grpc_secure=self.config.grpc_url.scheme == "https",
             auth_credentials=Auth.api_key(self.config.api_key),
+            headers=self.config.headers,
         ) as client:
             # Get the collection
             collection = client.collections.get(self.collection_name)
@@ -184,9 +190,11 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
 
                 # Include Weaviate system metadata
                 metadata = {
-                    "creation_time": str(result.metadata.creation_time)
-                    if result.metadata.creation_time
-                    else None,
+                    "creation_time": (
+                        str(result.metadata.creation_time)
+                        if result.metadata.creation_time
+                        else None
+                    ),
                     "distance": result.metadata.distance,
                     **custom_metadata,
                 }
@@ -243,6 +251,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
                 grpc_port=self.config.grpc_url.port,
                 grpc_secure=self.config.grpc_url.scheme == "https",
                 auth_credentials=Auth.api_key(self.config.api_key),
+                headers=self.config.headers,
             ) as client:
                 if await client.is_ready():
                     return HealthcheckResponse(
