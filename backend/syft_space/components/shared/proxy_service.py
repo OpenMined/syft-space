@@ -9,6 +9,7 @@ from loguru import logger
 
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.shared.lifecycle import LifecycleService
+from syft_space.config import app_settings
 
 NGROK_DOMAIN_FORMAT = "{username}.syfthub.ngrok.app"
 
@@ -46,10 +47,19 @@ class ProxyService(LifecycleService):
         self._current_username: str | None = None
         self._shutdown_event: asyncio.Event | None = None  # Initialized in startup()
         self._reconnect_task: asyncio.Task | None = None
+        self._ready_event: asyncio.Event | None = None  # Set by main.py
 
     def is_connected(self) -> bool:
         """Check if the tunnel is currently connected."""
         return self._listener is not None
+
+    def set_ready_event(self, event: asyncio.Event) -> None:
+        """Set the event to signal when startup is complete.
+
+        Args:
+            event: Event to set when proxy startup finishes (success or failure)
+        """
+        self._ready_event = event
 
     def get_public_url(self) -> str | None:
         """Get the current public URL if connected."""
@@ -57,12 +67,11 @@ class ProxyService(LifecycleService):
             return self._listener.url()
         return None
 
-    def log_connection_info(self, admin_api_key: str | None = None) -> None:
-        """Log connection info with optional auth token appended.
+    def log_connection_info(self) -> None:
+        """Log connection info."""
 
-        Args:
-            admin_api_key: Optional admin API key to append as auth token fragment
-        """
+        admin_api_key = app_settings.admin_api_key or ""
+
         if not self.is_connected():
             return
 
@@ -188,14 +197,29 @@ class ProxyService(LifecycleService):
             # Don't clear the token on auto-connect failure
             # User can retry or reconfigure
 
+    async def _auto_connect_background(self) -> None:
+        """Background task to auto-connect and signal completion."""
+
+        try:
+            await self.auto_connect_if_configured()
+            self.log_connection_info()
+        except Exception as e:
+            logger.error(f"Background proxy startup error: {e}")
+        finally:
+            # Always signal completion (success or failure)
+            if self._ready_event:
+                self._ready_event.set()
+
     async def startup(self) -> None:
         """Start the proxy service.
 
-        Implements LifecycleService protocol. Calls auto_connect_if_configured.
+        Implements LifecycleService protocol. Runs auto_connect_if_configured
+        in a background task to avoid blocking server startup.
         """
         # Initialize async primitives in async context (not in __init__)
         self._shutdown_event = asyncio.Event()
-        await self.auto_connect_if_configured()
+        # Fire-and-forget: don't block API startup on ngrok connection
+        asyncio.create_task(self._auto_connect_background())
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the proxy service.
