@@ -7,7 +7,7 @@
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "bun run dev",
-    "beforeBuildCommand": "cd .. && uv run pyinstaller backend/syft-space.spec && cp dist/syft-space src-tauri/binaries/syft-space-$(rustc -vV | grep host | awk '{print $2}') && VITE_API_BASE_URL=http://localhost:8080/api/v1 bun run --cwd frontend build"
+    "beforeBuildCommand": "bash before_build.sh"
   },
   "app": {
     "windows": [
@@ -27,7 +27,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/syft-space"],
+    "externalBin": ["target/syft-space", "target/process-wick"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

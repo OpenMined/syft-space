@@ -7,6 +7,23 @@ mod state;
 mod updates;
 mod windows;
 
+fn find_child_process_pids() -> Vec<String> {
+    use sysinfo::System;
+
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let current_pid = sysinfo::Pid::from_u32(std::process::id());
+    let mut child_process_pids = Vec::new();
+    for (pid, process) in sys.processes() {
+        if let Some(parent_pid) = process.parent() {
+            if parent_pid == current_pid {
+                child_process_pids.push(pid.to_string());
+            }
+        }
+    }
+    child_process_pids
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -34,10 +51,51 @@ pub fn run() {
 
             // Spawn the Python backend sidecar
             let sidecar = app.shell().sidecar("syft-space").unwrap();
-            let (mut rx, child) = sidecar.spawn().expect("failed to spawn sidecar");
+            let (mut rx, _child) = sidecar.spawn().expect("failed to spawn sidecar");
 
-            // Store the child process so we can kill it on exit
-            app.manage(Mutex::new(Some(child)));
+            let main_process_pid = std::process::id();
+            let child_process_pids = find_child_process_pids();
+
+            let app_handle = app.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    log::info!("Starting process-wick sidecar");
+                    let exit_code = app_handle
+                        .shell()
+                        .sidecar("process-wick")
+                        .unwrap()
+                        .args([
+                            "--dog",
+                            &main_process_pid.to_string(),
+                            "--targets",
+                            &child_process_pids.join(","),
+                            "--log-file",
+                            dirs::home_dir()
+                                .expect("Failed to get home directory")
+                                .join(".syftbox")
+                                .join("logs")
+                                .join("syft-space-process-wick.log")
+                                .to_str()
+                                .unwrap(),
+                        ])
+                        .status()
+                        .await
+                        .unwrap()
+                        .code()
+                        .unwrap_or_else(|| {
+                            log::warn!("process-wick sidecar exited without a status code");
+                            1
+                        });
+
+                    log::warn!(
+                        "process-wick sidecar exited with status: {:?}, restarting...",
+                        exit_code
+                    );
+
+                    // Small delay before restarting to avoid rapid restart loops
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            });
 
             // Log sidecar stdout/stderr
             tauri::async_runtime::spawn(async move {
@@ -66,14 +124,5 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                let state: tauri::State<Mutex<Option<tauri_plugin_shell::process::CommandChild>>> =
-                    app.state();
-                let mut guard = state.lock().unwrap();
-                if let Some(child) = guard.take() {
-                    let _ = child.kill();
-                }
-            }
-        });
+        .run(|_app, _event| {});
 }
