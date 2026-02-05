@@ -79,6 +79,9 @@ from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.routes import build_settings_routes
 
+# Import async utilities
+from syft_space.components.shared.async_utils import run_after_event
+
 # Import database
 from syft_space.components.shared.database import AsyncDatabase, SQLiteConfig
 
@@ -101,7 +104,9 @@ from syft_space.config import app_settings
 
 
 async def _sync_public_url_safe(
-    handler: SettingsHandler, tenant: Tenant, url: str
+    handler: SettingsHandler,
+    tenant: Tenant,
+    proxy_service: ProxyService,
 ) -> None:
     """Sync public URL to marketplace without blocking startup.
 
@@ -112,11 +117,20 @@ async def _sync_public_url_safe(
     Args:
         handler: Settings handler instance
         tenant: Tenant context
-        url: Public URL to sync
+        proxy_service: Proxy service to check connection and get URL
     """
     try:
+        if not proxy_service.is_connected():
+            logger.debug("Proxy not connected, skipping public URL sync")
+            return
+
+        public_url = proxy_service.get_public_url()
+        if not public_url:
+            logger.debug("No public URL available, skipping sync")
+            return
+
         await asyncio.wait_for(
-            handler.update_public_url(tenant, url),
+            handler.update_public_url(tenant, public_url),
             timeout=10.0,  # 10 second timeout
         )
         logger.info("Public URL synced to marketplace successfully")
@@ -232,6 +246,11 @@ async def lifespan(app: FastAPI):
     provisioner_manager.set_startup_complete_event(provisioner_ready_event)
     ingestion_manager.set_provisioner_ready_event(provisioner_ready_event)
 
+    # 4.1. Create coordination event for proxy → sync tasks ordering
+    # This event ensures sync tasks wait for proxy connection attempt to complete
+    proxy_ready_event = asyncio.Event()
+    proxy_service.set_ready_event(proxy_ready_event)
+
     # 5. Start all services
     for name, service in services:
         try:
@@ -239,21 +258,30 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to start {name}: {e}")
 
-    # 6. Post-startup: Log proxy connection and update settings
-    proxy_service.log_connection_info(app_settings.admin_api_key)
-    if proxy_service.is_connected():
-        public_url = proxy_service.get_public_url()
-        if public_url and default_tenant:
-            # Fire-and-forget: Don't block startup on marketplace sync
-            asyncio.create_task(
-                _sync_public_url_safe(settings_handler, default_tenant, public_url)
-            )
-
-    # 7. Fire-and-forget: Sync published endpoints to marketplaces
+    # 6. Fire-and-forget sync tasks (wait for proxy to be ready first)
     if default_tenant:
-        asyncio.create_task(_sync_endpoints_safe(endpoint_handler, default_tenant))
+        # Sync public URL to marketplace
+        asyncio.create_task(
+            run_after_event(
+                proxy_ready_event,
+                _sync_public_url_safe,
+                settings_handler,
+                default_tenant,
+                proxy_service,
+            )
+        )
 
-    # 7.1. Fire-and-forget: Warm dataset type imports
+        # Sync endpoints to marketplaces
+        asyncio.create_task(
+            run_after_event(
+                proxy_ready_event,
+                _sync_endpoints_safe,
+                endpoint_handler,
+                default_tenant,
+            )
+        )
+
+    # 7. Fire-and-forget: Warm dataset type imports (no proxy dependency)
     logger.info("Starting dataset type warm-up in background")
     asyncio.create_task(_warmup_dataset_types(dataset_handler))
 
@@ -276,7 +304,6 @@ app = FastAPI(
     lifespan=lifespan,
     swagger_ui_parameters={"persistAuthorization": True},
 )
-
 
 
 # Initialize database (async-only)
@@ -393,7 +420,11 @@ app.add_middleware(TenantMiddleware, tenant_repository=tenant_repository)
 app.add_middleware(AdminKeyMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "tauri://localhost", "https://*.syfthub.ngrok.app"],
+    allow_origins=[
+        "http://localhost:5173",
+        "tauri://localhost",
+        "https://*.syfthub.ngrok.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

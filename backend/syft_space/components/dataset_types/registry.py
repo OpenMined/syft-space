@@ -99,7 +99,7 @@ class DatasetTypeRegistry:
         Returns:
             True if registered, False otherwise
         """
-        return name in self._dataset_types
+        return name in self._dataset_types or name in self._lazy_dataset_types
 
     def is_provisioner_registered(self, name: str) -> bool:
         """Check if a provisioner is registered.
@@ -110,7 +110,7 @@ class DatasetTypeRegistry:
         Returns:
             True if registered, False otherwise
         """
-        return name in self._provisioners
+        return name in self._provisioners or name in self._lazy_provisioners
 
     def register_dataset_type(self, cls: type[BaseDatasetType]) -> None:
         """Register a dataset type.
