@@ -155,6 +155,16 @@ async def _sync_endpoints_safe(handler: EndpointHandler, tenant: Tenant) -> None
         logger.warning(f"Endpoint sync failed: {e} - server will continue running")
 
 
+async def _warmup_dataset_types(handler: DatasetHandler) -> None:
+    """Warm up dataset type imports in background to avoid first-request latency."""
+    try:
+        # Run in a thread to avoid blocking the event loop during heavy imports
+        await asyncio.to_thread(handler.list_dataset_types)
+        logger.info("Dataset type warm-up complete")
+    except Exception as e:
+        logger.warning(f"Dataset type warm-up failed: {e}")
+
+
 async def _setup_tenant_and_settings(
     tenant_repo: TenantRepository,
     settings_hdlr: SettingsHandler,
@@ -242,6 +252,10 @@ async def lifespan(app: FastAPI):
     # 7. Fire-and-forget: Sync published endpoints to marketplaces
     if default_tenant:
         asyncio.create_task(_sync_endpoints_safe(endpoint_handler, default_tenant))
+
+    # 7.1. Fire-and-forget: Warm dataset type imports
+    logger.info("Starting dataset type warm-up in background")
+    asyncio.create_task(_warmup_dataset_types(dataset_handler))
 
     yield  # Application runs here
 

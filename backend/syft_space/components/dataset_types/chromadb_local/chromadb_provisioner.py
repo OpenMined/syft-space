@@ -4,7 +4,6 @@ import asyncio
 import time
 from typing import Any
 
-import chromadb
 from anyio import Path as AsyncPath
 from loguru import logger
 
@@ -250,6 +249,12 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
         Returns:
             True if healthy, False otherwise
         """
+        try:
+            import chromadb
+        except ImportError:
+            logger.warning("ChromaDB is not installed; health check skipped")
+            return False
+
         host = cls._get_host()
         try:
             client = await chromadb.AsyncHttpClient(

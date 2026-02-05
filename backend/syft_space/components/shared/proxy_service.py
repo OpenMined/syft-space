@@ -195,7 +195,8 @@ class ProxyService(LifecycleService):
         """
         # Initialize async primitives in async context (not in __init__)
         self._shutdown_event = asyncio.Event()
-        await self.auto_connect_if_configured()
+        # Fire-and-forget: don't block API startup on ngrok connection
+        asyncio.create_task(self.auto_connect_if_configured())
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the proxy service.
