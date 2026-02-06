@@ -43,26 +43,35 @@ cp -R dist/syft-space-backend/* "$BACKEND_DIST/"
 # 4. Ensure the main executable is executable
 chmod +x "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
 
-# 5. On macOS, codesign all Mach-O binaries and the main executable.
-#    PyInstaller bundles dylibs, shared objects, framework binaries, and
-#    standalone executables (e.g. Python) — all must be signed for notarization.
-#    Sign inner-to-outer: deepest files first, then the main executable last.
+# 5. On macOS, codesign all binaries for notarization.
+#    Signing order matters — inner-to-outer:
+#      a) Mach-O files NOT inside .framework bundles
+#      b) .framework bundles (signed as bundles, not individual files)
+#      c) The main executable last
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
-    # Sign all Mach-O binaries (dylibs, .so, framework binaries, executables)
-    # excluding the main executable which we sign last.
+    # a) Sign all Mach-O files that are NOT inside a .framework bundle
     find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
-        # Check if file is a Mach-O binary
+        # Skip files inside .framework bundles (those are signed as bundles below)
+        if [[ "$f" == *".framework/"* ]]; then
+            continue
+        fi
         if file "$f" | grep -q "Mach-O"; then
             codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
                 --sign "$SIGN_IDENTITY" "$f"
         fi
     done
 
-    # Sign the main executable last
+    # b) Sign .framework bundles (must be signed as bundles, not individual files)
+    find "$BACKEND_DIST" -type d -name "*.framework" | while read -r fw; do
+        codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" \
+            --sign "$SIGN_IDENTITY" "$fw"
+    done
+
+    # c) Sign the main executable last
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
         --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
     echo "Codesigning complete."
