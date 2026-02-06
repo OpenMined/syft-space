@@ -44,31 +44,36 @@ cp -R dist/syft-space-backend/* "$BACKEND_DIST/"
 chmod +x "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
 
 # 5. On macOS, codesign all binaries for notarization.
-#    Signing order matters — inner-to-outer:
-#      a) Mach-O files NOT inside .framework bundles
-#      b) .framework bundles (signed as bundles, not individual files)
-#      c) The main executable last
+#    PyInstaller may hardlink _internal/Python -> Python.framework/Versions/X.Y/Python.
+#    We sign the framework (which covers the hardlink too), then sign remaining
+#    standalone Mach-O files, skipping any that are hardlinked into a framework.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
-    # a) Sign all Mach-O files that are NOT inside a .framework bundle
+    # a) Sign .framework bundles first (covers hardlinked binaries like _internal/Python)
+    find "$BACKEND_DIST" -type d -name "*.framework" | while read -r fw; do
+        codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" \
+            --sign "$SIGN_IDENTITY" "$fw"
+    done
+
+    # b) Sign remaining Mach-O files outside .framework bundles.
+    #    Skip files that are hardlinked into a framework (link count > 1) —
+    #    they already share the framework's signature via the same inode.
     find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
-        # Skip files inside .framework bundles (those are signed as bundles below)
         if [[ "$f" == *".framework/"* ]]; then
             continue
         fi
         if file "$f" | grep -q "Mach-O"; then
+            link_count=$(stat -f '%l' "$f" 2>/dev/null || stat -c '%h' "$f" 2>/dev/null)
+            if [ "$link_count" -gt 1 ]; then
+                echo "Skipping hardlinked file: $f (link count: $link_count)"
+                continue
+            fi
             codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
                 --sign "$SIGN_IDENTITY" "$f"
         fi
-    done
-
-    # b) Sign .framework bundles (must be signed as bundles, not individual files)
-    find "$BACKEND_DIST" -type d -name "*.framework" | while read -r fw; do
-        codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" \
-            --sign "$SIGN_IDENTITY" "$fw"
     done
 
     # c) Sign the main executable last
