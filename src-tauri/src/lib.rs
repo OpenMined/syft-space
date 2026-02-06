@@ -34,15 +34,41 @@ pub fn run() {
             commands::update_window_response,
             commands::get_window_state,
         ])
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .clear_targets()
+                .format(|out, message, record| {
+                    let format = time_macros::format_description!(
+                        "[[[year]-[month]-[day]][[[hour]:[minute]:[second]]"
+                    );
+                    let time_now = tauri_plugin_log::TimezoneStrategy::UseUtc
+                        .get_now()
+                        .format(&format)
+                        .unwrap();
+                    out.finish(format_args!(
+                        "{}[{}][{}] {}",
+                        time_now,
+                        record.target(),
+                        record.level(),
+                        message
+                    ))
+                })
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Folder {
+                        path: dirs::home_dir()
+                            .expect("Failed to get home directory")
+                            .join(".syft-space")
+                            .join("logs"),
+                        file_name: Some("syft-space-desktop".to_string()),
+                    },
+                ))
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-
             // Initialize state
             app.manage(Mutex::new(state::AppState::default()));
             app.manage(state::PendingUpdate {
@@ -57,7 +83,7 @@ pub fn run() {
             // Spawn the Python backend sidecar with connection params
             let sidecar = app
                 .shell()
-                .sidecar("syft-space")
+                .sidecar("syft-space-backend")
                 .unwrap()
                 .env("SYFT_HOST", &host)
                 .env("SYFT_PORT", &port)
@@ -87,7 +113,7 @@ pub fn run() {
                             "--log-file",
                             dirs::home_dir()
                                 .expect("Failed to get home directory")
-                                .join(".syftbox")
+                                .join(".syft-space")
                                 .join("logs")
                                 .join("syft-space-process-wick.log")
                                 .to_str()
@@ -112,19 +138,41 @@ pub fn run() {
                 }
             });
 
-            // Log sidecar stdout/stderr
+            // Log syft-space-backend stdout/stderr to console and file
+            let log_path = dirs::home_dir()
+                .expect("Failed to get home directory")
+                .join(".syft-space")
+                .join("logs")
+                .join("syft-space-backend.log");
+            if let Some(parent) = log_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
             tauri::async_runtime::spawn(async move {
+                use std::io::Write;
                 use tauri_plugin_shell::process::CommandEvent;
+
+                let mut log_file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path)
+                    .expect("failed to open syft-space-backend log file");
+
                 while let Some(event) = rx.recv().await {
                     match event {
                         CommandEvent::Stdout(line) => {
-                            log::info!("[sidecar] {}", String::from_utf8_lossy(&line));
+                            let msg = String::from_utf8_lossy(&line);
+                            log::info!("[backend] {}", msg);
+                            let _ = writeln!(log_file, "{}", msg);
                         }
                         CommandEvent::Stderr(line) => {
-                            log::error!("[sidecar] {}", String::from_utf8_lossy(&line));
+                            let msg = String::from_utf8_lossy(&line);
+                            log::error!("[backend] {}", msg);
+                            let _ = writeln!(log_file, "{}", msg);
                         }
                         CommandEvent::Terminated(status) => {
-                            log::warn!("[sidecar] terminated with {:?}", status);
+                            let msg = format!("terminated with {:?}", status);
+                            log::warn!("[backend] {}", msg);
+                            let _ = writeln!(log_file, "{}", msg);
                             break;
                         }
                         _ => {}

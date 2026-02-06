@@ -27,7 +27,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='syft-space',
+    name='syft-space-backend',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
