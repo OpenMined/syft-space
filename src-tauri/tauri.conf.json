@@ -10,15 +10,7 @@
     "beforeBuildCommand": "../src-tauri/before_build.sh"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Syft Space",
-        "width": 1200,
-        "height": 720,
-        "resizable": true,
-        "maximized": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     },

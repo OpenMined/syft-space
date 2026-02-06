@@ -81,8 +81,10 @@ version = "0.1.0"
 dependencies = [
  "cocoa",
  "dirs",
+ "hex",
  "log",
  "objc",
+ "rand 0.9.2",
  "serde",
  "serde_json",
  "sysinfo",

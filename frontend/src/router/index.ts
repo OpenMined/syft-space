@@ -123,10 +123,24 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, _from, next) => {
-  // Extract authToken from URL hash params and save to localStorage
-  if (to.query.authToken) {
-    localStorage.setItem('authToken', to.query.authToken as string)
-    const { authToken: _authToken, ...remainingQuery } = to.query
+  // Extract connection params from URL query and save to sessionStorage
+  const { authToken, host, port, ...remainingQuery } = to.query
+  let paramsExtracted = false
+
+  if (authToken) {
+    sessionStorage.setItem('authToken', authToken as string)
+    paramsExtracted = true
+  }
+  if (host) {
+    sessionStorage.setItem('host', host as string)
+    paramsExtracted = true
+  }
+  if (port) {
+    sessionStorage.setItem('port', port as string)
+    paramsExtracted = true
+  }
+
+  if (paramsExtracted) {
     next({ ...to, query: remainingQuery, replace: true })
     return
   }

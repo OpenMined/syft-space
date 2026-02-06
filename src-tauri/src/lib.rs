@@ -5,6 +5,7 @@ use tauri_plugin_shell::ShellExt;
 mod commands;
 mod state;
 mod updates;
+mod utils;
 mod windows;
 
 fn find_child_process_pids() -> Vec<String> {
@@ -49,9 +50,23 @@ pub fn run() {
                 pending_update_window_state: Mutex::new(None),
             });
 
-            // Spawn the Python backend sidecar
-            let sidecar = app.shell().sidecar("syft-space").unwrap();
+            // Generate server connection args (host, port, auth token)
+            let (host, port, token) = utils::generate_server_args();
+            log::info!("Server args - host: {}, port: {}", host, port);
+
+            // Spawn the Python backend sidecar with connection params
+            let sidecar = app
+                .shell()
+                .sidecar("syft-space")
+                .unwrap()
+                .env("SYFT_HOST", &host)
+                .env("SYFT_PORT", &port)
+                .env("SYFT_ADMIN_API_KEY", &token);
             let (mut rx, _child) = sidecar.spawn().expect("failed to spawn sidecar");
+
+            // Create main window with connection params in URL
+            let url = utils::generate_main_url(&host, &port, &token);
+            windows::_setup_main_window(app.handle(), url);
 
             let main_process_pid = std::process::id();
             let child_process_pids = find_child_process_pids();
