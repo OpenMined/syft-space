@@ -220,7 +220,7 @@ class QueryEndpointRequest(BaseModel):
         ..., description="Messages or conversation string"
     )
     similarity_threshold: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Similarity threshold for matching"
+        default=0.5, ge=0.0, le=1.0, description="Similarity threshold for matching"
     )
     limit: int = Field(
         default=5, ge=1, description="Maximum number of results to return"
@@ -257,7 +257,7 @@ class QueryEndpointRequest(BaseModel):
                 "messages": [
                     {"role": "user", "content": "What is the capital of France?"}
                 ],
-                "similarity_threshold": 0.8,
+                "similarity_threshold": 0.5,
                 "limit": 5,
                 "max_tokens": 100,
                 "temperature": 0.7,
