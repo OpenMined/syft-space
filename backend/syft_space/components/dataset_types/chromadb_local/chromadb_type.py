@@ -90,8 +90,8 @@ class FilePathItem(BaseModel):
 class ChromaDBLocalConfiguration(BaseModel):
     """Configuration for ChromaDB local dataset type."""
 
-    collection_name: str | None = Field(
-        default=None,
+    collection_name: str = Field(
+        ...,
         alias="collectionName",
         description="Name of the ChromaDB collection (alphanumeric and underscores only)",
     )
