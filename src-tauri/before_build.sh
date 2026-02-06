@@ -30,7 +30,14 @@ fi
 
 # 2. Build backend with PyInstaller
 cd "$PROJECT_ROOT"
-uv run pyinstaller backend/syft-space.spec
+HOST_TRIPLE="$(rustc -vV | grep 'host:' | awk '{print $2}')"
+if [[ "$TARGET_TRIPLE" == "x86_64-apple-darwin" && "$HOST_TRIPLE" == "aarch64-apple-darwin" ]]; then
+    # PyInstaller can't cross-compile; use Rosetta 2 to produce x86_64 binary on ARM host
+    echo "Running PyInstaller under Rosetta 2 for x86_64..."
+    arch -x86_64 uv run pyinstaller backend/syft-space.spec
+else
+    uv run pyinstaller backend/syft-space.spec
+fi
 
 # 3. Copy backend binary with target triple suffix
 mkdir -p src-tauri/target
