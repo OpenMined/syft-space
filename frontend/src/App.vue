@@ -12,12 +12,14 @@ import 'vue-sonner/style.css'
 const route = useRoute()
 const serverStore = useServerAvailabilityStore()
 
+const isUpdatesPage = computed(() => route.name === 'updates')
+
 const showNavbar = computed(
   () =>
     route.name !== 'create' &&
     !route.path.startsWith('/create/') &&
     !route.path.startsWith('/experimental') &&
-    route.name !== 'updates' &&
+    !isUpdatesPage.value &&
     route.name !== 'onboarding',
 )
 
@@ -37,7 +39,7 @@ watch(
 </script>
 
 <template>
-  <SplashScreen v-if="!serverStore.isReady" :is-slow="serverStore.isSlow" />
+  <SplashScreen v-if="!serverStore.isReady && !isUpdatesPage" :is-slow="serverStore.isSlow" />
   <div v-else class="min-h-screen bg-background text-foreground">
     <AppNavbar v-if="showNavbar" />
 

@@ -28,24 +28,40 @@ else
     echo "process-wick already present"
 fi
 
-# 2. Build backend with PyInstaller
+# 2. Build backend with PyInstaller (--onedir mode via .spec)
 cd "$PROJECT_ROOT"
+rm -rf dist/syft-space-backend build/syft-space-backend
 uv run pyinstaller backend/syft-space-backend.spec
 
-# 3. On macOS, codesign the PyInstaller binary with entitlements to allow
-#    loading the embedded Python library (which has a different Team ID).
-#    Without this, macOS library validation blocks the Python dylib at runtime.
+# 3. Copy the onedir output to src-tauri/target/syft-space-backend-dist/
+#    Tauri resources don't use the target-triple suffix convention.
+BACKEND_DIST="src-tauri/target/syft-space-backend-dist"
+rm -rf "$BACKEND_DIST"
+mkdir -p "$BACKEND_DIST"
+cp -R dist/syft-space-backend/* "$BACKEND_DIST/"
+
+# 4. Ensure the main executable is executable
+chmod +x "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
+
+# 5. On macOS, codesign all shared libraries and the main executable.
+#    PyInstaller dylibs have different Team IDs, so we need entitlements
+#    to disable library validation. Sign inner-to-outer (libs first, then exe).
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
-    echo "Codesigning PyInstaller binary with entitlements (identity: $SIGN_IDENTITY)..."
+    echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
+
+    # Sign all shared libraries first (.dylib, .so)
+    find "$BACKEND_DIST" -type f \( -name "*.dylib" -o -name "*.so" \) | while read -r lib; do
+        codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
+            --sign "$SIGN_IDENTITY" "$lib"
+    done
+
+    # Sign the main executable last
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
-        --sign "$SIGN_IDENTITY" "dist/syft-space-backend${EXE_EXT}"
+        --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
+    echo "Codesigning complete."
 fi
 
-# 4. Copy backend binary with target triple suffix
-mkdir -p src-tauri/target
-cp "dist/syft-space-backend${EXE_EXT}" "src-tauri/target/syft-space-backend-${TARGET_TRIPLE}${EXE_EXT}"
-
-# 5. Build frontend
+# 6. Build frontend
 VITE_API_BASE_URL=http://localhost:8080/api/v1 bun run --cwd frontend build
