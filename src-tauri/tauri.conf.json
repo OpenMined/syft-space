@@ -7,7 +7,7 @@
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "bun run dev",
-    "beforeBuildCommand": "bash before_build.sh"
+    "beforeBuildCommand": "../src-tauri/before_build.sh"
   },
   "app": {
     "windows": [

@@ -15,6 +15,7 @@ import UpdatesPage from '../pages/UpdatesPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
+import { useServerAvailabilityStore } from '../stores/serverAvailability'
 
 let onboardingStatusCache: boolean | null = null
 
@@ -129,6 +130,10 @@ router.beforeEach(async (to, _from, next) => {
     next({ ...to, query: remainingQuery, replace: true })
     return
   }
+
+  // Wait for backend to be available before checking onboarding
+  const serverStore = useServerAvailabilityStore()
+  await serverStore.waitUntilReady()
 
   // Skip onboarding check for the onboarding page itself
   if (to.name === 'onboarding') {
