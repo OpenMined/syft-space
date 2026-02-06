@@ -43,18 +43,23 @@ cp -R dist/syft-space-backend/* "$BACKEND_DIST/"
 # 4. Ensure the main executable is executable
 chmod +x "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
 
-# 5. On macOS, codesign all shared libraries and the main executable.
-#    PyInstaller dylibs have different Team IDs, so we need entitlements
-#    to disable library validation. Sign inner-to-outer (libs first, then exe).
+# 5. On macOS, codesign all Mach-O binaries and the main executable.
+#    PyInstaller bundles dylibs, shared objects, framework binaries, and
+#    standalone executables (e.g. Python) — all must be signed for notarization.
+#    Sign inner-to-outer: deepest files first, then the main executable last.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
-    # Sign all shared libraries first (.dylib, .so)
-    find "$BACKEND_DIST" -type f \( -name "*.dylib" -o -name "*.so" \) | while read -r lib; do
-        codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
-            --sign "$SIGN_IDENTITY" "$lib"
+    # Sign all Mach-O binaries (dylibs, .so, framework binaries, executables)
+    # excluding the main executable which we sign last.
+    find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
+        # Check if file is a Mach-O binary
+        if file "$f" | grep -q "Mach-O"; then
+            codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
+                --sign "$SIGN_IDENTITY" "$f"
+        fi
     done
 
     # Sign the main executable last
