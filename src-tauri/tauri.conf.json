@@ -28,6 +28,7 @@
       "icons/icon.ico"
     ],
     "macOS": {
+      "entitlements": "./entitlements.plist",
       "dmg": {
         "background": "./images/dmg-background.png",
         "windowPosition": {

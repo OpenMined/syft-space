@@ -32,9 +32,20 @@ fi
 cd "$PROJECT_ROOT"
 uv run pyinstaller backend/syft-space.spec
 
-# 3. Copy backend binary with target triple suffix
+# 3. On macOS, codesign the PyInstaller binary with entitlements to allow
+#    loading the embedded Python library (which has a different Team ID).
+#    Without this, macOS library validation blocks the Python dylib at runtime.
+if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
+    ENTITLEMENTS="$(dirname "$0")/entitlements.plist"
+    SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
+    echo "Codesigning PyInstaller binary with entitlements (identity: $SIGN_IDENTITY)..."
+    codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
+        --sign "$SIGN_IDENTITY" "dist/syft-space${EXE_EXT}"
+fi
+
+# 4. Copy backend binary with target triple suffix
 mkdir -p src-tauri/target
 cp "dist/syft-space${EXE_EXT}" "src-tauri/target/syft-space-${TARGET_TRIPLE}${EXE_EXT}"
 
-# 4. Build frontend
+# 5. Build frontend
 VITE_API_BASE_URL=http://localhost:8080/api/v1 bun run --cwd frontend build
