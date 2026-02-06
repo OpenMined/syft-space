@@ -79,7 +79,7 @@ Request Payload
 {"role": "assistant", "content": "The capital of France is Paris."}
 {"role": "system", "content": "You are a helpful assistant."},
     ],
-    "similarity_threshold": 0.8,
+    "similarity_threshold": 0.65,
     "limit": 5,
     "include_metadata": True,
     "max_tokens": 100,

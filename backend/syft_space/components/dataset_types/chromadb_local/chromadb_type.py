@@ -11,7 +11,7 @@ from pathlib import Path as SyncPath
 from typing import Any
 
 from anyio import Path as AsyncPath
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from syft_space.components.dataset_types.interfaces import (
     FileIngestableDatasetType,
@@ -37,7 +37,7 @@ except ImportError:
     enabled = False
 
 DEFAULT_HTTP_PORT = 8100
-DEFAULT_SIMILARITY_THRESHOLD = 0.5
+DEFAULT_SIMILARITY_THRESHOLD = 0.65
 
 DEFAULT_INGEST_FILE_TYPE_OPTIONS = [
     ".pdf",
@@ -64,11 +64,10 @@ class FilePathItem(BaseModel):
 class ChromaDBLocalConfiguration(BaseModel):
     """Configuration for ChromaDB local dataset type."""
 
-    collection_name: str = Field(
-        ...,
+    collection_name: str | None = Field(
+        default=None,
         alias="collectionName",
-        default_factory=lambda: f"Collection_{uuid.uuid4().hex[:8]}",
-        description="Name of the ChromaDB collection (alphanumeric and underscores only)",
+        description="Name of the ChromaDB collection (auto-generated if not provided)",
     )
     http_port: int = Field(
         default=DEFAULT_HTTP_PORT,
@@ -87,6 +86,19 @@ class ChromaDBLocalConfiguration(BaseModel):
     )
 
     model_config = {"populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def generate_collection_name_if_missing(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Auto-generate collection name if not provided."""
+        if isinstance(data, dict):
+            if "collectionName" not in data and "collection_name" not in data:
+                data = dict(data)  # Avoid mutating input dict
+                data["collectionName"] = uuid.uuid4().hex[:8]
+            elif data.get("collectionName") is None and data.get("collection_name") is None:
+                data = dict(data)
+                data["collectionName"] = uuid.uuid4().hex[:8]
+        return data
 
     @field_validator("collection_name")
     @classmethod
@@ -120,6 +132,9 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         """
         self.raw_config = config
         self.config = ChromaDBLocalConfiguration.model_validate(config)
+
+        if self.config.collection_name and "collectionName" not in self.raw_config:
+            self.raw_config["collectionName"] = self.config.collection_name
 
         # Lazy initialization (instance-level)
         self._converter = None
@@ -201,8 +216,12 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
         """Validate the configuration for the dataset type.
 
+        Note: This method intentionally mutates the configuration dict to persist
+        the auto-generated collection_name. This is necessary so the same name
+        is used across all instantiations from the stored config.
+
         Args:
-            configuration: Configuration dictionary to validate
+            configuration: Configuration dictionary to validate (may be mutated)
 
         Raises:
             ValueError: If configuration is invalid
@@ -211,6 +230,10 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
             config = ChromaDBLocalConfiguration.model_validate(configuration)
         except ValidationError as e:
             raise ValueError(f"Invalid configuration: {e}") from e
+
+        # Persist generated collection_name back to config dict for storage
+        if config.collection_name and "collectionName" not in configuration:
+            configuration["collectionName"] = config.collection_name
 
         # Validate file paths exist
         for file_path_item in config.file_paths:

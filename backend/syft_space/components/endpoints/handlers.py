@@ -48,6 +48,49 @@ from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubEr
 from syft_space.components.tenants.entities import Tenant
 
 
+def extract_user_query(content: str) -> str:
+    """Extract the real user query from aggregator's bundled message format.
+
+    The SyftHub aggregator bundles instructions, documents, and the user's question
+    into a single user message with this format:
+
+        CRITICAL RULES - YOU MUST FOLLOW THESE:
+        ...
+        <documents>...</documents>
+        ---
+        USER QUESTION:
+        {actual_query}
+        ---
+
+    This function extracts just the actual query. If the marker isn't found,
+    returns the original content (for direct clients not using aggregator).
+
+    Args:
+        content: The message content (possibly bundled)
+
+    Returns:
+        The extracted user query
+    """
+    # Look for aggregator's USER QUESTION marker
+    marker = "USER QUESTION:"
+    marker_pos = content.find(marker)
+
+    if marker_pos == -1:
+        # No marker found - return original content (direct client)
+        return content.strip()
+
+    # Extract everything after "USER QUESTION:\n"
+    query_start = marker_pos + len(marker)
+    query_part = content[query_start:]
+
+    # Remove leading/trailing whitespace and the trailing "---" delimiter
+    query_part = query_part.strip()
+    if query_part.endswith("---"):
+        query_part = query_part[:-3].strip()
+
+    return query_part
+
+
 class EndpointHandler:
     """Handler for endpoint business logic."""
 
@@ -311,9 +354,9 @@ class EndpointHandler:
 
         response_type = ResponseType(endpoint.response_type)
 
-        # Search dataset if needed
+        # Search dataset if needed (also needed for SUMMARY to provide context to LLM)
         if (
-            response_type in [ResponseType.RAW, ResponseType.BOTH]
+            response_type in [ResponseType.RAW, ResponseType.BOTH, ResponseType.SUMMARY]
             and endpoint.dataset_id
         ):
             references = await self._search_dataset(endpoint, request)
@@ -325,8 +368,9 @@ class EndpointHandler:
         ):
             summary = await self._chat_with_model(endpoint, request, references)
 
-        # Create response
-        query_response = QueryEndpointResponse(summary=summary, references=references)
+        # Create response (SUMMARY mode: don't return raw references, only summary)
+        response_references = references if response_type != ResponseType.SUMMARY else None
+        query_response = QueryEndpointResponse(summary=summary, references=response_references)
 
         # Update policy context with response
         policy_context.response = query_response.model_dump()
@@ -381,13 +425,22 @@ class EndpointHandler:
         # Create dataset instance
         dataset_instance = dataset_type_cls(dataset.configuration)
 
-        # Prepare query
+        # Prepare query - extract real user question from aggregator's bundled format
         if isinstance(request.messages, str):
-            query = request.messages
+            query = extract_user_query(request.messages)
         else:
-            # Use last user message as query
+            # Get last user message and extract real query
             user_messages = [m for m in request.messages if m.role == "user"]
-            query = user_messages[-1].content if user_messages else ""
+            if user_messages:
+                query = extract_user_query(user_messages[-1].content)
+            else:
+                query = ""
+
+        # Validate query is not empty
+        if not query.strip():
+            raise HTTPException(
+                status_code=400, detail="No valid user query found in messages"
+            )
 
         # Search with verified sender email
         ctx = Context(sender=request.sender_email)
@@ -466,17 +519,23 @@ class EndpointHandler:
                 ChatMessage(role=m.role, content=m.content) for m in request.messages
             ]
 
+        # Validate we have at least one message
+        if not messages:
+            raise HTTPException(
+                status_code=400, detail="No messages provided"
+            )
+
         # Add references to context if available
         if references and references.documents:
-            context_content = "\\n\\n".join(
+            context_content = "\n\n".join(
                 [
-                    f"[{doc.document_id}] {doc.content}"
+                    f"[{doc.metadata.get('file_name', doc.document_id)}] {doc.content}"
                     for doc in references.documents[:3]
                 ]
             )
             context_message = ChatMessage(
                 role="system",
-                content=f"Use the following context to answer:\\n{context_content}",
+                content=f"Use the following context to answer:\n{context_content}",
             )
             messages.insert(0, context_message)
 
