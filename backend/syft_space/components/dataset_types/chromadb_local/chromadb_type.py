@@ -8,10 +8,11 @@ import os
 import re
 import threading
 import uuid
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path as SyncPath
+from types import ModuleType
 from typing import Any
-from functools import lru_cache
 
 from anyio import Path as AsyncPath
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -31,7 +32,8 @@ from syft_space.components.shared.domain_types import (
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 
-def _import_chromadb() -> "module":
+
+def _import_chromadb() -> ModuleType:
     try:
         import chromadb
 
@@ -58,6 +60,7 @@ def _chromadb_available() -> bool:
         return True
     except ImportError:
         return False
+
 
 DEFAULT_HTTP_PORT = 8100
 DEFAULT_SIMILARITY_THRESHOLD = 0.5
@@ -87,10 +90,9 @@ class FilePathItem(BaseModel):
 class ChromaDBLocalConfiguration(BaseModel):
     """Configuration for ChromaDB local dataset type."""
 
-    collection_name: str = Field(
-        ...,
+    collection_name: str | None = Field(
+        default=None,
         alias="collectionName",
-        default_factory=lambda: f"Collection_{uuid.uuid4().hex[:8]}",
         description="Name of the ChromaDB collection (alphanumeric and underscores only)",
     )
     http_port: int = Field(
@@ -147,7 +149,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         # Lazy initialization (instance-level)
         self._converter = None
         self._embedding_fn = None
-        self._client: "chromadb.AsyncClientAPI | None" = None
+        self._client: chromadb.AsyncClientAPI | None = None  # noqa: F821
         self._client_lock = asyncio.Lock()  # Instance-level lock for client
 
     @property
@@ -164,7 +166,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                     self._converter = DocumentConverter()
         return self._converter
 
-    async def get_client(self) -> "chromadb.AsyncClientAPI":
+    async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
         """Get or create the ChromaDB async client.
 
         Uses a cached client instance to avoid connection accumulation.
@@ -229,6 +231,13 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Raises:
             ValueError: If configuration is invalid
         """
+        # Generate collectionName if not provided
+        collection_name = configuration.get("collectionName") or configuration.get(
+            "collection_name"
+        )
+        if collection_name is None:
+            configuration["collectionName"] = uuid.uuid4().hex
+
         try:
             config = ChromaDBLocalConfiguration.model_validate(configuration)
         except ValidationError as e:
