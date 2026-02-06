@@ -456,4 +456,4 @@ async def redirect_root():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=app_settings.port)
+    uvicorn.run(app, host=app_settings.host, port=app_settings.port)
