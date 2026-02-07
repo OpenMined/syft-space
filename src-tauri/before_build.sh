@@ -99,7 +99,7 @@ if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
         "$BACKEND_DIST/syft-space-backend"; do
         if [ -f "$f" ]; then
             echo "--- $f ---"
-            codesign -dvvv "$f" 2>&1 | head -5
+            codesign -dvvv "$f" 2>&1 | head -5 || true
             codesign --verify --strict "$f" 2>&1 || true
         fi
     done
@@ -107,7 +107,7 @@ if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     # Debug: show what the bootloader links against (helps determine if
     # Python.framework is needed at runtime or can be removed in the future)
     echo "=== Bootloader library dependencies ==="
-    otool -L "$BACKEND_DIST/syft-space-backend" 2>&1 | head -20
+    otool -L "$BACKEND_DIST/syft-space-backend" 2>&1 | head -20 || true
 fi
 
 # 6. Build frontend
