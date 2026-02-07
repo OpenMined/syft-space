@@ -59,31 +59,24 @@ find "$BACKEND_DIST" -path "*/Python.framework/*" -exec ls -la {} \; 2>/dev/null
 
 # 5. On macOS, codesign all binaries for notarization.
 #    cp -RL above dereferences all symlinks and breaks hardlinks, so
-#    .framework bundles contain only regular files. This ensures codesign
-#    produces valid signatures that survive Tauri's fs::copy resource bundling.
+#    .framework directories no longer have a valid bundle structure.
+#    We sign every Mach-O binary individually instead of as bundles.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
-    # a) Sign .framework bundles first with --deep
-    find "$BACKEND_DIST" -type d -name "*.framework" | while read -r fw; do
-        codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" \
-            --sign "$SIGN_IDENTITY" "$fw"
-    done
-
-    # b) Sign remaining standalone Mach-O files outside .framework bundles.
+    # a) Sign all Mach-O files (except the main executable) individually.
+    #    This includes files inside .framework/ dirs — since cp -RL flattened
+    #    the framework structure, we cannot sign them as bundles.
     find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
-        if [[ "$f" == *".framework/"* ]]; then
-            continue
-        fi
         if file "$f" | grep -q "Mach-O"; then
             codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
                 --sign "$SIGN_IDENTITY" "$f"
         fi
     done
 
-    # c) Sign the main executable last
+    # b) Sign the main executable last
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
         --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
     echo "Codesigning complete."
