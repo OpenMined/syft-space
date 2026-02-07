@@ -59,39 +59,35 @@ find "$BACKEND_DIST" -path "*/Python.framework/*" -exec ls -la {} \; 2>/dev/null
 
 # 5. On macOS, codesign all binaries for notarization.
 #    cp -RL dereferences symlinks, which breaks .framework bundle structure.
-#    codesign auto-detects *.framework/Name paths as bundles and rejects them.
-#    Workaround: temporarily rename .framework dirs so codesign treats every
-#    Mach-O as a standalone file, then restore the names for runtime.
+#    codesign auto-detects bundles by examining parent dir structure (Versions/,
+#    Resources/, Info.plist) via CFBundle — not just the directory name.
+#    Workaround: copy each Mach-O to an isolated temp dir for signing, then
+#    copy back. The signature is embedded in the Mach-O LC_CODE_SIGNATURE
+#    load command and is path-independent.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
+    SIGN_TMPDIR=$(mktemp -d)
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
-    # a) Temporarily rename .framework dirs to prevent codesign bundle detection.
-    #    codesign detects bundles when a dir has ANY dot-extension and contains a
-    #    binary matching the dir stem (e.g. Python.*/Python). Removing the dot
-    #    entirely prevents this heuristic from triggering.
-    #    Process deepest paths first (sort -r) to avoid renaming parents before children.
-    find "$BACKEND_DIST" -type d -name "*.framework" | sort -r | while read -r fw; do
-        mv "$fw" "${fw%.framework}_framework_tmp"
-    done
-
-    # b) Sign all Mach-O files (except the main executable) individually.
+    # a) Sign all Mach-O files (except the main executable) individually.
+    #    Each file is copied to an isolated temp dir so codesign cannot
+    #    detect surrounding bundle structure and trigger bundle signing.
     find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
         if file "$f" | grep -q "Mach-O"; then
+            TMPFILE="$SIGN_TMPDIR/$(basename "$f")"
+            cp "$f" "$TMPFILE"
             codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
-                --sign "$SIGN_IDENTITY" "$f"
+                --sign "$SIGN_IDENTITY" "$TMPFILE"
+            cp "$TMPFILE" "$f"
+            rm "$TMPFILE"
         fi
     done
 
-    # c) Restore .framework dir names.
-    find "$BACKEND_DIST" -type d -name "*_framework_tmp" | sort -r | while read -r fw; do
-        mv "$fw" "${fw%_framework_tmp}.framework"
-    done
-
-    # d) Sign the main executable last
+    # b) Sign the main executable last (not inside a bundle, signs directly)
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
         --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
+    rm -rf "$SIGN_TMPDIR"
     echo "Codesigning complete."
 
     # Debug: verify signatures on the previously-problematic files
@@ -107,6 +103,11 @@ if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
             codesign --verify --strict "$f" 2>&1 || true
         fi
     done
+
+    # Debug: show what the bootloader links against (helps determine if
+    # Python.framework is needed at runtime or can be removed in the future)
+    echo "=== Bootloader library dependencies ==="
+    otool -L "$BACKEND_DIST/syft-space-backend" 2>&1 | head -20
 fi
 
 # 6. Build frontend
