@@ -68,9 +68,12 @@ if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
     # a) Temporarily rename .framework dirs to prevent codesign bundle detection.
+    #    codesign detects bundles when a dir has ANY dot-extension and contains a
+    #    binary matching the dir stem (e.g. Python.*/Python). Removing the dot
+    #    entirely prevents this heuristic from triggering.
     #    Process deepest paths first (sort -r) to avoid renaming parents before children.
     find "$BACKEND_DIST" -type d -name "*.framework" | sort -r | while read -r fw; do
-        mv "$fw" "${fw%.framework}.fwtmp"
+        mv "$fw" "${fw%.framework}_framework_tmp"
     done
 
     # b) Sign all Mach-O files (except the main executable) individually.
@@ -82,8 +85,8 @@ if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     done
 
     # c) Restore .framework dir names.
-    find "$BACKEND_DIST" -type d -name "*.fwtmp" | sort -r | while read -r fw; do
-        mv "$fw" "${fw%.fwtmp}.framework"
+    find "$BACKEND_DIST" -type d -name "*_framework_tmp" | sort -r | while read -r fw; do
+        mv "$fw" "${fw%_framework_tmp}.framework"
     done
 
     # d) Sign the main executable last
