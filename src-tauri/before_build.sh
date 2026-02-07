@@ -43,71 +43,52 @@ cp -RL dist/syft-space-backend/* "$BACKEND_DIST/"
 # 4. Ensure the main executable is executable
 chmod +x "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
 
-# Debug: verify no symlinks remain after copy
-echo "=== Checking for remaining symlinks ==="
-SYMLINKS=$(find "$BACKEND_DIST" -type l)
-if [ -n "$SYMLINKS" ]; then
-    echo "WARNING: Symlinks still present:"
-    echo "$SYMLINKS"
-else
-    echo "OK: No symlinks found"
-fi
-
-# Debug: show Python.framework structure
-echo "=== Python.framework structure ==="
-find "$BACKEND_DIST" -path "*/Python.framework/*" -exec ls -la {} \; 2>/dev/null | head -30
-
-# 5. On macOS, codesign all binaries for notarization.
-#    cp -RL dereferences symlinks, which breaks .framework bundle structure.
-#    codesign auto-detects bundles by examining parent dir structure (Versions/,
-#    Resources/, Info.plist) via CFBundle — not just the directory name.
-#    Workaround: copy each Mach-O to an isolated temp dir for signing, then
-#    copy back. The signature is embedded in the Mach-O LC_CODE_SIGNATURE
-#    load command and is path-independent.
+# 5. On macOS, remove .framework bundles and codesign all binaries.
+#    Apple's notarization validates .framework dirs as bundles, requiring proper
+#    symlink structure and _CodeSignature/CodeResources. cp -RL dereferences
+#    symlinks, making the framework structure invalid and unfixable.
+#    Since _internal/Python already exists as a standalone copy of the Python
+#    dylib (thanks to cp -RL breaking hardlinks), we can safely remove the
+#    framework — the bootloader loads from _internal/Python, not the framework.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
-    SIGN_TMPDIR=$(mktemp -d)
+
+    # a) Remove all .framework directories. After cp -RL, these contain only
+    #    redundant copies with broken bundle structure that notarization rejects.
+    echo "Removing .framework bundles (broken by cp -RL, causes notarization failure)..."
+    find "$BACKEND_DIST" -type d -name "*.framework" -print | while read -r fw; do
+        echo "  Removing: $fw"
+        rm -rf "$fw"
+    done
+
+    # Debug: show what the bootloader links against
+    echo "=== Bootloader library dependencies ==="
+    otool -L "$BACKEND_DIST/syft-space-backend" 2>&1 || true
+
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
-    # a) Sign all Mach-O files (except the main executable) individually.
-    #    Each file is copied to an isolated temp dir so codesign cannot
-    #    detect surrounding bundle structure and trigger bundle signing.
+    # b) Sign all Mach-O files (except the main executable).
     find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
         if file "$f" | grep -q "Mach-O"; then
-            TMPFILE="$SIGN_TMPDIR/$(basename "$f")"
-            cp "$f" "$TMPFILE"
             codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
-                --sign "$SIGN_IDENTITY" "$TMPFILE"
-            cp "$TMPFILE" "$f"
-            rm "$TMPFILE"
+                --sign "$SIGN_IDENTITY" "$f"
         fi
     done
 
-    # b) Sign the main executable last (not inside a bundle, signs directly)
+    # c) Sign the main executable last.
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
         --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
-    rm -rf "$SIGN_TMPDIR"
     echo "Codesigning complete."
 
-    # Debug: verify signatures on the previously-problematic files
-    echo "=== Verifying signatures ==="
-    for f in \
-        "$BACKEND_DIST/_internal/Python" \
-        "$BACKEND_DIST/_internal/Python.framework/Python" \
-        "$BACKEND_DIST/_internal/Python.framework/Versions/3.12/Python" \
-        "$BACKEND_DIST/syft-space-backend"; do
+    # Debug: verify signatures
+    echo "=== Verifying key signatures ==="
+    for f in "$BACKEND_DIST/_internal/Python" "$BACKEND_DIST/syft-space-backend"; do
         if [ -f "$f" ]; then
             echo "--- $f ---"
-            codesign -dvvv "$f" 2>&1 | head -5 || true
-            codesign --verify --strict "$f" 2>&1 || true
+            codesign --verify --strict --verbose "$f" 2>&1 || true
         fi
     done
-
-    # Debug: show what the bootloader links against (helps determine if
-    # Python.framework is needed at runtime or can be removed in the future)
-    echo "=== Bootloader library dependencies ==="
-    otool -L "$BACKEND_DIST/syft-space-backend" 2>&1 | head -20 || true
 fi
 
 # 6. Build frontend
