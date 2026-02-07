@@ -21,7 +21,7 @@ if [ ! -f "$PROCESS_WICK_PATH" ]; then
     mkdir -p "$(dirname "$PROCESS_WICK_PATH")"
     echo "Downloading process-wick for $TARGET_TRIPLE..."
     curl -fsSL -o "$PROCESS_WICK_PATH" \
-        "https://github.com/itstauq/process-wick/releases/latest/download/process-wick-${TARGET_TRIPLE}${EXE_EXT}"
+    "https://github.com/itstauq/process-wick/releases/latest/download/process-wick-${TARGET_TRIPLE}${EXE_EXT}"
     chmod +x "$PROCESS_WICK_PATH"
     echo "process-wick downloaded to $PROCESS_WICK_PATH"
 else
@@ -34,62 +34,36 @@ rm -rf dist/syft-space-backend build/syft-space-backend
 uv run pyinstaller backend/syft-space-backend.spec
 
 # 3. Copy the onedir output to src-tauri/target/syft-space-backend-dist/
-#    Tauri resources don't use the target-triple suffix convention.
 BACKEND_DIST="src-tauri/target/syft-space-backend-dist"
 rm -rf "$BACKEND_DIST"
 mkdir -p "$BACKEND_DIST"
+# -L dereferences symlinks so Tauri's fs::copy won't break them later
 cp -RL dist/syft-space-backend/* "$BACKEND_DIST/"
-
-# 4. Ensure the main executable is executable
 chmod +x "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
 
-# 5. On macOS, remove .framework bundles and codesign all binaries.
-#    Apple's notarization validates .framework dirs as bundles, requiring proper
-#    symlink structure and _CodeSignature/CodeResources. cp -RL dereferences
-#    symlinks, making the framework structure invalid and unfixable.
-#    Since _internal/Python already exists as a standalone copy of the Python
-#    dylib (thanks to cp -RL breaking hardlinks), we can safely remove the
-#    framework — the bootloader loads from _internal/Python, not the framework.
+# 4. On macOS, codesign all binaries for notarization.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
-
-    # a) Remove all .framework directories. After cp -RL, these contain only
-    #    redundant copies with broken bundle structure that notarization rejects.
-    echo "Removing .framework bundles (broken by cp -RL, causes notarization failure)..."
-    find "$BACKEND_DIST" -type d -name "*.framework" -print | while read -r fw; do
-        echo "  Removing: $fw"
-        rm -rf "$fw"
-    done
-
-    # Debug: show what the bootloader links against
-    echo "=== Bootloader library dependencies ==="
-    otool -L "$BACKEND_DIST/syft-space-backend" 2>&1 || true
-
+    
+    # Remove .framework bundles — cp -RL breaks their internal symlink structure,
+    # making them fail notarization. The standalone binaries (e.g. _internal/Python)
+    # are already independent copies and sufficient for runtime.
+    find "$BACKEND_DIST" -type d -name "*.framework" -exec rm -rf {} +
+    
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
-
-    # b) Sign all Mach-O files (except the main executable).
     find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
         if file "$f" | grep -q "Mach-O"; then
             codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
-                --sign "$SIGN_IDENTITY" "$f"
+            --sign "$SIGN_IDENTITY" "$f"
         fi
     done
-
-    # c) Sign the main executable last.
+    
+    # Sign main executable last
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
-        --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
+    --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
     echo "Codesigning complete."
-
-    # Debug: verify signatures
-    echo "=== Verifying key signatures ==="
-    for f in "$BACKEND_DIST/_internal/Python" "$BACKEND_DIST/syft-space-backend"; do
-        if [ -f "$f" ]; then
-            echo "--- $f ---"
-            codesign --verify --strict --verbose "$f" 2>&1 || true
-        fi
-    done
 fi
 
-# 6. Build frontend
-VITE_API_BASE_URL=http://localhost:8080/api/v1 bun run --cwd frontend build
+# 5. Build frontend
+bun run --cwd frontend build
