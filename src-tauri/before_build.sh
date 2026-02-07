@@ -38,39 +38,46 @@ uv run pyinstaller backend/syft-space-backend.spec
 BACKEND_DIST="src-tauri/target/syft-space-backend-dist"
 rm -rf "$BACKEND_DIST"
 mkdir -p "$BACKEND_DIST"
-cp -R dist/syft-space-backend/* "$BACKEND_DIST/"
+cp -RL dist/syft-space-backend/* "$BACKEND_DIST/"
 
 # 4. Ensure the main executable is executable
 chmod +x "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
 
+# Debug: verify no symlinks remain after copy
+echo "=== Checking for remaining symlinks ==="
+SYMLINKS=$(find "$BACKEND_DIST" -type l)
+if [ -n "$SYMLINKS" ]; then
+    echo "WARNING: Symlinks still present:"
+    echo "$SYMLINKS"
+else
+    echo "OK: No symlinks found"
+fi
+
+# Debug: show Python.framework structure
+echo "=== Python.framework structure ==="
+find "$BACKEND_DIST" -path "*/Python.framework/*" -exec ls -la {} \; 2>/dev/null | head -30
+
 # 5. On macOS, codesign all binaries for notarization.
-#    PyInstaller may hardlink _internal/Python -> Python.framework/Versions/X.Y/Python.
-#    We sign the framework (which covers the hardlink too), then sign remaining
-#    standalone Mach-O files, skipping any that are hardlinked into a framework.
+#    cp -RL above dereferences all symlinks and breaks hardlinks, so
+#    .framework bundles contain only regular files. This ensures codesign
+#    produces valid signatures that survive Tauri's fs::copy resource bundling.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
-    # a) Sign .framework bundles first (covers hardlinked binaries like _internal/Python)
+    # a) Sign .framework bundles first with --deep
     find "$BACKEND_DIST" -type d -name "*.framework" | while read -r fw; do
         codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" \
             --sign "$SIGN_IDENTITY" "$fw"
     done
 
-    # b) Sign remaining Mach-O files outside .framework bundles.
-    #    Skip files that are hardlinked into a framework (link count > 1) —
-    #    they already share the framework's signature via the same inode.
+    # b) Sign remaining standalone Mach-O files outside .framework bundles.
     find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
         if [[ "$f" == *".framework/"* ]]; then
             continue
         fi
         if file "$f" | grep -q "Mach-O"; then
-            link_count=$(stat -f '%l' "$f" 2>/dev/null || stat -c '%h' "$f" 2>/dev/null)
-            if [ "$link_count" -gt 1 ]; then
-                echo "Skipping hardlinked file: $f (link count: $link_count)"
-                continue
-            fi
             codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
                 --sign "$SIGN_IDENTITY" "$f"
         fi
@@ -80,6 +87,20 @@ if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
         --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
     echo "Codesigning complete."
+
+    # Debug: verify signatures on the previously-problematic files
+    echo "=== Verifying signatures ==="
+    for f in \
+        "$BACKEND_DIST/_internal/Python" \
+        "$BACKEND_DIST/_internal/Python.framework/Python" \
+        "$BACKEND_DIST/_internal/Python.framework/Versions/3.12/Python" \
+        "$BACKEND_DIST/syft-space-backend"; do
+        if [ -f "$f" ]; then
+            echo "--- $f ---"
+            codesign -dvvv "$f" 2>&1 | head -5
+            codesign --verify --strict "$f" 2>&1 || true
+        fi
+    done
 fi
 
 # 6. Build frontend
