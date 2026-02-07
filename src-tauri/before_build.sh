@@ -58,17 +58,22 @@ echo "=== Python.framework structure ==="
 find "$BACKEND_DIST" -path "*/Python.framework/*" -exec ls -la {} \; 2>/dev/null | head -30
 
 # 5. On macOS, codesign all binaries for notarization.
-#    cp -RL above dereferences all symlinks and breaks hardlinks, so
-#    .framework directories no longer have a valid bundle structure.
-#    We sign every Mach-O binary individually instead of as bundles.
+#    cp -RL dereferences symlinks, which breaks .framework bundle structure.
+#    codesign auto-detects *.framework/Name paths as bundles and rejects them.
+#    Workaround: temporarily rename .framework dirs so codesign treats every
+#    Mach-O as a standalone file, then restore the names for runtime.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
     echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
 
-    # a) Sign all Mach-O files (except the main executable) individually.
-    #    This includes files inside .framework/ dirs — since cp -RL flattened
-    #    the framework structure, we cannot sign them as bundles.
+    # a) Temporarily rename .framework dirs to prevent codesign bundle detection.
+    #    Process deepest paths first (sort -r) to avoid renaming parents before children.
+    find "$BACKEND_DIST" -type d -name "*.framework" | sort -r | while read -r fw; do
+        mv "$fw" "${fw%.framework}.fwtmp"
+    done
+
+    # b) Sign all Mach-O files (except the main executable) individually.
     find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
         if file "$f" | grep -q "Mach-O"; then
             codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
@@ -76,7 +81,12 @@ if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
         fi
     done
 
-    # b) Sign the main executable last
+    # c) Restore .framework dir names.
+    find "$BACKEND_DIST" -type d -name "*.fwtmp" | sort -r | while read -r fw; do
+        mv "$fw" "${fw%.fwtmp}.framework"
+    done
+
+    # d) Sign the main executable last
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
         --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
     echo "Codesigning complete."
