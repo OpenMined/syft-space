@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_submodules
 
 a = Analysis(
     ['syft_space/main.py'],
@@ -11,7 +12,10 @@ a = Analysis(
         ('syft_space/components/dataset_types/weaviate_local/docker-compose.yml',
         'syft_space/components/dataset_types/weaviate_local'),
     ],
-    hiddenimports=['aiosqlite'],
+    hiddenimports=[
+        'aiosqlite',
+        *collect_submodules('syft_space'),
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
