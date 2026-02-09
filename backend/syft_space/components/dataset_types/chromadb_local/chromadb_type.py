@@ -45,10 +45,10 @@ def _import_chromadb() -> ModuleType:
 def _import_embedding_fn():
     try:
         from chromadb.utils.embedding_functions import (
-            SentenceTransformerEmbeddingFunction,
+            ONNXMiniLM_L6_V2,
         )
 
-        return SentenceTransformerEmbeddingFunction
+        return ONNXMiniLM_L6_V2
     except ImportError as e:
         raise ImportError("chromadb required for embeddings") from e
 
@@ -276,14 +276,12 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Thread-safe lazy initialization ensures model loading
         happens in the thread pool, not blocking the event loop.
         """
-        SentenceTransformerEmbeddingFunction = _import_embedding_fn()
+        ONNXMiniLM_L6_V2 = _import_embedding_fn()
 
         if self._embedding_fn is None:
             with self._embedding_fn_lock:
                 if self._embedding_fn is None:
-                    self._embedding_fn = SentenceTransformerEmbeddingFunction(
-                        model_name=EMBEDDING_MODEL
-                    )
+                    self._embedding_fn = ONNXMiniLM_L6_V2()
         return self._embedding_fn(texts)
 
     def _parse_document(self, file: IngestFile) -> dict[str, Any]:
