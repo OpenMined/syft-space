@@ -215,7 +215,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
         """Check if this dataset type is enabled.
 
         Returns:
-            True if weaviate and docling are installed
+            True if weaviate is installed
         """
         return enabled
 

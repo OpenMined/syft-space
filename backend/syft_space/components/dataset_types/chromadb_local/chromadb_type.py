@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import re
 import threading
 import uuid
 from functools import lru_cache
-from io import BytesIO
 from pathlib import Path as SyncPath
 from types import ModuleType
 from typing import Any
@@ -17,9 +15,9 @@ from typing import Any
 from anyio import Path as AsyncPath
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from syft_space.components.dataset_types.chunking import DocumentChunker
 from syft_space.components.dataset_types.interfaces import (
     FileIngestableDatasetType,
-    IngestFile,
     IngestRequest,
     SearchedDocument,
     SearchParameters,
@@ -133,8 +131,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
 
     NAME = "local_file"
 
-    # Class-level locks for thread-safe lazy initialization (shared resources)
-    _converter_lock = threading.Lock()
+    # Class-level lock for thread-safe lazy initialization
     _embedding_fn_lock = threading.Lock()
 
     def __init__(self, config: dict[str, Any]) -> None:
@@ -147,24 +144,12 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         self.config = ChromaDBLocalConfiguration.model_validate(config)
 
         # Lazy initialization (instance-level)
-        self._converter = None
         self._embedding_fn = None
         self._client: chromadb.AsyncClientAPI | None = None  # noqa: F821
         self._client_lock = asyncio.Lock()  # Instance-level lock for client
 
-    @property
-    def converter(self):
-        """Lazily initialize DocumentConverter on first use.
-
-        Thread-safe via double-checked locking.
-        """
-        from docling.document_converter import DocumentConverter
-
-        if self._converter is None:
-            with self._converter_lock:
-                if self._converter is None:
-                    self._converter = DocumentConverter()
-        return self._converter
+        # Shared chunking pipeline
+        self._document_chunker = DocumentChunker()
 
     async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
         """Get or create the ChromaDB async client.
@@ -284,46 +269,19 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                     self._embedding_fn = ONNXMiniLM_L6_V2()
         return self._embedding_fn(texts)
 
-    def _parse_document(self, file: IngestFile) -> dict[str, Any]:
-        """Parse the document into a dictionary.
-
-        Args:
-            file: IngestFile to parse
-
-        Returns:
-            Dictionary with parsed document content and metadata
-        """
-        from docling.document_converter import DocumentStream
-
-        # Convert the file to a document stream
-        stream = BytesIO(file.file_handle.read())
-
-        # If the file is a JSON or TXT file, read the content directly
-        if SyncPath(file.filename).suffix.lower() in [".json", ".txt"]:
-            content = stream.read().decode("utf-8")
-        else:
-            # Otherwise, convert the file to a document stream and export to markdown
-            document_stream = DocumentStream(name=file.filename, stream=stream)
-            conv_result = self.converter.convert(document_stream)
-            content = conv_result.document.export_to_markdown()
-
-        # Return the parsed document content and metadata
-        return {
-            "content": content,
-            "file_name": file.filename,
-            "file_type": file.content_type,
-            "file_size": file.file_size or 0,
-        }
-
     async def ingest(self, ctx: Context, request: IngestRequest) -> None:
-        """Ingest files into ChromaDB collection.
+        """Ingest files into ChromaDB collection as chunks.
+
+        Each file is parsed into multiple chunks via the shared DocumentChunker.
+        Each chunk is stored as a separate vector with metadata linking back
+        to the source document and page numbers.
 
         Args:
             ctx: Request context with sender information
             request: Ingest request with files to process
         """
         if not _chromadb_available():
-            raise ImportError("ChromaDB and docling are required for ingestion")
+            raise ImportError("ChromaDB is required for ingestion")
 
         client = await self.get_client()
 
@@ -338,37 +296,45 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
             if ext not in self.allowed_extensions():
                 raise ValueError(f"Unsupported file type: {ext}")
 
-            # Run CPU-bound docling parsing in executor to avoid blocking event loop
-            parsed_doc = await asyncio.to_thread(self._parse_document, file)
-
-            # Generate embeddings in executor (CPU-bound)
-            embeddings = await asyncio.to_thread(
-                self._generate_embeddings, [parsed_doc["content"]]
+            # Run CPU-bound parsing in executor to avoid blocking event loop
+            chunks = await asyncio.to_thread(
+                self._document_chunker.parse_document, file
             )
 
-            # Generate unique ID based on filename and content hash
-            doc_id = hashlib.sha256(
-                f"{file.filename}:{parsed_doc['content'][:100]}".encode()
-            ).hexdigest()[:32]
+            for i, chunk in enumerate(chunks):
+                chunk_id = f"{chunk['doc_id']}_{i}"
 
-            # Add to collection
-            await collection.add(
-                ids=[doc_id],
-                documents=[parsed_doc["content"]],
-                embeddings=embeddings,
-                metadatas=[
-                    {
-                        "file_name": parsed_doc["file_name"],
-                        "file_type": parsed_doc["file_type"] or "",
-                        "file_size": parsed_doc["file_size"],
-                    }
-                ],
-            )
+                # Generate embedding from heading-enriched text
+                embeddings = await asyncio.to_thread(
+                    self._generate_embeddings, [chunk["embedding_text"]]
+                )
+
+                # Store clean text as document, metadata as flat strings
+                await collection.add(
+                    ids=[chunk_id],
+                    documents=[chunk["text"]],
+                    embeddings=embeddings,
+                    metadatas=[
+                        {
+                            "doc_id": chunk["doc_id"],
+                            "file_name": chunk["file_name"],
+                            "file_type": chunk["file_type"] or "",
+                            "file_size": chunk["file_size"],
+                            "page_numbers": ",".join(map(str, chunk["page_numbers"])),
+                            "headings": " > ".join(chunk["headings"]),
+                            "picture_ids": ",".join(chunk["picture_ids"]),
+                        }
+                    ],
+                )
 
     async def search(
         self, ctx: Context, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
-        """Search the ChromaDB collection for similar documents.
+        """Search the ChromaDB collection for matching chunks.
+
+        Returns only the top-k matching chunks (not all chunks from a document).
+        Image references (doc_id, page_numbers, picture_ids) are included in
+        metadata for the client to fetch via image serving endpoint.
 
         Args:
             ctx: Request context with sender information
@@ -376,7 +342,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
             params: Optional search parameters
 
         Returns:
-            SearchResult with matching documents
+            SearchResult with matching document chunks
         """
         if not _chromadb_available():
             raise ImportError("ChromaDB is required for search")
@@ -461,7 +427,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         """Check if this dataset type is enabled.
 
         Returns:
-            True if chromadb and docling are installed
+            True if chromadb is installed
         """
         return _chromadb_available()
 
