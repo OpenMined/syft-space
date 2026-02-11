@@ -1,5 +1,6 @@
 """Dataset handlers for business logic."""
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 from fastapi import HTTPException
 from loguru import logger
 
+from syft_space.components.dataset_types.chunking import PAGE_IMAGES_BASE_DIR
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import (
     Dataset,
@@ -893,3 +895,49 @@ class DatasetHandler:
             parent=parent,
             items=items,
         )
+
+    def serve_image(self, collection_name: str, doc_id: str, filename: str) -> Path:
+        """Validate and return the filesystem path for a document image.
+
+        Used by the image-serving endpoint to securely resolve image paths.
+        Follows the same security pattern as browse_directory.
+
+        Args:
+            collection_name: Dataset collection name (partition key)
+            doc_id: Hash-based document identifier (16-char hex)
+            filename: Image filename (page_N.png or picture_N.png)
+
+        Returns:
+            Resolved Path to the image file
+
+        Raises:
+            HTTPException 400: If any parameter format is invalid
+            HTTPException 404: If the image file does not exist
+        """
+        # Validate collection_name: alphanumeric and underscores only
+        if not re.match(r"^[a-zA-Z0-9_]+$", collection_name):
+            raise HTTPException(
+                status_code=400, detail="Invalid collection name format"
+            )
+
+        # Validate doc_id format: 16-char lowercase hex
+        if not re.match(r"^[a-f0-9]{16}$", doc_id):
+            raise HTTPException(status_code=400, detail="Invalid document ID format")
+
+        # Validate filename format: page_N.png, picture_N.png, or picture_HASH.png
+        if not re.match(
+            r"^(page_\d+|picture_\d+|picture_[a-f0-9]{1,12})\.png$", filename
+        ):
+            raise HTTPException(status_code=400, detail="Invalid filename format")
+
+        # Resolve path and prevent traversal
+        image_path = (
+            PAGE_IMAGES_BASE_DIR / collection_name / doc_id / filename
+        ).resolve()
+        if not image_path.is_relative_to(PAGE_IMAGES_BASE_DIR.resolve()):
+            raise HTTPException(status_code=400, detail="Invalid path")
+
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        return image_path

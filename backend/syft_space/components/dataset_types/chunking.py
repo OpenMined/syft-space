@@ -13,8 +13,42 @@ from typing import Any
 
 from syft_space.components.dataset_types.interfaces import IngestFile
 
-# Page images stored at ~/.syft-space/page_images/{doc_id}/
+# Page images stored at ~/.syft-space/page_images/{collection_name}/{doc_id}/
 PAGE_IMAGES_BASE_DIR = Path.home() / ".syft-space" / "page_images"
+
+# API route prefix for serving document images
+IMAGE_ENDPOINT_PREFIX = "/api/v1/datasets/images"
+
+
+def build_image_urls(
+    collection_name: str, doc_id: str, page_numbers: str, picture_ids: str
+) -> list[str]:
+    """Build image endpoint URLs from chunk metadata.
+
+    Args:
+        collection_name: Dataset collection name (partition key)
+        doc_id: Hash-based document identifier
+        page_numbers: Comma-separated page numbers (e.g. "1,2,3")
+        picture_ids: Comma-separated picture filenames (e.g. "picture_0.png,picture_1.png")
+
+    Returns:
+        List of URI paths like
+        ["/api/v1/datasets/images/{collection_name}/{doc_id}/page_1.png", ...]
+    """
+    urls: list[str] = []
+    if not doc_id or not collection_name:
+        return urls
+    for pn in page_numbers.split(","):
+        if pn.strip():
+            urls.append(
+                f"{IMAGE_ENDPOINT_PREFIX}/{collection_name}/{doc_id}/page_{pn.strip()}.png"
+            )
+    for pic in picture_ids.split(","):
+        if pic.strip():
+            urls.append(
+                f"{IMAGE_ENDPOINT_PREFIX}/{collection_name}/{doc_id}/{pic.strip()}"
+            )
+    return urls
 
 
 class DocumentChunker:
@@ -83,11 +117,13 @@ class DocumentChunker:
         return DocumentChunker._chunker
 
     @staticmethod
-    def get_page_images_dir(doc_id: str) -> Path:
+    def get_page_images_dir(collection_name: str, doc_id: str) -> Path:
         """Get the directory for storing page images for a document."""
-        return PAGE_IMAGES_BASE_DIR / doc_id
+        return PAGE_IMAGES_BASE_DIR / collection_name / doc_id
 
-    def parse_document(self, file: IngestFile) -> list[dict[str, Any]]:
+    def parse_document(
+        self, file: IngestFile, collection_name: str
+    ) -> list[dict[str, Any]]:
         """Parse document into chunks with metadata and save images to disk.
 
         Uses Docling for PDFs and other rich formats (DOCX, XLSX, HTML, etc.)
@@ -96,6 +132,7 @@ class DocumentChunker:
 
         Args:
             file: IngestFile to parse
+            collection_name: Dataset collection name (used for image storage partitioning)
 
         Returns:
             List of chunk dicts, each with keys:
@@ -139,7 +176,7 @@ class DocumentChunker:
         source = DocumentStream(name=file.filename, stream=stream)
         result = self.converter.convert(source)
         doc = result.document
-        images_dir = self.get_page_images_dir(doc_id)
+        images_dir = self.get_page_images_dir(collection_name, doc_id)
         images_dir.mkdir(parents=True, exist_ok=True)
 
         # Save page images (populated for PDFs, empty for other formats)

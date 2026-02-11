@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, Body, Depends
+from fastapi.responses import FileResponse
 
 from syft_space.components.auth.public import public_route
 from syft_space.components.datasets.handlers import DatasetHandler
@@ -106,6 +107,31 @@ def build_dataset_routes(
             Directory contents with file metadata
         """
         return handler.browse_directory(path, show_hidden)
+
+    # ============== Image Serving Endpoint ==============
+
+    @router.get("/images/{collection_name}/{doc_id}/{filename}")
+    async def serve_image(
+        collection_name: str,
+        doc_id: str,
+        filename: str,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> FileResponse:
+        """Serve a document image (page render or extracted picture).
+
+        Images are saved to disk during ingestion and served via this endpoint.
+        Search results return URIs pointing here so clients can fetch images.
+
+        Args:
+            collection_name: Dataset collection name (partition key)
+            doc_id: Hash-based document identifier (16-char hex)
+            filename: Image filename (e.g., page_1.png, picture_0.png)
+
+        Returns:
+            PNG image file
+        """
+        image_path = handler.serve_image(collection_name, doc_id, filename)
+        return FileResponse(image_path, media_type="image/png")
 
     # ============== Dataset CRUD Endpoints ==============
 

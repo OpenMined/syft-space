@@ -8,7 +8,10 @@ from typing import Any
 
 from anyio import Path as AsyncPath
 
-from syft_space.components.dataset_types.chunking import DocumentChunker
+from syft_space.components.dataset_types.chunking import (
+    DocumentChunker,
+    build_image_urls,
+)
 from syft_space.components.dataset_types.interfaces import (
     FileIngestableDatasetType,
     IngestRequest,
@@ -272,7 +275,9 @@ class LocalFSWeaviateDatasetType(FileIngestableDatasetType):
 
                 # Run CPU-bound parsing in executor to avoid blocking event loop
                 chunks = await asyncio.to_thread(
-                    self._document_chunker.parse_document, file
+                    self._document_chunker.parse_document,
+                    file,
+                    self.collection_name,
                 )
 
                 for chunk in chunks:
@@ -347,6 +352,10 @@ class LocalFSWeaviateDatasetType(FileIngestableDatasetType):
 
             # Process the results
             for result in results.objects:
+                chunk_doc_id = result.properties.get("doc_id", "")
+                page_numbers_str = result.properties.get("page_numbers", "")
+                picture_ids_str = result.properties.get("picture_ids", "")
+
                 documents.append(
                     SearchedDocument(
                         document_id=str(result.uuid),
@@ -355,10 +364,16 @@ class LocalFSWeaviateDatasetType(FileIngestableDatasetType):
                             "creation_time": str(result.metadata.creation_time),
                             "distance": result.metadata.distance,
                             "file_name": result.properties.get("file_name", ""),
-                            "doc_id": result.properties.get("doc_id", ""),
-                            "page_numbers": result.properties.get("page_numbers", ""),
+                            "doc_id": chunk_doc_id,
+                            "page_numbers": page_numbers_str,
                             "headings": result.properties.get("headings", ""),
-                            "picture_ids": result.properties.get("picture_ids", ""),
+                            "picture_ids": picture_ids_str,
+                            "image_urls": build_image_urls(
+                                self.collection_name,
+                                chunk_doc_id,
+                                page_numbers_str,
+                                picture_ids_str,
+                            ),
                         },
                         similarity_score=result.metadata.score or 0.0,
                     )

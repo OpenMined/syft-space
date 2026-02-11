@@ -15,7 +15,10 @@ from typing import Any
 from anyio import Path as AsyncPath
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from syft_space.components.dataset_types.chunking import DocumentChunker
+from syft_space.components.dataset_types.chunking import (
+    DocumentChunker,
+    build_image_urls,
+)
 from syft_space.components.dataset_types.interfaces import (
     FileIngestableDatasetType,
     IngestRequest,
@@ -298,7 +301,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
 
             # Run CPU-bound parsing in executor to avoid blocking event loop
             chunks = await asyncio.to_thread(
-                self._document_chunker.parse_document, file
+                self._document_chunker.parse_document, file, self.collection_name
             )
 
             for i, chunk in enumerate(chunks):
@@ -402,6 +405,14 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                     content = results["documents"][0][i] if results["documents"] else ""
                     metadata = (
                         results["metadatas"][0][i] if results["metadatas"] else {}
+                    )
+
+                    # Build image URLs from page_numbers and picture_ids
+                    metadata["image_urls"] = build_image_urls(
+                        self.collection_name,
+                        metadata.get("doc_id", ""),
+                        metadata.get("page_numbers", ""),
+                        metadata.get("picture_ids", ""),
                     )
 
                     documents.append(
