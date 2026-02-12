@@ -20,29 +20,21 @@ PAGE_IMAGES_BASE_DIR = Path.home() / ".syft-space" / "page_images"
 IMAGE_ENDPOINT_PREFIX = "/api/v1/datasets/images"
 
 
-def build_image_urls(
-    collection_name: str, doc_id: str, page_numbers: str, picture_ids: str
-) -> list[str]:
+def build_image_urls(collection_name: str, doc_id: str, picture_ids: str) -> list[str]:
     """Build image endpoint URLs from chunk metadata.
 
     Args:
         collection_name: Dataset collection name (partition key)
         doc_id: Hash-based document identifier
-        page_numbers: Comma-separated page numbers (e.g. "1,2,3")
         picture_ids: Comma-separated picture filenames (e.g. "picture_0.png,picture_1.png")
 
     Returns:
         List of URI paths like
-        ["/api/v1/datasets/images/{collection_name}/{doc_id}/page_1.png", ...]
+        ["/api/v1/datasets/images/{collection_name}/{doc_id}/picture_0.png", ...]
     """
     urls: list[str] = []
     if not doc_id or not collection_name:
         return urls
-    for pn in page_numbers.split(","):
-        if pn.strip():
-            urls.append(
-                f"{IMAGE_ENDPOINT_PREFIX}/{collection_name}/{doc_id}/page_{pn.strip()}.png"
-            )
     for pic in picture_ids.split(","):
         if pic.strip():
             urls.append(
@@ -76,8 +68,8 @@ class DocumentChunker:
     def converter(self):
         """Lazily initialize Docling DocumentConverter.
 
-        Configured with page image generation and picture extraction
-        so page renders and figures can be saved to disk separately.
+        Configured with picture extraction so embedded figures can be
+        saved to disk separately. Page renders are not generated.
         Thread-safe via double-checked locking.
         """
         from docling.datamodel.base_models import InputFormat
@@ -88,7 +80,6 @@ class DocumentChunker:
             with self._converter_lock:
                 if DocumentChunker._converter is None:
                     pipeline_options = PdfPipelineOptions()
-                    pipeline_options.generate_page_images = True
                     pipeline_options.generate_picture_images = True
                     pipeline_options.images_scale = 2.0
                     DocumentChunker._converter = DocumentConverter(
@@ -179,12 +170,7 @@ class DocumentChunker:
         images_dir = self.get_page_images_dir(collection_name, doc_id)
         images_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save page images (populated for PDFs, empty for other formats)
-        for page_no, page in doc.pages.items():
-            if page.image and page.image.pil_image:
-                page.image.pil_image.save(images_dir / f"page_{page_no}.png", "PNG")
-
-        # Save extracted pictures (all formats) and map to pages
+        # Save extracted pictures and map to pages
         picture_page_map: dict[int, list[str]] = {}
         for i, picture in enumerate(doc.pictures):
             pil_image = picture.get_image(doc)

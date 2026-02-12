@@ -905,7 +905,7 @@ class DatasetHandler:
         Args:
             collection_name: Dataset collection name (partition key)
             doc_id: Hash-based document identifier (16-char hex)
-            filename: Image filename (page_N.png or picture_N.png)
+            filename: Image filename (picture_N.png)
 
         Returns:
             Resolved Path to the image file
@@ -924,10 +924,8 @@ class DatasetHandler:
         if not re.match(r"^[a-f0-9]{16}$", doc_id):
             raise HTTPException(status_code=400, detail="Invalid document ID format")
 
-        # Validate filename format: page_N.png, picture_N.png, or picture_HASH.png
-        if not re.match(
-            r"^(page_\d+|picture_\d+|picture_[a-f0-9]{1,12})\.png$", filename
-        ):
+        # Validate filename format: picture_N.png or picture_HASH.png
+        if not re.match(r"^(picture_\d+|picture_[a-f0-9]{1,12})\.png$", filename):
             raise HTTPException(status_code=400, detail="Invalid filename format")
 
         # Resolve path and prevent traversal

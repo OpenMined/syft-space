@@ -407,11 +407,10 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                         results["metadatas"][0][i] if results["metadatas"] else {}
                     )
 
-                    # Build image URLs from page_numbers and picture_ids
+                    # Build image URLs from picture_ids
                     metadata["image_urls"] = build_image_urls(
                         self.collection_name,
                         metadata.get("doc_id", ""),
-                        metadata.get("page_numbers", ""),
                         metadata.get("picture_ids", ""),
                     )
 
