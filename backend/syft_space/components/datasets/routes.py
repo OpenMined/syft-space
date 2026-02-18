@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, Body, Depends
 
+from syft_space.components.auth.public import public_route
 from syft_space.components.datasets.handlers import DatasetHandler
 from syft_space.components.datasets.schemas import (
     BrowseResponse,
@@ -209,13 +210,14 @@ def build_dataset_routes(
         """
         return await handler.delete_dataset(name, tenant)
 
+    @public_route
     @router.get("/{name}/health", response_model=HealthcheckResponse)
     async def healthcheck(
         name: str,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: DatasetHandler = Depends(get_handler),
     ) -> HealthcheckResponse:
-        """Check the health of a dataset.
+        """Check the health of a dataset (PUBLIC, no auth required).
 
         Args:
             name: Dataset name
