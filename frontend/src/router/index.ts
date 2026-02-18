@@ -15,6 +15,7 @@ import UpdatesPage from '../pages/UpdatesPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
+import { useServerAvailabilityStore } from '../stores/serverAvailability'
 
 let onboardingStatusCache: boolean | null = null
 
@@ -122,13 +123,38 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, _from, next) => {
-  // Extract authToken from URL hash params and save to localStorage
-  if (to.query.authToken) {
-    localStorage.setItem('authToken', to.query.authToken as string)
-    const { authToken: _authToken, ...remainingQuery } = to.query
+  // Extract connection params from URL query and save to sessionStorage
+  const { authToken, host, port, ...remainingQuery } = to.query
+  let paramsExtracted = false
+
+  if (authToken) {
+    sessionStorage.setItem('authToken', authToken as string)
+    paramsExtracted = true
+  }
+  if (host) {
+    sessionStorage.setItem('host', host as string)
+    paramsExtracted = true
+  }
+  if (port) {
+    sessionStorage.setItem('port', port as string)
+    paramsExtracted = true
+  }
+
+  if (paramsExtracted) {
     next({ ...to, query: remainingQuery, replace: true })
     return
   }
+
+  // Skip server readiness and onboarding checks for the updates page
+  if (to.name === 'updates') {
+    next()
+    return
+  }
+
+  // Wait for backend to be available before checking onboarding
+  const serverStore = useServerAvailabilityStore()
+  serverStore.startPolling()
+  await serverStore.waitUntilReady()
 
   // Skip onboarding check for the onboarding page itself
   if (to.name === 'onboarding') {

@@ -16,6 +16,10 @@ class AppSettings(BaseSettings):
     )
 
     # Server settings
+    host: str = Field(
+        default="0.0.0.0",
+        description="Host for the server to bind to",
+    )
     port: int = Field(
         default=8080,
         description="Port for the server to listen on",

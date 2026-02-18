@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "4.1.13",
-    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-window": "^2.0.0-alpha.1",
     "@vueuse/core": "^14.1.0",
     "@vueuse/motion": "^3.0.3",

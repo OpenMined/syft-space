@@ -10,6 +10,18 @@ use {
     objc::{msg_send, sel, sel_impl},
 };
 
+pub fn _setup_main_window(app: &AppHandle, url: WebviewUrl) {
+    let _window = WebviewWindowBuilder::new(app, "main", url)
+        .title("Syft Space")
+        .focused(true)
+        .maximized(true)
+        .resizable(true)
+        .min_inner_size(800.0, 600.0)
+        .inner_size(1200.0, 720.0)
+        .build()
+        .unwrap();
+}
+
 pub fn _show_update_window(
     app: &AppHandle,
     update_window_type: UpdateWindowType,
