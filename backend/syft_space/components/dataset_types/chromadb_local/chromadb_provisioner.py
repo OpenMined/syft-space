@@ -1,6 +1,8 @@
 """ChromaDB provisioner implementation."""
 
 import asyncio
+import os
+import sys
 import time
 from typing import Any
 
@@ -10,6 +12,22 @@ from loguru import logger
 from syft_space.components.dataset_types.interfaces import BaseDatasetTypeProvisioner
 
 DEFAULT_HTTP_PORT = 8100
+
+
+def _chroma_command() -> list[str]:
+    """Return the base command to invoke the ``chroma`` CLI.
+
+    Inside a PyInstaller bundle the ``chroma`` entry-point script does not
+    exist on PATH.  Instead we re-invoke the frozen executable itself with a
+    ``--chroma-server`` flag that is intercepted at the top of ``main.py``
+    and forwarded to ``chromadb.cli.cli:app``.
+
+    In development (unfrozen) we call ``chroma`` directly since the
+    virtualenv has it on PATH.
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--chroma-server"]
+    return ["chroma"]
 
 
 class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
@@ -79,8 +97,8 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
 
         # Start ChromaDB server
         # chroma run --path <path> --port <port> --host 0.0.0.0
-        proc = await asyncio.create_subprocess_exec(
-            "chroma",
+        cmd = [
+            *_chroma_command(),
             "run",
             "--path",
             str(data_path),
@@ -88,6 +106,9 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
             str(http_port),
             "--host",
             "0.0.0.0",
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -274,6 +295,4 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
 
         Returns DOCKER_NETWORK_HOST env var if set, otherwise 'localhost'.
         """
-        import os
-
         return os.getenv("DOCKER_NETWORK_HOST", "localhost")

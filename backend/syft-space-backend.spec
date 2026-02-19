@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
 # Packages that are lazily/conditionally imported in syft_space code and thus
 # invisible to PyInstaller's static analysis. When adding a new lazy import,
@@ -9,21 +9,41 @@ LAZY_IMPORTS = [
     'chromadb',
     'weaviate',
     'openai',
+    'opentelemetry',
+    'docling',
+    'docling_core',
+    'docling_ibm_models',
+    'docling_parse',
 ]
 
 # Packages that bundle data files (migrations, configs, etc.) needed at runtime.
 PACKAGES_WITH_DATA = [
     'chromadb',
+    'docling',
+    'docling_core',
+    'docling_ibm_models',
+    'docling_parse',
+]
+
+# Packages that use importlib.metadata at runtime (need their dist-info).
+# collect_data_files only gets files *inside* the package directory;
+# copy_metadata gets the .dist-info directory from site-packages.
+PACKAGES_WITH_METADATA = [
+    'docling',
+    'docling_core',
+    'docling_ibm_models',
+    'docling_parse',
 ]
 
 # Packages with native extensions that PyInstaller may not auto-detect.
 PACKAGES_WITH_BINARIES = [
     'chromadb',
     'chromadb_rust_bindings',
+    'docling_parse',
 ]
 
 a = Analysis(
-    ['syft_space/main.py'],
+    ['syft_space/__main__.py'],
     pathex=[],
     binaries=[
         lib for pkg in PACKAGES_WITH_BINARIES
@@ -32,9 +52,8 @@ a = Analysis(
     datas=[
         ('syft_space/alembic.ini', 'syft_space'),
         ('syft_space/alembic', 'syft_space/alembic'),
-        ('syft_space/components/dataset_types/weaviate_local/docker-compose.yml',
-        'syft_space/components/dataset_types/weaviate_local'),
         *(data for pkg in PACKAGES_WITH_DATA for data in collect_data_files(pkg)),
+        *(meta for pkg in PACKAGES_WITH_METADATA for meta in copy_metadata(pkg)),
     ],
     hiddenimports=[
         'aiosqlite',

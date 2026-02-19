@@ -6,6 +6,40 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 
 #[tauri::command]
+pub async fn reset_tcc_permission(service: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let valid_services = [
+            "SystemPolicyDocumentsFolder",
+            "SystemPolicyDesktopFolder",
+            "SystemPolicyDownloadsFolder",
+        ];
+        if !valid_services.contains(&service.as_str()) {
+            log::warn!("Invalid TCC service requested: {}", service);
+            return Err(format!("Invalid TCC service: {}", service));
+        }
+        log::info!(
+            "Running: tccutil reset {} org.openmined.syft-space",
+            service
+        );
+        let output = std::process::Command::new("tccutil")
+            .args(["reset", &service, "org.openmined.syft-space"])
+            .output()
+            .map_err(|e| {
+                log::error!("Failed to run tccutil: {}", e);
+                e.to_string()
+            })?;
+        log::info!(
+            "tccutil exit status: {}, stdout: {}, stderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn update_window_response(app: AppHandle, install_update: bool) -> Result<(), String> {
     log::info!(
         "Update window response received - install: {}",
