@@ -897,7 +897,14 @@ class EndpointHandler:
         Returns:
             Dict payload for publish/sync APIs
         """
-        endpoint_type = "model" if endpoint.model_id is not None else "data_source"
+
+        endpoint_type = (
+            "model_data_source"
+            if endpoint.model_id is not None and endpoint.dataset_id is not None
+            else "model"
+            if endpoint.model_id is not None
+            else "data_source"
+        )
 
         policies = [
             {

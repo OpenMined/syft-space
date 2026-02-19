@@ -1,24 +1,16 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SyftAI Space",
-  "version": "0.1.0",
-  "identifier": "org.openmined.syftai-space",
+  "productName": "Syft Space",
+  "version": "0.2.3",
+  "identifier": "org.openmined.syft-space",
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "bun run dev",
-    "beforeBuildCommand": "bun run build"
+    "beforeBuildCommand": "bash ../src-tauri/before_build.sh"
   },
   "app": {
-    "windows": [
-      {
-        "title": "SyftAI Space",
-        "width": 1200,
-        "height": 720,
-        "resizable": true,
-        "maximized": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     },
@@ -27,7 +19,10 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "externalBin": ["./target/backend"],
+    "externalBin": ["target/process-wick"],
+    "resources": {
+      "target/syft-space-backend-dist/": "syft-space-backend/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -36,6 +31,7 @@
       "icons/icon.ico"
     ],
     "macOS": {
+      "entitlements": "./entitlements.plist",
       "dmg": {
         "background": "./images/dmg-background.png",
         "windowPosition": {
@@ -68,7 +64,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ5RUNDREU3MTRCMDc3NUYKUldSZmQ3QVU1ODNzU1VKUlBwQUd3WEI3TUozODhKc3JHMjg3TTUxQkhEY3dENlRqaEp0dUUyT20K",
       "endpoints": [
-        "https://github.com/OpenMined/SyftAI-Space/releases/latest/download/latest.json"
+        "https://github.com/OpenMined/syft-space/releases/latest/download/latest.json"
       ]
     }
   }

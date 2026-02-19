@@ -1,1 +1,0 @@
-"""Weaviate dataset type implementation."""

@@ -1,9 +1,14 @@
 import axios, { type AxiosInstance } from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+function getBaseURL(): string {
+  const host = sessionStorage.getItem('host')
+  const port = sessionStorage.getItem('port')
+  if (!host && !port) return import.meta.env.VITE_API_BASE_URL || '/api/v1'
+  return `http://${host || 'localhost'}:${port || '8080'}/api/v1`
+}
 
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getBaseURL(),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -11,8 +16,11 @@ export const apiClient: AxiosInstance = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
+    // Dynamically resolve baseURL in case sessionStorage was updated after client creation
+    config.baseURL = getBaseURL()
+
     // Add auth token if available
-    const token = localStorage.getItem('authToken')
+    const token = sessionStorage.getItem('authToken')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -27,7 +35,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('authToken')
+      sessionStorage.removeItem('authToken')
     }
     return Promise.reject(error)
   },

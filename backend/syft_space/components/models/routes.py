@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from syft_space.components.auth.public import public_route
 from syft_space.components.models.handlers import ModelHandler
 from syft_space.components.models.schemas import (
     CreateModelRequest,
@@ -167,13 +168,14 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
         """
         return await handler.delete_model(name, tenant)
 
+    @public_route
     @router.get("/{name}/health", response_model=HealthcheckResponse)
     async def healthcheck(
         name: str,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: ModelHandler = Depends(get_handler),
     ) -> HealthcheckResponse:
-        """Check the health of a model.
+        """Check the health of a model (PUBLIC, no auth required).
 
         Args:
             name: Model name

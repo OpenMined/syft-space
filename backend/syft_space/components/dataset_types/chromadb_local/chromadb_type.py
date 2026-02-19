@@ -1,13 +1,17 @@
 """ChromaDB local dataset type implementation."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import os
 import re
 import threading
 import uuid
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path as SyncPath
+from types import ModuleType
 from typing import Any
 
 from anyio import Path as AsyncPath
@@ -28,13 +32,35 @@ from syft_space.components.shared.domain_types import (
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 
-try:
-    import chromadb
-    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
-    enabled = True
-except ImportError:
-    enabled = False
+def _import_chromadb() -> ModuleType:
+    try:
+        import chromadb
+
+        return chromadb
+    except ImportError as e:
+        raise ImportError("chromadb required") from e
+
+
+def _import_embedding_fn():
+    try:
+        from chromadb.utils.embedding_functions import (
+            ONNXMiniLM_L6_V2,
+        )
+
+        return ONNXMiniLM_L6_V2
+    except ImportError as e:
+        raise ImportError("chromadb required for embeddings") from e
+
+
+@lru_cache
+def _chromadb_available() -> bool:
+    try:
+        _import_chromadb()
+        return True
+    except ImportError:
+        return False
+
 
 DEFAULT_HTTP_PORT = 8100
 DEFAULT_SIMILARITY_THRESHOLD = 0.5
@@ -67,7 +93,6 @@ class ChromaDBLocalConfiguration(BaseModel):
     collection_name: str = Field(
         ...,
         alias="collectionName",
-        default_factory=lambda: f"Collection_{uuid.uuid4().hex[:8]}",
         description="Name of the ChromaDB collection (alphanumeric and underscores only)",
     )
     http_port: int = Field(
@@ -124,7 +149,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         # Lazy initialization (instance-level)
         self._converter = None
         self._embedding_fn = None
-        self._client: chromadb.AsyncClientAPI | None = None
+        self._client: chromadb.AsyncClientAPI | None = None  # noqa: F821
         self._client_lock = asyncio.Lock()  # Instance-level lock for client
 
     @property
@@ -141,14 +166,13 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                     self._converter = DocumentConverter()
         return self._converter
 
-    async def get_client(self) -> "chromadb.AsyncClientAPI":
+    async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
         """Get or create the ChromaDB async client.
 
         Uses a cached client instance to avoid connection accumulation.
         Thread-safe via async lock.
         """
-        if not enabled:
-            raise ImportError("chromadb required")
+        chromadb = _import_chromadb()
 
         if self._client is None:
             async with self._client_lock:
@@ -207,6 +231,13 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Raises:
             ValueError: If configuration is invalid
         """
+        # Generate collectionName if not provided
+        collection_name = configuration.get("collectionName") or configuration.get(
+            "collection_name"
+        )
+        if collection_name is None:
+            configuration["collectionName"] = uuid.uuid4().hex
+
         try:
             config = ChromaDBLocalConfiguration.model_validate(configuration)
         except ValidationError as e:
@@ -245,15 +276,12 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Thread-safe lazy initialization ensures model loading
         happens in the thread pool, not blocking the event loop.
         """
-        if not enabled:
-            raise ImportError("chromadb required for embeddings")
+        ONNXMiniLM_L6_V2 = _import_embedding_fn()
 
         if self._embedding_fn is None:
             with self._embedding_fn_lock:
                 if self._embedding_fn is None:
-                    self._embedding_fn = SentenceTransformerEmbeddingFunction(
-                        model_name=EMBEDDING_MODEL
-                    )
+                    self._embedding_fn = ONNXMiniLM_L6_V2()
         return self._embedding_fn(texts)
 
     def _parse_document(self, file: IngestFile) -> dict[str, Any]:
@@ -294,7 +322,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
             ctx: Request context with sender information
             request: Ingest request with files to process
         """
-        if not enabled:
+        if not _chromadb_available():
             raise ImportError("ChromaDB and docling are required for ingestion")
 
         client = await self.get_client()
@@ -350,7 +378,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Returns:
             SearchResult with matching documents
         """
-        if not enabled:
+        if not _chromadb_available():
             raise ImportError("ChromaDB is required for search")
 
         if params is None:
@@ -435,7 +463,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Returns:
             True if chromadb and docling are installed
         """
-        return enabled
+        return _chromadb_available()
 
     @classmethod
     def connection_fields(cls) -> list[str]:
@@ -459,7 +487,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         """
         heartbeat = None
 
-        if not enabled:
+        if not _chromadb_available():
             return HealthcheckResponse(
                 status=HealthcheckStatus.UNHEALTHY,
                 message="ChromaDB dependencies not installed",
