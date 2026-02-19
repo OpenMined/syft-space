@@ -165,7 +165,6 @@
               <VueMarkdown
                 :source="state.releaseNotes"
                 :options="{ linkify: true, breaks: true }"
-                @click="handleMarkdownClick"
               />
             </div>
 
@@ -310,7 +309,6 @@ import { Button } from '@/components/ui/button'
 import VueMarkdown from 'vue-markdown-render'
 import BackgroundGradients from '@/components/logo/BackgroundGradients.vue'
 import IconGhost from '@/components/logo/IconGhost.vue'
-import { useOpenPath } from '@/composables/useOpenPath'
 
 enum UpdateType {
   checking = 'checking',
@@ -367,8 +365,6 @@ const initialState: UpdateWindowState = {
 
 const state = reactive<UpdateWindowState>({ ...initialState })
 const animatedProgress = ref(0)
-const { openPath } = useOpenPath()
-
 let unlisten: (() => void) | undefined
 
 watch(
@@ -390,17 +386,6 @@ watch(
     }
   },
 )
-
-const handleMarkdownClick = (event: MouseEvent) => {
-  const target = event.target as HTMLElement
-  if (target.tagName === 'A') {
-    event.preventDefault()
-    const href = target.getAttribute('href')
-    if (href) {
-      openPath(href)
-    }
-  }
-}
 
 const onUpdate = () => {
   state.updateWindowType = UpdateType.downloading
