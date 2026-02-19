@@ -38,7 +38,11 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 RUN uv venv /app/.venv --python python${PYTHON_VERSION} && \
     uv pip install --python /app/.venv/bin/python -e "./backend"
 
-# 2. Install optional deps (markitdown, chromadb, weaviate-client)
+# 2. Install CPU-only PyTorch (avoids 4GB+ CUDA packages)
+RUN uv pip install --python /app/.venv/bin/python \
+    torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# 3. Install heavy optional deps (docling will use existing torch)
 RUN uv pip install --python /app/.venv/bin/python -e "./backend[libs]"
 
 # ============================================================================
@@ -52,6 +56,14 @@ RUN apk update && apk add --no-cache \
     python-${PYTHON_VERSION} \
     docker-cli \
     docker-compose \
+    # Required for docling document processing
+    libxcb \
+    libglvnd \
+    glib \
+    freetype \
+    fontconfig \
+    libxml2 \
+    libxslt \
     && mkdir -p /usr/local/lib/docker/cli-plugins \
     && ln -s /usr/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
 
