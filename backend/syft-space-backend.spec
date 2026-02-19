@@ -32,8 +32,6 @@ a = Analysis(
     datas=[
         ('syft_space/alembic.ini', 'syft_space'),
         ('syft_space/alembic', 'syft_space/alembic'),
-        ('syft_space/components/dataset_types/weaviate_local/docker-compose.yml',
-        'syft_space/components/dataset_types/weaviate_local'),
         *(data for pkg in PACKAGES_WITH_DATA for data in collect_data_files(pkg)),
     ],
     hiddenimports=[
