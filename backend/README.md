@@ -75,7 +75,7 @@ curl -X POST http://localhost:8080/api/v1/datasets/ \
   -H "Content-Type: application/json" \
   -d '{
     "name": "my-docs",
-    "dtype": "weaviate_local",
+    "dtype": "local_file",
     "configuration": {
       "httpPort": 8081,
       "grpcPort": 50051,
@@ -149,7 +149,7 @@ backend/
 │       ├── auth/                  # Authentication & authorization
 │       ├── datasets/              # Dataset CRUD & management
 │       ├── dataset_types/         # Dataset type implementations
-│       │   ├── weaviate_local/    # Local Weaviate (Docker)
+│       │   ├──chormadb_local/     # Local Chromadb
 │       │   └── weaviate_remote/   # Remote Weaviate
 │       ├── models/                # Model CRUD & management
 │       ├── model_types/           # Model type implementations
@@ -402,7 +402,7 @@ For creating new migrations or advanced workflows, see the [Migrations Guide](./
 
 Dataset types define how to connect to vector databases:
 
-- **`weaviate_local`**: Provisions a Docker container running Weaviate. Automatically manages lifecycle (start/stop).
+- **`local_file`**: Uses a local ChromaDB instance for vector storage. Automatically manages lifecycle (start/stop).
 - **`weaviate_remote`**: Connects to an existing remote Weaviate instance.
 
 ### Model Types

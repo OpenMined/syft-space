@@ -52,6 +52,19 @@
         ></div>
         Loading...
       </div>
+      <div
+        v-else-if="node.permissionDenied"
+        class="flex items-center gap-2 px-2 py-1 text-sm text-amber-600 dark:text-amber-400"
+        :style="{ paddingLeft: `${(depth + 1) * 20}px` }"
+      >
+        <div class="w-6 h-6 flex items-center justify-center flex-shrink-0">
+          <ShieldAlert class="w-4 h-4" />
+        </div>
+        <span class="flex-1">Permission required</span>
+        <Button variant="outline" size="sm" @click.stop="$emit('retry-permission', node)">
+          Grant Access
+        </Button>
+      </div>
       <TreeNode
         v-else
         v-for="child in node.children"
@@ -65,6 +78,7 @@
         @toggle-selection="
           (paths: string[], selected: boolean) => $emit('toggle-selection', paths, selected)
         "
+        @retry-permission="(node: FileNode) => $emit('retry-permission', node)"
       />
     </div>
   </div>
@@ -73,8 +87,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import TreeNode from './FileExplorerTreeNode.vue'
-import { ChevronRight } from 'lucide-vue-next'
+import { ChevronRight, ShieldAlert } from 'lucide-vue-next'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Button } from '@/components/ui/button'
 import { useFileIcon } from '@/composables/useFileIcon'
 
 interface FileNode {
@@ -86,6 +101,7 @@ interface FileNode {
   children?: FileNode[]
   isLoading?: boolean
   hasLoaded?: boolean
+  permissionDenied?: boolean
 }
 
 const props = withDefaults(
@@ -104,6 +120,7 @@ const emit = defineEmits<{
   'toggle-dir': [node: FileNode]
   'toggle-file': [path: string, event: MouseEvent]
   'toggle-selection': [paths: string[], selected: boolean]
+  'retry-permission': [node: FileNode]
 }>()
 
 const isExpanded = computed(() => props.expandedDirs.has(props.node.path))

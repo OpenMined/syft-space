@@ -145,8 +145,15 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  // Skip server readiness and onboarding checks for the updates page
+  if (to.name === 'updates') {
+    next()
+    return
+  }
+
   // Wait for backend to be available before checking onboarding
   const serverStore = useServerAvailabilityStore()
+  serverStore.startPolling()
   await serverStore.waitUntilReady()
 
   // Skip onboarding check for the onboarding page itself

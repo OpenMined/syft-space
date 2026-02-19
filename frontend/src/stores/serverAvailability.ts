@@ -32,8 +32,8 @@ export const useServerAvailabilityStore = defineStore('serverAvailability', () =
 
   async function checkHealth(): Promise<boolean> {
     try {
-      await apiClient.get('/health')
-      return true
+      const response = await apiClient.get('/health')
+      return response.data?.status === 'healthy'
     } catch {
       return false
     }

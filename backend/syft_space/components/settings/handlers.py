@@ -172,7 +172,7 @@ class SettingsHandler:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
         await self.sync_public_url_to_marketplace(marketplace, public_url)
-        self.proxy_service.log_connection_info(app_settings.admin_api_key)
+        self.proxy_service.log_connection_info()
 
         return ProxyStatusResponse(
             connected=True, public_url=public_url, has_token=True

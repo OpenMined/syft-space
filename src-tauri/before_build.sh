@@ -21,31 +21,48 @@ if [ ! -f "$PROCESS_WICK_PATH" ]; then
     mkdir -p "$(dirname "$PROCESS_WICK_PATH")"
     echo "Downloading process-wick for $TARGET_TRIPLE..."
     curl -fsSL -o "$PROCESS_WICK_PATH" \
-        "https://github.com/itstauq/process-wick/releases/latest/download/process-wick-${TARGET_TRIPLE}${EXE_EXT}"
+    "https://github.com/itstauq/process-wick/releases/latest/download/process-wick-${TARGET_TRIPLE}${EXE_EXT}"
     chmod +x "$PROCESS_WICK_PATH"
     echo "process-wick downloaded to $PROCESS_WICK_PATH"
 else
     echo "process-wick already present"
 fi
 
-# 2. Build backend with PyInstaller
+# 2. Build backend with PyInstaller (--onedir mode via .spec)
 cd "$PROJECT_ROOT"
-uv run pyinstaller backend/syft-space-backend.spec
+uv run pyinstaller --noconfirm backend/syft-space-backend.spec
 
-# 3. On macOS, codesign the PyInstaller binary with entitlements to allow
-#    loading the embedded Python library (which has a different Team ID).
-#    Without this, macOS library validation blocks the Python dylib at runtime.
+# 3. Copy the onedir output to src-tauri/target/syft-space-backend-dist/
+BACKEND_DIST="src-tauri/target/syft-space-backend-dist"
+rm -rf "$BACKEND_DIST"
+mkdir -p "$BACKEND_DIST"
+# -L dereferences symlinks so Tauri's fs::copy won't break them later
+cp -RL dist/syft-space-backend/* "$BACKEND_DIST/"
+chmod +x "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
+
+# 4. On macOS, codesign all binaries for notarization.
 if [[ "$TARGET_TRIPLE" == *"apple"* ]]; then
     ENTITLEMENTS="$PROJECT_ROOT/src-tauri/entitlements.plist"
     SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
-    echo "Codesigning PyInstaller binary with entitlements (identity: $SIGN_IDENTITY)..."
+    
+    # Remove .framework bundles — cp -RL breaks their internal symlink structure,
+    # making them fail notarization. The standalone binaries (e.g. _internal/Python)
+    # are already independent copies and sufficient for runtime.
+    find "$BACKEND_DIST" -type d -name "*.framework" -exec rm -rf {} +
+    
+    echo "Codesigning PyInstaller onedir output (identity: $SIGN_IDENTITY)..."
+    find "$BACKEND_DIST" -type f ! -name "syft-space-backend" | while read -r f; do
+        if file "$f" | grep -q "Mach-O"; then
+            codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
+            --sign "$SIGN_IDENTITY" "$f"
+        fi
+    done
+    
+    # Sign main executable last
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" \
-        --sign "$SIGN_IDENTITY" "dist/syft-space-backend${EXE_EXT}"
+    --sign "$SIGN_IDENTITY" "$BACKEND_DIST/syft-space-backend${EXE_EXT}"
+    echo "Codesigning complete."
 fi
 
-# 4. Copy backend binary with target triple suffix
-mkdir -p src-tauri/target
-cp "dist/syft-space-backend${EXE_EXT}" "src-tauri/target/syft-space-backend-${TARGET_TRIPLE}${EXE_EXT}"
-
 # 5. Build frontend
-VITE_API_BASE_URL=http://localhost:8080/api/v1 bun run --cwd frontend build
+bun run --cwd frontend build

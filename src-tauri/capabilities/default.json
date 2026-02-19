@@ -9,6 +9,7 @@
     "core:default",
     "shell:allow-execute",
     "shell:allow-spawn",
-    "shell:allow-stdin-write"
+    "shell:allow-stdin-write",
+    "shell:allow-open"
   ]
 }

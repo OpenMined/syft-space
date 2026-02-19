@@ -59,7 +59,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install backend dependencies
-        run: uv pip install -e "backend/.[build]" --system
+        run: uv pip install -e "backend/.[build,libs]" --system
 
       - name: install frontend dependencies
         run: bun install --cwd frontend
