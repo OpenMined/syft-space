@@ -30,8 +30,7 @@ fi
 
 # 2. Build backend with PyInstaller (--onedir mode via .spec)
 cd "$PROJECT_ROOT"
-rm -rf dist/syft-space-backend build/syft-space-backend
-uv run pyinstaller backend/syft-space-backend.spec
+uv run pyinstaller --noconfirm backend/syft-space-backend.spec
 
 # 3. Copy the onedir output to src-tauri/target/syft-space-backend-dist/
 BACKEND_DIST="src-tauri/target/syft-space-backend-dist"

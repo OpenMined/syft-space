@@ -39,6 +39,16 @@
                 <div v-if="isInitialLoading" class="flex items-center justify-center h-[200px]">
                   <div class="text-muted-foreground">Loading files...</div>
                 </div>
+                <div
+                  v-else-if="rootPermissionDenied"
+                  class="flex items-center gap-2 p-4 text-sm text-amber-600 dark:text-amber-400"
+                >
+                  <ShieldAlert class="w-4 h-4 flex-shrink-0" />
+                  <span class="flex-1">Permission required to access home directory</span>
+                  <Button variant="outline" size="sm" @click="retryRootDirectory">
+                    Grant Access
+                  </Button>
+                </div>
                 <div v-else-if="error" class="p-4 text-sm text-destructive">
                   Error loading files: {{ error }}
                 </div>
@@ -55,6 +65,7 @@
                   @toggle-dir="toggleDirectory"
                   @toggle-file="toggleFile"
                   @toggle-selection="toggleSelection"
+                  @retry-permission="retryDirectory"
                 />
               </div>
             </ScrollArea>
@@ -126,7 +137,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { HardDrive, X } from 'lucide-vue-next'
+import { HardDrive, ShieldAlert, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -150,8 +161,16 @@ const selectedFiles = computed({
 const expandedDirs = ref<Set<string>>(new Set())
 
 const { getFileIcon, getFileIconColor } = useFileIcon()
-const { rootNodes, error, isInitialLoading, loadRootDirectory, loadSubdirectory } =
-  useDatasetBrowser()
+const {
+  rootNodes,
+  error,
+  isInitialLoading,
+  rootPermissionDenied,
+  loadRootDirectory,
+  loadSubdirectory,
+  retryDirectory,
+  retryRootDirectory,
+} = useDatasetBrowser()
 
 // Load initial data on mount
 onMounted(async () => {

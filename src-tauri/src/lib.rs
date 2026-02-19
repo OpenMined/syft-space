@@ -55,6 +55,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::update_window_response,
             commands::get_window_state,
+            commands::reset_tcc_permission,
         ])
         .plugin(
             tauri_plugin_log::Builder::default()
