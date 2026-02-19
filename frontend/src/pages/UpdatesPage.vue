@@ -15,7 +15,7 @@
       </div>
 
       <div class="relative z-10">
-        <!-- SyftBox Logo -->
+        <!-- Logo -->
         <div class="flex items-center">
           <IconGhost :width="60" :height="60" />
           <div class="ml-3">
@@ -71,7 +71,7 @@
               </div>
               <div>
                 <h3 class="text-primary text-xl font-bold">Update Available</h3>
-                <p class="text-muted-foreground">SyftBox {{ state.version }} is ready to install</p>
+                <p class="text-muted-foreground">Syft Space {{ state.version }} is ready to install</p>
               </div>
             </div>
 
@@ -84,7 +84,7 @@
               <div>
                 <h3 class="text-primary text-xl font-bold">You're Up To Date</h3>
                 <p class="text-muted-foreground">
-                  SyftBox {{ state.currentVersion }} is the latest version
+                  Syft Space {{ state.currentVersion }} is the latest version
                 </p>
               </div>
             </div>
@@ -109,7 +109,7 @@
               </div>
               <div>
                 <h3 class="text-primary text-xl font-bold">Downloading Update</h3>
-                <p class="text-muted-foreground">SyftBox {{ state.version }} is being downloaded</p>
+                <p class="text-muted-foreground">Syft Space {{ state.version }} is being downloaded</p>
               </div>
             </div>
 
@@ -133,7 +133,7 @@
               </div>
               <div>
                 <h3 class="text-primary text-xl font-bold">Checking for Updates</h3>
-                <p class="text-muted-foreground">Looking for the latest version of SyftBox</p>
+                <p class="text-muted-foreground">Looking for the latest version of Syft Space</p>
               </div>
             </div>
           </div>
@@ -200,7 +200,7 @@
                 </div>
               </div>
               <p class="text-muted-foreground mt-4">
-                Downloading SyftBox {{ state.version }}... {{ animatedProgress }}%
+                Downloading Syft Space {{ state.version }}... {{ animatedProgress }}%
               </p>
               <div class="mt-6 flex justify-center">
                 <div class="animate-spin">
@@ -227,7 +227,7 @@
               </Transition>
               <h3 class="text-primary mt-6 text-xl font-medium">You're all set!</h3>
               <p class="text-muted-foreground mt-2">
-                SyftBox {{ state.currentVersion }} is the latest version available.
+                Syft Space {{ state.currentVersion }} is the latest version available.
               </p>
             </div>
 
