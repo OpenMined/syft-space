@@ -1,7 +1,11 @@
 """Main FastAPI application."""
 
-# Configure unified logging FIRST, before any other imports
-# ruff: noqa: E402
+import os
+
+# Disable ChromaDB's PostHog telemetry — transitive dependency, no user consent.
+# Must be set before any chromadb import.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
