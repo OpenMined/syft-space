@@ -10,6 +10,7 @@ import threading
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from syft_space.components.dataset_types.interfaces import IngestFile
 
@@ -26,11 +27,11 @@ def build_image_urls(collection_name: str, doc_id: str, picture_ids: str) -> lis
     Args:
         collection_name: Dataset collection name (partition key)
         doc_id: Hash-based document identifier
-        picture_ids: Comma-separated picture filenames (e.g. "picture_0.png,picture_1.png")
+        picture_ids: Comma-separated picture filenames (e.g. "ab12cd34ef56.png,...")
 
     Returns:
         List of URI paths like
-        ["/api/v1/datasets/images/{collection_name}/{doc_id}/picture_0.png", ...]
+        ["/api/v1/datasets/images/{collection_name}/{doc_id}/{uuid_hex}.png", ...]
     """
     urls: list[str] = []
     if not doc_id or not collection_name:
@@ -79,9 +80,10 @@ class DocumentChunker:
         if DocumentChunker._converter is None:
             with self._converter_lock:
                 if DocumentChunker._converter is None:
-                    pipeline_options = PdfPipelineOptions()
-                    pipeline_options.generate_picture_images = True
-                    pipeline_options.images_scale = 2.0
+                    pipeline_options = PdfPipelineOptions(
+                        generate_picture_images=True,
+                        images_scale=2.0,
+                    )
                     DocumentChunker._converter = DocumentConverter(
                         format_options={
                             InputFormat.PDF: PdfFormatOption(
@@ -137,8 +139,6 @@ class DocumentChunker:
                 file_type: MIME type
                 file_size: size in bytes
         """
-        from docling_core.types.doc.document import PictureItem
-
         stream = BytesIO(file.file_handle.read())
         ext = Path(file.filename).suffix.lower()
         doc_id = hashlib.sha256(file.filename.encode()).hexdigest()[:16]
@@ -172,10 +172,10 @@ class DocumentChunker:
 
         # Save extracted pictures and map to pages
         picture_page_map: dict[int, list[str]] = {}
-        for i, picture in enumerate(doc.pictures):
+        for picture in doc.pictures:
             pil_image = picture.get_image(doc)
             if pil_image:
-                pic_filename = f"picture_{i}.png"
+                pic_filename = f"{uuid4().hex}.png"
                 pil_image.save(images_dir / pic_filename, "PNG")
                 if picture.prov:
                     for prov in picture.prov:
@@ -200,19 +200,6 @@ class DocumentChunker:
             chunk_picture_ids: list[str] = []
             for pn in page_numbers:
                 chunk_picture_ids.extend(picture_page_map.get(pn, []))
-
-            # Also check if any doc_items are directly PictureItems
-            for item in chunk.meta.doc_items:
-                if isinstance(item, PictureItem):
-                    pil_img = item.get_image(doc)
-                    if pil_img:
-                        pic_hash = hashlib.sha256(pil_img.tobytes()).hexdigest()[:12]
-                        pic_filename = f"picture_{pic_hash}.png"
-                        pic_path = images_dir / pic_filename
-                        if not pic_path.exists():
-                            pil_img.save(pic_path, "PNG")
-                        chunk_picture_ids.append(pic_filename)
-
             chunk_picture_ids = sorted(set(chunk_picture_ids))
 
             chunks.append(

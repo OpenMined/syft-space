@@ -924,8 +924,8 @@ class DatasetHandler:
         if not re.match(r"^[a-f0-9]{16}$", doc_id):
             raise HTTPException(status_code=400, detail="Invalid document ID format")
 
-        # Validate filename format: picture_N.png or picture_HASH.png
-        if not re.match(r"^(picture_\d+|picture_[a-f0-9]{1,12})\.png$", filename):
+        # Validate filename format: {uuid_hex}.png (32-char lowercase hex)
+        if not re.match(r"^[a-f0-9]{32}\.png$", filename):
             raise HTTPException(status_code=400, detail="Invalid filename format")
 
         # Resolve path and prevent traversal

@@ -125,7 +125,7 @@ def build_dataset_routes(
         Args:
             collection_name: Dataset collection name (partition key)
             doc_id: Hash-based document identifier (16-char hex)
-            filename: Image filename (e.g., page_1.png, picture_0.png)
+            filename: Image filename (32-char hex UUID, e.g., a1b2c3d4e5f67890abcdef1234567890.png)
 
         Returns:
             PNG image file
