@@ -254,7 +254,7 @@ def build_dataset_routes(
         Admin endpoint to manually start a provisioner.
 
         Args:
-            dtype: Dataset type name (e.g., 'weaviate_local')
+            dtype: Dataset type name (e.g., 'local_file')
             config: Optional configuration with connection settings (httpPort, grpcPort, etc.)
 
         Returns:
@@ -273,7 +273,7 @@ def build_dataset_routes(
         The provisioner state record is kept for later restart.
 
         Args:
-            dtype: Dataset type name (e.g., 'weaviate_local')
+            dtype: Dataset type name (e.g., 'local_file')
 
         Returns:
             Action response with message and status
@@ -291,7 +291,7 @@ def build_dataset_routes(
         Only succeeds if no datasets are attached to this provisioner.
 
         Args:
-            dtype: Dataset type name (e.g., 'weaviate_local')
+            dtype: Dataset type name (e.g., 'local_file')
 
         Returns:
             Action response with message and status
