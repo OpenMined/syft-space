@@ -100,6 +100,11 @@ class AsyncDatabase:
                 cursor.close()
                 # logger.debug("SQLite PRAGMA foreign_keys=ON set for new connection")
 
+    async def dispose(self) -> None:
+        """Dispose of the engine and close all pooled connections."""
+        await self.engine.dispose()
+        logger.info("Database engine disposed")
+
     @asynccontextmanager
     async def get_session(self) -> AsyncGenerator[SQLModelAsyncSession, None]:
         """Get an async session for the database"""
