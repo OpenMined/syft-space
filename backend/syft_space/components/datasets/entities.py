@@ -85,7 +85,10 @@ class Dataset(SQLModel, table=True):
     tenant: "Tenant" = Relationship(back_populates="datasets")
     endpoints: list["Endpoint"] = Relationship(
         back_populates="dataset",
-        sa_relationship_kwargs={"foreign_keys": "[Endpoint.dataset_id]"},
+        sa_relationship_kwargs={
+            "foreign_keys": "[Endpoint.dataset_id]",
+            "cascade": "all, delete",
+        },
     )
 
     class Config:
