@@ -519,13 +519,13 @@ class DatasetHandler:
         # Clean up dataset type resources (collection, images) before deleting the record
         try:
             dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
-            if dataset.provisioner_state_id and isinstance(
+            if dataset.provisioner_state_id and issubclass(
                 dataset_type_cls, IngestableDatasetType
             ):
                 dataset_type = dataset_type_cls(dataset.configuration)
                 ctx = IngestContext(
                     sender="system@openmined.org",
-                    dataset_id=str(dataset.id),
+                    dataset_id=dataset.id,
                 )
                 await dataset_type.delete(ctx)
         except KeyError:

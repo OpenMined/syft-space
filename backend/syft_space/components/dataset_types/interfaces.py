@@ -3,6 +3,7 @@
 from io import BytesIO
 from tempfile import SpooledTemporaryFile
 from typing import Any, BinaryIO, Protocol
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -12,13 +13,13 @@ from syft_space.components.shared.domain_types import Context, HealthcheckRespon
 class SearchContext(Context):
     """Context for search requests."""
 
-    dataset_id: str = Field(..., description="Unique identifier for the dataset")
+    dataset_id: UUID = Field(..., description="Unique identifier for the dataset")
 
 
 class IngestContext(Context):
     """Context for ingestion requests."""
 
-    dataset_id: str = Field(..., description="Unique identifier for the dataset")
+    dataset_id: UUID = Field(..., description="Unique identifier for the dataset")
 
 
 class SearchParameters(BaseModel):
