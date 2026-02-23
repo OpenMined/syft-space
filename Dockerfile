@@ -87,6 +87,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import os; import urllib.request; urllib.request.urlopen(f'http://localhost:{os.getenv(\"SYFT_PORT\", \"8080\")}/health')" || exit 1
+    CMD python -c "import os; import urllib.request; urllib.request.urlopen(f'http://localhost:{os.getenv(\"SYFT_PORT\", \"8080\")}/api/v1/health')" || exit 1
 
 ENTRYPOINT ["/bin/sh", "-c", "exec python -m uvicorn syft_space.main:app --host 0.0.0.0 --port ${SYFT_PORT:-8080}"]

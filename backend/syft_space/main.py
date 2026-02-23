@@ -298,6 +298,9 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error shutting down {name}: {e}")
 
+    # 9. Dispose database engine (close all pooled connections)
+    await database.dispose()
+
 
 # Initialize FastAPI app
 app = FastAPI(
