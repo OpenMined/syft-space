@@ -43,6 +43,7 @@ onUnmounted(() => {
 const serverStore = useServerAvailabilityStore()
 
 const isUpdatesPage = computed(() => route.name === 'updates')
+const isAboutPage = computed(() => route.name === 'about')
 
 const showNavbar = computed(
   () =>
@@ -50,6 +51,7 @@ const showNavbar = computed(
     !route.path.startsWith('/create/') &&
     !route.path.startsWith('/experimental') &&
     !isUpdatesPage.value &&
+    !isAboutPage.value &&
     route.name !== 'onboarding',
 )
 
@@ -69,7 +71,7 @@ watch(
 </script>
 
 <template>
-  <SplashScreen v-if="!serverStore.isReady && !isUpdatesPage" :is-slow="serverStore.isSlow" />
+  <SplashScreen v-if="!serverStore.isReady && !isUpdatesPage && !isAboutPage" :is-slow="serverStore.isSlow" />
   <div v-else class="min-h-screen bg-background text-foreground">
     <AppNavbar v-if="showNavbar" />
 

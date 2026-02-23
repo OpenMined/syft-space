@@ -12,6 +12,7 @@ import ModelDetailPage from '../pages/ModelDetailPage.vue'
 import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
 import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
 import UpdatesPage from '../pages/UpdatesPage.vue'
+import AboutPage from '../pages/AboutPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
@@ -110,6 +111,11 @@ const router = createRouter({
       component: UpdatesPage,
     },
     {
+      path: '/about',
+      name: 'about',
+      component: AboutPage,
+    },
+    {
       path: '/onboarding',
       name: 'onboarding',
       component: OnboardingPage,
@@ -145,8 +151,8 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
-  // Skip server readiness and onboarding checks for the updates page
-  if (to.name === 'updates') {
+  // Skip server readiness and onboarding checks for standalone windows
+  if (to.name === 'updates' || to.name === 'about') {
     next()
     return
   }
