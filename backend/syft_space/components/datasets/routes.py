@@ -110,12 +110,14 @@ def build_dataset_routes(
 
     # ============== Image Serving Endpoint ==============
 
+    @public_route
     @router.get("/{dataset_id}/images/{doc_id}/{filename}")
     async def serve_image(
         dataset_id: str,
         doc_id: str,
         filename: str,
         handler: DatasetHandler = Depends(get_handler),
+        tenant: Tenant = Depends(get_tenant_dependency),
     ) -> FileResponse:
         """Serve a document image (page render or extracted picture).
 
@@ -132,7 +134,7 @@ def build_dataset_routes(
         Returns:
             PNG image file
         """
-        image_path = await handler.serve_image(dataset_id, doc_id, filename)
+        image_path = await handler.serve_image(dataset_id, doc_id, filename, tenant)
         return FileResponse(image_path, media_type="image/png")
 
     # ============== Dataset CRUD Endpoints ==============

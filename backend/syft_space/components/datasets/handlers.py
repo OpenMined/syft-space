@@ -4,11 +4,13 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
 from loguru import logger
 
 from syft_space.components.dataset_types.chunking import PAGE_IMAGES_BASE_DIR
+from syft_space.components.dataset_types.interfaces import IngestContext
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import (
     Dataset,
@@ -515,6 +517,12 @@ class DatasetHandler:
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
+        if dataset.provisioner_state_id:
+            # Delete the dataset type partition
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+            dataset_type = dataset_type_cls(dataset.configuration)
+            await dataset_type.delete(IngestContext(dataset_id=str(dataset.id)))
+
         return {"message": f"Successfully deleted dataset '{name}'"}
 
     async def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
@@ -896,17 +904,19 @@ class DatasetHandler:
             items=items,
         )
 
-    async def serve_image(self, dataset_id: str, doc_id: str, filename: str) -> Path:
+    async def serve_image(
+        self, dataset_id: str, doc_id: str, filename: str, tenant: Tenant
+    ) -> Path:
         """Validate and return the filesystem path for a document image.
 
         Resolves dataset_id to collection_name internally so that collection
         names are never exposed in public URLs.
 
         Args:
-            dataset_id: Dataset UUID (resolved to collection_name internally)
+            dataset_id: Dataset ID
             doc_id: Hash-based document identifier (16-char hex)
             filename: Image filename (32-char hex UUID .png)
-
+            tenant: Tenant
         Returns:
             Resolved Path to the image file
 
@@ -930,9 +940,7 @@ class DatasetHandler:
             raise HTTPException(status_code=400, detail="Invalid filename format")
 
         # Resolve dataset_id to collection_name via the dataset type
-        from uuid import UUID
-
-        dataset = await self.repository.get_by_id_unchecked(UUID(dataset_id))
+        dataset = await self.repository.get_by_id(UUID(dataset_id), tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail="Dataset not found")
 
