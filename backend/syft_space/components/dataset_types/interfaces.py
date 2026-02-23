@@ -3,10 +3,23 @@
 from io import BytesIO
 from tempfile import SpooledTemporaryFile
 from typing import Any, BinaryIO, Protocol
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from syft_space.components.shared.domain_types import Context, HealthcheckResponse
+
+
+class SearchContext(Context):
+    """Context for search requests."""
+
+    dataset_id: UUID = Field(..., description="Unique identifier for the dataset")
+
+
+class IngestContext(Context):
+    """Context for ingestion requests."""
+
+    dataset_id: UUID = Field(..., description="Unique identifier for the dataset")
 
 
 class SearchParameters(BaseModel):
@@ -140,12 +153,12 @@ class BaseDatasetType(Protocol):
         ...
 
     async def search(
-        self, ctx: Context, query: str, params: SearchParameters | None = None
+        self, ctx: SearchContext, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
         """Search the dataset for the given query.
 
         Args:
-            ctx: Request context with sender information
+            ctx: Search context with dataset identifier
             query: Search query string
             params: Optional search parameters
 
@@ -199,12 +212,20 @@ class IngestableDatasetType(BaseDatasetType):
     For file-based ingestion with watching, see FileIngestableDatasetType.
     """
 
-    async def ingest(self, ctx: Context, request: IngestRequest) -> None:
+    async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
         """Ingest data into the dataset.
 
         Args:
-            ctx: Request context with sender information
+            ctx: Ingest context with dataset identifier
             request: Ingest request with files to add
+        """
+        ...
+
+    async def delete(self, ctx: IngestContext) -> None:
+        """Delete data from the dataset.
+
+        Args:
+            ctx: Ingest context with dataset identifier
         """
         ...
 

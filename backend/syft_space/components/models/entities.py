@@ -43,7 +43,10 @@ class Model(SQLModel, table=True):
     tenant: "Tenant" = Relationship(back_populates="models")
     endpoints: list["Endpoint"] = Relationship(
         back_populates="model",
-        sa_relationship_kwargs={"foreign_keys": "[Endpoint.model_id]"},
+        sa_relationship_kwargs={
+            "foreign_keys": "[Endpoint.model_id]",
+            "cascade": "all, delete",
+        },
     )
 
     class Config:

@@ -4,6 +4,7 @@ from typing import Any
 
 from syft_space.components.model_types.interfaces import (
     BaseModelType,
+    ChatContext,
     ChatMessage,
     ChatMessageResult,
     ChatParameters,
@@ -11,7 +12,6 @@ from syft_space.components.model_types.interfaces import (
     TokenUsage,
 )
 from syft_space.components.shared.domain_types import (
-    Context,
     HealthcheckResponse,
     HealthcheckStatus,
 )
@@ -110,14 +110,14 @@ class OpenAIModelType(BaseModelType):
 
     async def chat(
         self,
-        ctx: Context,
+        ctx: ChatContext,
         messages: list[ChatMessage],
         params: ChatParameters | None = None,
     ) -> ChatResult:
         """Chat with the OpenAI model.
 
         Args:
-            ctx: Request context with sender information
+            ctx: Chat context with model identifier
             messages: List of chat messages
             params: Optional chat parameters
 

@@ -1,12 +1,19 @@
 """Dataset handlers for business logic."""
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
 from loguru import logger
 
+from syft_space.components.dataset_types.chunking import PAGE_IMAGES_BASE_DIR
+from syft_space.components.dataset_types.interfaces import (
+    IngestableDatasetType,
+    IngestContext,
+)
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import (
     Dataset,
@@ -509,6 +516,25 @@ class DatasetHandler:
                 f"Dataset '{name}' was linked to provisioner, keeping provisioner running"
             )
 
+        # Clean up dataset type resources (collection, images) before deleting the record
+        try:
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+            if dataset.provisioner_state_id and issubclass(
+                dataset_type_cls, IngestableDatasetType
+            ):
+                dataset_type = dataset_type_cls(dataset.configuration)
+                ctx = IngestContext(
+                    sender="system@openmined.org",
+                    dataset_id=dataset.id,
+                )
+                await dataset_type.delete(ctx)
+        except KeyError:
+            logger.warning(
+                f"Dataset type '{dataset.dtype}' not registered, skipping resource cleanup"
+            )
+        except Exception as e:
+            logger.error(f"Failed to clean up resources for dataset '{name}': {e}")
+
         deleted = await self.repository.delete_by_name(name, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
@@ -893,3 +919,69 @@ class DatasetHandler:
             parent=parent,
             items=items,
         )
+
+    async def serve_image(
+        self, dataset_id: str, doc_id: str, filename: str, tenant: Tenant
+    ) -> Path:
+        """Validate and return the filesystem path for a document image.
+
+        Resolves dataset_id to collection_name internally so that collection
+        names are never exposed in public URLs.
+
+        Args:
+            dataset_id: Dataset ID
+            doc_id: Hash-based document identifier (16-char hex)
+            filename: Image filename (32-char hex UUID .png)
+            tenant: Tenant
+        Returns:
+            Resolved Path to the image file
+
+        Raises:
+            HTTPException 400: If any parameter format is invalid
+            HTTPException 404: If the dataset or image file does not exist
+        """
+        # Validate dataset_id format: UUID hex (32 chars or with dashes)
+        if not re.match(
+            r"^[a-f0-9]{8}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{12}$",
+            dataset_id,
+        ):
+            raise HTTPException(status_code=400, detail="Invalid dataset ID format")
+
+        # Validate doc_id format: 16-char lowercase hex
+        if not re.match(r"^[a-f0-9]{16}$", doc_id):
+            raise HTTPException(status_code=400, detail="Invalid document ID format")
+
+        # Validate filename format: {uuid_hex}.png (32-char lowercase hex)
+        if not re.match(r"^[a-f0-9]{32}\.png$", filename):
+            raise HTTPException(status_code=400, detail="Invalid filename format")
+
+        # Resolve dataset_id to collection_name via the dataset type
+        dataset = await self.repository.get_by_id(UUID(dataset_id), tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+
+        try:
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        except KeyError:
+            raise HTTPException(
+                status_code=400, detail=f"Dataset type '{dataset.dtype}' not registered"
+            ) from None
+
+        dataset_instance = dataset_type_cls(dataset.configuration)
+        collection_name = getattr(dataset_instance, "collection_name", None)
+        if not collection_name:
+            raise HTTPException(
+                status_code=404, detail="Dataset has no collection configured"
+            )
+
+        # Resolve path and prevent traversal
+        image_path = (
+            PAGE_IMAGES_BASE_DIR / collection_name / doc_id / filename
+        ).resolve()
+        if not image_path.is_relative_to(PAGE_IMAGES_BASE_DIR.resolve()):
+            raise HTTPException(status_code=400, detail="Invalid path")
+
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        return image_path

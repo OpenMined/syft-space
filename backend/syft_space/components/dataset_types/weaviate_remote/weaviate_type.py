@@ -7,12 +7,12 @@ from pydantic import BaseModel, Field, HttpUrl, ValidationError
 
 from syft_space.components.dataset_types.interfaces import (
     BaseDatasetType,
+    SearchContext,
     SearchedDocument,
     SearchParameters,
     SearchResult,
 )
 from syft_space.components.shared.domain_types import (
-    Context,
     HealthcheckResponse,
     HealthcheckStatus,
 )
@@ -122,12 +122,12 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
         return self.config.collection_name
 
     async def search(
-        self, ctx: Context, query: str, params: SearchParameters | None = None
+        self, ctx: SearchContext, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
         """Search the dataset for the given query.
 
         Args:
-            ctx: Request context with sender information
+            ctx: Search context with dataset identifier
             query: Search query string
             params: Optional search parameters
 
@@ -215,7 +215,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
         """Check if this dataset type is enabled.
 
         Returns:
-            True if weaviate and docling are installed
+            True if weaviate is installed
         """
         return enabled
 

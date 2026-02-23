@@ -116,8 +116,11 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
             True if deleted, False if not found
         """
         async with self.db.get_session() as session:
-            statement = select(Dataset).where(
-                Dataset.name == name, Dataset.tenant_id == tenant_id
+            statement = (
+                select(Dataset)
+                .where(Dataset.name == name, Dataset.tenant_id == tenant_id)
+                .options(selectinload(Dataset.endpoints))
+                .with_for_update()
             )
             result = await session.exec(statement)
             obj = result.first()

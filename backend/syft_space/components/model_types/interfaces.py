@@ -7,6 +7,12 @@ from pydantic import BaseModel, Field
 from syft_space.components.shared.domain_types import Context, HealthcheckResponse
 
 
+class ChatContext(Context):
+    """Context for chat requests."""
+
+    model_id: str = Field(..., description="Unique identifier for the model")
+
+
 class ChatMessage(BaseModel):
     """Domain model for a chat message."""
 
@@ -121,14 +127,14 @@ class BaseModelType(Protocol):
 
     async def chat(
         self,
-        ctx: Context,
+        ctx: ChatContext,
         messages: list[ChatMessage],
         params: ChatParameters | None = None,
     ) -> ChatResult:
         """Chat with the model.
 
         Args:
-            ctx: Request context with sender information
+            ctx: Chat context with model identifier
             messages: List of chat messages
             params: Optional chat parameters
 

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import re
 import threading
 import uuid
 from functools import lru_cache
-from io import BytesIO
 from pathlib import Path as SyncPath
 from types import ModuleType
 from typing import Any
@@ -17,16 +15,20 @@ from typing import Any
 from anyio import Path as AsyncPath
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from syft_space.components.dataset_types.chunking import (
+    DocumentChunker,
+    build_image_urls,
+)
 from syft_space.components.dataset_types.interfaces import (
     FileIngestableDatasetType,
-    IngestFile,
+    IngestContext,
     IngestRequest,
+    SearchContext,
     SearchedDocument,
     SearchParameters,
     SearchResult,
 )
 from syft_space.components.shared.domain_types import (
-    Context,
     HealthcheckResponse,
     HealthcheckStatus,
 )
@@ -133,8 +135,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
 
     NAME = "local_file"
 
-    # Class-level locks for thread-safe lazy initialization (shared resources)
-    _converter_lock = threading.Lock()
+    # Class-level lock for thread-safe lazy initialization
     _embedding_fn_lock = threading.Lock()
 
     def __init__(self, config: dict[str, Any]) -> None:
@@ -147,24 +148,12 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         self.config = ChromaDBLocalConfiguration.model_validate(config)
 
         # Lazy initialization (instance-level)
-        self._converter = None
         self._embedding_fn = None
         self._client: chromadb.AsyncClientAPI | None = None  # noqa: F821
         self._client_lock = asyncio.Lock()  # Instance-level lock for client
 
-    @property
-    def converter(self):
-        """Lazily initialize DocumentConverter on first use.
-
-        Thread-safe via double-checked locking.
-        """
-        from docling.document_converter import DocumentConverter
-
-        if self._converter is None:
-            with self._converter_lock:
-                if self._converter is None:
-                    self._converter = DocumentConverter()
-        return self._converter
+        # Shared chunking pipeline
+        self._document_chunker = DocumentChunker()
 
     async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
         """Get or create the ChromaDB async client.
@@ -284,46 +273,19 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                     self._embedding_fn = ONNXMiniLM_L6_V2()
         return self._embedding_fn(texts)
 
-    def _parse_document(self, file: IngestFile) -> dict[str, Any]:
-        """Parse the document into a dictionary.
+    async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
+        """Ingest files into ChromaDB collection as chunks.
+
+        Each file is parsed into multiple chunks via the shared DocumentChunker.
+        Each chunk is stored as a separate vector with metadata linking back
+        to the source document and page numbers.
 
         Args:
-            file: IngestFile to parse
-
-        Returns:
-            Dictionary with parsed document content and metadata
-        """
-        from docling.document_converter import DocumentStream
-
-        # Convert the file to a document stream
-        stream = BytesIO(file.file_handle.read())
-
-        # If the file is a JSON or TXT file, read the content directly
-        if SyncPath(file.filename).suffix.lower() in [".json", ".txt"]:
-            content = stream.read().decode("utf-8")
-        else:
-            # Otherwise, convert the file to a document stream and export to markdown
-            document_stream = DocumentStream(name=file.filename, stream=stream)
-            conv_result = self.converter.convert(document_stream)
-            content = conv_result.document.export_to_markdown()
-
-        # Return the parsed document content and metadata
-        return {
-            "content": content,
-            "file_name": file.filename,
-            "file_type": file.content_type,
-            "file_size": file.file_size or 0,
-        }
-
-    async def ingest(self, ctx: Context, request: IngestRequest) -> None:
-        """Ingest files into ChromaDB collection.
-
-        Args:
-            ctx: Request context with sender information
+            ctx: Ingest context with dataset identifier
             request: Ingest request with files to process
         """
         if not _chromadb_available():
-            raise ImportError("ChromaDB and docling are required for ingestion")
+            raise ImportError("ChromaDB is required for ingestion")
 
         client = await self.get_client()
 
@@ -338,45 +300,159 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
             if ext not in self.allowed_extensions():
                 raise ValueError(f"Unsupported file type: {ext}")
 
-            # Run CPU-bound docling parsing in executor to avoid blocking event loop
-            parsed_doc = await asyncio.to_thread(self._parse_document, file)
-
-            # Generate embeddings in executor (CPU-bound)
-            embeddings = await asyncio.to_thread(
-                self._generate_embeddings, [parsed_doc["content"]]
+            # Run CPU-bound parsing in executor to avoid blocking event loop
+            chunks = await asyncio.to_thread(
+                self._document_chunker.parse_document,
+                file,
+                self.collection_name,
             )
 
-            # Generate unique ID based on filename and content hash
-            doc_id = hashlib.sha256(
-                f"{file.filename}:{parsed_doc['content'][:100]}".encode()
-            ).hexdigest()[:32]
+            await self._store_chunks(collection, chunks)
 
-            # Add to collection
+    async def _store_chunks(self, collection, chunks: list[dict]) -> None:
+        """Embed and store chunks with neighbor references in ChromaDB.
+
+        Each chunk gets prev/next pointers so the search method can fetch
+        surrounding context in a single batch call.
+        """
+        if not chunks:
+            return
+
+        doc_id = chunks[0]["doc_id"]
+        chunk_ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
+
+        for i, chunk in enumerate(chunks):
+            prev_chunk_id = chunk_ids[i - 1] if i > 0 else ""
+            next_chunk_id = chunk_ids[i + 1] if i < len(chunks) - 1 else ""
+
+            embeddings = await asyncio.to_thread(
+                self._generate_embeddings, [chunk["embedding_text"]]
+            )
+
             await collection.add(
-                ids=[doc_id],
-                documents=[parsed_doc["content"]],
+                ids=[chunk_ids[i]],
+                documents=[chunk["text"]],
                 embeddings=embeddings,
                 metadatas=[
                     {
-                        "file_name": parsed_doc["file_name"],
-                        "file_type": parsed_doc["file_type"] or "",
-                        "file_size": parsed_doc["file_size"],
+                        "doc_id": doc_id,
+                        "chunk_index": i,
+                        "prev_chunk_id": prev_chunk_id,
+                        "next_chunk_id": next_chunk_id,
+                        "file_name": chunk["file_name"],
+                        "file_type": chunk["file_type"] or "",
+                        "file_size": chunk["file_size"],
+                        "page_numbers": ",".join(map(str, chunk["page_numbers"])),
+                        "headings": " > ".join(chunk["headings"]),
+                        "picture_ids": ",".join(chunk["picture_ids"]),
                     }
                 ],
             )
 
+    def _process_query_results(
+        self,
+        results: dict,
+        dataset_id: str,
+        similarity_threshold: float,
+    ) -> tuple[list[SearchedDocument], set[str]]:
+        """Convert raw ChromaDB query results into SearchedDocuments.
+
+        Applies similarity threshold filtering and builds image URLs.
+
+        Returns:
+            Tuple of (matched documents, set of matched chunk IDs).
+        """
+        documents: list[SearchedDocument] = []
+        matched_ids: set[str] = set()
+
+        if not results["ids"] or not results["ids"][0]:
+            return documents, matched_ids
+
+        for i, doc_id in enumerate(results["ids"][0]):
+            distance = results["distances"][0][i] if results["distances"] else 0.0
+
+            # ChromaDB cosine distance: 0 = identical, 2 = opposite
+            similarity_score = 1.0 - (distance / 2.0)
+
+            if similarity_score <= similarity_threshold:
+                continue
+
+            matched_ids.add(doc_id)
+            content = results["documents"][0][i] if results["documents"] else ""
+            metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+
+            # Add image URLs to metadata
+            metadata["image_urls"] = build_image_urls(
+                dataset_id,
+                metadata.get("doc_id", ""),
+                metadata.get("picture_ids", ""),
+            )
+
+            documents.append(
+                SearchedDocument(
+                    document_id=doc_id,
+                    content=content,
+                    metadata=metadata,
+                    similarity_score=similarity_score,
+                )
+            )
+
+        return documents, matched_ids
+
+    @staticmethod
+    async def _enrich_with_neighbor_context(
+        collection,
+        documents: list[SearchedDocument],
+        matched_ids: set[str],
+    ) -> None:
+        """Fetch prev/next chunk text and attach to each matched document.
+
+        Skips neighbors that are themselves already in the matched set
+        to avoid redundant content.
+        """
+        neighbor_ids: set[str] = set()
+        for doc in documents:
+            for key in ("prev_chunk_id", "next_chunk_id"):
+                nid = doc.metadata.get(key, "")
+                if nid and nid not in matched_ids:
+                    neighbor_ids.add(nid)
+
+        neighbor_map: dict[str, str] = {}
+        if neighbor_ids:
+            neighbors = await collection.get(
+                ids=list(neighbor_ids),
+                include=["documents"],
+            )
+            if neighbors["ids"]:
+                for nid, ndoc in zip(
+                    neighbors["ids"], neighbors["documents"] or [], strict=False
+                ):
+                    neighbor_map[nid] = ndoc or ""
+
+        for doc in documents:
+            doc.metadata["prev_context"] = neighbor_map.get(
+                doc.metadata.get("prev_chunk_id", ""), ""
+            )
+            doc.metadata["next_context"] = neighbor_map.get(
+                doc.metadata.get("next_chunk_id", ""), ""
+            )
+
     async def search(
-        self, ctx: Context, query: str, params: SearchParameters | None = None
+        self, ctx: SearchContext, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
-        """Search the ChromaDB collection for similar documents.
+        """Search the ChromaDB collection for matching chunks.
+
+        Returns top-k matching chunks enriched with neighboring chunk text
+        for better RAG context. Image URLs use dataset_id to avoid leaking
+        internal collection names.
 
         Args:
-            ctx: Request context with sender information
+            ctx: Search context with dataset identifier
             query: Search query string
             params: Optional search parameters
 
         Returns:
-            SearchResult with matching documents
+            SearchResult with matching document chunks
         """
         if not _chromadb_available():
             raise ImportError("ChromaDB is required for search")
@@ -393,64 +469,36 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         try:
             client = await self.get_client()
 
-            # Try to get collection
             try:
                 collection = await client.get_collection(name=self.collection_name)
             except Exception:
-                # Collection doesn't exist
                 return SearchResult(
                     documents=[],
                     metadata={"count": 0, "error": "Collection not found"},
                 )
 
-            # Generate query embedding in executor (CPU-bound)
             query_embedding = await asyncio.to_thread(
                 self._generate_embeddings, [query]
             )
 
-            # Query with embedding
             results = await collection.query(
                 query_embeddings=query_embedding,
                 n_results=params.limit,
                 include=["documents", "metadatas", "distances"],
             )
 
-            documents = []
+            documents, matched_ids = self._process_query_results(
+                results, ctx.dataset_id, similarity_threshold
+            )
 
-            # Process results (ChromaDB returns nested lists)
-            if results["ids"] and results["ids"][0]:
-                for i, doc_id in enumerate(results["ids"][0]):
-                    distance = (
-                        results["distances"][0][i] if results["distances"] else 0.0
-                    )
-
-                    # Convert distance to similarity score
-                    # ChromaDB cosine distance: 0 = identical, 2 = opposite
-                    # Similarity = 1 - (distance / 2)
-                    similarity_score = 1.0 - (distance / 2.0)
-
-                    # Apply similarity threshold filter
-                    if similarity_score < similarity_threshold:
-                        continue
-
-                    content = results["documents"][0][i] if results["documents"] else ""
-                    metadata = (
-                        results["metadatas"][0][i] if results["metadatas"] else {}
-                    )
-
-                    documents.append(
-                        SearchedDocument(
-                            document_id=doc_id,
-                            content=content,
-                            metadata=metadata,
-                            similarity_score=similarity_score,
-                        )
-                    )
+            if documents:
+                await self._enrich_with_neighbor_context(
+                    collection, documents, matched_ids
+                )
 
             return SearchResult(documents=documents, metadata={"count": len(documents)})
 
         except Exception as e:
-            # Handle connection errors
             return SearchResult(
                 documents=[],
                 metadata={"count": 0, "error": str(e)},
@@ -461,7 +509,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         """Check if this dataset type is enabled.
 
         Returns:
-            True if chromadb and docling are installed
+            True if chromadb is installed
         """
         return _chromadb_available()
 
@@ -511,4 +559,29 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         return HealthcheckResponse(
             status=HealthcheckStatus.UNHEALTHY,
             message="ChromaDB is unhealthy",
+        )
+
+    async def delete(self, ctx: IngestContext) -> None:
+        """Delete the entire ChromaDB collection and its page images.
+
+        Since each dataset owns its own collection, deletion drops the
+        entire collection rather than filtering by dataset_id.
+
+        Args:
+            ctx: Ingest context with dataset identifier
+        """
+        if not _chromadb_available():
+            raise ImportError("ChromaDB is required for deletion")
+
+        client = await self.get_client()
+
+        try:
+            await client.delete_collection(name=self.collection_name)
+        except Exception as e:
+            raise ValueError(f"Error deleting collection: {str(e)}") from e
+
+        # Remove all page images for this collection
+        await asyncio.to_thread(
+            self._document_chunker.purge_page_images,
+            self.collection_name,
         )
