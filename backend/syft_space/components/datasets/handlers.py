@@ -10,7 +10,10 @@ from fastapi import HTTPException
 from loguru import logger
 
 from syft_space.components.dataset_types.chunking import PAGE_IMAGES_BASE_DIR
-from syft_space.components.dataset_types.interfaces import IngestContext
+from syft_space.components.dataset_types.interfaces import (
+    IngestableDatasetType,
+    IngestContext,
+)
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import (
     Dataset,
@@ -513,15 +516,28 @@ class DatasetHandler:
                 f"Dataset '{name}' was linked to provisioner, keeping provisioner running"
             )
 
+        # Clean up dataset type resources (collection, images) before deleting the record
+        try:
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+            if dataset.provisioner_state_id and isinstance(
+                dataset_type_cls, IngestableDatasetType
+            ):
+                dataset_type = dataset_type_cls(dataset.configuration)
+                ctx = IngestContext(
+                    sender="system@openmined.org",
+                    dataset_id=str(dataset.id),
+                )
+                await dataset_type.delete(ctx)
+        except KeyError:
+            logger.warning(
+                f"Dataset type '{dataset.dtype}' not registered, skipping resource cleanup"
+            )
+        except Exception as e:
+            logger.error(f"Failed to clean up resources for dataset '{name}': {e}")
+
         deleted = await self.repository.delete_by_name(name, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
-
-        if dataset.provisioner_state_id:
-            # Delete the dataset type partition
-            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
-            dataset_type = dataset_type_cls(dataset.configuration)
-            await dataset_type.delete(IngestContext(dataset_id=str(dataset.id)))
 
         return {"message": f"Successfully deleted dataset '{name}'"}
 
