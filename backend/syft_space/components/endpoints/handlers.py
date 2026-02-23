@@ -7,7 +7,10 @@ from fastapi import HTTPException
 from loguru import logger
 
 from syft_space.components.dataset_types.interfaces import SearchParameters
-from syft_space.components.dataset_types.registry import DatasetTypeRegistry
+from syft_space.components.dataset_types.registry import (
+    DatasetTypeRegistry,
+    SearchContext,
+)
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint, ResponseType
 from syft_space.components.endpoints.repository import EndpointRepository
@@ -34,7 +37,11 @@ from syft_space.components.endpoints.schemas import (
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.marketplaces.utils import ensure_valid_accounting_credentials
-from syft_space.components.model_types.interfaces import ChatMessage, ChatParameters
+from syft_space.components.model_types.interfaces import (
+    ChatContext,
+    ChatMessage,
+    ChatParameters,
+)
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.policies.repository import PolicyRepository
@@ -43,7 +50,6 @@ from syft_space.components.policy_types.interfaces import (
     PolicyViolationError,
 )
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
-from syft_space.components.shared.domain_types import Context
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
 
@@ -390,7 +396,7 @@ class EndpointHandler:
             query = user_messages[-1].content if user_messages else ""
 
         # Search with verified sender email
-        ctx = Context(sender=request.sender_email)
+        ctx = SearchContext(sender=request.sender_email, dataset_id=dataset.id)
         search_params = SearchParameters(
             similarity_threshold=request.similarity_threshold,
             limit=request.limit,
@@ -481,7 +487,7 @@ class EndpointHandler:
             messages.insert(0, context_message)
 
         # Chat with verified sender email
-        ctx = Context(sender=request.sender_email)
+        ctx = ChatContext(sender=request.sender_email, model_id=model.id)
         chat_params = ChatParameters(
             temperature=request.temperature,
             max_tokens=request.max_tokens,

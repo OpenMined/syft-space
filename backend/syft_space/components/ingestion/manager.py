@@ -20,7 +20,11 @@ from loguru import logger
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from syft_space.components.dataset_types.interfaces import IngestFile, IngestRequest
+from syft_space.components.dataset_types.interfaces import (
+    IngestContext,
+    IngestFile,
+    IngestRequest,
+)
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import Dataset
 from syft_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
@@ -28,7 +32,6 @@ from syft_space.components.ingestion.event_bridge import EventBridge
 from syft_space.components.ingestion.events import FileEvent, FileEventType
 from syft_space.components.ingestion.repository import IngestionJobRepository
 from syft_space.components.ingestion.utils import rglob_visible
-from syft_space.components.shared.domain_types import Context
 from syft_space.components.shared.lifecycle import LifecycleService
 
 if TYPE_CHECKING:
@@ -507,7 +510,7 @@ class IngestionManager(LifecycleService):
             ingest_request = IngestRequest(files=[ingest_file])
 
             # Create context (use system context for background ingestion)
-            ctx = Context(sender="system@openmined.org")
+            ctx = IngestContext(sender="system@openmined.org", dataset_id=dataset.id)
 
             # Call ingest (native async)
             await dataset_type.ingest(ctx, ingest_request)

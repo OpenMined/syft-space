@@ -896,29 +896,30 @@ class DatasetHandler:
             items=items,
         )
 
-    def serve_image(self, collection_name: str, doc_id: str, filename: str) -> Path:
+    async def serve_image(self, dataset_id: str, doc_id: str, filename: str) -> Path:
         """Validate and return the filesystem path for a document image.
 
-        Used by the image-serving endpoint to securely resolve image paths.
-        Follows the same security pattern as browse_directory.
+        Resolves dataset_id to collection_name internally so that collection
+        names are never exposed in public URLs.
 
         Args:
-            collection_name: Dataset collection name (partition key)
+            dataset_id: Dataset UUID (resolved to collection_name internally)
             doc_id: Hash-based document identifier (16-char hex)
-            filename: Image filename (picture_N.png)
+            filename: Image filename (32-char hex UUID .png)
 
         Returns:
             Resolved Path to the image file
 
         Raises:
             HTTPException 400: If any parameter format is invalid
-            HTTPException 404: If the image file does not exist
+            HTTPException 404: If the dataset or image file does not exist
         """
-        # Validate collection_name: alphanumeric and underscores only
-        if not re.match(r"^[a-zA-Z0-9_]+$", collection_name):
-            raise HTTPException(
-                status_code=400, detail="Invalid collection name format"
-            )
+        # Validate dataset_id format: UUID hex (32 chars or with dashes)
+        if not re.match(
+            r"^[a-f0-9]{8}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{12}$",
+            dataset_id,
+        ):
+            raise HTTPException(status_code=400, detail="Invalid dataset ID format")
 
         # Validate doc_id format: 16-char lowercase hex
         if not re.match(r"^[a-f0-9]{16}$", doc_id):
@@ -927,6 +928,27 @@ class DatasetHandler:
         # Validate filename format: {uuid_hex}.png (32-char lowercase hex)
         if not re.match(r"^[a-f0-9]{32}\.png$", filename):
             raise HTTPException(status_code=400, detail="Invalid filename format")
+
+        # Resolve dataset_id to collection_name via the dataset type
+        from uuid import UUID
+
+        dataset = await self.repository.get_by_id_unchecked(UUID(dataset_id))
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+
+        try:
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        except KeyError:
+            raise HTTPException(
+                status_code=400, detail=f"Dataset type '{dataset.dtype}' not registered"
+            ) from None
+
+        dataset_instance = dataset_type_cls(dataset.configuration)
+        collection_name = getattr(dataset_instance, "collection_name", None)
+        if not collection_name:
+            raise HTTPException(
+                status_code=404, detail="Dataset has no collection configured"
+            )
 
         # Resolve path and prevent traversal
         image_path = (

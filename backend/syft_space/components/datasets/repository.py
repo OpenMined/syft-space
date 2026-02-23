@@ -62,6 +62,23 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
             result = await session.exec(statement)
             return list(result.all())
 
+    async def get_by_id_unchecked(self, id: UUID) -> Dataset | None:
+        """Get a dataset by ID without tenant authorization.
+
+        Used for public endpoints (e.g., image serving) where tenant context
+        is not available. Do NOT use for endpoints that require authorization.
+
+        Args:
+            id: Dataset UUID
+
+        Returns:
+            Dataset if found, None otherwise
+        """
+        async with self.db.get_session() as session:
+            statement = select(Dataset).where(Dataset.id == id)
+            result = await session.exec(statement)
+            return result.first()
+
     async def get_by_id(self, id: UUID, tenant_id: UUID) -> Dataset | None:
         """Get a dataset by ID within a tenant.
 

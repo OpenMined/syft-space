@@ -110,9 +110,9 @@ def build_dataset_routes(
 
     # ============== Image Serving Endpoint ==============
 
-    @router.get("/images/{collection_name}/{doc_id}/{filename}")
+    @router.get("/{dataset_id}/images/{doc_id}/{filename}")
     async def serve_image(
-        collection_name: str,
+        dataset_id: str,
         doc_id: str,
         filename: str,
         handler: DatasetHandler = Depends(get_handler),
@@ -121,16 +121,18 @@ def build_dataset_routes(
 
         Images are saved to disk during ingestion and served via this endpoint.
         Search results return URIs pointing here so clients can fetch images.
+        Uses dataset_id (not collection_name) in the URL to avoid leaking
+        internal collection names.
 
         Args:
-            collection_name: Dataset collection name (partition key)
+            dataset_id: Dataset UUID (resolved to collection_name internally)
             doc_id: Hash-based document identifier (16-char hex)
             filename: Image filename (32-char hex UUID, e.g., a1b2c3d4e5f67890abcdef1234567890.png)
 
         Returns:
             PNG image file
         """
-        image_path = handler.serve_image(collection_name, doc_id, filename)
+        image_path = await handler.serve_image(dataset_id, doc_id, filename)
         return FileResponse(image_path, media_type="image/png")
 
     # ============== Dataset CRUD Endpoints ==============

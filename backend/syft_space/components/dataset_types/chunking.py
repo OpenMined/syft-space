@@ -5,7 +5,7 @@ dataset types (ChromaDB, Weaviate, etc.). Each dataset type handles
 its own DB-specific storage and retrieval.
 """
 
-import hashlib
+import shutil
 import threading
 from io import BytesIO
 from pathlib import Path
@@ -18,28 +18,31 @@ from syft_space.components.dataset_types.interfaces import IngestFile
 PAGE_IMAGES_BASE_DIR = Path.home() / ".syft-space" / "page_images"
 
 # API route prefix for serving document images
-IMAGE_ENDPOINT_PREFIX = "/api/v1/datasets/images"
+IMAGE_ENDPOINT_PREFIX = "/api/v1/datasets"
 
 
-def build_image_urls(collection_name: str, doc_id: str, picture_ids: str) -> list[str]:
+def build_image_urls(dataset_id: str, doc_id: str, picture_ids: str) -> list[str]:
     """Build image endpoint URLs from chunk metadata.
 
+    Uses dataset_id (not collection_name) in URLs to avoid leaking
+    internal collection names in public-facing responses.
+
     Args:
-        collection_name: Dataset collection name (partition key)
+        dataset_id: Dataset identifier (public-facing key)
         doc_id: Hash-based document identifier
         picture_ids: Comma-separated picture filenames (e.g. "ab12cd34ef56.png,...")
 
     Returns:
         List of URI paths like
-        ["/api/v1/datasets/images/{collection_name}/{doc_id}/{uuid_hex}.png", ...]
+        ["/api/v1/datasets/{dataset_id}/images/{doc_id}/{uuid_hex}.png", ...]
     """
     urls: list[str] = []
-    if not doc_id or not collection_name:
+    if not doc_id or not dataset_id:
         return urls
     for pic in picture_ids.split(","):
         if pic.strip():
             urls.append(
-                f"{IMAGE_ENDPOINT_PREFIX}/{collection_name}/{doc_id}/{pic.strip()}"
+                f"{IMAGE_ENDPOINT_PREFIX}/{dataset_id}/images/{doc_id}/{pic.strip()}"
             )
     return urls
 
@@ -131,7 +134,7 @@ class DocumentChunker:
             List of chunk dicts, each with keys:
                 text: clean text for storage/display
                 embedding_text: heading-enriched text for embedding
-                doc_id: hash-based document identifier
+                doc_id: unique document identifier (UUID-based)
                 page_numbers: list[int] of referenced pages
                 headings: list[str] of section headings
                 picture_ids: list[str] of extracted picture filenames
@@ -141,7 +144,7 @@ class DocumentChunker:
         """
         stream = BytesIO(file.file_handle.read())
         ext = Path(file.filename).suffix.lower()
-        doc_id = hashlib.sha256(file.filename.encode()).hexdigest()[:16]
+        doc_id = uuid4().hex[:16]
 
         # Simple text files - no Docling overhead needed
         if ext in [".json", ".txt"]:
@@ -217,3 +220,9 @@ class DocumentChunker:
             )
 
         return chunks
+
+    def purge_page_images(self, collection_name: str) -> None:
+        """Purge all page images for a collection."""
+        page_images_dir = PAGE_IMAGES_BASE_DIR / collection_name
+        if page_images_dir.exists():
+            shutil.rmtree(page_images_dir)
