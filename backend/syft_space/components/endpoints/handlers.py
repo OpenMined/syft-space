@@ -6,11 +6,11 @@ from uuid import UUID
 from fastapi import HTTPException
 from loguru import logger
 
-from syft_space.components.dataset_types.interfaces import SearchParameters
-from syft_space.components.dataset_types.registry import (
-    DatasetTypeRegistry,
+from syft_space.components.dataset_types.interfaces import (
     SearchContext,
+    SearchParameters,
 )
+from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint, ResponseType
 from syft_space.components.endpoints.repository import EndpointRepository
