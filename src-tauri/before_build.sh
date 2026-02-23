@@ -35,7 +35,7 @@ fi
 cd "$PROJECT_ROOT"
 
 # 1. Fetch process-wick if not present
-PROCESS_WICK_PATH="$(dirname "$0")/target/process-wick-${TARGET_TRIPLE}${EXE_EXT}"
+PROCESS_WICK_PATH="src-tauri/target/process-wick-${TARGET_TRIPLE}${EXE_EXT}"
 if [ ! -f "$PROCESS_WICK_PATH" ]; then
     mkdir -p "$(dirname "$PROCESS_WICK_PATH")"
     echo "Downloading process-wick for $TARGET_TRIPLE..."
