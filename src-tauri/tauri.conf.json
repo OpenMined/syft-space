@@ -58,7 +58,7 @@
         "sidebarImage": "./images/nsis-background.bmp"
       }
     },
-    "targets": ["app", "appimage", "deb", "dmg", "nsis", "rpm"]
+    "targets": ["app", "deb", "dmg", "nsis", "rpm"]
   },
   "plugins": {
     "updater": {
