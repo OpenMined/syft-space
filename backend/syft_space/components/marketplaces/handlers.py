@@ -16,9 +16,7 @@ from syft_space.components.marketplaces.schemas import (
     RegisterMarketplaceRequest,
     TransactionResponse,
 )
-from syft_space.components.marketplaces.utils import (
-    ensure_valid_accounting_credentials,
-)
+from syft_space.components.marketplaces.utils import ensure_valid_accounting_credentials
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings

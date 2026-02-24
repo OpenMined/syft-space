@@ -71,7 +71,9 @@
               </div>
               <div>
                 <h3 class="text-primary text-xl font-bold">Update Available</h3>
-                <p class="text-muted-foreground">Syft Space {{ state.version }} is ready to install</p>
+                <p class="text-muted-foreground">
+                  Syft Space {{ state.version }} is ready to install
+                </p>
               </div>
             </div>
 
@@ -109,7 +111,9 @@
               </div>
               <div>
                 <h3 class="text-primary text-xl font-bold">Downloading Update</h3>
-                <p class="text-muted-foreground">Syft Space {{ state.version }} is being downloaded</p>
+                <p class="text-muted-foreground">
+                  Syft Space {{ state.version }} is being downloaded
+                </p>
               </div>
             </div>
 

@@ -375,6 +375,240 @@
 
           <Separator />
 
+          <!-- Search Filters Section -->
+          <div class="space-y-6">
+            <div class="flex items-center gap-2 mb-4">
+              <Filter class="w-5 h-5 text-primary" />
+              <h2 class="heading-3 text-foreground">Search Filters</h2>
+              <Badge variant="outline" class="text-muted-foreground"> Optional </Badge>
+            </div>
+
+            <p class="text-sm text-muted-foreground">
+              Define filters to always apply when searching this collection. Filters narrow results
+              by property values.
+            </p>
+
+            <!-- Filter Mode Selector -->
+            <div class="flex gap-2">
+              <Button
+                v-for="mode in filterModes"
+                :key="mode.value"
+                :variant="filterMode === mode.value ? 'default' : 'outline'"
+                size="sm"
+                @click="filterMode = mode.value"
+              >
+                {{ mode.label }}
+              </Button>
+            </div>
+
+            <!-- Single Condition -->
+            <div v-if="filterMode === 'condition'" class="space-y-3">
+              <div class="flex gap-2 items-end">
+                <div class="flex-1 space-y-1">
+                  <Label class="text-xs text-muted-foreground">Property</Label>
+                  <Input
+                    v-model="singleCondition.property"
+                    placeholder="e.g., status"
+                    class="font-mono"
+                  />
+                </div>
+                <div class="w-40 space-y-1">
+                  <Label class="text-xs text-muted-foreground">Operator</Label>
+                  <Select v-model="singleCondition.op">
+                    <SelectTrigger class="font-mono">
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        v-for="op in filterOperators"
+                        :key="op.value"
+                        :value="op.value"
+                        class="font-mono"
+                      >
+                        {{ op.label }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div class="flex-1 space-y-1">
+                  <Label class="text-xs text-muted-foreground">Value</Label>
+                  <Input
+                    v-model="singleCondition.value"
+                    placeholder="e.g., published"
+                    class="font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- Group -->
+            <div v-if="filterMode === 'group'" class="space-y-4">
+              <!-- Top-level logical operator -->
+              <div class="w-32 space-y-1">
+                <Label class="text-xs text-muted-foreground">Combine with</Label>
+                <Select v-model="filterGroup.op">
+                  <SelectTrigger class="font-mono font-semibold">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="and" class="font-mono">AND</SelectItem>
+                    <SelectItem value="or" class="font-mono">OR</SelectItem>
+                    <SelectItem value="not" class="font-mono">NOT</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <!-- Operands -->
+              <div class="space-y-3">
+                <div
+                  v-for="(operand, index) in filterGroup.operands"
+                  :key="index"
+                  :class="[
+                    'relative',
+                    operand.type === 'group'
+                      ? 'p-4 border border-border rounded-lg bg-muted/30'
+                      : '',
+                  ]"
+                >
+                  <!-- Condition operand -->
+                  <div v-if="operand.type === 'condition'" class="flex gap-2 items-end">
+                    <div class="flex-1 space-y-1">
+                      <Label class="text-xs text-muted-foreground">Property</Label>
+                      <Input
+                        v-model="operand.property"
+                        placeholder="e.g., status"
+                        class="font-mono"
+                      />
+                    </div>
+                    <div class="w-40 space-y-1">
+                      <Label class="text-xs text-muted-foreground">Operator</Label>
+                      <Select v-model="operand.op">
+                        <SelectTrigger class="font-mono">
+                          <SelectValue placeholder="Select..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem
+                            v-for="op in filterOperators"
+                            :key="op.value"
+                            :value="op.value"
+                            class="font-mono"
+                          >
+                            {{ op.label }}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div class="flex-1 space-y-1">
+                      <Label class="text-xs text-muted-foreground">Value</Label>
+                      <Input
+                        v-model="operand.value"
+                        placeholder="e.g., published"
+                        class="font-mono"
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      @click="removeGroupOperand(index)"
+                      class="text-muted-foreground hover:text-destructive"
+                    >
+                      <X class="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <!-- Sub-group operand -->
+                  <div v-if="operand.type === 'group'" class="space-y-3">
+                    <div class="flex items-center justify-between">
+                      <div class="w-32 space-y-1">
+                        <Label class="text-xs text-muted-foreground">Sub-group</Label>
+                        <Select v-model="operand.op">
+                          <SelectTrigger class="font-mono font-semibold">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="and" class="font-mono">AND</SelectItem>
+                            <SelectItem value="or" class="font-mono">OR</SelectItem>
+                            <SelectItem value="not" class="font-mono">NOT</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        @click="removeGroupOperand(index)"
+                        class="text-muted-foreground hover:text-destructive"
+                      >
+                        <X class="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <!-- Sub-group conditions -->
+                    <div
+                      v-for="(subCond, subIndex) in operand.operands"
+                      :key="subIndex"
+                      class="flex gap-2 items-end"
+                    >
+                      <div class="flex-1 space-y-1">
+                        <Label class="text-xs text-muted-foreground">Property</Label>
+                        <Input
+                          v-model="subCond.property"
+                          placeholder="e.g., category"
+                          class="font-mono"
+                        />
+                      </div>
+                      <div class="w-40 space-y-1">
+                        <Label class="text-xs text-muted-foreground">Operator</Label>
+                        <Select v-model="subCond.op">
+                          <SelectTrigger class="font-mono">
+                            <SelectValue placeholder="Select..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem
+                              v-for="op in filterOperators"
+                              :key="op.value"
+                              :value="op.value"
+                              class="font-mono"
+                            >
+                              {{ op.label }}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div class="flex-1 space-y-1">
+                        <Label class="text-xs text-muted-foreground">Value</Label>
+                        <Input v-model="subCond.value" placeholder="e.g., news" class="font-mono" />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        @click="removeSubGroupCondition(index, subIndex)"
+                        class="text-muted-foreground hover:text-destructive"
+                      >
+                        <X class="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <Button variant="outline" size="sm" @click="addSubGroupCondition(index)">
+                      <Plus class="h-3 w-3 mr-1" /> Add Condition
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Add buttons -->
+              <div class="flex gap-2">
+                <Button variant="outline" size="sm" @click="addGroupCondition">
+                  <Plus class="h-3 w-3 mr-1" /> Add Condition
+                </Button>
+                <Button variant="outline" size="sm" @click="addGroupSubGroup">
+                  <Plus class="h-3 w-3 mr-1" /> Add Sub-group
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
           <!-- JSON Preview -->
           <div class="space-y-4">
             <button
@@ -439,6 +673,7 @@ import {
   Loader2,
   AlertCircle,
   Key,
+  Filter,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -446,6 +681,13 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
 
@@ -475,6 +717,137 @@ const headerValueInput = ref('')
 const isCreating = ref(false)
 const creationError = ref('')
 const showJsonPreview = ref(false)
+
+// Filter state
+interface FormCondition {
+  type: 'condition'
+  property: string
+  op: string
+  value: string
+}
+
+interface FormSubGroup {
+  type: 'group'
+  op: string
+  operands: FormCondition[]
+}
+
+type FilterModeType = 'none' | 'condition' | 'group'
+
+const filterModes = [
+  { value: 'none' as const, label: 'None' },
+  { value: 'condition' as const, label: 'Single Condition' },
+  { value: 'group' as const, label: 'Group' },
+]
+
+const filterOperators = [
+  { value: 'eq', label: 'eq (=)' },
+  { value: 'ne', label: 'ne (!=)' },
+  { value: 'gt', label: 'gt (>)' },
+  { value: 'gte', label: 'gte (>=)' },
+  { value: 'lt', label: 'lt (<)' },
+  { value: 'lte', label: 'lte (<=)' },
+  { value: 'like', label: 'like' },
+  { value: 'is_none', label: 'is_none' },
+  { value: 'contains_any', label: 'contains_any' },
+  { value: 'contains_all', label: 'contains_all' },
+]
+
+const filterMode = ref<FilterModeType>('none')
+
+const singleCondition = ref<FormCondition>({
+  type: 'condition',
+  property: '',
+  op: 'eq',
+  value: '',
+})
+
+const filterGroup = ref<{
+  op: string
+  operands: (FormCondition | FormSubGroup)[]
+}>({
+  op: 'and',
+  operands: [],
+})
+
+const makeCondition = (): FormCondition => ({
+  type: 'condition',
+  property: '',
+  op: 'eq',
+  value: '',
+})
+
+const addGroupCondition = () => {
+  filterGroup.value.operands.push(makeCondition())
+}
+
+const addGroupSubGroup = () => {
+  filterGroup.value.operands.push({
+    type: 'group',
+    op: 'or',
+    operands: [makeCondition()],
+  })
+}
+
+const removeGroupOperand = (index: number) => {
+  filterGroup.value.operands.splice(index, 1)
+}
+
+const addSubGroupCondition = (groupIndex: number) => {
+  const operand = filterGroup.value.operands[groupIndex] as FormSubGroup | undefined
+  if (operand && operand.type === 'group') {
+    operand.operands.push(makeCondition())
+  }
+}
+
+const removeSubGroupCondition = (groupIndex: number, condIndex: number) => {
+  const operand = filterGroup.value.operands[groupIndex] as FormSubGroup | undefined
+  if (operand && operand.type === 'group') {
+    operand.operands.splice(condIndex, 1)
+  }
+}
+
+const parseFilterValue = (raw: string): string | number | boolean => {
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  const num = Number(raw)
+  if (!isNaN(num) && raw.trim() !== '') return num
+  return raw
+}
+
+const buildConditionPayload = (c: FormCondition) => ({
+  type: 'condition' as const,
+  property: c.property,
+  op: c.op,
+  value: parseFilterValue(c.value),
+})
+
+const buildFiltersPayload = () => {
+  if (filterMode.value === 'none') return null
+
+  if (filterMode.value === 'condition') {
+    if (!singleCondition.value.property || !singleCondition.value.value) return null
+    return buildConditionPayload(singleCondition.value)
+  }
+
+  // group mode
+  if (filterGroup.value.operands.length === 0) return null
+  return {
+    type: 'group' as const,
+    op: filterGroup.value.op,
+    operands: filterGroup.value.operands.map((operand) => {
+      if (operand.type === 'condition') {
+        return buildConditionPayload(operand)
+      }
+      // sub-group
+      return {
+        type: 'group' as const,
+        op: operand.op,
+        operands: operand.operands.map(buildConditionPayload),
+      }
+    }),
+  }
+}
 
 // Tag suggestions
 const popularTags = ['news', 'articles', 'research', 'data', 'embeddings', 'rag']
@@ -515,15 +888,16 @@ const headersAsObject = computed(() => {
 })
 
 const jsonPreview = computed(() => {
-  const headersPreview = formData.value.configuration.headers.length > 0
-    ? formData.value.configuration.headers.reduce(
-        (acc, h) => {
-          acc[h.key] = '***'
-          return acc
-        },
-        {} as Record<string, string>,
-      )
-    : null
+  const headersPreview =
+    formData.value.configuration.headers.length > 0
+      ? formData.value.configuration.headers.reduce(
+          (acc, h) => {
+            acc[h.key] = '***'
+            return acc
+          },
+          {} as Record<string, string>,
+        )
+      : null
 
   const payload = {
     name: formData.value.name,
@@ -542,6 +916,7 @@ const jsonPreview = computed(() => {
         formData.value.configuration.metadata_properties.length > 0
           ? formData.value.configuration.metadata_properties
           : null,
+      filters: buildFiltersPayload(),
     },
   }
   return JSON.stringify(payload, null, 2)
@@ -628,6 +1003,7 @@ const handleCreate = async () => {
           formData.value.configuration.metadata_properties.length > 0
             ? formData.value.configuration.metadata_properties
             : null,
+        filters: buildFiltersPayload(),
       },
     }
 

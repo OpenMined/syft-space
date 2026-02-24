@@ -1,9 +1,10 @@
 """RemoteWeaviate dataset type implementation."""
 
 import json
-from typing import Any
+from enum import Enum
+from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field, HttpUrl, ValidationError
+from pydantic import BaseModel, Field, HttpUrl, ValidationError, model_validator
 
 from syft_space.components.dataset_types.interfaces import (
     BaseDatasetType,
@@ -21,13 +22,90 @@ from syft_space.components.shared.utils import ConfigSchemaGenerator
 try:
     import weaviate
     from weaviate.classes.init import Auth
-    from weaviate.classes.query import MetadataQuery
+    from weaviate.classes.query import Filter, MetadataQuery
 
     enabled = True
 except ImportError:
     enabled = False
 
 DEFAULT_SIMILARITY_THRESHOLD = 0.5
+
+
+class FilterOperator(str, Enum):
+    """Comparison operators for property filters."""
+
+    EQUAL = "eq"
+    NOT_EQUAL = "ne"
+    GREATER_THAN = "gt"
+    GREATER_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_OR_EQUAL = "lte"
+    LIKE = "like"
+    IS_NONE = "is_none"
+    CONTAINS_ANY = "contains_any"
+    CONTAINS_ALL = "contains_all"
+
+
+class LogicalOperator(str, Enum):
+    """Logical operators for combining filter conditions."""
+
+    AND = "and"
+    OR = "or"
+    NOT = "not"
+
+
+class FilterCondition(BaseModel):
+    """A single property filter condition."""
+
+    type: Literal["condition"] = "condition"
+    property: str = Field(..., description="Weaviate property name to filter on")
+    op: FilterOperator = Field(..., description="Comparison operator")
+    value: str | int | float | bool | list[str] = Field(
+        ...,
+        description="Value to compare against. Use a list for contains_any/contains_all.",
+    )
+
+
+class FilterGroup(BaseModel):
+    """A group of conditions combined with a logical operator.
+
+    Supports 1 level of nesting: operands can be conditions or sub-groups,
+    but sub-groups can only contain conditions.
+    """
+
+    type: Literal["group"] = "group"
+    op: LogicalOperator = Field(..., description="Logical operator to combine operands")
+    operands: list[
+        Annotated[Union[FilterCondition, "FilterGroup"], Field(discriminator="type")]
+    ] = Field(..., description="Conditions or sub-groups to combine")
+
+    @model_validator(mode="after")
+    def validate_nesting_depth(self) -> "FilterGroup":
+        """Ensure max 1 level of nesting."""
+        for operand in self.operands:
+            if isinstance(operand, FilterGroup):
+                for inner in operand.operands:
+                    if isinstance(inner, FilterGroup):
+                        raise ValueError("Max 1 level of filter nesting allowed")
+        return self
+
+
+FilterGroup.model_rebuild()
+
+WeaviateFilter = Annotated[FilterCondition | FilterGroup, Field(discriminator="type")]
+
+OPERATOR_MAP: dict[FilterOperator, str] = {
+    FilterOperator.EQUAL: "equal",
+    FilterOperator.NOT_EQUAL: "not_equal",
+    FilterOperator.GREATER_THAN: "greater_than",
+    FilterOperator.GREATER_OR_EQUAL: "greater_or_equal",
+    FilterOperator.LESS_THAN: "less_than",
+    FilterOperator.LESS_OR_EQUAL: "less_or_equal",
+    FilterOperator.LIKE: "like",
+    FilterOperator.IS_NONE: "is_none",
+    FilterOperator.CONTAINS_ANY: "contains_any",
+    FilterOperator.CONTAINS_ALL: "contains_all",
+}
 
 
 class RemoteWeaviateConfiguration(BaseModel):
@@ -53,6 +131,10 @@ class RemoteWeaviateConfiguration(BaseModel):
     metadata_properties: list[str] | None = Field(
         default=None,
         description="Properties to include in metadata (e.g., ['title', 'author']). If not specified, all properties are included.",
+    )
+    filters: WeaviateFilter | None = Field(
+        default=None,
+        description="Filter applied when searching. Single condition or group with and/or/not.",
     )
 
 
@@ -112,14 +194,55 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             configuration: Configuration dictionary to validate
         """
         try:
-            RemoteWeaviateConfiguration.model_validate(configuration)
+            config = RemoteWeaviateConfiguration.model_validate(configuration)
         except ValidationError as e:
             raise ValueError(f"Invalid configuration: {e}") from e
+
+        # Validate filters can be built into Weaviate filter objects
+        if config.filters and enabled:
+            try:
+                instance = cls(configuration)
+                instance._build_weaviate_filters()
+            except Exception as e:
+                raise ValueError(f"Invalid filter configuration: {e}") from e
 
     @property
     def collection_name(self) -> str:
         """Get the name of the collection."""
         return self.config.collection_name
+
+    def _build_weaviate_filters(self) -> Any:
+        """Build Weaviate Filter objects from configured filter conditions.
+
+        Returns:
+            A Weaviate _Filters object, or None if no filters are configured.
+        """
+        if not self.config.filters:
+            return None
+
+        return self._build_filter_node(self.config.filters, Filter)
+
+    @staticmethod
+    def _build_filter_node(node: FilterCondition | FilterGroup, Filter: Any) -> Any:
+        """Recursively build a Weaviate filter from a filter node."""
+        if isinstance(node, FilterCondition):
+            prop_filter = Filter.by_property(node.property)
+            method = getattr(prop_filter, OPERATOR_MAP[node.op])
+            return method(node.value)
+
+        # FilterGroup
+        built = [
+            RemoteWeaviateDatasetType._build_filter_node(op, Filter)
+            for op in node.operands
+        ]
+
+        if node.op == LogicalOperator.AND:
+            return Filter.all_of(built)
+        elif node.op == LogicalOperator.OR:
+            return Filter.any_of(built)
+        else:  # NOT
+            inner = Filter.all_of(built) if len(built) > 1 else built[0]
+            return Filter.not_(inner)
 
     async def search(
         self, ctx: SearchContext, query: str, params: SearchParameters | None = None
@@ -161,10 +284,13 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             # Get the collection
             collection = client.collections.get(self.collection_name)
 
+            weaviate_filters = self._build_weaviate_filters()
+
             results = await collection.query.near_text(
                 query=query,
                 limit=params.limit,
                 certainty=similarity_threshold,
+                filters=weaviate_filters,
                 return_metadata=MetadataQuery(
                     distance=True, score=True, creation_time=True
                 ),
