@@ -58,6 +58,10 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v4
 
+      - name: Install CPU-only PyTorch (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: uv pip install torch --index-url https://download.pytorch.org/whl/cpu --system
+
       - name: Install backend dependencies
         run: uv pip install -e "backend/.[build,libs]" --system
 
@@ -103,7 +107,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_BUNDLER_DMG_IGNORE_CI: "true"
-          APPIMAGE_EXTRACT_AND_RUN: "1"
         with:
           tagName: v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
           releaseName: "Release v__VERSION__"

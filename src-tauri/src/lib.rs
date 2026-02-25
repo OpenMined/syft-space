@@ -4,6 +4,7 @@ use tauri_plugin_shell::ShellExt;
 
 mod commands;
 mod state;
+mod tray;
 mod updates;
 mod utils;
 mod windows;
@@ -52,6 +53,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             commands::update_window_response,
             commands::get_window_state,
@@ -102,6 +107,14 @@ pub fn run() {
             // Generate server connection args (host, port, auth token)
             let (host, port, token) = utils::generate_server_args();
             log::info!("Server args - host: {}, port: {}", host, port);
+
+            // Store backend connection info for tray polling
+            app.manage(state::BackendConnection {
+                host: host.clone(),
+                port: port.clone(),
+                token: token.clone(),
+            });
+            app.manage(Mutex::new(state::TrayState::default()));
 
             // Resolve the backend executable path from resources
             let backend_path = resolve_backend_path(app);
@@ -250,9 +263,41 @@ pub fn run() {
             // Start periodic update checks
             updates::_start_periodic_update_checks(app.handle());
 
+            // Set up system tray
+            tray::setup_tray(app.handle())?;
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // Hide the window instead of closing it
+                    api.prevent_close();
+                    let _ = window.hide();
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        let app = window.app_handle();
+                        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                    }
+                }
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, _event| {});
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                }
+            }
+            // Suppress unused variable warnings on non-macOS
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = (app, event);
+            }
+        });
 }

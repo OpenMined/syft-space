@@ -22,6 +22,38 @@ pub fn _setup_main_window(app: &AppHandle, url: WebviewUrl) {
         .unwrap();
 }
 
+pub fn _show_about_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("about") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+
+    let _about_window =
+        WebviewWindowBuilder::new(app, "about", WebviewUrl::App("#/about/".into()))
+            .title("About Syft Space")
+            .inner_size(360.0, 300.0)
+            .resizable(false)
+            .focused(true)
+            .decorations(false)
+            .build()
+            .unwrap();
+
+    #[cfg(target_os = "macos")]
+    {
+        let ns_window = _about_window.ns_window().unwrap() as id;
+        unsafe {
+            ns_window.setOpaque_(NO);
+            ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+            let content_view: id = ns_window.contentView();
+            content_view.setWantsLayer(YES);
+            let layer: id = content_view.layer();
+            let _: () = msg_send![layer, setCornerRadius: 10.0];
+            let _: () = msg_send![layer, setMasksToBounds: true];
+        }
+    }
+}
+
 pub fn _show_update_window(
     app: &AppHandle,
     update_window_type: UpdateWindowType,
