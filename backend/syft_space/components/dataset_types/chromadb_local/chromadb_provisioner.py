@@ -1,7 +1,6 @@
 """ChromaDB provisioner implementation."""
 
 import asyncio
-import os
 import sys
 import time
 from typing import Any
@@ -293,6 +292,7 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
     def _get_host(cls) -> str:
         """Get the host address for health checks.
 
-        Returns DOCKER_NETWORK_HOST env var if set, otherwise 'localhost'.
+        Always returns 'localhost' because ChromaDB runs as a local subprocess
+        within the same container/process space.
         """
-        return os.getenv("DOCKER_NETWORK_HOST", "localhost")
+        return "localhost"
