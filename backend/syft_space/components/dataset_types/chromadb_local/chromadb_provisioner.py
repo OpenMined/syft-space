@@ -120,6 +120,23 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
 
         logger.info(f"Started ChromaDB server with PID {proc.pid}")
 
+        # Log subprocess output in background for debugging
+        async def _log_stream(stream: asyncio.StreamReader, level: str) -> None:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                text = line.decode(errors="replace").rstrip()
+                if level == "err":
+                    logger.warning(f"[chromadb] {text}")
+                else:
+                    logger.debug(f"[chromadb] {text}")
+
+        if proc.stdout:
+            asyncio.create_task(_log_stream(proc.stdout, "out"))
+        if proc.stderr:
+            asyncio.create_task(_log_stream(proc.stderr, "err"))
+
         # Wait for health
         await cls._wait_for_healthy(http_port)
 
@@ -271,8 +288,8 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
         """
         try:
             import chromadb
-        except ImportError:
-            logger.warning("ChromaDB is not installed; health check skipped")
+        except ImportError as exc:
+            logger.warning(f"ChromaDB is not importable; health check skipped: {exc}")
             return False
 
         host = cls._get_host()
