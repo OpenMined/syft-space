@@ -35,11 +35,11 @@ def matches_any_pattern(value: str, patterns: list[str]) -> bool:
 
 
 class ConfigSchemaGenerator(GenerateJsonSchema):
-    """Generates clean configuration schemas without $defs and class metadata.
+    """Generates configuration schemas for frontend dynamic form rendering.
 
-    Produces a simplified schema with just 'properties' and 'required',
-    with all $ref references inlined. This is useful for frontend forms
-    and API documentation where the full JSON Schema complexity isn't needed.
+    Produces a simplified schema with 'properties', 'required', and '$defs'.
+    The $defs section is preserved so $ref pointers remain valid — the frontend
+    resolver handles $ref lookup at render time.
 
     Usage:
         from syft_space.components.shared.utils import ConfigSchemaGenerator
@@ -55,32 +55,14 @@ class ConfigSchemaGenerator(GenerateJsonSchema):
             mode: Schema generation mode ('validation' or 'serialization')
 
         Returns:
-            Simplified schema with just 'properties' and 'required'
+            Schema with 'properties', 'required', and '$defs' (if present)
         """
         json_schema = super().generate(schema, mode)
 
-        # Inline $defs into properties (removes need for $ref)
-        defs = json_schema.pop("$defs", {})
-        for prop_schema in json_schema.get("properties", {}).values():
-            if "$ref" in prop_schema:
-                ref_name = prop_schema["$ref"].split("/")[-1]
-                if ref_name in defs:
-                    # Get the referenced schema
-                    ref_schema = defs[ref_name].copy()
-                    # Preserve description and default from the property
-                    desc = prop_schema.get("description")
-                    default = prop_schema.get("default")
-                    # Replace property with inlined schema
-                    prop_schema.clear()
-                    prop_schema.update(ref_schema)
-                    # Restore property-level overrides
-                    if desc:
-                        prop_schema["description"] = desc
-                    if default is not None:
-                        prop_schema["default"] = default
-
-        # Return only properties and required fields
-        return {
+        result: dict[str, Any] = {
             "properties": json_schema.get("properties", {}),
             "required": json_schema.get("required", []),
         }
+        if "$defs" in json_schema:
+            result["$defs"] = json_schema["$defs"]
+        return result

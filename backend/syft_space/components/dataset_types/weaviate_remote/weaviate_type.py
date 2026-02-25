@@ -12,6 +12,10 @@ from syft_space.components.dataset_types.interfaces import (
     SearchParameters,
     SearchResult,
 )
+from syft_space.components.dataset_types.weaviate_remote.filters import (
+    WeaviateFilter,
+    build_filter_node,
+)
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
@@ -21,7 +25,7 @@ from syft_space.components.shared.utils import ConfigSchemaGenerator
 try:
     import weaviate
     from weaviate.classes.init import Auth
-    from weaviate.classes.query import MetadataQuery
+    from weaviate.classes.query import Filter, MetadataQuery
 
     enabled = True
 except ImportError:
@@ -53,6 +57,10 @@ class RemoteWeaviateConfiguration(BaseModel):
     metadata_properties: list[str] | None = Field(
         default=None,
         description="Properties to include in metadata (e.g., ['title', 'author']). If not specified, all properties are included.",
+    )
+    filters: WeaviateFilter | None = Field(
+        default=None,
+        description="Filter applied when searching. Single condition or group with and/or/not.",
     )
 
 
@@ -112,14 +120,33 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             configuration: Configuration dictionary to validate
         """
         try:
-            RemoteWeaviateConfiguration.model_validate(configuration)
+            config = RemoteWeaviateConfiguration.model_validate(configuration)
         except ValidationError as e:
             raise ValueError(f"Invalid configuration: {e}") from e
+
+        # Validate filters can be built into Weaviate filter objects
+        if config.filters and enabled:
+            try:
+                instance = cls(configuration)
+                instance._build_weaviate_filters()
+            except Exception as e:
+                raise ValueError(f"Invalid filter configuration: {e}") from e
 
     @property
     def collection_name(self) -> str:
         """Get the name of the collection."""
         return self.config.collection_name
+
+    def _build_weaviate_filters(self) -> Any:
+        """Build Weaviate Filter objects from configured filter conditions.
+
+        Returns:
+            A Weaviate _Filters object, or None if no filters are configured.
+        """
+        if not self.config.filters:
+            return None
+
+        return build_filter_node(self.config.filters, Filter)
 
     async def search(
         self, ctx: SearchContext, query: str, params: SearchParameters | None = None
@@ -161,10 +188,13 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             # Get the collection
             collection = client.collections.get(self.collection_name)
 
+            weaviate_filters = self._build_weaviate_filters()
+
             results = await collection.query.near_text(
                 query=query,
                 limit=params.limit,
                 certainty=similarity_threshold,
+                filters=weaviate_filters,
                 return_metadata=MetadataQuery(
                     distance=True, score=True, creation_time=True
                 ),

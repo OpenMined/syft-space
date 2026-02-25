@@ -46,9 +46,7 @@ def _import_chromadb() -> ModuleType:
 
 def _import_embedding_fn():
     try:
-        from chromadb.utils.embedding_functions import (
-            ONNXMiniLM_L6_V2,
-        )
+        from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
         return ONNXMiniLM_L6_V2
     except ImportError as e:

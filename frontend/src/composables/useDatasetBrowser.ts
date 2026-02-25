@@ -98,10 +98,7 @@ export function useDatasetBrowser() {
   }
 
   const loadSubdirectory = async (parentNode: FileNode) => {
-    if (
-      parentNode.type !== 'directory' ||
-      (parentNode.hasLoaded && !parentNode.permissionDenied)
-    ) {
+    if (parentNode.type !== 'directory' || (parentNode.hasLoaded && !parentNode.permissionDenied)) {
       return
     }
 
