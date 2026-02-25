@@ -61,7 +61,8 @@
     "linux": {
       "rpm": {
         "compression": {
-          "type": "none"
+          "type": "zstd",
+          "level": 3
         }
       }
     },
