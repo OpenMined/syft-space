@@ -543,6 +543,7 @@ class DatasetHandler:
 
     async def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
         """Check the health of a dataset.
+        Returns the health of the dataset type and the provisioner if it exists.
 
         Args:
             name: Dataset name
@@ -552,50 +553,22 @@ class DatasetHandler:
             Healthcheck response
         """
         message = ""
+
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(
+                status_code=404, detail=f"Dataset '{name}' not found"
+            ) from None
+
+        dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        provisioner_cls = self.registry.get_provisioner(dataset.dtype)
+
+        dataset_type = dataset_type_cls(dataset.configuration)
+
+        # Check if dataset type connection is healthy
         try:
-            dataset = await self.repository.get_by_name(name, tenant.id)
-            if not dataset:
-                raise HTTPException(
-                    status_code=404, detail=f"Dataset '{name}' not found"
-                )
-
-            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
-            provisioner_cls = self.registry.get_provisioner(dataset.dtype)
-
-            dataset_type = dataset_type_cls(dataset.configuration)
             healthcheck_response = await dataset_type.healthcheck()
-
             message += f"Dataset type healthcheck: {healthcheck_response.message}. "
-
-            provisioner_health = None
-            if dataset.provisioner_state_id:
-                provisioner_state = (
-                    await self.provisioner_state_repository.get_by_dtype(dataset.dtype)
-                )
-                if provisioner_state is not None and provisioner_cls is not None:
-                    try:
-                        provisioner_status = await provisioner_cls.status(
-                            provisioner_state.state
-                        )
-                        provisioner_health = (
-                            HealthcheckStatus.HEALTHY.value
-                            if provisioner_status
-                            in (
-                                ProvisionerStatus.RUNNING.value,
-                                ProvisionerStatus.STARTING.value,
-                            )
-                            else HealthcheckStatus.UNHEALTHY.value
-                        )
-                    except Exception as e:
-                        provisioner_health = HealthcheckStatus.UNHEALTHY.value
-                        message += f"Failed to check provisioner status: {str(e)}"
-                    message += f"Provisioner status: {provisioner_health}. "
-
-            return HealthcheckResponse(
-                dataset_type_status=healthcheck_response.status,
-                provisioner_status=provisioner_health,
-                message=message,
-            )
         except Exception as e:
             message += f"Failed to healthcheck dataset '{name}': {str(e)}"
             return HealthcheckResponse(
@@ -603,6 +576,39 @@ class DatasetHandler:
                 provisioner_status=None,
                 message=message,
             )
+
+        # Check provisioner status, if exists
+        provisioner_health = None
+
+        provisioner_state = (
+            await self.provisioner_state_repository.get_by_dtype(dataset.dtype)
+            if dataset.provisioner_state_id
+            else None
+        )
+
+        if provisioner_cls is not None and provisioner_state is not None:
+            try:
+                provisioner_status = await provisioner_cls.status(
+                    provisioner_state.state
+                )
+                provisioner_health = (
+                    HealthcheckStatus.HEALTHY.value
+                    if provisioner_status
+                    in (
+                        ProvisionerStatus.RUNNING.value,
+                        ProvisionerStatus.STARTING.value,
+                    )
+                    else HealthcheckStatus.UNHEALTHY.value
+                )
+            except Exception as e:
+                provisioner_health = HealthcheckStatus.UNHEALTHY.value
+                message += f"Failed to check provisioner status: {str(e)}"
+
+        return HealthcheckResponse(
+            dataset_type_status=healthcheck_response.status,
+            provisioner_status=provisioner_health,
+            message=message,
+        )
 
     # ============== Admin Provisioner Endpoints ==============
 
