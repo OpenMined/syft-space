@@ -1067,6 +1067,11 @@ const removeHeader = (index: number) => {
 const handleCreate = async () => {
   if (!isFormValid.value) return
 
+  // Flush any pending inputs so they aren't silently lost
+  addTag()
+  addMetadataProperty()
+  addHeader()
+
   isCreating.value = true
   creationError.value = ''
 
