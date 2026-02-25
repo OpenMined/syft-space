@@ -412,6 +412,27 @@
                     class="font-mono"
                   />
                 </div>
+                <div class="w-28 space-y-1">
+                  <Label class="text-xs text-muted-foreground">Type</Label>
+                  <Select
+                    v-model="singleCondition.value_dtype"
+                    @update:model-value="onDtypeChange(singleCondition)"
+                  >
+                    <SelectTrigger class="font-mono">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        v-for="dt in valueDtypes"
+                        :key="dt.value"
+                        :value="dt.value"
+                        class="font-mono"
+                      >
+                        {{ dt.label }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div class="w-40 space-y-1">
                   <Label class="text-xs text-muted-foreground">Operator</Label>
                   <Select v-model="singleCondition.op">
@@ -420,7 +441,7 @@
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem
-                        v-for="op in filterOperators"
+                        v-for="op in getOperatorsForDtype(singleCondition.value_dtype)"
                         :key="op.value"
                         :value="op.value"
                         class="font-mono"
@@ -480,6 +501,27 @@
                         class="font-mono"
                       />
                     </div>
+                    <div class="w-28 space-y-1">
+                      <Label class="text-xs text-muted-foreground">Type</Label>
+                      <Select
+                        v-model="operand.value_dtype"
+                        @update:model-value="onDtypeChange(operand)"
+                      >
+                        <SelectTrigger class="font-mono">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem
+                            v-for="dt in valueDtypes"
+                            :key="dt.value"
+                            :value="dt.value"
+                            class="font-mono"
+                          >
+                            {{ dt.label }}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div class="w-40 space-y-1">
                       <Label class="text-xs text-muted-foreground">Operator</Label>
                       <Select v-model="operand.op">
@@ -488,7 +530,7 @@
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem
-                            v-for="op in filterOperators"
+                            v-for="op in getOperatorsForDtype(operand.value_dtype)"
                             :key="op.value"
                             :value="op.value"
                             class="font-mono"
@@ -556,6 +598,27 @@
                           class="font-mono"
                         />
                       </div>
+                      <div class="w-28 space-y-1">
+                        <Label class="text-xs text-muted-foreground">Type</Label>
+                        <Select
+                          v-model="subCond.value_dtype"
+                          @update:model-value="onDtypeChange(subCond)"
+                        >
+                          <SelectTrigger class="font-mono">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem
+                              v-for="dt in valueDtypes"
+                              :key="dt.value"
+                              :value="dt.value"
+                              class="font-mono"
+                            >
+                              {{ dt.label }}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div class="w-40 space-y-1">
                         <Label class="text-xs text-muted-foreground">Operator</Label>
                         <Select v-model="subCond.op">
@@ -564,7 +627,7 @@
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem
-                              v-for="op in filterOperators"
+                              v-for="op in getOperatorsForDtype(subCond.value_dtype)"
                               :key="op.value"
                               :value="op.value"
                               class="font-mono"
@@ -723,6 +786,7 @@ interface FormCondition {
   type: 'condition'
   property: string
   op: string
+  value_dtype: string
   value: string
 }
 
@@ -740,7 +804,7 @@ const filterModes = [
   { value: 'group' as const, label: 'Group' },
 ]
 
-const filterOperators = [
+const allFilterOperators = [
   { value: 'eq', label: 'eq (=)' },
   { value: 'ne', label: 'ne (!=)' },
   { value: 'gt', label: 'gt (>)' },
@@ -753,12 +817,39 @@ const filterOperators = [
   { value: 'contains_all', label: 'contains_all' },
 ]
 
+const valueDtypes = [
+  { value: 'string', label: 'String' },
+  { value: 'numeric', label: 'Numeric' },
+  { value: 'datetime', label: 'Datetime' },
+  { value: 'boolean', label: 'Boolean' },
+]
+
+const dtypeAllowedOperators: Record<string, string[]> = {
+  string: ['eq', 'ne', 'like', 'contains_any', 'contains_all', 'is_none'],
+  numeric: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains_any', 'contains_all', 'is_none'],
+  datetime: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'is_none'],
+  boolean: ['eq', 'ne', 'is_none'],
+}
+
+const getOperatorsForDtype = (dtype: string) => {
+  const allowed = dtypeAllowedOperators[dtype] ?? ['eq']
+  return allFilterOperators.filter((o) => allowed.includes(o.value))
+}
+
+const onDtypeChange = (condition: FormCondition) => {
+  const allowed = dtypeAllowedOperators[condition.value_dtype] ?? ['eq']
+  if (!allowed.includes(condition.op)) {
+    condition.op = allowed[0] ?? 'eq'
+  }
+}
+
 const filterMode = ref<FilterModeType>('none')
 
 const singleCondition = ref<FormCondition>({
   type: 'condition',
   property: '',
   op: 'eq',
+  value_dtype: 'string',
   value: '',
 })
 
@@ -774,6 +865,7 @@ const makeCondition = (): FormCondition => ({
   type: 'condition',
   property: '',
   op: 'eq',
+  value_dtype: 'string',
   value: '',
 })
 
@@ -807,19 +899,12 @@ const removeSubGroupCondition = (groupIndex: number, condIndex: number) => {
   }
 }
 
-const parseFilterValue = (raw: string): string | number | boolean => {
-  if (raw === 'true') return true
-  if (raw === 'false') return false
-  const num = Number(raw)
-  if (!isNaN(num) && raw.trim() !== '') return num
-  return raw
-}
-
 const buildConditionPayload = (c: FormCondition) => ({
   type: 'condition' as const,
   property: c.property,
   op: c.op,
-  value: parseFilterValue(c.value),
+  value_dtype: c.value_dtype,
+  value: c.value,
 })
 
 const buildFiltersPayload = () => {
