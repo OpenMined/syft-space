@@ -1,6 +1,7 @@
 """Model type interfaces and domain models."""
 
 from typing import Any, Protocol
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,7 @@ from syft_space.components.shared.domain_types import Context, HealthcheckRespon
 class ChatContext(Context):
     """Context for chat requests."""
 
-    model_id: str = Field(..., description="Unique identifier for the model")
+    model_id: UUID = Field(..., description="Unique identifier for the model")
 
 
 class ChatMessage(BaseModel):
