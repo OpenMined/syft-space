@@ -166,7 +166,7 @@ class HeartbeatManager(LifecycleService):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Unexpected error in heartbeat loop: {e}")
+                logger.exception(f"Unexpected error in heartbeat loop: {e}")
                 # Wait before retrying
                 try:
                     await asyncio.wait_for(
@@ -297,7 +297,7 @@ class HeartbeatManager(LifecycleService):
             )
         except Exception as e:
             self._update_state_on_failure(state)
-            logger.error(
+            logger.exception(
                 f"Unexpected error sending heartbeat to {marketplace.name}: {e}"
             )
 

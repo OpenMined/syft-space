@@ -121,7 +121,7 @@ class DatasetHandler:
                 state=new_state_dict,
             )
         except Exception as e:
-            # Error already logged by provisioner, just update state and raise
+            logger.exception(f"Failed to start provisioner for '{dtype}': {e}")
             await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.ERROR,
@@ -181,7 +181,7 @@ class DatasetHandler:
                 status=ProvisionerStatus.STOPPED,
             )
         except Exception as e:
-            logger.error(f"Failed to stop provisioner for '{dtype}': {e}")
+            logger.exception(f"Failed to stop provisioner for '{dtype}': {e}")
             await self.provisioner_state_repository.upsert_status(
                 dtype=dtype,
                 status=ProvisionerStatus.ERROR,
@@ -273,7 +273,7 @@ class DatasetHandler:
             try:
                 await self._stop_provisioner(state.dtype)
             except Exception as e:
-                logger.error(f"Failed to stop provisioner '{state.dtype}': {e}")
+                logger.exception(f"Failed to stop provisioner '{state.dtype}': {e}")
                 # Continue with other provisioners - best effort shutdown
 
     # ============== Dataset Type Methods ==============
@@ -533,7 +533,7 @@ class DatasetHandler:
                 f"Dataset type '{dataset.dtype}' not registered, skipping resource cleanup"
             )
         except Exception as e:
-            logger.error(f"Failed to clean up resources for dataset '{name}': {e}")
+            logger.exception(f"Failed to clean up resources for dataset '{name}': {e}")
 
         deleted = await self.repository.delete_by_name(name, tenant.id)
         if not deleted:

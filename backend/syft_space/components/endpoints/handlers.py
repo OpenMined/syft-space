@@ -406,6 +406,7 @@ class EndpointHandler:
         try:
             search_result = await dataset_instance.search(ctx, query, search_params)
         except Exception as e:
+            logger.exception(f"Dataset search failed: {e}")
             raise HTTPException(
                 status_code=500, detail=f"Dataset search failed: {str(e)}"
             ) from e
@@ -451,12 +452,16 @@ class EndpointHandler:
             endpoint.model_id, endpoint.tenant_id
         )
         if not model:
+            logger.error(
+                f"Model not found: model_id={endpoint.model_id}, tenant_id={endpoint.tenant_id}"
+            )
             raise HTTPException(status_code=500, detail="Model not found")
 
         # Get model type
         try:
             model_type_cls = self.model_registry.get_model_type(model.dtype)
         except KeyError:
+            logger.exception(f"Model type '{model.dtype}' not registered")
             raise HTTPException(
                 status_code=500, detail=f"Model type '{model.dtype}' not registered"
             ) from None
@@ -500,6 +505,7 @@ class EndpointHandler:
             # Chat with the model
             chat_result = await model_instance.chat(ctx, messages, chat_params)
         except Exception as e:
+            logger.exception(f"Model chat failed: {e}")
             raise HTTPException(
                 status_code=500, detail=f"Model chat failed: {str(e)}"
             ) from e
@@ -508,6 +514,11 @@ class EndpointHandler:
         # For simplicity, take the last message
         last_message = chat_result.messages[-1] if chat_result.messages else None
         if not last_message:
+            logger.error(
+                "Model returned no messages: "
+                f"model_id={endpoint.model_id}, "
+                f"chat_result_id={chat_result.id}"
+            )
             raise HTTPException(status_code=500, detail="Model returned no messages")
 
         return SummaryResponse(
@@ -550,6 +561,7 @@ class EndpointHandler:
             HTTPException: If endpoint not found or marketplace repository not configured
         """
         if not self.marketplace_repository:
+            logger.error("Marketplace publishing is not configured")
             raise HTTPException(
                 status_code=500,
                 detail="Marketplace publishing is not configured",
@@ -607,6 +619,7 @@ class EndpointHandler:
     ) -> list[UnpublishResult]:
         """Unpublish an endpoint from all its marketplaces."""
         if not self.marketplace_repository:
+            logger.error("Marketplace unpublishing is not configured")
             raise HTTPException(
                 status_code=500,
                 detail="Marketplace publishing is not configured",
@@ -683,7 +696,7 @@ class EndpointHandler:
                 error=e.message,
             )
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"Failed to unpublish endpoint {endpoint.slug} from {marketplace.name}: {str(e)}"
             )
             return UnpublishResult(
@@ -798,6 +811,7 @@ class EndpointHandler:
 
         # Check marketplace availability
         if not self.marketplace_repository:
+            logger.error("Marketplace checking is not configured")
             raise HTTPException(
                 status_code=500,
                 detail="Marketplace checking is not configured",
@@ -1017,7 +1031,7 @@ class EndpointHandler:
                     f"Failed to sync to marketplace {marketplace_id}: {e.message}"
                 )
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"Unexpected error syncing to marketplace {marketplace_id}: {e}"
                 )
 
