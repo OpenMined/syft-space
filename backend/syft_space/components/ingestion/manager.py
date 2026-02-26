@@ -286,14 +286,14 @@ class IngestionManager(LifecycleService):
                     try:
                         await self.start_dataset_ingestion(dataset)
                     except Exception as e:
-                        logger.error(
+                        logger.exception(
                             f"Failed to start ingestion for '{dataset.name}': {e}"
                         )
             logger.info(
                 f"Background: Started ingestion for {len(all_datasets)} datasets"
             )
         except Exception as e:
-            logger.error(f"Failed to start existing dataset watchers: {e}")
+            logger.exception(f"Failed to start existing dataset watchers: {e}")
 
     async def shutdown(self) -> None:
         """Shutdown the ingestion manager."""
@@ -361,7 +361,7 @@ class IngestionManager(LifecycleService):
                 # Queue was closed during shutdown
                 break
             except Exception as e:
-                logger.error(f"Error processing file event: {e}")
+                logger.exception(f"Error processing file event: {e}")
 
         logger.info("Event processor stopped")
 
@@ -522,7 +522,7 @@ class IngestionManager(LifecycleService):
             logger.info(f"Successfully ingested: {job.file_path}")
 
         except Exception as e:
-            logger.error(f"Failed to ingest {job.file_path}: {str(e)}")
+            logger.exception(f"Failed to ingest {job.file_path}: {str(e)}")
             await self._ingestion_repository.update_status(
                 job.id, IngestionJobStatus.FAILED, str(e)
             )
@@ -608,7 +608,7 @@ class IngestionManager(LifecycleService):
                     f"(recursive={recursive})"
                 )
             except Exception as e:
-                logger.error(f"Failed to watch path {watch_path}: {e}")
+                logger.exception(f"Failed to watch path {watch_path}: {e}")
 
         self._watches[dataset.id] = watches
         return len(watches) > 0

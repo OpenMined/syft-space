@@ -9,18 +9,35 @@ Import this module early in the application to ensure all logs are captured.
 import inspect
 import logging
 import sys
+from pathlib import Path
 
 from loguru import logger
+
+from syft_space.config import app_settings
 
 # Remove loguru's default handler
 logger.remove()
 
-# Add handler with simplified format
+# Console handler (stderr)
+# colorize=None lets loguru auto-detect TTY (colors in terminals, plain in Docker/pipes)
 logger.add(
     sys.stderr,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <5}</level> | <cyan>{name}</cyan> - <level>{message}</level>",
-    level="INFO",
-    colorize=True,
+    level=app_settings.log_level.upper(),
+    colorize=None,
+)
+
+# File handler
+log_path = Path(app_settings.log_file).expanduser()
+log_path.parent.mkdir(parents=True, exist_ok=True)
+logger.add(
+    str(log_path.resolve()),
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <5} | {name} - {message}",
+    level=app_settings.log_level.upper(),
+    rotation="50 MB",
+    retention="7 days",
+    compression="gz",
+    colorize=False,
 )
 
 

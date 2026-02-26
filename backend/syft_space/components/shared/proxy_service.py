@@ -193,7 +193,7 @@ class ProxyService(LifecycleService):
             await self._settings_repository.update_public_url(public_url)
             logger.info(f"Ngrok tunnel auto-connected: {public_url}")
         except Exception as e:
-            logger.error(f"Failed to auto-connect ngrok tunnel: {e}")
+            logger.exception(f"Failed to auto-connect ngrok tunnel: {e}")
             # Don't clear the token on auto-connect failure
             # User can retry or reconfigure
 
@@ -204,7 +204,7 @@ class ProxyService(LifecycleService):
             await self.auto_connect_if_configured()
             self.log_connection_info()
         except Exception as e:
-            logger.error(f"Background proxy startup error: {e}")
+            logger.exception(f"Background proxy startup error: {e}")
         finally:
             # Always signal completion (success or failure)
             if self._ready_event:
@@ -288,7 +288,7 @@ class ProxyService(LifecycleService):
                     delay = self.RECONNECT_INITIAL_DELAY  # Reset delay on success
                     logger.info("Ngrok tunnel reconnected successfully")
                 except Exception as e:
-                    logger.error(f"Reconnection failed: {e}")
+                    logger.exception(f"Reconnection failed: {e}")
                     # Exponential backoff
                     delay = min(
                         delay * self.RECONNECT_BACKOFF_FACTOR, self.RECONNECT_MAX_DELAY

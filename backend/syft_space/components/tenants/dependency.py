@@ -6,6 +6,7 @@ simply don't use this dependency in their function signature.
 """
 
 from fastapi import HTTPException, Request
+from loguru import logger
 
 from syft_space.components.tenants.context import get_current_tenant
 from syft_space.components.tenants.entities import Tenant
@@ -37,6 +38,9 @@ def get_tenant_dependency(request: Request) -> Tenant:
     """
     tenant = get_current_tenant()
     if tenant is None:
+        logger.error(
+            "Tenant context not set. Middleware may not be configured correctly."
+        )
         raise HTTPException(
             status_code=500,
             detail="Tenant context not set. Middleware may not be configured correctly.",

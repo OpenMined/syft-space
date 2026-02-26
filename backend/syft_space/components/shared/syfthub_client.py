@@ -246,7 +246,7 @@ def _extract_validation_errors(response: httpx.Response) -> list[dict[str, Any]]
         if isinstance(data, dict) and isinstance(data.get("detail"), list):
             return data["detail"]
     except Exception as e:
-        logger.error(f"Error extracting validation errors: {e}")
+        logger.exception(f"Error extracting validation errors: {e}")
     return []
 
 

@@ -215,7 +215,7 @@ async def _setup_tenant_and_settings(
     try:
         await settings_hdlr.initialize_from_config(tenants=[default_tenant])
     except Exception as e:
-        logger.error(f"⚠️  Warning: Failed to initialize settings from config: {e}")
+        logger.exception(f"Failed to initialize settings from config: {e}")
 
     return default_tenant
 
@@ -260,7 +260,7 @@ async def lifespan(app: FastAPI):
         try:
             await service.startup()
         except Exception as e:
-            logger.error(f"Failed to start {name}: {e}")
+            logger.exception(f"Failed to start {name}: {e}")
 
     # 6. Fire-and-forget sync tasks (wait for proxy to be ready first)
     if default_tenant:
@@ -296,7 +296,7 @@ async def lifespan(app: FastAPI):
         try:
             await service.shutdown()
         except Exception as e:
-            logger.error(f"Error shutting down {name}: {e}")
+            logger.exception(f"Error shutting down {name}: {e}")
 
     # 9. Dispose database engine (close all pooled connections)
     await database.dispose()

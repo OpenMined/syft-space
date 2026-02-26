@@ -152,7 +152,7 @@ class AsyncDatabase:
                     except Exception as stamp_error:
                         logger.warning(f"Could not stamp database: {stamp_error}")
                 else:
-                    logger.error(f"Migration failed in production mode: {e}")
+                    logger.exception(f"Migration failed in production mode: {e}")
                     raise RuntimeError(
                         f"Database migration failed. This is fatal in production. "
                         f"Error: {e}"

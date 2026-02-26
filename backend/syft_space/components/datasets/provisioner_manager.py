@@ -48,7 +48,7 @@ class ProvisionerManager(LifecycleService):
             await self.dataset_handler.startup_all_provisioners()
             logger.info("Provisioner startup complete")
         except Exception as e:
-            logger.error(f"Error during provisioner startup: {e}")
+            logger.exception(f"Error during provisioner startup: {e}")
         finally:
             # Signal that provisioner startup is done (success or failure)
             # This allows ingestion to proceed even if provisioners failed
@@ -65,4 +65,4 @@ class ProvisionerManager(LifecycleService):
             await self.dataset_handler.shutdown_all_provisioners()
             logger.info("Provisioner shutdown complete")
         except Exception as e:
-            logger.error(f"Error during provisioner shutdown: {e}")
+            logger.exception(f"Error during provisioner shutdown: {e}")

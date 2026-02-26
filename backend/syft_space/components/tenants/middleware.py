@@ -73,6 +73,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
             # Validate tenant exists
             if tenant is None:
+                logger.error(
+                    "Default tenant not found. Database may not be initialized."
+                )
                 return Response(
                     status_code=500,
                     content='{"detail":"Default tenant not found. Database may not be initialized."}',

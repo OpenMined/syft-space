@@ -168,7 +168,7 @@ class SettingsHandler:
         try:
             public_url = await self.proxy_service.connect(token, marketplace.username)
         except Exception as e:
-            logger.error(f"Failed to connect to ngrok: {e}")
+            logger.exception(f"Failed to connect to ngrok: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
 
         await self.sync_public_url_to_marketplace(marketplace, public_url)
