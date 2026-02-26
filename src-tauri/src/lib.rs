@@ -135,12 +135,22 @@ pub fn run() {
             }
 
             // Spawn the Python backend using std::process::Command
-            let mut child = std::process::Command::new(&backend_path)
-                .env("SYFT_HOST", &host)
+            let mut cmd = std::process::Command::new(&backend_path);
+            cmd.env("SYFT_HOST", &host)
                 .env("SYFT_PORT", &port)
                 .env("SYFT_ADMIN_API_KEY", &token)
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+
+            // On Windows, prevent the backend from opening a visible console window
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+
+            let mut child = cmd
                 .spawn()
                 .expect("failed to spawn backend process");
 
