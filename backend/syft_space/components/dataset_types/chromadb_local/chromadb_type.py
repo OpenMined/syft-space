@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import threading
 import uuid
@@ -195,7 +194,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
     def host(cls) -> str:
         """Get the host of the dataset type."""
 
-        return os.getenv("DOCKER_NETWORK_HOST", "localhost")
+        return "localhost"
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
