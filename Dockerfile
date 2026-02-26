@@ -82,6 +82,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     SYFT_PORT=8080 \
     SYFT_SQLITE_DB_PATH=/data/app.db \
+    SYFT_LOG_FILE=/data/logs/syft-space-server.log \
     DOCKER_NETWORK_HOST=host.docker.internal
 
 EXPOSE 8080

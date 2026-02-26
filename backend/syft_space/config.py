@@ -33,6 +33,16 @@ class AppSettings(BaseSettings):
     # Application settings
     debug: bool = False
 
+    # Logging settings
+    log_level: str = Field(
+        default="INFO",
+        description="Log level for all handlers (DEBUG, INFO, WARNING, ERROR)",
+    )
+    log_file: str = Field(
+        default="~/.syft-space/logs/syft-space-server.log",
+        description="Path to log file. If set, enables file logging with rotation. Example: /data/logs/syft-space.log",
+    )
+
     # Reset database settings
     reset_db: bool = Field(
         default=False,
