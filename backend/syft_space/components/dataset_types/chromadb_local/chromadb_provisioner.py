@@ -1,6 +1,8 @@
 """ChromaDB provisioner implementation."""
 
 import asyncio
+import os
+import signal
 import sys
 import time
 from typing import Any
@@ -159,33 +161,24 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
 
         if pid:
             try:
-                # SIGTERM for graceful shutdown (async-safe via subprocess)
-                proc = await asyncio.create_subprocess_exec(
-                    "kill",
-                    "-TERM",
-                    str(pid),
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
-                await proc.wait()
+                # Graceful shutdown: SIGTERM on Unix, CTRL_BREAK on Windows
+                if sys.platform == "win32":
+                    os.kill(pid, signal.CTRL_BREAK_EVENT)
+                else:
+                    os.kill(pid, signal.SIGTERM)
 
                 # Wait for graceful shutdown
                 await asyncio.sleep(2.0)
 
                 # Check if still running, force kill if needed
                 if await cls._is_process_running(pid):
-                    kill_proc = await asyncio.create_subprocess_exec(
-                        "kill",
-                        "-KILL",
-                        str(pid),
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    await kill_proc.wait()
+                    os.kill(pid, signal.SIGKILL if sys.platform != "win32" else signal.SIGTERM)
                     logger.info(f"Force killed ChromaDB process {pid}")
                 else:
                     logger.info(f"ChromaDB process {pid} stopped gracefully")
 
+            except (OSError, ProcessLookupError):
+                logger.info(f"ChromaDB process {pid} already stopped")
             except Exception as e:
                 logger.warning(f"Error stopping ChromaDB process {pid}: {e}")
 
@@ -237,7 +230,7 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
 
     @classmethod
     async def _is_process_running(cls, pid: int) -> bool:
-        """Check if a process is running (async-safe).
+        """Check if a process is running.
 
         Args:
             pid: Process ID to check
@@ -245,15 +238,11 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
         Returns:
             True if process exists, False otherwise
         """
-        proc = await asyncio.create_subprocess_exec(
-            "kill",
-            "-0",
-            str(pid),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await proc.wait()
-        return proc.returncode == 0
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
 
     @classmethod
     async def _wait_for_healthy(cls, http_port: int, timeout: float = 60.0) -> None:
