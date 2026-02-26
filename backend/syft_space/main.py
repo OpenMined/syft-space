@@ -430,6 +430,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
         "https://*.syfthub.ngrok.app",
     ],
     allow_credentials=True,
