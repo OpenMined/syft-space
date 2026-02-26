@@ -69,10 +69,6 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-import sys
-
-_is_win = sys.platform == 'win32'
-
 exe = EXE(
     pyz,
     a.scripts,
@@ -81,8 +77,8 @@ exe = EXE(
     name='syft-space-backend',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=not _is_win,
-    upx=not _is_win,
+    strip=False,
+    upx=False,
     upx_exclude=[],
     console=True,
     disable_windowed_traceback=False,
@@ -96,8 +92,8 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=not _is_win,
-    upx=not _is_win,
+    strip=False,
+    upx=False,
     upx_exclude=[],
     name='syft-space-backend',
 )
