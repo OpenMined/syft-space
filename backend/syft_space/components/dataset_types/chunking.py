@@ -85,7 +85,6 @@ class DocumentChunker:
                 if DocumentChunker._converter is None:
                     pipeline_options = PdfPipelineOptions(
                         generate_picture_images=True,
-                        images_scale=2.0,
                     )
                     DocumentChunker._converter = DocumentConverter(
                         format_options={
