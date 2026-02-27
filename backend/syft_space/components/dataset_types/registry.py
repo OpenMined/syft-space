@@ -40,8 +40,10 @@ class DatasetTypeRegistry:
                 raise KeyError(
                     f"Failed to import dataset type '{name}' from {module_path}.{class_name}: {e}"
                 ) from e
-            self.register_dataset_type(cls)
-            return cls
+            # Guard against concurrent registration (e.g. warm-up task)
+            if name not in self._dataset_types:
+                self.register_dataset_type(cls)
+            return self._dataset_types[name]
 
         raise KeyError(f"No dataset type for name '{name}'")
 
@@ -69,8 +71,10 @@ class DatasetTypeRegistry:
                 raise KeyError(
                     f"Failed to import provisioner '{name}' from {module_path}.{class_name}: {e}"
                 ) from e
-            self.register_provisioner(cls)
-            return cls
+            # Guard against concurrent registration (e.g. warm-up task)
+            if name not in self._provisioners:
+                self.register_provisioner(cls)
+            return self._provisioners[name]
 
         return None
 

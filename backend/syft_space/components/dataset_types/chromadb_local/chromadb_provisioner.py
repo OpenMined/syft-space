@@ -3,7 +3,9 @@
 import asyncio
 import os
 import signal
+import subprocess
 import sys
+import threading
 import time
 from typing import Any
 
@@ -108,36 +110,39 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
             "--host",
             "0.0.0.0",
         ]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        # Use subprocess.Popen instead of asyncio.create_subprocess_exec
+        # because Windows SelectorEventLoop (used by uvicorn) does not
+        # support asyncio subprocess creation.
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-
-        if proc.pid is None:
-            raise RuntimeError("Failed to start ChromaDB server: no PID returned")
 
         # Save PID for later management (async write)
         await pid_file.write_text(str(proc.pid))
 
         logger.info(f"Started ChromaDB server with PID {proc.pid}")
 
-        # Log subprocess output in background for debugging
-        async def _log_stream(stream: asyncio.StreamReader, level: str) -> None:
-            while True:
-                line = await stream.readline()
-                if not line:
-                    break
+        # Log subprocess output in background threads (not async tasks,
+        # since we're using sync Popen pipes)
+        def _log_stream(stream, level: str) -> None:
+            for line in stream:
                 text = line.decode(errors="replace").rstrip()
-                if level == "err":
-                    logger.warning(f"[chromadb] {text}")
-                else:
-                    logger.debug(f"[chromadb] {text}")
+                if text:
+                    if level == "err":
+                        logger.warning(f"[chromadb] {text}")
+                    else:
+                        logger.debug(f"[chromadb] {text}")
 
         if proc.stdout:
-            asyncio.create_task(_log_stream(proc.stdout, "out"))
+            threading.Thread(
+                target=_log_stream, args=(proc.stdout, "out"), daemon=True
+            ).start()
         if proc.stderr:
-            asyncio.create_task(_log_stream(proc.stderr, "err"))
+            threading.Thread(
+                target=_log_stream, args=(proc.stderr, "err"), daemon=True
+            ).start()
 
         # Wait for health
         await cls._wait_for_healthy(http_port)
