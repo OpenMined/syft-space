@@ -110,39 +110,69 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
             "--host",
             "0.0.0.0",
         ]
-        # Use subprocess.Popen instead of asyncio.create_subprocess_exec
-        # because Windows SelectorEventLoop (used by uvicorn) does not
-        # support asyncio subprocess creation.
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        # Prefer asyncio subprocess for non-blocking pipe reads; fall back
+        # to sync Popen on Windows SelectorEventLoop which doesn't support it.
+        pid: int
+        try:
+            async_proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            if async_proc.pid is None:
+                raise RuntimeError("Failed to start ChromaDB: no PID")
+            pid = async_proc.pid
+
+            # Log streams via async tasks
+            async def _async_log(stream: asyncio.StreamReader, level: str) -> None:
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    text = line.decode(errors="replace").rstrip()
+                    if text:
+                        if level == "err":
+                            logger.warning(f"[chromadb] {text}")
+                        else:
+                            logger.debug(f"[chromadb] {text}")
+
+            if async_proc.stdout:
+                asyncio.create_task(_async_log(async_proc.stdout, "out"))
+            if async_proc.stderr:
+                asyncio.create_task(_async_log(async_proc.stderr, "err"))
+
+        except NotImplementedError:
+            # Windows SelectorEventLoop — fall back to sync subprocess
+            sync_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            pid = sync_proc.pid
+
+            # Log streams via daemon threads
+            def _sync_log(stream, level: str) -> None:
+                for line in stream:
+                    text = line.decode(errors="replace").rstrip()
+                    if text:
+                        if level == "err":
+                            logger.warning(f"[chromadb] {text}")
+                        else:
+                            logger.debug(f"[chromadb] {text}")
+
+            if sync_proc.stdout:
+                threading.Thread(
+                    target=_sync_log, args=(sync_proc.stdout, "out"), daemon=True
+                ).start()
+            if sync_proc.stderr:
+                threading.Thread(
+                    target=_sync_log, args=(sync_proc.stderr, "err"), daemon=True
+                ).start()
 
         # Save PID for later management (async write)
-        await pid_file.write_text(str(proc.pid))
+        await pid_file.write_text(str(pid))
 
-        logger.info(f"Started ChromaDB server with PID {proc.pid}")
-
-        # Log subprocess output in background threads (not async tasks,
-        # since we're using sync Popen pipes)
-        def _log_stream(stream, level: str) -> None:
-            for line in stream:
-                text = line.decode(errors="replace").rstrip()
-                if text:
-                    if level == "err":
-                        logger.warning(f"[chromadb] {text}")
-                    else:
-                        logger.debug(f"[chromadb] {text}")
-
-        if proc.stdout:
-            threading.Thread(
-                target=_log_stream, args=(proc.stdout, "out"), daemon=True
-            ).start()
-        if proc.stderr:
-            threading.Thread(
-                target=_log_stream, args=(proc.stderr, "err"), daemon=True
-            ).start()
+        logger.info(f"Started ChromaDB server with PID {pid}")
 
         # Wait for health
         await cls._wait_for_healthy(http_port)
