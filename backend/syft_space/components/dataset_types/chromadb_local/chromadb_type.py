@@ -12,6 +12,7 @@ from types import ModuleType
 from typing import Any
 
 from anyio import Path as AsyncPath
+from loguru import logger
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.dataset_types.chunking import (
@@ -32,6 +33,12 @@ from syft_space.components.shared.domain_types import (
     HealthcheckStatus,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+
+
+try:
+    from chromadb.errors import NotFoundError as _ChromaNotFoundError
+except ImportError:
+    _ChromaNotFoundError = None
 
 
 def _import_chromadb() -> ModuleType:
@@ -575,7 +582,14 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         try:
             await client.delete_collection(name=self.collection_name)
         except Exception as e:
-            raise ValueError(f"Error deleting collection: {str(e)}") from e
+            # Collection may not exist if no documents were ever ingested
+            if _ChromaNotFoundError and isinstance(e, _ChromaNotFoundError):
+                logger.info(
+                    f"Collection '{self.collection_name}' does not exist, "
+                    "skipping deletion"
+                )
+            else:
+                raise ValueError(f"Error deleting collection: {str(e)}") from e
 
         # Remove all page images for this collection
         await asyncio.to_thread(

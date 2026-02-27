@@ -91,11 +91,41 @@ class DatasetHandler:
             # Remote type - no provisioner needed
             return None
 
-        # Check if already running
+        # Check if already running (verify actual process, not just DB state)
         existing = await self.provisioner_state_repository.get_running_by_dtype(dtype)
         if existing:
-            logger.info(f"Reusing existing provisioner for dtype '{dtype}'")
-            return existing
+            state = existing.state or {}
+            if await provisioner_cls.is_running(state):
+                # Process is alive, but the server may still be booting
+                # (e.g. after an app restart the OS process survives but
+                # ChromaDB's HTTP server hasn't finished starting yet).
+                # Wait for it to be healthy before returning.
+                try:
+                    await provisioner_cls.wait_until_ready(state)
+                except (TimeoutError, Exception) as exc:
+                    logger.warning(
+                        f"Provisioner for '{dtype}' process alive but "
+                        f"not ready ({exc}), restarting..."
+                    )
+                    await provisioner_cls.stop(state)
+                    await self.provisioner_state_repository.upsert_status(
+                        dtype=dtype,
+                        status=ProvisionerStatus.STOPPED,
+                    )
+                    # Fall through to start a new one
+                    existing = None
+                if existing:
+                    logger.info(f"Reusing existing provisioner for dtype '{dtype}'")
+                    return existing
+            else:
+                logger.warning(
+                    f"Provisioner for '{dtype}' marked as running in DB "
+                    f"but process is dead, restarting..."
+                )
+                await self.provisioner_state_repository.upsert_status(
+                    dtype=dtype,
+                    status=ProvisionerStatus.STOPPED,
+                )
 
         # Transition to STARTING (creates or updates, guards checked)
         logger.info(f"Starting provisioner for dtype '{dtype}'")

@@ -231,6 +231,8 @@ def build_dataset_routes(
     ) -> dict[str, str]:
         """Delete a dataset.
 
+        Stops any active/pending ingestion before cleaning up resources.
+
         Args:
             name: Dataset name
             tenant: Current tenant (injected)
@@ -238,6 +240,14 @@ def build_dataset_routes(
         Returns:
             Success message
         """
+        # Stop ingestion (cancel pending jobs, stop file watcher) before
+        # deleting so that a queued job cannot recreate the collection after
+        # we clean it up.
+        if ingestion_manager:
+            dataset = await handler.repository.get_by_name(name, tenant.id)
+            if dataset:
+                await ingestion_manager.stop_dataset_ingestion(dataset.id)
+
         return await handler.delete_dataset(name, tenant)
 
     @public_route
