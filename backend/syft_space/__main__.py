@@ -35,7 +35,13 @@ def _run_backend() -> None:
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--chroma-server":
+    if len(sys.argv) > 1 and sys.argv[1] == "--convert-pdf-pages":
+        from syft_space.components.dataset_types.chunking import (
+            _worker_convert_pages,
+        )
+
+        _worker_convert_pages()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--chroma-server":
         _run_chroma_server()
     else:
         _run_backend()

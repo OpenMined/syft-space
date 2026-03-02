@@ -229,19 +229,49 @@ class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
             return "starting"
 
     @classmethod
+    async def wait_until_ready(cls, state: dict[str, Any]) -> None:
+        """Wait for ChromaDB HTTP server to be healthy.
+
+        Args:
+            state: State dict from start()
+
+        Raises:
+            TimeoutError: If not healthy within 60s or no port in state
+        """
+        http_port = state.get("httpPort") or state.get("http_port")
+        if not http_port:
+            raise TimeoutError("No HTTP port in provisioner state")
+        await cls._wait_for_healthy(int(http_port))
+
+    @classmethod
     async def _is_process_running(cls, pid: int) -> bool:
-        """Check if a process is running.
+        """Check if a ChromaDB process is running.
+
+        Uses psutil to verify the PID belongs to a ChromaDB process
+        (not a reused PID for something else). Falls back to basic
+        os.kill check only if psutil is not installed.
 
         Args:
             pid: Process ID to check
 
         Returns:
-            True if process exists, False otherwise
+            True if process exists and is a ChromaDB process, False otherwise
         """
         try:
-            os.kill(pid, 0)
-            return True
-        except (OSError, ProcessLookupError):
+            import psutil
+        except ImportError:
+            # psutil not available — fall back to basic PID check
+            try:
+                os.kill(pid, 0)
+                return True
+            except (OSError, ProcessLookupError):
+                return False
+
+        try:
+            proc = psutil.Process(pid)
+            cmdline = " ".join(proc.cmdline()).lower()
+            return "chroma" in cmdline
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             return False
 
     @classmethod

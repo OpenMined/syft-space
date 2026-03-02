@@ -23,6 +23,7 @@ PACKAGES_WITH_DATA = [
     'docling_core',
     'docling_ibm_models',
     'docling_parse',
+    'rapidocr',
 ]
 
 # Packages that use importlib.metadata at runtime (need their dist-info).

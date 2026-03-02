@@ -512,6 +512,22 @@ class IngestionManager(LifecycleService):
             # Create context (use system context for background ingestion)
             ctx = IngestContext(sender="system@openmined.org", dataset_id=dataset.id)
 
+            # Re-check dataset exists right before ingest to close TOCTOU
+            # window (dataset could have been deleted during file I/O above)
+            dataset = await self._dataset_repository.get_by_id(
+                job.dataset_id, job.tenant_id
+            )
+            if not dataset:
+                logger.info(
+                    f"Dataset deleted during ingestion prep for job {job.id}"
+                )
+                await self._ingestion_repository.update_status(
+                    job.id,
+                    IngestionJobStatus.CANCELLED,
+                    "Dataset deleted during processing",
+                )
+                return
+
             # Call ingest (native async)
             await dataset_type.ingest(ctx, ingest_request)
 

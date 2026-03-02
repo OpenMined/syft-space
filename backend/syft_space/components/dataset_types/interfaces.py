@@ -319,6 +319,21 @@ class BaseDatasetTypeProvisioner(Protocol):
         ...
 
     @classmethod
+    async def wait_until_ready(cls, state: dict[str, Any]) -> None:
+        """Wait until the provisioned resource is ready to accept connections.
+
+        Default is a no-op. Override in subclasses that need startup health
+        checks (e.g., HTTP server readiness).
+
+        Args:
+            state: State dictionary returned from start()
+
+        Raises:
+            TimeoutError: If not ready within implementation-defined timeout
+        """
+        return None
+
+    @classmethod
     async def status(cls, state: dict[str, Any]) -> str:
         """Get detailed status of the resource.
 
