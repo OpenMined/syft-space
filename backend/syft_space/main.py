@@ -45,6 +45,11 @@ from syft_space.components.datasets.repository import DatasetRepository
 
 # Import route builders
 from syft_space.components.datasets.routes import build_dataset_routes
+
+# Import endpoint heartbeat manager
+from syft_space.components.endpoints.endpoint_heartbeat_manager import (
+    EndpointHeartbeatManager,
+)
 from syft_space.components.endpoints.handlers import EndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.routes import build_endpoint_routes
@@ -88,9 +93,6 @@ from syft_space.components.shared.async_utils import run_after_event
 
 # Import database
 from syft_space.components.shared.database import AsyncDatabase, SQLiteConfig
-
-# Import heartbeat manager
-from syft_space.components.shared.heartbeat_manager import HeartbeatManager
 
 # Import lifecycle protocol
 from syft_space.components.shared.lifecycle import LifecycleService
@@ -232,17 +234,17 @@ async def lifespan(app: FastAPI):
     )
     app.state.default_tenant = default_tenant
 
-    # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion → heartbeat)
+    # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion → endpoint_heartbeat)
     services: list[tuple[str, LifecycleService]] = [
         ("proxy", proxy_service),
         ("provisioner", provisioner_manager),
         ("ingestion", ingestion_manager),
-        ("heartbeat", heartbeat_manager),
+        ("endpoint_heartbeat", endpoint_heartbeat_manager),
     ]
 
-    # 3.1. Set tenant ID for heartbeat manager
+    # 3.1. Set tenant for endpoint heartbeat manager
     if default_tenant:
-        heartbeat_manager.set_tenant_id(default_tenant.id)
+        endpoint_heartbeat_manager.set_tenant(default_tenant)
 
     # 4. Create coordination event for provisioner → ingestion ordering
     # This event ensures ingestion waits for provisioners to be ready
@@ -381,7 +383,8 @@ ingestion_handler = IngestionHandler(
 
 # Initialize lifecycle managers (independent, ordered in lifespan)
 provisioner_manager = ProvisionerManager(dataset_handler)
-heartbeat_manager = HeartbeatManager(
+endpoint_heartbeat_manager = EndpointHeartbeatManager(
+    health_checker=endpoint_handler,
     marketplace_repository=marketplace_repository,
     settings_repository=settings_repository,
     enabled=app_settings.heartbeat_enabled,
@@ -389,7 +392,7 @@ heartbeat_manager = HeartbeatManager(
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.proxy_service = proxy_service
-app.state.heartbeat_manager = heartbeat_manager
+app.state.endpoint_heartbeat_manager = endpoint_heartbeat_manager
 app.state.settings_handler = settings_handler
 app.state.tenant_repository = tenant_repository
 app.state.default_tenant = None  # Set in lifespan after async creation

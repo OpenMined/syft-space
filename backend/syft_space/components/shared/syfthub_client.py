@@ -600,6 +600,36 @@ class SyftHubClient:
         )  # type: ignore
         return _handle_response_raw(response)
 
+    async def update_endpoint_health(
+        self,
+        endpoint_health: list[dict[str, Any]],
+        ttl_seconds: int,
+        public_url: str,
+    ) -> dict[str, Any]:
+        """Send endpoint health status to SyftHub.
+
+        Non-destructive: only updates health of known endpoints on SyftHub.
+        Unknown slugs are ignored by SyftHub. Also serves as domain liveness
+        signal via TTL — SyftHub marks domain as stale if no update within TTL.
+
+        Args:
+            endpoint_health: List of {"slug": str, "status": str, "checked_at": str}
+            ttl_seconds: Domain liveness TTL in seconds
+            public_url: Domain's public URL
+        Returns:
+            dict[str, Any]: Health update response
+        """
+        self._require_auth()
+        response = await self._client.post(
+            "/api/v1/endpoints/health",
+            json={
+                "endpoints": endpoint_health,
+                "ttl_seconds": ttl_seconds,
+                "url": public_url,
+            },
+        )  # type: ignore
+        return _handle_response_raw(response)
+
     def _require_auth(self) -> None:
         if self._client is None:
             raise NotAuthenticatedError()
