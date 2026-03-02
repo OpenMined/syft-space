@@ -102,7 +102,7 @@ class DatasetHandler:
                 # Wait for it to be healthy before returning.
                 try:
                     await provisioner_cls.wait_until_ready(state)
-                except (TimeoutError, Exception) as exc:
+                except Exception as exc:
                     logger.warning(
                         f"Provisioner for '{dtype}' process alive but "
                         f"not ready ({exc}), restarting..."
@@ -113,8 +113,7 @@ class DatasetHandler:
                         status=ProvisionerStatus.STOPPED,
                     )
                     # Fall through to start a new one
-                    existing = None
-                if existing:
+                else:
                     logger.info(f"Reusing existing provisioner for dtype '{dtype}'")
                     return existing
             else:

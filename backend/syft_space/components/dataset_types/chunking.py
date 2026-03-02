@@ -112,14 +112,14 @@ def _worker_convert_pages() -> None:
 
     CLI args (via sys.argv[2:]):
         pdf_path, page_start, page_end, images_dir, doc_id,
-        filename, content_type, file_size
+        filename, content_type, file_size, result_path
 
-    Outputs a single JSON object to stdout with keys ``chunks`` and
-    ``failed_pages``.
+    Writes a JSON object with keys ``chunks`` and ``failed_pages`` to
+    *result_path*.  Using a file avoids stdout corruption from stray
+    prints by docling / PIL / ONNX.
     """
     from docling.datamodel.base_models import (
         ConversionStatus,
-        DocumentStream,
         InputFormat,
     )
     from docling.datamodel.pipeline_options import PdfPipelineOptions
@@ -135,8 +135,7 @@ def _worker_convert_pages() -> None:
     filename = args[5]
     content_type = args[6]
     file_size = int(args[7])
-
-    pdf_data = pdf_path.read_bytes()
+    result_path = Path(args[8])
 
     pipeline_options = PdfPipelineOptions(
         generate_picture_images=True,
@@ -148,44 +147,38 @@ def _worker_convert_pages() -> None:
         }
     )
 
-    source = DocumentStream(name=filename, stream=BytesIO(pdf_data))
     page_nums = list(range(page_start, page_end + 1))
+    chunks: list[dict[str, Any]] = []
     failed_pages: list[int] = []
 
-    # Redirect stdout → stderr during conversion so stray prints from
-    # docling / PIL / ONNX don't corrupt the JSON protocol on stdout.
-    real_stdout = sys.stdout
-    sys.stdout = sys.stderr
+    def _write_result() -> None:
+        result_path.write_text(
+            json.dumps({"chunks": chunks, "failed_pages": failed_pages})
+        )
 
     try:
         result = converter.convert(
-            source,
+            pdf_path,
             page_range=(page_start, page_end),
             raises_on_error=False,
         )
     except (MemoryError, RuntimeError) as exc:
-        sys.stdout = real_stdout
         print(
             f"Conversion crashed for pages {page_start}-{page_end}: {exc}",
             file=sys.stderr,
         )
-        print(
-            json.dumps({"chunks": [], "failed_pages": page_nums}),
-            flush=True,
-        )
-        sys.exit(1)
+        failed_pages = page_nums
+        _write_result()
+        return
 
     if result.status == ConversionStatus.FAILURE or result.document is None:
-        sys.stdout = real_stdout
         print(
             f"Conversion failed for pages {page_start}-{page_end}",
             file=sys.stderr,
         )
-        print(
-            json.dumps({"chunks": [], "failed_pages": page_nums}),
-            flush=True,
-        )
-        sys.exit(1)
+        failed_pages = page_nums
+        _write_result()
+        return
 
     if result.status == ConversionStatus.PARTIAL_SUCCESS:
         succeeded = {p.page_no for p in result.pages}
@@ -193,16 +186,17 @@ def _worker_convert_pages() -> None:
 
     doc = result.document
     chunker = HybridChunker()
-    chunks = _extract_pictures_and_chunks(
-        doc, chunker, images_dir, doc_id, filename, content_type, file_size
-    )
-
-    # Restore stdout for the JSON result
-    sys.stdout = real_stdout
-    print(
-        json.dumps({"chunks": chunks, "failed_pages": failed_pages}),
-        flush=True,
-    )
+    try:
+        chunks = _extract_pictures_and_chunks(
+            doc, chunker, images_dir, doc_id, filename, content_type, file_size
+        )
+    except Exception as exc:
+        print(
+            f"Extraction failed for pages {page_start}-{page_end}: {exc}",
+            file=sys.stderr,
+        )
+        failed_pages = page_nums
+    _write_result()
 
 
 def build_image_urls(dataset_id: str, doc_id: str, picture_ids: str) -> list[str]:
@@ -293,11 +287,11 @@ class DocumentChunker:
         return PAGE_IMAGES_BASE_DIR / collection_name / doc_id
 
     @staticmethod
-    def _get_pdf_page_count(data: bytes) -> int:
-        """Get total page count from raw PDF bytes using pypdfium2."""
+    def _get_pdf_page_count(pdf_path: Path) -> int:
+        """Get total page count from a PDF file using pypdfium2."""
         import pypdfium2
 
-        pdf_doc = pypdfium2.PdfDocument(data)
+        pdf_doc = pypdfium2.PdfDocument(pdf_path)
         try:
             return len(pdf_doc)
         finally:
@@ -335,67 +329,80 @@ class DocumentChunker:
         Each subprocess loads docling fresh and exits after conversion,
         ensuring the OS fully reclaims memory — prevents C-level OOM
         crashes that Python cannot catch.
+
+        Results are exchanged via a temp JSON file (not stdout) so that
+        stray prints from docling / PIL / ONNX cannot corrupt the data.
         """
-        cmd = [
-            *_self_command(),
-            "--convert-pdf-pages",
-            str(pdf_path),
-            str(page_start),
-            str(page_end),
-            str(images_dir),
-            doc_id,
-            file.filename,
-            file.content_type,
-            str(file.file_size or 0),
-        ]
         page_nums = list(range(page_start, page_end + 1))
-        num_pages = page_end - page_start + 1
-        timeout = num_pages * _SUBPROCESS_TIMEOUT_PER_PAGE
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            logger.warning(
-                "Subprocess timed out for pages %d-%d of %s",
-                page_start,
-                page_end,
-                file.filename,
-            )
-            return [], page_nums
 
-        if proc.returncode != 0:
-            logger.warning(
-                "Subprocess failed (rc=%d) for pages %d-%d of %s: %s",
-                proc.returncode,
-                page_start,
-                page_end,
-                file.filename,
-                proc.stderr[-500:] if proc.stderr else "(no stderr)",
-            )
-            return [], page_nums
-
+        result_fd, result_path_str = tempfile.mkstemp(suffix=".json")
+        result_path = Path(result_path_str)
+        os.close(result_fd)
         try:
-            data = json.loads(proc.stdout)
-            return data.get("chunks", []), data.get("failed_pages", [])
-        except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning(
-                "Failed to parse subprocess output for pages %d-%d of %s: %s",
-                page_start,
-                page_end,
+            cmd = [
+                *_self_command(),
+                "--convert-pdf-pages",
+                str(pdf_path),
+                str(page_start),
+                str(page_end),
+                str(images_dir),
+                doc_id,
                 file.filename,
-                exc,
-            )
-            return [], page_nums
+                file.content_type,
+                str(file.file_size or 0),
+                str(result_path),
+            ]
+            num_pages = page_end - page_start + 1
+            timeout = num_pages * _SUBPROCESS_TIMEOUT_PER_PAGE
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "Subprocess timed out for pages %d-%d of %s",
+                    page_start,
+                    page_end,
+                    file.filename,
+                )
+                return [], page_nums
+
+            if proc.returncode != 0:
+                logger.warning(
+                    "Subprocess failed (rc=%d) for pages %d-%d of %s: %s",
+                    proc.returncode,
+                    page_start,
+                    page_end,
+                    file.filename,
+                    proc.stderr[-500:] if proc.stderr else "(no stderr)",
+                )
+                # Worker may still have written a result file before crashing
+                # — fall through to attempt reading it.
+
+            try:
+                data = json.loads(result_path.read_text())
+                return data.get("chunks", []), data.get("failed_pages", [])
+            except (json.JSONDecodeError, ValueError, OSError) as exc:
+                logger.warning(
+                    "No valid result file for pages %d-%d of %s: %s",
+                    page_start,
+                    page_end,
+                    file.filename,
+                    exc,
+                )
+                return [], page_nums
+        finally:
+            result_path.unlink(missing_ok=True)
 
     def _convert_batched_pages(
         self,
-        pdf_data: bytes,
+        pdf_path: Path,
         file: IngestFile,
-        pages: list[int],
+        total_pages: int,
         images_dir: Path,
         doc_id: str,
     ) -> list[dict[str, Any]]:
@@ -407,55 +414,53 @@ class DocumentChunker:
         individually, each in its own fresh subprocess so the OS fully
         reclaims memory between pages.
         """
-        sorted_pages = sorted(pages)
-        page_start = sorted_pages[0]
-        page_end = sorted_pages[-1]
+        page_start = 1
+        page_end = total_pages
 
-        tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".pdf")
-        tmp_path = Path(tmp_path_str)
-        try:
-            os.close(tmp_fd)
-            tmp_path.write_bytes(pdf_data)
+        # First pass — all pages in one subprocess
+        logger.info(
+            "Subprocess: converting pages %d-%d of %s",
+            page_start,
+            page_end,
+            file.filename,
+        )
+        all_chunks, failed = self._run_page_subprocess(
+            pdf_path, page_start, page_end, images_dir, doc_id, file
+        )
 
-            # First pass — all pages in one subprocess
+        # Determine which pages still need retrying
+        covered_pages: set[int] = set()
+        for chunk in all_chunks:
+            covered_pages.update(chunk["page_numbers"])
+        retry_pages = [p for p in failed if p not in covered_pages]
+
+        # Second pass — each failed page in its own subprocess
+        if retry_pages:
             logger.info(
-                "Subprocess: converting pages %d-%d of %s",
-                page_start,
-                page_end,
+                "Retrying %d failed pages individually for %s: %s",
+                len(retry_pages),
                 file.filename,
+                retry_pages,
             )
-            all_chunks, failed = self._run_page_subprocess(
-                tmp_path, page_start, page_end, images_dir, doc_id, file
-            )
-
-            # Determine which pages still need retrying
-            covered_pages: set[int] = set()
-            for chunk in all_chunks:
-                covered_pages.update(chunk["page_numbers"])
-            retry_pages = [p for p in failed if p not in covered_pages]
-
-            # Second pass — each failed page in its own subprocess
-            if retry_pages:
+            for i, page_no in enumerate(retry_pages, 1):
                 logger.info(
-                    "Retrying %d failed pages individually for %s: %s",
+                    "Subprocess: page %d (%d/%d) of %s",
+                    page_no,
+                    i,
                     len(retry_pages),
                     file.filename,
-                    retry_pages,
                 )
-                for i, page_no in enumerate(retry_pages, 1):
-                    logger.info(
-                        "Subprocess: page %d (%d/%d) of %s",
+                chunks, _ = self._run_page_subprocess(
+                    pdf_path, page_no, page_no, images_dir, doc_id, file
+                )
+                if chunks:
+                    all_chunks.extend(chunks)
+                else:
+                    logger.warning(
+                        "Page %d retry failed for %s, skipping",
                         page_no,
-                        i,
-                        len(retry_pages),
                         file.filename,
                     )
-                    chunks, _ = self._run_page_subprocess(
-                        tmp_path, page_no, page_no, images_dir, doc_id, file
-                    )
-                    all_chunks.extend(chunks)
-        finally:
-            tmp_path.unlink(missing_ok=True)
 
         return all_chunks
 
@@ -528,13 +533,22 @@ class DocumentChunker:
         # PDF path: always use subprocess isolation.  Docling's layout
         # model can trigger C-level std::bad_alloc that kills the process
         # outright — running in-process would crash the server.
-        total_pages = self._get_pdf_page_count(raw_data)
-        if total_pages == 0:
-            raise ValueError(f"PDF has 0 pages: {file.filename}")
+        tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".pdf")
+        tmp_path = Path(tmp_path_str)
+        try:
+            os.close(tmp_fd)
+            tmp_path.write_bytes(raw_data)
+            del raw_data  # free memory; subprocess reads from temp file
 
-        chunks = self._convert_batched_pages(
-            raw_data, file, list(range(1, total_pages + 1)), images_dir, doc_id
-        )
+            total_pages = self._get_pdf_page_count(tmp_path)
+            if total_pages == 0:
+                raise ValueError(f"PDF has 0 pages: {file.filename}")
+
+            chunks = self._convert_batched_pages(
+                tmp_path, file, total_pages, images_dir, doc_id
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
         # Sort by page number to preserve document order
         chunks.sort(key=lambda c: (min(c["page_numbers"]) if c["page_numbers"] else 0))
