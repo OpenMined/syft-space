@@ -359,6 +359,22 @@
                     <p class="body-sm text-muted-foreground">Choose your AI model provider</p>
                   </div>
 
+                  <!-- Base URL (shown when custom provider is selected) -->
+                  <div v-if="newModelForm.provider === 'custom'" class="space-y-2">
+                    <Label for="base-url" class="body-sm font-medium">
+                      Base URL <span class="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="base-url"
+                      v-model="newModelForm.baseUrl"
+                      placeholder="https://your-api.example.com/v1"
+                      class="w-full"
+                    />
+                    <p class="body-sm text-muted-foreground">
+                      The OpenAI-compatible API base URL for your provider
+                    </p>
+                  </div>
+
                   <!-- API Key (shown after provider is selected) -->
                   <div v-if="newModelForm.provider" class="space-y-2">
                     <Label for="api-key" class="body-sm font-medium">
@@ -1451,10 +1467,15 @@ const newModelForm = ref({
   provider: '',
   model: '',
   apiKey: '',
+  baseUrl: '',
 })
 
 // Provider models for new model creation
-const newModelBaseUrlRef = computed(() => getProviderBaseUrl(newModelForm.value.provider))
+const newModelBaseUrlRef = computed(() =>
+  newModelForm.value.provider === 'custom'
+    ? newModelForm.value.baseUrl
+    : getProviderBaseUrl(newModelForm.value.provider),
+)
 const newModelApiKeyRef = computed(() => newModelForm.value.apiKey)
 const {
   models: newProviderModels,
@@ -1718,10 +1739,13 @@ const isCurrentStepValid = computed(() => {
     if (selectedModelSourceType.value === 'existing') {
       return formData.value.aiModel !== ''
     } else if (selectedModelSourceType.value === 'create-new') {
+      const baseValid =
+        newModelForm.value.provider !== 'custom' || newModelForm.value.baseUrl.trim() !== ''
       return (
         newModelForm.value.provider !== '' &&
         newModelForm.value.model !== '' &&
-        newModelForm.value.apiKey.trim() !== ''
+        newModelForm.value.apiKey.trim() !== '' &&
+        baseValid
       )
     }
     return false
@@ -2209,6 +2233,7 @@ const selectModelSourceType = (type: string) => {
       provider: '',
       model: '',
       apiKey: '',
+      baseUrl: '',
     }
   }
 }
@@ -2218,6 +2243,9 @@ watch(
   () => newModelForm.value.provider,
   () => {
     newModelForm.value.model = ''
+    if (newModelForm.value.provider !== 'custom') {
+      newModelForm.value.baseUrl = ''
+    }
   },
 )
 watch(

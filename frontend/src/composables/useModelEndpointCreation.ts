@@ -27,6 +27,7 @@ export interface ModelEndpointCreationData {
     provider: string
     model: string
     apiKey: string
+    baseUrl: string
   }
   selectedModelId: string // For existing model selection
 
@@ -81,7 +82,7 @@ export function useModelEndpointCreation() {
       configuration: {
         api_key: data.newModelForm.apiKey,
         model: data.newModelForm.model,
-        base_url: getProviderBaseUrl(data.newModelForm.provider),
+        base_url: data.newModelForm.baseUrl || getProviderBaseUrl(data.newModelForm.provider),
         system_prompt: '', // Default empty system prompt
       },
       summary: data.summary ? `Model for ${data.summary}` : '',

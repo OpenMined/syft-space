@@ -40,6 +40,22 @@
           <p class="text-sm text-muted-foreground">Choose your AI model provider</p>
         </div>
 
+        <!-- Base URL (shown when custom provider is selected) -->
+        <div v-if="!props.model && formData.provider === 'custom'" class="space-y-2">
+          <Label for="base-url" class="text-sm font-medium">
+            Base URL <span class="text-red-500">*</span>
+          </Label>
+          <Input
+            id="base-url"
+            v-model="formData.baseUrl"
+            placeholder="https://your-api.example.com/v1"
+            class="w-full"
+          />
+          <p class="text-sm text-muted-foreground">
+            The OpenAI-compatible API base URL for your provider
+          </p>
+        </div>
+
         <!-- API Key (shown after provider is selected) -->
         <div v-if="!props.model && formData.provider" class="space-y-2">
           <Label for="api-key" class="text-sm font-medium">
@@ -219,6 +235,7 @@ const formData = ref({
   provider: '',
   model: '',
   apiKey: '',
+  baseUrl: '',
   summary: '',
   tags: [] as string[],
 })
@@ -227,7 +244,11 @@ const tagInput = ref('')
 
 // Provider models
 const providerRef = computed(() => formData.value.provider)
-const baseUrlRef = computed(() => getProviderBaseUrl(formData.value.provider))
+const baseUrlRef = computed(() =>
+  formData.value.provider === 'custom'
+    ? formData.value.baseUrl
+    : getProviderBaseUrl(formData.value.provider),
+)
 const apiKeyRef = computed(() => formData.value.apiKey)
 const {
   models: providerModels,
@@ -248,17 +269,23 @@ const isFormValid = computed(() => {
     return formData.value.name.trim() !== ''
   }
   // For creating, all fields are required
+  const baseValid =
+    formData.value.provider !== 'custom' || formData.value.baseUrl.trim() !== ''
   return (
     formData.value.name.trim() !== '' &&
     formData.value.provider !== '' &&
     formData.value.model !== '' &&
-    formData.value.apiKey.trim() !== ''
+    formData.value.apiKey.trim() !== '' &&
+    baseValid
   )
 })
 
 // Reset model selection when provider or API key changes
 watch(providerRef, () => {
   formData.value.model = ''
+  if (formData.value.provider !== 'custom') {
+    formData.value.baseUrl = ''
+  }
 })
 watch(apiKeyRef, () => {
   formData.value.model = ''
@@ -313,7 +340,7 @@ const handleCreate = async () => {
         configuration: {
           api_key: formData.value.apiKey,
           model: formData.value.model,
-          base_url: getProviderBaseUrl(formData.value.provider),
+          base_url: formData.value.baseUrl || getProviderBaseUrl(formData.value.provider),
           system_prompt: '', // Default empty system prompt
         },
         summary: formData.value.summary || '',
@@ -340,6 +367,7 @@ const resetForm = () => {
     provider: '',
     model: '',
     apiKey: '',
+    baseUrl: '',
     summary: '',
     tags: [],
   }
