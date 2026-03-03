@@ -1,5 +1,6 @@
 """OpenAI model type implementation."""
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from syft_space.components.model_types.interfaces import (
@@ -240,3 +241,64 @@ class OpenAIModelType(BaseModelType):
                 status=HealthcheckStatus.UNHEALTHY,
                 message=f"OpenAI API is unhealthy: {str(e)}",
             )
+
+    @classmethod
+    def get_actions(
+        cls,
+    ) -> dict[str, Callable[..., Awaitable[dict[str, Any]]]]:
+        """Return actions this model type supports.
+
+        Actions are optional capabilities that can be invoked via the
+        generic ``POST /models/types/{dtype}/actions/{action_name}`` route.
+        """
+        return {
+            "fetch_available_models": cls._action_fetch_available_models,
+        }
+
+    @staticmethod
+    async def _action_fetch_available_models(
+        *, base_url: str, api_key: str
+    ) -> dict[str, Any]:
+        """Action wrapper for :meth:`fetch_available_models`.
+
+        Accepts keyword arguments from the request body and returns a
+        JSON-serialisable dict.
+        """
+        raw = await OpenAIModelType.fetch_available_models(
+            base_url=base_url, api_key=api_key
+        )
+        return {"models": raw}
+
+    @staticmethod
+    async def fetch_available_models(
+        base_url: str, api_key: str
+    ) -> list[dict[str, str | None]]:
+        """Fetch available models from an OpenAI-compatible API endpoint.
+
+        Args:
+            base_url: Base URL of the OpenAI-compatible API
+            api_key: API key for authentication
+
+        Returns:
+            Sorted list of model dicts with id, name, owned_by fields
+
+        Raises:
+            ImportError: If openai package is not installed
+            Exception: If the API request fails
+        """
+        if not enabled:
+            raise ImportError("OpenAI package is required")
+
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=10.0)
+        response = await client.models.list()
+
+        models = [
+            {
+                "id": m.id,
+                "name": getattr(m, "name", None),
+                "owned_by": getattr(m, "owned_by", None),
+            }
+            for m in response.data
+        ]
+        models.sort(key=lambda m: m["id"])
+        return models
