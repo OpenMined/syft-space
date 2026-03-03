@@ -169,6 +169,22 @@ export interface CreateModelRequest {
   tags?: string
 }
 
+// Provider model fetching types
+export interface FetchProviderModelsRequest {
+  base_url: string
+  api_key: string
+}
+
+export interface ProviderModelItem {
+  id: string
+  name: string | null
+  owned_by: string | null
+}
+
+export interface FetchProviderModelsResponse {
+  models: ProviderModelItem[]
+}
+
 export interface ModelResponse {
   id: string
   name: string

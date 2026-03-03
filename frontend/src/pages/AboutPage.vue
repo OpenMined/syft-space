@@ -9,7 +9,10 @@
         <h1 class="mt-3 text-2xl font-bold text-gray-800">Syft Space</h1>
       </div>
 
-      <div data-tauri-drag-region class="relative z-10 flex flex-col items-center gap-1 text-center text-sm text-gray-500">
+      <div
+        data-tauri-drag-region
+        class="relative z-10 flex flex-col items-center gap-1 text-center text-sm text-gray-500"
+      >
         <p>Version {{ version }}</p>
         <p>Built by <span class="font-medium text-gray-700">OpenMined</span></p>
         <a
