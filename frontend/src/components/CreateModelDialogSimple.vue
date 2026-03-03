@@ -22,64 +22,61 @@
           <p class="text-sm text-muted-foreground">Give your model a descriptive name</p>
         </div>
 
-        <!-- Provider and Model Side by Side (only show when creating) -->
-        <div v-if="!props.model" class="grid grid-cols-2 gap-4">
-          <!-- Provider -->
-          <div class="space-y-2">
-            <Label for="provider" class="text-sm font-medium">
-              Provider <span class="text-red-500">*</span>
-            </Label>
-            <Select v-model="formData.provider">
-              <SelectTrigger id="provider" class="w-full">
-                <SelectValue placeholder="Select a provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="groq">Groq</SelectItem>
-                <SelectItem value="openrouter">OpenRouter</SelectItem>
-                <SelectItem value="together">Together AI</SelectItem>
-                <SelectItem value="perplexity">Perplexity</SelectItem>
-              </SelectContent>
-            </Select>
-            <p class="text-sm text-muted-foreground">Choose your AI model provider</p>
-          </div>
-
-          <!-- Model -->
-          <div class="space-y-2">
-            <Label for="model" class="text-sm font-medium">
-              Model <span class="text-red-500">*</span>
-            </Label>
-            <Select v-model="formData.model" :disabled="!formData.provider">
-              <SelectTrigger id="model" class="w-full">
-                <SelectValue placeholder="Select a model" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem
-                  v-for="model in availableModels"
-                  :key="model.value"
-                  :value="model.value"
-                >
-                  {{ model.label }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p class="text-sm text-muted-foreground">Select the specific model to use</p>
-          </div>
+        <!-- Provider (only show when creating) -->
+        <div v-if="!props.model" class="space-y-2">
+          <Label for="provider" class="text-sm font-medium">
+            Provider <span class="text-red-500">*</span>
+          </Label>
+          <Select v-model="formData.provider">
+            <SelectTrigger id="provider" class="w-full">
+              <SelectValue placeholder="Select a provider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="p in PROVIDERS" :key="p.id" :value="p.id">
+                {{ p.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p class="text-sm text-muted-foreground">Choose your AI model provider</p>
         </div>
 
-        <!-- API Key (only show when creating) -->
-        <div v-if="!props.model" class="space-y-2">
+        <!-- API Key (shown after provider is selected) -->
+        <div v-if="!props.model && formData.provider" class="space-y-2">
           <Label for="api-key" class="text-sm font-medium">
-            {{ apiKeyLabel }} <span class="text-red-500">*</span>
+            {{ getProviderLabel(formData.provider) }} API Key
+            <span class="text-red-500">*</span>
           </Label>
           <Input
             id="api-key"
             v-model="formData.apiKey"
             type="password"
-            :placeholder="apiKeyPlaceholder"
+            :placeholder="`Enter your ${getProviderLabel(formData.provider)} API key`"
             class="w-full"
           />
-          <p class="text-sm text-muted-foreground">Your API key for authentication</p>
+          <p class="text-sm text-muted-foreground">
+            Models will be fetched automatically after entering your key
+          </p>
+        </div>
+
+        <!-- Model (shown after API key is entered) -->
+        <div v-if="!props.model && formData.provider && formData.apiKey.trim()" class="space-y-2">
+          <Label for="model" class="text-sm font-medium">
+            Model <span class="text-red-500">*</span>
+          </Label>
+          <ProviderModelCombobox
+            v-model="formData.model"
+            :models="providerModels"
+            :is-loading="isLoadingModels"
+            :error="modelsError"
+            :disabled="isLoadingModels"
+            placeholder="Select a model"
+          />
+          <p v-if="isLoadingModels" class="text-sm text-muted-foreground">
+            Fetching available models...
+          </p>
+          <p v-else-if="hasModelsFetched" class="text-sm text-muted-foreground">
+            {{ providerModels.length }} models available
+          </p>
         </div>
 
         <!-- Summary -->
@@ -181,9 +178,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import ProviderModelCombobox from '@/components/ProviderModelCombobox.vue'
 import { Plus, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { modelsApi } from '@/api/endpoints/models'
+import { PROVIDERS, getProviderLabel, getProviderBaseUrl } from '@/config/providers'
+import { useProviderModels } from '@/composables/useProviderModels'
 import type { CreateModelRequest } from '@/api/types'
 
 interface Model {
@@ -210,65 +210,6 @@ const emit = defineEmits<{
   'model-updated': []
 }>()
 
-// Model options for different providers
-const openaiModels = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'gpt-4', label: 'GPT-4' },
-  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
-  { value: 'o1-preview', label: 'o1 Preview' },
-  { value: 'o1-mini', label: 'o1 Mini' },
-  { value: 'gpt-4-turbo-preview', label: 'GPT-4 Turbo Preview' },
-]
-
-const groqModels = [
-  { value: 'llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct' },
-  { value: 'llama-3.2-90b-vision-instruct', label: 'Llama 3.2 90B Vision' },
-  { value: 'llama-3.2-11b-vision-instruct', label: 'Llama 3.2 11B Vision' },
-  { value: 'llama-3.1-70b-instruct', label: 'Llama 3.1 70B Instruct' },
-  { value: 'llama-3.1-8b-instruct', label: 'Llama 3.1 8B Instruct' },
-  { value: 'mixtral-8x7b-instruct', label: 'Mixtral 8x7B Instruct' },
-  { value: 'gemma2-9b-it', label: 'Gemma 2 9B IT' },
-  { value: 'gemma-7b-it', label: 'Gemma 7B IT' },
-]
-
-const openrouterModels = [
-  { value: 'openai/gpt-4o', label: 'GPT-4o' },
-  { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini' },
-  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { value: 'anthropic/claude-3-opus', label: 'Claude 3 Opus' },
-  { value: 'meta-llama/llama-3.2-90b-vision-instruct', label: 'Llama 3.2 90B Vision' },
-  { value: 'google/gemini-2.0-flash-exp:free', label: 'Gemini 2.0 Flash (Free)' },
-  { value: 'google/gemini-pro-1.5', label: 'Gemini Pro 1.5' },
-  { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
-  { value: 'mistralai/mistral-large', label: 'Mistral Large' },
-  { value: 'mistralai/codestral', label: 'Codestral' },
-  { value: 'qwen/qwen-2.5-72b-instruct', label: 'Qwen 2.5 72B' },
-]
-
-const togetherModels = [
-  { value: 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo', label: 'Llama 3.1 405B Turbo' },
-  { value: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo', label: 'Llama 3.1 70B Turbo' },
-  { value: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', label: 'Llama 3.1 8B Turbo' },
-  { value: 'meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo', label: 'Llama 3.2 90B Vision Turbo' },
-  { value: 'mistralai/Mixtral-8x22B-Instruct', label: 'Mixtral 8x22B Instruct' },
-  { value: 'mistralai/Mixtral-8x7B-Instruct', label: 'Mixtral 8x7B Instruct' },
-  { value: 'deepseek-ai/deepseek-coder-33b-instruct', label: 'DeepSeek Coder 33B' },
-  { value: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen 2.5 72B Instruct' },
-  { value: 'Qwen/Qwen2.5-Coder-32B-Instruct', label: 'Qwen 2.5 Coder 32B' },
-]
-
-const perplexityModels = [
-  { value: 'llama-3.1-sonar-huge-128k-online', label: 'Sonar Huge 128k (Online)' },
-  { value: 'llama-3.1-sonar-large-128k-online', label: 'Sonar Large 128k (Online)' },
-  { value: 'llama-3.1-sonar-small-128k-online', label: 'Sonar Small 128k (Online)' },
-  { value: 'llama-3.1-sonar-large-128k', label: 'Sonar Large 128k' },
-  { value: 'llama-3.1-sonar-small-128k', label: 'Sonar Small 128k' },
-  { value: 'llama-3.1-8b-instruct', label: 'Llama 3.1 8B Instruct' },
-  { value: 'llama-3.1-70b-instruct', label: 'Llama 3.1 70B Instruct' },
-]
-
 // Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'coding', 'creative', 'translation']
 
@@ -284,55 +225,21 @@ const formData = ref({
 
 const tagInput = ref('')
 
+// Provider models
+const providerRef = computed(() => formData.value.provider)
+const baseUrlRef = computed(() => getProviderBaseUrl(formData.value.provider))
+const apiKeyRef = computed(() => formData.value.apiKey)
+const {
+  models: providerModels,
+  isLoading: isLoadingModels,
+  error: modelsError,
+  hasFetched: hasModelsFetched,
+} = useProviderModels(baseUrlRef, apiKeyRef)
+
 // Computed properties
 const isOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
-})
-
-const availableModels = computed(() => {
-  switch (formData.value.provider) {
-    case 'openai':
-      return openaiModels
-    case 'groq':
-      return groqModels
-    case 'openrouter':
-      return openrouterModels
-    case 'together':
-      return togetherModels
-    case 'perplexity':
-      return perplexityModels
-    default:
-      return []
-  }
-})
-
-// API Key label based on selected provider
-const apiKeyLabel = computed(() => {
-  const providerNames = {
-    openai: 'OpenAI',
-    groq: 'Groq',
-    openrouter: 'OpenRouter',
-    together: 'Together AI',
-    perplexity: 'Perplexity',
-  }
-
-  const providerName = providerNames[formData.value.provider as keyof typeof providerNames]
-  return providerName ? `${providerName} API Key` : 'API Key'
-})
-
-// API Key placeholder based on selected provider
-const apiKeyPlaceholder = computed(() => {
-  const providerNames = {
-    openai: 'OpenAI',
-    groq: 'Groq',
-    openrouter: 'OpenRouter',
-    together: 'Together AI',
-    perplexity: 'Perplexity',
-  }
-
-  const providerName = providerNames[formData.value.provider as keyof typeof providerNames]
-  return providerName ? `Enter your ${providerName} API key` : 'Enter your API key'
 })
 
 const isFormValid = computed(() => {
@@ -349,13 +256,13 @@ const isFormValid = computed(() => {
   )
 })
 
-// Watch for provider changes to reset model selection
-watch(
-  () => formData.value.provider,
-  () => {
-    formData.value.model = ''
-  },
-)
+// Reset model selection when provider or API key changes
+watch(providerRef, () => {
+  formData.value.model = ''
+})
+watch(apiKeyRef, () => {
+  formData.value.model = ''
+})
 
 // Methods
 const addTag = () => {
@@ -400,30 +307,13 @@ const handleCreate = async () => {
       toast.success(`Model "${modelName}" updated successfully`)
     } else {
       // Create new model
-      const getBaseUrl = (provider: string) => {
-        switch (provider) {
-          case 'openai':
-            return 'https://api.openai.com/v1'
-          case 'groq':
-            return 'https://api.groq.com/openai/v1'
-          case 'openrouter':
-            return 'https://openrouter.ai/api/v1'
-          case 'together':
-            return 'https://api.together.xyz/v1'
-          case 'perplexity':
-            return 'https://api.perplexity.ai'
-          default:
-            return 'https://api.openai.com/v1'
-        }
-      }
-
       const createRequest: CreateModelRequest = {
         name: formData.value.name,
         dtype: 'openai',
         configuration: {
           api_key: formData.value.apiKey,
           model: formData.value.model,
-          base_url: getBaseUrl(formData.value.provider),
+          base_url: getProviderBaseUrl(formData.value.provider),
           system_prompt: '', // Default empty system prompt
         },
         summary: formData.value.summary || '',

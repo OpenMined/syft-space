@@ -71,7 +71,10 @@ watch(
 </script>
 
 <template>
-  <SplashScreen v-if="!serverStore.isReady && !isUpdatesPage && !isAboutPage" :is-slow="serverStore.isSlow" />
+  <SplashScreen
+    v-if="!serverStore.isReady && !isUpdatesPage && !isAboutPage"
+    :is-slow="serverStore.isSlow"
+  />
   <div v-else class="min-h-screen bg-background text-foreground">
     <AppNavbar v-if="showNavbar" />
 
