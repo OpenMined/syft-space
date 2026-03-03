@@ -1,10 +1,5 @@
 import { apiClient } from '../client'
-import type {
-  PublicUrlResponse,
-  UpdatePublicUrlRequest,
-  ProxyStatusResponse,
-  ProxyConfigRequest,
-} from '../types'
+import type { PublicUrlResponse, UpdatePublicUrlRequest, ProxyStatusResponse } from '../types'
 
 export const settingsApi = {
   // Get current public URL
@@ -25,9 +20,9 @@ export const settingsApi = {
     return response.data
   },
 
-  // Configure proxy (connect with ngrok token)
-  configureProxy: async (data: ProxyConfigRequest): Promise<ProxyStatusResponse> => {
-    const response = await apiClient.post('/settings/proxy', data)
+  // Configure proxy (fetches tunnel credentials from SyftHub automatically)
+  configureProxy: async (): Promise<ProxyStatusResponse> => {
+    const response = await apiClient.post('/settings/proxy')
     return response.data
   },
 

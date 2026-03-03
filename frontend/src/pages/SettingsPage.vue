@@ -115,11 +115,7 @@
 
             <!-- Subdomain conditional content -->
             <div v-if="networkMode === 'subdomain'" class="ml-7">
-              <!-- State: Connected (has_token + not editing) -->
-              <div
-                v-if="proxyStatus.hasToken && !isEditingToken"
-                class="p-4 bg-muted/50 rounded-lg border space-y-3"
-              >
+              <div class="p-4 bg-muted/50 rounded-lg border space-y-3">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
                     <div
@@ -130,9 +126,14 @@
                       {{ proxyStatus.connected ? 'Connected' : 'Disconnected' }}
                     </span>
                   </div>
-                  <Button variant="ghost" size="sm" @click="isEditingToken = true">
-                    <Pencil class="h-4 w-4 mr-1" />
-                    Update Token
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :disabled="connecting"
+                    @click="connectProxy"
+                  >
+                    <Loader2 v-if="connecting" class="h-4 w-4 mr-1 animate-spin" />
+                    {{ proxyStatus.connected ? 'Reconnect' : 'Connect' }}
                   </Button>
                 </div>
 
@@ -146,20 +147,6 @@
                     {{ proxyStatus.publicUrl }}
                     <ExternalLink class="h-3 w-3" />
                   </a>
-                </div>
-              </div>
-
-              <!-- State: Not configured OR editing -->
-              <div v-else class="space-y-2">
-                <Label for="dev-token">Developer Token</Label>
-                <Input
-                  id="dev-token"
-                  v-model="devToken"
-                  type="password"
-                  placeholder="Enter your SyftHub developer token"
-                />
-                <div v-if="proxyStatus.hasToken" class="flex gap-2 mt-2">
-                  <Button variant="ghost" size="sm" @click="cancelEditToken"> Cancel </Button>
                 </div>
               </div>
             </div>
@@ -216,7 +203,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { Settings, Globe, User, ExternalLink, Pencil, Loader2 } from 'lucide-vue-next'
+import { Settings, Globe, User, ExternalLink, Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -232,9 +219,8 @@ const loadingAccount = ref(true)
 const loadingNetwork = ref(true)
 const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
-const devToken = ref('')
 const customUrl = ref('')
-const isEditingToken = ref(false)
+const connecting = ref(false)
 
 const proxyStatus = reactive({
   connected: false,
@@ -276,26 +262,27 @@ const fetchNetworkConfig = async () => {
   }
 }
 
-const cancelEditToken = () => {
-  isEditingToken.value = false
-  devToken.value = ''
+const connectProxy = async () => {
+  connecting.value = true
+  try {
+    const result = await settingsApi.configureProxy()
+    proxyStatus.connected = result.connected
+    proxyStatus.publicUrl = result.public_url
+    proxyStatus.hasToken = result.has_token
+    toast.success('Proxy connected successfully')
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to connect proxy')
+  } finally {
+    connecting.value = false
+  }
 }
 
 const saveChanges = async () => {
   saving.value = true
   try {
     if (networkMode.value === 'subdomain') {
-      if (devToken.value) {
-        const result = await settingsApi.configureProxy({ ngrok_token: devToken.value })
-        proxyStatus.connected = result.connected
-        proxyStatus.publicUrl = result.public_url
-        proxyStatus.hasToken = result.has_token
-        devToken.value = ''
-        isEditingToken.value = false
-        toast.success('Proxy configured successfully')
-      } else if (!proxyStatus.hasToken) {
-        toast.error('Please enter your developer token')
-        return
+      if (!proxyStatus.hasToken) {
+        await connectProxy()
       }
     } else {
       if (!customUrl.value) {

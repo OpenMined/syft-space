@@ -431,6 +431,3 @@ export interface ProxyStatusResponse {
   has_token: boolean
 }
 
-export interface ProxyConfigRequest {
-  ngrok_token: string
-}
