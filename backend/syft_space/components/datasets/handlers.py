@@ -108,7 +108,10 @@ class DatasetHandler:
                         f"not ready ({exc}), restarting..."
                     )
                     await provisioner_cls.stop(state)
-                    await self.provisioner_state_repository.upsert_status(
+                    # Force-reset: normal RUNNING→STOPPED transition is
+                    # not allowed by the state machine (must go via STOPPING).
+                    # This is a recovery path so we bypass the guards.
+                    await self.provisioner_state_repository.force_status_update(
                         dtype=dtype,
                         status=ProvisionerStatus.STOPPED,
                     )
@@ -121,7 +124,10 @@ class DatasetHandler:
                     f"Provisioner for '{dtype}' marked as running in DB "
                     f"but process is dead, restarting..."
                 )
-                await self.provisioner_state_repository.upsert_status(
+                # Force-reset: normal RUNNING→STOPPED transition is
+                # not allowed by the state machine (must go via STOPPING).
+                # This is a recovery path so we bypass the guards.
+                await self.provisioner_state_repository.force_status_update(
                     dtype=dtype,
                     status=ProvisionerStatus.STOPPED,
                 )
@@ -280,9 +286,11 @@ class DatasetHandler:
                 # Use state.state as config (contains connection fields from last run)
                 config = state.state.copy() if state.state else {}
                 await self._ensure_provisioner_running(state.dtype, config)
-            except Exception:  # nosec B110 - error already logged by provisioner
+            except Exception as e:
+                logger.exception(
+                    f"Failed to start provisioner '{state.dtype}' during startup: {e}"
+                )
                 # Continue starting other provisioners
-                pass
 
     async def shutdown_all_provisioners(self) -> None:
         """Stop all running provisioners.
