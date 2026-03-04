@@ -191,13 +191,24 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 /// Show (and focus) the main window, adjusting macOS activation policy.
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        if let Err(e) = window.set_skip_taskbar(false) {
+            log::error!("Failed to restore taskbar: {}", e);
+        }
+        if let Err(e) = window.show() {
+            log::error!("Failed to show window: {}", e);
+        }
+        if let Err(e) = window.unminimize() {
+            log::error!("Failed to unminimize window: {}", e);
+        }
+        if let Err(e) = window.set_focus() {
+            log::error!("Failed to focus window: {}", e);
+        }
 
         #[cfg(target_os = "macos")]
         {
-            let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+            if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+                log::error!("Failed to set activation policy: {}", e);
+            }
         }
     }
 }

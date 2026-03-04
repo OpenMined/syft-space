@@ -51,6 +51,28 @@ fn resolve_backend_path(app: &tauri::App) -> std::path::PathBuf {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(e) = window.set_skip_taskbar(false) {
+                    log::error!("Failed to restore taskbar: {}", e);
+                }
+                if let Err(e) = window.show() {
+                    log::error!("Failed to show window: {}", e);
+                }
+                if let Err(e) = window.unminimize() {
+                    log::error!("Failed to unminimize window: {}", e);
+                }
+                if let Err(e) = window.set_focus() {
+                    log::error!("Failed to focus window: {}", e);
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+                        log::error!("Failed to set activation policy: {}", e);
+                    }
+                }
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -283,12 +305,19 @@ pub fn run() {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     // Hide the window instead of closing it
                     api.prevent_close();
-                    let _ = window.hide();
+                    if let Err(e) = window.hide() {
+                        log::error!("Failed to hide window: {}", e);
+                    }
+                    if let Err(e) = window.set_skip_taskbar(true) {
+                        log::error!("Failed to skip taskbar: {}", e);
+                    }
 
                     #[cfg(target_os = "macos")]
                     {
                         let app = window.app_handle();
-                        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                        if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+                            log::error!("Failed to set activation policy: {}", e);
+                        }
                     }
                 }
             }
@@ -299,9 +328,18 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                    if let Err(e) = window.set_skip_taskbar(false) {
+                        log::error!("Failed to restore taskbar: {}", e);
+                    }
+                    if let Err(e) = window.show() {
+                        log::error!("Failed to show window: {}", e);
+                    }
+                    if let Err(e) = window.set_focus() {
+                        log::error!("Failed to focus window: {}", e);
+                    }
+                    if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+                        log::error!("Failed to set activation policy: {}", e);
+                    }
                 }
             }
             // Suppress unused variable warnings on non-macOS

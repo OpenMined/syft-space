@@ -518,9 +518,7 @@ class IngestionManager(LifecycleService):
                 job.dataset_id, job.tenant_id
             )
             if not dataset:
-                logger.info(
-                    f"Dataset deleted during ingestion prep for job {job.id}"
-                )
+                logger.info(f"Dataset deleted during ingestion prep for job {job.id}")
                 await self._ingestion_repository.update_status(
                     job.id,
                     IngestionJobStatus.CANCELLED,
@@ -529,7 +527,12 @@ class IngestionManager(LifecycleService):
                 return
 
             # Call ingest (native async)
-            await dataset_type.ingest(ctx, ingest_request)
+            try:
+                await dataset_type.ingest(ctx, ingest_request)
+            except Exception as ingest_err:
+                raise RuntimeError(
+                    f"[{dataset.dtype}] Ingestion error: {ingest_err}"
+                ) from ingest_err
 
             # Success
             await self._ingestion_repository.update_status(
