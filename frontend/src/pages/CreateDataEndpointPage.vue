@@ -882,7 +882,7 @@
             <!-- Policy Configuration -->
             <div class="space-y-6">
               <div
-                v-for="policy in policyTypes"
+                v-for="policy in POLICY_TYPES"
                 :key="policy.id"
                 class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6"
               >
@@ -916,7 +916,7 @@
                       <p class="body-sm text-muted-foreground">{{ policy.description }}</p>
                     </div>
                   </div>
-                  <Button @click="addPolicy(policy.id)" variant="outline" size="sm">
+                  <Button @click="openAddPolicyDialog(policy.id)" variant="outline" size="sm">
                     <Plus class="h-4 w-4 mr-2" />
                     Add {{ policy.name }} rule
                   </Button>
@@ -960,186 +960,7 @@
                     :key="rule.id"
                     class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4"
                   >
-                    <!-- Rule in Edit Mode (Expanded) -->
-                    <div v-if="rule.isEditing" class="space-y-3">
-                      <!-- Authorization Policy Form -->
-                      <div v-if="policy.id === 'access'">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium"
-                              >Rule Type</Label
-                            >
-                            <Select v-model="authorizationForm.ruleType">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue placeholder="Select rule type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="allow" class="body-sm"
-                                  >Allow specific users</SelectItem
-                                >
-                                <SelectItem value="deny" class="body-sm"
-                                  >Deny specific users</SelectItem
-                                >
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="authorizationForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                            />
-                          </div>
-                        </div>
-                        <div class="space-y-1 mt-3">
-                          <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                          <Input
-                            v-model="authorizationForm.users"
-                            placeholder="user1@example.com, user2@example.com"
-                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                          />
-                          <p class="text-xs text-muted-foreground">
-                            Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-                            *@contractors.org)
-                          </p>
-                        </div>
-                      </div>
-
-                      <!-- Rate Limiter Policy Form -->
-                      <div v-if="policy.id === 'rate_limit'">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
-                            <div class="flex">
-                              <Input
-                                v-model="rateLimiterForm.limit"
-                                type="number"
-                                placeholder="100"
-                                class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
-                              />
-                              <Select v-model="rateLimiterForm.windowUnit">
-                                <SelectTrigger
-                                  class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0"
-                                >
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="second">requests per second</SelectItem>
-                                  <SelectItem value="minute">requests per minute</SelectItem>
-                                  <SelectItem value="hour">requests per hour</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Scope</Label>
-                            <Select v-model="rateLimiterForm.scope">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="per user">For Each User</SelectItem>
-                                <SelectItem value="global">For This Endpoint</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="rateLimiterForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Pricing Policy Form -->
-                      <div v-if="policy.id === 'pricing'">
-                        <div class="space-y-3">
-                          <!-- Price and Note side-by-side -->
-                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Price per query ($)</Label
-                              >
-                              <Input
-                                v-model="pricingForm.price"
-                                type="number"
-                                step="any"
-                                placeholder="0.01"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input
-                                v-model="pricingForm.note"
-                                placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                          </div>
-                          <!-- Apply To and Users row -->
-                          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                            <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Apply To</Label
-                              >
-                              <Select v-model="pricingForm.userType">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All Users</SelectItem>
-                                  <SelectItem value="specific">Specific Users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div
-                              v-if="pricingForm.userType === 'specific'"
-                              class="space-y-1 flex-1"
-                            >
-                              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                              <Input
-                                v-model="pricingForm.users"
-                                placeholder="user1@example.com, user2@example.com"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                              <p class="text-xs text-muted-foreground">
-                                Comma-separated list. Wildcard supported (e.g., *@company.com,
-                                *.edu, *@contractors.org)
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Form Action Buttons -->
-                      <div class="flex gap-2 pt-3 border-t border-border">
-                        <Button
-                          @click="savePolicy(policy.id, rule.id)"
-                          size="sm"
-                          class="rounded-lg body-sm font-medium px-3 py-2"
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          @click="cancelEditPolicy(policy.id, rule.id)"
-                          variant="outline"
-                          size="sm"
-                          class="rounded-lg border-border body-sm font-medium px-3 py-2"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-
-                    <!-- Rule in Collapsed Mode -->
-                    <div v-else class="flex items-start justify-between">
+                    <div class="flex items-start justify-between">
                       <div class="flex-1">
                         <h4 class="body-sm font-medium text-foreground">
                           {{ rule.config.note || `${policy.name} Rule #${ruleIndex + 1}` }}
@@ -1149,7 +970,11 @@
                         </p>
                       </div>
                       <div class="flex gap-2">
-                        <Button variant="outline" size="sm" @click="editPolicy(policy.id, rule.id)">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          @click="openEditPolicyDialog(policy.id, rule.id)"
+                        >
                           Edit
                         </Button>
                         <Button
@@ -1680,7 +1505,7 @@
               >
                 <p class="body-sm font-medium text-muted-foreground mb-3">Access Policies</p>
                 <div class="space-y-4">
-                  <div v-for="policyType in policyTypes" :key="policyType.id">
+                  <div v-for="policyType in POLICY_TYPES" :key="policyType.id">
                     <div
                       v-if="policyRules[policyType.id]?.length > 0"
                       class="bg-muted/50 rounded-lg p-4"
@@ -1748,12 +1573,7 @@
             </Button>
             <Button
               @click="nextStep"
-              :disabled="
-                !isCurrentStepValid ||
-                isCreating ||
-                isCheckingBeforePublish ||
-                (currentSubStep === 3 && isAnyRuleFormOpen)
-              "
+              :disabled="!isCurrentStepValid || isCreating || isCheckingBeforePublish"
               class="bg-primary hover:bg-primary/90 text-white px-8"
             >
               <template v-if="currentSubStep === 5 && isCheckingBeforePublish">
@@ -1806,6 +1626,14 @@
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Policy Form Dialog -->
+  <PolicyFormDialog
+    v-model:open="showPolicyDialog"
+    :policy-type="dialogPolicyType"
+    :initial-data="dialogInitialData"
+    @save="handlePolicyDialogSave"
+  />
 </template>
 
 <script setup lang="ts">
@@ -1824,10 +1652,6 @@ import {
   FileType,
   Sparkles,
   GitMerge,
-  Shield,
-  Gauge,
-  DollarSign,
-  UserCheck,
   Lightbulb,
   Loader2,
   Check,
@@ -1840,13 +1664,6 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -1857,6 +1674,14 @@ import {
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
+import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
+import {
+  POLICY_TYPES,
+  getRuleSummary,
+  generateRuleId,
+  createEmptyPolicyRules,
+} from '@/config/policyTypes'
+import type { PolicyTypeId, PolicyRulesRecord } from '@/config/policyTypes'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { useTheme } from '@/composables/useTheme'
 import { MdEditor, MdPreview } from 'md-editor-v3'
@@ -1947,99 +1772,14 @@ Brief summary of what this dataset contains and its primary purpose...
 ## Citation & Attribution
 How to properly cite or credit this dataset when used...`
 
-// Policy configurations
-type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
+// Policy state
+const policyRules = ref<PolicyRulesRecord>(createEmptyPolicyRules())
 
-interface PolicyConfig {
-  id: string
-  [key: string]: string | number
-}
-
-interface PolicyRule {
-  id: string
-  config: PolicyConfig
-  isEditing: boolean
-}
-
-interface PolicyType {
-  id: PolicyTypeId
-  name: string
-  label: string
-  description: string
-  icon: typeof Shield | typeof Gauge | typeof DollarSign | typeof UserCheck
-  color: string
-}
-
-type PolicyRulesRecord = Record<PolicyTypeId, PolicyRule[]>
-
-const policyRules = ref<PolicyRulesRecord>({
-  access: [],
-  rate_limit: [],
-  pricing: [],
-})
-
-// Currently editing rule ID for each policy type
-const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
-  access: null,
-  rate_limit: null,
-  pricing: null,
-})
-
-// Check if any rule form is currently open
-const isAnyRuleFormOpen = computed(() => {
-  return Object.values(editingRuleId.value).some((id) => id !== null)
-})
-
-// Policy form data
-const authorizationForm = ref({
-  ruleType: 'allow',
-  users: '',
-  note: '',
-})
-
-const rateLimiterForm = ref({
-  limit: '',
-  windowUnit: 'minute',
-  scope: 'per user',
-  userType: 'all',
-  users: '',
-  note: '',
-})
-
-const pricingForm = ref({
-  price: '',
-  userType: 'all',
-  users: '',
-  note: '',
-})
-
-// Policy types definition
-const policyTypes: PolicyType[] = [
-  {
-    id: 'access',
-    name: 'Authorization',
-    label: 'Who can access?',
-    description: 'Control who can use your content - everyone, specific users, or by invitation',
-    icon: Shield,
-    color: 'blue',
-  },
-  {
-    id: 'rate_limit',
-    name: 'Rate Limiter',
-    label: 'Prevent overuse',
-    description: 'Limit how many queries each user can make per day or hour',
-    icon: Gauge,
-    color: 'green',
-  },
-  {
-    id: 'pricing',
-    name: 'Pricing',
-    label: 'Set your price',
-    description: 'Charge per query or make it free - you decide',
-    icon: DollarSign,
-    color: 'yellow',
-  },
-]
+// Policy dialog state
+const showPolicyDialog = ref(false)
+const dialogPolicyType = ref<PolicyTypeId>('access')
+const dialogInitialData = ref<Record<string, unknown> | null>(null)
+const dialogEditingRuleId = ref<string | null>(null)
 
 // Step titles and descriptions
 const stepTitles = [
@@ -2467,76 +2207,6 @@ const isStepClickable = (stepNumber: number) => {
   return stepNumber <= Math.max(highestCompletedStep + 1, currentSubStep.value)
 }
 
-// Generate rule summary based on policy type and configuration
-const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {
-  switch (policyId) {
-    case 'access':
-      if (!config.users) return 'No users configured'
-      const ruleType = config.ruleType === 'allow' ? 'Allow' : 'Deny'
-      const userList = (config.users as string)
-        .split(',')
-        .map((u) => u.trim())
-        .filter((u) => u)
-      if (userList.length === 0) {
-        return 'No users configured'
-      }
-      // Show all patterns
-      return `${ruleType} access for ${userList.join(', ')}`
-
-    case 'rate_limit':
-      if (!config.limit) return 'No limit configured'
-      const scope = config.scope === 'global' ? 'for this endpoint' : 'per user'
-      return `${config.limit} requests per ${config.windowUnit} ${scope}`
-
-    case 'pricing':
-      if (config.price === undefined || config.price === null || config.price === '')
-        return 'No price configured'
-      const price = parseFloat(config.price as string)
-
-      // Check for invalid number
-      if (isNaN(price)) return 'Invalid price configured'
-
-      // Handle free pricing
-      if (price === 0) {
-        if (config.userType === 'all') {
-          return 'Free for all users'
-        } else {
-          const userList = config.users
-            ? (config.users as string)
-                .split(',')
-                .map((u) => u.trim())
-                .filter((u) => u)
-            : []
-          if (userList.length === 0) {
-            return 'Free for specific users (none configured)'
-          }
-          return `Free for ${userList.join(', ')}`
-        }
-      }
-
-      // Handle paid pricing
-      // Format price dynamically, showing up to 8 decimal places with trailing zeros removed
-      const formattedPrice = price.toFixed(8).replace(/\.?0+$/, '')
-      if (config.userType === 'all') {
-        return `$${formattedPrice} per query for all users`
-      } else {
-        const userList = config.users
-          ? (config.users as string)
-              .split(',')
-              .map((u) => u.trim())
-              .filter((u) => u)
-          : []
-        if (userList.length === 0) {
-          return `$${formattedPrice} per query for specific users (none configured)`
-        }
-        return `$${formattedPrice} per query for ${userList.join(', ')}`
-      }
-
-    default:
-      return 'Rule configured'
-  }
-}
-
 // Fill example data
 const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
   hasTypedEndpointName.value = true // Mark as user input for validation
@@ -2568,155 +2238,54 @@ const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
   }
 }
 
-// Policy helper functions
-const generateRuleId = () => {
-  return 'rule_' + Math.random().toString(36).substr(2, 9)
+// Policy dialog functions
+const openAddPolicyDialog = (policyId: PolicyTypeId) => {
+  dialogPolicyType.value = policyId
+  dialogInitialData.value = null
+  dialogEditingRuleId.value = null
+  showPolicyDialog.value = true
 }
 
-const addPolicy = (policyId: PolicyTypeId) => {
-  const ruleId = generateRuleId()
-  editingRuleId.value[policyId] = ruleId
-
-  // Reset form data
-  resetFormData(policyId)
-
-  // Add new rule in editing state
-  policyRules.value[policyId].push({
-    id: ruleId,
-    config: {} as PolicyConfig,
-    isEditing: true,
-  })
-}
-
-const editPolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  // Set other rules to not editing
-  policyRules.value[policyId].forEach((rule) => {
-    rule.isEditing = rule.id === ruleId
-  })
-
-  editingRuleId.value[policyId] = ruleId
-
-  // Load rule data into form
+const openEditPolicyDialog = (policyId: PolicyTypeId, ruleId: string) => {
   const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
-  if (rule) {
-    loadRuleIntoForm(policyId, rule.config)
+  if (!rule) return
+  dialogPolicyType.value = policyId
+  dialogInitialData.value = { ...rule.config }
+  dialogEditingRuleId.value = ruleId
+  showPolicyDialog.value = true
+}
+
+const handlePolicyDialogSave = (payload: {
+  policyType: PolicyTypeId
+  formData: Record<string, unknown>
+}) => {
+  const { policyType, formData: policyFormData } = payload
+
+  if (dialogEditingRuleId.value) {
+    // Update existing rule
+    const rule = policyRules.value[policyType].find((r) => r.id === dialogEditingRuleId.value)
+    if (rule) {
+      rule.config = { ...policyFormData, id: rule.id } as PolicyRulesRecord[PolicyTypeId][number]['config']
+    }
+  } else {
+    // Add new rule
+    const ruleId = generateRuleId()
+    policyRules.value[policyType].push({
+      id: ruleId,
+      config: { ...policyFormData, id: ruleId } as PolicyRulesRecord[PolicyTypeId][number]['config'],
+      isEditing: false,
+    })
   }
+
+  showPolicyDialog.value = false
+  dialogEditingRuleId.value = null
 }
 
 const deletePolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  // Remove rule from array
   const index = policyRules.value[policyId].findIndex((r) => r.id === ruleId)
   if (index > -1) {
     policyRules.value[policyId].splice(index, 1)
   }
-
-  // Clear editing state if this rule was being edited
-  if (editingRuleId.value[policyId] === ruleId) {
-    editingRuleId.value[policyId] = null
-  }
-}
-
-const resetFormData = (policyId: PolicyTypeId) => {
-  switch (policyId) {
-    case 'access':
-      authorizationForm.value = { ruleType: 'allow', users: '', note: '' }
-      break
-    case 'rate_limit':
-      rateLimiterForm.value = {
-        limit: '',
-        windowUnit: 'minute',
-        scope: 'per user',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-    case 'pricing':
-      pricingForm.value = {
-        price: '',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-  }
-}
-
-const loadRuleIntoForm = (policyId: PolicyTypeId, config: PolicyConfig) => {
-  switch (policyId) {
-    case 'access':
-      authorizationForm.value = {
-        ruleType: (config.ruleType as string) || 'allow',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-    case 'rate_limit':
-      rateLimiterForm.value = {
-        limit: (config.limit as string) || '',
-        windowUnit: (config.windowUnit as string) || 'minute',
-        scope: (config.scope as string) || 'per user',
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-    case 'pricing':
-      pricingForm.value = {
-        price: config.price !== undefined ? String(config.price) : '',
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-  }
-}
-
-const savePolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
-  if (!rule) return
-
-  // Get the form data based on policy type
-  let formData
-  switch (policyId) {
-    case 'access':
-      formData = authorizationForm.value
-      break
-    case 'rate_limit':
-      formData = { ...rateLimiterForm.value }
-      break
-    case 'pricing':
-      formData = { ...pricingForm.value, pricingType: 'per_call' }
-      break
-    default:
-      return
-  }
-
-  // Save form data to rule config
-  rule.config = { ...formData, id: ruleId }
-  rule.isEditing = false
-
-  // Clear editing state
-  editingRuleId.value[policyId] = null
-}
-
-const cancelEditPolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  const ruleIndex = policyRules.value[policyId].findIndex((r) => r.id === ruleId)
-  if (ruleIndex === -1) return
-
-  const rule = policyRules.value[policyId][ruleIndex]
-  if (!rule) return
-
-  // If this is a new rule being created, remove it
-  if (Object.keys(rule.config).length === 0) {
-    policyRules.value[policyId].splice(ruleIndex, 1)
-  } else {
-    // Otherwise, just exit edit mode
-    rule.isEditing = false
-  }
-
-  // Clear editing state
-  editingRuleId.value[policyId] = null
 }
 
 // Handle Step 3 Create Model (placeholder)

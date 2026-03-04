@@ -467,7 +467,6 @@
                   @click="
                     () => {
                       selectedPolicyType = 'access'
-                      resetPolicyForm('access')
                       showAddPolicyDialog = true
                     }
                   "
@@ -541,7 +540,6 @@
                   @click="
                     () => {
                       selectedPolicyType = 'rate_limit'
-                      resetPolicyForm('rate_limit')
                       showAddPolicyDialog = true
                     }
                   "
@@ -623,7 +621,6 @@
                   @click="
                     () => {
                       selectedPolicyType = 'pricing'
-                      resetPolicyForm('pricing')
                       showAddPolicyDialog = true
                     }
                   "
@@ -739,170 +736,12 @@
   </Dialog>
 
   <!-- Add Policy Dialog -->
-  <Dialog v-model:open="showAddPolicyDialog">
-    <DialogContent class="sm:max-w-[600px]">
-      <DialogHeader>
-        <DialogTitle>Add {{ getPolicyTypeLabel(selectedPolicyType) }} Rule</DialogTitle>
-        <DialogDescription>
-          Create a new
-          {{ selectedPolicyType === 'access' ? 'authorization' : selectedPolicyType }} policy for
-          this endpoint.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div class="space-y-4">
-        <!-- Authorization Policy Form -->
-        <div v-if="selectedPolicyType === 'access'" class="space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Rule Type</Label>
-              <Select v-model="authorizationForm.ruleType">
-                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                  <SelectValue placeholder="Select rule type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="allow" class="body-sm">Allow specific users</SelectItem>
-                  <SelectItem value="deny" class="body-sm">Deny specific users</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-              <Input
-                v-model="authorizationForm.note"
-                placeholder="Optional description"
-                class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-              />
-            </div>
-          </div>
-          <div class="space-y-1">
-            <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-            <Input
-              v-model="authorizationForm.users"
-              placeholder="user1@example.com, user2@example.com"
-              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-            />
-            <p class="text-xs text-muted-foreground">
-              Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-              *@contractors.org)
-            </p>
-          </div>
-        </div>
-
-        <!-- Rate Limiter Policy Form -->
-        <div v-if="selectedPolicyType === 'rate_limit'" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
-              <div class="flex">
-                <Input
-                  v-model="rateLimiterForm.limit"
-                  type="number"
-                  placeholder="100"
-                  class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
-                />
-                <Select v-model="rateLimiterForm.windowUnit">
-                  <SelectTrigger
-                    class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="second">requests per second</SelectItem>
-                    <SelectItem value="minute">requests per minute</SelectItem>
-                    <SelectItem value="hour">requests per hour</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Scope</Label>
-              <Select v-model="rateLimiterForm.scope">
-                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="per user">For Each User</SelectItem>
-                  <SelectItem value="global">For This Endpoint</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div class="space-y-1">
-            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-            <Input
-              v-model="rateLimiterForm.note"
-              placeholder="Optional description"
-              class="h-9 rounded-lg border-border bg-card body-sm"
-            />
-          </div>
-        </div>
-
-        <!-- Pricing Policy Form -->
-        <div v-if="selectedPolicyType === 'pricing'" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Price per query ($)</Label>
-              <Input
-                v-model="pricingForm.price"
-                type="number"
-                step="any"
-                placeholder="0.01"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-            </div>
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-              <Input
-                v-model="pricingForm.note"
-                placeholder="Optional description"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-            </div>
-          </div>
-          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
-              <Label class="body-sm text-muted-foreground font-medium">Apply To</Label>
-              <Select v-model="pricingForm.userType">
-                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  <SelectItem value="specific">Specific Users</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div v-if="pricingForm.userType === 'specific'" class="space-y-1 flex-1">
-              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-              <Input
-                v-model="pricingForm.users"
-                placeholder="user1@example.com, user2@example.com"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-              <p class="text-xs text-muted-foreground">
-                Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-                *@contractors.org)
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" @click="showAddPolicyDialog = false" :disabled="policyCreating"
-          >Cancel</Button
-        >
-        <Button @click="handleAddPolicy" :disabled="policyCreating || !isCurrentPolicyFormValid">
-          <div v-if="policyCreating" class="flex items-center gap-2">
-            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-            Creating...
-          </div>
-          <span v-else>Add Rule</span>
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+  <PolicyFormDialog
+    v-model:open="showAddPolicyDialog"
+    :policy-type="selectedPolicyType"
+    :is-submitting="policyCreating"
+    @save="handleAddPolicy"
+  />
 
   <!-- Edit Endpoint Dialog -->
   <EditEndpointDialog
@@ -957,13 +796,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
+import type { PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
@@ -971,13 +805,9 @@ import { policiesApi } from '@/api/policies/policies'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
+import type { PolicyFormData } from '@/composables/usePolicyCreation'
 import type { EndpointResponse } from '@/api/types'
 import type { IngestionStatusResponse, IngestionJobListResponse } from '@/api/types'
-import type {
-  AuthorizationFormData,
-  RateLimitFormData,
-  PricingFormData,
-} from '@/composables/usePolicyCreation'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { formatPrice } from '@/lib/formatters'
@@ -997,53 +827,13 @@ const showDeletePolicyDialog = ref(false)
 const policyToDelete = ref<{ id: string; name: string } | null>(null)
 const showAddPolicyDialog = ref(false)
 const showEditDialog = ref(false)
-const selectedPolicyType = ref('')
+const selectedPolicyType = ref<PolicyTypeId>('access')
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
 
 // Policy creation composable
-const { createPolicy, validatePolicyForm, isCreating: policyCreating } = usePolicyCreation()
+const { createPolicy, isCreating: policyCreating } = usePolicyCreation()
 
-// Policy form data
-const authorizationForm = ref<AuthorizationFormData>({
-  ruleType: 'allow',
-  users: '',
-  note: '',
-})
-
-const rateLimiterForm = ref<RateLimitFormData>({
-  limit: '',
-  windowUnit: 'minute',
-  scope: 'per user',
-  note: '',
-})
-
-const pricingForm = ref<PricingFormData>({
-  price: '',
-  userType: 'all',
-  users: '',
-  note: '',
-})
-
-// Form validation using composable
-const isCurrentPolicyFormValid = computed(() => {
-  const formData = getFormDataForType(selectedPolicyType.value)
-  return formData ? validatePolicyForm(selectedPolicyType.value, formData) : false
-})
-
-// Helper to get form data for current policy type
-const getFormDataForType = (policyType: string) => {
-  switch (policyType) {
-    case 'access':
-      return authorizationForm.value
-    case 'rate_limit':
-      return rateLimiterForm.value
-    case 'pricing':
-      return pricingForm.value
-    default:
-      return null
-  }
-}
 
 // Computed URL to view endpoint on SyftHub
 const syftHubUrl = computed(() =>
@@ -1341,19 +1131,6 @@ const confirmDeletePolicy = async () => {
   }
 }
 
-// Policy type label helper
-const getPolicyTypeLabel = (type: string) => {
-  switch (type) {
-    case 'access':
-      return 'Authorization'
-    case 'rate_limit':
-      return 'Rate Limiting'
-    case 'pricing':
-      return 'Pricing'
-    default:
-      return 'Policy'
-  }
-}
 
 // Publish endpoint changes to marketplace
 const publishToMarketplace = async () => {
@@ -1368,42 +1145,18 @@ const publishToMarketplace = async () => {
   }
 }
 
-// Reset form data when opening dialog
-const resetPolicyForm = (policyType: string) => {
-  switch (policyType) {
-    case 'access':
-      authorizationForm.value = { ruleType: 'allow', users: '', note: '' }
-      break
-    case 'rate_limit':
-      rateLimiterForm.value = {
-        limit: '',
-        windowUnit: 'minute',
-        scope: 'per user',
-        note: '',
-      }
-      break
-    case 'pricing':
-      pricingForm.value = {
-        price: '',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-  }
-}
-
 // Add policy handler
-const handleAddPolicy = async () => {
+const handleAddPolicy = async (payload: {
+  policyType: PolicyTypeId
+  formData: Record<string, unknown>
+}) => {
   if (!endpoint.value?.id || !endpoint.value?.name) return
 
-  const formData = getFormDataForType(selectedPolicyType.value)
-  if (!formData) return
+  const { policyType, formData } = payload
 
   // Calculate the correct rule index based on existing policies of this type
   // Map frontend policy type to backend policy type for counting
-  const backendPolicyType =
-    selectedPolicyType.value === 'pricing' ? 'accounting' : selectedPolicyType.value
+  const backendPolicyType = policyType === 'pricing' ? 'accounting' : policyType
   const existingPoliciesOfType =
     endpoint.value.policies?.filter((p) => p.policy_type === backendPolicyType) || []
   const ruleIndex = existingPoliciesOfType.length + 1
@@ -1411,8 +1164,8 @@ const handleAddPolicy = async () => {
   try {
     // Create the policy using the composable
     const newPolicy = await createPolicy(
-      selectedPolicyType.value as 'access' | 'rate_limit' | 'pricing',
-      formData,
+      policyType,
+      formData as unknown as PolicyFormData,
       endpoint.value.id,
       endpoint.value.name,
       ruleIndex,
@@ -1428,9 +1181,8 @@ const handleAddPolicy = async () => {
       })
     }
 
-    // Close the dialog and reset forms
+    // Close the dialog
     showAddPolicyDialog.value = false
-    resetPolicyForm(selectedPolicyType.value)
 
     // Publish changes to marketplace
     await publishToMarketplace()
