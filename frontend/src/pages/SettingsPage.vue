@@ -208,7 +208,7 @@ const loadingAccount = ref(true)
 const loadingNetwork = ref(true)
 const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
-const customUrl = ref('')
+const customUrl = ref(window.location.origin)
 
 const proxyStatus = reactive({
   connected: false,
