@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Awaitable, Callable
 
 from loguru import logger
 
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.config import app_settings
+
+# Type alias: async callback that returns (auth_token, domain)
+CredentialsProvider = Callable[[], Awaitable[tuple[str, str]]]
 
 
 class ProxyService(LifecycleService):
@@ -46,6 +50,8 @@ class ProxyService(LifecycleService):
         self._shutdown_event: asyncio.Event | None = None  # Initialized in startup()
         self._reconnect_task: asyncio.Task | None = None
         self._ready_event: asyncio.Event | None = None  # Set by main.py
+        self._credentials_provider: CredentialsProvider | None = None
+        self._creds_refreshed: bool = False
 
     def is_connected(self) -> bool:
         """Check if the tunnel is currently connected."""
@@ -58,6 +64,16 @@ class ProxyService(LifecycleService):
             event: Event to set when proxy startup finishes (success or failure)
         """
         self._ready_event = event
+
+    def set_credentials_provider(self, provider: CredentialsProvider) -> None:
+        """Set an async callback to fetch fresh tunnel credentials.
+
+        Used as a fallback when stored credentials fail on startup.
+
+        Args:
+            provider: Async callable returning (auth_token, domain)
+        """
+        self._credentials_provider = provider
 
     def get_public_url(self) -> str | None:
         """Get the current public URL if connected."""
@@ -135,7 +151,7 @@ class ProxyService(LifecycleService):
         # Persist token, domain, and public URL to database
         if persist:
             await self._settings_repository.update_ngrok_token(token)
-            await self._settings_repository.update_ngrok_username(domain)
+            await self._settings_repository.update_ngrok_domain(domain)
             await self._settings_repository.update_public_url(public_url)
 
         # Start reconnection monitor
@@ -160,7 +176,7 @@ class ProxyService(LifecycleService):
         # Clear from database
         if clear_token:
             await self._settings_repository.update_ngrok_token(None)
-            await self._settings_repository.update_ngrok_username(None)
+            await self._settings_repository.update_ngrok_domain(None)
             await self._settings_repository.update_public_url(None)
 
         logger.info("Ngrok tunnel disconnected")
@@ -169,30 +185,42 @@ class ProxyService(LifecycleService):
         """Automatically connect if token and domain are stored in the database.
 
         Called during application startup to restore tunnel connection.
+        If stored credentials fail, retries once by fetching fresh credentials
+        from SyftHub via the credentials provider (if configured).
         """
         token = await self._settings_repository.get_ngrok_token()
-        domain = await self._settings_repository.get_ngrok_username()
+        domain = await self._settings_repository.get_ngrok_domain()
 
-        if not token:
-            logger.info("No ngrok token configured, skipping auto-connect")
-            return
-
-        if not domain:
-            logger.warning(
-                "Ngrok token found but no domain configured, skipping auto-connect"
-            )
+        if not token or not domain:
+            logger.info("No ngrok credentials configured, skipping auto-connect")
             return
 
         try:
-            # Connect but don't re-persist (token and domain are already in DB)
             public_url = await self.connect(token, domain, persist=False)
-            # Update public URL in case it changed
             await self._settings_repository.update_public_url(public_url)
             logger.info(f"Ngrok tunnel auto-connected: {public_url}")
+            return
         except Exception as e:
-            logger.exception(f"Failed to auto-connect ngrok tunnel: {e}")
-            # Don't clear the token on auto-connect failure
-            # User can retry or reconfigure
+            logger.warning(f"Auto-connect with stored credentials failed: {e}")
+
+        # Retry with fresh credentials from SyftHub
+        if self._credentials_provider is None:
+            logger.error(
+                "No credentials provider configured, cannot fetch fresh credentials"
+            )
+            return
+
+        logger.info("Fetching fresh tunnel credentials from SyftHub...")
+        try:
+            fresh_token, fresh_domain = await self._credentials_provider()
+            public_url = await self.connect(
+                fresh_token, fresh_domain, persist=True
+            )
+            logger.info(
+                f"Ngrok tunnel connected with fresh credentials: {public_url}"
+            )
+        except Exception as e:
+            logger.exception(f"Retry with fresh credentials also failed: {e}")
 
     async def _auto_connect_background(self) -> None:
         """Background task to auto-connect and signal completion."""
@@ -261,7 +289,12 @@ class ProxyService(LifecycleService):
             self._reconnect_task = None
 
     async def _reconnect_loop(self) -> None:
-        """Background task that monitors connection and reconnects if needed."""
+        """Background task that monitors connection and reconnects if needed.
+
+        Self-healing: on the first reconnect failure, if a credentials provider
+        is configured and fresh creds haven't been fetched yet this cycle,
+        fetch new credentials from SyftHub and retry immediately.
+        """
         delay = self.RECONNECT_INITIAL_DELAY
 
         while not self._shutdown_event.is_set():
@@ -283,9 +316,51 @@ class ProxyService(LifecycleService):
                 try:
                     await self._reconnect()
                     delay = self.RECONNECT_INITIAL_DELAY  # Reset delay on success
+                    self._creds_refreshed = False  # Allow refresh on next cycle
                     logger.info("Ngrok tunnel reconnected successfully")
                 except Exception as e:
-                    logger.exception(f"Reconnection failed: {e}")
+                    logger.warning(f"Reconnection failed: {e}")
+
+                    # Self-healing: fetch fresh creds once per disconnect cycle
+                    if (
+                        not self._creds_refreshed
+                        and self._credentials_provider is not None
+                    ):
+                        logger.info(
+                            "Fetching fresh tunnel credentials from SyftHub..."
+                        )
+                        try:
+                            fresh_token, fresh_domain = (
+                                await self._credentials_provider()
+                            )
+                            self._current_token = fresh_token
+                            self._current_domain = fresh_domain
+                            self._creds_refreshed = True
+                            # Persist fresh creds
+                            await self._settings_repository.update_ngrok_token(
+                                fresh_token
+                            )
+                            await self._settings_repository.update_ngrok_domain(
+                                fresh_domain
+                            )
+                            # Retry immediately with fresh creds
+                            try:
+                                await self._reconnect()
+                                delay = self.RECONNECT_INITIAL_DELAY
+                                logger.info(
+                                    "Reconnected with fresh credentials"
+                                )
+                                continue
+                            except Exception as e2:
+                                logger.warning(
+                                    f"Reconnect with fresh credentials also failed: {e2}"
+                                )
+                        except Exception as e3:
+                            logger.warning(
+                                f"Failed to fetch fresh credentials: {e3}"
+                            )
+                            self._creds_refreshed = True  # Don't retry fetch
+
                     # Exponential backoff
                     delay = min(
                         delay * self.RECONNECT_BACKOFF_FACTOR, self.RECONNECT_MAX_DELAY

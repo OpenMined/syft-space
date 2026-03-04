@@ -116,25 +116,14 @@
             <!-- Subdomain conditional content -->
             <div v-if="networkMode === 'subdomain'" class="ml-7">
               <div class="p-4 bg-muted/50 rounded-lg border space-y-3">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <div
-                      class="h-2 w-2 rounded-full"
-                      :class="proxyStatus.connected ? 'bg-green-500' : 'bg-yellow-500'"
-                    />
-                    <span class="text-sm font-medium">
-                      {{ proxyStatus.connected ? 'Connected' : 'Disconnected' }}
-                    </span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    :disabled="connecting"
-                    @click="connectProxy"
-                  >
-                    <Loader2 v-if="connecting" class="h-4 w-4 mr-1 animate-spin" />
-                    {{ proxyStatus.connected ? 'Reconnect' : 'Connect' }}
-                  </Button>
+                <div class="flex items-center gap-2">
+                  <div
+                    class="h-2 w-2 rounded-full"
+                    :class="proxyStatus.connected ? 'bg-green-500' : 'bg-yellow-500'"
+                  />
+                  <span class="text-sm font-medium">
+                    {{ proxyStatus.connected ? 'Connected' : 'Disconnected' }}
+                  </span>
                 </div>
 
                 <div v-if="proxyStatus.publicUrl" class="text-sm">
@@ -220,7 +209,6 @@ const loadingNetwork = ref(true)
 const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
 const customUrl = ref('')
-const connecting = ref(false)
 
 const proxyStatus = reactive({
   connected: false,
@@ -262,27 +250,16 @@ const fetchNetworkConfig = async () => {
   }
 }
 
-const connectProxy = async () => {
-  connecting.value = true
-  try {
-    const result = await settingsApi.configureProxy()
-    proxyStatus.connected = result.connected
-    proxyStatus.publicUrl = result.public_url
-    proxyStatus.hasToken = result.has_token
-    toast.success('Proxy connected successfully')
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Failed to connect proxy')
-  } finally {
-    connecting.value = false
-  }
-}
-
 const saveChanges = async () => {
   saving.value = true
   try {
     if (networkMode.value === 'subdomain') {
       if (!proxyStatus.hasToken) {
-        await connectProxy()
+        const result = await settingsApi.configureProxy()
+        proxyStatus.connected = result.connected
+        proxyStatus.publicUrl = result.public_url
+        proxyStatus.hasToken = result.has_token
+        toast.success('Proxy configured successfully')
       }
     } else {
       if (!customUrl.value) {
