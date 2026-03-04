@@ -1526,6 +1526,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const { isDark } = useTheme()
 const modelSelectorRef = ref<InstanceType<typeof ModelSelector> | null>(null)
+const cachedModelName = ref('')
 
 // Computed URL to view existing endpoint on SyftHub
 const existingEndpointUrl = computed(() =>
@@ -2090,13 +2091,27 @@ const loadExistingDatasets = async () => {
   }
 }
 
+// Cache model name when selected (ModelSelector is only mounted in step 2)
+watch(
+  () => formData.value.aiModel,
+  (newModelId) => {
+    if (!newModelId) {
+      cachedModelName.value = ''
+      return
+    }
+    const model = modelSelectorRef.value?.models?.find(
+      (m: { id: string }) => m.id === newModelId,
+    )
+    if (model?.name) {
+      cachedModelName.value = model.name
+    }
+  },
+)
+
 // Get display name for AI model
 const getModelDisplayName = (): string => {
   if (!formData.value.aiModel) return 'Not selected'
-  const model = modelSelectorRef.value?.models?.find(
-    (m: { id: string }) => m.id === formData.value.aiModel,
-  )
-  return model?.name || formData.value.aiModel
+  return cachedModelName.value || formData.value.aiModel
 }
 
 // Load datasets when component mounts
