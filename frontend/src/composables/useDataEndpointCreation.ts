@@ -3,13 +3,11 @@ import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
-import { modelsApi } from '@/api/endpoints/models'
 import { policiesApi } from '@/api/policies/policies'
 import { usePolicyCreation } from './usePolicyCreation'
 import type {
   CreateDatasetRequest,
   CreateEndpointRequest,
-  CreateModelRequest,
   PolicyResponse,
 } from '@/api/types'
 
@@ -35,9 +33,6 @@ export interface DataEndpointCreationData {
   // Step 2: Response configuration
   responseType: string
   aiModel: string
-  // Quick setup model creation data
-  selectedAiProvider: string
-  apiKeys: Record<string, string>
 
   // Step 3: Policies
   policyRules: PolicyRules
@@ -60,8 +55,6 @@ export function useDataEndpointCreation() {
   const createdResources = ref<{
     datasetId?: string
     datasetName?: string
-    modelId?: string
-    modelName?: string
     endpointId?: string
     endpointSlug?: string
     policyIds: string[]
@@ -71,58 +64,6 @@ export function useDataEndpointCreation() {
 
   // Computed
   const isLoading = computed(() => isCreating.value)
-
-  // Get provider configuration for model creation
-  const getProviderConfig = (provider: string) => {
-    switch (provider) {
-      case 'openai-gpt-4o':
-        return {
-          provider: 'openai',
-          model: 'gpt-4o',
-          baseUrl: 'https://api.openai.com/v1',
-        }
-      case 'openrouter-claude':
-        return {
-          provider: 'openrouter',
-          model: 'anthropic/claude-3.5-sonnet',
-          baseUrl: 'https://openrouter.ai/api/v1',
-        }
-      case 'groq-llama':
-        return {
-          provider: 'groq',
-          model: 'llama-3.3-70b-instruct',
-          baseUrl: 'https://api.groq.com/openai/v1',
-        }
-      default:
-        throw new Error(`Unsupported provider: ${provider}`)
-    }
-  }
-
-  // Get hardcoded model metadata
-  const getModelMetadata = (provider: string) => {
-    switch (provider) {
-      case 'openai-gpt-4o':
-        return {
-          name: 'OpenAI GPT-4o',
-          summary: 'Most capable, industry standard model for general purpose AI tasks',
-          tags: 'openai, gpt-4, general-purpose, reasoning, writing, coding',
-        }
-      case 'openrouter-claude':
-        return {
-          name: 'Claude 3.5 Sonnet via OpenRouter',
-          summary: 'Excellent for analysis and reasoning with strong safety guardrails',
-          tags: 'anthropic, claude, reasoning, analysis, writing, safety',
-        }
-      case 'groq-llama':
-        return {
-          name: 'Groq Llama 3.3 70B',
-          summary: 'Ultra-fast inference speed for high-performance applications',
-          tags: 'groq, llama, fast, performance, open-source, inference',
-        }
-      default:
-        throw new Error(`Unsupported provider: ${provider}`)
-    }
-  }
 
   // Step 1: Create dataset (if filesystem source)
   const createDataset = async (data: DataEndpointCreationData): Promise<string | null> => {
@@ -153,58 +94,15 @@ export function useDataEndpointCreation() {
     return response.id
   }
 
-  // Step 2: Create model (if quick setup provider selected)
-  const createModel = async (data: DataEndpointCreationData): Promise<string | null> => {
-    if (!data.selectedAiProvider || data.selectedAiProvider === '') {
-      return null // No model to create, user selected existing model
-    }
-
-    creationStep.value = 'Creating AI model...'
-
-    const providerConfig = getProviderConfig(data.selectedAiProvider)
-    const modelMetadata = getModelMetadata(data.selectedAiProvider)
-    const apiKey = data.apiKeys[data.selectedAiProvider]
-
-    if (!apiKey || apiKey.trim() === '') {
-      throw new Error('API key is required for model creation')
-    }
-
-    const createRequest: CreateModelRequest = {
-      name: modelMetadata.name,
-      dtype: 'openai',
-      configuration: {
-        api_key: apiKey,
-        model: providerConfig.model,
-        base_url: providerConfig.baseUrl,
-        system_prompt: '', // Default empty system prompt
-      },
-      summary: modelMetadata.summary,
-      tags: modelMetadata.tags,
-    }
-
-    const response = await modelsApi.create(createRequest)
-    createdResources.value.modelId = response.id
-    createdResources.value.modelName = response.name
-    return response.id
-  }
-
-  // Step 3: Create endpoint
+  // Step 2: Create endpoint
   const createEndpointResource = async (
     data: DataEndpointCreationData,
     datasetId?: string,
-    modelId?: string,
   ): Promise<string> => {
     creationStep.value = 'Creating endpoint...'
 
     // Determine the model ID to use
-    let finalModelId: string | undefined
-    if (data.responseType === 'raw') {
-      finalModelId = undefined // No model needed for raw responses
-    } else if (modelId) {
-      finalModelId = modelId // Use newly created model
-    } else {
-      finalModelId = data.aiModel // Use existing model ID
-    }
+    const finalModelId = data.responseType === 'raw' ? undefined : data.aiModel || undefined
 
     const createRequest: CreateEndpointRequest = {
       name: data.endpointName,
@@ -226,7 +124,7 @@ export function useDataEndpointCreation() {
     return response.id
   }
 
-  // Step 4: Create policies
+  // Step 3: Create policies
   const createPolicies = async (
     data: DataEndpointCreationData,
     endpointId: string,
@@ -261,7 +159,7 @@ export function useDataEndpointCreation() {
     return createdPolicies.map((p) => p.id)
   }
 
-  // Step 5: Publish endpoint to all marketplaces
+  // Step 4: Publish endpoint to all marketplaces
   const publishEndpoint = async (slug: string): Promise<void> => {
     creationStep.value = 'Publishing to SyftHub...'
 
@@ -313,16 +211,6 @@ export function useDataEndpointCreation() {
         }
       }
 
-      // Delete model (only if we created it)
-      if (createdResources.value.modelName) {
-        try {
-          await modelsApi.delete(createdResources.value.modelName)
-          console.log(`Deleted model ${createdResources.value.modelName}`)
-        } catch (error) {
-          console.warn(`Failed to delete model ${createdResources.value.modelName}:`, error)
-        }
-      }
-
       // Delete dataset (only if we created it)
       if (createdResources.value.datasetName) {
         try {
@@ -345,8 +233,6 @@ export function useDataEndpointCreation() {
       policyIds: [],
       datasetId: undefined,
       datasetName: undefined,
-      modelId: undefined,
-      modelName: undefined,
       endpointId: undefined,
       endpointSlug: undefined,
     }
@@ -355,20 +241,13 @@ export function useDataEndpointCreation() {
       // Step 1: Create dataset (if filesystem source)
       const datasetId = await createDataset(data)
 
-      // Step 2: Create model (if quick setup provider selected)
-      const modelId = await createModel(data)
+      // Step 2: Create endpoint
+      const endpointId = await createEndpointResource(data, datasetId || undefined)
 
-      // Step 3: Create endpoint
-      const endpointId = await createEndpointResource(
-        data,
-        datasetId || undefined,
-        modelId || undefined,
-      )
-
-      // Step 4: Create policies
+      // Step 3: Create policies
       await createPolicies(data, endpointId)
 
-      // Step 5: Publish endpoint to all marketplaces
+      // Step 4: Publish endpoint to all marketplaces
       await publishEndpoint(data.endpointName)
 
       // Success!
@@ -403,8 +282,6 @@ export function useDataEndpointCreation() {
       policyIds: [],
       datasetId: undefined,
       datasetName: undefined,
-      modelId: undefined,
-      modelName: undefined,
       endpointId: undefined,
       endpointSlug: undefined,
     }
