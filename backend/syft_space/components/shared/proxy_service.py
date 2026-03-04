@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Awaitable, Callable
 
 from loguru import logger
 
@@ -11,7 +12,8 @@ from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.config import app_settings
 
-NGROK_DOMAIN_FORMAT = "{username}.syfthub.ngrok.app"
+# Type alias: async callback that returns (auth_token, domain)
+CredentialsProvider = Callable[[], Awaitable[tuple[str, str]]]
 
 
 class ProxyService(LifecycleService):
@@ -44,10 +46,12 @@ class ProxyService(LifecycleService):
         self._port = port or int(os.getenv("SYFT_PORT", "8080"))
         self._listener = None
         self._current_token: str | None = None
-        self._current_username: str | None = None
+        self._current_domain: str | None = None
         self._shutdown_event: asyncio.Event | None = None  # Initialized in startup()
         self._reconnect_task: asyncio.Task | None = None
         self._ready_event: asyncio.Event | None = None  # Set by main.py
+        self._credentials_provider: CredentialsProvider | None = None
+        self._creds_refreshed: bool = False
 
     def is_connected(self) -> bool:
         """Check if the tunnel is currently connected."""
@@ -60,6 +64,16 @@ class ProxyService(LifecycleService):
             event: Event to set when proxy startup finishes (success or failure)
         """
         self._ready_event = event
+
+    def set_credentials_provider(self, provider: CredentialsProvider) -> None:
+        """Set an async callback to fetch fresh tunnel credentials.
+
+        Used as a fallback when stored credentials fail on startup.
+
+        Args:
+            provider: Async callable returning (auth_token, domain)
+        """
+        self._credentials_provider = provider
 
     def get_public_url(self) -> str | None:
         """Get the current public URL if connected."""
@@ -96,12 +110,12 @@ class ProxyService(LifecycleService):
         print("=" * 70)
         print()
 
-    async def connect(self, token: str, username: str, persist: bool = True) -> str:
-        """Connect to ngrok with the provided token.
+    async def _connect(self, token: str, domain: str, persist: bool = True) -> str:
+        """Connect to ngrok with explicit credentials.
 
         Args:
             token: Ngrok authentication token
-            username: SyftHub username
+            domain: Ngrok tunnel domain
             persist: Whether to save the token to database (default: True)
 
         Returns:
@@ -126,19 +140,18 @@ class ProxyService(LifecycleService):
         await self._stop_reconnect_task()
 
         # Set auth token and create tunnel
-        domain = NGROK_DOMAIN_FORMAT.format(username=username)
         ngrok.set_auth_token(token)
         self._listener = await ngrok.forward(self._port, domain=domain)
         self._current_token = token  # Set new token AFTER successful connection
-        self._current_username = username  # Track username for reconnection
+        self._current_domain = domain  # Track domain for reconnection
         public_url = self._listener.url()
 
         logger.info(f"Ngrok tunnel established: {public_url}")
 
-        # Persist token, username, and public URL to database
+        # Persist token, domain, and public URL to database
         if persist:
             await self._settings_repository.update_ngrok_token(token)
-            await self._settings_repository.update_ngrok_username(username)
+            await self._settings_repository.update_ngrok_domain(domain)
             await self._settings_repository.update_public_url(public_url)
 
         # Start reconnection monitor
@@ -158,53 +171,66 @@ class ProxyService(LifecycleService):
         # Close the listener
         await self._close_listener()
         self._current_token = None
-        self._current_username = None
+        self._current_domain = None
 
         # Clear from database
         if clear_token:
             await self._settings_repository.update_ngrok_token(None)
-            await self._settings_repository.update_ngrok_username(None)
+            await self._settings_repository.update_ngrok_domain(None)
             await self._settings_repository.update_public_url(None)
 
         logger.info("Ngrok tunnel disconnected")
 
-    async def auto_connect_if_configured(self) -> None:
-        """Automatically connect if token and username are stored in the database.
+    async def connect(self) -> str:
+        """Connect to ngrok tunnel.
 
-        Called during application startup to restore tunnel connection.
+        Tries stored token + domain from DB first. If they're missing or fail,
+        fetches fresh credentials via the credentials provider.
+
+        Returns:
+            The public URL of the tunnel
+
+        Raises:
+            RuntimeError: If no credentials are available (nothing stored, no provider)
+            Exception: If connection fails with both stored and fresh credentials
         """
         token = await self._settings_repository.get_ngrok_token()
-        username = await self._settings_repository.get_ngrok_username()
+        domain = await self._settings_repository.get_ngrok_domain()
 
-        if not token:
-            logger.info("No ngrok token configured, skipping auto-connect")
-            return
+        # Try stored credentials if both are present
+        if token and domain:
+            try:
+                public_url = await self._connect(token, domain, persist=False)
+                await self._settings_repository.update_public_url(public_url)
+                logger.info(f"Ngrok tunnel connected with stored credentials: {public_url}")
+                return public_url
+            except Exception as e:
+                logger.warning(f"Stored credentials failed: {e}")
 
-        if not username:
-            logger.warning(
-                "Ngrok token found but no username configured, skipping auto-connect"
+        # Fall back to credentials provider
+        if self._credentials_provider is None:
+            raise RuntimeError(
+                "No stored credentials and no credentials provider configured"
             )
-            return
 
-        try:
-            # Connect but don't re-persist (token and username are already in DB)
-            public_url = await self.connect(token, username, persist=False)
-            # Update public URL in case it changed
-            await self._settings_repository.update_public_url(public_url)
-            logger.info(f"Ngrok tunnel auto-connected: {public_url}")
-        except Exception as e:
-            logger.exception(f"Failed to auto-connect ngrok tunnel: {e}")
-            # Don't clear the token on auto-connect failure
-            # User can retry or reconfigure
+        logger.info("Fetching fresh tunnel credentials from SyftHub...")
+        fresh_token, fresh_domain = await self._credentials_provider()
+        public_url = await self._connect(fresh_token, fresh_domain, persist=True)
+        logger.info(f"Ngrok tunnel connected with fresh credentials: {public_url}")
+        return public_url
 
     async def _auto_connect_background(self) -> None:
         """Background task to auto-connect and signal completion."""
 
         try:
-            await self.auto_connect_if_configured()
+            token = await self._settings_repository.get_ngrok_token()
+            if not token:
+                logger.info("No stored ngrok token, skipping auto-connect")
+                return
+            await self.connect()
             self.log_connection_info()
         except Exception as e:
-            logger.exception(f"Background proxy startup error: {e}")
+            logger.warning(f"Auto-connect failed: {e}")
         finally:
             # Always signal completion (success or failure)
             if self._ready_event:
@@ -264,7 +290,12 @@ class ProxyService(LifecycleService):
             self._reconnect_task = None
 
     async def _reconnect_loop(self) -> None:
-        """Background task that monitors connection and reconnects if needed."""
+        """Background task that monitors connection and reconnects if needed.
+
+        Self-healing: on the first reconnect failure, if a credentials provider
+        is configured and fresh creds haven't been fetched yet this cycle,
+        fetch new credentials from SyftHub and retry immediately.
+        """
         delay = self.RECONNECT_INITIAL_DELAY
 
         while not self._shutdown_event.is_set():
@@ -286,9 +317,52 @@ class ProxyService(LifecycleService):
                 try:
                     await self._reconnect()
                     delay = self.RECONNECT_INITIAL_DELAY  # Reset delay on success
+                    self._creds_refreshed = False  # Allow refresh on next cycle
                     logger.info("Ngrok tunnel reconnected successfully")
                 except Exception as e:
-                    logger.exception(f"Reconnection failed: {e}")
+                    logger.warning(f"Reconnection failed: {e}")
+
+                    # Self-healing: fetch fresh creds once per disconnect cycle
+                    if (
+                        not self._creds_refreshed
+                        and self._credentials_provider is not None
+                    ):
+                        logger.info(
+                            "Fetching fresh tunnel credentials from SyftHub..."
+                        )
+                        try:
+                            fresh_token, fresh_domain = (
+                                await self._credentials_provider()
+                            )
+                            self._current_token = fresh_token
+                            self._current_domain = fresh_domain
+                            self._creds_refreshed = True
+                            # Persist fresh creds
+                            await self._settings_repository.update_ngrok_token(
+                                fresh_token
+                            )
+                            await self._settings_repository.update_ngrok_domain(
+                                fresh_domain
+                            )
+                            # Retry immediately with fresh creds
+                            try:
+                                await self._reconnect()
+                                delay = self.RECONNECT_INITIAL_DELAY
+                                self._creds_refreshed = False
+                                logger.info(
+                                    "Reconnected with fresh credentials"
+                                )
+                                continue
+                            except Exception as e2:
+                                logger.warning(
+                                    f"Reconnect with fresh credentials also failed: {e2}"
+                                )
+                        except Exception as e3:
+                            logger.warning(
+                                f"Failed to fetch fresh credentials: {e3}"
+                            )
+                            self._creds_refreshed = True  # Don't retry fetch
+
                     # Exponential backoff
                     delay = min(
                         delay * self.RECONNECT_BACKOFF_FACTOR, self.RECONNECT_MAX_DELAY
@@ -296,17 +370,16 @@ class ProxyService(LifecycleService):
                     logger.info(f"Will retry in {delay} seconds...")
 
     async def _reconnect(self) -> None:
-        """Attempt to reconnect with the stored token and username."""
+        """Attempt to reconnect with the stored token and domain."""
         if not self._current_token:
             raise ValueError("No token available for reconnection")
-        if not self._current_username:
-            raise ValueError("No username available for reconnection")
+        if not self._current_domain:
+            raise ValueError("No domain available for reconnection")
 
         import ngrok
 
-        domain = NGROK_DOMAIN_FORMAT.format(username=self._current_username)
         ngrok.set_auth_token(self._current_token)
-        self._listener = await ngrok.forward(self._port, domain=domain)
+        self._listener = await ngrok.forward(self._port, domain=self._current_domain)
         public_url = self._listener.url()
 
         # Update public URL in database (it may have changed)

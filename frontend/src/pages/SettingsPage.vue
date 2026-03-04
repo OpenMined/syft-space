@@ -115,25 +115,15 @@
 
             <!-- Subdomain conditional content -->
             <div v-if="networkMode === 'subdomain'" class="ml-7">
-              <!-- State: Connected (has_token + not editing) -->
-              <div
-                v-if="proxyStatus.hasToken && !isEditingToken"
-                class="p-4 bg-muted/50 rounded-lg border space-y-3"
-              >
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <div
-                      class="h-2 w-2 rounded-full"
-                      :class="proxyStatus.connected ? 'bg-green-500' : 'bg-yellow-500'"
-                    />
-                    <span class="text-sm font-medium">
-                      {{ proxyStatus.connected ? 'Connected' : 'Disconnected' }}
-                    </span>
-                  </div>
-                  <Button variant="ghost" size="sm" @click="isEditingToken = true">
-                    <Pencil class="h-4 w-4 mr-1" />
-                    Update Token
-                  </Button>
+              <div class="p-4 bg-muted/50 rounded-lg border space-y-3">
+                <div class="flex items-center gap-2">
+                  <div
+                    class="h-2 w-2 rounded-full"
+                    :class="proxyStatus.connected ? 'bg-green-500' : 'bg-yellow-500'"
+                  />
+                  <span class="text-sm font-medium">
+                    {{ proxyStatus.connected ? 'Connected' : 'Disconnected' }}
+                  </span>
                 </div>
 
                 <div v-if="proxyStatus.publicUrl" class="text-sm">
@@ -146,20 +136,6 @@
                     {{ proxyStatus.publicUrl }}
                     <ExternalLink class="h-3 w-3" />
                   </a>
-                </div>
-              </div>
-
-              <!-- State: Not configured OR editing -->
-              <div v-else class="space-y-2">
-                <Label for="dev-token">Developer Token</Label>
-                <Input
-                  id="dev-token"
-                  v-model="devToken"
-                  type="password"
-                  placeholder="Enter your SyftHub developer token"
-                />
-                <div v-if="proxyStatus.hasToken" class="flex gap-2 mt-2">
-                  <Button variant="ghost" size="sm" @click="cancelEditToken"> Cancel </Button>
                 </div>
               </div>
             </div>
@@ -216,7 +192,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { Settings, Globe, User, ExternalLink, Pencil, Loader2 } from 'lucide-vue-next'
+import { Settings, Globe, User, ExternalLink, Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -232,9 +208,7 @@ const loadingAccount = ref(true)
 const loadingNetwork = ref(true)
 const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
-const devToken = ref('')
-const customUrl = ref('')
-const isEditingToken = ref(false)
+const customUrl = ref(window.location.origin)
 
 const proxyStatus = reactive({
   connected: false,
@@ -276,26 +250,16 @@ const fetchNetworkConfig = async () => {
   }
 }
 
-const cancelEditToken = () => {
-  isEditingToken.value = false
-  devToken.value = ''
-}
-
 const saveChanges = async () => {
   saving.value = true
   try {
     if (networkMode.value === 'subdomain') {
-      if (devToken.value) {
-        const result = await settingsApi.configureProxy({ ngrok_token: devToken.value })
+      if (!proxyStatus.connected) {
+        const result = await settingsApi.configureProxy()
         proxyStatus.connected = result.connected
         proxyStatus.publicUrl = result.public_url
         proxyStatus.hasToken = result.has_token
-        devToken.value = ''
-        isEditingToken.value = false
         toast.success('Proxy configured successfully')
-      } else if (!proxyStatus.hasToken) {
-        toast.error('Please enter your developer token')
-        return
       }
     } else {
       if (!customUrl.value) {
