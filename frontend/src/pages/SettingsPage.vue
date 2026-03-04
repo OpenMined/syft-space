@@ -254,7 +254,7 @@ const saveChanges = async () => {
   saving.value = true
   try {
     if (networkMode.value === 'subdomain') {
-      if (!proxyStatus.hasToken) {
+      if (!proxyStatus.connected) {
         const result = await settingsApi.configureProxy()
         proxyStatus.connected = result.connected
         proxyStatus.publicUrl = result.public_url

@@ -110,8 +110,8 @@ class ProxyService(LifecycleService):
         print("=" * 70)
         print()
 
-    async def connect(self, token: str, domain: str, persist: bool = True) -> str:
-        """Connect to ngrok with the provided token.
+    async def _connect(self, token: str, domain: str, persist: bool = True) -> str:
+        """Connect to ngrok with explicit credentials.
 
         Args:
             token: Ngrok authentication token
@@ -181,55 +181,56 @@ class ProxyService(LifecycleService):
 
         logger.info("Ngrok tunnel disconnected")
 
-    async def auto_connect_if_configured(self) -> None:
-        """Automatically connect if token and domain are stored in the database.
+    async def connect(self) -> str:
+        """Connect to ngrok tunnel.
 
-        Called during application startup to restore tunnel connection.
-        If stored credentials fail, retries once by fetching fresh credentials
-        from SyftHub via the credentials provider (if configured).
+        Tries stored token + domain from DB first. If they're missing or fail,
+        fetches fresh credentials via the credentials provider.
+
+        Returns:
+            The public URL of the tunnel
+
+        Raises:
+            RuntimeError: If no credentials are available (nothing stored, no provider)
+            Exception: If connection fails with both stored and fresh credentials
         """
         token = await self._settings_repository.get_ngrok_token()
         domain = await self._settings_repository.get_ngrok_domain()
 
-        if not token or not domain:
-            logger.info("No ngrok credentials configured, skipping auto-connect")
-            return
+        # Try stored credentials if both are present
+        if token and domain:
+            try:
+                public_url = await self._connect(token, domain, persist=False)
+                await self._settings_repository.update_public_url(public_url)
+                logger.info(f"Ngrok tunnel connected with stored credentials: {public_url}")
+                return public_url
+            except Exception as e:
+                logger.warning(f"Stored credentials failed: {e}")
 
-        try:
-            public_url = await self.connect(token, domain, persist=False)
-            await self._settings_repository.update_public_url(public_url)
-            logger.info(f"Ngrok tunnel auto-connected: {public_url}")
-            return
-        except Exception as e:
-            logger.warning(f"Auto-connect with stored credentials failed: {e}")
-
-        # Retry with fresh credentials from SyftHub
+        # Fall back to credentials provider
         if self._credentials_provider is None:
-            logger.error(
-                "No credentials provider configured, cannot fetch fresh credentials"
+            raise RuntimeError(
+                "No stored credentials and no credentials provider configured"
             )
-            return
 
         logger.info("Fetching fresh tunnel credentials from SyftHub...")
-        try:
-            fresh_token, fresh_domain = await self._credentials_provider()
-            public_url = await self.connect(
-                fresh_token, fresh_domain, persist=True
-            )
-            logger.info(
-                f"Ngrok tunnel connected with fresh credentials: {public_url}"
-            )
-        except Exception as e:
-            logger.exception(f"Retry with fresh credentials also failed: {e}")
+        fresh_token, fresh_domain = await self._credentials_provider()
+        public_url = await self._connect(fresh_token, fresh_domain, persist=True)
+        logger.info(f"Ngrok tunnel connected with fresh credentials: {public_url}")
+        return public_url
 
     async def _auto_connect_background(self) -> None:
         """Background task to auto-connect and signal completion."""
 
         try:
-            await self.auto_connect_if_configured()
+            token = await self._settings_repository.get_ngrok_token()
+            if not token:
+                logger.info("No stored ngrok token, skipping auto-connect")
+                return
+            await self.connect()
             self.log_connection_info()
         except Exception as e:
-            logger.exception(f"Background proxy startup error: {e}")
+            logger.warning(f"Auto-connect failed: {e}")
         finally:
             # Always signal completion (success or failure)
             if self._ready_event:
@@ -347,6 +348,7 @@ class ProxyService(LifecycleService):
                             try:
                                 await self._reconnect()
                                 delay = self.RECONNECT_INITIAL_DELAY
+                                self._creds_refreshed = False
                                 logger.info(
                                     "Reconnected with fresh credentials"
                                 )
