@@ -699,180 +699,14 @@
                 v-if="formData.responseType === 'summary' || formData.responseType === 'both'"
                 class="bg-card rounded-lg shadow-sm border border-border p-6"
               >
-                <!-- Quick Setup (only when no existing models) -->
-                <div v-if="availableModels.length === 0">
-                  <div class="space-y-2 mb-6">
-                    <h3 class="heading-3 text-foreground">Choose AI Model</h3>
-                    <p class="body-sm text-muted-foreground">
-                      Select how you want to power your AI responses
-                    </p>
-                  </div>
-
-                  <div class="space-y-3">
-                    <!-- OpenAI GPT-4o Option -->
-                    <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
-                      :class="
-                        selectedAiProvider === 'openai-gpt-4o'
-                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                          : 'border-border'
-                      "
-                      @click="selectAiProvider('openai-gpt-4o')"
-                    >
-                      <div
-                        class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
-                        :class="
-                          selectedAiProvider === 'openai-gpt-4o'
-                            ? 'border-primary bg-primary'
-                            : 'border-muted-foreground'
-                        "
-                      >
-                        <div
-                          v-if="selectedAiProvider === 'openai-gpt-4o'"
-                          class="w-2 h-2 rounded-full bg-white"
-                        ></div>
-                      </div>
-                      <div class="flex items-center gap-3 cursor-pointer flex-1">
-                        <div class="p-2 rounded bg-primary/10">
-                          <span class="font-bold text-sm text-primary">AI</span>
-                        </div>
-                        <div class="flex-1">
-                          <div class="flex items-center gap-2">
-                            <span class="font-medium">openai/gpt-4o</span>
-                            <Badge variant="secondary" class="text-xs">Popular</Badge>
-                          </div>
-                          <p class="text-sm text-muted-foreground mt-1">
-                            Most capable, industry standard
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Claude 3.5 Sonnet via OpenRouter -->
-                    <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
-                      :class="
-                        selectedAiProvider === 'openrouter-claude'
-                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                          : 'border-border'
-                      "
-                      @click="selectAiProvider('openrouter-claude')"
-                    >
-                      <div
-                        class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
-                        :class="
-                          selectedAiProvider === 'openrouter-claude'
-                            ? 'border-primary bg-primary'
-                            : 'border-muted-foreground'
-                        "
-                      >
-                        <div
-                          v-if="selectedAiProvider === 'openrouter-claude'"
-                          class="w-2 h-2 rounded-full bg-white"
-                        ></div>
-                      </div>
-                      <div class="flex items-center gap-3 cursor-pointer flex-1">
-                        <div class="p-2 rounded bg-primary/10">
-                          <span class="font-bold text-xs text-primary">OR</span>
-                        </div>
-                        <div class="flex-1">
-                          <div class="flex items-center gap-2">
-                            <span class="font-medium">openrouter/claude-3.5-sonnet</span>
-                            <Badge variant="secondary" class="text-xs">Smart</Badge>
-                          </div>
-                          <p class="text-sm text-muted-foreground mt-1">
-                            Excellent for analysis and reasoning
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Groq Llama Option -->
-                    <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
-                      :class="
-                        selectedAiProvider === 'groq-llama'
-                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                          : 'border-border'
-                      "
-                      @click="selectAiProvider('groq-llama')"
-                    >
-                      <div
-                        class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
-                        :class="
-                          selectedAiProvider === 'groq-llama'
-                            ? 'border-primary bg-primary'
-                            : 'border-muted-foreground'
-                        "
-                      >
-                        <div
-                          v-if="selectedAiProvider === 'groq-llama'"
-                          class="w-2 h-2 rounded-full bg-white"
-                        ></div>
-                      </div>
-                      <div class="flex items-center gap-3 cursor-pointer flex-1">
-                        <div class="p-2 rounded bg-primary/10">
-                          <span class="font-bold text-sm">⚡</span>
-                        </div>
-                        <div class="flex-1">
-                          <div class="flex items-center gap-2">
-                            <span class="font-medium">groq/llama-3.3-70b-instruct</span>
-                            <Badge variant="secondary" class="text-xs">Fast</Badge>
-                          </div>
-                          <p class="text-sm text-muted-foreground mt-1">
-                            Ultra-fast inference speed
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- API Key Input -->
-                    <div v-if="selectedAiProvider" class="mt-4 space-y-2">
-                      <Label class="body-sm text-muted-foreground font-medium">
-                        {{ getProviderName(selectedAiProvider) }} API Key
-                      </Label>
-                      <Input
-                        v-model="apiKeys[selectedAiProvider]"
-                        type="password"
-                        :placeholder="`Enter your ${getProviderName(selectedAiProvider)} API key`"
-                        class="body-sm"
-                        autocomplete="new-password"
-                        autocorrect="off"
-                        autocapitalize="off"
-                        spellcheck="false"
-                        data-1p-ignore
-                        data-lpignore="true"
-                        data-form-type="other"
-                        data-bwignore
-                        data-bitwarden-watching="false"
-                        role="textbox"
-                        aria-label="API Key Input"
-                        name="api-key-input"
-                      />
-                      <p class="body-sm text-muted-foreground">
-                        Your API key is stored securely and only used for your endpoint.
-                        <a
-                          :href="getProviderApiUrl(selectedAiProvider)"
-                          target="_blank"
-                          class="text-primary hover:underline"
-                        >
-                          Get API key →
-                        </a>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Existing Models (when models are available) -->
-                <div v-else>
-                  <ModelSelector
-                    v-model="formData.aiModel"
-                    title="Choose AI Model"
-                    description="Select from your existing models or create a new one"
-                    id-prefix="step2"
-                    @create-model="handleStep3CreateModel"
-                  />
-                </div>
+                <ModelSelector
+                  ref="modelSelectorRef"
+                  v-model="formData.aiModel"
+                  title="Choose AI Model"
+                  description="Select from your existing models or create a new one"
+                  id-prefix="step2"
+                  @create-model="handleStep3CreateModel"
+                />
               </div>
             </div>
           </div>
@@ -1489,10 +1323,6 @@
                       <span class="body-sm font-medium text-foreground">{{
                         getModelDisplayName()
                       }}</span>
-                      <span v-if="selectedAiProvider" class="text-blue-600"> (New Model)</span>
-                      <span v-else-if="formData.aiModel" class="text-green-600">
-                        (Existing Model)</span
-                      >
                     </div>
                   </div>
                 </div>
@@ -1687,15 +1517,15 @@ import { useTheme } from '@/composables/useTheme'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
-import { modelsApi } from '@/api/endpoints/models'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useDataEndpointCreation } from '@/composables/useDataEndpointCreation'
 import { useUserStore } from '@/stores/user'
-import type { DatasetListItem, ModelListItem } from '@/api/types'
+import type { DatasetListItem } from '@/api/types'
 
 const router = useRouter()
 const userStore = useUserStore()
 const { isDark } = useTheme()
+const modelSelectorRef = ref<InstanceType<typeof ModelSelector> | null>(null)
 
 // Computed URL to view existing endpoint on SyftHub
 const existingEndpointUrl = computed(() =>
@@ -1714,14 +1544,6 @@ const completedSteps = ref<Set<number>>(new Set())
 
 // Progressive disclosure
 const showAdvancedDetails = ref(false)
-
-// AI Provider selection
-const selectedAiProvider = ref<'openai-gpt-4o' | 'openrouter-claude' | 'groq-llama' | ''>('')
-const apiKeys = ref<Record<string, string>>({
-  'openai-gpt-4o': '',
-  'openrouter-claude': '',
-  'groq-llama': '',
-})
 
 // Tag input
 const tagInput = ref('')
@@ -1881,9 +1703,6 @@ const existingDatasets = ref<DatasetListItem[]>([])
 const loadingDatasets = ref(false)
 const datasetsError = ref<string | null>(null)
 
-// Models state
-const availableModels = ref<ModelListItem[]>([])
-
 // Computed properties for dataset display
 const existingDataSourcesCount = computed(() => existingDatasets.value.length)
 const displayedDatasets = computed(() => {
@@ -2026,47 +1845,6 @@ const handleEndpointNameInput = () => {
   }
 }
 
-// AI Provider methods
-const selectAiProvider = (providerModel: 'openai-gpt-4o' | 'openrouter-claude' | 'groq-llama') => {
-  selectedAiProvider.value = providerModel
-
-  // Set the AI model configuration based on provider/model combination
-  if (providerModel === 'openai-gpt-4o') {
-    // Store provider info and model for creating the model later
-    formData.value.aiModel = `${providerModel}-${Date.now()}` // Unique model name
-  } else if (providerModel === 'openrouter-claude') {
-    formData.value.aiModel = `${providerModel}-${Date.now()}`
-  } else if (providerModel === 'groq-llama') {
-    formData.value.aiModel = `${providerModel}-${Date.now()}`
-  }
-}
-
-const getProviderName = (providerModel: string) => {
-  switch (providerModel) {
-    case 'openai-gpt-4o':
-      return 'OpenAI'
-    case 'openrouter-claude':
-      return 'OpenRouter'
-    case 'groq-llama':
-      return 'Groq'
-    default:
-      return providerModel
-  }
-}
-
-const getProviderApiUrl = (providerModel: string) => {
-  switch (providerModel) {
-    case 'openai-gpt-4o':
-      return 'https://platform.openai.com/api-keys'
-    case 'openrouter-claude':
-      return 'https://openrouter.ai/keys'
-    case 'groq-llama':
-      return 'https://console.groq.com/keys'
-    default:
-      return '#'
-  }
-}
-
 const selectDataSourceType = (type: 'filesystem' | 'existing') => {
   selectedDataSourceType.value = type
 }
@@ -2113,8 +1891,6 @@ const publishEndpoint = async () => {
     selectedDataSource: formData.value.selectedDataSource,
     responseType: formData.value.responseType,
     aiModel: formData.value.aiModel,
-    selectedAiProvider: selectedAiProvider.value,
-    apiKeys: apiKeys.value,
     policyRules: policyRules.value,
     endpointName: formData.value.endpointName,
     summary: formData.value.summary,
@@ -2150,7 +1926,6 @@ const selectResponseType = (type: 'raw' | 'summary' | 'both') => {
 
   if (type === 'raw') {
     formData.value.aiModel = ''
-    selectedAiProvider.value = ''
   }
 }
 
@@ -2315,45 +2090,18 @@ const loadExistingDatasets = async () => {
   }
 }
 
-// Load available models
-const loadAvailableModels = async () => {
-  try {
-    const models = await modelsApi.list()
-    availableModels.value = models
-  } catch (error) {
-    console.error('Failed to load available models:', error)
-  }
-}
-
-// Get model name by ID
-const getModelName = (modelId: string): string | null => {
-  const model = availableModels.value.find((m) => m.id === modelId)
-  return model?.name || null
-}
-
-// Get display name for AI model (handles both quick setup and existing models)
+// Get display name for AI model
 const getModelDisplayName = (): string => {
-  // If a quick setup provider is selected, show the provider/model combination
-  if (selectedAiProvider.value) {
-    switch (selectedAiProvider.value) {
-      case 'openai-gpt-4o':
-        return 'openai/gpt-4o'
-      case 'openrouter-claude':
-        return 'openrouter/claude-3.5-sonnet'
-      case 'groq-llama':
-        return 'groq/llama-3.3-70b-instruct'
-      default:
-        return selectedAiProvider.value
-    }
-  }
-
-  // Fall back to existing model name or model ID
-  return getModelName(formData.value.aiModel) || formData.value.aiModel || 'Not selected'
+  if (!formData.value.aiModel) return 'Not selected'
+  const model = modelSelectorRef.value?.models?.find(
+    (m: { id: string }) => m.id === formData.value.aiModel,
+  )
+  return model?.name || formData.value.aiModel
 }
 
-// Load datasets and models when component mounts
+// Load datasets when component mounts
 onMounted(async () => {
-  await Promise.all([loadExistingDatasets(), loadAvailableModels()])
+  await loadExistingDatasets()
 
   // Auto-select filesystem if no existing datasets are available
   if (existingDataSourcesCount.value === 0 && !selectedDataSourceType.value) {

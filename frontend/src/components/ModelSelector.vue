@@ -190,6 +190,8 @@ const handleModelValueUpdate = (value: unknown) => {
 }
 
 // Handle model creation success
+defineExpose({ models })
+
 const handleModelCreated = async () => {
   console.log('Model created successfully')
 
