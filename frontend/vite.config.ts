@@ -6,11 +6,9 @@ import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
-const isTauri = !!process.env.TAURI_ENV_PLATFORM
-
 // https://vite.dev/config/
 export default defineConfig({
-  base: isTauri ? '/' : '/frontend/',
+  base: './',
   plugins: [tailwindcss(), vue(), vueJsx(), vueDevTools({ launchEditor: 'cursor' })],
   resolve: {
     alias: {
