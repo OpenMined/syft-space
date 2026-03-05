@@ -41,6 +41,8 @@ PACKAGES_WITH_BINARIES = [
     'chromadb',
     'chromadb_rust_bindings',
     'docling_parse',
+    'torch',
+    'torchvision',
 ]
 
 a = Analysis(
