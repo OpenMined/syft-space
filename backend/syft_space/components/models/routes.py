@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 
 from syft_space.components.auth.public import public_route
 from syft_space.components.models.handlers import ModelHandler
@@ -75,6 +75,28 @@ def build_model_routes(handler: ModelHandler) -> APIRouter:
         """
         type_info = handler.get_model_type(name)
         return type_info.config_schema
+
+    @router.post("/types/{dtype}/actions/{action_name}")
+    async def execute_type_action(
+        dtype: str,
+        action_name: str,
+        body: dict[str, Any] = Body(default={}),
+        handler: ModelHandler = Depends(get_handler),
+    ) -> dict[str, Any]:
+        """Execute an action on a model type.
+
+        Model types can declare optional actions (e.g. fetch_available_models).
+        This route dispatches to them generically.
+
+        Args:
+            dtype: Model type name (e.g. "openai")
+            action_name: Action name
+            body: JSON body passed as kwargs to the action
+
+        Returns:
+            Action result
+        """
+        return await handler.execute_type_action(dtype, action_name, body)
 
     @router.post("/", response_model=ModelResponse, status_code=201)
     async def create_model(

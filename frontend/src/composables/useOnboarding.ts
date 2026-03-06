@@ -35,7 +35,6 @@ export function useOnboarding() {
   // Network setup state
   const networkMode: Ref<'subdomain' | 'custom' | ''> = ref('')
   const publicUrl = ref(window.location.origin)
-  const devToken = ref('')
 
   // Username availability checking
   const checkingUsername = ref(false)
@@ -169,18 +168,10 @@ export function useOnboarding() {
       // Determine the final URL based on network mode
       let finalUrl: string
       if (networkMode.value === 'subdomain') {
-        // Configure proxy with the developer token
-        if (!devToken.value.trim()) {
-          networkError.value = 'Developer token is required'
-          return false
-        }
-
-        const proxyResponse = await settingsApi.configureProxy({
-          ngrok_token: devToken.value.trim(),
-        })
+        const proxyResponse = await settingsApi.configureProxy()
 
         if (!proxyResponse.connected || !proxyResponse.public_url) {
-          networkError.value = 'Failed to connect proxy tunnel. Please check your token.'
+          networkError.value = 'Failed to connect proxy tunnel. Please try again.'
           return false
         }
 
@@ -224,7 +215,6 @@ export function useOnboarding() {
     }
     networkMode.value = ''
     publicUrl.value = window.location.origin
-    devToken.value = ''
     usernameAvailable.value = null
     authError.value = ''
     networkError.value = ''
@@ -244,7 +234,6 @@ export function useOnboarding() {
     // Network state
     networkMode,
     publicUrl,
-    devToken,
 
     // Username checking
     checkingUsername,

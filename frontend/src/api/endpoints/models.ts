@@ -1,6 +1,8 @@
 import { apiClient } from '../client'
 import type {
   CreateModelRequest,
+  FetchProviderModelsRequest,
+  FetchProviderModelsResponse,
   ModelResponse,
   ModelResponseWithEndpoints,
   ModelListItem,
@@ -46,6 +48,16 @@ export const modelsApi = {
 
   getTypeSchema: async (name: string): Promise<Record<string, unknown>> => {
     const response = await apiClient.get<Record<string, unknown>>(`/models/types/${name}/schema`)
+    return response.data
+  },
+
+  fetchProviderModels: async (
+    request: FetchProviderModelsRequest,
+  ): Promise<FetchProviderModelsResponse> => {
+    const response = await apiClient.post<FetchProviderModelsResponse>(
+      '/models/types/openai/actions/fetch_available_models',
+      request,
+    )
     return response.data
   },
 }

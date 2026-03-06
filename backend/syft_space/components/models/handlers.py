@@ -1,6 +1,9 @@
 """Model handlers for business logic."""
 
+from typing import Any
+
 from fastapi import HTTPException
+from loguru import logger
 
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.entities import Model
@@ -117,7 +120,7 @@ class ModelHandler:
         model = Model(
             name=request.name,
             dtype=request.dtype,
-            configuration=request.configuration,
+            configuration=dict(request.configuration),
             summary=request.summary,
             tags=request.tags,
             tenant_id=tenant.id,  # Set tenant_id explicitly
@@ -212,6 +215,79 @@ class ModelHandler:
             raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
         return {"message": f"Successfully deleted model '{name}'"}
+
+    # ============== Model Type Actions ==============
+    async def execute_type_action(
+        self, dtype: str, action_name: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Execute an action on a model type.
+
+        Model types can declare optional actions via a ``get_actions()``
+        classmethod. This method dispatches to them generically.
+
+        Args:
+            dtype: Model type name (e.g. ``"openai"``)
+            action_name: Action name (e.g. ``"fetch_available_models"``)
+            body: Request body forwarded as keyword arguments to the action
+
+        Returns:
+            Action result as a JSON-serialisable dict
+
+        Raises:
+            HTTPException: 404 if type/action not found, 422/502 on errors
+        """
+        # 1. Resolve model type
+        try:
+            model_type_cls = self.registry.get_model_type(dtype)
+        except KeyError:
+            raise HTTPException(
+                status_code=404, detail=f"Model type '{dtype}' not found"
+            ) from None
+
+        # 2. Check if type supports actions
+        get_actions = getattr(model_type_cls, "get_actions", None)
+        if get_actions is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model type '{dtype}' does not support actions",
+            )
+
+        # 3. Look up specific action
+        actions = get_actions()
+        action_fn = actions.get(action_name)
+        if action_fn is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Action '{action_name}' not found on model type "
+                f"'{dtype}'. Available: {sorted(actions)}",
+            )
+
+        # 4. Execute with error mapping
+        try:
+            return await action_fn(**body)
+        except TypeError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from None
+        except Exception as e:
+            error_message = str(e)
+            logger.warning(
+                "Action '%s' on model type '%s' failed: %s: %s",
+                action_name,
+                dtype,
+                type(e).__name__,
+                error_message,
+            )
+            # Return 422 for auth errors (not 401, to avoid triggering
+            # the frontend's auth token clearing interceptor)
+            if "401" in error_message or "Unauthorized" in error_message:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid API key. Please check your API key and try again.",
+                ) from None
+            raise HTTPException(
+                status_code=502,
+                detail=f"Action '{action_name}' failed. Please check your "
+                "parameters and try again.",
+            ) from None
 
     # ============== Admin Endpoints ==============
     async def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:

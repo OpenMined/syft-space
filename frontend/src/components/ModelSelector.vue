@@ -7,7 +7,7 @@
     </div>
 
     <!-- Model List -->
-    <RadioGroup :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)">
+    <RadioGroup :model-value="modelValue" @update:model-value="handleModelValueUpdate">
       <div class="space-y-3">
         <!-- Loading State -->
         <div v-if="isLoading" class="flex items-center justify-center py-8">
@@ -178,7 +178,20 @@ const handleCreateModel = () => {
   emit('create-model')
 }
 
+const handleModelValueUpdate = (value: unknown) => {
+  if (typeof value === 'string') {
+    emit('update:modelValue', value)
+    return
+  }
+
+  if (value === null || value === undefined) {
+    emit('update:modelValue', '')
+  }
+}
+
 // Handle model creation success
+defineExpose({ models })
+
 const handleModelCreated = async () => {
   console.log('Model created successfully')
 

@@ -91,11 +91,46 @@ class DatasetHandler:
             # Remote type - no provisioner needed
             return None
 
-        # Check if already running
+        # Check if already running (verify actual process, not just DB state)
         existing = await self.provisioner_state_repository.get_running_by_dtype(dtype)
         if existing:
-            logger.info(f"Reusing existing provisioner for dtype '{dtype}'")
-            return existing
+            state = existing.state or {}
+            if await provisioner_cls.is_running(state):
+                # Process is alive, but the server may still be booting
+                # (e.g. after an app restart the OS process survives but
+                # ChromaDB's HTTP server hasn't finished starting yet).
+                # Wait for it to be healthy before returning.
+                try:
+                    await provisioner_cls.wait_until_ready(state)
+                except Exception as exc:
+                    logger.warning(
+                        f"Provisioner for '{dtype}' process alive but "
+                        f"not ready ({exc}), restarting..."
+                    )
+                    await provisioner_cls.stop(state)
+                    # Force-reset: normal RUNNING→STOPPED transition is
+                    # not allowed by the state machine (must go via STOPPING).
+                    # This is a recovery path so we bypass the guards.
+                    await self.provisioner_state_repository.force_status_update(
+                        dtype=dtype,
+                        status=ProvisionerStatus.STOPPED,
+                    )
+                    # Fall through to start a new one
+                else:
+                    logger.info(f"Reusing existing provisioner for dtype '{dtype}'")
+                    return existing
+            else:
+                logger.warning(
+                    f"Provisioner for '{dtype}' marked as running in DB "
+                    f"but process is dead, restarting..."
+                )
+                # Force-reset: normal RUNNING→STOPPED transition is
+                # not allowed by the state machine (must go via STOPPING).
+                # This is a recovery path so we bypass the guards.
+                await self.provisioner_state_repository.force_status_update(
+                    dtype=dtype,
+                    status=ProvisionerStatus.STOPPED,
+                )
 
         # Transition to STARTING (creates or updates, guards checked)
         logger.info(f"Starting provisioner for dtype '{dtype}'")
@@ -251,9 +286,11 @@ class DatasetHandler:
                 # Use state.state as config (contains connection fields from last run)
                 config = state.state.copy() if state.state else {}
                 await self._ensure_provisioner_running(state.dtype, config)
-            except Exception:  # nosec B110 - error already logged by provisioner
+            except Exception as e:
+                logger.exception(
+                    f"Failed to start provisioner '{state.dtype}' during startup: {e}"
+                )
                 # Continue starting other provisioners
-                pass
 
     async def shutdown_all_provisioners(self) -> None:
         """Stop all running provisioners.

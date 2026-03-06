@@ -184,16 +184,6 @@
                     </div>
                   </div>
 
-                  <!-- Subdomain conditional field -->
-                  <div v-if="networkMode === 'subdomain'" class="ml-7 space-y-2">
-                    <Label for="dev-token">Developer Token</Label>
-                    <Input
-                      id="dev-token"
-                      v-model="devToken"
-                      type="password"
-                      placeholder="Enter your SyftHub developer token"
-                    />
-                  </div>
                 </div>
 
                 <!-- Custom domain option -->
@@ -297,7 +287,6 @@ const {
   signinForm,
   networkMode,
   publicUrl,
-  devToken,
   checkingUsername,
   usernameAvailable,
   authError,
@@ -330,7 +319,7 @@ const isSignInFormValid = computed(() => {
 
 const isNetworkSetupValid = computed(() => {
   if (networkMode.value === 'subdomain') {
-    return devToken.value.trim() !== ''
+    return true
   }
   if (networkMode.value === 'custom') {
     return publicUrl.value.trim() !== '' && publicUrl.value.startsWith('http')

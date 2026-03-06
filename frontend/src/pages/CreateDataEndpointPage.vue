@@ -699,180 +699,14 @@
                 v-if="formData.responseType === 'summary' || formData.responseType === 'both'"
                 class="bg-card rounded-lg shadow-sm border border-border p-6"
               >
-                <!-- Quick Setup (only when no existing models) -->
-                <div v-if="availableModels.length === 0">
-                  <div class="space-y-2 mb-6">
-                    <h3 class="heading-3 text-foreground">Choose AI Model</h3>
-                    <p class="body-sm text-muted-foreground">
-                      Select how you want to power your AI responses
-                    </p>
-                  </div>
-
-                  <div class="space-y-3">
-                    <!-- OpenAI GPT-4o Option -->
-                    <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
-                      :class="
-                        selectedAiProvider === 'openai-gpt-4o'
-                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                          : 'border-border'
-                      "
-                      @click="selectAiProvider('openai-gpt-4o')"
-                    >
-                      <div
-                        class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
-                        :class="
-                          selectedAiProvider === 'openai-gpt-4o'
-                            ? 'border-primary bg-primary'
-                            : 'border-muted-foreground'
-                        "
-                      >
-                        <div
-                          v-if="selectedAiProvider === 'openai-gpt-4o'"
-                          class="w-2 h-2 rounded-full bg-white"
-                        ></div>
-                      </div>
-                      <div class="flex items-center gap-3 cursor-pointer flex-1">
-                        <div class="p-2 rounded bg-primary/10">
-                          <span class="font-bold text-sm text-primary">AI</span>
-                        </div>
-                        <div class="flex-1">
-                          <div class="flex items-center gap-2">
-                            <span class="font-medium">openai/gpt-4o</span>
-                            <Badge variant="secondary" class="text-xs">Popular</Badge>
-                          </div>
-                          <p class="text-sm text-muted-foreground mt-1">
-                            Most capable, industry standard
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Claude 3.5 Sonnet via OpenRouter -->
-                    <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
-                      :class="
-                        selectedAiProvider === 'openrouter-claude'
-                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                          : 'border-border'
-                      "
-                      @click="selectAiProvider('openrouter-claude')"
-                    >
-                      <div
-                        class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
-                        :class="
-                          selectedAiProvider === 'openrouter-claude'
-                            ? 'border-primary bg-primary'
-                            : 'border-muted-foreground'
-                        "
-                      >
-                        <div
-                          v-if="selectedAiProvider === 'openrouter-claude'"
-                          class="w-2 h-2 rounded-full bg-white"
-                        ></div>
-                      </div>
-                      <div class="flex items-center gap-3 cursor-pointer flex-1">
-                        <div class="p-2 rounded bg-primary/10">
-                          <span class="font-bold text-xs text-primary">OR</span>
-                        </div>
-                        <div class="flex-1">
-                          <div class="flex items-center gap-2">
-                            <span class="font-medium">openrouter/claude-3.5-sonnet</span>
-                            <Badge variant="secondary" class="text-xs">Smart</Badge>
-                          </div>
-                          <p class="text-sm text-muted-foreground mt-1">
-                            Excellent for analysis and reasoning
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Groq Llama Option -->
-                    <div
-                      class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-primary/5 dark:hover:bg-primary/10"
-                      :class="
-                        selectedAiProvider === 'groq-llama'
-                          ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                          : 'border-border'
-                      "
-                      @click="selectAiProvider('groq-llama')"
-                    >
-                      <div
-                        class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
-                        :class="
-                          selectedAiProvider === 'groq-llama'
-                            ? 'border-primary bg-primary'
-                            : 'border-muted-foreground'
-                        "
-                      >
-                        <div
-                          v-if="selectedAiProvider === 'groq-llama'"
-                          class="w-2 h-2 rounded-full bg-white"
-                        ></div>
-                      </div>
-                      <div class="flex items-center gap-3 cursor-pointer flex-1">
-                        <div class="p-2 rounded bg-primary/10">
-                          <span class="font-bold text-sm">⚡</span>
-                        </div>
-                        <div class="flex-1">
-                          <div class="flex items-center gap-2">
-                            <span class="font-medium">groq/llama-3.3-70b-instruct</span>
-                            <Badge variant="secondary" class="text-xs">Fast</Badge>
-                          </div>
-                          <p class="text-sm text-muted-foreground mt-1">
-                            Ultra-fast inference speed
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- API Key Input -->
-                    <div v-if="selectedAiProvider" class="mt-4 space-y-2">
-                      <Label class="body-sm text-muted-foreground font-medium">
-                        {{ getProviderName(selectedAiProvider) }} API Key
-                      </Label>
-                      <Input
-                        v-model="apiKeys[selectedAiProvider]"
-                        type="password"
-                        :placeholder="`Enter your ${getProviderName(selectedAiProvider)} API key`"
-                        class="body-sm"
-                        autocomplete="new-password"
-                        autocorrect="off"
-                        autocapitalize="off"
-                        spellcheck="false"
-                        data-1p-ignore
-                        data-lpignore="true"
-                        data-form-type="other"
-                        data-bwignore
-                        data-bitwarden-watching="false"
-                        role="textbox"
-                        aria-label="API Key Input"
-                        name="api-key-input"
-                      />
-                      <p class="body-sm text-muted-foreground">
-                        Your API key is stored securely and only used for your endpoint.
-                        <a
-                          :href="getProviderApiUrl(selectedAiProvider)"
-                          target="_blank"
-                          class="text-primary hover:underline"
-                        >
-                          Get API key →
-                        </a>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Existing Models (when models are available) -->
-                <div v-else>
-                  <ModelSelector
-                    v-model="formData.aiModel"
-                    title="Choose AI Model"
-                    description="Select from your existing models or create a new one"
-                    id-prefix="step2"
-                    @create-model="handleStep3CreateModel"
-                  />
-                </div>
+                <ModelSelector
+                  ref="modelSelectorRef"
+                  v-model="formData.aiModel"
+                  title="Choose AI Model"
+                  description="Select from your existing models or create a new one"
+                  id-prefix="step2"
+                  @create-model="handleStep3CreateModel"
+                />
               </div>
             </div>
           </div>
@@ -882,7 +716,7 @@
             <!-- Policy Configuration -->
             <div class="space-y-6">
               <div
-                v-for="policy in policyTypes"
+                v-for="policy in POLICY_TYPES"
                 :key="policy.id"
                 class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6"
               >
@@ -916,7 +750,7 @@
                       <p class="body-sm text-muted-foreground">{{ policy.description }}</p>
                     </div>
                   </div>
-                  <Button @click="addPolicy(policy.id)" variant="outline" size="sm">
+                  <Button @click="openAddPolicyDialog(policy.id)" variant="outline" size="sm">
                     <Plus class="h-4 w-4 mr-2" />
                     Add {{ policy.name }} rule
                   </Button>
@@ -960,186 +794,7 @@
                     :key="rule.id"
                     class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4"
                   >
-                    <!-- Rule in Edit Mode (Expanded) -->
-                    <div v-if="rule.isEditing" class="space-y-3">
-                      <!-- Authorization Policy Form -->
-                      <div v-if="policy.id === 'access'">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium"
-                              >Rule Type</Label
-                            >
-                            <Select v-model="authorizationForm.ruleType">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue placeholder="Select rule type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="allow" class="body-sm"
-                                  >Allow specific users</SelectItem
-                                >
-                                <SelectItem value="deny" class="body-sm"
-                                  >Deny specific users</SelectItem
-                                >
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="authorizationForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                            />
-                          </div>
-                        </div>
-                        <div class="space-y-1 mt-3">
-                          <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                          <Input
-                            v-model="authorizationForm.users"
-                            placeholder="user1@example.com, user2@example.com"
-                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                          />
-                          <p class="text-xs text-muted-foreground">
-                            Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-                            *@contractors.org)
-                          </p>
-                        </div>
-                      </div>
-
-                      <!-- Rate Limiter Policy Form -->
-                      <div v-if="policy.id === 'rate_limit'">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
-                            <div class="flex">
-                              <Input
-                                v-model="rateLimiterForm.limit"
-                                type="number"
-                                placeholder="100"
-                                class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
-                              />
-                              <Select v-model="rateLimiterForm.windowUnit">
-                                <SelectTrigger
-                                  class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0"
-                                >
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="second">requests per second</SelectItem>
-                                  <SelectItem value="minute">requests per minute</SelectItem>
-                                  <SelectItem value="hour">requests per hour</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Scope</Label>
-                            <Select v-model="rateLimiterForm.scope">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="per user">For Each User</SelectItem>
-                                <SelectItem value="global">For This Endpoint</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="rateLimiterForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Pricing Policy Form -->
-                      <div v-if="policy.id === 'pricing'">
-                        <div class="space-y-3">
-                          <!-- Price and Note side-by-side -->
-                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Price per query ($)</Label
-                              >
-                              <Input
-                                v-model="pricingForm.price"
-                                type="number"
-                                step="any"
-                                placeholder="0.01"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input
-                                v-model="pricingForm.note"
-                                placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                          </div>
-                          <!-- Apply To and Users row -->
-                          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                            <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Apply To</Label
-                              >
-                              <Select v-model="pricingForm.userType">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All Users</SelectItem>
-                                  <SelectItem value="specific">Specific Users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div
-                              v-if="pricingForm.userType === 'specific'"
-                              class="space-y-1 flex-1"
-                            >
-                              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                              <Input
-                                v-model="pricingForm.users"
-                                placeholder="user1@example.com, user2@example.com"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                              <p class="text-xs text-muted-foreground">
-                                Comma-separated list. Wildcard supported (e.g., *@company.com,
-                                *.edu, *@contractors.org)
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Form Action Buttons -->
-                      <div class="flex gap-2 pt-3 border-t border-border">
-                        <Button
-                          @click="savePolicy(policy.id, rule.id)"
-                          size="sm"
-                          class="rounded-lg body-sm font-medium px-3 py-2"
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          @click="cancelEditPolicy(policy.id, rule.id)"
-                          variant="outline"
-                          size="sm"
-                          class="rounded-lg border-border body-sm font-medium px-3 py-2"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-
-                    <!-- Rule in Collapsed Mode -->
-                    <div v-else class="flex items-start justify-between">
+                    <div class="flex items-start justify-between">
                       <div class="flex-1">
                         <h4 class="body-sm font-medium text-foreground">
                           {{ rule.config.note || `${policy.name} Rule #${ruleIndex + 1}` }}
@@ -1149,7 +804,11 @@
                         </p>
                       </div>
                       <div class="flex gap-2">
-                        <Button variant="outline" size="sm" @click="editPolicy(policy.id, rule.id)">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          @click="openEditPolicyDialog(policy.id, rule.id)"
+                        >
                           Edit
                         </Button>
                         <Button
@@ -1664,10 +1323,6 @@
                       <span class="body-sm font-medium text-foreground">{{
                         getModelDisplayName()
                       }}</span>
-                      <span v-if="selectedAiProvider" class="text-blue-600"> (New Model)</span>
-                      <span v-else-if="formData.aiModel" class="text-green-600">
-                        (Existing Model)</span
-                      >
                     </div>
                   </div>
                 </div>
@@ -1680,7 +1335,7 @@
               >
                 <p class="body-sm font-medium text-muted-foreground mb-3">Access Policies</p>
                 <div class="space-y-4">
-                  <div v-for="policyType in policyTypes" :key="policyType.id">
+                  <div v-for="policyType in POLICY_TYPES" :key="policyType.id">
                     <div
                       v-if="policyRules[policyType.id]?.length > 0"
                       class="bg-muted/50 rounded-lg p-4"
@@ -1748,12 +1403,7 @@
             </Button>
             <Button
               @click="nextStep"
-              :disabled="
-                !isCurrentStepValid ||
-                isCreating ||
-                isCheckingBeforePublish ||
-                (currentSubStep === 3 && isAnyRuleFormOpen)
-              "
+              :disabled="!isCurrentStepValid || isCreating || isCheckingBeforePublish"
               class="bg-primary hover:bg-primary/90 text-white px-8"
             >
               <template v-if="currentSubStep === 5 && isCheckingBeforePublish">
@@ -1806,6 +1456,14 @@
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Policy Form Dialog -->
+  <PolicyFormDialog
+    v-model:open="showPolicyDialog"
+    :policy-type="dialogPolicyType"
+    :initial-data="dialogInitialData"
+    @save="handlePolicyDialogSave"
+  />
 </template>
 
 <script setup lang="ts">
@@ -1824,10 +1482,6 @@ import {
   FileType,
   Sparkles,
   GitMerge,
-  Shield,
-  Gauge,
-  DollarSign,
-  UserCheck,
   Lightbulb,
   Loader2,
   Check,
@@ -1840,13 +1494,6 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -1857,20 +1504,29 @@ import {
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
+import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
+import {
+  POLICY_TYPES,
+  getRuleSummary,
+  generateRuleId,
+  createEmptyPolicyRules,
+} from '@/config/policyTypes'
+import type { PolicyTypeId, PolicyRulesRecord } from '@/config/policyTypes'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { useTheme } from '@/composables/useTheme'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
-import { modelsApi } from '@/api/endpoints/models'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useDataEndpointCreation } from '@/composables/useDataEndpointCreation'
 import { useUserStore } from '@/stores/user'
-import type { DatasetListItem, ModelListItem } from '@/api/types'
+import type { DatasetListItem } from '@/api/types'
 
 const router = useRouter()
 const userStore = useUserStore()
 const { isDark } = useTheme()
+const modelSelectorRef = ref<InstanceType<typeof ModelSelector> | null>(null)
+const cachedModelName = ref('')
 
 // Computed URL to view existing endpoint on SyftHub
 const existingEndpointUrl = computed(() =>
@@ -1889,14 +1545,6 @@ const completedSteps = ref<Set<number>>(new Set())
 
 // Progressive disclosure
 const showAdvancedDetails = ref(false)
-
-// AI Provider selection
-const selectedAiProvider = ref<'openai-gpt-4o' | 'openrouter-claude' | 'groq-llama' | ''>('')
-const apiKeys = ref<Record<string, string>>({
-  'openai-gpt-4o': '',
-  'openrouter-claude': '',
-  'groq-llama': '',
-})
 
 // Tag input
 const tagInput = ref('')
@@ -1947,99 +1595,14 @@ Brief summary of what this dataset contains and its primary purpose...
 ## Citation & Attribution
 How to properly cite or credit this dataset when used...`
 
-// Policy configurations
-type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
+// Policy state
+const policyRules = ref<PolicyRulesRecord>(createEmptyPolicyRules())
 
-interface PolicyConfig {
-  id: string
-  [key: string]: string | number
-}
-
-interface PolicyRule {
-  id: string
-  config: PolicyConfig
-  isEditing: boolean
-}
-
-interface PolicyType {
-  id: PolicyTypeId
-  name: string
-  label: string
-  description: string
-  icon: typeof Shield | typeof Gauge | typeof DollarSign | typeof UserCheck
-  color: string
-}
-
-type PolicyRulesRecord = Record<PolicyTypeId, PolicyRule[]>
-
-const policyRules = ref<PolicyRulesRecord>({
-  access: [],
-  rate_limit: [],
-  pricing: [],
-})
-
-// Currently editing rule ID for each policy type
-const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
-  access: null,
-  rate_limit: null,
-  pricing: null,
-})
-
-// Check if any rule form is currently open
-const isAnyRuleFormOpen = computed(() => {
-  return Object.values(editingRuleId.value).some((id) => id !== null)
-})
-
-// Policy form data
-const authorizationForm = ref({
-  ruleType: 'allow',
-  users: '',
-  note: '',
-})
-
-const rateLimiterForm = ref({
-  limit: '',
-  windowUnit: 'minute',
-  scope: 'per user',
-  userType: 'all',
-  users: '',
-  note: '',
-})
-
-const pricingForm = ref({
-  price: '',
-  userType: 'all',
-  users: '',
-  note: '',
-})
-
-// Policy types definition
-const policyTypes: PolicyType[] = [
-  {
-    id: 'access',
-    name: 'Authorization',
-    label: 'Who can access?',
-    description: 'Control who can use your content - everyone, specific users, or by invitation',
-    icon: Shield,
-    color: 'blue',
-  },
-  {
-    id: 'rate_limit',
-    name: 'Rate Limiter',
-    label: 'Prevent overuse',
-    description: 'Limit how many queries each user can make per day or hour',
-    icon: Gauge,
-    color: 'green',
-  },
-  {
-    id: 'pricing',
-    name: 'Pricing',
-    label: 'Set your price',
-    description: 'Charge per query or make it free - you decide',
-    icon: DollarSign,
-    color: 'yellow',
-  },
-]
+// Policy dialog state
+const showPolicyDialog = ref(false)
+const dialogPolicyType = ref<PolicyTypeId>('access')
+const dialogInitialData = ref<Record<string, unknown> | null>(null)
+const dialogEditingRuleId = ref<string | null>(null)
 
 // Step titles and descriptions
 const stepTitles = [
@@ -2140,9 +1703,6 @@ const getCachedFileIconColor = (path: string): string => {
 const existingDatasets = ref<DatasetListItem[]>([])
 const loadingDatasets = ref(false)
 const datasetsError = ref<string | null>(null)
-
-// Models state
-const availableModels = ref<ModelListItem[]>([])
 
 // Computed properties for dataset display
 const existingDataSourcesCount = computed(() => existingDatasets.value.length)
@@ -2286,47 +1846,6 @@ const handleEndpointNameInput = () => {
   }
 }
 
-// AI Provider methods
-const selectAiProvider = (providerModel: 'openai-gpt-4o' | 'openrouter-claude' | 'groq-llama') => {
-  selectedAiProvider.value = providerModel
-
-  // Set the AI model configuration based on provider/model combination
-  if (providerModel === 'openai-gpt-4o') {
-    // Store provider info and model for creating the model later
-    formData.value.aiModel = `${providerModel}-${Date.now()}` // Unique model name
-  } else if (providerModel === 'openrouter-claude') {
-    formData.value.aiModel = `${providerModel}-${Date.now()}`
-  } else if (providerModel === 'groq-llama') {
-    formData.value.aiModel = `${providerModel}-${Date.now()}`
-  }
-}
-
-const getProviderName = (providerModel: string) => {
-  switch (providerModel) {
-    case 'openai-gpt-4o':
-      return 'OpenAI'
-    case 'openrouter-claude':
-      return 'OpenRouter'
-    case 'groq-llama':
-      return 'Groq'
-    default:
-      return providerModel
-  }
-}
-
-const getProviderApiUrl = (providerModel: string) => {
-  switch (providerModel) {
-    case 'openai-gpt-4o':
-      return 'https://platform.openai.com/api-keys'
-    case 'openrouter-claude':
-      return 'https://openrouter.ai/keys'
-    case 'groq-llama':
-      return 'https://console.groq.com/keys'
-    default:
-      return '#'
-  }
-}
-
 const selectDataSourceType = (type: 'filesystem' | 'existing') => {
   selectedDataSourceType.value = type
 }
@@ -2373,8 +1892,6 @@ const publishEndpoint = async () => {
     selectedDataSource: formData.value.selectedDataSource,
     responseType: formData.value.responseType,
     aiModel: formData.value.aiModel,
-    selectedAiProvider: selectedAiProvider.value,
-    apiKeys: apiKeys.value,
     policyRules: policyRules.value,
     endpointName: formData.value.endpointName,
     summary: formData.value.summary,
@@ -2410,7 +1927,6 @@ const selectResponseType = (type: 'raw' | 'summary' | 'both') => {
 
   if (type === 'raw') {
     formData.value.aiModel = ''
-    selectedAiProvider.value = ''
   }
 }
 
@@ -2467,76 +1983,6 @@ const isStepClickable = (stepNumber: number) => {
   return stepNumber <= Math.max(highestCompletedStep + 1, currentSubStep.value)
 }
 
-// Generate rule summary based on policy type and configuration
-const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {
-  switch (policyId) {
-    case 'access':
-      if (!config.users) return 'No users configured'
-      const ruleType = config.ruleType === 'allow' ? 'Allow' : 'Deny'
-      const userList = (config.users as string)
-        .split(',')
-        .map((u) => u.trim())
-        .filter((u) => u)
-      if (userList.length === 0) {
-        return 'No users configured'
-      }
-      // Show all patterns
-      return `${ruleType} access for ${userList.join(', ')}`
-
-    case 'rate_limit':
-      if (!config.limit) return 'No limit configured'
-      const scope = config.scope === 'global' ? 'for this endpoint' : 'per user'
-      return `${config.limit} requests per ${config.windowUnit} ${scope}`
-
-    case 'pricing':
-      if (config.price === undefined || config.price === null || config.price === '')
-        return 'No price configured'
-      const price = parseFloat(config.price as string)
-
-      // Check for invalid number
-      if (isNaN(price)) return 'Invalid price configured'
-
-      // Handle free pricing
-      if (price === 0) {
-        if (config.userType === 'all') {
-          return 'Free for all users'
-        } else {
-          const userList = config.users
-            ? (config.users as string)
-                .split(',')
-                .map((u) => u.trim())
-                .filter((u) => u)
-            : []
-          if (userList.length === 0) {
-            return 'Free for specific users (none configured)'
-          }
-          return `Free for ${userList.join(', ')}`
-        }
-      }
-
-      // Handle paid pricing
-      // Format price dynamically, showing up to 8 decimal places with trailing zeros removed
-      const formattedPrice = price.toFixed(8).replace(/\.?0+$/, '')
-      if (config.userType === 'all') {
-        return `$${formattedPrice} per query for all users`
-      } else {
-        const userList = config.users
-          ? (config.users as string)
-              .split(',')
-              .map((u) => u.trim())
-              .filter((u) => u)
-          : []
-        if (userList.length === 0) {
-          return `$${formattedPrice} per query for specific users (none configured)`
-        }
-        return `$${formattedPrice} per query for ${userList.join(', ')}`
-      }
-
-    default:
-      return 'Rule configured'
-  }
-}
-
 // Fill example data
 const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
   hasTypedEndpointName.value = true // Mark as user input for validation
@@ -2568,155 +2014,54 @@ const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
   }
 }
 
-// Policy helper functions
-const generateRuleId = () => {
-  return 'rule_' + Math.random().toString(36).substr(2, 9)
+// Policy dialog functions
+const openAddPolicyDialog = (policyId: PolicyTypeId) => {
+  dialogPolicyType.value = policyId
+  dialogInitialData.value = null
+  dialogEditingRuleId.value = null
+  showPolicyDialog.value = true
 }
 
-const addPolicy = (policyId: PolicyTypeId) => {
-  const ruleId = generateRuleId()
-  editingRuleId.value[policyId] = ruleId
-
-  // Reset form data
-  resetFormData(policyId)
-
-  // Add new rule in editing state
-  policyRules.value[policyId].push({
-    id: ruleId,
-    config: {} as PolicyConfig,
-    isEditing: true,
-  })
-}
-
-const editPolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  // Set other rules to not editing
-  policyRules.value[policyId].forEach((rule) => {
-    rule.isEditing = rule.id === ruleId
-  })
-
-  editingRuleId.value[policyId] = ruleId
-
-  // Load rule data into form
+const openEditPolicyDialog = (policyId: PolicyTypeId, ruleId: string) => {
   const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
-  if (rule) {
-    loadRuleIntoForm(policyId, rule.config)
+  if (!rule) return
+  dialogPolicyType.value = policyId
+  dialogInitialData.value = { ...rule.config }
+  dialogEditingRuleId.value = ruleId
+  showPolicyDialog.value = true
+}
+
+const handlePolicyDialogSave = (payload: {
+  policyType: PolicyTypeId
+  formData: Record<string, unknown>
+}) => {
+  const { policyType, formData: policyFormData } = payload
+
+  if (dialogEditingRuleId.value) {
+    // Update existing rule
+    const rule = policyRules.value[policyType].find((r) => r.id === dialogEditingRuleId.value)
+    if (rule) {
+      rule.config = { ...policyFormData, id: rule.id } as PolicyRulesRecord[PolicyTypeId][number]['config']
+    }
+  } else {
+    // Add new rule
+    const ruleId = generateRuleId()
+    policyRules.value[policyType].push({
+      id: ruleId,
+      config: { ...policyFormData, id: ruleId } as PolicyRulesRecord[PolicyTypeId][number]['config'],
+      isEditing: false,
+    })
   }
+
+  showPolicyDialog.value = false
+  dialogEditingRuleId.value = null
 }
 
 const deletePolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  // Remove rule from array
   const index = policyRules.value[policyId].findIndex((r) => r.id === ruleId)
   if (index > -1) {
     policyRules.value[policyId].splice(index, 1)
   }
-
-  // Clear editing state if this rule was being edited
-  if (editingRuleId.value[policyId] === ruleId) {
-    editingRuleId.value[policyId] = null
-  }
-}
-
-const resetFormData = (policyId: PolicyTypeId) => {
-  switch (policyId) {
-    case 'access':
-      authorizationForm.value = { ruleType: 'allow', users: '', note: '' }
-      break
-    case 'rate_limit':
-      rateLimiterForm.value = {
-        limit: '',
-        windowUnit: 'minute',
-        scope: 'per user',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-    case 'pricing':
-      pricingForm.value = {
-        price: '',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-  }
-}
-
-const loadRuleIntoForm = (policyId: PolicyTypeId, config: PolicyConfig) => {
-  switch (policyId) {
-    case 'access':
-      authorizationForm.value = {
-        ruleType: (config.ruleType as string) || 'allow',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-    case 'rate_limit':
-      rateLimiterForm.value = {
-        limit: (config.limit as string) || '',
-        windowUnit: (config.windowUnit as string) || 'minute',
-        scope: (config.scope as string) || 'per user',
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-    case 'pricing':
-      pricingForm.value = {
-        price: config.price !== undefined ? String(config.price) : '',
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-  }
-}
-
-const savePolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
-  if (!rule) return
-
-  // Get the form data based on policy type
-  let formData
-  switch (policyId) {
-    case 'access':
-      formData = authorizationForm.value
-      break
-    case 'rate_limit':
-      formData = { ...rateLimiterForm.value }
-      break
-    case 'pricing':
-      formData = { ...pricingForm.value, pricingType: 'per_call' }
-      break
-    default:
-      return
-  }
-
-  // Save form data to rule config
-  rule.config = { ...formData, id: ruleId }
-  rule.isEditing = false
-
-  // Clear editing state
-  editingRuleId.value[policyId] = null
-}
-
-const cancelEditPolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  const ruleIndex = policyRules.value[policyId].findIndex((r) => r.id === ruleId)
-  if (ruleIndex === -1) return
-
-  const rule = policyRules.value[policyId][ruleIndex]
-  if (!rule) return
-
-  // If this is a new rule being created, remove it
-  if (Object.keys(rule.config).length === 0) {
-    policyRules.value[policyId].splice(ruleIndex, 1)
-  } else {
-    // Otherwise, just exit edit mode
-    rule.isEditing = false
-  }
-
-  // Clear editing state
-  editingRuleId.value[policyId] = null
 }
 
 // Handle Step 3 Create Model (placeholder)
@@ -2746,45 +2091,32 @@ const loadExistingDatasets = async () => {
   }
 }
 
-// Load available models
-const loadAvailableModels = async () => {
-  try {
-    const models = await modelsApi.list()
-    availableModels.value = models
-  } catch (error) {
-    console.error('Failed to load available models:', error)
-  }
-}
-
-// Get model name by ID
-const getModelName = (modelId: string): string | null => {
-  const model = availableModels.value.find((m) => m.id === modelId)
-  return model?.name || null
-}
-
-// Get display name for AI model (handles both quick setup and existing models)
-const getModelDisplayName = (): string => {
-  // If a quick setup provider is selected, show the provider/model combination
-  if (selectedAiProvider.value) {
-    switch (selectedAiProvider.value) {
-      case 'openai-gpt-4o':
-        return 'openai/gpt-4o'
-      case 'openrouter-claude':
-        return 'openrouter/claude-3.5-sonnet'
-      case 'groq-llama':
-        return 'groq/llama-3.3-70b-instruct'
-      default:
-        return selectedAiProvider.value
+// Cache model name when selected (ModelSelector is only mounted in step 2)
+watch(
+  () => formData.value.aiModel,
+  (newModelId) => {
+    if (!newModelId) {
+      cachedModelName.value = ''
+      return
     }
-  }
+    const model = modelSelectorRef.value?.models?.find(
+      (m: { id: string }) => m.id === newModelId,
+    )
+    if (model?.name) {
+      cachedModelName.value = model.name
+    }
+  },
+)
 
-  // Fall back to existing model name or model ID
-  return getModelName(formData.value.aiModel) || formData.value.aiModel || 'Not selected'
+// Get display name for AI model
+const getModelDisplayName = (): string => {
+  if (!formData.value.aiModel) return 'Not selected'
+  return cachedModelName.value || formData.value.aiModel
 }
 
-// Load datasets and models when component mounts
+// Load datasets when component mounts
 onMounted(async () => {
-  await Promise.all([loadExistingDatasets(), loadAvailableModels()])
+  await loadExistingDatasets()
 
   // Auto-select filesystem if no existing datasets are available
   if (existingDataSourcesCount.value === 0 && !selectedDataSourceType.value) {

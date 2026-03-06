@@ -99,6 +99,7 @@ from syft_space.components.shared.lifecycle import LifecycleService
 
 # Import proxy service
 from syft_space.components.shared.proxy_service import ProxyService
+from syft_space.components.shared.syfthub_client import SyftHubClient
 
 # Import tenant components
 from syft_space.components.tenants.entities import Tenant
@@ -245,6 +246,22 @@ async def lifespan(app: FastAPI):
     # 3.1. Set tenant for endpoint heartbeat manager
     if default_tenant:
         endpoint_heartbeat_manager.set_tenant(default_tenant)
+
+    # 3.2. Set credentials provider for proxy auto-connect retry
+    if default_tenant:
+
+        async def _fetch_tunnel_credentials() -> tuple[str, str]:
+            marketplace = await marketplace_repository.get_default(
+                default_tenant.id
+            )
+            if not marketplace:
+                raise RuntimeError("No default marketplace configured")
+            async with SyftHubClient(str(marketplace.url)) as client:
+                await client.login(marketplace.email, marketplace.password)
+                creds = await client.get_tunnel_credentials()
+            return (creds.auth_token, creds.domain)
+
+        proxy_service.set_credentials_provider(_fetch_tunnel_credentials)
 
     # 4. Create coordination event for provisioner → ingestion ordering
     # This event ensures ingestion waits for provisioners to be ready

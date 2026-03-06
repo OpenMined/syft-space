@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends
 
 from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.schemas import (
-    ProxyConfigRequest,
     ProxyStatusResponse,
     PublicUrlResponse,
     UpdatePublicUrlRequest,
@@ -58,16 +57,15 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
 
     @router.post("/proxy", response_model=ProxyStatusResponse)
     async def configure_proxy(
-        request: ProxyConfigRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: SettingsHandler = Depends(get_handler),
     ) -> ProxyStatusResponse:
         """Configure the ngrok proxy tunnel.
 
-        Connects to ngrok with the provided token and persists the configuration.
-        The tunnel will automatically reconnect on app restart.
+        Fetches tunnel credentials from SyftHub, connects to ngrok, and persists
+        the configuration. The tunnel will automatically reconnect on app restart.
         """
-        return await handler.configure_proxy(tenant, request.ngrok_token)
+        return await handler.configure_proxy(tenant)
 
     @router.delete("/proxy", response_model=ProxyStatusResponse)
     async def disconnect_proxy(

@@ -24,23 +24,6 @@ class UpdatePublicUrlRequest(BaseModel):
         }
 
 
-class ProxyConfigRequest(BaseModel):
-    """Request model for configuring the ngrok proxy."""
-
-    ngrok_token: str = Field(
-        ..., min_length=1, description="Ngrok authentication token"
-    )
-
-    class Config:
-        """Pydantic config."""
-
-        json_schema_extra = {
-            "example": {
-                "ngrok_token": "2abc123def456...",
-            }
-        }
-
-
 class ProxyStatusResponse(BaseModel):
     """Response model for proxy status."""
 

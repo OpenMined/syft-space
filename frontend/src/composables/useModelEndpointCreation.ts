@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { modelsApi } from '@/api/endpoints/models'
+import { getProviderBaseUrl } from '@/config/providers'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
 import { usePolicyCreation } from './usePolicyCreation'
@@ -26,6 +27,7 @@ export interface ModelEndpointCreationData {
     provider: string
     model: string
     apiKey: string
+    baseUrl: string
   }
   selectedModelId: string // For existing model selection
 
@@ -60,24 +62,6 @@ export function useModelEndpointCreation() {
   // Computed
   const isLoading = computed(() => isCreating.value)
 
-  // Helper function to generate base URL for different providers
-  const getBaseUrl = (provider: string): string => {
-    switch (provider) {
-      case 'openai':
-        return 'https://api.openai.com/v1'
-      case 'groq':
-        return 'https://api.groq.com/openai/v1'
-      case 'openrouter':
-        return 'https://openrouter.ai/api/v1'
-      case 'together':
-        return 'https://api.together.xyz/v1'
-      case 'perplexity':
-        return 'https://api.perplexity.ai'
-      default:
-        return 'https://api.openai.com/v1'
-    }
-  }
-
   // Derive model name from endpoint details
   const getDerivedModelName = (data: ModelEndpointCreationData): string => {
     // Use endpoint name as the model name for consistency
@@ -98,7 +82,7 @@ export function useModelEndpointCreation() {
       configuration: {
         api_key: data.newModelForm.apiKey,
         model: data.newModelForm.model,
-        base_url: getBaseUrl(data.newModelForm.provider),
+        base_url: data.newModelForm.baseUrl || getProviderBaseUrl(data.newModelForm.provider),
         system_prompt: '', // Default empty system prompt
       },
       summary: data.summary ? `Model for ${data.summary}` : '',

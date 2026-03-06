@@ -134,15 +134,14 @@ class SettingsHandler:
             has_token=has_token,
         )
 
-    async def configure_proxy(self, tenant: Tenant, token: str) -> ProxyStatusResponse:
+    async def configure_proxy(self, tenant: Tenant) -> ProxyStatusResponse:
         """Configure the ngrok proxy tunnel.
 
-        Connects to ngrok with the provided token and persists the configuration.
-        Also syncs the public URL to the marketplace.
+        Delegates to ProxyService.connect_with_fallback() which tries stored
+        credentials first and falls back to fresh ones from SyftHub.
 
         Args:
             tenant: Tenant context for marketplace sync
-            token: Ngrok authentication token
 
         Returns:
             Proxy status response with connection status and public URL
@@ -156,7 +155,7 @@ class SettingsHandler:
                 detail="Ngrok proxy service not configured",
             )
 
-        # Get default marketplace
+        # Get default marketplace (needed for URL sync)
         marketplace = await self.marketplace_repository.get_default(tenant.id)
 
         if not marketplace:
@@ -166,7 +165,12 @@ class SettingsHandler:
             )
 
         try:
-            public_url = await self.proxy_service.connect(token, marketplace.username)
+            public_url = await self.proxy_service.connect()
+        except SyftHubError as e:
+            raise HTTPException(
+                status_code=e.status_code,
+                detail=f"Failed to fetch tunnel credentials: {e.message}",
+            ) from e
         except Exception as e:
             logger.exception(f"Failed to connect to ngrok: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e

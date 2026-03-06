@@ -48,14 +48,14 @@ class SettingsRepository(AsyncBaseRepository[Settings]):
         settings.updated_at = datetime.now(timezone.utc)
         return await self.update(settings)
 
-    async def get_ngrok_username(self) -> str | None:
-        """Get the stored ngrok username for subdomain."""
+    async def get_ngrok_domain(self) -> str | None:
+        """Get the stored ngrok domain for tunnel."""
         settings = await self.get_settings()
-        return settings.ngrok_username
+        return settings.ngrok_domain
 
-    async def update_ngrok_username(self, username: str | None) -> Settings:
-        """Update the ngrok username setting."""
+    async def update_ngrok_domain(self, domain: str | None) -> Settings:
+        """Update the ngrok domain setting."""
         settings = await self.get_settings()
-        settings.ngrok_username = username
+        settings.ngrok_domain = domain
         settings.updated_at = datetime.now(timezone.utc)
         return await self.update(settings)

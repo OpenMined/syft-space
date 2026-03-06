@@ -175,6 +175,13 @@ class SatelliteToken(BaseModel):
         return self.exp < self.iat
 
 
+class TunnelCredentialsResponse(BaseModel):
+    """Response from tunnel credentials endpoint."""
+
+    auth_token: str = Field(..., description="Ngrok authentication token")
+    domain: str = Field(..., description="Ngrok tunnel domain")
+
+
 class HeartbeatResponse(BaseModel):
     """Response from heartbeat endpoint."""
 
@@ -507,6 +514,21 @@ class SyftHubClient:
         self._require_auth()
         response = await self._client.get("/api/v1/users/me")  # type: ignore
         return _handle_response(response, UserProfile)
+
+    async def get_tunnel_credentials(self) -> TunnelCredentialsResponse:
+        """Get tunnel credentials for current user.
+
+        Returns:
+            TunnelCredentialsResponse: Tunnel credentials (auth_token, domain)
+
+        Raises:
+            NotAuthenticatedError: login() not called
+            AuthenticationError: Token invalid/expired
+            ServerError: Server-side error
+        """
+        self._require_auth()
+        response = await self._client.get("/api/v1/users/me/tunnel-credentials")  # type: ignore
+        return _handle_response(response, TunnelCredentialsResponse)
 
     async def unpublish_endpoint(self, endpoint_slug: str) -> bool:
         """Unpublish an endpoint from SyftHub.

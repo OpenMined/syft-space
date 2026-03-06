@@ -341,61 +341,51 @@
                     </p>
                   </div>
 
-                  <!-- Provider and Model Side by Side -->
-                  <div class="grid grid-cols-2 gap-4">
-                    <!-- Provider -->
-                    <div class="space-y-2">
-                      <Label for="provider" class="body-sm font-medium">
-                        Provider <span class="text-red-500">*</span>
-                      </Label>
-                      <Select v-model="newModelForm.provider">
-                        <SelectTrigger id="provider" class="w-full">
-                          <SelectValue placeholder="Select a provider" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="openai">OpenAI</SelectItem>
-                          <SelectItem value="groq">Groq</SelectItem>
-                          <SelectItem value="openrouter">OpenRouter</SelectItem>
-                          <SelectItem value="together">Together AI</SelectItem>
-                          <SelectItem value="perplexity">Perplexity</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p class="body-sm text-muted-foreground">Choose your AI model provider</p>
-                    </div>
-
-                    <!-- Model -->
-                    <div class="space-y-2">
-                      <Label for="model" class="body-sm font-medium">
-                        Model <span class="text-red-500">*</span>
-                      </Label>
-                      <Select v-model="newModelForm.model" :disabled="!newModelForm.provider">
-                        <SelectTrigger id="model" class="w-full">
-                          <SelectValue placeholder="Select a model" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem
-                            v-for="model in availableNewModels"
-                            :key="model.value"
-                            :value="model.value"
-                          >
-                            {{ model.label }}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p class="body-sm text-muted-foreground">Select the specific model to use</p>
-                    </div>
+                  <!-- Provider -->
+                  <div class="space-y-2">
+                    <Label for="provider" class="body-sm font-medium">
+                      Provider <span class="text-red-500">*</span>
+                    </Label>
+                    <Select v-model="newModelForm.provider">
+                      <SelectTrigger id="provider" class="w-full">
+                        <SelectValue placeholder="Select a provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="p in PROVIDERS" :key="p.id" :value="p.id">
+                          {{ p.label }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p class="body-sm text-muted-foreground">Choose your AI model provider</p>
                   </div>
 
-                  <!-- API Key -->
-                  <div class="space-y-2">
+                  <!-- Base URL (shown when custom provider is selected) -->
+                  <div v-if="newModelForm.provider === 'custom'" class="space-y-2">
+                    <Label for="base-url" class="body-sm font-medium">
+                      Base URL <span class="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="base-url"
+                      v-model="newModelForm.baseUrl"
+                      placeholder="https://your-api.example.com/v1"
+                      class="w-full"
+                    />
+                    <p class="body-sm text-muted-foreground">
+                      The OpenAI-compatible API base URL for your provider
+                    </p>
+                  </div>
+
+                  <!-- API Key (shown after provider is selected) -->
+                  <div v-if="newModelForm.provider" class="space-y-2">
                     <Label for="api-key" class="body-sm font-medium">
-                      {{ apiKeyLabel }} <span class="text-red-500">*</span>
+                      {{ getProviderLabel(newModelForm.provider) }} API Key
+                      <span class="text-red-500">*</span>
                     </Label>
                     <Input
                       id="api-key"
                       v-model="newModelForm.apiKey"
                       type="password"
-                      :placeholder="apiKeyPlaceholder"
+                      :placeholder="`Enter your ${getProviderLabel(newModelForm.provider)} API key`"
                       class="w-full"
                       autocomplete="new-password"
                       autocorrect="off"
@@ -410,7 +400,33 @@
                       aria-label="API Key Input"
                       name="api-key-input"
                     />
-                    <p class="body-sm text-muted-foreground">Your API key for authentication</p>
+                    <p class="body-sm text-muted-foreground">
+                      Models will be fetched automatically after entering your key
+                    </p>
+                  </div>
+
+                  <!-- Model (shown after API key is entered) -->
+                  <div
+                    v-if="newModelForm.provider && newModelForm.apiKey.trim()"
+                    class="space-y-2"
+                  >
+                    <Label for="model" class="body-sm font-medium">
+                      Model <span class="text-red-500">*</span>
+                    </Label>
+                    <ProviderModelCombobox
+                      v-model="newModelForm.model"
+                      :models="newProviderModels"
+                      :is-loading="isLoadingNewModels"
+                      :error="newModelsError"
+                      :disabled="isLoadingNewModels"
+                      placeholder="Select a model"
+                    />
+                    <p v-if="isLoadingNewModels" class="body-sm text-muted-foreground">
+                      Fetching available models...
+                    </p>
+                    <p v-else-if="hasNewModelsFetched" class="body-sm text-muted-foreground">
+                      {{ newProviderModels.length }} models available
+                    </p>
                   </div>
                 </div>
               </div>
@@ -498,7 +514,7 @@
             <!-- Policy Configuration -->
             <div class="space-y-6">
               <div
-                v-for="policy in policyTypes"
+                v-for="policy in POLICY_TYPES"
                 :key="policy.id"
                 class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6"
               >
@@ -532,7 +548,7 @@
                       <p class="body-sm text-muted-foreground">{{ policy.description }}</p>
                     </div>
                   </div>
-                  <Button @click="addPolicy(policy.id)" variant="outline" size="sm">
+                  <Button @click="openAddPolicyDialog(policy.id)" variant="outline" size="sm">
                     <Plus class="h-4 w-4 mr-2" />
                     Add {{ policy.name }} rule
                   </Button>
@@ -576,186 +592,7 @@
                     :key="rule.id"
                     class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4"
                   >
-                    <!-- Rule in Edit Mode (Expanded) -->
-                    <div v-if="rule.isEditing" class="space-y-3">
-                      <!-- Authorization Policy Form -->
-                      <div v-if="policy.id === 'access'">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium"
-                              >Rule Type</Label
-                            >
-                            <Select v-model="authorizationForm.ruleType">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue placeholder="Select rule type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="allow" class="body-sm"
-                                  >Allow specific users</SelectItem
-                                >
-                                <SelectItem value="deny" class="body-sm"
-                                  >Deny specific users</SelectItem
-                                >
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="authorizationForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                            />
-                          </div>
-                        </div>
-                        <div class="space-y-1 mt-3">
-                          <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                          <Input
-                            v-model="authorizationForm.users"
-                            placeholder="user1@example.com, user2@example.com"
-                            class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
-                          />
-                          <p class="text-xs text-muted-foreground">
-                            Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-                            *@contractors.org)
-                          </p>
-                        </div>
-                      </div>
-
-                      <!-- Rate Limiter Policy Form -->
-                      <div v-if="policy.id === 'rate_limit'">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Limit</Label>
-                            <div class="flex">
-                              <Input
-                                v-model="rateLimiterForm.limit"
-                                type="number"
-                                placeholder="100"
-                                class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
-                              />
-                              <Select v-model="rateLimiterForm.windowUnit">
-                                <SelectTrigger
-                                  class="h-9 rounded-r-lg rounded-l-none border-border bg-card body-sm min-w-0"
-                                >
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="second">requests per second</SelectItem>
-                                  <SelectItem value="minute">requests per minute</SelectItem>
-                                  <SelectItem value="hour">requests per hour</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Scope</Label>
-                            <Select v-model="rateLimiterForm.scope">
-                              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="per user">For Each User</SelectItem>
-                                <SelectItem value="global">For This Endpoint</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div class="space-y-1">
-                            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                            <Input
-                              v-model="rateLimiterForm.note"
-                              placeholder="Optional description"
-                              class="h-9 rounded-lg border-border bg-card body-sm"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Pricing Policy Form -->
-                      <div v-if="policy.id === 'pricing'">
-                        <div class="space-y-3">
-                          <!-- Price and Note side-by-side -->
-                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Price per query ($)</Label
-                              >
-                              <Input
-                                v-model="pricingForm.price"
-                                type="number"
-                                step="any"
-                                placeholder="0.01"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                            <div class="space-y-1">
-                              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-                              <Input
-                                v-model="pricingForm.note"
-                                placeholder="Optional description"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                            </div>
-                          </div>
-                          <!-- Apply To and Users row -->
-                          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                            <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
-                              <Label class="body-sm text-muted-foreground font-medium"
-                                >Apply To</Label
-                              >
-                              <Select v-model="pricingForm.userType">
-                                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All Users</SelectItem>
-                                  <SelectItem value="specific">Specific Users</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div
-                              v-if="pricingForm.userType === 'specific'"
-                              class="space-y-1 flex-1"
-                            >
-                              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-                              <Input
-                                v-model="pricingForm.users"
-                                placeholder="user1@example.com, user2@example.com"
-                                class="h-9 rounded-lg border-border bg-card body-sm"
-                              />
-                              <p class="text-xs text-muted-foreground">
-                                Comma-separated list. Wildcard supported (e.g., *@company.com,
-                                *.edu, *@contractors.org)
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Form Action Buttons -->
-                      <div class="flex gap-2 pt-3 border-t border-border">
-                        <Button
-                          @click="savePolicy(policy.id, rule.id)"
-                          size="sm"
-                          class="rounded-lg body-sm font-medium px-3 py-2"
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          @click="cancelEditPolicy(policy.id, rule.id)"
-                          variant="outline"
-                          size="sm"
-                          class="rounded-lg border-border body-sm font-medium px-3 py-2"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-
-                    <!-- Rule in Collapsed Mode -->
-                    <div v-else class="flex items-start justify-between">
+                    <div class="flex items-start justify-between">
                       <div class="flex-1">
                         <h4 class="body-sm font-medium text-foreground">
                           {{ rule.config.note || `${policy.name} Rule #${ruleIndex + 1}` }}
@@ -765,7 +602,11 @@
                         </p>
                       </div>
                       <div class="flex gap-2">
-                        <Button variant="outline" size="sm" @click="editPolicy(policy.id, rule.id)">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          @click="openEditPolicyDialog(policy.id, rule.id)"
+                        >
                           Edit
                         </Button>
                         <Button
@@ -1192,8 +1033,7 @@
                             <div>
                               <span class="text-muted-foreground">Provider:</span>
                               <span class="ml-2 font-medium text-foreground">{{
-                                newModelForm.provider.charAt(0).toUpperCase() +
-                                newModelForm.provider.slice(1)
+                                getProviderLabel(newModelForm.provider)
                               }}</span>
                             </div>
                             <div>
@@ -1236,7 +1076,7 @@
               >
                 <p class="body-sm font-medium text-muted-foreground mb-3">Access Policies</p>
                 <div class="space-y-4">
-                  <div v-for="policyType in policyTypes" :key="policyType.id">
+                  <div v-for="policyType in POLICY_TYPES" :key="policyType.id">
                     <div
                       v-if="policyRules[policyType.id]?.length > 0"
                       class="bg-muted/50 rounded-lg p-4"
@@ -1304,12 +1144,7 @@
             </Button>
             <Button
               @click="nextStep"
-              :disabled="
-                !isCurrentStepValid ||
-                isCreating ||
-                isCheckingBeforePublish ||
-                (currentSubStep === 2 && isAnyRuleFormOpen)
-              "
+              :disabled="!isCurrentStepValid || isCreating || isCheckingBeforePublish"
               class="bg-primary hover:bg-primary/90 text-white px-8"
             >
               <template v-if="currentSubStep === 4 && isCheckingBeforePublish">
@@ -1362,6 +1197,14 @@
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Policy Form Dialog -->
+  <PolicyFormDialog
+    v-model:open="showPolicyDialog"
+    :policy-type="dialogPolicyType"
+    :initial-data="dialogInitialData"
+    @save="handlePolicyDialogSave"
+  />
 </template>
 
 <script setup lang="ts">
@@ -1376,10 +1219,6 @@ import {
   Plus,
   X,
   Sparkles,
-  Shield,
-  Gauge,
-  DollarSign,
-  UserCheck,
   Lightbulb,
   Loader2,
   Check,
@@ -1407,6 +1246,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
+import ProviderModelCombobox from '@/components/ProviderModelCombobox.vue'
+import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
+import { PROVIDERS, getProviderLabel, getProviderBaseUrl } from '@/config/providers'
+import {
+  POLICY_TYPES,
+  getRuleSummary,
+  generateRuleId,
+  createEmptyPolicyRules,
+} from '@/config/policyTypes'
+import type { PolicyTypeId, PolicyRulesRecord } from '@/config/policyTypes'
+import { useProviderModels } from '@/composables/useProviderModels'
 import { useTheme } from '@/composables/useTheme'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
@@ -1449,7 +1299,22 @@ const newModelForm = ref({
   provider: '',
   model: '',
   apiKey: '',
+  baseUrl: '',
 })
+
+// Provider models for new model creation
+const newModelBaseUrlRef = computed(() =>
+  newModelForm.value.provider === 'custom'
+    ? newModelForm.value.baseUrl
+    : getProviderBaseUrl(newModelForm.value.provider),
+)
+const newModelApiKeyRef = computed(() => newModelForm.value.apiKey)
+const {
+  models: newProviderModels,
+  isLoading: isLoadingNewModels,
+  error: newModelsError,
+  hasFetched: hasNewModelsFetched,
+} = useProviderModels(newModelBaseUrlRef, newModelApiKeyRef)
 
 // Track user input for validation timing
 const hasTypedEndpointName = ref(false)
@@ -1497,65 +1362,6 @@ Brief summary of what this model does and its primary capabilities...
 ## Attribution & Usage
 How to properly credit this model when used in projects or research...`
 
-// Model options for different providers
-const openaiModels = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'gpt-4', label: 'GPT-4' },
-  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
-  { value: 'o1-preview', label: 'o1 Preview' },
-  { value: 'o1-mini', label: 'o1 Mini' },
-  { value: 'gpt-4-turbo-preview', label: 'GPT-4 Turbo Preview' },
-]
-
-const groqModels = [
-  { value: 'llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct' },
-  { value: 'llama-3.2-90b-vision-instruct', label: 'Llama 3.2 90B Vision' },
-  { value: 'llama-3.2-11b-vision-instruct', label: 'Llama 3.2 11B Vision' },
-  { value: 'llama-3.1-70b-instruct', label: 'Llama 3.1 70B Instruct' },
-  { value: 'llama-3.1-8b-instruct', label: 'Llama 3.1 8B Instruct' },
-  { value: 'mixtral-8x7b-instruct', label: 'Mixtral 8x7B Instruct' },
-  { value: 'gemma2-9b-it', label: 'Gemma 2 9B IT' },
-  { value: 'gemma-7b-it', label: 'Gemma 7B IT' },
-]
-
-const openrouterModels = [
-  { value: 'openai/gpt-4o', label: 'GPT-4o' },
-  { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini' },
-  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { value: 'anthropic/claude-3-opus', label: 'Claude 3 Opus' },
-  { value: 'meta-llama/llama-3.2-90b-vision-instruct', label: 'Llama 3.2 90B Vision' },
-  { value: 'google/gemini-2.0-flash-exp:free', label: 'Gemini 2.0 Flash (Free)' },
-  { value: 'google/gemini-pro-1.5', label: 'Gemini Pro 1.5' },
-  { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
-  { value: 'mistralai/mistral-large', label: 'Mistral Large' },
-  { value: 'mistralai/codestral', label: 'Codestral' },
-  { value: 'qwen/qwen-2.5-72b-instruct', label: 'Qwen 2.5 72B' },
-]
-
-const togetherModels = [
-  { value: 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo', label: 'Llama 3.1 405B Turbo' },
-  { value: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo', label: 'Llama 3.1 70B Turbo' },
-  { value: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', label: 'Llama 3.1 8B Turbo' },
-  { value: 'meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo', label: 'Llama 3.2 90B Vision Turbo' },
-  { value: 'mistralai/Mixtral-8x22B-Instruct', label: 'Mixtral 8x22B Instruct' },
-  { value: 'mistralai/Mixtral-8x7B-Instruct', label: 'Mixtral 8x7B Instruct' },
-  { value: 'deepseek-ai/deepseek-coder-33b-instruct', label: 'DeepSeek Coder 33B' },
-  { value: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen 2.5 72B Instruct' },
-  { value: 'Qwen/Qwen2.5-Coder-32B-Instruct', label: 'Qwen 2.5 Coder 32B' },
-]
-
-const perplexityModels = [
-  { value: 'llama-3.1-sonar-huge-128k-online', label: 'Sonar Huge 128k (Online)' },
-  { value: 'llama-3.1-sonar-large-128k-online', label: 'Sonar Large 128k (Online)' },
-  { value: 'llama-3.1-sonar-small-128k-online', label: 'Sonar Small 128k (Online)' },
-  { value: 'llama-3.1-sonar-large-128k', label: 'Sonar Large 128k' },
-  { value: 'llama-3.1-sonar-small-128k', label: 'Sonar Small 128k' },
-  { value: 'llama-3.1-8b-instruct', label: 'Llama 3.1 8B Instruct' },
-  { value: 'llama-3.1-70b-instruct', label: 'Llama 3.1 70B Instruct' },
-]
-
 // Computed properties for model display
 const existingModelsCount = computed(() => availableModels.value.length)
 
@@ -1570,145 +1376,14 @@ const remainingModelsCount = computed(() => {
   return availableModels.value.length > 3 ? availableModels.value.length - 2 : 0
 })
 
-// Available models based on selected provider
-const availableNewModels = computed(() => {
-  switch (newModelForm.value.provider) {
-    case 'openai':
-      return openaiModels
-    case 'groq':
-      return groqModels
-    case 'openrouter':
-      return openrouterModels
-    case 'together':
-      return togetherModels
-    case 'perplexity':
-      return perplexityModels
-    default:
-      return []
-  }
-})
+// Policy state
+const policyRules = ref<PolicyRulesRecord>(createEmptyPolicyRules())
 
-// API Key label based on selected provider
-const apiKeyLabel = computed(() => {
-  const providerNames = {
-    openai: 'OpenAI',
-    groq: 'Groq',
-    openrouter: 'OpenRouter',
-    together: 'Together AI',
-    perplexity: 'Perplexity',
-  }
-
-  const providerName = providerNames[newModelForm.value.provider as keyof typeof providerNames]
-  return providerName ? `${providerName} API Key` : 'API Key'
-})
-
-// API Key placeholder based on selected provider
-const apiKeyPlaceholder = computed(() => {
-  const providerNames = {
-    openai: 'OpenAI',
-    groq: 'Groq',
-    openrouter: 'OpenRouter',
-    together: 'Together AI',
-    perplexity: 'Perplexity',
-  }
-
-  const providerName = providerNames[newModelForm.value.provider as keyof typeof providerNames]
-  return providerName ? `Enter your ${providerName} API key` : 'Enter your API key'
-})
-
-// Policy configurations
-type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
-
-interface PolicyConfig {
-  id: string
-  [key: string]: string | number
-}
-
-interface PolicyRule {
-  id: string
-  config: PolicyConfig
-  isEditing: boolean
-}
-
-interface PolicyType {
-  id: PolicyTypeId
-  name: string
-  label: string
-  description: string
-  icon: typeof Shield | typeof Gauge | typeof DollarSign | typeof UserCheck
-  color: string
-}
-
-type PolicyRulesRecord = Record<PolicyTypeId, PolicyRule[]>
-
-const policyRules = ref<PolicyRulesRecord>({
-  access: [],
-  rate_limit: [],
-  pricing: [],
-})
-
-// Currently editing rule ID for each policy type
-const editingRuleId = ref<Record<PolicyTypeId, string | null>>({
-  access: null,
-  rate_limit: null,
-  pricing: null,
-})
-
-// Check if any rule form is currently open
-const isAnyRuleFormOpen = computed(() => {
-  return Object.values(editingRuleId.value).some((id) => id !== null)
-})
-
-// Policy form data
-const authorizationForm = ref({
-  ruleType: 'allow',
-  users: '',
-  note: '',
-})
-
-const rateLimiterForm = ref({
-  limit: '',
-  windowUnit: 'minute',
-  scope: 'per user',
-  userType: 'all',
-  users: '',
-  note: '',
-})
-
-const pricingForm = ref({
-  price: '',
-  userType: 'all',
-  users: '',
-  note: '',
-})
-
-// Policy types definition
-const policyTypes: PolicyType[] = [
-  {
-    id: 'access',
-    name: 'Authorization',
-    label: 'Who can access?',
-    description: 'Control who can use your content - everyone, specific users, or by invitation',
-    icon: Shield,
-    color: 'blue',
-  },
-  {
-    id: 'rate_limit',
-    name: 'Rate Limiter',
-    label: 'Prevent overuse',
-    description: 'Limit how many queries each user can make per day or hour',
-    icon: Gauge,
-    color: 'green',
-  },
-  {
-    id: 'pricing',
-    name: 'Pricing',
-    label: 'Set your price',
-    description: 'Charge per query or make it free - you decide',
-    icon: DollarSign,
-    color: 'yellow',
-  },
-]
+// Policy dialog state
+const showPolicyDialog = ref(false)
+const dialogPolicyType = ref<PolicyTypeId>('access')
+const dialogInitialData = ref<Record<string, unknown> | null>(null)
+const dialogEditingRuleId = ref<string | null>(null)
 
 // Step titles and descriptions
 const stepTitles = [
@@ -1811,10 +1486,13 @@ const isCurrentStepValid = computed(() => {
     if (selectedModelSourceType.value === 'existing') {
       return formData.value.aiModel !== ''
     } else if (selectedModelSourceType.value === 'create-new') {
+      const baseValid =
+        newModelForm.value.provider !== 'custom' || newModelForm.value.baseUrl.trim() !== ''
       return (
         newModelForm.value.provider !== '' &&
         newModelForm.value.model !== '' &&
-        newModelForm.value.apiKey.trim() !== ''
+        newModelForm.value.apiKey.trim() !== '' &&
+        baseValid
       )
     }
     return false
@@ -1969,76 +1647,6 @@ const isStepClickable = (stepNumber: number) => {
   return stepNumber <= Math.max(highestCompletedStep + 1, currentSubStep.value)
 }
 
-// Generate rule summary based on policy type and configuration
-const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {
-  switch (policyId) {
-    case 'access':
-      if (!config.users) return 'No users configured'
-      const ruleType = config.ruleType === 'allow' ? 'Allow' : 'Deny'
-      const userList = (config.users as string)
-        .split(',')
-        .map((u) => u.trim())
-        .filter((u) => u)
-      if (userList.length === 0) {
-        return 'No users configured'
-      }
-      // Show all patterns
-      return `${ruleType} access for ${userList.join(', ')}`
-
-    case 'rate_limit':
-      if (!config.limit) return 'No limit configured'
-      const scope = config.scope === 'global' ? 'for this endpoint' : 'per user'
-      return `${config.limit} requests per ${config.windowUnit} ${scope}`
-
-    case 'pricing':
-      if (config.price === undefined || config.price === null || config.price === '')
-        return 'No price configured'
-      const price = parseFloat(config.price as string)
-
-      // Check for invalid number
-      if (isNaN(price)) return 'Invalid price configured'
-
-      // Handle free pricing
-      if (price === 0) {
-        if (config.userType === 'all') {
-          return 'Free for all users'
-        } else {
-          const userList = config.users
-            ? (config.users as string)
-                .split(',')
-                .map((u) => u.trim())
-                .filter((u) => u)
-            : []
-          if (userList.length === 0) {
-            return 'Free for specific users (none configured)'
-          }
-          return `Free for ${userList.join(', ')}`
-        }
-      }
-
-      // Handle paid pricing
-      // Format price dynamically, showing up to 8 decimal places with trailing zeros removed
-      const formattedPrice = price.toFixed(8).replace(/\.?0+$/, '')
-      if (config.userType === 'all') {
-        return `$${formattedPrice} per query for all users`
-      } else {
-        const userList = config.users
-          ? (config.users as string)
-              .split(',')
-              .map((u) => u.trim())
-              .filter((u) => u)
-          : []
-        if (userList.length === 0) {
-          return `$${formattedPrice} per query for specific users (none configured)`
-        }
-        return `$${formattedPrice} per query for ${userList.join(', ')}`
-      }
-
-    default:
-      return 'Rule configured'
-  }
-}
-
 // Fill example data
 const fillExampleData = (exampleType: 'code' | 'chat' | 'analysis') => {
   hasTypedEndpointName.value = true // Mark as user input for validation
@@ -2076,155 +1684,54 @@ const fillExampleData = (exampleType: 'code' | 'chat' | 'analysis') => {
   }
 }
 
-// Policy helper functions
-const generateRuleId = () => {
-  return 'rule_' + Math.random().toString(36).substr(2, 9)
+// Policy dialog functions
+const openAddPolicyDialog = (policyId: PolicyTypeId) => {
+  dialogPolicyType.value = policyId
+  dialogInitialData.value = null
+  dialogEditingRuleId.value = null
+  showPolicyDialog.value = true
 }
 
-const addPolicy = (policyId: PolicyTypeId) => {
-  const ruleId = generateRuleId()
-  editingRuleId.value[policyId] = ruleId
-
-  // Reset form data
-  resetFormData(policyId)
-
-  // Add new rule in editing state
-  policyRules.value[policyId].push({
-    id: ruleId,
-    config: {} as PolicyConfig,
-    isEditing: true,
-  })
-}
-
-const editPolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  // Set other rules to not editing
-  policyRules.value[policyId].forEach((rule) => {
-    rule.isEditing = rule.id === ruleId
-  })
-
-  editingRuleId.value[policyId] = ruleId
-
-  // Load rule data into form
+const openEditPolicyDialog = (policyId: PolicyTypeId, ruleId: string) => {
   const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
-  if (rule) {
-    loadRuleIntoForm(policyId, rule.config)
+  if (!rule) return
+  dialogPolicyType.value = policyId
+  dialogInitialData.value = { ...rule.config }
+  dialogEditingRuleId.value = ruleId
+  showPolicyDialog.value = true
+}
+
+const handlePolicyDialogSave = (payload: {
+  policyType: PolicyTypeId
+  formData: Record<string, unknown>
+}) => {
+  const { policyType, formData: policyFormData } = payload
+
+  if (dialogEditingRuleId.value) {
+    // Update existing rule
+    const rule = policyRules.value[policyType].find((r) => r.id === dialogEditingRuleId.value)
+    if (rule) {
+      rule.config = { ...policyFormData, id: rule.id } as PolicyRulesRecord[PolicyTypeId][number]['config']
+    }
+  } else {
+    // Add new rule
+    const ruleId = generateRuleId()
+    policyRules.value[policyType].push({
+      id: ruleId,
+      config: { ...policyFormData, id: ruleId } as PolicyRulesRecord[PolicyTypeId][number]['config'],
+      isEditing: false,
+    })
   }
+
+  showPolicyDialog.value = false
+  dialogEditingRuleId.value = null
 }
 
 const deletePolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  // Remove rule from array
   const index = policyRules.value[policyId].findIndex((r) => r.id === ruleId)
   if (index > -1) {
     policyRules.value[policyId].splice(index, 1)
   }
-
-  // Clear editing state if this rule was being edited
-  if (editingRuleId.value[policyId] === ruleId) {
-    editingRuleId.value[policyId] = null
-  }
-}
-
-const resetFormData = (policyId: PolicyTypeId) => {
-  switch (policyId) {
-    case 'access':
-      authorizationForm.value = { ruleType: 'allow', users: '', note: '' }
-      break
-    case 'rate_limit':
-      rateLimiterForm.value = {
-        limit: '',
-        windowUnit: 'minute',
-        scope: 'per user',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-    case 'pricing':
-      pricingForm.value = {
-        price: '',
-        userType: 'all',
-        users: '',
-        note: '',
-      }
-      break
-  }
-}
-
-const loadRuleIntoForm = (policyId: PolicyTypeId, config: PolicyConfig) => {
-  switch (policyId) {
-    case 'access':
-      authorizationForm.value = {
-        ruleType: (config.ruleType as string) || 'allow',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-    case 'rate_limit':
-      rateLimiterForm.value = {
-        limit: (config.limit as string) || '',
-        windowUnit: (config.windowUnit as string) || 'minute',
-        scope: (config.scope as string) || 'per user',
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-    case 'pricing':
-      pricingForm.value = {
-        price: config.price !== undefined ? String(config.price) : '',
-        userType: (config.userType as string) || 'all',
-        users: (config.users as string) || '',
-        note: (config.note as string) || '',
-      }
-      break
-  }
-}
-
-const savePolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  const rule = policyRules.value[policyId].find((r) => r.id === ruleId)
-  if (!rule) return
-
-  // Get the form data based on policy type
-  let formData
-  switch (policyId) {
-    case 'access':
-      formData = authorizationForm.value
-      break
-    case 'rate_limit':
-      formData = { ...rateLimiterForm.value }
-      break
-    case 'pricing':
-      formData = { ...pricingForm.value, pricingType: 'per_call' }
-      break
-    default:
-      return
-  }
-
-  // Save form data to rule config
-  rule.config = { ...formData, id: ruleId }
-  rule.isEditing = false
-
-  // Clear editing state
-  editingRuleId.value[policyId] = null
-}
-
-const cancelEditPolicy = (policyId: PolicyTypeId, ruleId: string) => {
-  const ruleIndex = policyRules.value[policyId].findIndex((r) => r.id === ruleId)
-  if (ruleIndex === -1) return
-
-  const rule = policyRules.value[policyId][ruleIndex]
-  if (!rule) return
-
-  // If this is a new rule being created, remove it
-  if (Object.keys(rule.config).length === 0) {
-    policyRules.value[policyId].splice(ruleIndex, 1)
-  } else {
-    // Otherwise, just exit edit mode
-    rule.isEditing = false
-  }
-
-  // Clear editing state
-  editingRuleId.value[policyId] = null
 }
 
 const refreshForm = () => {
@@ -2256,8 +1763,8 @@ const getSelectedModelDetails = () => {
 // Get selected new model label
 const getSelectedNewModelLabel = () => {
   if (!newModelForm.value.model) return null
-  const modelOption = availableNewModels.value.find((m) => m.value === newModelForm.value.model)
-  return modelOption?.label || null
+  const modelOption = newProviderModels.value.find((m) => m.id === newModelForm.value.model)
+  return modelOption?.name || modelOption?.id || null
 }
 
 // Derive model name from endpoint details (follows same pattern as datasets)
@@ -2270,7 +1777,7 @@ const getDerivedModelDescription = () => {
   if (formData.value.summary) {
     return `Model for ${formData.value.summary}`
   }
-  return `Model for ${newModelForm.value.provider.charAt(0).toUpperCase() + newModelForm.value.provider.slice(1)} AI integration`
+  return `Model for ${getProviderLabel(newModelForm.value.provider)} AI integration`
 }
 
 onMounted(async () => {
@@ -2302,13 +1809,23 @@ const selectModelSourceType = (type: string) => {
       provider: '',
       model: '',
       apiKey: '',
+      baseUrl: '',
     }
   }
 }
 
-// Watch for provider changes to reset model selection
+// Reset model selection when provider or API key changes
 watch(
   () => newModelForm.value.provider,
+  () => {
+    newModelForm.value.model = ''
+    if (newModelForm.value.provider !== 'custom') {
+      newModelForm.value.baseUrl = ''
+    }
+  },
+)
+watch(
+  () => newModelForm.value.apiKey,
   () => {
     newModelForm.value.model = ''
   },

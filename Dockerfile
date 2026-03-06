@@ -29,21 +29,16 @@ RUN apk update && apk add --no-cache \
 
 WORKDIR /app
 
-COPY backend/pyproject.toml backend/README.md ./backend/
+# Copy lockfile, pyproject.toml, and minimal source for uv sync
+COPY backend/pyproject.toml backend/uv.lock backend/README.md ./backend/
 COPY backend/syft_space/__init__.py ./backend/syft_space/
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
-# 1. Install base deps (fast, frequently cached)
-RUN uv venv /app/.venv --python python${PYTHON_VERSION} && \
-    uv pip install --python /app/.venv/bin/python -e "./backend"
-
-# 2. Install CPU-only PyTorch (avoids 4GB+ CUDA packages)
-RUN uv pip install --python /app/.venv/bin/python \
-    torch torchvision --index-url https://download.pytorch.org/whl/cpu
-
-# 3. Install heavy optional deps (docling will use existing torch)
-RUN uv pip install --python /app/.venv/bin/python -e "./backend[libs]"
+# Install all deps (including libs) from lockfile.
+# CPU-only torch/torchvision is enforced by [tool.uv.sources] in pyproject.toml.
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+RUN cd backend && uv sync --extra libs --no-install-project
 
 # ============================================================================
 # Stage 2: Production
@@ -69,11 +64,17 @@ RUN apk update && apk add --no-cache \
 
 WORKDIR /app
 
+# Copy uv from builder stage
+COPY --from=backend-builder /usr/bin/uv /usr/bin/uv
+
 # Copy Python virtual environment
 COPY --from=backend-builder /app/.venv /app/.venv
 
 # Copy backend source
 COPY backend/ ./backend/
+
+# Install the project itself (source-only, deps already in venv)
+RUN uv pip install --no-deps --python /app/.venv/bin/python -e ./backend
 
 # Copy pre-built frontend (must run: cd frontend && bun run build)
 COPY frontend/dist ./frontend/dist

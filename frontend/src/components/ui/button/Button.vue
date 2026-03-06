@@ -6,13 +6,13 @@ import { Primitive } from 'reka-ui'
 import { cn } from '@/lib/utils'
 import { buttonVariants } from '.'
 
-export interface ButtonProps extends PrimitiveProps {
+interface Props extends PrimitiveProps {
   variant?: ButtonVariants['variant']
   size?: ButtonVariants['size']
   class?: HTMLAttributes['class']
 }
 
-const props = withDefaults(defineProps<ButtonProps>(), {
+const props = withDefaults(defineProps<Props>(), {
   as: 'button',
 })
 </script>
@@ -20,6 +20,8 @@ const props = withDefaults(defineProps<ButtonProps>(), {
 <template>
   <Primitive
     data-slot="button"
+    :data-variant="variant"
+    :data-size="size"
     :as="as"
     :as-child="asChild"
     :class="cn(buttonVariants({ variant, size }), props.class)"

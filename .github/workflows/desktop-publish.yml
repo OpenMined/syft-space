@@ -58,10 +58,6 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Install CPU-only PyTorch (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: uv pip install torch --index-url https://download.pytorch.org/whl/cpu --system
-
       - name: Install backend dependencies
         run: uv pip install -e "backend/.[build,libs]" --system
 
