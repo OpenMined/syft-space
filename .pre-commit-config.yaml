@@ -11,18 +11,6 @@ repos:
       - id: ruff-format
         files: ^backend/
 
-  # # mypy - Static type checking
-  # - repo: https://github.com/pre-commit/mirrors-mypy
-  #   rev: v1.13.0
-  #   hooks:
-  #     - id: mypy
-  #       additional_dependencies:
-  #         - types-requests
-  #         - sqlmodel
-  #         - pydantic
-  #       args: [--ignore-missing-imports]
-  #       files: ^backend/
-
   # General pre-commit hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -48,6 +36,17 @@ repos:
         args: [-c, backend/pyproject.toml]
         additional_dependencies: ["bandit[toml]"]
         files: ^backend/
+
+  # Ultracite - Frontend linting and formatting
+  - repo: local
+    hooks:
+      - id: ultracite
+        name: ultracite
+        entry: bun x ultracite fix
+        language: system
+        types_or: [javascript, jsx, ts, tsx, json, css]
+        pass_filenames: false
+        files: ^frontend/
 
 # Configuration for pre-commit
 default_language_version:
