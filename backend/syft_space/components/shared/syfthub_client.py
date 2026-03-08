@@ -3,7 +3,6 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, TypeVar
 
 import httpx
@@ -14,8 +13,6 @@ from pydantic import BaseModel, EmailStr, Field, HttpUrl
 # =============================================================================
 # Exceptions
 # =============================================================================
-
-DEFAULT_HEARTBEAT_TTL_SECONDS = 60 * 5  # 5 minutes
 
 
 class SyftHubError(Exception):
@@ -180,15 +177,6 @@ class TunnelCredentialsResponse(BaseModel):
 
     auth_token: str = Field(..., description="Ngrok authentication token")
     domain: str = Field(..., description="Ngrok tunnel domain")
-
-
-class HeartbeatResponse(BaseModel):
-    """Response from heartbeat endpoint."""
-
-    received_at: datetime = Field(..., description="Timestamp of the heartbeat")
-    domain: str = Field(..., description="Domain of the heartbeat")
-    ttl_seconds: int = Field(..., description="Time to live in seconds")
-    model_config = {"from_attributes": True}
 
 
 # =============================================================================
@@ -587,23 +575,6 @@ class SyftHubClient:
         self._require_auth()
         response = await self._client.post("/api/v1/verify", json={"token": token})  # type: ignore
         return _handle_response(response, SatelliteToken)
-
-    async def send_heartbeat(
-        self, public_url: str, ttl_seconds: int = DEFAULT_HEARTBEAT_TTL_SECONDS
-    ) -> HeartbeatResponse:
-        """Send a heartbeat to SyftHub.
-        Args:
-            public_url: Public URL of the user
-            ttl_seconds: Time to live in seconds
-        Returns:
-            HeartbeatResponse: Heartbeat response
-        """
-        self._require_auth()
-        response = await self._client.post(
-            "/api/v1/users/me/heartbeat",
-            json={"url": public_url, "ttl_seconds": ttl_seconds},
-        )  # type: ignore
-        return _handle_response(response, HeartbeatResponse)
 
     async def sync_endpoints(self, payload: list[dict[str, Any]]) -> dict[str, Any]:
         """Sync endpoints to SyftHub.

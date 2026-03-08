@@ -251,9 +251,7 @@ async def lifespan(app: FastAPI):
     if default_tenant:
 
         async def _fetch_tunnel_credentials() -> tuple[str, str]:
-            marketplace = await marketplace_repository.get_default(
-                default_tenant.id
-            )
+            marketplace = await marketplace_repository.get_default(default_tenant.id)
             if not marketplace:
                 raise RuntimeError("No default marketplace configured")
             async with SyftHubClient(str(marketplace.url)) as client:
@@ -405,6 +403,7 @@ endpoint_heartbeat_manager = EndpointHeartbeatManager(
     marketplace_repository=marketplace_repository,
     settings_repository=settings_repository,
     enabled=app_settings.heartbeat_enabled,
+    check_interval=app_settings.health_check_interval,
 )
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
