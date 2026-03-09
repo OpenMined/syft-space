@@ -134,7 +134,7 @@ router.beforeEach(async (to, _from, next) => {
   let paramsExtracted = false
 
   if (authToken) {
-    sessionStorage.setItem('authToken', authToken as string)
+    localStorage.setItem('authToken', authToken as string)
     paramsExtracted = true
   }
   if (host) {
