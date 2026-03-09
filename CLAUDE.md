@@ -67,9 +67,9 @@ bun run build              # Build for production
 bun run preview            # Preview production build
 
 # Code quality - ALWAYS run these after making changes
-bun run lint               # Lint with ESLint and Oxlint
+bun run lint               # Lint and format check with @antfu/eslint-config
+bun run lint:fix           # Auto-fix lint and formatting issues
 bun run typecheck          # TypeScript type checking
-bun run format             # Format code with Prettier
 
 # Testing
 bun run test:unit          # Unit tests with Vitest
@@ -100,7 +100,7 @@ bun run test:e2e           # E2E tests against production build
 
 ### Code Style
 - **Backend**: Black formatting (line-length 88), isort with black profile, type hints required
-- **Frontend**: Vue 3 Composition API with `<script setup>`, TypeScript, ESLint + Oxlint for linting
+- **Frontend**: Vue 3 Composition API with `<script setup>`, TypeScript, `@antfu/eslint-config` for linting and formatting (single quotes, no semicolons)
 
 ## Server Configuration
 - Backend runs on configurable port (default 8080, set via `SYFTBOX_ASSIGNED_PORT`)

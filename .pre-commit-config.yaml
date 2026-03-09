@@ -49,6 +49,16 @@ repos:
         additional_dependencies: ["bandit[toml]"]
         files: ^backend/
 
+  # Frontend linting and formatting
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: frontend-lint
+        entry: bun run --cwd frontend lint:fix
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+
 # Configuration for pre-commit
 default_language_version:
   python: python3.9
