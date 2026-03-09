@@ -49,16 +49,6 @@ repos:
         additional_dependencies: ["bandit[toml]"]
         files: ^backend/
 
-  # Ultracite - Frontend linting and formatting
-  - repo: local
-    hooks:
-      - id: ultracite
-        name: ultracite
-        entry: bun run --cwd frontend fix
-        language: system
-        files: ^frontend/.*\.(vue|ts|tsx|js|jsx|json|jsonc|css|html)$
-        pass_filenames: false
-
 # Configuration for pre-commit
 default_language_version:
   python: python3.9
