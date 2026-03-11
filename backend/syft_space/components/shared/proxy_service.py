@@ -202,7 +202,9 @@ class ProxyService(LifecycleService):
             try:
                 public_url = await self._connect(token, domain, persist=False)
                 await self._settings_repository.update_public_url(public_url)
-                logger.info(f"Ngrok tunnel connected with stored credentials: {public_url}")
+                logger.info(
+                    f"Ngrok tunnel connected with stored credentials: {public_url}"
+                )
                 return public_url
             except Exception as e:
                 logger.warning(f"Stored credentials failed: {e}")
@@ -327,13 +329,12 @@ class ProxyService(LifecycleService):
                         not self._creds_refreshed
                         and self._credentials_provider is not None
                     ):
-                        logger.info(
-                            "Fetching fresh tunnel credentials from SyftHub..."
-                        )
+                        logger.info("Fetching fresh tunnel credentials from SyftHub...")
                         try:
-                            fresh_token, fresh_domain = (
-                                await self._credentials_provider()
-                            )
+                            (
+                                fresh_token,
+                                fresh_domain,
+                            ) = await self._credentials_provider()
                             self._current_token = fresh_token
                             self._current_domain = fresh_domain
                             self._creds_refreshed = True
@@ -349,18 +350,14 @@ class ProxyService(LifecycleService):
                                 await self._reconnect()
                                 delay = self.RECONNECT_INITIAL_DELAY
                                 self._creds_refreshed = False
-                                logger.info(
-                                    "Reconnected with fresh credentials"
-                                )
+                                logger.info("Reconnected with fresh credentials")
                                 continue
                             except Exception as e2:
                                 logger.warning(
                                     f"Reconnect with fresh credentials also failed: {e2}"
                                 )
                         except Exception as e3:
-                            logger.warning(
-                                f"Failed to fetch fresh credentials: {e3}"
-                            )
+                            logger.warning(f"Failed to fetch fresh credentials: {e3}")
                             self._creds_refreshed = True  # Don't retry fetch
 
                     # Exponential backoff

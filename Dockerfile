@@ -64,6 +64,9 @@ RUN apk update && apk add --no-cache \
 
 WORKDIR /app
 
+# Copy uv from builder stage
+COPY --from=backend-builder /usr/bin/uv /usr/bin/uv
+
 # Copy Python virtual environment
 COPY --from=backend-builder /app/.venv /app/.venv
 
@@ -71,7 +74,7 @@ COPY --from=backend-builder /app/.venv /app/.venv
 COPY backend/ ./backend/
 
 # Install the project itself (source-only, deps already in venv)
-RUN /app/.venv/bin/pip install --no-deps -e ./backend
+RUN uv pip install --no-deps --python /app/.venv/bin/python -e ./backend
 
 # Copy pre-built frontend (must run: cd frontend && bun run build)
 COPY frontend/dist ./frontend/dist

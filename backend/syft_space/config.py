@@ -81,10 +81,14 @@ class AppSettings(BaseSettings):
         description="Public URL for the Syft Space",
     )
 
-    # Heartbeat settings
+    # Endpoint health check settings
     heartbeat_enabled: bool = Field(
         default=True,
-        description="Enable heartbeat manager for sending presence to marketplaces",
+        description="Enable periodic endpoint health reporting to marketplaces",
+    )
+    health_check_interval: float = Field(
+        default=30.0,
+        description="Interval in seconds between endpoint health checks",
     )
 
     @field_validator("public_url", mode="before")

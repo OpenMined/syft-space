@@ -1,5 +1,7 @@
 """Endpoint handlers for business logic."""
 
+import asyncio
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -50,6 +52,7 @@ from syft_space.components.policy_types.interfaces import (
     PolicyViolationError,
 )
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
+from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
 
@@ -959,6 +962,85 @@ class EndpointHandler:
                 }
             ],
         }
+
+    async def get_published_endpoint_health(
+        self, tenant: Tenant, health_timeout: float = 5.0
+    ) -> list[dict[str, Any]]:
+        """Get health status of all published endpoints.
+
+        Checks health of each endpoint's linked dataset and model concurrently.
+        An endpoint is healthy only if ALL its linked resources are healthy.
+
+        Args:
+            tenant: Tenant context
+            health_timeout: Timeout per individual health check in seconds
+
+        Returns:
+            List of {"slug": str, "status": "healthy"|"unhealthy", "checked_at": str}
+        """
+        endpoints = await self.endpoint_repository.get_published_endpoints(tenant.id)
+        if not endpoints:
+            return []
+
+        async def _check_endpoint_health(endpoint: Endpoint) -> dict[str, Any]:
+            """Check health of a single endpoint's linked resources."""
+            checked_at = datetime.now(timezone.utc).isoformat()
+            is_healthy = True
+
+            # Check dataset health
+            if endpoint.dataset_id:
+                try:
+                    dataset = await self.dataset_repository.get_by_id(
+                        endpoint.dataset_id, tenant.id
+                    )
+                    if dataset:
+                        dataset_type_cls = self.dataset_registry.get_dataset_type(
+                            dataset.dtype
+                        )
+                        dataset_type = dataset_type_cls(dataset.configuration)
+                        response = await asyncio.wait_for(
+                            dataset_type.healthcheck(), timeout=health_timeout
+                        )
+                        if response.status != HealthcheckStatus.HEALTHY:
+                            is_healthy = False
+                    else:
+                        is_healthy = False
+                except Exception:
+                    is_healthy = False
+
+            # Check model health
+            if endpoint.model_id:
+                try:
+                    model = await self.model_repository.get_by_id(
+                        endpoint.model_id, tenant.id
+                    )
+                    if model:
+                        model_type_cls = self.model_registry.get_model_type(model.dtype)
+                        model_type = model_type_cls(model.configuration)
+                        response = await asyncio.wait_for(
+                            model_type.healthcheck(), timeout=health_timeout
+                        )
+                        if response.status != HealthcheckStatus.HEALTHY:
+                            is_healthy = False
+                    else:
+                        is_healthy = False
+                except Exception:
+                    is_healthy = False
+
+            return {
+                "slug": endpoint.slug,
+                "status": "healthy" if is_healthy else "unhealthy",
+                "checked_at": checked_at,
+            }
+
+        # Run all health checks concurrently
+        results = await asyncio.gather(
+            *[_check_endpoint_health(ep) for ep in endpoints],
+            return_exceptions=True,
+        )
+
+        # Filter out exceptions (shouldn't happen, but be defensive)
+        return [r for r in results if isinstance(r, dict)]
 
     async def sync_endpoints_to_marketplaces(
         self, tenant: Tenant

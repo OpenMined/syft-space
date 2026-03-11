@@ -524,9 +524,7 @@ class DocumentChunker:
 
         # Non-PDF rich formats (DOCX, HTML, etc.) — single in-process convert
         if ext != ".pdf":
-            source = DocumentStream(
-                name=file.filename, stream=BytesIO(raw_data)
-            )
+            source = DocumentStream(name=file.filename, stream=BytesIO(raw_data))
             result = self.converter.convert(source)
             return self._extract_from_result(result, images_dir, doc_id, file)
 
@@ -551,7 +549,7 @@ class DocumentChunker:
             tmp_path.unlink(missing_ok=True)
 
         # Sort by page number to preserve document order
-        chunks.sort(key=lambda c: (min(c["page_numbers"]) if c["page_numbers"] else 0))
+        chunks.sort(key=lambda c: min(c["page_numbers"]) if c["page_numbers"] else 0)
 
         if not chunks:
             if images_dir.exists():
