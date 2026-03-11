@@ -1,0 +1,14 @@
+# Calls cross-service E2E tests in syft-nsai-tests on push to main.
+# The job appears as a check on this repo's commits.
+name: Trigger E2E Tests
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  e2e:
+    uses: OpenMined/syft-nsai-tests/.github/workflows/e2e.yml@main
+    with:
+      syfthub_ref: main
+      syft_space_ref: ${{ github.sha }}
