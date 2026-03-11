@@ -9,6 +9,7 @@ Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 f
 ## Architecture
 
 ### Backend Structure (`/backend`)
+
 - **Framework**: FastAPI with FastSyftBox wrapper
 - **Structure**: Domain-driven design with components organized by feature
 - **Components**: Each component has entities, handlers, interfaces, repositories, routes, and schemas
@@ -22,6 +23,7 @@ Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 f
   - `shared/` - Common utilities (database, errors, logging)
 
 ### Frontend Structure (`/frontend`)
+
 - **Framework**: Vue 3 with Composition API, TypeScript, Tailwind CSS
 - **UI Library**: shadcn/ui components (located in `src/components/ui/`)
 - **State Management**: Pinia stores
@@ -32,6 +34,7 @@ Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 f
 ## Development Commands
 
 ### Backend Development
+
 ```bash
 # Setup and run backend (from project root)
 ./run.sh
@@ -53,6 +56,7 @@ pytest                     # Run tests
 ```
 
 ### Frontend Development
+
 ```bash
 cd frontend
 
@@ -80,6 +84,7 @@ bun run test:e2e           # E2E tests against production build
 ## Development Patterns
 
 ### Backend Patterns
+
 - Each component follows the same structure: entities, handlers, interfaces, repositories, routes, schemas
 - Use SQLModel for database models
 - Pydantic for request/response schemas
@@ -87,6 +92,7 @@ bun run test:e2e           # E2E tests against production build
 - Environment-based configuration via `config.py`
 
 ### Frontend Patterns
+
 - **UI Components**: Always use shadcn/ui components. If needed component doesn't exist, install with `npx shadcn-vue@latest add <component-name>`
 - **Icons**: Use lucide-vue-next icons
 - **Styling**: Tailwind CSS classes following existing patterns
@@ -99,10 +105,12 @@ bun run test:e2e           # E2E tests against production build
   - State management in `src/stores/`
 
 ### Code Style
+
 - **Backend**: Black formatting (line-length 88), isort with black profile, type hints required
 - **Frontend**: Vue 3 Composition API with `<script setup>`, TypeScript, ESLint + Oxlint for linting
 
 ## Server Configuration
+
 - Backend runs on configurable port (default 8080, set via `SYFTBOX_ASSIGNED_PORT`)
 - Frontend served from `/syft-space-server` subpath
 - CORS enabled for localhost:5173 (frontend dev server)
@@ -116,6 +124,7 @@ bun run test:e2e           # E2E tests against production build
 When integrating a backend API endpoint into the frontend:
 
 1. **Create API types** in `frontend/src/api/types/index.ts`:
+
    ```typescript
    export interface MyResponse {
      // Match the backend Pydantic schema
@@ -123,6 +132,7 @@ When integrating a backend API endpoint into the frontend:
    ```
 
 2. **Add API function** in `frontend/src/api/endpoints/`:
+
    ```typescript
    export const myApi = {
      fetch: async (params): Promise<MyResponse> => {
@@ -133,6 +143,7 @@ When integrating a backend API endpoint into the frontend:
    ```
 
 3. **Create composable** for complex logic in `frontend/src/composables/`:
+
    ```typescript
    export function useMyFeature() {
      // Handle loading states, errors, data transformation
@@ -142,12 +153,14 @@ When integrating a backend API endpoint into the frontend:
 4. **Update components** to use the API through stores or composables
 
 ### Example: File Browser Integration
+
 - API types: `frontend/src/api/types/index.ts`
 - API endpoint: `frontend/src/api/endpoints/datasets.ts`
 - Composable: `frontend/src/composables/useDatasetBrowser.ts`
 - Component: `frontend/src/components/FileExplorer.vue`
 
 ## Important Notes
+
 - The frontend has its own CLAUDE.md with detailed UI component guidance
 - Always run lint and typecheck commands after making changes
 - Use bun for all frontend package operations
