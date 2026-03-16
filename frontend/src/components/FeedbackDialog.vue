@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Bug, MessageSquare, Lightbulb, Camera, Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import html2canvas from 'html2canvas'
+import html2canvas from 'html2canvas-pro'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -52,9 +52,9 @@ const captureScreenshot = async (): Promise<void> => {
       },
     })
     screenshotPreview.value = canvas.toDataURL('image/png')
-    canvas.toBlob((blob) => {
-      screenshotBlob.value = blob
-    }, 'image/png')
+    screenshotBlob.value = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((blob) => resolve(blob), 'image/png')
+    })
   } catch {
     screenshotPreview.value = null
     screenshotBlob.value = null
@@ -71,15 +71,14 @@ const resetForm = () => {
   screenshotBlob.value = null
 }
 
-const handleOpen = async (isOpen: boolean) => {
-  open.value = isOpen
+watch(open, async (isOpen) => {
   if (isOpen && includeScreenshot.value) {
     await captureScreenshot()
   }
   if (!isOpen) {
     resetForm()
   }
-}
+})
 
 const submit = async () => {
   if (!canSubmit.value) return
@@ -111,7 +110,7 @@ const submit = async () => {
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="handleOpen">
+  <Dialog v-model:open="open">
     <DialogContent class="sm:max-w-[480px]">
       <DialogHeader>
         <DialogTitle>Send Feedback</DialogTitle>
