@@ -5,11 +5,7 @@ import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
 import { usePolicyCreation } from './usePolicyCreation'
-import type {
-  CreateDatasetRequest,
-  CreateEndpointRequest,
-  PolicyResponse,
-} from '@/api/types'
+import type { CreateDatasetRequest, CreateEndpointRequest, PolicyResponse } from '@/api/types'
 
 export interface PolicyRule {
   id: string

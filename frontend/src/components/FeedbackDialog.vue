@@ -3,7 +3,6 @@ import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Bug, MessageSquare, Lightbulb, Camera, Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import html2canvas from 'html2canvas-pro'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -21,6 +20,11 @@ import { feedbackApi } from '@/api/endpoints/feedback'
 
 const open = defineModel<boolean>('open', { default: false })
 
+const props = defineProps<{
+  previewDataUrl?: string | null
+  previewBlob?: Blob | null
+}>()
+
 type FeedbackCategory = 'bug' | 'feedback' | 'idea'
 
 const categories: { value: FeedbackCategory; label: string; icon: typeof Bug }[] = [
@@ -33,36 +37,12 @@ const selectedCategory = ref<FeedbackCategory>('feedback')
 const description = ref('')
 const includeScreenshot = ref(true)
 const isSubmitting = ref(false)
-const isCapturingScreenshot = ref(false)
 const screenshotPreview = ref<string | null>(null)
 const screenshotBlob = ref<Blob | null>(null)
 
 const route = useRoute()
 
 const canSubmit = computed(() => description.value.trim().length > 0 && !isSubmitting.value)
-
-const captureScreenshot = async (): Promise<void> => {
-  isCapturingScreenshot.value = true
-  try {
-    const canvas = await html2canvas(document.body, {
-      logging: false,
-      useCORS: true,
-      scale: 1,
-      ignoreElements: (element) => {
-        return element.getAttribute('role') === 'dialog'
-      },
-    })
-    screenshotPreview.value = canvas.toDataURL('image/png')
-    screenshotBlob.value = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((blob) => resolve(blob), 'image/png')
-    })
-  } catch {
-    screenshotPreview.value = null
-    screenshotBlob.value = null
-  } finally {
-    isCapturingScreenshot.value = false
-  }
-}
 
 const resetForm = () => {
   selectedCategory.value = 'feedback'
@@ -72,11 +52,14 @@ const resetForm = () => {
   screenshotBlob.value = null
 }
 
-watch(open, async (isOpen) => {
-  if (isOpen && includeScreenshot.value) {
-    await captureScreenshot()
-  }
-  if (!isOpen) {
+watch(open, (isOpen) => {
+  if (isOpen) {
+    // Use pre-captured screenshot from the button's pointerdown
+    if (props.previewDataUrl) {
+      screenshotPreview.value = props.previewDataUrl
+      screenshotBlob.value = props.previewBlob ?? null
+    }
+  } else {
     resetForm()
   }
 })
@@ -181,10 +164,6 @@ const submit = async () => {
                 />
               </PopoverContent>
             </Popover>
-            <Loader2
-              v-else-if="isCapturingScreenshot"
-              class="h-4 w-4 animate-spin text-muted-foreground"
-            />
             <Switch id="screenshot-toggle" v-model="includeScreenshot" />
           </div>
         </div>

@@ -834,7 +834,6 @@ const ingestionJobs = ref<IngestionJobListResponse | null>(null)
 // Policy creation composable
 const { createPolicy, isCreating: policyCreating } = usePolicyCreation()
 
-
 // Computed URL to view endpoint on SyftHub
 const syftHubUrl = computed(() =>
   endpoint.value?.slug ? userStore.getEndpointUrlInMarketplace(endpoint.value.slug) : null,
@@ -1130,7 +1129,6 @@ const confirmDeletePolicy = async () => {
     // TODO: Show error toast/notification
   }
 }
-
 
 // Publish endpoint changes to marketplace
 const publishToMarketplace = async () => {

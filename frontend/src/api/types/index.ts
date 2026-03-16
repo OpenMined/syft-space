@@ -437,4 +437,3 @@ export interface ProxyStatusResponse {
   public_url: string | null
   has_token: boolean
 }
-

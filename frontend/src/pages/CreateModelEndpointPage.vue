@@ -406,10 +406,7 @@
                   </div>
 
                   <!-- Model (shown after API key is entered) -->
-                  <div
-                    v-if="newModelForm.provider && newModelForm.apiKey.trim()"
-                    class="space-y-2"
-                  >
+                  <div v-if="newModelForm.provider && newModelForm.apiKey.trim()" class="space-y-2">
                     <Label for="model" class="body-sm font-medium">
                       Model <span class="text-red-500">*</span>
                     </Label>
@@ -1711,14 +1708,20 @@ const handlePolicyDialogSave = (payload: {
     // Update existing rule
     const rule = policyRules.value[policyType].find((r) => r.id === dialogEditingRuleId.value)
     if (rule) {
-      rule.config = { ...policyFormData, id: rule.id } as PolicyRulesRecord[PolicyTypeId][number]['config']
+      rule.config = {
+        ...policyFormData,
+        id: rule.id,
+      } as PolicyRulesRecord[PolicyTypeId][number]['config']
     }
   } else {
     // Add new rule
     const ruleId = generateRuleId()
     policyRules.value[policyType].push({
       id: ruleId,
-      config: { ...policyFormData, id: ruleId } as PolicyRulesRecord[PolicyTypeId][number]['config'],
+      config: {
+        ...policyFormData,
+        id: ruleId,
+      } as PolicyRulesRecord[PolicyTypeId][number]['config'],
       isEditing: false,
     })
   }
