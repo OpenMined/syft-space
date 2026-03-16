@@ -88,6 +88,10 @@ from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.routes import build_settings_routes
 
+# Import feedback components
+from syft_space.components.feedback.handlers import FeedbackHandler
+from syft_space.components.feedback.routes import build_feedback_routes
+
 # Import async utilities
 from syft_space.components.shared.async_utils import run_after_event
 
@@ -384,6 +388,7 @@ proxy_service = ProxyService(settings_repository)
 settings_handler = SettingsHandler(
     settings_repository, marketplace_repository, proxy_service
 )
+feedback_handler = FeedbackHandler(marketplace_repository)
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -426,6 +431,7 @@ router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_settings_routes(settings_handler))
+router.include_router(build_feedback_routes(feedback_handler))
 
 
 @public_route
