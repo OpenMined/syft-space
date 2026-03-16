@@ -269,8 +269,7 @@ const isFormValid = computed(() => {
     return formData.value.name.trim() !== ''
   }
   // For creating, all fields are required
-  const baseValid =
-    formData.value.provider !== 'custom' || formData.value.baseUrl.trim() !== ''
+  const baseValid = formData.value.provider !== 'custom' || formData.value.baseUrl.trim() !== ''
   return (
     formData.value.name.trim() !== '' &&
     formData.value.provider !== '' &&
