@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { feedbackApi } from '@/api/endpoints/feedback'
@@ -157,32 +158,35 @@ const submit = async () => {
               Include screenshot of current page
             </Label>
           </div>
-          <Switch
-            id="screenshot-toggle"
-            :checked="includeScreenshot"
-            @update:checked="
-              (val: boolean) => {
-                includeScreenshot = val
-                if (val && !screenshotPreview) captureScreenshot()
-              }
-            "
-          />
-        </div>
-
-        <!-- Screenshot Preview -->
-        <div
-          v-if="includeScreenshot && (screenshotPreview || isCapturingScreenshot)"
-          class="rounded-md border border-border overflow-hidden"
-        >
-          <div v-if="isCapturingScreenshot" class="flex items-center justify-center h-24 bg-muted">
-            <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
+          <div class="flex items-center gap-2">
+            <!-- Thumbnail with popover preview -->
+            <Popover v-if="screenshotPreview">
+              <PopoverTrigger as-child>
+                <button
+                  type="button"
+                  class="rounded border border-border overflow-hidden hover:ring-2 hover:ring-ring transition-all"
+                >
+                  <img
+                    :src="screenshotPreview"
+                    alt="Screenshot preview"
+                    class="h-8 w-14 object-cover object-top"
+                  />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="left" align="center" class="w-96 p-1">
+                <img
+                  :src="screenshotPreview"
+                  alt="Screenshot preview"
+                  class="w-full h-auto rounded"
+                />
+              </PopoverContent>
+            </Popover>
+            <Loader2
+              v-else-if="isCapturingScreenshot"
+              class="h-4 w-4 animate-spin text-muted-foreground"
+            />
+            <Switch id="screenshot-toggle" v-model="includeScreenshot" />
           </div>
-          <img
-            v-else-if="screenshotPreview"
-            :src="screenshotPreview"
-            alt="Screenshot preview"
-            class="w-full h-auto max-h-32 object-cover object-top"
-          />
         </div>
       </div>
 
