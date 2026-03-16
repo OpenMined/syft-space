@@ -10,6 +10,7 @@ from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.schemas import (
+    DiagnosticsResponse,
     ProxyStatusResponse,
     PublicUrlResponse,
 )
@@ -115,6 +116,27 @@ class SettingsHandler:
 
         for tenant in tenants:
             await self.update_public_url(tenant, app_settings.public_url)
+
+    async def get_diagnostics(self) -> DiagnosticsResponse:
+        """Get the current diagnostics preference.
+
+        Returns:
+            Diagnostics response
+        """
+        enabled = await self.settings_repository.get_diagnostics_enabled()
+        return DiagnosticsResponse(enabled=enabled)
+
+    async def update_diagnostics(self, enabled: bool) -> DiagnosticsResponse:
+        """Update the diagnostics preference.
+
+        Args:
+            enabled: Whether to enable diagnostics
+
+        Returns:
+            Updated diagnostics response
+        """
+        await self.settings_repository.update_diagnostics_enabled(enabled)
+        return DiagnosticsResponse(enabled=enabled)
 
     async def get_proxy_status(self) -> ProxyStatusResponse:
         """Get the current proxy tunnel status.

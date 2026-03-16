@@ -24,6 +24,18 @@ class UpdatePublicUrlRequest(BaseModel):
         }
 
 
+class DiagnosticsResponse(BaseModel):
+    """Response model for diagnostics preference."""
+
+    enabled: bool = Field(False, description="Whether anonymous diagnostics is enabled")
+
+
+class UpdateDiagnosticsRequest(BaseModel):
+    """Request model for updating diagnostics preference."""
+
+    enabled: bool = Field(..., description="Whether to enable anonymous diagnostics")
+
+
 class ProxyStatusResponse(BaseModel):
     """Response model for proxy status."""
 

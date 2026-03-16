@@ -224,6 +224,30 @@
               </div>
             </div>
 
+            <!-- Separator -->
+            <Separator />
+
+            <!-- Diagnostics opt-in -->
+            <div class="space-y-3">
+              <div class="flex items-start space-x-3">
+                <Checkbox
+                  id="diagnostics"
+                  :checked="diagnosticsOptIn"
+                  @update:checked="diagnosticsOptIn = $event as boolean"
+                  class="mt-0.5"
+                />
+                <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
+                  Share anonymous usage data. You can change this anytime in Settings.
+                </Label>
+              </div>
+              <Alert>
+                <Info class="h-4 w-4" />
+                <AlertDescription>
+                  We're in beta — help us find bugs and improve Syft Space faster. No personal data is ever collected.
+                </AlertDescription>
+              </Alert>
+            </div>
+
             <!-- Error displays -->
             <Alert v-if="authError" variant="destructive">
               <AlertDescription>{{ authError }}</AlertDescription>
@@ -252,14 +276,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { CheckCircle, XCircle, Loader2, ExternalLink } from 'lucide-vue-next'
+import { CheckCircle, XCircle, Loader2, ExternalLink, Info } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
+import { settingsApi } from '@/api/endpoints/settings'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { loadGlobalData } from '@/lib/utils'
 import { checkOnboardingStatus, clearOnboardingCache } from '@/router'
@@ -300,6 +326,7 @@ const {
 // Additional form state
 const confirmPassword = ref('')
 const isSubmitting = ref(false)
+const diagnosticsOptIn = ref(false)
 
 // Computed properties
 const isRegisterFormValid = computed(() => {
@@ -364,6 +391,9 @@ const handleCompleteSetup = async () => {
     // Complete the setup
     const setupSuccess = await completeSetup()
     if (setupSuccess) {
+      // Save diagnostics preference
+      await settingsApi.updateDiagnostics({ enabled: diagnosticsOptIn.value })
+
       // Clear cache so next check gets fresh status
       clearOnboardingCache()
 

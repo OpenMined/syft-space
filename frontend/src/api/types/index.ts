@@ -431,3 +431,10 @@ export interface ProxyStatusResponse {
   has_token: boolean
 }
 
+export interface DiagnosticsResponse {
+  enabled: boolean
+}
+
+export interface UpdateDiagnosticsRequest {
+  enabled: boolean
+}

@@ -59,3 +59,15 @@ class SettingsRepository(AsyncBaseRepository[Settings]):
         settings.ngrok_domain = domain
         settings.updated_at = datetime.now(timezone.utc)
         return await self.update(settings)
+
+    async def get_diagnostics_enabled(self) -> bool:
+        """Get the diagnostics enabled setting."""
+        settings = await self.get_settings()
+        return settings.diagnostics_enabled
+
+    async def update_diagnostics_enabled(self, enabled: bool) -> Settings:
+        """Update the diagnostics enabled setting."""
+        settings = await self.get_settings()
+        settings.diagnostics_enabled = enabled
+        settings.updated_at = datetime.now(timezone.utc)
+        return await self.update(settings)
