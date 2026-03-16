@@ -416,6 +416,13 @@ export interface UpdateEndpointRequest {
   description?: string
 }
 
+// Feedback API types
+export interface FeedbackResponse {
+  success: boolean
+  message: string
+  ticket_id: string | null
+}
+
 // Settings API types
 export interface PublicUrlResponse {
   public_url: string | null
@@ -430,4 +437,3 @@ export interface ProxyStatusResponse {
   public_url: string | null
   has_token: boolean
 }
-

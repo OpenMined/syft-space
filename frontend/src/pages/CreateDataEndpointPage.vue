@@ -2041,14 +2041,20 @@ const handlePolicyDialogSave = (payload: {
     // Update existing rule
     const rule = policyRules.value[policyType].find((r) => r.id === dialogEditingRuleId.value)
     if (rule) {
-      rule.config = { ...policyFormData, id: rule.id } as PolicyRulesRecord[PolicyTypeId][number]['config']
+      rule.config = {
+        ...policyFormData,
+        id: rule.id,
+      } as PolicyRulesRecord[PolicyTypeId][number]['config']
     }
   } else {
     // Add new rule
     const ruleId = generateRuleId()
     policyRules.value[policyType].push({
       id: ruleId,
-      config: { ...policyFormData, id: ruleId } as PolicyRulesRecord[PolicyTypeId][number]['config'],
+      config: {
+        ...policyFormData,
+        id: ruleId,
+      } as PolicyRulesRecord[PolicyTypeId][number]['config'],
       isEditing: false,
     })
   }
@@ -2099,9 +2105,7 @@ watch(
       cachedModelName.value = ''
       return
     }
-    const model = modelSelectorRef.value?.models?.find(
-      (m: { id: string }) => m.id === newModelId,
-    )
+    const model = modelSelectorRef.value?.models?.find((m: { id: string }) => m.id === newModelId)
     if (model?.name) {
       cachedModelName.value = model.name
     }

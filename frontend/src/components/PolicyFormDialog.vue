@@ -6,10 +6,14 @@
           >{{ isEditing ? 'Edit' : 'Add' }} {{ getPolicyTypeLabel(policyType) }} Rule</DialogTitle
         >
         <DialogDescription>
+          {{ isEditing ? 'Update this' : 'Create a new' }}
           {{
-            isEditing ? 'Update this' : 'Create a new'
+            policyType === 'access'
+              ? 'authorization'
+              : policyType === 'rate_limit'
+                ? 'rate limiting'
+                : 'pricing'
           }}
-          {{ policyType === 'access' ? 'authorization' : policyType === 'rate_limit' ? 'rate limiting' : 'pricing' }}
           policy for this endpoint.
         </DialogDescription>
       </DialogHeader>

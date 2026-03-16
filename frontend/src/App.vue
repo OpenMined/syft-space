@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppNavbar from './components/AppNavbar.vue'
+import FeedbackButton from './components/FeedbackButton.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import { useTheme } from './composables/useTheme'
 import { loadGlobalData } from './lib/utils'
@@ -82,6 +83,7 @@ watch(
       <router-view />
     </main>
 
+    <FeedbackButton />
     <Toaster position="top-center" />
   </div>
 </template>
