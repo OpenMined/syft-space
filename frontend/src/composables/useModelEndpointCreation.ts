@@ -103,8 +103,8 @@ export function useModelEndpointCreation() {
     creationStep.value = 'Creating endpoint...'
 
     const createRequest: CreateEndpointRequest = {
-      name: data.endpointName,
-      slug: data.endpointName,
+      name: data.endpointName.trim(),
+      slug: data.endpointName.trim(),
       summary: data.summary,
       description: data.description || '',
       tags: data.tags.join(','),
