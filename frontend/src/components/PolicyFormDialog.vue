@@ -67,7 +67,7 @@
                   v-model="rateLimiterForm.limit"
                   type="number"
                   placeholder="Enter limit"
-                  class="h-9 w-20 sm:w-24 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
+                  class="h-9 w-24 sm:w-32 rounded-l-lg rounded-r-none border-r-0 border-border bg-card body-sm"
                 />
                 <Select v-model="rateLimiterForm.windowUnit">
                   <SelectTrigger
