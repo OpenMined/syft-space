@@ -119,13 +119,10 @@
       <p class="body-sm text-muted-foreground mb-8 max-w-sm mx-auto">
         Get started by creating your first endpoint to share data or models.
       </p>
-      <div class="flex items-center justify-center gap-3">
-        <Button @click="showCreateEndpointModal = true">
-          <Plus class="h-4 w-4 mr-2" />
-          Create your first endpoint
-        </Button>
-        <Button variant="outline"> Learn more </Button>
-      </div>
+      <Button @click="showCreateEndpointModal = true">
+        <Plus class="h-4 w-4 mr-2" />
+        Create your first endpoint
+      </Button>
     </div>
   </div>
 
