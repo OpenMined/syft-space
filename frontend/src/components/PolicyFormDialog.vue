@@ -115,7 +115,7 @@
                 v-model="pricingForm.price"
                 type="number"
                 step="any"
-                placeholder="0.01"
+                placeholder="Enter price per query"
                 class="h-9 rounded-lg border-border bg-card body-sm"
               />
             </div>
