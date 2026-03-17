@@ -46,6 +46,7 @@ from syft_space.components.model_types.interfaces import (
 )
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
+from syft_space.components.payments.bundle_service import BundleService
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policy_types.interfaces import (
     PolicyContext,
@@ -70,6 +71,7 @@ class EndpointHandler:
         model_registry: ModelTypeRegistry,
         policy_registry: PolicyTypeRegistry,
         marketplace_repository: MarketplaceRepository | None = None,
+        bundle_service: "BundleService | None" = None,
     ):
         """Initialize the endpoint handler.
 
@@ -82,6 +84,7 @@ class EndpointHandler:
             model_registry: Model type registry
             policy_registry: Policy type registry
             marketplace_repository: Marketplace repository (optional, for publish and accounting)
+            bundle_service: Bundle service (optional, for xendit payment policy)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -91,6 +94,7 @@ class EndpointHandler:
         self.model_registry = model_registry
         self.policy_registry = policy_registry
         self.marketplace_repository = marketplace_repository
+        self.bundle_service = bundle_service
 
     async def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
@@ -284,6 +288,12 @@ class EndpointHandler:
                 # No marketplace configured or credentials invalid - accounting policies will fail
                 pass
 
+        # Inject bundle service and endpoint context for xendit policy
+        if self.bundle_service:
+            metadata["bundle_service"] = self.bundle_service
+            metadata["endpoint_id"] = endpoint.id
+            metadata["tenant_id"] = tenant.id
+
         # Get policies grouped by type and extract configurations
         policies_by_type = await self.policy_repository.get_by_endpoint_id_grouped(
             endpoint.id, tenant.id
@@ -320,19 +330,24 @@ class EndpointHandler:
 
         response_type = ResponseType(endpoint.response_type)
 
-        # Search dataset if needed
-        if (
-            response_type in [ResponseType.RAW, ResponseType.BOTH]
-            and endpoint.dataset_id
-        ):
-            references = await self._search_dataset(endpoint, request)
+        try:
+            # Search dataset if needed
+            if (
+                response_type in [ResponseType.RAW, ResponseType.BOTH]
+                and endpoint.dataset_id
+            ):
+                references = await self._search_dataset(endpoint, request)
 
-        # Chat with model if needed
-        if (
-            response_type in [ResponseType.SUMMARY, ResponseType.BOTH]
-            and endpoint.model_id
-        ):
-            summary = await self._chat_with_model(endpoint, request, references)
+            # Chat with model if needed
+            if (
+                response_type in [ResponseType.SUMMARY, ResponseType.BOTH]
+                and endpoint.model_id
+            ):
+                summary = await self._chat_with_model(endpoint, request, references)
+        except Exception:
+            # Cancel any bundle reservation on query failure
+            await self._cancel_bundle_reservation(policy_context, tenant)
+            raise
 
         # Create response
         query_response = QueryEndpointResponse(summary=summary, references=references)
@@ -356,6 +371,32 @@ class EndpointHandler:
                 ) from e
 
         return QueryEndpointResponse.model_validate(policy_context.response)
+
+    async def _cancel_bundle_reservation(
+        self, context: PolicyContext, tenant: Tenant
+    ) -> None:
+        """Cancel any bundle reservation on query failure."""
+        reserved = context.metadata.get("xendit_reserved_amount")
+        if not reserved or not self.bundle_service:
+            return
+        unit_type = context.metadata.get("xendit_unit_type", "requests")
+        endpoint_id = context.metadata.get("endpoint_id")
+        tenant_id = context.metadata.get("tenant_id")
+        if endpoint_id and tenant_id:
+            try:
+                await self.bundle_service.cancel(
+                    str(context.sender_email),
+                    endpoint_id,
+                    tenant_id,
+                    unit_type,
+                    reserved,
+                )
+                logger.info(
+                    f"Cancelled bundle reservation of {reserved} {unit_type} "
+                    f"for {context.sender_email}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to cancel bundle reservation: {e}")
 
     async def _search_dataset(
         self, endpoint: Endpoint, request: AuthenticatedQueryRequest

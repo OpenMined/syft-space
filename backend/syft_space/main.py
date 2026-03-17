@@ -70,6 +70,16 @@ from syft_space.components.model_types.registry import MODEL_TYPE_REGISTRY
 from syft_space.components.models.handlers import ModelHandler
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.models.routes import build_model_routes
+from syft_space.components.payments.bundle_service import BundleService
+from syft_space.components.payments.bundle_usage_repository import (
+    BundleUsageRepository,
+)
+from syft_space.components.payments.handlers import PaymentHandler
+from syft_space.components.payments.invoice_repository import InvoiceRepository
+from syft_space.components.payments.routes import build_payment_routes
+from syft_space.components.payments.webhook_routes import build_webhook_routes
+from syft_space.components.payments.xendit_gateway import XenditGateway
+from syft_space.components.payments.xendit_routes import build_xendit_payment_routes
 from syft_space.components.policies.handlers import PolicyHandler
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policies.routes import build_policy_routes
@@ -363,6 +373,11 @@ endpoint_repository = EndpointRepository(database)
 ingestion_job_repository = IngestionJobRepository(database)
 marketplace_repository = MarketplaceRepository(database)
 wallet_repository = WalletRepository(database)
+invoice_repository = InvoiceRepository(database)
+bundle_usage_repository = BundleUsageRepository(database)
+
+# Initialize bundle service
+bundle_service = BundleService(bundle_usage_repository)
 
 # Explicit type registration - no import side effects
 logger.info("Registering dataset types ...")
@@ -384,6 +399,14 @@ model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 policy_handler = PolicyHandler(POLICY_TYPE_REGISTRY, policy_repository)
 marketplace_handler = MarketplaceHandler(marketplace_repository)
 wallet_handler = WalletHandler(wallet_repository)
+payment_handler = PaymentHandler(
+    invoice_repository=invoice_repository,
+    bundle_usage_repository=bundle_usage_repository,
+    wallet_repository=wallet_repository,
+    endpoint_repository=endpoint_repository,
+    policy_repository=policy_repository,
+    gateways={"xendit": XenditGateway()},
+)
 endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
@@ -393,6 +416,7 @@ endpoint_handler = EndpointHandler(
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
     marketplace_repository=marketplace_repository,
+    bundle_service=bundle_service,
 )
 tenant_handler = TenantHandler(tenant_repository)
 
@@ -426,6 +450,7 @@ endpoint_heartbeat_manager = EndpointHeartbeatManager(
     enabled=app_settings.heartbeat_enabled,
     check_interval=app_settings.health_check_interval,
 )
+app.state.bundle_service = bundle_service
 app.state.provisioner_manager = provisioner_manager
 app.state.ingestion_manager = ingestion_manager
 app.state.proxy_service = proxy_service
@@ -447,6 +472,9 @@ router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_wallet_routes(wallet_handler))
+router.include_router(build_payment_routes(payment_handler))
+router.include_router(build_xendit_payment_routes(payment_handler))
+router.include_router(build_webhook_routes(payment_handler))
 router.include_router(build_settings_routes(settings_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 

@@ -18,10 +18,12 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     from .access.access_type import EndpointAccessPolicy
     from .accounting.accounting_type import AccountingPolicy
     from .rate_limit.rate_limit_type import EndpointRateLimitPolicy
+    from .xendit.xendit_type import XenditPolicy
 
     registry.register_policy_type(EndpointRateLimitPolicy)
     registry.register_policy_type(EndpointAccessPolicy)
     registry.register_policy_type(AccountingPolicy)
+    registry.register_policy_type(XenditPolicy)
 
 
 __all__ = ["register_builtin_types"]

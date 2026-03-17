@@ -12,6 +12,7 @@ from sqlmodel import Column, Field, ForeignKey, Relationship, SQLModel
 if TYPE_CHECKING:
     from components.datasets.entities import Dataset
     from components.models.entities import Model
+    from components.payments.entities import BundleUsage, Invoice
     from components.policies.entities import Policy
     from components.tenants.entities import Tenant
 
@@ -80,6 +81,14 @@ class Endpoint(SQLModel, table=True):
     policies: list["Policy"] = Relationship(
         back_populates="endpoint",
         sa_relationship_kwargs={"foreign_keys": "[Policy.endpoint_id]"},
+    )
+    invoices: list["Invoice"] = Relationship(
+        back_populates="endpoint",
+        sa_relationship_kwargs={"foreign_keys": "[Invoice.endpoint_id]"},
+    )
+    bundle_usages: list["BundleUsage"] = Relationship(
+        back_populates="endpoint",
+        sa_relationship_kwargs={"foreign_keys": "[BundleUsage.endpoint_id]"},
     )
 
     @field_validator("response_type")

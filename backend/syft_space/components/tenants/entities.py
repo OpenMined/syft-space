@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from components.endpoints.entities import Endpoint
     from components.marketplaces.entities import Marketplace
     from components.models.entities import Model
+    from components.payments.entities import BundleUsage, Invoice
     from components.policies.entities import Policy
     from components.wallets.entities import Wallet
 
@@ -52,6 +53,8 @@ class Tenant(SQLModel, table=True):
     policies: list["Policy"] = Relationship(back_populates="tenant")
     marketplaces: list["Marketplace"] = Relationship(back_populates="tenant")
     wallets: list["Wallet"] = Relationship(back_populates="tenant")
+    invoices: list["Invoice"] = Relationship(back_populates="tenant")
+    bundle_usages: list["BundleUsage"] = Relationship(back_populates="tenant")
 
     class Config:
         """Pydantic config."""

@@ -91,6 +91,12 @@ class AppSettings(BaseSettings):
         description="Interval in seconds between endpoint health checks",
     )
 
+    # Xendit settings
+    xendit_api_url: str = Field(
+        default="https://api.xendit.co",
+        description="Base URL for the Xendit API",
+    )
+
     @field_validator("public_url", mode="before")
     @classmethod
     def validate_public_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
