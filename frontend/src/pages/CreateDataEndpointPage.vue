@@ -46,7 +46,7 @@
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 1
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
                     isStepClickable(1) ? 'hover:scale-105' : '',
                   ]"
@@ -98,7 +98,7 @@
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 2
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
                     isStepClickable(2) ? 'hover:scale-105' : '',
                   ]"
@@ -144,7 +144,7 @@
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 3
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
                     isStepClickable(3) ? 'hover:scale-105' : '',
                   ]"
@@ -190,7 +190,7 @@
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 4
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
                     isStepClickable(4) ? 'hover:scale-105' : '',
                   ]"
@@ -236,7 +236,7 @@
                   :class="[
                     'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 5
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
                     isStepClickable(5) ? 'hover:scale-105' : '',
                   ]"
@@ -484,7 +484,7 @@
                         >
                           <div
                             v-if="formData.selectedDataSource === dataset.id"
-                            class="w-2 h-2 rounded-full bg-white"
+                            class="w-2 h-2 rounded-full bg-primary-foreground"
                           ></div>
                         </div>
                       </div>
@@ -665,7 +665,7 @@
                 >
                   <!-- Recommended Badge -->
                   <div
-                    class="absolute -top-2 -right-2 bg-green-600 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-md"
+                    class="absolute -top-2 -right-2 bg-green-600 text-green-50 text-xs font-semibold px-3 py-1 rounded-full shadow-md"
                   >
                     Recommended
                   </div>
@@ -1404,7 +1404,7 @@
             <Button
               @click="nextStep"
               :disabled="!isCurrentStepValid || isCreating || isCheckingBeforePublish"
-              class="bg-primary hover:bg-primary/90 text-white px-8"
+              class="bg-primary hover:bg-primary/90 text-primary-foreground px-8"
             >
               <template v-if="currentSubStep === 5 && isCheckingBeforePublish">
                 <Loader2 class="mr-2 h-4 w-4 animate-spin" />
