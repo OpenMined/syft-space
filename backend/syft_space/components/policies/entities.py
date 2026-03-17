@@ -31,6 +31,12 @@ class Policy(SQLModel, table=True):
     policy_type: str = Field(
         ..., description="Policy type name (references policy type)"
     )
+    policy_group: str | None = Field(
+        default=None,
+        index=True,
+        description="Exclusive group name (e.g., 'payment'). "
+        "Types in the same group are mutually exclusive per endpoint.",
+    )
     configuration: dict = Field(
         default_factory=dict,
         sa_column=Column(JSON),

@@ -4,6 +4,8 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, EmailStr, Field
 
+from syft_space.components.shared.utils import matches_any_pattern
+
 
 class PolicyViolationError(Exception):
     """Raised when a policy rule is violated.
@@ -133,6 +135,19 @@ class BasePolicyType(Protocol):
         ...
 
     @classmethod
+    def policy_group(cls) -> str | None:
+        """Policy group for mutual exclusivity.
+
+        Policy types in the same group are mutually exclusive per endpoint —
+        an endpoint can only have policies from one type within each group.
+        Return None for no restriction.
+
+        Returns:
+            Group name string, or None if unrestricted
+        """
+        ...
+
+    @classmethod
     def enabled(cls) -> bool:
         """Check if this policy type is enabled.
 
@@ -157,3 +172,43 @@ class BasePolicyType(Protocol):
             ValueError: If configuration is invalid
         """
         ...
+
+
+class ExclusivePolicyType(BasePolicyType):
+    """Base class for mutually exclusive policy groups.
+
+    Policy types that share the same POLICY_GROUP value are mutually exclusive
+    per endpoint — an endpoint can only have policies from ONE type within
+    each group. For example, 'accounting' and 'xendit' both set
+    POLICY_GROUP = "payment", so an endpoint can use one or the other, not both.
+
+    Subclasses must set:
+    - POLICY_GROUP: str — the exclusivity group name
+
+    Subclasses inherit:
+    - policy_group() → returns POLICY_GROUP
+    - _applies_to_user() helper for applied_to pattern matching
+
+    Subclasses must implement all remaining BasePolicyType methods:
+    NAME, name(), description(), icon(), configuration_schema(),
+    pre_hook(), post_hook(), enabled(), validate_config().
+    """
+
+    POLICY_GROUP: str
+
+    @classmethod
+    def policy_group(cls) -> str:
+        """Return the exclusivity group this policy type belongs to."""
+        return cls.POLICY_GROUP
+
+    def _applies_to_user(self, user_email: str, applied_to: list[str]) -> bool:
+        """Check if the policy applies to the given user.
+
+        Args:
+            user_email: Email of the user
+            applied_to: List of glob patterns (e.g., '*', '*@company.com')
+
+        Returns:
+            True if the policy applies to this user
+        """
+        return matches_any_pattern(user_email, applied_to)

@@ -17,6 +17,10 @@ class PolicyTypeInfoResponse(BaseModel):
     )
     icon: str = Field(..., description="Icon for the policy type")
     enabled: bool = Field(..., description="Whether the policy type is enabled")
+    policy_group: str | None = Field(
+        default=None,
+        description="Policy group for mutual exclusivity. Types in the same group cannot coexist on one endpoint.",
+    )
 
 
 class CreatePolicyRequest(BaseModel):
@@ -64,6 +68,9 @@ class PolicyResponse(BaseModel):
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(..., description="Policy name")
     policy_type: str = Field(..., description="Policy type name")
+    policy_group: str | None = Field(
+        default=None, description="Exclusive group name (e.g., 'payment')"
+    )
     configuration: dict[str, Any] = Field(..., description="Configuration")
     endpoint_id: UUID = Field(..., description="Endpoint ID")
     created_at: datetime = Field(..., description="Creation timestamp")
@@ -81,6 +88,7 @@ class PolicyListItem(BaseModel):
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(..., description="Policy name")
     policy_type: str = Field(..., description="Policy type name")
+    policy_group: str | None = Field(default=None, description="Exclusive group name")
     endpoint_id: UUID = Field(..., description="Endpoint ID")
     created_at: datetime = Field(..., description="Creation timestamp")
 

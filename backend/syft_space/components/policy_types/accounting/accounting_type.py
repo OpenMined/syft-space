@@ -8,14 +8,11 @@ from pydantic import BaseModel, EmailStr, Field, HttpUrl
 from syft_accounting_sdk import UserClient
 
 from syft_space.components.policy_types.interfaces import (
-    BasePolicyType,
+    ExclusivePolicyType,
     PolicyContext,
     PolicyViolationError,
 )
-from syft_space.components.shared.utils import (
-    ConfigSchemaGenerator,
-    matches_any_pattern,
-)
+from syft_space.components.shared.utils import ConfigSchemaGenerator
 
 
 class PricingMode(str, Enum):
@@ -74,7 +71,7 @@ class AccountingCredentials(BaseModel):
             ) from e
 
 
-class AccountingPolicy(BasePolicyType):
+class AccountingPolicy(ExclusivePolicyType):
     """Accounting policy type.
 
     Tracks and bills API usage based on calls or tokens.
@@ -87,6 +84,7 @@ class AccountingPolicy(BasePolicyType):
     """
 
     NAME = "accounting"
+    POLICY_GROUP = "payment"
 
     @classmethod
     def name(cls) -> str:
@@ -113,18 +111,6 @@ class AccountingPolicy(BasePolicyType):
         return AccountingConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
-
-    def _applies_to_user(self, user_email: str, config: AccountingConfig) -> bool:
-        """Check if the policy applies to the given user.
-
-        Args:
-            user_email: Email of the user
-            config: Accounting configuration
-
-        Returns:
-            True if the policy applies to this user
-        """
-        return matches_any_pattern(user_email, config.applied_to)
 
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
@@ -159,7 +145,7 @@ class AccountingPolicy(BasePolicyType):
 
         for config in validated:
             # Skip if policy doesn't apply to this user
-            if not self._applies_to_user(user_email, config):
+            if not self._applies_to_user(user_email, config.applied_to):
                 continue
 
             if config.pricing_mode != PricingMode.PER_CALL:

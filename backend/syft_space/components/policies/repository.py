@@ -115,6 +115,38 @@ class PolicyRepository(AsyncBaseRepository[Policy]):
             result = await session.exec(statement)
             return list(result.all())
 
+    async def get_by_group_for_endpoint(
+        self,
+        endpoint_id: UUID,
+        tenant_id: UUID,
+        policy_group: str,
+        exclude_type: str | None = None,
+    ) -> list[Policy]:
+        """Get policies in a specific group for an endpoint.
+
+        Used for mutual exclusivity checks — finds conflicting policies
+        from the same exclusive group but a different type.
+
+        Args:
+            endpoint_id: Endpoint UUID
+            tenant_id: Tenant ID
+            policy_group: Group name to filter by
+            exclude_type: Optionally exclude this policy type (same type is allowed)
+
+        Returns:
+            List of matching policies
+        """
+        async with self.db.get_session() as session:
+            statement = select(Policy).where(
+                Policy.endpoint_id == endpoint_id,
+                Policy.tenant_id == tenant_id,
+                Policy.policy_group == policy_group,
+            )
+            if exclude_type:
+                statement = statement.where(Policy.policy_type != exclude_type)
+            result = await session.exec(statement)
+            return list(result.all())
+
     async def get_by_name(self, name: str, tenant_id: UUID) -> Policy | None:
         """Get a policy by name within a tenant.
 

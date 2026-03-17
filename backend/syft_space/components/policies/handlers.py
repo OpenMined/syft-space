@@ -14,6 +14,7 @@ from syft_space.components.policies.schemas import (
     PolicyTypeInfoResponse,
     UpdatePolicyRequest,
 )
+from syft_space.components.policy_types.interfaces import ExclusivePolicyType
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.tenants.entities import Tenant
 
@@ -49,6 +50,7 @@ class PolicyHandler:
                     config_schema=policy_type_cls.configuration_schema(),
                     icon=policy_type_cls.icon(),
                     enabled=policy_type_cls.enabled(),
+                    policy_group=policy_type_cls.policy_group(),
                 )
             )
 
@@ -79,6 +81,7 @@ class PolicyHandler:
             config_schema=policy_type_cls.configuration_schema(),
             icon=policy_type_cls.icon(),
             enabled=policy_type_cls.enabled(),
+            policy_group=policy_type_cls.policy_group(),
         )
 
     async def create_policy(
@@ -112,15 +115,30 @@ class PolicyHandler:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
-        # TODO: Verify endpoint exists when endpoint repository is available
+        # Resolve policy group from type hierarchy
+        group = (
+            policy_type_cls.policy_group()
+            if issubclass(policy_type_cls, ExclusivePolicyType)
+            else None
+        )
 
-        # Create policy entity with validated config
+        # Enforce mutual exclusivity for exclusive policy groups
+        if group is not None:
+            await self._check_group_exclusivity(
+                endpoint_id=request.endpoint_id,
+                tenant_id=tenant.id,
+                policy_type_name=request.policy_type,
+                group=group,
+            )
+
+        # Create policy entity with validated config + group
         policy = Policy(
             name=request.name,
             policy_type=request.policy_type,
+            policy_group=group,
             configuration=validated_config,
             endpoint_id=request.endpoint_id,
-            tenant_id=tenant.id,  # Set tenant_id explicitly
+            tenant_id=tenant.id,
         )
 
         # Save to database
@@ -241,6 +259,44 @@ class PolicyHandler:
             )
 
         return {"message": f"Successfully deleted policy '{policy_id}'"}
+
+    async def _check_group_exclusivity(
+        self,
+        endpoint_id: UUID,
+        tenant_id: UUID,
+        policy_type_name: str,
+        group: str,
+    ) -> None:
+        """Check that no conflicting policy type from the same exclusive group exists.
+
+        Uses the policy_group DB field for a direct query — no registry lookup needed.
+
+        Args:
+            endpoint_id: Endpoint UUID
+            tenant_id: Tenant UUID
+            policy_type_name: The policy type being created
+            group: The exclusive group to check against
+
+        Raises:
+            HTTPException: 409 if a different type from the same group already exists
+        """
+        conflicts = await self.repository.get_by_group_for_endpoint(
+            endpoint_id=endpoint_id,
+            tenant_id=tenant_id,
+            policy_group=group,
+            exclude_type=policy_type_name,
+        )
+        if conflicts:
+            existing_type = conflicts[0].policy_type
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Endpoint already has a '{existing_type}' policy "
+                    f"(group '{group}'). Only one policy type per exclusive group "
+                    f"is allowed. Remove '{existing_type}' before adding "
+                    f"'{policy_type_name}'."
+                ),
+            )
 
     async def get_policies_by_endpoint(
         self, endpoint_id: UUID, tenant: Tenant

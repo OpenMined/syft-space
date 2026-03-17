@@ -112,6 +112,9 @@ from syft_space.components.tenants.handlers import TenantHandler
 from syft_space.components.tenants.middleware import TenantMiddleware
 from syft_space.components.tenants.repository import TenantRepository
 from syft_space.components.tenants.routes import build_tenant_routes
+from syft_space.components.wallets.handlers import WalletHandler
+from syft_space.components.wallets.repository import WalletRepository
+from syft_space.components.wallets.routes import build_wallet_routes
 from syft_space.config import app_settings
 
 
@@ -359,6 +362,7 @@ policy_repository = PolicyRepository(database)
 endpoint_repository = EndpointRepository(database)
 ingestion_job_repository = IngestionJobRepository(database)
 marketplace_repository = MarketplaceRepository(database)
+wallet_repository = WalletRepository(database)
 
 # Explicit type registration - no import side effects
 logger.info("Registering dataset types ...")
@@ -379,6 +383,7 @@ dataset_handler = DatasetHandler(
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 policy_handler = PolicyHandler(POLICY_TYPE_REGISTRY, policy_repository)
 marketplace_handler = MarketplaceHandler(marketplace_repository)
+wallet_handler = WalletHandler(wallet_repository)
 endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
@@ -441,6 +446,7 @@ router.include_router(build_endpoint_routes(endpoint_handler))
 router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
+router.include_router(build_wallet_routes(wallet_handler))
 router.include_router(build_settings_routes(settings_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 
