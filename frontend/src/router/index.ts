@@ -16,6 +16,7 @@ import AboutPage from '../pages/AboutPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
+import { settingsApi } from '../api/endpoints/settings'
 import { useServerAvailabilityStore } from '../stores/serverAvailability'
 
 let onboardingStatusCache: boolean | null = null
@@ -26,7 +27,14 @@ export async function checkOnboardingStatus(): Promise<boolean> {
   }
   try {
     const marketplaces = await marketplacesApi.list()
-    onboardingStatusCache = marketplaces.length > 0
+    if (marketplaces.length === 0) {
+      onboardingStatusCache = false
+      return false
+    }
+
+    // Marketplace exists — also verify network is configured
+    const publicUrlResponse = await settingsApi.getPublicUrl()
+    onboardingStatusCache = publicUrlResponse.public_url !== null
     return onboardingStatusCache
   } catch {
     // If API fails, assume not onboarded
