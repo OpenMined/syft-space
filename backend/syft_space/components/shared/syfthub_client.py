@@ -3,7 +3,17 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, TypeVar
+
+
+class _Unset(Enum):
+    """Sentinel for distinguishing 'not provided' from explicit None."""
+
+    UNSET = "UNSET"
+
+
+UNSET = _Unset.UNSET
 
 import httpx
 from fastapi import HTTPException
@@ -540,14 +550,14 @@ class SyftHubClient:
 
     async def update_profile(
         self,
-        domain: str | None = None,
-        username: str | None = None,
-        email: str | None = None,
-        full_name: str | None = None,
+        domain: str | None | _Unset = UNSET,
+        username: str | None | _Unset = UNSET,
+        email: str | None | _Unset = UNSET,
+        full_name: str | None | _Unset = UNSET,
     ) -> UserProfile:
         """Update the profile of the current user.
         Args:
-            domain: Domain of the current user
+            domain: Domain of the current user (None to clear)
             username: Username of the current user
             email: Email of the current user
             full_name: Full name of the current user
@@ -555,13 +565,13 @@ class SyftHubClient:
             UserProfile: User profile
         """
         self._require_auth()
-        payload = {
+        fields = {
             "domain": domain,
             "username": username,
             "email": email,
             "full_name": full_name,
         }
-        payload = {k: v for k, v in payload.items() if v is not None}
+        payload = {k: v for k, v in fields.items() if v is not UNSET}
         response = await self._client.put("api/v1/users/me", json=payload)  # type: ignore
         return _handle_response(response, UserProfile)
 

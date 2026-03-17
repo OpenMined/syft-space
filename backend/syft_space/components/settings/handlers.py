@@ -86,7 +86,7 @@ class SettingsHandler:
         return PublicUrlResponse(public_url=url_str)
 
     async def sync_public_url_to_marketplace(
-        self, marketplace: Marketplace, url: str
+        self, marketplace: Marketplace, url: str | None
     ) -> None:
         """Sync public URL to marketplace (helper method).
 
@@ -223,6 +223,6 @@ class SettingsHandler:
 
         await self.proxy_service.disconnect()
         if marketplace is not None:
-            await self.sync_public_url_to_marketplace(marketplace, "")
+            await self.sync_public_url_to_marketplace(marketplace, None)
 
         return ProxyStatusResponse(connected=False, public_url=None, has_token=False)
