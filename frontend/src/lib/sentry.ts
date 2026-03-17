@@ -15,8 +15,10 @@ export function initSentry(app: App, router: Router) {
   Sentry.init({
     app,
     dsn: SENTRY_DSN,
-    integrations: [Sentry.browserTracingIntegration({ router })],
+    integrations: [Sentry.browserTracingIntegration({ router }), Sentry.replayIntegration()],
     tracesSampleRate: 0.1,
+    replaysSessionSampleRate: 0,
+    replaysOnErrorSampleRate: 1.0,
     beforeSend(event) {
       return diagnosticsEnabled ? event : null
     },

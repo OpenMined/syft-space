@@ -256,8 +256,7 @@
               <div class="flex items-start space-x-3">
                 <Checkbox
                   id="diagnostics"
-                  :checked="diagnosticsOptIn"
-                  @update:checked="diagnosticsOptIn = $event as boolean"
+                  v-model="diagnosticsOptIn"
                   class="mt-0.5"
                 />
                 <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
@@ -333,6 +332,14 @@ onMounted(async () => {
 
   // Not fully onboarded — check if registration already completed
   await loadExistingState()
+
+  // Load current diagnostics preference
+  try {
+    const res = await settingsApi.getDiagnostics()
+    diagnosticsOptIn.value = res.enabled
+  } catch {
+    // Default to false if fetch fails
+  }
 })
 
 // Use onboarding composable
