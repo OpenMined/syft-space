@@ -93,7 +93,7 @@ const submit = async () => {
     <Transition name="fade">
       <div
         v-if="open && showPreview && screenshotPreview && includeScreenshot"
-        class="fixed top-1/2 right-[430px] z-[100000] -translate-y-1/2 rounded-lg border bg-background p-1.5 shadow-2xl"
+        class="fixed top-1/2 right-[430px] z-[100000] -translate-y-1/2 rounded-lg border border-primary/50 bg-background p-1.5 glow-preview"
         style="pointer-events: auto !important; max-width: calc(100vw - 450px); max-height: 80vh"
         @mouseenter="showPreview = true"
         @mouseleave="showPreview = false"
@@ -158,33 +158,27 @@ const submit = async () => {
           </div>
 
           <!-- Screenshot Toggle -->
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <Camera class="h-4 w-4 text-muted-foreground" />
-              <Label for="screenshot-toggle" class="text-sm font-normal cursor-pointer">
-                Include screenshot of current page
-              </Label>
-            </div>
-            <div class="flex items-center gap-2">
-              <div
-                v-if="screenshotPreview && includeScreenshot"
-                class="relative"
-                @mouseenter="showPreview = true"
-                @mouseleave="showPreview = false"
-              >
-                <button
-                  type="button"
-                  class="rounded border border-border overflow-hidden hover:ring-2 hover:ring-ring transition-all"
-                  @click="showPreview = !showPreview"
-                >
-                  <img
-                    :src="screenshotPreview"
-                    alt="Screenshot preview"
-                    class="h-8 w-14 object-cover object-top"
-                  />
-                </button>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <Camera class="h-4 w-4 text-muted-foreground" />
+                <Label for="screenshot-toggle" class="text-sm font-normal cursor-pointer">
+                  Include screenshot of current page
+                </Label>
               </div>
               <Switch id="screenshot-toggle" v-model="includeScreenshot" />
+            </div>
+            <div
+              v-if="screenshotPreview && includeScreenshot"
+              class="rounded-lg border border-border overflow-hidden cursor-pointer"
+              @mouseenter="showPreview = true"
+              @mouseleave="showPreview = false"
+            >
+              <img
+                :src="screenshotPreview"
+                alt="Screenshot preview"
+                class="w-full object-cover object-top max-h-[200px]"
+              />
             </div>
           </div>
         </div>
@@ -221,5 +215,11 @@ const submit = async () => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.glow-preview {
+  box-shadow:
+    0 0 20px color-mix(in srgb, var(--primary) 50%, transparent),
+    0 0 40px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 </style>
