@@ -11,14 +11,16 @@ export function setDiagnosticsEnabled(enabled: boolean) {
   diagnosticsEnabled = enabled
 }
 
+export function setSentryTag(key: string, value: string) {
+  Sentry.getCurrentScope().setTag(key, value)
+}
+
 export function initSentry(app: App, router: Router) {
   Sentry.init({
     app,
     dsn: SENTRY_DSN,
-    integrations: [Sentry.browserTracingIntegration({ router }), Sentry.replayIntegration()],
+    integrations: [Sentry.browserTracingIntegration({ router })],
     tracesSampleRate: 0.1,
-    replaysSessionSampleRate: 1.0,
-    replaysOnErrorSampleRate: 1.0,
     beforeSend(event) {
       return diagnosticsEnabled ? event : null
     },

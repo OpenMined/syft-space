@@ -4,6 +4,7 @@ import { twMerge } from 'tailwind-merge'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
+import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -21,7 +22,10 @@ export async function loadGlobalData() {
     userStore.fetchBalance(),
     settingsApi
       .getDiagnostics()
-      .then((res) => setDiagnosticsEnabled(res.enabled))
+      .then((res) => {
+        setDiagnosticsEnabled(res.enabled)
+        setPosthogDiagnosticsEnabled(res.enabled)
+      })
       .catch(() => {}),
   ])
 }

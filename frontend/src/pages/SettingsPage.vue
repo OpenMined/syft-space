@@ -212,6 +212,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
+import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 
 const userStore = useUserStore()
 
@@ -285,7 +286,6 @@ const saveChanges = async () => {
         proxyStatus.connected = result.connected
         proxyStatus.publicUrl = result.public_url
         proxyStatus.hasToken = result.has_token
-        toast.success('Proxy configured successfully')
       }
     } else {
       if (proxyStatus.hasToken) {
@@ -296,17 +296,15 @@ const saveChanges = async () => {
       }
 
       await settingsApi.updatePublicUrl({ public_url: customUrl.value })
-      toast.success('Public URL updated successfully')
     }
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Failed to save settings')
-  }
 
-  try {
     await settingsApi.updateDiagnostics({ enabled: diagnosticsEnabled.value })
     setDiagnosticsEnabled(diagnosticsEnabled.value)
-  } catch {
-    toast.error('Failed to save diagnostics preference')
+    setPosthogDiagnosticsEnabled(diagnosticsEnabled.value)
+
+    toast.success('Settings saved')
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to save settings')
   }
 
   saving.value = false
