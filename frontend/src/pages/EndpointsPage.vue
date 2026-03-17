@@ -110,13 +110,11 @@
         endpointsStore.endpoints.length === 0 &&
         !searchQuery
       "
-      class="text-center py-12"
+      class="text-center py-8"
     >
-      <div class="mx-auto w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-6">
-        <Server class="w-7 h-7 text-muted-foreground" />
-      </div>
-      <h3 class="heading-2 text-foreground mb-3">No endpoints yet</h3>
-      <p class="body-sm text-muted-foreground mb-8 max-w-sm mx-auto">
+      <Server class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+      <h3 class="heading-3 text-foreground mb-2">No endpoints yet</h3>
+      <p class="body-sm text-muted-foreground mb-4">
         Get started by creating your first endpoint to share data or models.
       </p>
       <Button @click="showCreateEndpointModal = true">
