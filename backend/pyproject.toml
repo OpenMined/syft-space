@@ -30,6 +30,7 @@ dependencies = [
     "syft-accounting-sdk",
     "sqlalchemy[asyncio]>=2.0.45",
     "aiofiles>=25.1.0",
+    "sentry-sdk[fastapi]>=2.0.0",
 ]
 
 [project.optional-dependencies]

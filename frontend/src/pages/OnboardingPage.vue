@@ -256,8 +256,7 @@
               <div class="flex items-start space-x-3">
                 <Checkbox
                   id="diagnostics"
-                  :checked="diagnosticsOptIn"
-                  @update:checked="diagnosticsOptIn = $event as boolean"
+                  v-model="diagnosticsOptIn"
                   class="mt-0.5"
                 />
                 <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
@@ -310,6 +309,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { settingsApi } from '@/api/endpoints/settings'
+import { setDiagnosticsEnabled } from '@/lib/sentry'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { loadGlobalData } from '@/lib/utils'
 import { checkOnboardingStatus, clearOnboardingCache } from '@/router'
@@ -332,6 +332,14 @@ onMounted(async () => {
 
   // Not fully onboarded — check if registration already completed
   await loadExistingState()
+
+  // Load current diagnostics preference
+  try {
+    const res = await settingsApi.getDiagnostics()
+    diagnosticsOptIn.value = res.enabled
+  } catch {
+    // Default to false if fetch fails
+  }
 })
 
 // Use onboarding composable
@@ -429,8 +437,9 @@ const handleCompleteSetup = async () => {
     // Complete the setup
     const setupSuccess = await completeSetup()
     if (setupSuccess) {
-      // Save diagnostics preference
+      // Save diagnostics preference and update Sentry
       await settingsApi.updateDiagnostics({ enabled: diagnosticsOptIn.value })
+      setDiagnosticsEnabled(diagnosticsOptIn.value)
 
       // Clear cache so next check gets fresh status
       clearOnboardingCache()

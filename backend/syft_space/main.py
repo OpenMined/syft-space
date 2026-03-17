@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 import syft_space.components.shared.logging_config  # noqa: F401, I001
+from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
 
 # Import auth components
 from syft_space.components.auth.dependencies import bearer_scheme
@@ -230,6 +231,9 @@ async def _setup_tenant_and_settings(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - handles startup and shutdown events."""
+    # 0. Initialize Sentry (events gated by diagnostics setting)
+    init_sentry(debug=app_settings.debug)
+
     # 1. Run database migrations
     await database.run_migrations(reset=app_settings.reset_db)
 
@@ -238,6 +242,13 @@ async def lifespan(app: FastAPI):
         tenant_repository, settings_handler
     )
     app.state.default_tenant = default_tenant
+
+    # 2.1. Load diagnostics preference for Sentry gating
+    try:
+        diagnostics = await settings_handler.get_diagnostics()
+        set_diagnostics_enabled(diagnostics.enabled)
+    except Exception as e:
+        logger.warning(f"Failed to load diagnostics preference: {e}")
 
     # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion → endpoint_heartbeat)
     services: list[tuple[str, LifecycleService]] = [

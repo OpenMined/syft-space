@@ -114,16 +114,11 @@
             </div>
 
             <!-- Subdomain conditional content -->
-            <div v-if="networkMode === 'subdomain'" class="ml-7">
+            <div v-if="networkMode === 'subdomain' && proxyStatus.connected" class="ml-7">
               <div class="p-4 bg-muted/50 rounded-lg border space-y-3">
                 <div class="flex items-center gap-2">
-                  <div
-                    class="h-2 w-2 rounded-full"
-                    :class="proxyStatus.connected ? 'bg-green-500' : 'bg-yellow-500'"
-                  />
-                  <span class="text-sm font-medium">
-                    {{ proxyStatus.connected ? 'Connected' : 'Disconnected' }}
-                  </span>
+                  <div class="h-2 w-2 rounded-full bg-green-500" />
+                  <span class="text-sm font-medium">Connected</span>
                 </div>
 
                 <div v-if="proxyStatus.publicUrl" class="text-sm">
@@ -184,8 +179,7 @@
         <div class="flex items-start space-x-3">
           <Checkbox
             id="diagnostics"
-            :checked="diagnosticsEnabled"
-            @update:checked="diagnosticsEnabled = $event as boolean"
+            v-model="diagnosticsEnabled"
             class="mt-0.5"
           />
           <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
@@ -217,6 +211,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
+import { setDiagnosticsEnabled } from '@/lib/sentry'
 
 const userStore = useUserStore()
 
@@ -309,6 +304,7 @@ const saveChanges = async () => {
 
   try {
     await settingsApi.updateDiagnostics({ enabled: diagnosticsEnabled.value })
+    setDiagnosticsEnabled(diagnosticsEnabled.value)
   } catch {
     toast.error('Failed to save diagnostics preference')
   }

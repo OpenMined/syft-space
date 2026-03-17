@@ -10,6 +10,7 @@ from syft_space.components.settings.schemas import (
     UpdateDiagnosticsRequest,
     UpdatePublicUrlRequest,
 )
+from syft_space.components.shared.sentry import set_diagnostics_enabled
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
 
@@ -63,7 +64,9 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
         handler: SettingsHandler = Depends(get_handler),
     ) -> DiagnosticsResponse:
         """Update the diagnostics preference."""
-        return await handler.update_diagnostics(request.enabled)
+        result = await handler.update_diagnostics(request.enabled)
+        set_diagnostics_enabled(request.enabled)
+        return result
 
     @router.get("/proxy", response_model=ProxyStatusResponse)
     async def get_proxy_status(
