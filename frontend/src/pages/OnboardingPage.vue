@@ -310,6 +310,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { settingsApi } from '@/api/endpoints/settings'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
+import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { loadGlobalData } from '@/lib/utils'
 import { checkOnboardingStatus, clearOnboardingCache } from '@/router'
@@ -440,6 +441,7 @@ const handleCompleteSetup = async () => {
       // Save diagnostics preference and update Sentry
       await settingsApi.updateDiagnostics({ enabled: diagnosticsOptIn.value })
       setDiagnosticsEnabled(diagnosticsOptIn.value)
+      setPosthogDiagnosticsEnabled(diagnosticsOptIn.value)
 
       // Clear cache so next check gets fresh status
       clearOnboardingCache()
