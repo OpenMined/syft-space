@@ -23,6 +23,7 @@
     "check": "run-s format lint typecheck"
   },
   "dependencies": {
+    "@sentry/vue": "^10.43.0",
     "@tailwindcss/vite": "4.1.13",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-window": "^2.0.0-alpha.1",

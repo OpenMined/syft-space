@@ -285,6 +285,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { settingsApi } from '@/api/endpoints/settings'
+import { setDiagnosticsEnabled } from '@/lib/sentry'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { loadGlobalData } from '@/lib/utils'
 import { checkOnboardingStatus, clearOnboardingCache } from '@/router'
@@ -390,8 +391,9 @@ const handleCompleteSetup = async () => {
     // Complete the setup
     const setupSuccess = await completeSetup()
     if (setupSuccess) {
-      // Save diagnostics preference
+      // Save diagnostics preference and update Sentry
       await settingsApi.updateDiagnostics({ enabled: diagnosticsOptIn.value })
+      setDiagnosticsEnabled(diagnosticsOptIn.value)
 
       // Clear cache so next check gets fresh status
       clearOnboardingCache()

@@ -217,6 +217,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
+import { setDiagnosticsEnabled } from '@/lib/sentry'
 
 const userStore = useUserStore()
 
@@ -309,6 +310,7 @@ const saveChanges = async () => {
 
   try {
     await settingsApi.updateDiagnostics({ enabled: diagnosticsEnabled.value })
+    setDiagnosticsEnabled(diagnosticsEnabled.value)
   } catch {
     toast.error('Failed to save diagnostics preference')
   }
