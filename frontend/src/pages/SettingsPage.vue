@@ -179,8 +179,7 @@
         <div class="flex items-start space-x-3">
           <Checkbox
             id="diagnostics"
-            :checked="diagnosticsEnabled"
-            @update:checked="diagnosticsEnabled = $event as boolean"
+            v-model="diagnosticsEnabled"
             class="mt-0.5"
           />
           <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
