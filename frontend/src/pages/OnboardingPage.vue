@@ -31,7 +31,7 @@
                     Signed in as <span class="font-semibold">{{ marketplaceData!.username }}</span>
                   </p>
                   <p class="body-sm text-muted-foreground">
-                    Your SyftHub account is connected. Now configure how others can reach your space.
+                    Your SyftHub account is connected.
                   </p>
                 </div>
               </div>
@@ -161,11 +161,11 @@
               <div v-else class="space-y-4">
                 <!-- Username field -->
                 <div class="space-y-2">
-                  <Label for="signin-username">Username</Label>
+                  <Label for="signin-username">Email</Label>
                   <Input
                     id="signin-username"
                     v-model="signinForm.username"
-                    placeholder="johndoe"
+                    placeholder="john@example.com"
                   />
                 </div>
 
