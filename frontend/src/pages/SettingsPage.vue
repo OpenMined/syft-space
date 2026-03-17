@@ -179,6 +179,21 @@
         </div>
       </div>
 
+      <!-- Diagnostics Section -->
+      <div class="bg-card border border-border rounded-xl p-6">
+        <div class="flex items-start space-x-3">
+          <Checkbox
+            id="diagnostics"
+            :checked="diagnosticsEnabled"
+            @update:checked="diagnosticsEnabled = $event as boolean"
+            class="mt-0.5"
+          />
+          <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
+            Help improve Syft Space by sharing anonymous usage data
+          </Label>
+        </div>
+      </div>
+
       <!-- Save Button -->
       <div class="mt-8 flex justify-end">
         <Button :disabled="saving" @click="saveChanges">
@@ -194,6 +209,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Settings, Globe, User, ExternalLink, Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
@@ -209,6 +225,7 @@ const loadingNetwork = ref(true)
 const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
 const customUrl = ref(window.location.origin)
+const diagnosticsEnabled = ref(false)
 
 const proxyStatus = reactive({
   connected: false,
@@ -222,6 +239,15 @@ const fetchAccountInfo = async () => {
     await userStore.fetchMarketplaceInfo()
   } finally {
     loadingAccount.value = false
+  }
+}
+
+const fetchDiagnostics = async () => {
+  try {
+    const res = await settingsApi.getDiagnostics()
+    diagnosticsEnabled.value = res.enabled
+  } catch {
+    // Default to false if fetch fails
   }
 }
 
@@ -251,6 +277,11 @@ const fetchNetworkConfig = async () => {
 }
 
 const saveChanges = async () => {
+  if (networkMode.value === 'custom' && !customUrl.value) {
+    toast.error('Please enter your public URL')
+    return
+  }
+
   saving.value = true
   try {
     if (networkMode.value === 'subdomain') {
@@ -262,11 +293,6 @@ const saveChanges = async () => {
         toast.success('Proxy configured successfully')
       }
     } else {
-      if (!customUrl.value) {
-        toast.error('Please enter your public URL')
-        return
-      }
-
       if (proxyStatus.hasToken) {
         await settingsApi.disconnectProxy()
         proxyStatus.connected = false
@@ -279,13 +305,20 @@ const saveChanges = async () => {
     }
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Failed to save settings')
-  } finally {
-    saving.value = false
   }
+
+  try {
+    await settingsApi.updateDiagnostics({ enabled: diagnosticsEnabled.value })
+  } catch {
+    toast.error('Failed to save diagnostics preference')
+  }
+
+  saving.value = false
 }
 
 onMounted(() => {
   fetchAccountInfo()
   fetchNetworkConfig()
+  fetchDiagnostics()
 })
 </script>

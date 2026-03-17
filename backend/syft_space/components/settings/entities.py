@@ -21,4 +21,7 @@ class Settings(SQLModel, table=True):
     ngrok_domain: str | None = Field(
         default=None, description="Domain for ngrok tunnel"
     )
+    diagnostics_enabled: bool = Field(
+        default=False, description="Whether anonymous diagnostics sharing is enabled"
+    )
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

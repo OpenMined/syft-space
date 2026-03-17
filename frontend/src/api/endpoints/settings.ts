@@ -1,5 +1,11 @@
 import { apiClient } from '../client'
-import type { PublicUrlResponse, UpdatePublicUrlRequest, ProxyStatusResponse } from '../types'
+import type {
+  PublicUrlResponse,
+  UpdatePublicUrlRequest,
+  ProxyStatusResponse,
+  DiagnosticsResponse,
+  UpdateDiagnosticsRequest,
+} from '../types'
 
 export const settingsApi = {
   // Get current public URL
@@ -29,6 +35,18 @@ export const settingsApi = {
   // Disconnect proxy
   disconnectProxy: async (): Promise<ProxyStatusResponse> => {
     const response = await apiClient.delete('/settings/proxy')
+    return response.data
+  },
+
+  // Get diagnostics preference
+  getDiagnostics: async (): Promise<DiagnosticsResponse> => {
+    const response = await apiClient.get('/settings/diagnostics')
+    return response.data
+  },
+
+  // Update diagnostics preference
+  updateDiagnostics: async (data: UpdateDiagnosticsRequest): Promise<DiagnosticsResponse> => {
+    const response = await apiClient.patch('/settings/diagnostics', data)
     return response.data
   },
 }

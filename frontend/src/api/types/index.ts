@@ -437,3 +437,11 @@ export interface ProxyStatusResponse {
   public_url: string | null
   has_token: boolean
 }
+
+export interface DiagnosticsResponse {
+  enabled: boolean
+}
+
+export interface UpdateDiagnosticsRequest {
+  enabled: boolean
+}

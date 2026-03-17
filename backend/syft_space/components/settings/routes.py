@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends
 
 from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.schemas import (
+    DiagnosticsResponse,
     ProxyStatusResponse,
     PublicUrlResponse,
+    UpdateDiagnosticsRequest,
     UpdatePublicUrlRequest,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
@@ -47,6 +49,21 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
         Updates the local configuration and syncs to the marketplace.
         """
         return await handler.update_public_url(tenant, request.public_url)
+
+    @router.get("/diagnostics", response_model=DiagnosticsResponse)
+    async def get_diagnostics(
+        handler: SettingsHandler = Depends(get_handler),
+    ) -> DiagnosticsResponse:
+        """Get the current diagnostics preference."""
+        return await handler.get_diagnostics()
+
+    @router.patch("/diagnostics", response_model=DiagnosticsResponse)
+    async def update_diagnostics(
+        request: UpdateDiagnosticsRequest,
+        handler: SettingsHandler = Depends(get_handler),
+    ) -> DiagnosticsResponse:
+        """Update the diagnostics preference."""
+        return await handler.update_diagnostics(request.enabled)
 
     @router.get("/proxy", response_model=ProxyStatusResponse)
     async def get_proxy_status(
