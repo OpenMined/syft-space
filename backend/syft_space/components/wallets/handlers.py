@@ -1,5 +1,6 @@
 """Wallet handlers for business logic."""
 
+import secrets
 from uuid import UUID
 
 from fastapi import HTTPException, Request
@@ -9,6 +10,7 @@ from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.schemas import (
     CreateWalletRequest,
+    WalletCreateResponse,
     WalletListItem,
     WalletResponse,
 )
@@ -36,11 +38,11 @@ class WalletHandler:
         request_data: CreateWalletRequest,
         tenant: Tenant,
         request: Request,
-    ) -> WalletResponse:
+    ) -> WalletCreateResponse:
         """Create a new wallet.
 
-        Returns the webhook URL that the owner must configure in their
-        payment provider dashboard.
+        Auto-generates a callback token for webhook verification.
+        Returns the webhook URL and callback token (shown once).
         """
         if request_data.wallet_type not in SUPPORTED_WALLET_TYPES:
             raise HTTPException(
@@ -61,20 +63,30 @@ class WalletHandler:
             )
 
         webhook_url = self._build_webhook_url(request, request_data.wallet_type)
+        callback_token = secrets.token_urlsafe(32)
 
         wallet = Wallet(
             tenant_id=tenant.id,
             wallet_type=request_data.wallet_type,
             credentials={
                 "api_key": request_data.api_key,
-                "callback_token": request_data.callback_token,
+                "callback_token": callback_token,
             },
             is_active=True,
             webhook_url=webhook_url,
         )
 
         created = await self.repository.create(wallet)
-        return WalletResponse.model_validate(created)
+
+        return WalletCreateResponse(
+            id=created.id,
+            wallet_type=created.wallet_type,
+            is_active=created.is_active,
+            webhook_url=created.webhook_url,
+            callback_token=callback_token,
+            created_at=created.created_at,
+            updated_at=created.updated_at,
+        )
 
     async def list_wallets(self, tenant: Tenant) -> list[WalletListItem]:
         """List all wallets for a tenant."""

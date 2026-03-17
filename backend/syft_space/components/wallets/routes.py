@@ -9,6 +9,7 @@ from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.handlers import WalletHandler
 from syft_space.components.wallets.schemas import (
     CreateWalletRequest,
+    WalletCreateResponse,
     WalletListItem,
     WalletResponse,
 )
@@ -29,16 +30,17 @@ def build_wallet_routes(handler: WalletHandler) -> APIRouter:
         """Dependency to get the wallet handler."""
         return handler
 
-    @router.post("/", response_model=WalletResponse, status_code=201)
+    @router.post("/", response_model=WalletCreateResponse, status_code=201)
     async def create_wallet(
         request_data: CreateWalletRequest,
         request: Request,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: WalletHandler = Depends(get_handler),
-    ) -> WalletResponse:
+    ) -> WalletCreateResponse:
         """Create a new payment wallet.
 
-        Returns the webhook URL to configure in the provider's dashboard.
+        Returns the webhook URL and callback token (shown once).
+        Configure both in the provider's dashboard.
         """
         return await handler.create_wallet(request_data, tenant, request)
 
