@@ -198,6 +198,24 @@ export function useOnboarding() {
     }
   }
 
+  // Load existing onboarding state (for page refresh after partial completion)
+  const loadExistingState = async (): Promise<boolean> => {
+    try {
+      const marketplaces = await marketplacesApi.list()
+      const mp = marketplaces[0]
+      if (mp) {
+        marketplaceData.value = {
+          id: mp.id,
+          username: mp.username,
+        }
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
   // Reset all forms and state
   const reset = () => {
     currentStep.value = 1
@@ -248,11 +266,15 @@ export function useOnboarding() {
     authError,
     networkError,
 
+    // Marketplace data (set after auth success)
+    marketplaceData,
+
     // Methods
     checkUsernameAvailability,
     register,
     signIn,
     completeSetup,
+    loadExistingState,
     reset,
   }
 }

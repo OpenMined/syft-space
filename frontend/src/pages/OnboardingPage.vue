@@ -22,140 +22,165 @@
       <Card>
         <CardContent class="p-8">
           <form @submit.prevent="handleCompleteSetup" class="space-y-6">
-            <!-- Account type toggle -->
-            <div class="space-y-4">
-              <h3 class="heading-4 text-foreground">Do you have a SyftHub account?</h3>
-              <div class="flex gap-3">
-                <Button
-                  type="button"
-                  :variant="authMode === 'register' ? 'default' : 'outline'"
-                  class="flex-1"
-                  @click="authMode = 'register'"
-                >
-                  I'm new here
-                </Button>
-                <Button
-                  type="button"
-                  :variant="authMode === 'signin' ? 'default' : 'outline'"
-                  class="flex-1"
-                  @click="authMode = 'signin'"
-                >
-                  I have an account
-                </Button>
+            <!-- Already registered state -->
+            <div v-if="isAlreadyRegistered" class="space-y-3">
+              <div class="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950">
+                <CheckCircle class="h-5 w-5 text-green-600 shrink-0" />
+                <div>
+                  <p class="body-md font-medium text-foreground">
+                    Signed in as <span class="font-semibold">{{ marketplaceData!.username }}</span>
+                  </p>
+                  <p class="body-sm text-muted-foreground">
+                    Your SyftHub account is connected. Now configure how others can reach your space.
+                  </p>
+                </div>
               </div>
             </div>
 
-            <!-- Register Form Fields -->
-            <div v-if="authMode === 'register'" class="space-y-4">
-              <!-- Username field with availability check -->
-              <div class="space-y-2">
-                <Label for="username">Username</Label>
-                <div class="relative">
+            <!-- Account type toggle -->
+            <template v-else>
+              <div class="space-y-4">
+                <h3 class="heading-4 text-foreground">Do you have a SyftHub account?</h3>
+                <div class="flex gap-3">
+                  <Button
+                    type="button"
+                    :variant="authMode === 'register' ? 'default' : 'outline'"
+                    class="flex-1"
+                    @click="authMode = 'register'"
+                  >
+                    I'm new here
+                  </Button>
+                  <Button
+                    type="button"
+                    :variant="authMode === 'signin' ? 'default' : 'outline'"
+                    class="flex-1"
+                    @click="authMode = 'signin'"
+                  >
+                    I have an account
+                  </Button>
+                </div>
+              </div>
+
+              <!-- Register Form Fields -->
+              <div v-if="authMode === 'register'" class="space-y-4">
+                <!-- Username field with availability check -->
+                <div class="space-y-2">
+                  <Label for="username">Username</Label>
+                  <div class="relative">
+                    <Input
+                      id="username"
+                      v-model="registerForm.username"
+                      @input="handleUsernameInput"
+                      placeholder="johndoe"
+                      class="pr-10"
+                      :class="{
+                        'border-green-500': usernameAvailable === true,
+                        'border-red-500': usernameAvailable === false,
+                      }"
+                    />
+                    <div
+                      class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none"
+                    >
+                      <Loader2
+                        v-if="checkingUsername"
+                        class="h-4 w-4 text-muted-foreground animate-spin"
+                      />
+                      <CheckCircle
+                        v-else-if="usernameAvailable === true"
+                        class="h-4 w-4 text-green-600"
+                      />
+                      <XCircle
+                        v-else-if="usernameAvailable === false"
+                        class="h-4 w-4 text-red-600"
+                      />
+                    </div>
+                  </div>
+                  <p v-if="usernameAvailable === false" class="body-sm text-red-600">
+                    This username is already taken
+                  </p>
+                  <p v-else-if="usernameAvailable === true" class="body-sm text-green-600">
+                    Great! This username is available
+                  </p>
+                  <p v-else class="body-sm text-muted-foreground">
+                    Choose a unique username for your space
+                  </p>
+                </div>
+
+                <!-- Email field -->
+                <div class="space-y-2">
+                  <Label for="email">Email</Label>
                   <Input
-                    id="username"
-                    v-model="registerForm.username"
-                    @input="handleUsernameInput"
-                    placeholder="johndoe"
-                    class="pr-10"
+                    id="email"
+                    v-model="registerForm.email"
+                    type="email"
+                    placeholder="john@example.com"
+                  />
+                </div>
+
+                <!-- Name field -->
+                <div class="space-y-2">
+                  <Label for="name">Full Name</Label>
+                  <Input id="name" v-model="registerForm.name" placeholder="John Doe" />
+                </div>
+
+                <!-- Password field -->
+                <div class="space-y-2">
+                  <Label for="password">Password</Label>
+                  <Input
+                    id="password"
+                    v-model="registerForm.password"
+                    type="password"
+                    placeholder="••••••••"
+                  />
+                  <p class="body-sm text-muted-foreground">Must be at least 8 characters</p>
+                </div>
+
+                <!-- Confirm Password field -->
+                <div class="space-y-2">
+                  <Label for="confirm-password">Confirm Password</Label>
+                  <Input
+                    id="confirm-password"
+                    v-model="confirmPassword"
+                    type="password"
+                    placeholder="••••••••"
                     :class="{
-                      'border-green-500': usernameAvailable === true,
-                      'border-red-500': usernameAvailable === false,
+                      'border-red-500':
+                        confirmPassword && registerForm.password !== confirmPassword,
                     }"
                   />
-                  <div
-                    class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none"
+                  <p
+                    v-if="confirmPassword && registerForm.password !== confirmPassword"
+                    class="body-sm text-red-600"
                   >
-                    <Loader2
-                      v-if="checkingUsername"
-                      class="h-4 w-4 text-muted-foreground animate-spin"
-                    />
-                    <CheckCircle
-                      v-else-if="usernameAvailable === true"
-                      class="h-4 w-4 text-green-600"
-                    />
-                    <XCircle v-else-if="usernameAvailable === false" class="h-4 w-4 text-red-600" />
-                  </div>
+                    Passwords do not match
+                  </p>
                 </div>
-                <p v-if="usernameAvailable === false" class="body-sm text-red-600">
-                  This username is already taken
-                </p>
-                <p v-else-if="usernameAvailable === true" class="body-sm text-green-600">
-                  Great! This username is available
-                </p>
-                <p v-else class="body-sm text-muted-foreground">
-                  Choose a unique username for your space
-                </p>
               </div>
 
-              <!-- Email field -->
-              <div class="space-y-2">
-                <Label for="email">Email</Label>
-                <Input
-                  id="email"
-                  v-model="registerForm.email"
-                  type="email"
-                  placeholder="john@example.com"
-                />
-              </div>
+              <!-- Sign In Form Fields -->
+              <div v-else class="space-y-4">
+                <!-- Username field -->
+                <div class="space-y-2">
+                  <Label for="signin-username">Username</Label>
+                  <Input
+                    id="signin-username"
+                    v-model="signinForm.username"
+                    placeholder="johndoe"
+                  />
+                </div>
 
-              <!-- Name field -->
-              <div class="space-y-2">
-                <Label for="name">Full Name</Label>
-                <Input id="name" v-model="registerForm.name" placeholder="John Doe" />
+                <!-- Password field -->
+                <div class="space-y-2">
+                  <Label for="signin-password">Password</Label>
+                  <Input
+                    id="signin-password"
+                    v-model="signinForm.password"
+                    type="password"
+                    placeholder="••••••••"
+                  />
+                </div>
               </div>
-
-              <!-- Password field -->
-              <div class="space-y-2">
-                <Label for="password">Password</Label>
-                <Input
-                  id="password"
-                  v-model="registerForm.password"
-                  type="password"
-                  placeholder="••••••••"
-                />
-                <p class="body-sm text-muted-foreground">Must be at least 8 characters</p>
-              </div>
-
-              <!-- Confirm Password field -->
-              <div class="space-y-2">
-                <Label for="confirm-password">Confirm Password</Label>
-                <Input
-                  id="confirm-password"
-                  v-model="confirmPassword"
-                  type="password"
-                  placeholder="••••••••"
-                  :class="{
-                    'border-red-500': confirmPassword && registerForm.password !== confirmPassword,
-                  }"
-                />
-                <p
-                  v-if="confirmPassword && registerForm.password !== confirmPassword"
-                  class="body-sm text-red-600"
-                >
-                  Passwords do not match
-                </p>
-              </div>
-            </div>
-
-            <!-- Sign In Form Fields -->
-            <div v-else class="space-y-4">
-              <!-- Username field -->
-              <div class="space-y-2">
-                <Label for="signin-username">Username</Label>
-                <Input id="signin-username" v-model="signinForm.username" placeholder="johndoe" />
-              </div>
-
-              <!-- Password field -->
-              <div class="space-y-2">
-                <Label for="signin-password">Password</Label>
-                <Input
-                  id="signin-password"
-                  v-model="signinForm.password"
-                  type="password"
-                  placeholder="••••••••"
-                />
-              </div>
-            </div>
+            </template>
 
             <!-- Separator -->
             <Separator />
@@ -263,7 +288,7 @@
               size="lg"
             >
               <Loader2 v-if="isSubmitting" class="mr-2 h-4 w-4 animate-spin" />
-              Complete Setup
+              {{ isAlreadyRegistered ? 'Configure Network' : 'Complete Setup' }}
             </Button>
           </form>
         </CardContent>
@@ -292,7 +317,7 @@ import { checkOnboardingStatus, clearOnboardingCache } from '@/router'
 const router = useRouter()
 const route = useRoute()
 
-// Check if already onboarded and redirect if so
+// Check if already onboarded and redirect, or load partial state
 onMounted(async () => {
   const isOnboarded = await checkOnboardingStatus()
   if (isOnboarded) {
@@ -302,7 +327,11 @@ onMounted(async () => {
     } else {
       router.replace({ name: 'home' })
     }
+    return
   }
+
+  // Not fully onboarded — check if registration already completed
+  await loadExistingState()
 })
 
 // Use onboarding composable
@@ -316,10 +345,12 @@ const {
   usernameAvailable,
   authError,
   networkError,
+  marketplaceData,
   checkUsernameAvailability,
   register,
   signIn,
   completeSetup,
+  loadExistingState,
 } = useOnboarding()
 
 // Additional form state
@@ -354,6 +385,10 @@ const isNetworkSetupValid = computed(() => {
 })
 
 const isSetupValid = computed(() => {
+  if (isAlreadyRegistered.value) {
+    return isNetworkSetupValid.value
+  }
+
   const accountValid =
     authMode.value === 'register' ? isRegisterFormValid.value : isSignInFormValid.value
 
@@ -370,21 +405,25 @@ const handleUsernameInput = () => {
   }
 }
 
+const isAlreadyRegistered = computed(() => marketplaceData.value !== null)
+
 const handleCompleteSetup = async () => {
   isSubmitting.value = true
 
   try {
-    // First, authenticate
-    let authSuccess = false
-    if (authMode.value === 'register') {
-      authSuccess = await register()
-    } else {
-      authSuccess = await signIn()
-    }
+    // Skip auth if already registered (retry after network failure)
+    if (!isAlreadyRegistered.value) {
+      let authSuccess = false
+      if (authMode.value === 'register') {
+        authSuccess = await register()
+      } else {
+        authSuccess = await signIn()
+      }
 
-    if (!authSuccess) {
-      isSubmitting.value = false
-      return
+      if (!authSuccess) {
+        isSubmitting.value = false
+        return
+      }
     }
 
     // Complete the setup
