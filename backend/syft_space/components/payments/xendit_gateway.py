@@ -19,10 +19,33 @@ class XenditGateway:
     """Xendit Payment Sessions gateway.
 
     Translates between our domain model and Xendit's API/webhook format.
+
+    Xendit webhook payload structure:
+    {
+        "event": "payment_session.completed",
+        "business_id": "...",
+        "created": "...",
+        "data": {
+            "id": "ps-...",
+            "reference_id": "our-reference",
+            "status": "COMPLETED",
+            "amount": 100000,
+            "created": "...",
+            "updated": "...",
+            ...
+        }
+    }
     """
 
     PROVIDER_NAME = "xendit"
     POLICY_TYPE = "xendit"
+
+    # Map Xendit event types to our domain status
+    _EVENT_STATUS_MAP = {
+        "payment_session.completed": InvoiceStatus.PAID,
+        "payment_session.expired": InvoiceStatus.EXPIRED,
+        "payment_session.canceled": InvoiceStatus.EXPIRED,
+    }
 
     async def create_payment(
         self,
@@ -77,37 +100,38 @@ class XenditGateway:
         self,
         raw_payload: dict,
     ) -> WebhookResult:
-        """Map Xendit payment status to our domain model.
+        """Parse Xendit webhook into domain types.
 
-        Xendit Payment Sessions webhook statuses:
-        - SUCCEEDED → InvoiceStatus.PAID
-        - FAILED → InvoiceStatus.FAILED
-        - EXPIRED, CANCELED → InvoiceStatus.EXPIRED
+        Xendit sends a nested payload:
+          { "event": "payment_session.completed", "data": { "reference_id": ..., "status": ..., ... } }
+
+        We map the event type to our InvoiceStatus and extract fields from data.
         """
-        xendit_status = raw_payload.get("status", "").upper()
-        reference_id = raw_payload.get("reference_id", "")
+        event = raw_payload.get("event", "")
+        data = raw_payload.get("data", {})
 
-        # Map status
-        status_map = {
-            "SUCCEEDED": InvoiceStatus.PAID,
-            "FAILED": InvoiceStatus.FAILED,
-            "EXPIRED": InvoiceStatus.EXPIRED,
-            "CANCELED": InvoiceStatus.EXPIRED,
-        }
-        status = status_map.get(xendit_status)
+        reference_id = data.get("reference_id", "")
+        if not reference_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Webhook payload missing data.reference_id",
+            )
+
+        # Map event type to our domain status
+        status = self._EVENT_STATUS_MAP.get(event)
         if not status:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unhandled Xendit status: {xendit_status}",
+                detail=f"Unhandled Xendit event: {event}",
             )
 
-        # Extract timestamp
+        # Extract timestamp for paid events
         paid_at = None
         if status == InvoiceStatus.PAID:
-            created = raw_payload.get("created")
-            if created:
+            timestamp = data.get("updated") or data.get("created")
+            if timestamp:
                 try:
-                    paid_at = datetime.fromisoformat(created)
+                    paid_at = datetime.fromisoformat(timestamp)
                 except ValueError:
                     paid_at = datetime.now(timezone.utc)
             else:
