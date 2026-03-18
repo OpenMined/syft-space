@@ -83,7 +83,7 @@ watch(
       <router-view />
     </main>
 
-    <FeedbackButton />
+    <FeedbackButton v-if="!isUpdatesPage && !isAboutPage" />
     <Toaster position="top-center" />
   </div>
 </template>
