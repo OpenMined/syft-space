@@ -2,8 +2,11 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from syft_space.components.auth.dependencies import get_verified_user_email
+from syft_space.components.auth.public import public_route
+from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.payments.handlers import PaymentHandler
 from syft_space.components.payments.schemas import (
     BundleUsageResponse,
@@ -13,7 +16,10 @@ from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
 
 
-def build_payment_routes(handler: PaymentHandler) -> APIRouter:
+def build_payment_routes(
+    handler: PaymentHandler,
+    marketplace_repository: MarketplaceRepository,
+) -> APIRouter:
     """Build generic payment routes.
 
     Provider-specific routes (e.g., Xendit invoice creation) live in
@@ -24,6 +30,16 @@ def build_payment_routes(handler: PaymentHandler) -> APIRouter:
     def get_handler() -> PaymentHandler:
         return handler
 
+    async def get_verified_sender_email(
+        request: Request,
+        tenant: Tenant = Depends(get_tenant_dependency),
+    ) -> str:
+        """Extract verified user email from satellite token."""
+        marketplace = await marketplace_repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(status_code=400, detail="No marketplace configured")
+        return await get_verified_user_email(request, marketplace)
+
     @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
     async def get_invoice(
         invoice_id: UUID,
@@ -33,15 +49,16 @@ def build_payment_routes(handler: PaymentHandler) -> APIRouter:
         """Get invoice details and current status."""
         return await handler.get_invoice(invoice_id, tenant)
 
+    @public_route
     @router.get("/bundles/{endpoint_slug}", response_model=BundleUsageResponse)
     async def get_bundle_usage(
         endpoint_slug: str,
-        user_email: str = Query(..., description="User email to check balance for"),
         unit_type: str = Query(default="requests", description="Unit type to check"),
         tenant: Tenant = Depends(get_tenant_dependency),
+        user_email: str = Depends(get_verified_sender_email),
         handler: PaymentHandler = Depends(get_handler),
     ) -> BundleUsageResponse:
-        """Get a user's bundle balance for an endpoint."""
+        """Get user's bundle balance for an endpoint (PUBLIC, requires satellite token)."""
         return await handler.get_bundle_usage(
             endpoint_slug, user_email, tenant, unit_type
         )
