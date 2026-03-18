@@ -154,7 +154,15 @@ class XenditClient:
         if description:
             payload["description"] = description
         if payer_email:
-            payload["customer"] = {"email": payer_email}
+            # Use reference_id as customer reference to keep it unique per session
+            payload["customer"] = {
+                "reference_id": f"cust-{reference_id}",
+                "type": "INDIVIDUAL",
+                "email": payer_email,
+                "individual_detail": {
+                    "given_names": payer_email.split("@")[0],
+                },
+            }
         if success_return_url:
             payload["success_return_url"] = success_return_url
         if cancel_return_url:

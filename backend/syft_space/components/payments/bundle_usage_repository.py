@@ -89,26 +89,24 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
         Uses UPDATE ... WHERE remaining_units >= amount for atomicity.
         """
         async with self.db.get_session() as session:
-            result = await session.exec(
-                text(
-                    "UPDATE bundle_usage "
-                    "SET remaining_units = remaining_units - :amount, "
-                    "    updated_at = :now "
-                    "WHERE user_email = :user_email "
-                    "  AND endpoint_id = :endpoint_id "
-                    "  AND tenant_id = :tenant_id "
-                    "  AND unit_type = :unit_type "
-                    "  AND remaining_units >= :amount"
-                ),
-                {
-                    "amount": amount,
-                    "now": datetime.now(timezone.utc).isoformat(),
-                    "user_email": user_email,
-                    "endpoint_id": str(endpoint_id),
-                    "tenant_id": str(tenant_id),
-                    "unit_type": unit_type,
-                },
+            stmt = text(
+                "UPDATE bundle_usage "
+                "SET remaining_units = remaining_units - :amount, "
+                "    updated_at = :now "
+                "WHERE user_email = :user_email "
+                "  AND endpoint_id = :endpoint_id "
+                "  AND tenant_id = :tenant_id "
+                "  AND unit_type = :unit_type "
+                "  AND remaining_units >= :amount"
+            ).bindparams(
+                amount=amount,
+                now=datetime.now(timezone.utc).isoformat(),
+                user_email=user_email,
+                endpoint_id=endpoint_id.hex,
+                tenant_id=tenant_id.hex,
+                unit_type=unit_type,
             )
+            result = await session.execute(stmt)
             await session.commit()
             return result.rowcount > 0
 
@@ -122,23 +120,21 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
     ) -> None:
         """Atomically restore units (settle refund or cancel rollback)."""
         async with self.db.get_session() as session:
-            await session.exec(
-                text(
-                    "UPDATE bundle_usage "
-                    "SET remaining_units = remaining_units + :amount, "
-                    "    updated_at = :now "
-                    "WHERE user_email = :user_email "
-                    "  AND endpoint_id = :endpoint_id "
-                    "  AND tenant_id = :tenant_id "
-                    "  AND unit_type = :unit_type"
-                ),
-                {
-                    "amount": amount,
-                    "now": datetime.now(timezone.utc).isoformat(),
-                    "user_email": user_email,
-                    "endpoint_id": str(endpoint_id),
-                    "tenant_id": str(tenant_id),
-                    "unit_type": unit_type,
-                },
+            stmt = text(
+                "UPDATE bundle_usage "
+                "SET remaining_units = remaining_units + :amount, "
+                "    updated_at = :now "
+                "WHERE user_email = :user_email "
+                "  AND endpoint_id = :endpoint_id "
+                "  AND tenant_id = :tenant_id "
+                "  AND unit_type = :unit_type"
+            ).bindparams(
+                amount=amount,
+                now=datetime.now(timezone.utc).isoformat(),
+                user_email=user_email,
+                endpoint_id=endpoint_id.hex,
+                tenant_id=tenant_id.hex,
+                unit_type=unit_type,
             )
+            await session.execute(stmt)
             await session.commit()
