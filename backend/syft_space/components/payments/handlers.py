@@ -66,7 +66,11 @@ class PaymentHandler:
     # ── Provider-scoped: invoice creation ──────────────────────────
 
     async def create_invoice(
-        self, provider: str, request: CreateInvoiceRequest, tenant: Tenant
+        self,
+        provider: str,
+        request: CreateInvoiceRequest,
+        tenant: Tenant,
+        user_email: str,
     ) -> InvoiceResponse:
         """Create an invoice for a bundle purchase.
 
@@ -111,7 +115,7 @@ class PaymentHandler:
 
         # 4. Check applied_to
         applied_to = config.get("applied_to", ["*"])
-        if not matches_any_pattern(request.user_email, applied_to):
+        if not matches_any_pattern(user_email, applied_to):
             raise HTTPException(
                 status_code=403,
                 detail="User is not eligible for this endpoint's payment policy",
@@ -130,13 +134,13 @@ class PaymentHandler:
         unit_type = tier.get("unit_type", "requests")
         tier_units = tier["units"]
         amount = tier["price"]
-        reference_id = f"syft-{endpoint.slug}-{request.user_email}-{datetime.now(timezone.utc).timestamp()}"
+        reference_id = f"syft-{endpoint.slug}-{user_email}-{datetime.now(timezone.utc).timestamp()}"
 
         result = await gateway.create_payment(
             reference_id=reference_id,
             amount=amount,
             currency=currency,
-            payer_email=request.user_email,
+            payer_email=user_email,
             description=f"Bundle: {tier['name']} ({tier_units} {unit_type}) for {endpoint.slug}",
             wallet=wallet,
             policy_config=config,
@@ -146,7 +150,7 @@ class PaymentHandler:
         invoice = Invoice(
             tenant_id=tenant.id,
             endpoint_id=endpoint.id,
-            user_email=request.user_email,
+            user_email=user_email,
             provider=gateway.PROVIDER_NAME,
             external_id=result.external_id,
             checkout_url=result.checkout_url,

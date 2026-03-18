@@ -11,14 +11,12 @@ class CreateInvoiceRequest(BaseModel):
 
     endpoint_slug: str = Field(..., description="Slug of the endpoint to purchase for")
     tier_name: str = Field(..., description="Name of the bundle tier to purchase")
-    user_email: str = Field(..., description="Email of the purchasing user")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "endpoint_slug": "my-rag",
                 "tier_name": "Pro",
-                "user_email": "user@example.com",
             }
         }
 
