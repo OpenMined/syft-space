@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import update
 from sqlmodel import select
 
 from syft_space.components.payments.entities import BundleUsage
@@ -89,24 +89,21 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
         Uses UPDATE ... WHERE remaining_units >= amount for atomicity.
         """
         async with self.db.get_session() as session:
-            stmt = text(
-                "UPDATE bundle_usage "
-                "SET remaining_units = remaining_units - :amount, "
-                "    updated_at = :now "
-                "WHERE user_email = :user_email "
-                "  AND endpoint_id = :endpoint_id "
-                "  AND tenant_id = :tenant_id "
-                "  AND unit_type = :unit_type "
-                "  AND remaining_units >= :amount"
-            ).bindparams(
-                amount=amount,
-                now=datetime.now(timezone.utc).isoformat(),
-                user_email=user_email,
-                endpoint_id=endpoint_id.hex,
-                tenant_id=tenant_id.hex,
-                unit_type=unit_type,
+            stmt = (
+                update(BundleUsage)
+                .where(
+                    BundleUsage.user_email == user_email,
+                    BundleUsage.endpoint_id == endpoint_id,
+                    BundleUsage.tenant_id == tenant_id,
+                    BundleUsage.unit_type == unit_type,
+                    BundleUsage.remaining_units >= amount,
+                )
+                .values(
+                    remaining_units=BundleUsage.remaining_units - amount,
+                    updated_at=datetime.now(timezone.utc),
+                )
             )
-            result = await session.execute(stmt)
+            result = await session.exec(stmt)
             await session.commit()
             return result.rowcount > 0
 
@@ -120,21 +117,18 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
     ) -> None:
         """Atomically restore units (settle refund or cancel rollback)."""
         async with self.db.get_session() as session:
-            stmt = text(
-                "UPDATE bundle_usage "
-                "SET remaining_units = remaining_units + :amount, "
-                "    updated_at = :now "
-                "WHERE user_email = :user_email "
-                "  AND endpoint_id = :endpoint_id "
-                "  AND tenant_id = :tenant_id "
-                "  AND unit_type = :unit_type"
-            ).bindparams(
-                amount=amount,
-                now=datetime.now(timezone.utc).isoformat(),
-                user_email=user_email,
-                endpoint_id=endpoint_id.hex,
-                tenant_id=tenant_id.hex,
-                unit_type=unit_type,
+            stmt = (
+                update(BundleUsage)
+                .where(
+                    BundleUsage.user_email == user_email,
+                    BundleUsage.endpoint_id == endpoint_id,
+                    BundleUsage.tenant_id == tenant_id,
+                    BundleUsage.unit_type == unit_type,
+                )
+                .values(
+                    remaining_units=BundleUsage.remaining_units + amount,
+                    updated_at=datetime.now(timezone.utc),
+                )
             )
-            await session.execute(stmt)
+            await session.exec(stmt)
             await session.commit()
