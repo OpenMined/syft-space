@@ -89,7 +89,7 @@ class MppAccountingPolicy(BasePolicyType):
 
         return best_price
 
-    def _get_mpp_instance(self, wallet_address: str, realm: str) -> Mpp:
+    async def _get_mpp_instance(self, wallet_address: str, realm: str, secret_key: str) -> Mpp:
         """Get or create a cached Mpp server instance for charging.
 
         Instances are cached per (wallet_address, realm) so the HMAC-based
@@ -107,7 +107,7 @@ class MppAccountingPolicy(BasePolicyType):
             )
             MppAccountingPolicy._mpp_instances[cache_key] = Mpp.create(
                 method=method,
-                secret_key=app_settings.mpp_secret_key,
+                secret_key=secret_key,
                 realm=realm,
             )
         return MppAccountingPolicy._mpp_instances[cache_key]
@@ -155,7 +155,8 @@ class MppAccountingPolicy(BasePolicyType):
         x_payment = context.metadata.get("x_payment")
 
         # Create MPP instance and attempt charge
-        mpp = self._get_mpp_instance(wallet_address, realm=context.endpoint_slug)
+        secret_key = context.metadata.get("mpp_secret_key", "")
+        mpp = await self._get_mpp_instance(wallet_address, realm=context.endpoint_slug, secret_key=secret_key)
 
         result = await mpp.charge(
             authorization=x_payment,

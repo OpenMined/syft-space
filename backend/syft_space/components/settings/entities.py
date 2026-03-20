@@ -24,4 +24,7 @@ class Settings(SQLModel, table=True):
     diagnostics_enabled: bool = Field(
         default=False, description="Whether anonymous diagnostics sharing is enabled"
     )
+    mpp_secret_key: str | None = Field(
+        default=None, description="HMAC secret key for MPP challenge signing (auto-generated)"
+    )
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

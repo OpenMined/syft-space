@@ -69,6 +69,7 @@ class EndpointHandler:
         model_registry: ModelTypeRegistry,
         policy_registry: PolicyTypeRegistry,
         marketplace_repository: MarketplaceRepository | None = None,
+        settings_repository: "SettingsRepository | None" = None,
     ):
         """Initialize the endpoint handler.
 
@@ -81,6 +82,7 @@ class EndpointHandler:
             model_registry: Model type registry
             policy_registry: Policy type registry
             marketplace_repository: Marketplace repository (optional, for publish)
+            settings_repository: Settings repository (optional, for MPP secret key)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -90,6 +92,7 @@ class EndpointHandler:
         self.model_registry = model_registry
         self.policy_registry = policy_registry
         self.marketplace_repository = marketplace_repository
+        self.settings_repository = settings_repository
 
     async def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
@@ -280,6 +283,10 @@ class EndpointHandler:
             except HTTPException:
                 # No marketplace configured
                 pass
+
+        # Inject MPP secret key for challenge signing
+        if self.settings_repository:
+            metadata["mpp_secret_key"] = await self.settings_repository.get_mpp_secret_key()
 
         # Inject X-Payment credential for MPP accounting policy
         if x_payment:

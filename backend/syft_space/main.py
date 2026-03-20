@@ -390,6 +390,7 @@ endpoint_handler = EndpointHandler(
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
     marketplace_repository=marketplace_repository,
+    settings_repository=settings_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
 

@@ -82,10 +82,6 @@ class AppSettings(BaseSettings):
         default=True,
         description="Use Tempo testnet for MPP payments. Set to False for production (mainnet).",
     )
-    mpp_secret_key: str = Field(
-        default="",
-        description="HMAC secret key for MPP challenge signing. Set via SYFT_MPP_SECRET_KEY env var.",
-    )
 
     # Endpoint health check settings
     heartbeat_enabled: bool = Field(
