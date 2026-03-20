@@ -94,7 +94,7 @@ export function useOnboarding() {
         username: registerForm.value.username,
         email: registerForm.value.email,
         password: registerForm.value.password,
-        // url and accounting_url will use backend defaults
+        // url will use backend default
       })
 
       // Store marketplace data for later use

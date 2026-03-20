@@ -317,8 +317,6 @@ export interface RegisterMarketplaceRequest {
   url?: string
   email: string
   password: string
-  accounting_url?: string
-  accounting_password?: string
 }
 
 export interface ConnectMarketplaceRequest {
@@ -363,6 +361,7 @@ export interface BalanceResponse {
   balance: number
   currency: string
   recent_transactions: TransactionResponse[]
+  wallet_configured: boolean
 }
 
 // Slug Availability API types
@@ -444,4 +443,13 @@ export interface DiagnosticsResponse {
 
 export interface UpdateDiagnosticsRequest {
   enabled: boolean
+}
+
+export interface WalletResponse {
+  address: string | null
+  exists: boolean
+}
+
+export interface CreateWalletResponse {
+  address: string
 }

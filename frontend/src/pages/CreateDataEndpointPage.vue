@@ -750,10 +750,32 @@
                       <p class="body-sm text-muted-foreground">{{ policy.description }}</p>
                     </div>
                   </div>
-                  <Button @click="openAddPolicyDialog(policy.id)" variant="outline" size="sm">
+                  <Button
+                    v-if="policy.id !== 'pricing' || walletConfigured || loadingWalletCheck"
+                    @click="openAddPolicyDialog(policy.id)"
+                    variant="outline"
+                    size="sm"
+                  >
                     <Plus class="h-4 w-4 mr-2" />
                     Add {{ policy.name }} rule
                   </Button>
+                  <TooltipProvider v-else>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          @click="showWalletSetupDialog = true"
+                        >
+                          <Wallet class="h-4 w-4 mr-2" />
+                          Set up wallet
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>A wallet is required before adding pricing rules</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
 
                 <!-- Default Policy Message -->
@@ -1457,6 +1479,12 @@
     </DialogContent>
   </Dialog>
 
+  <!-- Wallet Setup Dialog -->
+  <WalletSetupDialog
+    v-model:open="showWalletSetupDialog"
+    @wallet-updated="onWalletUpdated"
+  />
+
   <!-- Policy Form Dialog -->
   <PolicyFormDialog
     v-model:open="showPolicyDialog"
@@ -1487,12 +1515,14 @@ import {
   Check,
   AlertTriangle,
   ExternalLink,
+  Wallet,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -1505,6 +1535,7 @@ import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
+import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
 import {
   POLICY_TYPES,
   getRuleSummary,
@@ -1518,6 +1549,7 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
+import { marketplacesApi } from '@/api/endpoints/marketplaces'
 import { useDataEndpointCreation } from '@/composables/useDataEndpointCreation'
 import { useUserStore } from '@/stores/user'
 import type { DatasetListItem } from '@/api/types'
@@ -1560,6 +1592,15 @@ const nameCheckDebounceTimer = ref<number | null>(null)
 // Overwrite confirmation dialog state
 const showOverwriteDialog = ref(false)
 const isCheckingBeforePublish = ref(false)
+
+// Wallet check state
+const walletConfigured = ref(false)
+const loadingWalletCheck = ref(true)
+const showWalletSetupDialog = ref(false)
+
+const onWalletUpdated = (address: string) => {
+  walletConfigured.value = !!address
+}
 
 // Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
@@ -2118,6 +2159,19 @@ const getModelDisplayName = (): string => {
   return cachedModelName.value || formData.value.aiModel
 }
 
+// Check wallet configuration
+const checkWalletStatus = async () => {
+  loadingWalletCheck.value = true
+  try {
+    const res = await marketplacesApi.getWallet()
+    walletConfigured.value = res.exists && !!res.address
+  } catch {
+    walletConfigured.value = false
+  } finally {
+    loadingWalletCheck.value = false
+  }
+}
+
 // Load datasets when component mounts
 onMounted(async () => {
   await loadExistingDatasets()
@@ -2126,6 +2180,8 @@ onMounted(async () => {
   if (existingDataSourcesCount.value === 0 && !selectedDataSourceType.value) {
     selectedDataSourceType.value = 'filesystem'
   }
+
+  checkWalletStatus()
 })
 
 // Cleanup debounce timer when component unmounts

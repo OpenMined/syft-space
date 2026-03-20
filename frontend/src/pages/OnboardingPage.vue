@@ -24,15 +24,15 @@
           <form @submit.prevent="handleCompleteSetup" class="space-y-6">
             <!-- Already registered state -->
             <div v-if="isAlreadyRegistered" class="space-y-3">
-              <div class="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950">
+              <div
+                class="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950"
+              >
                 <CheckCircle class="h-5 w-5 text-green-600 shrink-0" />
                 <div>
                   <p class="body-md font-medium text-foreground">
                     Signed in as <span class="font-semibold">{{ marketplaceData!.username }}</span>
                   </p>
-                  <p class="body-sm text-muted-foreground">
-                    Your SyftHub account is connected.
-                  </p>
+                  <p class="body-sm text-muted-foreground">Your SyftHub account is connected.</p>
                 </div>
               </div>
             </div>
@@ -254,19 +254,19 @@
             <!-- Diagnostics opt-in -->
             <div class="space-y-3">
               <div class="flex items-start space-x-3">
-                <Checkbox
-                  id="diagnostics"
-                  v-model="diagnosticsOptIn"
-                  class="mt-0.5"
-                />
-                <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
+                <Checkbox id="diagnostics" v-model="diagnosticsOptIn" class="mt-0.5" />
+                <Label
+                  for="diagnostics"
+                  class="text-sm text-foreground cursor-pointer leading-snug"
+                >
                   Share anonymous usage data. You can change this anytime in Settings.
                 </Label>
               </div>
               <Alert>
                 <Info class="h-4 w-4" />
                 <AlertDescription>
-                  We're in beta — help us find bugs and improve Syft Space faster. No personal data is ever collected.
+                  We're in beta — help us find bugs and improve Syft Space faster. No personal data
+                  is ever collected.
                 </AlertDescription>
               </Alert>
             </div>

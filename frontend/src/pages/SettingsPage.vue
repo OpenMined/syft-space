@@ -174,14 +174,58 @@
         </div>
       </div>
 
+      <!-- Payments Section -->
+      <div class="bg-card border border-border rounded-xl p-6">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="p-2 bg-primary/10 rounded-md">
+            <Wallet class="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h3 class="text-lg font-medium text-foreground">Payments</h3>
+            <p class="text-sm text-muted-foreground">
+              Configure your payment wallet for receiving MPP payments
+            </p>
+          </div>
+        </div>
+
+        <!-- Loading skeleton -->
+        <div v-if="loadingWallet" class="space-y-2">
+          <Skeleton class="h-4 w-16" />
+          <Skeleton class="h-5 w-64" />
+        </div>
+
+        <!-- Wallet exists -->
+        <div v-else-if="walletAddress" class="space-y-3">
+          <div class="space-y-1">
+            <p class="text-sm text-muted-foreground">Wallet Address</p>
+            <p class="text-sm font-mono font-medium text-foreground">{{ walletAddress }}</p>
+          </div>
+          <Button variant="outline" size="sm" @click="walletDialogOpen = true">
+            Manage Wallet
+          </Button>
+        </div>
+
+        <!-- No wallet -->
+        <div v-else class="space-y-3">
+          <p class="text-sm text-muted-foreground">
+            No wallet configured. Create one to start receiving payments.
+          </p>
+          <Button @click="walletDialogOpen = true">
+            Set Up Wallet
+          </Button>
+        </div>
+      </div>
+
+      <!-- Wallet Setup Dialog -->
+      <WalletSetupDialog
+        v-model:open="walletDialogOpen"
+        @wallet-updated="onWalletUpdated"
+      />
+
       <!-- Diagnostics Section -->
       <div class="bg-card border border-border rounded-xl p-6">
         <div class="flex items-start space-x-3">
-          <Checkbox
-            id="diagnostics"
-            v-model="diagnosticsEnabled"
-            class="mt-0.5"
-          />
+          <Checkbox id="diagnostics" v-model="diagnosticsEnabled" class="mt-0.5" />
           <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
             Help improve Syft Space by sharing anonymous usage data
           </Label>
@@ -201,7 +245,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { Settings, Globe, User, ExternalLink, Loader2 } from 'lucide-vue-next'
+import { Settings, Globe, User, ExternalLink, Loader2, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -211,8 +255,10 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
+import { marketplacesApi } from '@/api/endpoints/marketplaces'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
 import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
+import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
 
 const userStore = useUserStore()
 
@@ -222,6 +268,11 @@ const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
 const customUrl = ref(window.location.origin)
 const diagnosticsEnabled = ref(false)
+
+// Wallet state
+const loadingWallet = ref(true)
+const walletAddress = ref<string | null>(null)
+const walletDialogOpen = ref(false)
 
 const proxyStatus = reactive({
   connected: false,
@@ -272,6 +323,23 @@ const fetchNetworkConfig = async () => {
   }
 }
 
+// Wallet methods
+const fetchWallet = async () => {
+  loadingWallet.value = true
+  try {
+    const res = await marketplacesApi.getWallet()
+    walletAddress.value = res.address
+  } catch {
+    walletAddress.value = null
+  } finally {
+    loadingWallet.value = false
+  }
+}
+
+const onWalletUpdated = (address: string) => {
+  walletAddress.value = address
+}
+
 const saveChanges = async () => {
   if (networkMode.value === 'custom' && !customUrl.value) {
     toast.error('Please enter your public URL')
@@ -314,5 +382,6 @@ onMounted(() => {
   fetchAccountInfo()
   fetchNetworkConfig()
   fetchDiagnostics()
+  fetchWallet()
 })
 </script>

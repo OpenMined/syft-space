@@ -17,7 +17,6 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 import syft_space.components.shared.logging_config  # noqa: F401, I001
-from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
 
 # Import auth components
 from syft_space.components.auth.dependencies import bearer_scheme
@@ -55,6 +54,10 @@ from syft_space.components.endpoints.handlers import EndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.routes import build_endpoint_routes
 
+# Import feedback components
+from syft_space.components.feedback.handlers import FeedbackHandler
+from syft_space.components.feedback.routes import build_feedback_routes
+
 # Import ingestion components
 from syft_space.components.ingestion.handlers import IngestionHandler
 from syft_space.components.ingestion.manager import IngestionManager
@@ -89,10 +92,6 @@ from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.routes import build_settings_routes
 
-# Import feedback components
-from syft_space.components.feedback.handlers import FeedbackHandler
-from syft_space.components.feedback.routes import build_feedback_routes
-
 # Import async utilities
 from syft_space.components.shared.async_utils import run_after_event
 
@@ -104,6 +103,7 @@ from syft_space.components.shared.lifecycle import LifecycleService
 
 # Import proxy service
 from syft_space.components.shared.proxy_service import ProxyService
+from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
 from syft_space.components.shared.syfthub_client import SyftHubClient
 
 # Import tenant components
@@ -377,7 +377,9 @@ dataset_handler = DatasetHandler(
     DATASET_TYPE_REGISTRY, dataset_repository, provisioner_state_repository
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
-policy_handler = PolicyHandler(POLICY_TYPE_REGISTRY, policy_repository)
+policy_handler = PolicyHandler(
+    POLICY_TYPE_REGISTRY, policy_repository, marketplace_repository
+)
 marketplace_handler = MarketplaceHandler(marketplace_repository)
 endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,

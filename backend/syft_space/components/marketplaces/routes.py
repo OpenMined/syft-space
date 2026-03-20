@@ -8,10 +8,14 @@ from syft_space.components.marketplaces.handlers import MarketplaceHandler
 from syft_space.components.marketplaces.schemas import (
     BalanceResponse,
     ConnectMarketplaceRequest,
+    CreateWalletResponse,
+    ImportWalletRequest,
     MarketplaceListItem,
     MarketplaceResponse,
     RegisterMarketplaceRequest,
     TransactionResponse,
+    UpdateWalletAddressRequest,
+    WalletResponse,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -129,6 +133,40 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
             List of all transactions sorted by date descending
         """
         return await handler.get_transactions(tenant)
+
+    @router.get("/wallet", response_model=WalletResponse)
+    async def get_wallet(
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: MarketplaceHandler = Depends(get_handler),
+    ) -> WalletResponse:
+        """Get wallet information."""
+        return await handler.get_wallet(tenant)
+
+    @router.post("/wallet/create", response_model=CreateWalletResponse, status_code=201)
+    async def create_wallet(
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: MarketplaceHandler = Depends(get_handler),
+    ) -> CreateWalletResponse:
+        """Generate a new Tempo wallet."""
+        return await handler.create_wallet(tenant)
+
+    @router.post("/wallet/import", response_model=CreateWalletResponse, status_code=201)
+    async def import_wallet(
+        request: ImportWalletRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: MarketplaceHandler = Depends(get_handler),
+    ) -> CreateWalletResponse:
+        """Import an existing wallet from private key."""
+        return await handler.import_wallet(request, tenant)
+
+    @router.put("/wallet", response_model=WalletResponse)
+    async def update_wallet_address(
+        request: UpdateWalletAddressRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: MarketplaceHandler = Depends(get_handler),
+    ) -> WalletResponse:
+        """Update wallet address manually."""
+        return await handler.update_wallet_address(request, tenant)
 
     @router.get("/{id}", response_model=MarketplaceResponse)
     async def get_marketplace(

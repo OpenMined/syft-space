@@ -12,6 +12,7 @@ export const useUserStore = defineStore('user', () => {
   const currency = ref('USD')
   const balanceLoading = ref(false)
   const balanceError = ref(false)
+  const walletConfigured = ref(false)
   const transactions = ref<TransactionResponse[]>([])
   const marketplaceLoading = ref(false)
   const marketplaceUrl = ref<string | null>(null)
@@ -45,6 +46,7 @@ export const useUserStore = defineStore('user', () => {
       balance.value = response.balance
       currency.value = response.currency
       transactions.value = response.recent_transactions
+      walletConfigured.value = response.wallet_configured
       if (silent) {
         balanceError.value = false
       }
@@ -86,6 +88,7 @@ export const useUserStore = defineStore('user', () => {
     email,
     balance,
     currency,
+    walletConfigured,
     balanceLoading,
     balanceError,
     transactions,

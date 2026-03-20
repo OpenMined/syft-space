@@ -999,7 +999,7 @@ const getRateLimitPolicies = () => {
 }
 
 const getPricingPolicies = () => {
-  return endpoint.value?.policies?.filter((p) => p.policy_type === 'accounting') || []
+  return endpoint.value?.policies?.filter((p) => p.policy_type === 'mpp_accounting') || []
 }
 
 const getTotalPoliciesCount = () => {
@@ -1154,7 +1154,7 @@ const handleAddPolicy = async (payload: {
 
   // Calculate the correct rule index based on existing policies of this type
   // Map frontend policy type to backend policy type for counting
-  const backendPolicyType = policyType === 'pricing' ? 'accounting' : policyType
+  const backendPolicyType = policyType === 'pricing' ? 'mpp_accounting' : policyType
   const existingPoliciesOfType =
     endpoint.value.policies?.filter((p) => p.policy_type === backendPolicyType) || []
   const ruleIndex = existingPoliciesOfType.length + 1

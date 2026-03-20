@@ -166,7 +166,7 @@ export function usePolicyCreation() {
 
     const request: CreatePolicyRequest = {
       name: policyName,
-      policy_type: 'accounting',
+      policy_type: 'mpp_accounting',
       configuration: configuration,
       endpoint_id: endpointId,
     }
@@ -301,7 +301,7 @@ export function usePolicyCreation() {
         }
 
         // Map frontend policy type to backend policy type
-        const backendPolicyType = policyType === 'pricing' ? 'accounting' : policyType
+        const backendPolicyType = policyType === 'pricing' ? 'mpp_accounting' : policyType
 
         policyRequests.push({
           name: policyName,
