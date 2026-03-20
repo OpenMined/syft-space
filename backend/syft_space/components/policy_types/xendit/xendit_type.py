@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from syft_space.components.policy_types.interfaces import (
     ExclusivePolicyType,
@@ -39,6 +39,16 @@ class XenditPolicyConfig(BaseModel):
         default_factory=lambda: ["*"],
         description="List of user emails or glob patterns. Use '*' for all users.",
     )
+
+    @model_validator(mode="after")
+    def validate_consistent_unit_type(self) -> "XenditPolicyConfig":
+        """All tiers must have the same unit_type."""
+        unit_types = {tier.unit_type for tier in self.bundle_tiers}
+        if len(unit_types) > 1:
+            raise ValueError(
+                f"All tiers must have the same unit_type, got: {sorted(unit_types)}"
+            )
+        return self
 
 
 class XenditPolicy(ExclusivePolicyType):

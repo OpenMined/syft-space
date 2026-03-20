@@ -57,6 +57,7 @@ class XenditGateway:
         description: str,
         wallet: Wallet,
         policy_config: dict,
+        metadata: dict[str, str] | None = None,
     ) -> CreatePaymentResult:
         """Create a Xendit Payment Session."""
         api_key = wallet.credentials.get("api_key")
@@ -75,6 +76,7 @@ class XenditGateway:
                     country=country,
                     payer_email=payer_email,
                     description=description,
+                    metadata=metadata or {},
                 )
         except XenditError as e:
             logger.error(f"Xendit session creation failed: {e.message}")

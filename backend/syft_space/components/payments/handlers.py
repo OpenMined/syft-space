@@ -144,6 +144,13 @@ class PaymentHandler:
             description=f"Bundle: {tier['name']} ({tier_units} {unit_type}) for {endpoint.slug}",
             wallet=wallet,
             policy_config=config,
+            metadata={
+                "endpoint_slug": endpoint.slug,
+                "tenant_id": str(tenant.id),
+                "tier_name": tier["name"],
+                "tier_units": str(tier_units),
+                "unit_type": unit_type,
+            },
         )
 
         # 7. Store invoice

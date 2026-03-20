@@ -53,6 +53,7 @@ class PaymentGateway(Protocol):
         description: str,
         wallet: Wallet,
         policy_config: dict,
+        metadata: dict[str, str] | None = None,
     ) -> CreatePaymentResult:
         """Call provider API to create a payment session/invoice.
 
@@ -65,6 +66,7 @@ class PaymentGateway(Protocol):
             wallet: Wallet entity with provider credentials
             policy_config: Raw policy configuration dict
                            (provider extracts what it needs, e.g. country)
+            metadata: Key-value pairs passed to the provider for tracking
         """
         ...
 
