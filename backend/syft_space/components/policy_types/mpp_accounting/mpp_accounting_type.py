@@ -79,8 +79,6 @@ class MppAccountingPolicy(BasePolicyType):
 
         for config in configs:
             validated = MppAccountingConfig(**config)
-            if not matches_any_pattern(sender_email, validated.applied_to):
-                continue
             for pattern in validated.applied_to:
                 if not matches_any_pattern(sender_email, [pattern]):
                     continue
@@ -127,7 +125,7 @@ class MppAccountingPolicy(BasePolicyType):
         5. If credential present: verify payment via mpp.charge()
         6. Store receipt in context.metadata
         """
-        sender_email = context.sender_email or ""
+        sender_email = context.sender_email
 
         # Find matching price tier
         price = self._find_matching_price(sender_email, configs)

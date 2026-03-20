@@ -76,6 +76,7 @@
                 id="dialog-import-key"
                 v-model="importPrivateKey"
                 type="password"
+                autocomplete="off"
                 placeholder="Enter your private key"
                 class="font-mono"
               />

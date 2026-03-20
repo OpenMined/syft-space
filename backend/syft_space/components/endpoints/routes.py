@@ -170,7 +170,7 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         sender_email: str = Depends(get_verified_sender_email),
         handler: EndpointHandler = Depends(get_handler),
-        x_payment: str | None = Header(None, alias="X-Payment"),
+        x_payment: str | None = Header(None, alias="X-Payment", max_length=10000),
     ) -> QueryEndpointResponse | JSONResponse:
         """Query an endpoint - main RAG flow (PUBLIC, requires SyftHub token).
 
