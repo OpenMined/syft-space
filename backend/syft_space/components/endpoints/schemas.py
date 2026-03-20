@@ -133,6 +133,7 @@ class EndpointResponse(BaseModel):
     summary: str = Field(..., description="Brief summary")
     response_type: str = Field(..., description="Type of response")
     published: bool = Field(..., description="Whether published")
+    archived: bool = Field(..., description="Whether archived (no new purchases)")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
@@ -185,6 +186,7 @@ class EndpointListItem(BaseModel):
     summary: str = Field(..., description="Brief summary")
     response_type: str = Field(..., description="Type of response")
     published: bool = Field(..., description="Whether published")
+    archived: bool = Field(..., description="Whether archived (no new purchases)")
     tags: str = Field(..., description="Comma-separated tags")
     created_at: datetime = Field(..., description="Creation timestamp")
 

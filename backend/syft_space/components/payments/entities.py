@@ -44,10 +44,12 @@ class Invoice(SQLModel, table=True):
         sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
         description="Tenant ID for multi-tenancy isolation",
     )
-    endpoint_id: UUID = Field(
-        ...,
-        sa_column=Column(ForeignKey("endpoints.id", ondelete="CASCADE")),
-        description="Endpoint this invoice is for",
+    endpoint_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("endpoints.id", ondelete="SET NULL"), nullable=True
+        ),
+        description="Endpoint this invoice is for (NULL if endpoint deleted)",
     )
     user_email: str = Field(..., description="Email of the purchasing user")
     provider: str = Field(..., description="Payment provider (e.g., 'xendit')")

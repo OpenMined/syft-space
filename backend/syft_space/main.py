@@ -417,6 +417,8 @@ endpoint_handler = EndpointHandler(
     policy_registry=POLICY_TYPE_REGISTRY,
     marketplace_repository=marketplace_repository,
     bundle_service=bundle_service,
+    invoice_repository=invoice_repository,
+    bundle_usage_repository=bundle_usage_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
 

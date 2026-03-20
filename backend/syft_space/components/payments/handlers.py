@@ -90,6 +90,11 @@ class PaymentHandler:
             )
         if not endpoint.published:
             raise HTTPException(status_code=400, detail="Endpoint is not published")
+        if endpoint.archived:
+            raise HTTPException(
+                status_code=400,
+                detail="Endpoint is archived — no new purchases allowed",
+            )
 
         # 2. Find payment policy matching this provider
         policies = await self.policy_repo.get_by_endpoint_id(endpoint.id, tenant.id)

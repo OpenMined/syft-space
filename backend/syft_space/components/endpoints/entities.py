@@ -59,6 +59,10 @@ class Endpoint(SQLModel, table=True):
         description="Type of response (raw/summary/both)",
     )
     published: bool = Field(default=False, description="Whether endpoint is published")
+    archived: bool = Field(
+        default=False,
+        description="Archived — no new purchases allowed, existing bundles still honored",
+    )
     tags: str = Field(default="", description="Comma-separated tags")
     published_to: list[str] = Field(
         default_factory=list,

@@ -101,6 +101,25 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 return True
             return False
 
+    async def set_archived(
+        self, slug: str, tenant_id: UUID, archived: bool
+    ) -> Endpoint | None:
+        """Set the archived flag on an endpoint."""
+        async with self.db.get_session() as session:
+            statement = select(Endpoint).where(
+                Endpoint.slug == slug, Endpoint.tenant_id == tenant_id
+            )
+            result = await session.exec(statement)
+            endpoint = result.first()
+            if not endpoint:
+                return None
+            endpoint.archived = archived
+            endpoint.updated_at = datetime.now(timezone.utc)
+            session.add(endpoint)
+            await session.commit()
+            await session.refresh(endpoint)
+            return endpoint
+
     async def update_by_slug(
         self,
         slug: str,

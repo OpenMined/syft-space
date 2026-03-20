@@ -47,6 +47,10 @@ from syft_space.components.model_types.interfaces import (
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.payments.bundle_service import BundleService
+from syft_space.components.payments.bundle_usage_repository import (
+    BundleUsageRepository,
+)
+from syft_space.components.payments.invoice_repository import InvoiceRepository
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policy_types.interfaces import (
     PolicyContext,
@@ -72,6 +76,8 @@ class EndpointHandler:
         policy_registry: PolicyTypeRegistry,
         marketplace_repository: MarketplaceRepository | None = None,
         bundle_service: "BundleService | None" = None,
+        invoice_repository: "InvoiceRepository | None" = None,
+        bundle_usage_repository: "BundleUsageRepository | None" = None,
     ):
         """Initialize the endpoint handler.
 
@@ -85,6 +91,8 @@ class EndpointHandler:
             policy_registry: Policy type registry
             marketplace_repository: Marketplace repository (optional, for publish and accounting)
             bundle_service: Bundle service (optional, for xendit payment policy)
+            invoice_repository: Invoice repository (optional, for deletion guards)
+            bundle_usage_repository: Bundle usage repository (optional, for deletion guards)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -95,6 +103,8 @@ class EndpointHandler:
         self.policy_registry = policy_registry
         self.marketplace_repository = marketplace_repository
         self.bundle_service = bundle_service
+        self.invoice_repository = invoice_repository
+        self.bundle_usage_repository = bundle_usage_repository
 
     async def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
@@ -221,19 +231,63 @@ class EndpointHandler:
 
         return EndpointDetailResponse.model_validate(updated_endpoint)
 
+    async def archive_endpoint(
+        self, slug: str, tenant: Tenant
+    ) -> EndpointDetailResponse:
+        """Archive an endpoint — blocks new purchases, existing bundles honored."""
+        endpoint = await self.endpoint_repository.set_archived(slug, tenant.id, True)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+        return EndpointDetailResponse.model_validate(endpoint)
+
+    async def unarchive_endpoint(
+        self, slug: str, tenant: Tenant
+    ) -> EndpointDetailResponse:
+        """Unarchive an endpoint — new purchases allowed again."""
+        endpoint = await self.endpoint_repository.set_archived(slug, tenant.id, False)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+        return EndpointDetailResponse.model_validate(endpoint)
+
     async def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
         """Delete an endpoint by slug within a tenant.
 
-        Args:
-            slug: Endpoint slug
-            tenant: Tenant context
+        Checks billing obligations before deletion:
+        - Pending invoices (payment in-flight) block deletion
+        - Non-zero bundle balances block deletion
 
-        Returns:
-            Success message
-
-        Raises:
-            HTTPException: If endpoint not found
+        On deletion: Invoice rows preserved (endpoint_id SET NULL),
+        BundleUsage rows cascade-deleted (all balances must be zero).
         """
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        # Check billing obligations
+        if self.invoice_repository:
+            has_pending = await self.invoice_repository.has_pending_by_endpoint_id(
+                endpoint.id, tenant.id
+            )
+            if has_pending:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete: pending invoices exist. "
+                    "Wait for them to expire or be settled.",
+                )
+
+        if self.bundle_usage_repository:
+            has_balance = (
+                await self.bundle_usage_repository.has_nonzero_balance_by_endpoint_id(
+                    endpoint.id, tenant.id
+                )
+            )
+            if has_balance:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete: users have remaining bundle balance. "
+                    "Wait for credits to be consumed or forfeit them.",
+                )
+
         deleted = await self.endpoint_repository.delete_by_slug(slug, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
@@ -622,6 +676,12 @@ class EndpointHandler:
         endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        if endpoint.archived:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot publish archived endpoint to new marketplaces",
+            )
 
         # Get marketplaces to publish to
         if publish_to_all_marketplaces:

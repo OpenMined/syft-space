@@ -65,3 +65,16 @@ class InvoiceRepository(AsyncBaseRepository[Invoice]):
             session.add(invoice)
             await session.commit()
             return True
+
+    async def has_pending_by_endpoint_id(
+        self, endpoint_id: UUID, tenant_id: UUID
+    ) -> bool:
+        """Check if any pending invoices exist for an endpoint."""
+        async with self.db.get_session() as session:
+            statement = select(Invoice).where(
+                Invoice.endpoint_id == endpoint_id,
+                Invoice.tenant_id == tenant_id,
+                Invoice.status == InvoiceStatus.PENDING.value,
+            )
+            result = await session.exec(statement)
+            return result.first() is not None

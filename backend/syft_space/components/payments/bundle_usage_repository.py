@@ -132,3 +132,16 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
             )
             await session.exec(stmt)
             await session.commit()
+
+    async def has_nonzero_balance_by_endpoint_id(
+        self, endpoint_id: UUID, tenant_id: UUID
+    ) -> bool:
+        """Check if any users have remaining balance for an endpoint."""
+        async with self.db.get_session() as session:
+            statement = select(BundleUsage).where(
+                BundleUsage.endpoint_id == endpoint_id,
+                BundleUsage.tenant_id == tenant_id,
+                BundleUsage.remaining_units > 0,
+            )
+            result = await session.exec(statement)
+            return result.first() is not None

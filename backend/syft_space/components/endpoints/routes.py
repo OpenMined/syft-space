@@ -233,6 +233,24 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         """
         return await handler.unpublish_endpoint(slug, tenant)
 
+    @router.post("/{slug}/archive", response_model=EndpointDetailResponse)
+    async def archive_endpoint(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> EndpointDetailResponse:
+        """Archive an endpoint — blocks new purchases, existing bundles honored."""
+        return await handler.archive_endpoint(slug, tenant)
+
+    @router.post("/{slug}/unarchive", response_model=EndpointDetailResponse)
+    async def unarchive_endpoint(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> EndpointDetailResponse:
+        """Unarchive an endpoint — new purchases allowed again."""
+        return await handler.unarchive_endpoint(slug, tenant)
+
     @router.delete("/{slug}", response_model=dict[str, str])
     async def delete_endpoint(
         slug: str,
@@ -241,12 +259,9 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
     ) -> dict[str, str]:
         """Delete an endpoint.
 
-        Args:
-            slug: Endpoint slug
-            tenant: Current tenant (injected)
-
-        Returns:
-            Success message
+        Checks billing obligations before deletion:
+        - Pending invoices block deletion
+        - Non-zero bundle balances block deletion
         """
         return await handler.delete_endpoint(slug, tenant)
 
