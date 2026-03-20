@@ -381,6 +381,11 @@ policy_handler = PolicyHandler(
     POLICY_TYPE_REGISTRY, policy_repository, marketplace_repository
 )
 marketplace_handler = MarketplaceHandler(marketplace_repository)
+
+# Initialize settings repository and proxy service
+settings_repository = SettingsRepository(database)
+proxy_service = ProxyService(settings_repository)
+
 endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
@@ -393,10 +398,6 @@ endpoint_handler = EndpointHandler(
     settings_repository=settings_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
-
-# Initialize settings repository and proxy service
-settings_repository = SettingsRepository(database)
-proxy_service = ProxyService(settings_repository)
 
 # Initialize settings handler with proxy service
 settings_handler = SettingsHandler(
