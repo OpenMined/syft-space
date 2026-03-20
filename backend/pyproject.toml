@@ -10,7 +10,7 @@ authors = [
     {name = "OpenMined", email = "support@openmined.org"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.116.2",
     "uvicorn[standard]==0.35.0",
