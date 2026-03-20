@@ -1,4 +1,8 @@
-"""Replace accounting fields with wallet fields on marketplaces table.
+"""MPP integration: replace accounting with wallet fields, add mpp_secret_key.
+
+- Add wallet_address and wallet_private_key to marketplaces
+- Drop accounting_url, accounting_email, accounting_password from marketplaces
+- Add mpp_secret_key to settings (auto-generated on first use)
 
 Revision ID: c3d4e5f6a7b8
 Revises: b2c3d4e5f6a7
@@ -19,7 +23,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Add new MPP wallet fields
+    # Add MPP wallet fields to marketplaces
     op.add_column(
         "marketplaces",
         sa.Column("wallet_address", sa.String(), nullable=True),
@@ -29,28 +33,44 @@ def upgrade() -> None:
         sa.Column("wallet_private_key", sa.String(), nullable=True),
     )
 
-    # Drop old accounting fields
-    # Note: SQLite < 3.35.0 doesn't support DROP COLUMN.
-    # Use batch mode for broad compatibility.
+    # Drop old accounting fields from marketplaces
     with op.batch_alter_table("marketplaces") as batch_op:
         batch_op.drop_column("accounting_url")
         batch_op.drop_column("accounting_email")
         batch_op.drop_column("accounting_password")
 
+    # Add MPP secret key to settings
+    op.add_column(
+        "settings",
+        sa.Column("mpp_secret_key", sa.String(), nullable=True),
+    )
+
 
 def downgrade() -> None:
-    # Re-add accounting fields
+    # Remove mpp_secret_key from settings
+    op.drop_column("settings", "mpp_secret_key")
+
+    # Re-add accounting fields to marketplaces
     with op.batch_alter_table("marketplaces") as batch_op:
         batch_op.add_column(
-            sa.Column("accounting_url", sa.String(), nullable=False, server_default=""),
+            sa.Column(
+                "accounting_url", sa.String(), nullable=False, server_default=""
+            ),
         )
         batch_op.add_column(
-            sa.Column("accounting_email", sa.String(), nullable=False, server_default=""),
+            sa.Column(
+                "accounting_email", sa.String(), nullable=False, server_default=""
+            ),
         )
         batch_op.add_column(
-            sa.Column("accounting_password", sa.String(), nullable=False, server_default=""),
+            sa.Column(
+                "accounting_password",
+                sa.String(),
+                nullable=False,
+                server_default="",
+            ),
         )
 
-    # Drop wallet fields
+    # Drop wallet fields from marketplaces
     op.drop_column("marketplaces", "wallet_private_key")
     op.drop_column("marketplaces", "wallet_address")
