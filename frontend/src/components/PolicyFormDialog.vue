@@ -7,13 +7,7 @@
         >
         <DialogDescription>
           {{ isEditing ? 'Update this' : 'Create a new' }}
-          {{
-            policyType === 'access'
-              ? 'authorization'
-              : policyType === 'rate_limit'
-                ? 'rate limiting'
-                : 'pricing'
-          }}
+          {{ policyTypeDescription }}
           policy for this endpoint.
         </DialogDescription>
       </DialogHeader>
@@ -108,52 +102,88 @@
 
         <!-- Pricing Policy Form -->
         <div v-if="policyType === 'pricing'" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Price per query ($)</Label>
-              <Input
-                v-model="pricingForm.price"
-                type="number"
-                step="any"
-                placeholder="Enter price per query"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-            </div>
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-              <Input
-                v-model="pricingForm.note"
-                placeholder="Optional description"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-            </div>
+          <div class="space-y-1">
+            <Label class="body-sm text-muted-foreground font-medium">Payment Provider</Label>
+            <Select v-model="selectedProvider" :disabled="providerLocked">
+              <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="syft_accounting">Syft Accounting</SelectItem>
+                <SelectItem value="xendit">Xendit (Bundle Payment)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
-              <Label class="body-sm text-muted-foreground font-medium">Apply To</Label>
-              <Select v-model="pricingForm.userType">
-                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  <SelectItem value="specific">Specific Users</SelectItem>
-                </SelectContent>
-              </Select>
+
+          <!-- Syft Accounting pricing (existing form) -->
+          <template v-if="selectedProvider === 'syft_accounting'">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <Label class="body-sm text-muted-foreground font-medium">Price per query ($)</Label>
+                <Input
+                  v-model="pricingForm.price"
+                  type="number"
+                  step="any"
+                  placeholder="Enter price per query"
+                  class="h-9 rounded-lg border-border bg-card body-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <Label class="body-sm text-muted-foreground font-medium">Note</Label>
+                <Input
+                  v-model="pricingForm.note"
+                  placeholder="Optional description"
+                  class="h-9 rounded-lg border-border bg-card body-sm"
+                />
+              </div>
             </div>
-            <div v-if="pricingForm.userType === 'specific'" class="space-y-1 flex-1">
-              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-              <Input
-                v-model="pricingForm.users"
-                placeholder="user1@example.com, user2@example.com"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-              <p class="text-xs text-muted-foreground">
-                Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-                *@contractors.org)
-              </p>
+            <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
+              <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
+                <Label class="body-sm text-muted-foreground font-medium">Apply To</Label>
+                <Select v-model="pricingForm.userType">
+                  <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Users</SelectItem>
+                    <SelectItem value="specific">Specific Users</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div v-if="pricingForm.userType === 'specific'" class="space-y-1 flex-1">
+                <Label class="body-sm text-muted-foreground font-medium">Users</Label>
+                <Input
+                  v-model="pricingForm.users"
+                  placeholder="user1@example.com, user2@example.com"
+                  class="h-9 rounded-lg border-border bg-card body-sm"
+                />
+                <p class="text-xs text-muted-foreground">
+                  Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
+                  *@contractors.org)
+                </p>
+              </div>
             </div>
-          </div>
+          </template>
+
+          <!-- Xendit bundle payment (via pricing provider selector) -->
+          <template v-if="selectedProvider === 'xendit'">
+            <WalletSetup compact />
+            <XenditBundleForm
+              v-if="walletConfigured"
+              :form="xenditForm"
+              @update:form="xenditForm = $event"
+            />
+          </template>
+        </div>
+
+        <!-- Xendit Policy Form (direct type) -->
+        <div v-if="policyType === 'xendit'" class="space-y-4">
+          <WalletSetup compact />
+          <XenditBundleForm
+            v-if="walletConfigured"
+            :form="xenditForm"
+            @update:form="xenditForm = $event"
+          />
         </div>
       </div>
 
@@ -194,13 +224,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import WalletSetup from '@/components/WalletSetup.vue'
+import XenditBundleForm from '@/components/XenditBundleForm.vue'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
+import { useWallet } from '@/composables/useWallet'
 import { getPolicyTypeLabel } from '@/config/policyTypes'
 import type { PolicyTypeId } from '@/config/policyTypes'
 import type {
   AuthorizationFormData,
   RateLimitFormData,
   PricingFormData,
+  XenditFormData,
 } from '@/composables/usePolicyCreation'
 
 const props = defineProps<{
@@ -208,6 +242,7 @@ const props = defineProps<{
   policyType: PolicyTypeId
   initialData?: Record<string, unknown> | null
   isSubmitting?: boolean
+  existingProvider?: 'syft_accounting' | 'xendit' | null
 }>()
 
 const emit = defineEmits<{
@@ -218,6 +253,19 @@ const emit = defineEmits<{
 const { validatePolicyForm } = usePolicyCreation()
 
 const isEditing = computed(() => !!props.initialData)
+
+const policyTypeDescription = computed(() => {
+  switch (props.policyType) {
+    case 'access':
+      return 'authorization'
+    case 'rate_limit':
+      return 'rate limiting'
+    case 'xendit':
+      return 'bundle payment'
+    default:
+      return 'pricing'
+  }
+})
 
 // Local form state
 const authorizationForm = ref<AuthorizationFormData>({
@@ -240,6 +288,18 @@ const pricingForm = ref<PricingFormData>({
   note: '',
 })
 
+const xenditForm = ref<XenditFormData>({
+  currency: 'IDR',
+  country: 'ID',
+  tiers: [{ name: '', units: '', unitType: 'requests', price: '' }],
+  userType: 'all',
+  users: '',
+})
+
+const selectedProvider = ref<'syft_accounting' | 'xendit'>('syft_accounting')
+const providerLocked = computed(() => !!props.existingProvider)
+const { isConfigured: walletConfigured } = useWallet()
+
 // Get current form data based on policy type
 const getCurrentFormData = () => {
   switch (props.policyType) {
@@ -248,16 +308,32 @@ const getCurrentFormData = () => {
     case 'rate_limit':
       return rateLimiterForm.value
     case 'pricing':
+      if (selectedProvider.value === 'xendit') {
+        return xenditForm.value
+      }
       return pricingForm.value
+    case 'xendit':
+      return xenditForm.value
     default:
       return null
   }
 }
 
 // Validation
+const isXenditMode = computed(
+  () =>
+    props.policyType === 'xendit' ||
+    (props.policyType === 'pricing' && selectedProvider.value === 'xendit'),
+)
+
 const isFormValid = computed(() => {
   const formData = getCurrentFormData()
-  return formData ? validatePolicyForm(props.policyType, formData) : false
+  if (!formData) return false
+
+  if (isXenditMode.value) {
+    return walletConfigured.value && validatePolicyForm('xendit', formData)
+  }
+  return validatePolicyForm(props.policyType, formData)
 })
 
 // Reset form to defaults
@@ -271,6 +347,16 @@ const resetForm = (policyType: PolicyTypeId) => {
       break
     case 'pricing':
       pricingForm.value = { price: '', userType: 'all', users: '', note: '' }
+      selectedProvider.value = props.existingProvider || 'syft_accounting'
+      break
+    case 'xendit':
+      xenditForm.value = {
+        currency: 'IDR',
+        country: 'ID',
+        tiers: [{ name: '', units: '', unitType: 'requests', price: '' }],
+        userType: 'all',
+        users: '',
+      }
       break
   }
 }
@@ -301,6 +387,17 @@ const loadInitialData = (policyType: PolicyTypeId, data: Record<string, unknown>
         note: (data.note as string) || '',
       }
       break
+    case 'xendit':
+      xenditForm.value = {
+        currency: (data.currency as string) || 'IDR',
+        country: (data.country as string) || 'ID',
+        tiers: (data.tiers as XenditFormData['tiers']) || [
+          { name: '', units: '', unitType: 'requests', price: '' },
+        ],
+        userType: (data.userType as 'all' | 'specific') || 'all',
+        users: (data.users as string) || '',
+      }
+      break
   }
 }
 
@@ -323,7 +420,7 @@ const handleSave = () => {
   if (!formData) return
 
   emit('save', {
-    policyType: props.policyType,
+    policyType: isXenditMode.value ? 'xendit' : props.policyType,
     formData: { ...formData },
   })
 }
