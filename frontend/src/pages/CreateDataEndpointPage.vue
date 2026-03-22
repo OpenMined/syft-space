@@ -1462,6 +1462,7 @@
     v-model:open="showPolicyDialog"
     :policy-type="dialogPolicyType"
     :initial-data="dialogInitialData"
+    :existing-provider="existingPricingProvider"
     @save="handlePolicyDialogSave"
   />
 </template>
@@ -1588,7 +1589,7 @@ Brief summary of what this dataset contains and its primary purpose...
 
 ## Data Quality & Limitations
 - **Completeness**: Any missing data or gaps
-- **Accuracy**: Known issues or validation status  
+- **Accuracy**: Known issues or validation status
 - **Biases**: Potential limitations or skews
 - **Ethical considerations**: Privacy, consent, fairness
 
@@ -1603,6 +1604,15 @@ const showPolicyDialog = ref(false)
 const dialogPolicyType = ref<PolicyTypeId>('access')
 const dialogInitialData = ref<Record<string, unknown> | null>(null)
 const dialogEditingRuleId = ref<string | null>(null)
+
+const existingPricingProvider = computed((): 'syft_accounting' | 'xendit' | null => {
+  const pricingRules = policyRules.value.pricing
+  const firstRule = pricingRules[0]
+  if (!firstRule) return null
+  return (firstRule.config.provider as 'xendit' | undefined) === 'xendit'
+    ? 'xendit'
+    : 'syft_accounting'
+})
 
 // Step titles and descriptions
 const stepTitles = [
@@ -2037,22 +2047,26 @@ const handlePolicyDialogSave = (payload: {
 }) => {
   const { policyType, formData: policyFormData } = payload
 
+  // Xendit rules are stored under 'pricing' card with a provider marker
+  const storageType: PolicyTypeId = policyType === 'xendit' ? 'pricing' : policyType
+  const configData = policyType === 'xendit' ? { ...policyFormData, provider: 'xendit' } : policyFormData
+
   if (dialogEditingRuleId.value) {
     // Update existing rule
-    const rule = policyRules.value[policyType].find((r) => r.id === dialogEditingRuleId.value)
+    const rule = policyRules.value[storageType].find((r) => r.id === dialogEditingRuleId.value)
     if (rule) {
       rule.config = {
-        ...policyFormData,
+        ...configData,
         id: rule.id,
       } as PolicyRulesRecord[PolicyTypeId][number]['config']
     }
   } else {
     // Add new rule
     const ruleId = generateRuleId()
-    policyRules.value[policyType].push({
+    policyRules.value[storageType].push({
       id: ruleId,
       config: {
-        ...policyFormData,
+        ...configData,
         id: ruleId,
       } as PolicyRulesRecord[PolicyTypeId][number]['config'],
       isEditing: false,

@@ -174,14 +174,26 @@
         </div>
       </div>
 
+      <!-- Payment Provider Section -->
+      <div class="bg-card border border-border rounded-xl p-6">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="p-2 bg-primary/10 rounded-md">
+            <CreditCard class="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h3 class="text-lg font-medium text-foreground">Payment Provider</h3>
+            <p class="text-sm text-muted-foreground">
+              Configure a payment provider to sell request bundles
+            </p>
+          </div>
+        </div>
+        <WalletSetup />
+      </div>
+
       <!-- Diagnostics Section -->
       <div class="bg-card border border-border rounded-xl p-6">
         <div class="flex items-start space-x-3">
-          <Checkbox
-            id="diagnostics"
-            v-model="diagnosticsEnabled"
-            class="mt-0.5"
-          />
+          <Checkbox id="diagnostics" v-model="diagnosticsEnabled" class="mt-0.5" />
           <Label for="diagnostics" class="text-sm text-foreground cursor-pointer leading-snug">
             Help improve Syft Space by sharing anonymous usage data
           </Label>
@@ -201,7 +213,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { Settings, Globe, User, ExternalLink, Loader2 } from 'lucide-vue-next'
+import { Settings, Globe, User, ExternalLink, Loader2, CreditCard } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -209,6 +221,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import WalletSetup from '@/components/WalletSetup.vue'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
 import { setDiagnosticsEnabled } from '@/lib/sentry'

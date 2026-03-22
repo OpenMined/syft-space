@@ -550,7 +550,7 @@
               </CardFooter>
             </Card>
 
-            <!-- Pricing Policies -->
+            <!-- Pricing / Payment Policies (unified card) -->
             <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
               <CardHeader>
                 <CardTitle class="flex items-center gap-2">
@@ -560,22 +560,42 @@
                 <CardDescription> Set pricing for endpoint usage </CardDescription>
               </CardHeader>
               <CardContent class="space-y-3 flex-1">
-                <div v-if="getPricingPolicies().length === 0" class="text-sm text-muted-foreground">
+                <div
+                  v-if="getPaymentPolicies().length === 0"
+                  class="text-sm text-muted-foreground"
+                >
                   No pricing policies configured
                 </div>
                 <div v-else class="space-y-2">
                   <div
-                    v-for="policy in getPricingPolicies()"
+                    v-for="policy in getPaymentPolicies()"
                     :key="policy.id"
                     class="p-3 bg-muted/50 border border-border rounded-lg"
                   >
                     <div class="flex items-start justify-between">
                       <div class="flex-1">
-                        <h4 class="body-sm font-medium text-foreground mb-1">
-                          {{ policy.name }}
-                        </h4>
+                        <div class="flex items-center gap-2 mb-1">
+                          <h4 class="body-sm font-medium text-foreground">
+                            {{ policy.name }}
+                          </h4>
+                          <Badge variant="outline" class="text-xs">
+                            {{ policy.policy_type === 'xendit' ? 'Xendit' : 'Syft Accounting' }}
+                          </Badge>
+                        </div>
                         <p class="body-sm text-muted-foreground">
-                          <template v-if="policy.configuration?.price !== undefined">
+                          <template v-if="policy.policy_type === 'xendit'">
+                            <template
+                              v-if="
+                                Array.isArray(policy.configuration?.bundle_tiers) &&
+                                policy.configuration.bundle_tiers.length > 0
+                              "
+                            >
+                              {{ policy.configuration.bundle_tiers.length }} tier(s) in
+                              {{ policy.configuration.currency || 'IDR' }}
+                            </template>
+                            <template v-else> Bundle payment configured </template>
+                          </template>
+                          <template v-else-if="policy.configuration?.price !== undefined">
                             ${{ policy.configuration.price }} per query
                             <template
                               v-if="
@@ -587,8 +607,8 @@
                                 )
                               "
                             >
-                              for {{ policy.configuration.applied_to.join(', ') }}</template
-                            >
+                              for {{ policy.configuration.applied_to.join(', ') }}
+                            </template>
                             <template
                               v-else-if="
                                 Array.isArray(policy.configuration?.applied_to) &&
@@ -596,8 +616,8 @@
                                 policy.configuration.applied_to[0] === '*'
                               "
                             >
-                              for all users</template
-                            >
+                              for all users
+                            </template>
                           </template>
                           <template v-else> Pricing rule configured </template>
                         </p>
@@ -610,6 +630,28 @@
                       >
                         <Trash2 class="h-4 w-4" />
                       </Button>
+                    </div>
+                    <!-- Xendit tier details -->
+                    <div
+                      v-if="
+                        policy.policy_type === 'xendit' &&
+                        Array.isArray(policy.configuration?.bundle_tiers) &&
+                        policy.configuration.bundle_tiers.length > 0
+                      "
+                      class="mt-2 space-y-1"
+                    >
+                      <div
+                        v-for="(tier, tierIdx) in policy.configuration.bundle_tiers"
+                        :key="tierIdx"
+                        class="flex items-center justify-between bg-card/50 border border-border/50 rounded-md px-3 py-1.5"
+                      >
+                        <span class="text-xs font-medium text-foreground">{{ tier.name }}</span>
+                        <span class="text-xs text-muted-foreground">
+                          {{ tier.units }} {{ tier.unit_type || 'requests' }} —
+                          {{ policy.configuration.currency || 'IDR' }}
+                          {{ tier.price?.toLocaleString() }}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -665,7 +707,7 @@
                 <div class="flex justify-between items-center py-1">
                   <span class="body-sm text-muted-foreground">Pricing</span>
                   <span class="body-sm font-medium text-foreground">{{
-                    getPricingPolicies().length
+                    getPaymentPolicies().length
                   }}</span>
                 </div>
               </CardContent>
@@ -740,6 +782,7 @@
     v-model:open="showAddPolicyDialog"
     :policy-type="selectedPolicyType"
     :is-submitting="policyCreating"
+    :existing-provider="existingPricingProvider"
     @save="handleAddPolicy"
   />
 
@@ -998,9 +1041,20 @@ const getRateLimitPolicies = () => {
   return endpoint.value?.policies?.filter((p) => p.policy_type === 'rate_limit') || []
 }
 
-const getPricingPolicies = () => {
-  return endpoint.value?.policies?.filter((p) => p.policy_type === 'accounting') || []
+const getPaymentPolicies = () => {
+  return (
+    endpoint.value?.policies?.filter(
+      (p) => p.policy_type === 'accounting' || p.policy_type === 'xendit',
+    ) || []
+  )
 }
+
+const existingPricingProvider = computed((): 'syft_accounting' | 'xendit' | null => {
+  const policies = getPaymentPolicies()
+  const first = policies[0]
+  if (!first) return null
+  return first.policy_type === 'xendit' ? 'xendit' : 'syft_accounting'
+})
 
 const getTotalPoliciesCount = () => {
   return endpoint.value?.policies?.length || 0
@@ -1034,15 +1088,29 @@ const getResponseType = computed(() => {
   }
 })
 
-// Get pricing range from pricing policies
+// Get pricing range from payment policies (accounting + xendit)
 const getPricingRange = computed(() => {
-  const pricingPolicies = getPricingPolicies()
+  const policies = getPaymentPolicies()
 
-  if (pricingPolicies.length === 0) {
+  if (policies.length === 0) {
     return '$0.00/request'
   }
 
-  const prices = pricingPolicies
+  // Check for xendit bundle pricing
+  const xenditPolicy = policies.find((p) => p.policy_type === 'xendit')
+  if (xenditPolicy) {
+    const tiers = xenditPolicy.configuration?.bundle_tiers as
+      | Array<{ units: number; price: number }>
+      | undefined
+    if (tiers && tiers.length > 0) {
+      const currency = (xenditPolicy.configuration?.currency as string) || 'IDR'
+      return `${tiers.length} tier(s) in ${currency}`
+    }
+    return 'Bundle pricing'
+  }
+
+  // Syft Accounting pricing
+  const prices = policies
     .map((policy) => policy.configuration?.price)
     .filter((price): price is number => typeof price === 'number')
     .sort((a, b) => a - b)
@@ -1086,9 +1154,15 @@ const deleteEndpoint = async () => {
     // Close dialog and navigate away
     showDeleteDialog.value = false
     router.push('/endpoints')
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Failed to delete endpoint:', error)
-    toast.error('Failed to delete endpoint. Please try again.')
+    const axiosErr = error as { response?: { status?: number; data?: { detail?: string } } }
+    if (axiosErr.response?.status === 409 && axiosErr.response?.data?.detail) {
+      toast.error(axiosErr.response.data.detail)
+      showDeleteDialog.value = false
+    } else {
+      toast.error('Failed to delete endpoint. Please try again.')
+    }
   } finally {
     isDeleting.value = false
   }

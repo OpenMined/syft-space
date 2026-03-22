@@ -94,6 +94,7 @@
         :endpoint="endpoint"
         @delete="handleDeleteEndpoint"
         @edit="handleEditEndpoint"
+        @archive="handleArchiveEndpoint"
       />
     </div>
 
@@ -183,11 +184,30 @@
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Archive Suggestion Dialog (shown when delete blocked by billing) -->
+  <Dialog v-model:open="showArchiveSuggestion">
+    <DialogContent class="sm:max-w-[425px]">
+      <DialogHeader>
+        <DialogTitle>Cannot delete endpoint</DialogTitle>
+        <DialogDescription>
+          {{ archiveSuggestionMessage }}
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="outline" @click="showArchiveSuggestion = false"> Cancel </Button>
+        <Button @click="handleArchiveSuggestionConfirm">
+          <Archive class="h-4 w-4 mr-2" />
+          Archive Instead
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Search, Plus, Server, HelpCircle } from 'lucide-vue-next'
+import { Search, Plus, Server, HelpCircle, Archive } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
@@ -222,6 +242,10 @@ const endpointToDelete = ref<EndpointItem | null>(null)
 const deleteNameConfirm = ref('')
 const isDeleting = ref(false)
 
+const showArchiveSuggestion = ref(false)
+const archiveSuggestionMessage = ref('')
+const archiveSuggestionEndpoint = ref<EndpointItem | null>(null)
+
 const showEditDialog = ref(false)
 const endpointToEdit = ref<{ slug: string; name: string; summary: string } | null>(null)
 
@@ -246,6 +270,29 @@ const handleDeleteEndpoint = (endpoint: EndpointItem) => {
   endpointToDelete.value = endpoint
   deleteNameConfirm.value = ''
   showDeleteDialog.value = true
+}
+
+const handleArchiveSuggestionConfirm = async () => {
+  if (archiveSuggestionEndpoint.value) {
+    await handleArchiveEndpoint(archiveSuggestionEndpoint.value)
+  }
+  showArchiveSuggestion.value = false
+  archiveSuggestionEndpoint.value = null
+}
+
+const handleArchiveEndpoint = async (endpoint: EndpointItem) => {
+  try {
+    if (endpoint.archived) {
+      await endpointsApi.unarchive(endpoint.slug)
+      toast.success(`Unarchived "${endpoint.name}"`)
+    } else {
+      await endpointsApi.archive(endpoint.slug)
+      toast.success(`Archived "${endpoint.name}"`)
+    }
+    await endpointsStore.fetchEndpoints()
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to update endpoint')
+  }
 }
 
 const handleEditEndpoint = (endpoint: EndpointItem) => {
@@ -310,9 +357,19 @@ const confirmDeleteEndpoint = async () => {
       showDeleteDialog.value = false
       endpointToDelete.value = null
       deleteNameConfirm.value = ''
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to delete endpoint:', error)
-      toast.error('Failed to delete endpoint. Please try again.')
+      const axiosErr = error as { response?: { status?: number; data?: { detail?: string } } }
+      if (axiosErr.response?.status === 409 && axiosErr.response?.data?.detail) {
+        archiveSuggestionMessage.value = axiosErr.response.data.detail
+        archiveSuggestionEndpoint.value = endpointToDelete.value
+        showDeleteDialog.value = false
+        endpointToDelete.value = null
+        deleteNameConfirm.value = ''
+        showArchiveSuggestion.value = true
+      } else {
+        toast.error('Failed to delete endpoint. Please try again.')
+      }
     } finally {
       isDeleting.value = false
     }

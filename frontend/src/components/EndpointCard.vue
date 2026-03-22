@@ -15,6 +15,14 @@
           >
             {{ endpoint.published ? 'Published' : 'Draft' }}
           </Badge>
+          <Badge
+            v-if="endpoint.archived"
+            variant="outline"
+            class="body-sm px-2.5 py-1 rounded-md text-muted-foreground border-border"
+          >
+            <Archive class="h-3 w-3 mr-1" />
+            Archived
+          </Badge>
         </div>
         <p class="body-sm text-muted-foreground mb-4">{{ endpoint.summary }}</p>
 
@@ -66,6 +74,14 @@
             <Button
               variant="outline"
               size="sm"
+              @click.stop="handleArchiveToggle"
+            >
+              <Archive class="h-4 w-4 mr-2" />
+              {{ endpoint.archived ? 'Unarchive' : 'Archive' }}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               class="text-destructive hover:text-destructive"
               @click.stop="handleDeleteEndpoint"
             >
@@ -96,7 +112,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
+import { Archive, ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -113,6 +129,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   delete: [endpoint: EndpointItem]
   edit: [endpoint: EndpointItem]
+  archive: [endpoint: EndpointItem]
 }>()
 
 const syftHubUrl = computed(() =>
@@ -129,6 +146,10 @@ const handleDeleteEndpoint = () => {
 
 const handleEditEndpoint = () => {
   emit('edit', props.endpoint)
+}
+
+const handleArchiveToggle = () => {
+  emit('archive', props.endpoint)
 }
 
 // Get preview paths for endpoint card
