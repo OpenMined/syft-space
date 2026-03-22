@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request
 
+from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.repository import WalletRepository
@@ -20,15 +21,25 @@ SUPPORTED_WALLET_TYPES = {"xendit"}
 class WalletHandler:
     """Handler for wallet business logic."""
 
-    def __init__(self, repository: WalletRepository):
+    def __init__(
+        self,
+        repository: WalletRepository,
+        settings_repository: SettingsRepository,
+    ):
         self.repository = repository
+        self.settings_repository = settings_repository
 
-    def _build_webhook_url(self, request: Request, wallet_type: str) -> str:
+    async def _build_webhook_url(self, request: Request, wallet_type: str) -> str:
         """Build the webhook URL for a wallet type.
 
-        Uses the current request's base URL so it works behind proxies.
+        Uses the stored public URL from settings if available,
+        falls back to the request's base URL.
         """
-        base_url = str(request.base_url).rstrip("/")
+        public_url = await self.settings_repository.get_public_url()
+        if public_url:
+            base_url = public_url.rstrip("/")
+        else:
+            base_url = str(request.base_url).rstrip("/")
         return f"{base_url}/api/v1/webhooks/{wallet_type}"
 
     async def create_wallet(
@@ -60,7 +71,7 @@ class WalletHandler:
                 "Delete the existing wallet first or update its credentials.",
             )
 
-        webhook_url = self._build_webhook_url(request, request_data.wallet_type)
+        webhook_url = await self._build_webhook_url(request, request_data.wallet_type)
 
         wallet = Wallet(
             tenant_id=tenant.id,

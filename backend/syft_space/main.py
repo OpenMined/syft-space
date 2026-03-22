@@ -17,7 +17,6 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 import syft_space.components.shared.logging_config  # noqa: F401, I001
-from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
 
 # Import auth components
 from syft_space.components.auth.dependencies import bearer_scheme
@@ -54,6 +53,10 @@ from syft_space.components.endpoints.endpoint_heartbeat_manager import (
 from syft_space.components.endpoints.handlers import EndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.routes import build_endpoint_routes
+
+# Import feedback components
+from syft_space.components.feedback.handlers import FeedbackHandler
+from syft_space.components.feedback.routes import build_feedback_routes
 
 # Import ingestion components
 from syft_space.components.ingestion.handlers import IngestionHandler
@@ -99,10 +102,6 @@ from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.routes import build_settings_routes
 
-# Import feedback components
-from syft_space.components.feedback.handlers import FeedbackHandler
-from syft_space.components.feedback.routes import build_feedback_routes
-
 # Import async utilities
 from syft_space.components.shared.async_utils import run_after_event
 
@@ -114,6 +113,7 @@ from syft_space.components.shared.lifecycle import LifecycleService
 
 # Import proxy service
 from syft_space.components.shared.proxy_service import ProxyService
+from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
 from syft_space.components.shared.syfthub_client import SyftHubClient
 
 # Import tenant components
@@ -391,6 +391,9 @@ register_policy_types(POLICY_TYPE_REGISTRY)
 logger.info("Initializing rate limiter storage ...")
 set_rate_limit_storage(InMemoryRateLimitStorage())
 
+# Initialize settings repository (needed by wallet handler)
+settings_repository = SettingsRepository(database)
+
 # Initialize handlers
 dataset_handler = DatasetHandler(
     DATASET_TYPE_REGISTRY, dataset_repository, provisioner_state_repository
@@ -398,7 +401,7 @@ dataset_handler = DatasetHandler(
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 policy_handler = PolicyHandler(POLICY_TYPE_REGISTRY, policy_repository)
 marketplace_handler = MarketplaceHandler(marketplace_repository)
-wallet_handler = WalletHandler(wallet_repository)
+wallet_handler = WalletHandler(wallet_repository, settings_repository)
 payment_handler = PaymentHandler(
     invoice_repository=invoice_repository,
     bundle_usage_repository=bundle_usage_repository,
@@ -422,8 +425,7 @@ endpoint_handler = EndpointHandler(
 )
 tenant_handler = TenantHandler(tenant_repository)
 
-# Initialize settings repository and proxy service
-settings_repository = SettingsRepository(database)
+# Initialize proxy service (settings_repository initialized above)
 proxy_service = ProxyService(settings_repository)
 
 # Initialize settings handler with proxy service

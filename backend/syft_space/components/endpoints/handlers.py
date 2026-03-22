@@ -60,6 +60,7 @@ from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
+from syft_space.config import app_settings
 
 
 class EndpointHandler:
@@ -270,9 +271,10 @@ class EndpointHandler:
             )
             if has_pending:
                 raise HTTPException(
-                    status_code=400,
+                    status_code=409,
                     detail="Cannot delete: pending invoices exist. "
-                    "Wait for them to expire or be settled.",
+                    "Wait for them to expire or be settled. "
+                    "Consider archiving instead.",
                 )
 
         if self.bundle_usage_repository:
@@ -283,9 +285,10 @@ class EndpointHandler:
             )
             if has_balance:
                 raise HTTPException(
-                    status_code=400,
+                    status_code=409,
                     detail="Cannot delete: users have remaining bundle balance. "
-                    "Wait for credits to be consumed or forfeit them.",
+                    "Wait for credits to be consumed or forfeit them. "
+                    "Consider archiving instead.",
                 )
 
         deleted = await self.endpoint_repository.delete_by_slug(slug, tenant.id)
@@ -1012,6 +1015,23 @@ class EndpointHandler:
                 error=str(e),
             )
 
+    def _get_payment_api(self, policy_type: str, slug: str) -> dict:
+        """Get payment API routes to inject into policy config at publish time."""
+        if policy_type == "xendit":
+            return {
+                "payment_api": {
+                    "create_invoice": "/api/v1/payments/xendit/invoices",
+                    "get_balance": f"/api/v1/payments/bundles/{slug}",
+                }
+            }
+        if policy_type == "accounting":
+            return {
+                "payment_api": {
+                    "accounting_url": str(app_settings.default_accounting_url),
+                }
+            }
+        return {}
+
     def _build_publish_payload(self, endpoint: Endpoint) -> dict[str, Any]:
         """Build the publish payload for an endpoint.
 
@@ -1036,7 +1056,10 @@ class EndpointHandler:
                 "version": "1.0",
                 "enabled": True,
                 "description": policy.name,
-                "config": policy.configuration,
+                "config": {
+                    **policy.configuration,
+                    **self._get_payment_api(policy.policy_type, endpoint.slug),
+                },
             }
             for policy in endpoint.policies
         ]

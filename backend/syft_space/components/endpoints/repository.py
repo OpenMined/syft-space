@@ -106,8 +106,14 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
     ) -> Endpoint | None:
         """Set the archived flag on an endpoint."""
         async with self.db.get_session() as session:
-            statement = select(Endpoint).where(
-                Endpoint.slug == slug, Endpoint.tenant_id == tenant_id
+            statement = (
+                select(Endpoint)
+                .where(Endpoint.slug == slug, Endpoint.tenant_id == tenant_id)
+                .options(
+                    selectinload(Endpoint.model),
+                    selectinload(Endpoint.dataset),
+                    selectinload(Endpoint.policies),
+                )
             )
             result = await session.exec(statement)
             endpoint = result.first()
