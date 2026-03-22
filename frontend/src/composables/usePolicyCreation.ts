@@ -1,11 +1,14 @@
 import { ref } from 'vue'
 import { policiesApi } from '@/api/policies/policies'
 import type { CreatePolicyRequest } from '@/api/types'
+import { getPolicyTypeLabel } from '@/config/policyTypes'
 
 export interface PolicyRules {
+  [key: string]: Array<{ id: string; config: Record<string, unknown> }>
   access: Array<{ id: string; config: Record<string, unknown> }>
   rate_limit: Array<{ id: string; config: Record<string, unknown> }>
   pricing: Array<{ id: string; config: Record<string, unknown> }>
+  xendit: Array<{ id: string; config: Record<string, unknown> }>
 }
 
 export interface AuthorizationFormData {
@@ -28,21 +31,30 @@ export interface PricingFormData {
   note: string
 }
 
-export type PolicyFormData = AuthorizationFormData | RateLimitFormData | PricingFormData
+export interface XenditTier {
+  name: string
+  units: string
+  unitType: string
+  price: string
+}
+
+export interface XenditFormData {
+  currency: string
+  country: string
+  tiers: XenditTier[]
+  userType: 'all' | 'specific'
+  users: string
+}
+
+export type PolicyFormData =
+  | AuthorizationFormData
+  | RateLimitFormData
+  | PricingFormData
+  | XenditFormData
 
 export function usePolicyCreation() {
   const isCreating = ref(false)
   const creationError = ref<string | null>(null)
-
-  // Helper functions
-  const getPolicyDisplayName = (policyType: string): string => {
-    const displayNames = {
-      access: 'Authorization',
-      rate_limit: 'Rate Limiter',
-      pricing: 'Pricing',
-    }
-    return displayNames[policyType as keyof typeof displayNames] || policyType
-  }
 
   const generatePolicyName = (
     policyType: string,
@@ -50,7 +62,9 @@ export function usePolicyCreation() {
     endpointName: string,
     ruleIndex: number = 1,
   ): string => {
-    const baseName = formData.note || `${getPolicyDisplayName(policyType)} Rule #${ruleIndex}`
+    const baseName =
+      ('note' in formData && formData.note) ||
+      `${getPolicyTypeLabel(policyType)} Rule #${ruleIndex}`
     return `${baseName} for ${endpointName}`
   }
 
@@ -174,9 +188,40 @@ export function usePolicyCreation() {
     return await policiesApi.create(request)
   }
 
+  const createXenditConfiguration = (formData: XenditFormData) => ({
+    bundle_tiers: formData.tiers.map((t) => ({
+      name: t.name,
+      units: parseInt(t.units),
+      unit_type: t.unitType,
+      price: parseFloat(t.price),
+    })),
+    currency: formData.currency,
+    country: formData.country,
+    applied_to: formData.userType === 'specific' ? processUserList(formData.users) : ['*'],
+  })
+
+  const createXenditPolicy = async (
+    formData: XenditFormData,
+    endpointId: string,
+    endpointName: string,
+    ruleIndex: number = 1,
+  ) => {
+    const policyName = `Bundle Payment Rule #${ruleIndex} for ${endpointName}`
+    const configuration = createXenditConfiguration(formData)
+
+    const request: CreatePolicyRequest = {
+      name: policyName,
+      policy_type: 'xendit',
+      configuration: configuration,
+      endpoint_id: endpointId,
+    }
+
+    return await policiesApi.create(request)
+  }
+
   // Generic policy creation method that routes to specific handlers
   const createPolicy = async (
-    policyType: 'access' | 'rate_limit' | 'pricing',
+    policyType: 'access' | 'rate_limit' | 'pricing' | 'xendit',
     formData: PolicyFormData,
     endpointId: string,
     endpointName: string,
@@ -212,6 +257,14 @@ export function usePolicyCreation() {
             ruleIndex,
           )
           break
+        case 'xendit':
+          result = await createXenditPolicy(
+            formData as XenditFormData,
+            endpointId,
+            endpointName,
+            ruleIndex,
+          )
+          break
         default:
           throw new Error(`Unsupported policy type: ${policyType}`)
       }
@@ -233,15 +286,7 @@ export function usePolicyCreation() {
   ): CreatePolicyRequest[] => {
     const policyRequests: CreatePolicyRequest[] = []
 
-    // Only process implemented policy types (access, rate_limit, pricing)
-    const implementedPolicies = ['access', 'rate_limit', 'pricing']
-
     Object.entries(policyRules).forEach(([policyType, rules]) => {
-      if (!implementedPolicies.includes(policyType)) {
-        console.log(`Skipping ${policyType} policy - not implemented yet`)
-        return
-      }
-
       rules.forEach((rule: { id: string; config: Record<string, unknown> }, index: number) => {
         const policyName = generatePolicyName(
           policyType,
@@ -289,19 +334,26 @@ export function usePolicyCreation() {
             limit: formattedLimit,
             scope: backendScope,
           }
+        } else if (policyType === 'pricing' && rule.config.provider === 'xendit') {
+          const xenditData = rule.config as unknown as XenditFormData
+          configuration = createXenditConfiguration(xenditData)
         } else if (policyType === 'pricing') {
           const price = rule.config.price as string
           const userType = rule.config.userType as 'all' | 'specific'
           const users = rule.config.users as string
 
           configuration = createPricingConfiguration(price, userType, users)
+        } else if (policyType === 'xendit') {
+          const xenditData = rule.config as unknown as XenditFormData
+          configuration = createXenditConfiguration(xenditData)
         } else {
-          // Fallback for other policy types
           configuration = rule.config
         }
 
-        // Map frontend policy type to backend policy type
-        const backendPolicyType = policyType === 'pricing' ? 'accounting' : policyType
+        const isXendit =
+          (policyType === 'pricing' && rule.config.provider === 'xendit') ||
+          policyType === 'xendit'
+        const backendPolicyType = isXendit ? 'xendit' : policyType === 'pricing' ? 'accounting' : policyType
 
         policyRequests.push({
           name: policyName,
@@ -331,6 +383,16 @@ export function usePolicyCreation() {
     return !isNaN(price) && price >= 0
   }
 
+  const validateXenditForm = (formData: XenditFormData): boolean => {
+    if (formData.tiers.length === 0) return false
+    return formData.tiers.every((tier) => {
+      const nameValid = tier.name.trim().length > 0
+      const unitsValid = parseInt(tier.units) > 0
+      const priceValid = parseFloat(tier.price) > 0
+      return nameValid && unitsValid && priceValid
+    })
+  }
+
   const validatePolicyForm = (policyType: string, formData: PolicyFormData): boolean => {
     switch (policyType) {
       case 'access':
@@ -339,6 +401,8 @@ export function usePolicyCreation() {
         return validateRateLimitForm(formData as RateLimitFormData)
       case 'pricing':
         return validatePricingForm(formData as PricingFormData)
+      case 'xendit':
+        return validateXenditForm(formData as XenditFormData)
       default:
         return false
     }
@@ -360,11 +424,13 @@ export function usePolicyCreation() {
     createAuthorizationPolicy,
     createRateLimitPolicy,
     createPricingPolicy,
+    createXenditPolicy,
     transformPolicyRules,
     validatePolicyForm,
     validateAuthorizationForm,
     validateRateLimitForm,
     validatePricingForm,
+    validateXenditForm,
     processUserList,
     generatePolicyName,
     reset,

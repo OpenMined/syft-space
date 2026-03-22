@@ -63,6 +63,7 @@ export interface EndpointListItem {
   summary: string
   response_type: string
   published: boolean
+  archived: boolean
   tags: string
   created_at: string
   model?: {
@@ -264,6 +265,7 @@ export interface EndpointResponse {
   model_id?: string
   response_type: string
   published: boolean
+  archived: boolean
   tags: string
   created_at: string
   updated_at: string
@@ -444,4 +446,28 @@ export interface DiagnosticsResponse {
 
 export interface UpdateDiagnosticsRequest {
   enabled: boolean
+}
+
+// Wallet API types
+export interface CreateWalletRequest {
+  wallet_type: string
+  api_key: string
+  callback_token: string
+}
+
+export interface WalletResponse {
+  id: string
+  wallet_type: string
+  is_active: boolean
+  webhook_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface WalletListItem {
+  id: string
+  wallet_type: string
+  is_active: boolean
+  webhook_url: string | null
+  created_at: string
 }

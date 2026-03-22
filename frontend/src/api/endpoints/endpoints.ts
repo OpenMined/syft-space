@@ -60,4 +60,14 @@ export const endpointsApi = {
     const response = await apiClient.delete<UnpublishResult[]>(`/endpoints/${slug}/unpublish`)
     return response.data
   },
+
+  archive: async (slug: string): Promise<EndpointResponse> => {
+    const response = await apiClient.post<EndpointResponse>(`/endpoints/${slug}/archive`)
+    return response.data
+  },
+
+  unarchive: async (slug: string): Promise<EndpointResponse> => {
+    const response = await apiClient.post<EndpointResponse>(`/endpoints/${slug}/unarchive`)
+    return response.data
+  },
 }

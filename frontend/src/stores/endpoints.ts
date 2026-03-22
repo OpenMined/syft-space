@@ -18,6 +18,7 @@ export interface EndpointItem {
   mcpCompatible: boolean
   tags: string[]
   published: boolean
+  archived: boolean
   watchedPaths?: string[]
 }
 
@@ -58,6 +59,7 @@ export const useEndpointsStore = defineStore('endpoints', () => {
       mcpCompatible: false, // Default, not provided by API
       tags: tagList,
       published: item.published,
+      archived: item.archived ?? false,
       watchedPaths,
     }
   }

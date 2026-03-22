@@ -1,7 +1,7 @@
 import { Shield, Gauge, DollarSign } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
-export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
+export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing' | 'xendit'
 
 export interface PolicyConfig {
   id: string
@@ -60,6 +60,8 @@ export const getPolicyTypeLabel = (type: string): string => {
       return 'Rate Limiting'
     case 'pricing':
       return 'Pricing'
+    case 'xendit':
+      return 'Bundle Payment'
     default:
       return 'Policy'
   }
@@ -69,6 +71,7 @@ export const createEmptyPolicyRules = (): PolicyRulesRecord => ({
   access: [],
   rate_limit: [],
   pricing: [],
+  xendit: [],
 })
 
 export const generateRuleId = (): string => {
@@ -99,6 +102,12 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
       }
 
     case 'pricing':
+      if (config.provider === 'xendit') {
+        if (!config.tierCount && !config.tiers) return 'No tiers configured'
+        const tiers = config.tiers as Array<Record<string, unknown>> | undefined
+        const tierCount = tiers?.length || config.tierCount || 0
+        return `${tierCount} bundle tier(s) in ${config.currency || 'IDR'} (Xendit)`
+      }
       if (config.price === undefined || config.price === null || config.price === '')
         return 'No price configured'
       {
@@ -140,7 +149,30 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
         }
       }
 
+    case 'xendit':
+      if (!config.tierCount) return 'No tiers configured'
+      return `${config.tierCount} bundle tier(s) in ${config.currency || 'IDR'}`
+
     default:
       return 'Rule configured'
   }
 }
+
+export const XENDIT_CURRENCIES = [
+  { value: 'IDR', label: 'IDR - Indonesian Rupiah' },
+  { value: 'USD', label: 'USD - US Dollar' },
+  { value: 'PHP', label: 'PHP - Philippine Peso' },
+  { value: 'SGD', label: 'SGD - Singapore Dollar' },
+  { value: 'MYR', label: 'MYR - Malaysian Ringgit' },
+  { value: 'THB', label: 'THB - Thai Baht' },
+  { value: 'VND', label: 'VND - Vietnamese Dong' },
+] as const
+
+export const XENDIT_COUNTRIES = [
+  { value: 'ID', label: 'Indonesia' },
+  { value: 'PH', label: 'Philippines' },
+  { value: 'SG', label: 'Singapore' },
+  { value: 'MY', label: 'Malaysia' },
+  { value: 'TH', label: 'Thailand' },
+  { value: 'VN', label: 'Vietnam' },
+] as const

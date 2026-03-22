@@ -15,9 +15,11 @@ export interface PolicyRule {
 }
 
 export interface PolicyRules {
+  [key: string]: PolicyRule[]
   access: PolicyRule[]
   rate_limit: PolicyRule[]
   pricing: PolicyRule[]
+  xendit: PolicyRule[]
 }
 
 export interface ModelEndpointCreationData {
