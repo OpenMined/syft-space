@@ -40,6 +40,17 @@ def build_payment_routes(
             raise HTTPException(status_code=400, detail="No marketplace configured")
         return await get_verified_user_email(request, marketplace)
 
+    @router.get(
+        "/invoices/endpoint/{endpoint_slug}", response_model=list[InvoiceResponse]
+    )
+    async def get_invoices_by_endpoint(
+        endpoint_slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PaymentHandler = Depends(get_handler),
+    ) -> list[InvoiceResponse]:
+        """Get all invoices for an endpoint."""
+        return await handler.get_invoices_by_endpoint(endpoint_slug, tenant)
+
     @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
     async def get_invoice(
         invoice_id: UUID,
@@ -48,6 +59,15 @@ def build_payment_routes(
     ) -> InvoiceResponse:
         """Get invoice details and current status."""
         return await handler.get_invoice(invoice_id, tenant)
+
+    @router.get("/bundles", response_model=list[BundleUsageResponse])
+    async def get_all_bundle_usages(
+        endpoint_slug: str = Query(..., description="Endpoint slug"),
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PaymentHandler = Depends(get_handler),
+    ) -> list[BundleUsageResponse]:
+        """Get all bundle usages for an endpoint (admin view)."""
+        return await handler.get_all_bundle_usages(endpoint_slug, tenant)
 
     @public_route
     @router.get("/bundles/{endpoint_slug}", response_model=BundleUsageResponse)

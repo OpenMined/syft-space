@@ -241,6 +241,19 @@ class PaymentHandler:
 
     # ── Generic: reads ─────────────────────────────────────────────
 
+    async def get_invoices_by_endpoint(
+        self, endpoint_slug: str, tenant: Tenant
+    ) -> list[InvoiceResponse]:
+        """Get all invoices for an endpoint."""
+        endpoint = await self.endpoint_repo.get_by_slug(endpoint_slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Endpoint '{endpoint_slug}' not found",
+            )
+        invoices = await self.invoice_repo.get_by_endpoint_id(endpoint.id, tenant.id)
+        return [InvoiceResponse.model_validate(inv) for inv in invoices]
+
     async def get_invoice(self, invoice_id: UUID, tenant: Tenant) -> InvoiceResponse:
         """Get an invoice by ID within a tenant."""
         invoice = await self.invoice_repo.get_by_id(invoice_id, tenant.id)
@@ -276,3 +289,25 @@ class PaymentHandler:
             remaining_units=usage.remaining_units if usage else 0,
             total_purchased=usage.total_purchased if usage else 0,
         )
+
+    async def get_all_bundle_usages(
+        self, endpoint_slug: str, tenant: Tenant
+    ) -> list[BundleUsageResponse]:
+        """Get all bundle usages for an endpoint (admin view)."""
+        endpoint = await self.endpoint_repo.get_by_slug(endpoint_slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Endpoint '{endpoint_slug}' not found",
+            )
+        usages = await self.bundle_usage_repo.get_by_endpoint_id(endpoint.id, tenant.id)
+        return [
+            BundleUsageResponse(
+                endpoint_slug=endpoint_slug,
+                user_email=u.user_email,
+                unit_type=u.unit_type,
+                remaining_units=u.remaining_units,
+                total_purchased=u.total_purchased,
+            )
+            for u in usages
+        ]

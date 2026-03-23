@@ -34,6 +34,18 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
             result = await session.exec(statement)
             return result.first()
 
+    async def get_by_endpoint_id(
+        self, endpoint_id: UUID, tenant_id: UUID
+    ) -> list[BundleUsage]:
+        """Get all bundle usages for an endpoint."""
+        async with self.db.get_session() as session:
+            statement = select(BundleUsage).where(
+                BundleUsage.endpoint_id == endpoint_id,
+                BundleUsage.tenant_id == tenant_id,
+            )
+            result = await session.exec(statement)
+            return list(result.all())
+
     async def upsert_add_units(
         self,
         tenant_id: UUID,

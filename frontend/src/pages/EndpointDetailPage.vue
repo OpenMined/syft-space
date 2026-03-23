@@ -228,7 +228,7 @@
       <!-- Tabs Section -->
       <Tabs v-model="activeTab" class="space-y-4">
         <TabsList
-          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-2"
+          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3"
         >
           <TabsTrigger value="overview" class="flex items-center gap-2">
             <Layout class="h-4 w-4" />
@@ -237,6 +237,10 @@
           <TabsTrigger value="access" class="flex items-center gap-2">
             <Shield class="h-4 w-4" />
             Access Control
+          </TabsTrigger>
+          <TabsTrigger value="billing" class="flex items-center gap-2">
+            <DollarSign class="h-4 w-4" />
+            Billing
           </TabsTrigger>
         </TabsList>
 
@@ -726,6 +730,121 @@
             </Card>
           </div>
         </TabsContent>
+
+        <!-- Billing Tab -->
+        <TabsContent value="billing" class="space-y-6">
+          <div class="space-y-4">
+            <!-- Email Filter -->
+            <div class="flex items-center gap-3">
+              <div class="flex-1">
+                <Input
+                  v-model="billingEmailFilter"
+                  placeholder="Filter by user email..."
+                  class="h-9 rounded-lg border-border bg-card body-sm"
+                />
+              </div>
+              <Button variant="outline" size="sm" @click="fetchBillingData">
+                <RefreshCw class="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+            </div>
+
+            <!-- Invoices -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm">
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <FileText class="h-5 w-5 text-muted-foreground" />
+                  Invoices
+                </CardTitle>
+                <CardDescription>
+                  {{ billingProvider === 'xendit' ? 'Bundle purchase invoices' : 'Transaction history' }}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div v-if="billingLoading" class="text-sm text-muted-foreground text-center py-4">
+                  Loading...
+                </div>
+                <div v-else-if="filteredInvoices.length === 0" class="text-sm text-muted-foreground text-center py-4">
+                  No invoices found
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+                    v-for="invoice in filteredInvoices"
+                    :key="invoice.id"
+                    class="p-3 bg-muted/50 border border-border rounded-lg"
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-1">
+                          <span class="body-sm font-medium text-foreground">
+                            {{ invoice.user_email }}
+                          </span>
+                          <Badge
+                            :variant="invoice.status === 'paid' ? 'default' : 'secondary'"
+                            :class="
+                              invoice.status === 'paid'
+                                ? 'bg-green-500/10 text-green-600 border-green-500/20'
+                                : ''
+                            "
+                            class="text-xs"
+                          >
+                            {{ invoice.status }}
+                          </Badge>
+                        </div>
+                        <p class="text-xs text-muted-foreground">
+                          <template v-if="billingProvider === 'xendit'">
+                            {{ invoice.tier_name }} — {{ invoice.tier_units }} {{ invoice.unit_type }}
+                            — {{ invoice.currency }} {{ invoice.amount?.toLocaleString() }}
+                          </template>
+                          <template v-else>
+                            ${{ invoice.amount }} — {{ invoice.app_ep_path || 'query' }}
+                          </template>
+                        </p>
+                      </div>
+                      <span class="text-xs text-muted-foreground shrink-0">
+                        {{ formatDate(invoice.created_at) }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <!-- Bundle Usage (xendit only) -->
+            <Card
+              v-if="billingProvider === 'xendit'"
+              class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
+            >
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <Gauge class="h-5 w-5 text-muted-foreground" />
+                  Bundle Usage
+                </CardTitle>
+                <CardDescription> Remaining credits per user </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div v-if="bundleUsages.length === 0" class="text-sm text-muted-foreground text-center py-4">
+                  No bundle usage data
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+                    v-for="usage in filteredBundleUsages"
+                    :key="usage.user_email"
+                    class="flex items-center justify-between p-3 bg-muted/50 border border-border rounded-lg"
+                  >
+                    <span class="body-sm font-medium text-foreground">{{ usage.user_email }}</span>
+                    <div class="text-right">
+                      <span class="body-sm font-medium text-foreground">
+                        {{ usage.remaining_units }} / {{ usage.total_purchased }}
+                      </span>
+                      <span class="text-xs text-muted-foreground ml-1">{{ usage.unit_type }}</span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
       </Tabs>
     </div>
   </div>
@@ -826,7 +945,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import {
@@ -847,6 +966,7 @@ import {
   ExternalLink,
   Pencil,
   Archive,
+  RefreshCw,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -874,6 +994,9 @@ import {
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import type { PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
+import { paymentsApi } from '@/api/endpoints/payments'
+import type { BundleUsageResponse } from '@/api/types'
+import { marketplacesApi } from '@/api/endpoints/marketplaces'
 import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import { policiesApi } from '@/api/policies/policies'
@@ -907,6 +1030,96 @@ const showEditDialog = ref(false)
 const selectedPolicyType = ref<PolicyTypeId>('access')
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
+
+// Billing state
+const billingEmailFilter = ref('')
+const billingLoading = ref(false)
+interface BillingItem {
+  id: string
+  user_email?: string
+  sender_email?: string
+  amount?: number
+  status?: string
+  created_at: string
+  tier_name?: string
+  tier_units?: number
+  unit_type?: string
+  currency?: string
+  app_ep_path?: string
+  [key: string]: unknown
+}
+
+const invoices = ref<BillingItem[]>([])
+const bundleUsages = ref<BundleUsageResponse[]>([])
+
+const billingProvider = computed(() => {
+  const policies = getPaymentPolicies()
+  const xendit = policies.find((p) => p.policy_type === 'xendit')
+  if (xendit) return 'xendit'
+  const accounting = policies.find((p) => p.policy_type === 'accounting')
+  if (accounting) return 'accounting'
+  return null
+})
+
+const filteredInvoices = computed(() => {
+  if (!billingEmailFilter.value) return invoices.value
+  const filter = billingEmailFilter.value.toLowerCase()
+  return invoices.value.filter(
+    (inv) =>
+      inv.user_email?.toLowerCase().includes(filter) ||
+      inv.sender_email?.toLowerCase().includes(filter),
+  )
+})
+
+const filteredBundleUsages = computed(() => {
+  if (!billingEmailFilter.value) return bundleUsages.value
+  const filter = billingEmailFilter.value.toLowerCase()
+  return bundleUsages.value.filter((u) => u.user_email.toLowerCase().includes(filter))
+})
+
+const formatDate = (dateStr: string) => {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const fetchBillingData = async () => {
+  if (!endpoint.value?.slug) return
+  billingLoading.value = true
+  try {
+    if (billingProvider.value === 'xendit') {
+      const [invoiceData, usageData] = await Promise.all([
+        paymentsApi.getInvoicesByEndpoint(endpoint.value.slug),
+        paymentsApi.getBundleUsages(endpoint.value.slug),
+      ])
+      invoices.value = invoiceData.map((inv) => ({
+        ...inv,
+        user_email: inv.user_email,
+      }))
+      bundleUsages.value = usageData
+    } else if (billingProvider.value === 'accounting') {
+      const balance = await marketplacesApi.getBalance()
+      invoices.value = balance.recent_transactions.map((t) => ({
+        id: t.id,
+        sender_email: t.sender_email,
+        user_email: t.sender_email,
+        amount: t.amount,
+        status: t.status,
+        created_at: t.created_at,
+        app_ep_path: t.app_ep_path,
+      }))
+    }
+  } catch {
+    invoices.value = []
+  } finally {
+    billingLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'billing' && invoices.value.length === 0) {
+    fetchBillingData()
+  }
+})
 
 // Policy creation composable
 const { createPolicy, isCreating: policyCreating } = usePolicyCreation()

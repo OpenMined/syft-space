@@ -66,6 +66,22 @@ class InvoiceRepository(AsyncBaseRepository[Invoice]):
             await session.commit()
             return True
 
+    async def get_by_endpoint_id(
+        self, endpoint_id: UUID, tenant_id: UUID
+    ) -> list[Invoice]:
+        """Get all invoices for an endpoint."""
+        async with self.db.get_session() as session:
+            statement = (
+                select(Invoice)
+                .where(
+                    Invoice.endpoint_id == endpoint_id,
+                    Invoice.tenant_id == tenant_id,
+                )
+                .order_by(Invoice.created_at.desc())
+            )
+            result = await session.exec(statement)
+            return list(result.all())
+
     async def has_pending_by_endpoint_id(
         self, endpoint_id: UUID, tenant_id: UUID
     ) -> bool:

@@ -471,3 +471,31 @@ export interface WalletListItem {
   webhook_url: string | null
   created_at: string
 }
+
+// Bundle Usage API types
+export interface BundleUsageResponse {
+  endpoint_slug: string
+  user_email: string
+  unit_type: string
+  remaining_units: number
+  total_purchased: number
+}
+
+// Invoice API types
+export interface InvoiceResponse {
+  id: string
+  endpoint_id: string | null
+  user_email: string
+  provider: string
+  external_id: string
+  checkout_url: string
+  tier_name: string
+  tier_units: number
+  unit_type: string
+  amount: number
+  currency: string
+  status: string
+  paid_at: string | null
+  created_at: string
+  updated_at: string
+}
