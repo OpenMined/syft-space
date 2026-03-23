@@ -7,7 +7,7 @@
         <p class="body-lg text-muted-foreground">
           Let's get you connected to
           <a
-            href="https://syfthub.openmined.org"
+            href="http://localhost:8080"
             target="_blank"
             rel="noopener noreferrer"
             class="text-primary hover:underline inline-flex items-center gap-1"

@@ -680,11 +680,9 @@ class EndpointHandler:
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
+        # If archived, then only publish to existing marketplaces
         if endpoint.archived:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot publish archived endpoint to new marketplaces",
-            )
+            marketplace_ids = [UUID(m) for m in endpoint.published_to]
 
         # Get marketplaces to publish to
         if publish_to_all_marketplaces:
@@ -1076,6 +1074,7 @@ class EndpointHandler:
             "version": "0.1.0",
             "readme": endpoint.description or "",
             "slug": endpoint.slug,
+            "archived": endpoint.archived,
             "policies": policies,
             "connect": [
                 {

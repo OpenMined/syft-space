@@ -289,6 +289,16 @@ const handleArchiveEndpoint = async (endpoint: EndpointItem) => {
       await endpointsApi.archive(endpoint.slug)
       toast.success(`Archived "${endpoint.name}"`)
     }
+    // Sync archived state to SyftHub
+    if (endpoint.published) {
+      try {
+        await endpointsApi.publish(endpoint.slug, { publish_to_all_marketplaces: true })
+      } catch (syncErr) {
+        console.error('Failed to sync archive state to SyftHub:', syncErr)
+      }
+    } else {
+      console.log('Skipping publish sync: endpoint not published', endpoint.published)
+    }
     await endpointsStore.fetchEndpoints()
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to update endpoint')
@@ -330,20 +340,17 @@ const confirmDeleteEndpoint = async () => {
         throw new Error('Endpoint slug is undefined')
       }
 
-      // Unpublish from SyftHub first if published
+      // Delete first — if blocked (e.g., billing obligations), don't unpublish
+      await endpointsApi.delete(endpointToDelete.value.slug)
+
+      // Unpublish from SyftHub only after successful deletion
       if (endpointToDelete.value.published) {
         try {
           await endpointsApi.unpublish(endpointToDelete.value.slug)
         } catch (unpublishError) {
-          console.error('Failed to unpublish endpoint:', unpublishError)
-          toast.error('Failed to remove endpoint from SyftHub. Please try again.')
-          isDeleting.value = false
-          return
+          console.error('Failed to unpublish endpoint from SyftHub:', unpublishError)
         }
       }
-
-      // Call the delete API
-      await endpointsApi.delete(endpointToDelete.value.slug)
 
       // Remove from store after successful deletion
       const index = endpointsStore.endpoints.findIndex((e) => e.id === endpointToDelete.value!.id)

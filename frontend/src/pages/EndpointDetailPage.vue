@@ -157,6 +157,14 @@
                   ></div>
                   {{ endpoint.published ? 'Live' : 'Draft' }}
                 </Badge>
+                <Badge
+                  v-if="endpoint.archived"
+                  variant="outline"
+                  class="text-muted-foreground border-border"
+                >
+                  <Archive class="h-3 w-3 mr-1" />
+                  Archived
+                </Badge>
                 <Badge variant="outline" class="bg-primary/10 text-primary border-primary/20">
                   {{ getPricingRange }}
                 </Badge>
@@ -182,6 +190,10 @@
               <Button variant="outline" @click="openEditDialog">
                 <Pencil class="h-4 w-4 mr-2" />
                 Edit
+              </Button>
+              <Button variant="outline" @click="handleArchiveToggle">
+                <Archive class="h-4 w-4 mr-2" />
+                {{ endpoint.archived ? 'Unarchive' : 'Archive' }}
               </Button>
               <Button
                 variant="outline"
@@ -760,6 +772,25 @@
     </DialogContent>
   </Dialog>
 
+  <!-- Archive Suggestion Dialog (shown when delete blocked by billing) -->
+  <Dialog v-model:open="showArchiveSuggestion">
+    <DialogContent class="sm:max-w-[425px]">
+      <DialogHeader>
+        <DialogTitle>Cannot delete endpoint</DialogTitle>
+        <DialogDescription>
+          {{ archiveSuggestionMessage }}
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="outline" @click="showArchiveSuggestion = false"> Cancel </Button>
+        <Button @click="handleArchiveSuggestionConfirm">
+          <Archive class="h-4 w-4 mr-2" />
+          Archive Instead
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
   <!-- Delete Policy Confirmation Dialog -->
   <Dialog v-model:open="showDeletePolicyDialog">
     <DialogContent class="sm:max-w-[400px]">
@@ -815,6 +846,7 @@ import {
   Plus,
   ExternalLink,
   Pencil,
+  Archive,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -866,6 +898,8 @@ const activeTab = ref('overview')
 const deleteNameConfirm = ref('')
 const showDeleteDialog = ref(false)
 const isDeleting = ref(false)
+const showArchiveSuggestion = ref(false)
+const archiveSuggestionMessage = ref('')
 const showDeletePolicyDialog = ref(false)
 const policyToDelete = ref<{ id: string; name: string } | null>(null)
 const showAddPolicyDialog = ref(false)
@@ -1129,25 +1163,52 @@ const getPricingRange = computed(() => {
   return `$${formatPrice(minPrice)} - $${formatPrice(maxPrice)}/request`
 })
 
+const handleArchiveToggle = async () => {
+  if (!endpoint.value?.slug) return
+  try {
+    if (endpoint.value.archived) {
+      await endpointsApi.unarchive(endpoint.value.slug)
+      toast.success(`Unarchived "${endpoint.value.name}"`)
+    } else {
+      await endpointsApi.archive(endpoint.value.slug)
+      toast.success(`Archived "${endpoint.value.name}"`)
+    }
+    // Sync archived state to SyftHub
+    if (endpoint.value.published) {
+      try {
+        await endpointsApi.publish(endpoint.value.slug, { publish_to_all_marketplaces: true })
+      } catch {
+        // Best-effort sync
+      }
+    }
+    router.go(0)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to update endpoint')
+  }
+}
+
+const handleArchiveSuggestionConfirm = async () => {
+  if (!endpoint.value?.slug) return
+  await handleArchiveToggle()
+  showArchiveSuggestion.value = false
+}
+
 const deleteEndpoint = async () => {
   if (!endpoint.value?.slug || isDeleting.value) return
 
   isDeleting.value = true
   try {
-    // Unpublish from SyftHub first if published
+    // Delete first — if blocked (e.g., billing obligations), don't unpublish
+    await endpointsApi.delete(endpoint.value.slug)
+
+    // Unpublish from SyftHub only after successful deletion
     if (endpoint.value.published) {
       try {
         await endpointsApi.unpublish(endpoint.value.slug)
       } catch (unpublishError) {
-        console.error('Failed to unpublish endpoint:', unpublishError)
-        toast.error('Failed to remove endpoint from SyftHub. Please try again.')
-        isDeleting.value = false
-        return
+        console.error('Failed to unpublish endpoint from SyftHub:', unpublishError)
       }
     }
-
-    // Call the delete API
-    await endpointsApi.delete(endpoint.value.slug)
 
     toast.success('Endpoint deleted successfully')
 
@@ -1158,8 +1219,9 @@ const deleteEndpoint = async () => {
     console.error('Failed to delete endpoint:', error)
     const axiosErr = error as { response?: { status?: number; data?: { detail?: string } } }
     if (axiosErr.response?.status === 409 && axiosErr.response?.data?.detail) {
-      toast.error(axiosErr.response.data.detail)
+      archiveSuggestionMessage.value = axiosErr.response.data.detail
       showDeleteDialog.value = false
+      showArchiveSuggestion.value = true
     } else {
       toast.error('Failed to delete endpoint. Please try again.')
     }
