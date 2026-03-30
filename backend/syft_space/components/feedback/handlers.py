@@ -79,9 +79,17 @@ class FeedbackHandler:
             if result.get("success"):
                 ticket_id = result.get("ticket_id")
                 logger.info(f"Feedback submitted successfully: {ticket_id}")
+                category_messages = {
+                    "bug": "Bug report submitted successfully!",
+                    "feedback": "Feedback submitted successfully!",
+                    "idea": "Idea submitted successfully!",
+                }
+                message = category_messages.get(
+                    request.category, "Thank you for your feedback!"
+                )
                 return FeedbackResponse(
                     success=True,
-                    message=result.get("message", "Thank you for your feedback!"),
+                    message=message,
                     ticket_id=ticket_id,
                 )
             else:
