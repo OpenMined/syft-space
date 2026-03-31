@@ -21,7 +21,9 @@ PATH_USD_ADDRESS = "0x20c0000000000000000000000000000000000000"
 
 def _get_rpc_url() -> str:
     """Get the appropriate Tempo RPC URL based on config."""
-    return TEMPO_TESTNET_RPC_URL if app_settings.tempo_testnet else TEMPO_MAINNET_RPC_URL
+    return (
+        TEMPO_TESTNET_RPC_URL if app_settings.tempo_testnet else TEMPO_MAINNET_RPC_URL
+    )
 
 
 _w3_instance: Web3 | None = None
@@ -84,8 +86,8 @@ def _sync_get_balance(wallet_address: str) -> float:
     decimals = 6
     try:
         decimals = token_contract.functions.decimals().call()
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not fetch token decimals, using default of 6")
 
     return raw_balance / (10**decimals)
 
