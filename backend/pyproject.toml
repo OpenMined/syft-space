@@ -10,7 +10,7 @@ authors = [
     {name = "OpenMined", email = "support@openmined.org"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.116.2",
     "uvicorn[standard]==0.35.0",
@@ -27,10 +27,10 @@ dependencies = [
     "watchdog>=4.0.0",
     "janus>=1.0.0",
     "httpx>=0.24.0",
-    "syft-accounting-sdk",
     "sqlalchemy[asyncio]>=2.0.45",
     "aiofiles>=25.1.0",
     "sentry-sdk[fastapi]>=2.0.0",
+    "pympp[tempo]>=0.4.0",
 ]
 
 [project.optional-dependencies]
@@ -134,6 +134,5 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.sources]
-syft-accounting-sdk = { git = "https://github.com/OpenMined/accounting-sdk.git", rev = "main" }
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }

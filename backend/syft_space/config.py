@@ -66,10 +66,6 @@ class AppSettings(BaseSettings):
     )
 
     # External service URLs
-    default_accounting_url: HttpUrl = Field(
-        default="https://syftaccounting.centralus.cloudapp.azure.com/",
-        description="Default URL for the accounting service",
-    )
     default_marketplace_url: HttpUrl = Field(
         default="https://syfthub.openmined.org",
         description="Default URL for the marketplace service",
@@ -79,6 +75,12 @@ class AppSettings(BaseSettings):
     public_url: HttpUrl | None = Field(
         None,
         description="Public URL for the Syft Space",
+    )
+
+    # MPP / Tempo settings
+    tempo_testnet: bool = Field(
+        default=True,
+        description="Use Tempo testnet for MPP payments. Set to False for production (mainnet).",
     )
 
     # Endpoint health check settings
@@ -99,6 +101,7 @@ class AppSettings(BaseSettings):
         if not isinstance(v, HttpUrl):
             v = HttpUrl(v)
         return v
+
 
 
 # Global settings instance

@@ -6,6 +6,8 @@ import type {
   MarketplaceListItem,
   BalanceResponse,
   TransactionResponse,
+  WalletResponse,
+  CreateWalletResponse,
 } from '../types'
 
 export const marketplacesApi = {
@@ -55,6 +57,29 @@ export const marketplacesApi = {
   // Delete a marketplace
   delete: async (id: string): Promise<{ message: string }> => {
     const response = await apiClient.delete(`/marketplaces/${id}`)
+    return response.data
+  },
+
+  // Wallet management
+  getWallet: async (): Promise<WalletResponse> => {
+    const response = await apiClient.get('/marketplaces/wallet')
+    return response.data
+  },
+
+  createWallet: async (): Promise<CreateWalletResponse> => {
+    const response = await apiClient.post('/marketplaces/wallet/create')
+    return response.data
+  },
+
+  importWallet: async (privateKey: string): Promise<CreateWalletResponse> => {
+    const response = await apiClient.post('/marketplaces/wallet/import', {
+      private_key: privateKey,
+    })
+    return response.data
+  },
+
+  updateWalletAddress: async (walletAddress: string): Promise<WalletResponse> => {
+    const response = await apiClient.put('/marketplaces/wallet', { wallet_address: walletAddress })
     return response.data
   },
 }

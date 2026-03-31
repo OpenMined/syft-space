@@ -63,7 +63,9 @@
     <div v-else-if="models.length === 0" class="text-center py-8">
       <Brain class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
       <h3 class="heading-3 text-foreground mb-2">No models yet</h3>
-      <p class="body-sm text-muted-foreground mb-4">Start by adding or connecting your first AI model</p>
+      <p class="body-sm text-muted-foreground mb-4">
+        Start by adding or connecting your first AI model
+      </p>
       <Button @click="showCreateModelDialog = true">
         <Plus class="h-4 w-4 mr-2" />
         Add Model

@@ -1,6 +1,7 @@
 """Endpoint API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from syft_space.components.auth.dependencies import get_verified_user_email
 from syft_space.components.auth.public import public_route
@@ -20,6 +21,7 @@ from syft_space.components.endpoints.schemas import (
     UnpublishResult,
     UpdateEndpointRequest,
 )
+from syft_space.components.policy_types.interfaces import PaymentRequiredError
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
 
@@ -168,13 +170,15 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         sender_email: str = Depends(get_verified_sender_email),
         handler: EndpointHandler = Depends(get_handler),
-    ) -> QueryEndpointResponse:
+        x_payment: str | None = Header(None, alias="X-Payment", max_length=10000),
+    ) -> QueryEndpointResponse | JSONResponse:
         """Query an endpoint - main RAG flow (PUBLIC, requires SyftHub token).
 
         This is the core endpoint that orchestrates:
         - Dataset search (if configured)
         - Model chat (if configured)
         - Policy enforcement (pre/post hooks)
+        - MPP payment flow (X-Payment header / HTTP 402)
 
         Args:
             slug: Endpoint slug
@@ -182,13 +186,34 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
             tenant: Current tenant (injected)
             sender_email: Verified sender email from SyftHub token (injected)
             handler: Endpoint handler (injected)
+            x_payment: MPP payment credential from X-Payment header (optional)
 
         Returns:
-            Query response with summary and/or references
+            Query response with summary and/or references, or 402 if payment required
         """
         # Create authenticated request with verified sender email
         auth_request = AuthenticatedQueryRequest.from_request(request, sender_email)
-        return await handler.query_endpoint(slug, auth_request, tenant)
+
+        try:
+            response, payment_receipt = await handler.query_endpoint(
+                slug, auth_request, tenant, x_payment=x_payment
+            )
+        except PaymentRequiredError as e:
+            return JSONResponse(
+                status_code=402,
+                content={"detail": e.description or "Payment required"},
+                headers={"WWW-Authenticate": e.www_authenticate},
+            )
+
+        # If there's a payment receipt, include it in the response header
+        if payment_receipt:
+            return JSONResponse(
+                status_code=200,
+                content=response.model_dump(),
+                headers={"Payment-Receipt": payment_receipt},
+            )
+
+        return response
 
     @router.post("/{slug}/publish", response_model=PublishEndpointResponse)
     async def publish_endpoint(

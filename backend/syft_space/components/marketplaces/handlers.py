@@ -1,22 +1,23 @@
 """Marketplace handlers for business logic."""
 
-import asyncio
 from uuid import UUID
 
 from fastapi import HTTPException
-from syft_accounting_sdk import ServiceException, UserClient
 
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.marketplaces.schemas import (
     BalanceResponse,
     ConnectMarketplaceRequest,
+    CreateWalletResponse,
+    ImportWalletRequest,
     MarketplaceListItem,
     MarketplaceResponse,
     RegisterMarketplaceRequest,
     TransactionResponse,
+    UpdateWalletAddressRequest,
+    WalletResponse,
 )
-from syft_space.components.marketplaces.utils import ensure_valid_accounting_credentials
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
@@ -52,15 +53,10 @@ class MarketplaceHandler:
                     email=request.email,
                     full_name=request.name,
                     password=request.password,
-                    accounting_service_url=str(request.accounting_url),
-                    accounting_password=request.accounting_password,
                 )
 
                 # Login to get authenticated client for subsequent calls
                 await syfthub_client.login(request.email, request.password)
-
-                # Fetch accounting credentials from SyftHub
-                accounting_creds = await syfthub_client.accounting_credentials()
 
                 # If public URL is set, update the domain
                 if app_settings.public_url:
@@ -84,9 +80,6 @@ class MarketplaceHandler:
             password=request.password,
             is_default=False,
             is_active=True,
-            accounting_url=str(accounting_creds.url),
-            accounting_email=accounting_creds.email,
-            accounting_password=accounting_creds.password,
         )
 
         # Save to database
@@ -120,9 +113,6 @@ class MarketplaceHandler:
                 # Fetch user profile
                 user_profile = await syfthub_client.profile()
 
-                # Fetch accounting credentials
-                accounting_creds = await syfthub_client.accounting_credentials()
-
                 # Update domain if public URL is set
                 if app_settings.public_url:
                     await syfthub_client.update_profile(
@@ -149,9 +139,6 @@ class MarketplaceHandler:
                 username=user_profile.username,
                 email=user_profile.email,
                 password=request.password,
-                accounting_url=str(accounting_creds.url),
-                accounting_email=accounting_creds.email,
-                accounting_password=accounting_creds.password,
                 is_active=True,
             )
         else:
@@ -165,9 +152,6 @@ class MarketplaceHandler:
                 password=request.password,
                 is_default=False,
                 is_active=True,
-                accounting_url=str(accounting_creds.url),
-                accounting_email=accounting_creds.email,
-                accounting_password=accounting_creds.password,
             )
             marketplace = await self.repository.create(marketplace)
 
@@ -287,7 +271,8 @@ class MarketplaceHandler:
     async def get_balance(self, tenant: Tenant) -> BalanceResponse:
         """Get account balance for the default marketplace.
 
-        Validates credentials before fetching balance, refreshing if needed.
+        If the marketplace has a wallet_address configured, queries the Tempo
+        blockchain directly. Otherwise, returns a zero balance.
 
         Args:
             tenant: Tenant context
@@ -300,52 +285,37 @@ class MarketplaceHandler:
         """
         marketplace = await self.get_default_marketplace(tenant)
 
-        # Validate and potentially refresh credentials using utility
-        creds = await ensure_valid_accounting_credentials(marketplace, self.repository)
-
-        try:
-            accounting_client = UserClient(
-                url=creds["url"],
-                email=creds["email"],
-                password=creds["password"],
-            )
-            # Fetch both user info and transactions in parallel
-            user_info, transactions = await asyncio.gather(
-                asyncio.to_thread(accounting_client.get_user_info),
-                asyncio.to_thread(accounting_client.get_transaction_history),
+        # If wallet is configured, query Tempo blockchain
+        if marketplace.wallet_address:
+            from syft_space.components.marketplaces.tempo_utils import (
+                get_wallet_balance,
+                get_wallet_transactions,
             )
 
-            # Sort by created_at descending and get last 3
-            sorted_transactions = sorted(
-                transactions, key=lambda t: t.createdAt, reverse=True
-            )[:3]
-
-            recent_transactions = [
-                TransactionResponse(
-                    id=t.id,
-                    sender_email=t.senderEmail,
-                    recipient_email=t.recipientEmail,
-                    amount=t.amount,
-                    status=t.status.value,
-                    created_at=t.createdAt,
-                    app_name=t.appName,
-                    app_ep_path=t.appEpPath,
-                )
-                for t in sorted_transactions
-            ]
-
+            balance = await get_wallet_balance(marketplace.wallet_address)
+            recent_txs = await get_wallet_transactions(marketplace.wallet_address)
             return BalanceResponse(
-                balance=user_info.balance,
-                recent_transactions=recent_transactions,
+                balance=balance,
+                currency="USD",
+                recent_transactions=[
+                    TransactionResponse(**tx) for tx in recent_txs[:10]
+                ],
+                wallet_configured=True,
             )
-        except ServiceException as e:
-            raise HTTPException(
-                status_code=e.status_code,
-                detail=f"Failed to get balance: {e.message}",
-            ) from e
+
+        # No wallet configured
+        return BalanceResponse(
+            balance=0.0,
+            currency="USD",
+            recent_transactions=[],
+            wallet_configured=False,
+        )
 
     async def get_transactions(self, tenant: Tenant) -> list[TransactionResponse]:
         """Get all transactions for the default marketplace.
+
+        If the marketplace has a wallet_address configured, queries the Tempo
+        blockchain directly. Otherwise, returns an empty list.
 
         Args:
             tenant: Tenant context
@@ -357,38 +327,94 @@ class MarketplaceHandler:
             HTTPException: If no marketplace configured or fetch fails
         """
         marketplace = await self.get_default_marketplace(tenant)
-        creds = await ensure_valid_accounting_credentials(marketplace, self.repository)
+
+        # If wallet is configured, query Tempo blockchain
+        if marketplace.wallet_address:
+            from syft_space.components.marketplaces.tempo_utils import (
+                get_wallet_transactions,
+            )
+
+            txs = await get_wallet_transactions(marketplace.wallet_address)
+            return [TransactionResponse(**tx) for tx in txs]
+
+        # No wallet configured
+        return []
+
+    async def get_wallet(self, tenant: Tenant) -> WalletResponse:
+        """Get wallet info for the default marketplace."""
+        marketplace = await self.repository.get_default(tenant.id)
+        if not marketplace:
+            return WalletResponse(address=None, exists=False)
+        return WalletResponse(
+            address=marketplace.wallet_address,
+            exists=marketplace.wallet_address is not None,
+        )
+
+    async def create_wallet(self, tenant: Tenant) -> CreateWalletResponse:
+        """Generate a new Tempo wallet keypair."""
+        from eth_account import Account
+        from mpp.methods.tempo import TempoAccount
+
+        marketplace = await self.repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(
+                status_code=400, detail="No default marketplace configured"
+            )
+
+        acct = Account.create()
+        tempo_acct = TempoAccount.from_key(acct.key.hex())
+
+        await self.repository.update(
+            marketplace.id,
+            tenant.id,
+            wallet_address=tempo_acct.address,
+            wallet_private_key=tempo_acct.private_key,
+        )
+
+        return CreateWalletResponse(address=tempo_acct.address)
+
+    async def import_wallet(
+        self, request: ImportWalletRequest, tenant: Tenant
+    ) -> CreateWalletResponse:
+        """Import an existing wallet from private key."""
+        from mpp.methods.tempo import TempoAccount
+
+        marketplace = await self.repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(
+                status_code=400, detail="No default marketplace configured"
+            )
 
         try:
-            accounting_client = UserClient(
-                url=creds["url"],
-                email=creds["email"],
-                password=creds["password"],
-            )
-            all_transactions = await asyncio.to_thread(
-                accounting_client.get_transaction_history
-            )
-
-            # Sort by created_at descending
-            sorted_transactions = sorted(
-                all_transactions, key=lambda t: t.createdAt, reverse=True
-            )
-
-            return [
-                TransactionResponse(
-                    id=t.id,
-                    sender_email=t.senderEmail,
-                    recipient_email=t.recipientEmail,
-                    amount=t.amount,
-                    status=t.status.value,
-                    created_at=t.createdAt,
-                    app_name=t.appName,
-                    app_ep_path=t.appEpPath,
-                )
-                for t in sorted_transactions
-            ]
-        except ServiceException as e:
+            tempo_acct = TempoAccount.from_key(request.private_key)
+        except Exception as e:
             raise HTTPException(
-                status_code=e.status_code,
-                detail=f"Failed to get transactions: {e.message}",
+                status_code=400, detail=f"Invalid private key: {e}"
             ) from e
+
+        await self.repository.update(
+            marketplace.id,
+            tenant.id,
+            wallet_address=tempo_acct.address,
+            wallet_private_key=tempo_acct.private_key,
+        )
+
+        return CreateWalletResponse(address=tempo_acct.address)
+
+    async def update_wallet_address(
+        self, request: UpdateWalletAddressRequest, tenant: Tenant
+    ) -> WalletResponse:
+        """Update wallet address manually (without private key)."""
+        marketplace = await self.repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(
+                status_code=400, detail="No default marketplace configured"
+            )
+
+        await self.repository.update(
+            marketplace.id,
+            tenant.id,
+            wallet_address=request.wallet_address,
+        )
+
+        return WalletResponse(address=request.wallet_address, exists=True)

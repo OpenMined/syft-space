@@ -38,14 +38,13 @@ class Marketplace(SQLModel, table=True):
         default=True, description="Can be used for publishing endpoints"
     )
 
-    # Accounting credentials (fetched from SyftHub)
-    accounting_url: str = Field(
-        default_factory=lambda: str(app_settings.default_accounting_url),
-        description="Accounting service URL",
+    # MPP wallet fields
+    wallet_address: str | None = Field(
+        default=None, description="Tempo wallet address (Ethereum format)"
     )
-    accounting_email: str = Field(default="", description="Accounting service email")
-    accounting_password: str = Field(
-        default="", description="Accounting service password"
+    wallet_private_key: str | None = Field(
+        default=None,
+        description="Tempo wallet private key (hex, stored plaintext for now)",  # TODO store this more securely
     )
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

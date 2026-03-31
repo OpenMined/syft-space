@@ -21,7 +21,12 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column(
         "settings",
-        sa.Column("diagnostics_enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column(
+            "diagnostics_enabled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("0"),
+        ),
     )
 
 

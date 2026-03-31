@@ -71,3 +71,17 @@ class SettingsRepository(AsyncBaseRepository[Settings]):
         settings.diagnostics_enabled = enabled
         settings.updated_at = datetime.now(timezone.utc)
         return await self.update(settings)
+
+    async def get_mpp_secret_key(self) -> str:
+        """Get the MPP secret key, auto-generating if not set."""
+        import secrets
+
+        settings = await self.get_settings()
+        if settings.mpp_secret_key:
+            return settings.mpp_secret_key
+
+        key = secrets.token_hex(32)
+        settings.mpp_secret_key = key
+        settings.updated_at = datetime.now(timezone.utc)
+        await self.update(settings)
+        return key

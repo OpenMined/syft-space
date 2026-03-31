@@ -38,7 +38,6 @@ from syft_space.components.endpoints.schemas import (
 )
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
-from syft_space.components.marketplaces.utils import ensure_valid_accounting_credentials
 from syft_space.components.model_types.interfaces import (
     ChatContext,
     ChatMessage,
@@ -70,6 +69,7 @@ class EndpointHandler:
         model_registry: ModelTypeRegistry,
         policy_registry: PolicyTypeRegistry,
         marketplace_repository: MarketplaceRepository | None = None,
+        settings_repository: "SettingsRepository | None" = None,
     ):
         """Initialize the endpoint handler.
 
@@ -81,7 +81,8 @@ class EndpointHandler:
             dataset_registry: Dataset type registry
             model_registry: Model type registry
             policy_registry: Policy type registry
-            marketplace_repository: Marketplace repository (optional, for publish and accounting)
+            marketplace_repository: Marketplace repository (optional, for publish)
+            settings_repository: Settings repository (optional, for MPP secret key)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -91,6 +92,7 @@ class EndpointHandler:
         self.model_registry = model_registry
         self.policy_registry = policy_registry
         self.marketplace_repository = marketplace_repository
+        self.settings_repository = settings_repository
 
     async def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
@@ -241,19 +243,22 @@ class EndpointHandler:
         slug: str,
         request: AuthenticatedQueryRequest,
         tenant: Tenant,
-    ) -> QueryEndpointResponse:
+        x_payment: str | None = None,
+    ) -> tuple[QueryEndpointResponse, str | None]:
         """Query an endpoint - main RAG flow.
 
         Args:
             slug: Endpoint slug
             request: Authenticated query request (includes verified sender_email)
             tenant: Tenant context
+            x_payment: MPP payment credential from X-Payment header (optional)
 
         Returns:
-            Query response with summary and/or references
+            Tuple of (query response, payment_receipt_header or None)
 
         Raises:
             HTTPException: If endpoint not found or query fails
+            PaymentRequiredError: If MPP payment is required (caller returns 402)
         """
         # Get endpoint
         endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
@@ -264,7 +269,7 @@ class EndpointHandler:
         if not endpoint.published:
             raise HTTPException(status_code=403, detail="Endpoint is not published")
 
-        # Build policy context metadata with validated accounting credentials
+        # Build policy context metadata
         metadata: dict = {}
         if self.marketplace_repository:
             try:
@@ -272,17 +277,20 @@ class EndpointHandler:
                     tenant.id
                 )
                 if default_marketplace:
-                    # Validate credentials upfront (refreshes from SyftHub if expired)
-                    creds = await ensure_valid_accounting_credentials(
-                        default_marketplace, self.marketplace_repository
-                    )
-                    # Inject validated accounting credentials
-                    metadata["accounting_email"] = creds["email"]
-                    metadata["accounting_password"] = creds["password"]
-                    metadata["accounting_url"] = creds["url"]
+                    # Inject wallet address for MPP accounting policy
+                    if default_marketplace.wallet_address:
+                        metadata["wallet_address"] = default_marketplace.wallet_address
             except HTTPException:
-                # No marketplace configured or credentials invalid - accounting policies will fail
+                # No marketplace configured
                 pass
+
+        # Inject MPP secret key for challenge signing
+        if self.settings_repository:
+            metadata["mpp_secret_key"] = await self.settings_repository.get_mpp_secret_key()
+
+        # Inject X-Payment credential for MPP accounting policy
+        if x_payment:
+            metadata["x_payment"] = x_payment
 
         # Get policies grouped by type and extract configurations
         policies_by_type = await self.policy_repository.get_by_endpoint_id_grouped(
@@ -302,6 +310,8 @@ class EndpointHandler:
         )
 
         # Apply pre-hooks per type (one instance per type, all configs passed)
+        # Note: PaymentRequiredError is intentionally NOT caught here -
+        # it propagates to the route handler which returns HTTP 402.
         for policy_type_name, configs in configs_by_type.items():
             try:
                 policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
@@ -355,7 +365,13 @@ class EndpointHandler:
                     detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
                 ) from e
 
-        return QueryEndpointResponse.model_validate(policy_context.response)
+        # Extract payment receipt header if present (set by MppAccountingPolicy post-hook)
+        payment_receipt = policy_context.metadata.get("payment_receipt_header")
+
+        return (
+            QueryEndpointResponse.model_validate(policy_context.response),
+            payment_receipt,
+        )
 
     async def _search_dataset(
         self, endpoint: Endpoint, request: AuthenticatedQueryRequest

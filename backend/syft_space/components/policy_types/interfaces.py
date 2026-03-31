@@ -27,6 +27,19 @@ class PolicyViolationError(Exception):
         self.details = details or {}
 
 
+class PaymentRequiredError(Exception):
+    """Raised when MPP charge returns a Challenge (payment required).
+
+    This is NOT a policy violation - it's a payment flow signal.
+    The endpoint handler should catch this and return HTTP 402.
+    """
+
+    def __init__(self, www_authenticate: str, description: str | None = None):
+        self.www_authenticate = www_authenticate
+        self.description = description
+        super().__init__(description or "Payment required")
+
+
 class PolicyContext(BaseModel):
     """Domain context for policy execution.
 

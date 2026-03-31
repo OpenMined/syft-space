@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
+from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.policies.entities import Policy
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policies.schemas import (
@@ -21,15 +22,22 @@ from syft_space.components.tenants.entities import Tenant
 class PolicyHandler:
     """Handler for policy business logic."""
 
-    def __init__(self, registry: PolicyTypeRegistry, repository: PolicyRepository):
+    def __init__(
+        self,
+        registry: PolicyTypeRegistry,
+        repository: PolicyRepository,
+        marketplace_repository: MarketplaceRepository,
+    ):
         """Initialize the policy handler.
 
         Args:
             registry: Policy type registry
             repository: Policy repository
+            marketplace_repository: Marketplace repository for wallet checks
         """
         self.registry = registry
         self.repository = repository
+        self.marketplace_repository = marketplace_repository
 
     def list_policy_types(self) -> list[PolicyTypeInfoResponse]:
         """List all available policy types.
@@ -111,6 +119,17 @@ class PolicyHandler:
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
+
+        # MPP accounting requires a wallet address on the default marketplace
+        if request.policy_type == "mpp_accounting":
+            default_marketplace = await self.marketplace_repository.get_default(
+                tenant.id
+            )
+            if not default_marketplace or not default_marketplace.wallet_address:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot create MPP accounting policy: no wallet address configured. Please set up a wallet in Settings first.",
+                )
 
         # TODO: Verify endpoint exists when endpoint repository is available
 

@@ -389,8 +389,6 @@ class SyftHubClient:
         email: str,
         full_name: str,
         password: str,
-        accounting_service_url: str,
-        accounting_password: str | None = None,
     ) -> RegisterResponse:
         """
         Register a new user on SyftHub.
@@ -406,10 +404,7 @@ class SyftHubClient:
             "email": email,
             "full_name": full_name,
             "password": password,
-            "accounting_service_url": accounting_service_url,
         }
-        if accounting_password:
-            payload["accounting_password"] = accounting_password
 
         response = await self._auth_client.post("/api/v1/auth/register", json=payload)
         return _handle_response(response, RegisterResponse)

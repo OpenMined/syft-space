@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { marketplacesApi } from '@/api/endpoints/marketplaces'
-import { formatPrice } from '@/lib/formatters'
+import { formatPrice, truncateEmail, formatTimeAgo } from '@/lib/formatters'
 import type { TransactionResponse } from '@/api/types'
 
 const props = defineProps<{
@@ -62,27 +62,7 @@ watch(
   },
 )
 
-const formatTimeAgo = (dateString: string): string => {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
 
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString()
-}
-
-const truncateEmail = (email: string): string => {
-  const [local, domain] = email.split('@')
-  if (!local || !domain) return email
-  const truncatedLocal = local.length > 10 ? `${local.slice(0, 10)}...` : local
-  return `${truncatedLocal}@${domain}`
-}
 </script>
 
 <template>
@@ -135,7 +115,7 @@ const truncateEmail = (email: string): string => {
                 <Tooltip>
                   <TooltipTrigger as-child>
                     <p class="text-sm font-medium truncate cursor-default">
-                      From {{ truncateEmail(transaction.sender_email) }}
+                      From {{ truncateEmail(transaction.sender_email, 10) }}
                     </p>
                   </TooltipTrigger>
                   <TooltipContent>
