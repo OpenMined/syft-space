@@ -1,10 +1,9 @@
 """Marketplace API schemas for request/response models."""
 
-import re
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 from syft_space.config import app_settings
 
@@ -91,63 +90,3 @@ class MarketplaceListItem(BaseModel):
         """Pydantic config."""
 
         from_attributes = True
-
-
-class TransactionResponse(BaseModel):
-    """Response model for a transaction."""
-
-    id: str = Field(..., description="Transaction ID")
-    sender_email: str = Field(..., description="Sender's email")
-    recipient_email: str = Field(..., description="Recipient's email")
-    amount: float = Field(..., description="Transaction amount")
-    status: str = Field(..., description="Transaction status")
-    created_at: datetime = Field(..., description="Transaction creation timestamp")
-    app_name: str | None = Field(None, description="Application name")
-    app_ep_path: str | None = Field(None, description="Application endpoint path")
-
-
-class BalanceResponse(BaseModel):
-    """Response model for account balance."""
-
-    balance: float = Field(..., description="Current account balance")
-    currency: str = Field(default="USD", description="Currency unit")
-    recent_transactions: list[TransactionResponse] = Field(
-        default_factory=list, description="Recent transactions (last 3)"
-    )
-    wallet_configured: bool = Field(
-        default=False, description="Whether an MPP wallet is configured"
-    )
-
-
-class WalletResponse(BaseModel):
-    """Response model for wallet info."""
-
-    address: str | None = Field(None, description="Tempo wallet address")
-    exists: bool = Field(False, description="Whether a wallet is configured")
-
-
-class CreateWalletResponse(BaseModel):
-    """Response after creating a new wallet."""
-
-    address: str = Field(..., description="Generated wallet address")
-
-
-class ImportWalletRequest(BaseModel):
-    """Request to import an existing wallet."""
-
-    private_key: str = Field(..., description="Wallet private key (hex string)")
-
-
-class UpdateWalletAddressRequest(BaseModel):
-    """Request to manually set wallet address (without private key)."""
-
-    wallet_address: str = Field(..., description="Ethereum-format wallet address")
-
-    @field_validator("wallet_address")
-    @classmethod
-    def validate_ethereum_address(cls, v: str) -> str:
-        if not re.match(r"^0x[0-9a-fA-F]{40}$", v):
-            raise ValueError(
-                "Invalid Ethereum address format. Must be 0x followed by 40 hex characters."
-            )
-        return v
