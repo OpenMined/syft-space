@@ -45,16 +45,18 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=False),
     )
 
-    # 2. Add wallet_id FK to policies
-    op.add_column(
-        "policies",
-        sa.Column(
-            "wallet_id",
-            sa.String(),
-            sa.ForeignKey("wallets.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
+    # 2. Add wallet_id FK to policies (batch mode for SQLite compatibility)
+    with op.batch_alter_table("policies") as batch_op:
+        batch_op.add_column(
+            sa.Column("wallet_id", sa.String(), nullable=True),
+        )
+        batch_op.create_foreign_key(
+            "fk_policy_wallet_id",
+            "wallets",
+            ["wallet_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
     # 3. Data migration: marketplace wallet → wallets table, link mpp_accounting policies
     conn = op.get_bind()
