@@ -54,9 +54,7 @@ from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
-from syft_space.components.wallets.mpp.config import MppWalletConfig
 from syft_space.components.wallets.repository import WalletRepository
-from syft_space.components.wallets.wallet_configs import WalletType
 
 
 class EndpointHandler:
@@ -284,18 +282,18 @@ class EndpointHandler:
         # Build policy context metadata
         metadata: dict = {}
 
-        # Load wallet from payment policy's wallet_id (if any)
-        if self.wallet_repository:
-            for _policy_type, policies in policies_by_type.items():
-                if policies[0].wallet_id:
-                    wallet = await self.wallet_repository.get_by_id(
-                        policies[0].wallet_id, tenant.id
-                    )
-                    if wallet and wallet.wallet_type == WalletType.MPP:
-                        config = MppWalletConfig(**wallet.configuration)
-                        metadata["wallet_address"] = config.wallet_address
-                        metadata["mpp_secret_key"] = config.mpp_secret_key
-                    break
+        # Load wallets referenced by payment policies (single batch query)
+        wallet_ids = list(
+            {
+                p.wallet_id
+                for policies in policies_by_type.values()
+                for p in policies
+                if p.wallet_id
+            }
+        )
+        if wallet_ids and self.wallet_repository:
+            wallets = await self.wallet_repository.get_by_ids(wallet_ids, tenant.id)
+            metadata["wallets"] = {w.wallet_type: w.configuration for w in wallets}
 
         # Inject X-Payment credential for MPP accounting policy
         if x_payment:

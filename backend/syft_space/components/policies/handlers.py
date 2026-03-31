@@ -138,15 +138,13 @@ class PolicyHandler:
             if not wallet:
                 raise HTTPException(status_code=404, detail="Wallet not found")
             # Enforce: all payment policies on this endpoint must use the same wallet
-            existing = await self.repository.get_by_endpoint_id(
-                request.endpoint_id, tenant.id
-            )
-            for p in existing:
-                if p.wallet_id and p.wallet_id != request.wallet_id:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="All payment policies on an endpoint must use the same wallet.",
-                    )
+            if await self.repository.has_different_wallet(
+                request.endpoint_id, tenant.id, request.wallet_id
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="All payment policies on an endpoint must use the same wallet.",
+                )
         elif request.wallet_id:
             raise HTTPException(
                 status_code=400,

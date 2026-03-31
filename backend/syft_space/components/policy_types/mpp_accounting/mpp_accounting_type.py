@@ -6,8 +6,6 @@ from typing import Any, ClassVar
 from mpp import Challenge
 from mpp.methods.tempo import PATH_USD, TESTNET_CHAIN_ID, ChargeIntent, tempo
 from mpp.server import Mpp
-
-from syft_space.config import app_settings
 from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
@@ -17,6 +15,7 @@ from syft_space.components.policy_types.interfaces import (
     PolicyViolationError,
 )
 from syft_space.components.shared.utils import matches_any_pattern
+from syft_space.config import app_settings
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +88,9 @@ class MppAccountingPolicy(BasePolicyType):
 
         return best_price
 
-    async def _get_mpp_instance(self, wallet_address: str, realm: str, secret_key: str) -> Mpp:
+    async def _get_mpp_instance(
+        self, wallet_address: str, realm: str, secret_key: str
+    ) -> Mpp:
         """Get or create a cached Mpp server instance for charging.
 
         Instances are cached per (wallet_address, realm) so the HMAC-based
@@ -143,8 +144,9 @@ class MppAccountingPolicy(BasePolicyType):
             context.metadata["mpp_total_amount"] = 0.0
             return context
 
-        # Get wallet address from context metadata
-        wallet_address = context.metadata.get("wallet_address")
+        # Get wallet configuration from context metadata
+        wallet_config = context.metadata.get("wallets", {}).get("mpp", {})
+        wallet_address = wallet_config.get("wallet_address")
         if not wallet_address:
             raise PolicyViolationError(
                 message="Payment is required but the endpoint owner has not configured a wallet address",
@@ -155,8 +157,10 @@ class MppAccountingPolicy(BasePolicyType):
         x_payment = context.metadata.get("x_payment")
 
         # Create MPP instance and attempt charge
-        secret_key = context.metadata.get("mpp_secret_key", "")
-        mpp = await self._get_mpp_instance(wallet_address, realm=context.endpoint_slug, secret_key=secret_key)
+        secret_key = wallet_config.get("mpp_secret_key", "")
+        mpp = await self._get_mpp_instance(
+            wallet_address, realm=context.endpoint_slug, secret_key=secret_key
+        )
 
         result = await mpp.charge(
             authorization=x_payment,
