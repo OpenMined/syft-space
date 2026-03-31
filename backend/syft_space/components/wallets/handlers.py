@@ -116,7 +116,7 @@ class WalletHandler:
         # Validate credentials via config class
         config_cls = provider.config_class
         try:
-            validated = config_cls.model_validate(**result.credentials)
+            validated = config_cls(**result.credentials)
         except Exception as e:
             logger.error(f"Provider returned invalid credentials: {e}")
             raise HTTPException(
