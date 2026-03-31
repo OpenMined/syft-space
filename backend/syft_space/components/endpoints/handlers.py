@@ -54,6 +54,9 @@ from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
+from syft_space.components.wallets.mpp.config import MppWalletConfig
+from syft_space.components.wallets.repository import WalletRepository
+from syft_space.components.wallets.wallet_configs import WalletType
 
 
 class EndpointHandler:
@@ -69,7 +72,7 @@ class EndpointHandler:
         model_registry: ModelTypeRegistry,
         policy_registry: PolicyTypeRegistry,
         marketplace_repository: MarketplaceRepository | None = None,
-        settings_repository: "SettingsRepository | None" = None,
+        wallet_repository: WalletRepository | None = None,
     ):
         """Initialize the endpoint handler.
 
@@ -82,7 +85,7 @@ class EndpointHandler:
             model_registry: Model type registry
             policy_registry: Policy type registry
             marketplace_repository: Marketplace repository (optional, for publish)
-            settings_repository: Settings repository (optional, for MPP secret key)
+            wallet_repository: Wallet repository (optional, for payment policy wallet loading)
         """
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -92,7 +95,7 @@ class EndpointHandler:
         self.model_registry = model_registry
         self.policy_registry = policy_registry
         self.marketplace_repository = marketplace_repository
-        self.settings_repository = settings_repository
+        self.wallet_repository = wallet_repository
 
     async def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
@@ -269,29 +272,6 @@ class EndpointHandler:
         if not endpoint.published:
             raise HTTPException(status_code=403, detail="Endpoint is not published")
 
-        # Build policy context metadata
-        metadata: dict = {}
-        if self.marketplace_repository:
-            try:
-                default_marketplace = await self.marketplace_repository.get_default(
-                    tenant.id
-                )
-                if default_marketplace:
-                    # Inject wallet address for MPP accounting policy
-                    if default_marketplace.wallet_address:
-                        metadata["wallet_address"] = default_marketplace.wallet_address
-            except HTTPException:
-                # No marketplace configured
-                pass
-
-        # Inject MPP secret key for challenge signing
-        if self.settings_repository:
-            metadata["mpp_secret_key"] = await self.settings_repository.get_mpp_secret_key()
-
-        # Inject X-Payment credential for MPP accounting policy
-        if x_payment:
-            metadata["x_payment"] = x_payment
-
         # Get policies grouped by type and extract configurations
         policies_by_type = await self.policy_repository.get_by_endpoint_id_grouped(
             endpoint.id, tenant.id
@@ -300,6 +280,26 @@ class EndpointHandler:
             policy_type: [p.configuration for p in policies]
             for policy_type, policies in policies_by_type.items()
         }
+
+        # Build policy context metadata
+        metadata: dict = {}
+
+        # Load wallet from payment policy's wallet_id (if any)
+        if self.wallet_repository:
+            for _policy_type, policies in policies_by_type.items():
+                if policies[0].wallet_id:
+                    wallet = await self.wallet_repository.get_by_id(
+                        policies[0].wallet_id, tenant.id
+                    )
+                    if wallet and wallet.wallet_type == WalletType.MPP:
+                        config = MppWalletConfig(**wallet.configuration)
+                        metadata["wallet_address"] = config.wallet_address
+                        metadata["mpp_secret_key"] = config.mpp_secret_key
+                    break
+
+        # Inject X-Payment credential for MPP accounting policy
+        if x_payment:
+            metadata["x_payment"] = x_payment
 
         # Create policy context with verified sender email
         policy_context = PolicyContext(

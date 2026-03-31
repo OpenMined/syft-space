@@ -5,7 +5,6 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
-from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.policies.entities import Policy
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policies.schemas import (
@@ -17,6 +16,10 @@ from syft_space.components.policies.schemas import (
 )
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.tenants.entities import Tenant
+from syft_space.components.wallets.repository import WalletRepository
+
+# Policy types that require a wallet_id
+PAYMENT_POLICY_TYPES = {"mpp_accounting", "xendit"}
 
 
 class PolicyHandler:
@@ -26,18 +29,18 @@ class PolicyHandler:
         self,
         registry: PolicyTypeRegistry,
         repository: PolicyRepository,
-        marketplace_repository: MarketplaceRepository,
+        wallet_repository: WalletRepository,
     ):
         """Initialize the policy handler.
 
         Args:
             registry: Policy type registry
             repository: Policy repository
-            marketplace_repository: Marketplace repository for wallet checks
+            wallet_repository: Wallet repository for payment policy validation
         """
         self.registry = registry
         self.repository = repository
-        self.marketplace_repository = marketplace_repository
+        self.wallet_repository = wallet_repository
 
     def list_policy_types(self) -> list[PolicyTypeInfoResponse]:
         """List all available policy types.
@@ -120,18 +123,35 @@ class PolicyHandler:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
-        # MPP accounting requires a wallet address on the default marketplace
-        if request.policy_type == "mpp_accounting":
-            default_marketplace = await self.marketplace_repository.get_default(
-                tenant.id
-            )
-            if not default_marketplace or not default_marketplace.wallet_address:
+        # Payment policies require a wallet_id
+        if request.policy_type in PAYMENT_POLICY_TYPES:
+            if not request.wallet_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="Cannot create MPP accounting policy: no wallet address configured. Please set up a wallet in Settings first.",
+                    detail=f"wallet_id is required for {request.policy_type} policies. "
+                    "Please create a wallet first.",
                 )
-
-        # TODO: Verify endpoint exists when endpoint repository is available
+            # Verify wallet exists and belongs to tenant
+            wallet = await self.wallet_repository.get_by_id(
+                request.wallet_id, tenant.id
+            )
+            if not wallet:
+                raise HTTPException(status_code=404, detail="Wallet not found")
+            # Enforce: all payment policies on this endpoint must use the same wallet
+            existing = await self.repository.get_by_endpoint_id(
+                request.endpoint_id, tenant.id
+            )
+            for p in existing:
+                if p.wallet_id and p.wallet_id != request.wallet_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="All payment policies on an endpoint must use the same wallet.",
+                    )
+        elif request.wallet_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"wallet_id is not applicable for {request.policy_type} policies.",
+            )
 
         # Create policy entity with validated config
         policy = Policy(
@@ -139,7 +159,8 @@ class PolicyHandler:
             policy_type=request.policy_type,
             configuration=validated_config,
             endpoint_id=request.endpoint_id,
-            tenant_id=tenant.id,  # Set tenant_id explicitly
+            wallet_id=request.wallet_id,
+            tenant_id=tenant.id,
         )
 
         # Save to database

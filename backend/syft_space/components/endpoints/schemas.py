@@ -157,6 +157,9 @@ class AttachedPolicy(BaseModel):
     name: str = Field(..., description="Policy name")
     policy_type: str = Field(..., description="Policy type name")
     configuration: dict[str, Any] = Field(..., description="Configuration")
+    wallet_id: UUID | None = Field(
+        default=None, description="Wallet ID for payment policies"
+    )
 
     class Config:
         """Pydantic config."""

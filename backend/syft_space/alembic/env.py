@@ -21,6 +21,7 @@ from syft_space.components.policies.entities import Policy  # noqa: F401
 from syft_space.components.settings.entities import Settings  # noqa: F401
 from syft_space.components.shared.database import SQLiteConfig
 from syft_space.components.tenants.entities import Tenant  # noqa: F401
+from syft_space.components.wallets.entities import Wallet  # noqa: F401
 from syft_space.config import app_settings
 
 # this is the Alembic Config object, which provides
