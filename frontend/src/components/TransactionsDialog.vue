@@ -5,7 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { marketplacesApi } from '@/api/endpoints/marketplaces'
+import { walletsApi } from '@/api/endpoints/wallets'
+import { useUserStore } from '@/stores/user'
 import { formatPrice, truncateEmail, formatTimeAgo } from '@/lib/formatters'
 import type { TransactionResponse } from '@/api/types'
 
@@ -32,11 +33,17 @@ const paginatedTransactions = computed(() => {
   return allTransactions.value.slice(start, end)
 })
 
+const userStore = useUserStore()
+
 const fetchTransactions = async () => {
+  if (!userStore.walletId) {
+    allTransactions.value = []
+    return
+  }
   loading.value = true
   error.value = false
   try {
-    allTransactions.value = await marketplacesApi.getTransactions()
+    allTransactions.value = await walletsApi.getMppTransactions(userStore.walletId)
     currentPage.value = 1
   } catch (e) {
     console.error('Failed to fetch transactions:', e)

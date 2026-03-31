@@ -19,7 +19,7 @@ export async function loadGlobalData() {
 
   await Promise.all([
     userStore.fetchMarketplaceInfo(),
-    userStore.fetchBalance(),
+    userStore.fetchWalletInfo().then(() => userStore.fetchBalance()),
     settingsApi
       .getDiagnostics()
       .then((res) => {

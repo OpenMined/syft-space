@@ -1549,7 +1549,7 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
-import { marketplacesApi } from '@/api/endpoints/marketplaces'
+import { walletsApi } from '@/api/endpoints/wallets'
 import { useDataEndpointCreation } from '@/composables/useDataEndpointCreation'
 import { useUserStore } from '@/stores/user'
 import type { DatasetListItem } from '@/api/types'
@@ -1629,7 +1629,7 @@ Brief summary of what this dataset contains and its primary purpose...
 
 ## Data Quality & Limitations
 - **Completeness**: Any missing data or gaps
-- **Accuracy**: Known issues or validation status  
+- **Accuracy**: Known issues or validation status
 - **Biases**: Potential limitations or skews
 - **Ethical considerations**: Privacy, consent, fairness
 
@@ -2163,8 +2163,9 @@ const getModelDisplayName = (): string => {
 const checkWalletStatus = async () => {
   loadingWalletCheck.value = true
   try {
-    const res = await marketplacesApi.getWallet()
-    walletConfigured.value = res.exists && !!res.address
+    const wallets = await walletsApi.list()
+    const mppWallet = wallets.find((w) => w.wallet_type === 'mpp')
+    walletConfigured.value = !!mppWallet
   } catch {
     walletConfigured.value = false
   } finally {

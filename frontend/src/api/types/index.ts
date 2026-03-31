@@ -357,13 +357,6 @@ export interface TransactionResponse {
   app_ep_path?: string
 }
 
-export interface BalanceResponse {
-  balance: number
-  currency: string
-  recent_transactions: TransactionResponse[]
-  wallet_configured: boolean
-}
-
 // Slug Availability API types
 export interface SlugAvailabilityRequest {
   slug: string
@@ -445,11 +438,29 @@ export interface UpdateDiagnosticsRequest {
   enabled: boolean
 }
 
+// Wallet API types
 export interface WalletResponse {
-  address: string | null
-  exists: boolean
+  id: string
+  wallet_type: string
+  name: string
+  is_active: boolean
+  display: Record<string, string>
+  created_at: string
+  updated_at: string
 }
 
-export interface CreateWalletResponse {
-  address: string
+export interface WalletListItem {
+  id: string
+  wallet_type: string
+  name: string
+  is_active: boolean
+  display: Record<string, string>
+  created_at: string
+}
+
+export interface MppBalanceResponse {
+  balance: number
+  currency: string
+  recent_transactions: TransactionResponse[]
+  wallet_configured: boolean
 }
