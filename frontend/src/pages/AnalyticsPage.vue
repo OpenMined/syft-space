@@ -60,28 +60,13 @@
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Endpoints</SelectItem>
+                  <SelectItem :value="ALL_SENTINEL">All Endpoints</SelectItem>
                   <SelectItem v-for="ep in endpointsList" :key="ep.id" :value="ep.id">
                     {{ ep.name }}
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-muted-foreground">Dataset:</span>
-              <Select v-model="selectedDatasetId">
-                <SelectTrigger class="w-[150px] h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">All Datasets</SelectItem>
-                  <SelectItem v-for="ds in datasetsList" :key="ds.id" :value="ds.id">
-                    {{ ds.name }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
         </div>
       </CardContent>
     </Card>
@@ -357,11 +342,11 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { endpointsApi } from '@/api/endpoints/endpoints'
-import { datasetsApi } from '@/api/endpoints/datasets'
+
 import { useAnalyticsStore } from '@/stores/analytics'
 import { formatCompactNumber, formatCurrency } from '@/lib/formatters'
 import type { TimeRange } from '@/api/types/analytics'
-import type { EndpointListItem, DatasetListItem } from '@/api/types'
+import type { EndpointListItem } from '@/api/types'
 
 ChartJS.register(
   CategoryScale,
@@ -375,7 +360,6 @@ ChartJS.register(
 
 const store = useAnalyticsStore()
 
-// Icon components wrapped at module level to avoid re-creating in computed
 const icons = {
   checkCircle: markRaw(CheckCircle),
   activity: markRaw(Activity),
@@ -422,7 +406,6 @@ const statCardMeta = [
   },
 ]
 
-// ---- Filter dropdown options ----
 const timeRangeOptions: { value: TimeRange; label: string }[] = [
   { value: '7d', label: 'Last 7 days' },
   { value: '30d', label: 'Last 30 days' },
@@ -431,34 +414,28 @@ const timeRangeOptions: { value: TimeRange; label: string }[] = [
 ]
 
 const endpointsList = ref<EndpointListItem[]>([])
-const datasetsList = ref<DatasetListItem[]>([])
 
-// Map store.endpointId (string | undefined) ↔ Select value (string, '' = all)
+const ALL_SENTINEL = '__all__'
+
 const selectedEndpointId = computed({
-  get: () => store.endpointId ?? '',
+  get: () => store.endpointId ?? ALL_SENTINEL,
   set: (v: string) => {
-    store.endpointId = v || undefined
-  },
-})
-const selectedDatasetId = computed({
-  get: () => store.datasetId ?? '',
-  set: (v: string) => {
-    store.datasetId = v || undefined
+    store.endpointId = v === ALL_SENTINEL ? undefined : v
   },
 })
 
-// Re-fetch all data when any filter changes (immediate: true handles initial load)
 watch(
   () => store.filters,
   () => store.fetchAll(),
   { immediate: true },
 )
 
-// Load filter dropdown options on mount
 onMounted(async () => {
-  const [endpoints, datasets] = await Promise.allSettled([endpointsApi.list(), datasetsApi.list()])
-  if (endpoints.status === 'fulfilled') endpointsList.value = endpoints.value
-  if (datasets.status === 'fulfilled') datasetsList.value = datasets.value
+  try {
+    endpointsList.value = await endpointsApi.list()
+  } catch {
+    // Silently ignore — dropdown will just show "All Endpoints"
+  }
 })
 
 const statCards = computed(() => {
@@ -477,7 +454,6 @@ const statCards = computed(() => {
   })
 })
 
-// ---- Chart data ----
 const sharedScaleOptions = {
   grid: { color: 'rgba(0,0,0,0.04)' },
   ticks: { color: '#9ca3af', font: { size: 11 } },
@@ -575,6 +551,5 @@ const isUserActivityEmpty = computed(
 )
 const isRevenueEmpty = computed(() => !store.timeSeries?.revenue.some((p) => p.value > 0))
 
-// ---- Top users ----
 const activeUsers = computed(() => store.topUsers?.users ?? [])
 </script>

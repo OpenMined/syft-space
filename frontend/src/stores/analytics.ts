@@ -15,7 +15,6 @@ export const useAnalyticsStore = defineStore('analytics', () => {
   // ---- Filter state ----
   const timeRange = ref<TimeRange>('30d')
   const endpointId = ref<string | undefined>(undefined)
-  const datasetId = ref<string | undefined>(undefined)
 
   // ---- Summary stats ----
   const summary = ref<SummaryStatsResponse | null>(null)
@@ -41,7 +40,6 @@ export const useAnalyticsStore = defineStore('analytics', () => {
   const filters = computed<AnalyticsFilters>(() => ({
     time_range: timeRange.value,
     endpoint_id: endpointId.value,
-    dataset_id: datasetId.value,
   }))
 
   const isLoading = computed(
@@ -113,7 +111,6 @@ export const useAnalyticsStore = defineStore('analytics', () => {
       filters: {
         timeRange: timeRange.value,
         endpointId: endpointId.value ?? 'all',
-        datasetId: datasetId.value ?? 'all',
       },
       summary: summary.value,
       timeSeries: timeSeries.value,
@@ -133,7 +130,6 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     // Filter state
     timeRange,
     endpointId,
-    datasetId,
     // Summary
     summary,
     summaryLoading,

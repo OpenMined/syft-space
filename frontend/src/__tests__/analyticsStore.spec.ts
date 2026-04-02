@@ -61,7 +61,6 @@ describe('useAnalyticsStore', () => {
 
     expect(store.timeRange).toBe('30d')
     expect(store.endpointId).toBeUndefined()
-    expect(store.datasetId).toBeUndefined()
     expect(store.summary).toBeNull()
     expect(store.summaryLoading).toBe(false)
     expect(store.summaryError).toBeNull()
@@ -121,12 +120,11 @@ describe('useAnalyticsStore', () => {
       const store = useAnalyticsStore()
       store.timeRange = '7d'
       store.endpointId = 'ep-123'
-      store.datasetId = 'ds-456'
 
       await store.fetchSummary()
 
       expect(analyticsApi.getSummary).toHaveBeenCalledWith(
-        { time_range: '7d', endpoint_id: 'ep-123', dataset_id: 'ds-456' },
+        { time_range: '7d', endpoint_id: 'ep-123' },
         expect.any(AbortSignal),
       )
     })
@@ -218,7 +216,6 @@ describe('useAnalyticsStore', () => {
       expect(store.filters).toEqual({
         time_range: '30d',
         endpoint_id: undefined,
-        dataset_id: undefined,
       })
 
       store.timeRange = '90d'
@@ -227,7 +224,6 @@ describe('useAnalyticsStore', () => {
       expect(store.filters).toEqual({
         time_range: '90d',
         endpoint_id: 'ep-1',
-        dataset_id: undefined,
       })
     })
   })

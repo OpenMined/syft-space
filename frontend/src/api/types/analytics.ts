@@ -37,5 +37,4 @@ export interface TopUsersResponse {
 export interface AnalyticsFilters {
   time_range: TimeRange
   endpoint_id?: string
-  dataset_id?: string
 }
