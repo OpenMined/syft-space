@@ -1,7 +1,12 @@
 """Query endpoint handler — RAG pipeline with policy enforcement."""
 
+import asyncio
+from typing import TYPE_CHECKING, Any
+
 from fastapi import HTTPException
 from loguru import logger
+
+from syft_space.components.analytics.entities import QueryEventStatus
 
 from syft_space.components.dataset_types.interfaces import (
     SearchContext,
@@ -31,12 +36,16 @@ from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policy_types.interfaces import (
+    PaymentRequiredError,
     PolicyContext,
     PolicyViolationError,
 )
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.repository import WalletRepository
+
+if TYPE_CHECKING:
+    from syft_space.components.analytics.collector import QueryEventCollector
 
 
 class QueryEndpointHandler:
@@ -53,6 +62,7 @@ class QueryEndpointHandler:
         policy_registry: PolicyTypeRegistry,
         wallet_repository: WalletRepository | None = None,
         metadata_enricher: MetadataEnricher | None = None,
+        event_collector: "QueryEventCollector | None" = None,
     ):
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -63,6 +73,7 @@ class QueryEndpointHandler:
         self.policy_registry = policy_registry
         self.wallet_repository = wallet_repository
         self.metadata_enricher = metadata_enricher
+        self.event_collector = event_collector
 
     async def query_endpoint(
         self,
@@ -80,125 +91,173 @@ class QueryEndpointHandler:
             HTTPException: If endpoint not found or query fails
             PaymentRequiredError: If MPP payment is required (caller returns 402)
         """
-        # Get endpoint
-        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
-        if not endpoint:
-            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
-
-        # Check if published
-        if not endpoint.published:
-            raise HTTPException(status_code=403, detail="Endpoint is not published")
-
-        # Get policies grouped by type and extract configurations
-        policies_by_type = await self.policy_repository.get_by_endpoint_id_grouped(
-            endpoint.id, tenant.id
-        )
-        configs_by_type: dict[str, list[dict]] = {
-            policy_type: [p.configuration for p in policies]
-            for policy_type, policies in policies_by_type.items()
-        }
-
-        # Build policy context metadata
-        metadata: dict = {
-            "endpoint_id": endpoint.id,
+        # Event data — populated progressively through the pipeline
+        event_data: dict[str, Any] = {
             "tenant_id": tenant.id,
+            "user_email": request.sender_email,
+            "endpoint_slug": slug,
+            "endpoint_id": None,
+            "dataset_id": None,
+            "revenue_amount": 0.0,
+            "currency": "USD",
+            "status": QueryEventStatus.SUCCESS.value,
         }
 
-        # Enrich metadata with cross-component services (e.g., balance_service)
-        if self.metadata_enricher:
-            await self.metadata_enricher(metadata)
-
-        # Load wallets referenced by payment policies (single batch query)
-        wallet_ids = list(
-            {
-                p.wallet_id
-                for policies in policies_by_type.values()
-                for p in policies
-                if p.wallet_id
-            }
-        )
-        if wallet_ids and self.wallet_repository:
-            wallets = await self.wallet_repository.get_by_ids(wallet_ids, tenant.id)
-            metadata["wallets"] = {w.wallet_type: w.configuration for w in wallets}
-            # Surface wallet identity per type for prepaid policies (they need
-            # the wallet_id + currency to record balance movements).
-            for w in wallets:
-                metadata[f"{w.wallet_type}_wallet_id"] = w.id
-                metadata[f"{w.wallet_type}_wallet_currency"] = w.currency
-
-        # Inject X-Payment credential for MPP accounting policy
-        if x_payment:
-            metadata["x_payment"] = x_payment
-
-        # Create policy context with verified sender email
-        policy_context = PolicyContext(
-            endpoint_slug=slug,
-            sender_email=request.sender_email,
-            request=request.model_dump(),
-            metadata=metadata,
-        )
-
-        # Apply pre-hooks per type (one instance per type, all configs passed)
-        # Note: PaymentRequiredError is intentionally NOT caught here -
-        # it propagates to the route handler which returns HTTP 402.
-        for policy_type_name, configs in configs_by_type.items():
-            try:
-                policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
-                policy_instance = policy_type_cls()
-                policy_context = await policy_instance.pre_hook(configs, policy_context)
-            except PolicyViolationError as e:
+        try:
+            endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
+            if not endpoint:
+                event_data["status"] = QueryEventStatus.NOT_FOUND.value
                 raise HTTPException(
-                    status_code=403,
-                    detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
-                ) from e
-
-        # Execute query based on response_type
-        references: ReferencesResponse | None = None
-        summary: SummaryResponse | None = None
-
-        response_type = ResponseType(endpoint.response_type)
-
-        # Search dataset if needed
-        if (
-            response_type in [ResponseType.RAW, ResponseType.BOTH]
-            and endpoint.dataset_id
-        ):
-            references = await self._search_dataset(endpoint, request)
-
-        # Chat with model if needed
-        if (
-            response_type in [ResponseType.SUMMARY, ResponseType.BOTH]
-            and endpoint.model_id
-        ):
-            summary = await self._chat_with_model(endpoint, request, references)
-
-        # Create response
-        query_response = QueryEndpointResponse(summary=summary, references=references)
-
-        # Update policy context with response
-        policy_context.response = query_response.model_dump()
-
-        # Apply post-hooks per type
-        for policy_type_name, configs in configs_by_type.items():
-            try:
-                policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
-                policy_instance = policy_type_cls()
-                policy_context = await policy_instance.post_hook(
-                    configs, policy_context
+                    status_code=404, detail=f"Endpoint '{slug}' not found"
                 )
-            except PolicyViolationError as e:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
-                ) from e
 
-        # Extract payment receipt header if present (set by MppAccountingPolicy post-hook)
-        payment_receipt = policy_context.metadata.get("payment_receipt_header")
+            event_data["endpoint_id"] = endpoint.id
+            event_data["dataset_id"] = endpoint.dataset_id
 
-        return (
-            QueryEndpointResponse.model_validate(policy_context.response),
-            payment_receipt,
-        )
+            # Check if published
+            if not endpoint.published:
+                event_data["status"] = QueryEventStatus.NOT_PUBLISHED.value
+                raise HTTPException(status_code=403, detail="Endpoint is not published")
+
+            # Get policies grouped by type and extract configurations
+            policies_by_type = await self.policy_repository.get_by_endpoint_id_grouped(
+                endpoint.id, tenant.id
+            )
+            configs_by_type: dict[str, list[dict]] = {
+                policy_type: [p.configuration for p in policies]
+                for policy_type, policies in policies_by_type.items()
+            }
+
+            # Build policy context metadata
+            metadata: dict = {
+                "endpoint_id": endpoint.id,
+                "tenant_id": tenant.id,
+            }
+
+            # Enrich metadata with cross-component services (e.g., balance_service)
+            if self.metadata_enricher:
+                await self.metadata_enricher(metadata)
+
+            # Load wallets referenced by payment policies (single batch query)
+            wallet_ids = list(
+                {
+                    p.wallet_id
+                    for policies in policies_by_type.values()
+                    for p in policies
+                    if p.wallet_id
+                }
+            )
+            if wallet_ids and self.wallet_repository:
+                wallets = await self.wallet_repository.get_by_ids(wallet_ids, tenant.id)
+                metadata["wallets"] = {w.wallet_type: w.configuration for w in wallets}
+                # Surface wallet identity per type for prepaid policies (they need
+                # the wallet_id + currency to record balance movements).
+                for w in wallets:
+                    metadata[f"{w.wallet_type}_wallet_id"] = w.id
+                    metadata[f"{w.wallet_type}_wallet_currency"] = w.currency
+
+            # Inject X-Payment credential for MPP accounting policy
+            if x_payment:
+                metadata["x_payment"] = x_payment
+
+            # Create policy context with verified sender email
+            policy_context = PolicyContext(
+                endpoint_slug=slug,
+                sender_email=request.sender_email,
+                request=request.model_dump(),
+                metadata=metadata,
+            )
+
+            # Apply pre-hooks per type (one instance per type, all configs passed)
+            # Note: PaymentRequiredError is intentionally NOT caught here -
+            # it propagates to the route handler which returns HTTP 402.
+            for policy_type_name, configs in configs_by_type.items():
+                try:
+                    policy_type_cls = self.policy_registry.get_policy_type(
+                        policy_type_name
+                    )
+                    policy_instance = policy_type_cls()
+                    policy_context = await policy_instance.pre_hook(
+                        configs, policy_context
+                    )
+                except PolicyViolationError as e:
+                    event_data["status"] = QueryEventStatus.POLICY_VIOLATION.value
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
+                    ) from e
+
+            # Execute query based on response_type
+            references: ReferencesResponse | None = None
+            summary: SummaryResponse | None = None
+
+            response_type = ResponseType(endpoint.response_type)
+
+            # Search dataset if needed
+            if (
+                response_type in [ResponseType.RAW, ResponseType.BOTH]
+                and endpoint.dataset_id
+            ):
+                references = await self._search_dataset(endpoint, request)
+
+            # Chat with model if needed
+            if (
+                response_type in [ResponseType.SUMMARY, ResponseType.BOTH]
+                and endpoint.model_id
+            ):
+                summary = await self._chat_with_model(endpoint, request, references)
+
+            # Create response
+            query_response = QueryEndpointResponse(
+                summary=summary, references=references
+            )
+
+            # Update policy context with response
+            policy_context.response = query_response.model_dump()
+
+            # Apply post-hooks per type
+            for policy_type_name, configs in configs_by_type.items():
+                try:
+                    policy_type_cls = self.policy_registry.get_policy_type(
+                        policy_type_name
+                    )
+                    policy_instance = policy_type_cls()
+                    policy_context = await policy_instance.post_hook(
+                        configs, policy_context
+                    )
+                except PolicyViolationError as e:
+                    event_data["status"] = QueryEventStatus.POLICY_VIOLATION.value
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
+                    ) from e
+
+            # Extract payment receipt header if present (set by MppAccountingPolicy post-hook)
+            payment_receipt = policy_context.metadata.get("payment_receipt_header")
+
+            # Capture revenue from MPP policy
+            event_data["revenue_amount"] = policy_context.metadata.get(
+                "mpp_total_amount", 0.0
+            )
+
+            return (
+                QueryEndpointResponse.model_validate(policy_context.response),
+                payment_receipt,
+            )
+
+        except PaymentRequiredError:
+            event_data["status"] = QueryEventStatus.PAYMENT_REQUIRED.value
+            raise
+        except HTTPException:
+            if event_data["status"] == QueryEventStatus.SUCCESS.value:
+                event_data["status"] = QueryEventStatus.INTERNAL_ERROR.value
+            raise
+        except Exception:
+            event_data["status"] = QueryEventStatus.INTERNAL_ERROR.value
+            raise
+        finally:
+            if self.event_collector:
+                asyncio.create_task(self.event_collector.capture(**event_data))
 
     async def _search_dataset(
         self, endpoint: Endpoint, request: AuthenticatedQueryRequest

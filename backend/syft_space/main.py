@@ -18,6 +18,13 @@ from loguru import logger
 
 import syft_space.components.shared.logging_config  # noqa: F401, I001
 
+# Import analytics components
+from syft_space.components.analytics.collector import QueryEventCollector
+from syft_space.components.analytics.handlers import AnalyticsHandler
+from syft_space.components.analytics.migrations import run_analytics_migrations
+from syft_space.components.analytics.repository import QueryEventRepository
+from syft_space.components.analytics.routes import build_analytics_routes
+
 # Import auth components
 from syft_space.components.auth.dependencies import bearer_scheme
 from syft_space.components.auth.middleware import AdminKeyMiddleware
@@ -257,6 +264,11 @@ async def lifespan(app: FastAPI):
     # 1. Run database migrations
     await database.run_migrations(reset=app_settings.reset_db)
 
+    # 1.1. Run analytics database migrations (separate SQLite file)
+    await run_analytics_migrations(
+        analytics_database.engine, reset=app_settings.reset_db
+    )
+
     # 2. Setup tenant and settings
     default_tenant = await _setup_tenant_and_settings(
         tenant_repository, settings_handler
@@ -350,8 +362,9 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.exception(f"Error shutting down {name}: {e}")
 
-    # 9. Dispose database engine (close all pooled connections)
+    # 9. Dispose database engines (close all pooled connections)
     await database.dispose()
+    await analytics_database.dispose()
 
 
 # Initialize FastAPI app
@@ -369,6 +382,15 @@ app = FastAPI(
 db_path = app_settings.sqlite_db_path.resolve()
 db_config = SQLiteConfig(db_path)
 database = AsyncDatabase(db_config)
+
+# Initialize analytics database (separate SQLite file)
+analytics_db_path = app_settings.analytics_db_path.resolve()
+analytics_db_config = SQLiteConfig(analytics_db_path, enable_foreign_keys=False)
+analytics_database = AsyncDatabase(analytics_db_config)
+
+# Initialize analytics repository and collector
+event_repository = QueryEventRepository(analytics_database)
+event_collector = QueryEventCollector(event_repository)
 
 # Initialize repositories
 tenant_repository = TenantRepository(database)
@@ -485,6 +507,7 @@ query_endpoint_handler = QueryEndpointHandler(
     policy_registry=POLICY_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
     metadata_enricher=enrich_query_metadata,
+    event_collector=event_collector,
 )
 publish_endpoint_handler = PublishEndpointHandler(
     endpoint_repository=endpoint_repository,
@@ -496,6 +519,12 @@ publish_endpoint_handler = PublishEndpointHandler(
     wallet_repository=wallet_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
+
+# Initialize analytics handler (cross-database: analytics DB + main DB)
+analytics_handler = AnalyticsHandler(
+    query_event_repository=event_repository,
+    endpoint_repository=endpoint_repository,
+)
 
 # Initialize settings handler with proxy service
 settings_handler = SettingsHandler(
@@ -559,6 +588,7 @@ router.include_router(
         get_verified_sender_email=get_verified_sender_email,
     )
 )
+router.include_router(build_analytics_routes(analytics_handler))
 
 
 @public_route
