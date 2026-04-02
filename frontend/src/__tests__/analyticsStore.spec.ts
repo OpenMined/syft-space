@@ -5,6 +5,7 @@ import type {
   SummaryStatsResponse,
   TimeSeriesResponse,
   TopUsersResponse,
+  WordCloudResponse,
 } from '@/api/types/analytics'
 
 // Mock the analytics API module
@@ -13,6 +14,7 @@ vi.mock('@/api/endpoints/analytics', () => ({
     getSummary: vi.fn(),
     getTimeSeries: vi.fn(),
     getTopUsers: vi.fn(),
+    getWordCloud: vi.fn(),
   },
 }))
 
@@ -45,6 +47,14 @@ const mockTopUsers: TopUsersResponse = {
   users: [
     { user_email: 'alice@test.com', query_count: 50, revenue: 100.0 },
     { user_email: 'bob@test.com', query_count: 30, revenue: 50.0 },
+  ],
+}
+
+const mockWordCloud: WordCloudResponse = {
+  words: [
+    { word: 'learning', count: 15 },
+    { word: 'machine', count: 12 },
+    { word: 'model', count: 8 },
   ],
 }
 
@@ -177,13 +187,38 @@ describe('useAnalyticsStore', () => {
     })
   })
 
+  // ============== fetchWordCloud ==============
+
+  describe('fetchWordCloud', () => {
+    it('fetches and stores word cloud data', async () => {
+      vi.mocked(analyticsApi.getWordCloud).mockResolvedValue(mockWordCloud)
+      const store = useAnalyticsStore()
+
+      await store.fetchWordCloud()
+
+      expect(store.wordCloud).toEqual(mockWordCloud)
+      expect(store.wordCloudLoading).toBe(false)
+    })
+
+    it('handles errors', async () => {
+      vi.mocked(analyticsApi.getWordCloud).mockRejectedValue(new Error('NLP fail'))
+      const store = useAnalyticsStore()
+
+      await store.fetchWordCloud()
+
+      expect(store.wordCloudError).toBe('NLP fail')
+      expect(store.wordCloud).toBeNull()
+    })
+  })
+
   // ============== fetchAll ==============
 
   describe('fetchAll', () => {
-    it('fetches all three datasets in parallel', async () => {
+    it('fetches all four datasets in parallel', async () => {
       vi.mocked(analyticsApi.getSummary).mockResolvedValue(mockSummary)
       vi.mocked(analyticsApi.getTimeSeries).mockResolvedValue(mockTimeSeries)
       vi.mocked(analyticsApi.getTopUsers).mockResolvedValue(mockTopUsers)
+      vi.mocked(analyticsApi.getWordCloud).mockResolvedValue(mockWordCloud)
 
       const store = useAnalyticsStore()
       await store.fetchAll()
@@ -191,12 +226,14 @@ describe('useAnalyticsStore', () => {
       expect(store.summary).toEqual(mockSummary)
       expect(store.timeSeries).toEqual(mockTimeSeries)
       expect(store.topUsers).toEqual(mockTopUsers)
+      expect(store.wordCloud).toEqual(mockWordCloud)
     })
 
     it('partial failure does not block other fetches', async () => {
       vi.mocked(analyticsApi.getSummary).mockRejectedValue(new Error('fail'))
       vi.mocked(analyticsApi.getTimeSeries).mockResolvedValue(mockTimeSeries)
       vi.mocked(analyticsApi.getTopUsers).mockResolvedValue(mockTopUsers)
+      vi.mocked(analyticsApi.getWordCloud).mockResolvedValue(mockWordCloud)
 
       const store = useAnalyticsStore()
       await store.fetchAll()

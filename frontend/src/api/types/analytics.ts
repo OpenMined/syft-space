@@ -34,6 +34,15 @@ export interface TopUsersResponse {
   users: TopUserEntry[]
 }
 
+export interface WordCloudEntry {
+  word: string
+  count: number
+}
+
+export interface WordCloudResponse {
+  words: WordCloudEntry[]
+}
+
 export interface AnalyticsFilters {
   time_range: TimeRange
   endpoint_id?: string

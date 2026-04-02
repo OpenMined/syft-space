@@ -9,12 +9,14 @@ import type {
   TimeRange,
   TimeSeriesResponse,
   TopUsersResponse,
+  WordCloudResponse,
 } from '@/api/types/analytics'
 
 export const useAnalyticsStore = defineStore('analytics', () => {
   // ---- Filter state ----
   const timeRange = ref<TimeRange>('30d')
   const endpointId = ref<string | undefined>(undefined)
+  const ngramSize = ref(1)
 
   // ---- Summary stats ----
   const summary = ref<SummaryStatsResponse | null>(null)
@@ -31,10 +33,16 @@ export const useAnalyticsStore = defineStore('analytics', () => {
   const topUsersLoading = ref(false)
   const topUsersError = ref<string | null>(null)
 
+  // ---- Word cloud ----
+  const wordCloud = ref<WordCloudResponse | null>(null)
+  const wordCloudLoading = ref(false)
+  const wordCloudError = ref<string | null>(null)
+
   // ---- Abort controllers for stale request cancellation ----
   let summaryAbort: AbortController | null = null
   let timeSeriesAbort: AbortController | null = null
   let topUsersAbort: AbortController | null = null
+  let wordCloudAbort: AbortController | null = null
 
   // ---- Computed ----
   const filters = computed<AnalyticsFilters>(() => ({
@@ -43,11 +51,19 @@ export const useAnalyticsStore = defineStore('analytics', () => {
   }))
 
   const isLoading = computed(
-    () => summaryLoading.value || timeSeriesLoading.value || topUsersLoading.value,
+    () =>
+      summaryLoading.value ||
+      timeSeriesLoading.value ||
+      topUsersLoading.value ||
+      wordCloudLoading.value,
   )
 
   const hasData = computed(
-    () => summary.value !== null || timeSeries.value !== null || topUsers.value !== null,
+    () =>
+      summary.value !== null ||
+      timeSeries.value !== null ||
+      topUsers.value !== null ||
+      wordCloud.value !== null,
   )
 
   // ---- Fetch methods ----
@@ -96,8 +112,27 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     }
   }
 
+  const fetchWordCloud = async () => {
+    wordCloudAbort?.abort()
+    wordCloudAbort = new AbortController()
+    wordCloudLoading.value = true
+    wordCloudError.value = null
+    try {
+      wordCloud.value = await analyticsApi.getWordCloud(
+        filters.value,
+        ngramSize.value,
+        wordCloudAbort.signal,
+      )
+    } catch (err) {
+      if (axios.isCancel(err)) return
+      wordCloudError.value = err instanceof Error ? err.message : 'Failed to load word cloud'
+    } finally {
+      wordCloudLoading.value = false
+    }
+  }
+
   const fetchAll = async () => {
-    await Promise.all([fetchSummary(), fetchTimeSeries(), fetchTopUsers()])
+    await Promise.all([fetchSummary(), fetchTimeSeries(), fetchTopUsers(), fetchWordCloud()])
   }
 
   // ---- Export ----
@@ -130,6 +165,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     // Filter state
     timeRange,
     endpointId,
+    ngramSize,
     // Summary
     summary,
     summaryLoading,
@@ -142,6 +178,10 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     topUsers,
     topUsersLoading,
     topUsersError,
+    // Word cloud
+    wordCloud,
+    wordCloudLoading,
+    wordCloudError,
     // Computed
     filters,
     isLoading,
@@ -150,6 +190,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     fetchSummary,
     fetchTimeSeries,
     fetchTopUsers,
+    fetchWordCloud,
     fetchAll,
     exportData,
   }

@@ -4,6 +4,7 @@ import type {
   SummaryStatsResponse,
   TimeSeriesResponse,
   TopUsersResponse,
+  WordCloudResponse,
 } from '../types/analytics'
 
 export const analyticsApi = {
@@ -35,6 +36,18 @@ export const analyticsApi = {
   ): Promise<TopUsersResponse> => {
     const response = await apiClient.get<TopUsersResponse>('/analytics/top-users', {
       params: filters,
+      signal,
+    })
+    return response.data
+  },
+
+  getWordCloud: async (
+    filters: AnalyticsFilters,
+    ngramSize: number = 1,
+    signal?: AbortSignal,
+  ): Promise<WordCloudResponse> => {
+    const response = await apiClient.get<WordCloudResponse>('/analytics/word-cloud', {
+      params: { ...filters, ngram_size: ngramSize },
       signal,
     })
     return response.data

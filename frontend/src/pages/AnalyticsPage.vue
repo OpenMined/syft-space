@@ -67,6 +67,7 @@
                 </SelectContent>
               </Select>
             </div>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -303,15 +304,64 @@
         </CardContent>
       </Card>
     </div>
+
+    <!-- Query Word Cloud (full width) -->
+    <Card class="mt-4 transition-shadow hover:shadow-md">
+      <CardContent class="p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <div class="flex items-center gap-2 mb-0.5">
+              <Cloud class="h-4 w-4 text-muted-foreground" />
+              <span class="text-sm font-semibold text-foreground">Query Topics</span>
+            </div>
+            <p class="text-xs text-muted-foreground">Most frequent words in user queries</p>
+          </div>
+          <Select v-model="selectedNgramSize">
+            <SelectTrigger class="w-[160px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">Single words</SelectItem>
+              <SelectItem value="2">Two-word phrases</SelectItem>
+              <SelectItem value="3">Three-word phrases</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="h-72">
+          <template v-if="store.wordCloudLoading">
+            <div class="animate-pulse h-full bg-muted rounded" />
+          </template>
+          <template v-else-if="store.wordCloudError">
+            <div class="flex items-center justify-center h-full">
+              <div class="text-center">
+                <p class="text-sm text-destructive mb-2">Failed to load word cloud</p>
+                <Button variant="outline" size="sm" @click="store.fetchWordCloud()">
+                  Retry
+                </Button>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="!wordCloudWords.length">
+            <div class="flex items-center justify-center h-full">
+              <p class="text-sm text-muted-foreground">No query data for this period</p>
+            </div>
+          </template>
+          <template v-else>
+            <canvas ref="wordCloudCanvas" class="w-full h-full" />
+          </template>
+        </div>
+      </CardContent>
+    </Card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onMounted, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onMounted, ref, watch } from 'vue'
 import {
   Activity,
   BarChart3,
   CheckCircle,
+  Cloud,
   DollarSign,
   Download,
   Filter,
@@ -342,7 +392,7 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { endpointsApi } from '@/api/endpoints/endpoints'
-
+import { renderWordCloud } from '@/composables/useWordCloud'
 import { useAnalyticsStore } from '@/stores/analytics'
 import { formatCompactNumber, formatCurrency } from '@/lib/formatters'
 import type { TimeRange } from '@/api/types/analytics'
@@ -360,6 +410,7 @@ ChartJS.register(
 
 const store = useAnalyticsStore()
 
+// Icon components wrapped at module level to avoid re-creating in computed
 const icons = {
   checkCircle: markRaw(CheckCircle),
   activity: markRaw(Activity),
@@ -406,6 +457,7 @@ const statCardMeta = [
   },
 ]
 
+// ---- Filter dropdown options ----
 const timeRangeOptions: { value: TimeRange; label: string }[] = [
   { value: '7d', label: 'Last 7 days' },
   { value: '30d', label: 'Last 30 days' },
@@ -417,6 +469,7 @@ const endpointsList = ref<EndpointListItem[]>([])
 
 const ALL_SENTINEL = '__all__'
 
+// Map store.endpointId (string | undefined) ↔ Select value (string, '__all__' = all)
 const selectedEndpointId = computed({
   get: () => store.endpointId ?? ALL_SENTINEL,
   set: (v: string) => {
@@ -424,12 +477,14 @@ const selectedEndpointId = computed({
   },
 })
 
+// Re-fetch all data when any filter changes (immediate: true handles initial load)
 watch(
   () => store.filters,
   () => store.fetchAll(),
   { immediate: true },
 )
 
+// Load filter dropdown options on mount
 onMounted(async () => {
   try {
     endpointsList.value = await endpointsApi.list()
@@ -454,6 +509,7 @@ const statCards = computed(() => {
   })
 })
 
+// ---- Chart data ----
 const sharedScaleOptions = {
   grid: { color: 'rgba(0,0,0,0.04)' },
   ticks: { color: '#9ca3af', font: { size: 11 } },
@@ -551,5 +607,29 @@ const isUserActivityEmpty = computed(
 )
 const isRevenueEmpty = computed(() => !store.timeSeries?.revenue.some((p) => p.value > 0))
 
+// ---- Top users ----
 const activeUsers = computed(() => store.topUsers?.users ?? [])
+
+// ---- Word cloud ----
+const wordCloudCanvas = ref<HTMLCanvasElement | null>(null)
+const wordCloudWords = computed(() => store.wordCloud?.words ?? [])
+
+const selectedNgramSize = computed({
+  get: () => String(store.ngramSize),
+  set: (v: string) => {
+    store.ngramSize = Number(v)
+    store.fetchWordCloud()
+  },
+})
+
+function drawWordCloud() {
+  const canvas = wordCloudCanvas.value
+  if (!canvas || !wordCloudWords.value.length) return
+  renderWordCloud(canvas, wordCloudWords.value)
+}
+
+watch(wordCloudWords, async () => {
+  await nextTick()
+  drawWordCloud()
+})
 </script>
