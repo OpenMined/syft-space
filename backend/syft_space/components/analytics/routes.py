@@ -10,6 +10,7 @@ from syft_space.components.analytics.schemas import (
     TimeRange,
     TimeSeriesResponse,
     TopUsersResponse,
+    WordCloudResponse,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -58,5 +59,25 @@ def build_analytics_routes(handler: AnalyticsHandler) -> APIRouter:
     ) -> TopUsersResponse:
         """Get top 5 users ranked by query count."""
         return await handler.get_top_users(tenant, time_range, endpoint_id, dataset_id)
+
+    @router.get("/word-cloud", response_model=WordCloudResponse)
+    async def get_word_cloud(
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: AnalyticsHandler = Depends(get_handler),
+        time_range: TimeRange = Query(default=TimeRange.THIRTY_DAYS),
+        endpoint_id: UUID | None = Query(default=None),
+        dataset_id: UUID | None = Query(default=None),
+        max_words: int = Query(default=80, ge=10, le=200),
+        ngram_size: int = Query(default=1, ge=1, le=3),
+    ) -> WordCloudResponse:
+        """Get word frequency data from query texts for word cloud rendering."""
+        return await handler.get_word_cloud(
+            tenant,
+            time_range,
+            endpoint_id,
+            dataset_id,
+            max_words=max_words,
+            ngram_size=ngram_size,
+        )
 
     return router

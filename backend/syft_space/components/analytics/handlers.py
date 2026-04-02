@@ -1,6 +1,7 @@
 """Analytics handlers for dashboard business logic."""
 
 import asyncio
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from uuid import UUID
@@ -15,6 +16,12 @@ from syft_space.components.analytics.schemas import (
     TimeSeriesResponse,
     TopUserEntry,
     TopUsersResponse,
+    WordCloudEntry,
+    WordCloudResponse,
+)
+from syft_space.components.analytics.text_processing import (
+    clean_texts_batch,
+    extract_ngrams,
 )
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.tenants.entities import Tenant
@@ -227,6 +234,56 @@ class AnalyticsHandler:
         ]
 
         return TopUsersResponse(users=users)
+
+    async def get_word_cloud(
+        self,
+        tenant: Tenant,
+        time_range: TimeRange,
+        endpoint_id: UUID | None = None,
+        dataset_id: UUID | None = None,
+        max_words: int = 80,
+        ngram_size: int = 1,
+        custom_stop_words: list[str] | None = None,
+    ) -> WordCloudResponse:
+        """Build word frequency data from query texts for cloud rendering.
+
+        Fetches all query texts in the time range, runs NLP cleaning
+        (normalization, stop word removal, lemmatization), then extracts
+        n-grams and counts frequencies.
+
+        Args:
+            ngram_size: Number of words per chunk (1=single, 2=bigram, 3=trigram).
+        """
+        now = datetime.now(timezone.utc)
+        current_start, current_end, _, _ = self._compute_time_boundaries(
+            time_range, now
+        )
+
+        raw_texts = await self.query_event_repository.get_query_texts(
+            tenant.id,
+            current_start,
+            current_end,
+            endpoint_id=endpoint_id,
+            dataset_id=dataset_id,
+            status=QueryEventStatus.SUCCESS.value,
+        )
+
+        # Batch-clean all texts and aggregate n-gram frequencies
+        cleaned_texts = clean_texts_batch(
+            raw_texts, custom_stop_words=custom_stop_words
+        )
+        word_counts: Counter[str] = Counter()
+        for cleaned in cleaned_texts:
+            if cleaned:
+                word_counts.update(extract_ngrams(cleaned, n=ngram_size))
+
+        # Build sorted response, capped at max_words
+        words = [
+            WordCloudEntry(word=word, count=count)
+            for word, count in word_counts.most_common(max_words)
+        ]
+
+        return WordCloudResponse(words=words)
 
     # ============== Private Helpers ==============
 

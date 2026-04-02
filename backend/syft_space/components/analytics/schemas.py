@@ -84,3 +84,21 @@ class TopUsersResponse(BaseModel):
     users: list[TopUserEntry] = Field(
         ..., description="Top users sorted by query count descending"
     )
+
+
+# ============== Word Cloud ==============
+
+
+class WordCloudEntry(BaseModel):
+    """A single word with its frequency weight."""
+
+    word: str = Field(..., description="Cleaned, lemmatized word")
+    count: int = Field(..., description="Frequency count across matched queries")
+
+
+class WordCloudResponse(BaseModel):
+    """Response containing word frequency data for cloud rendering."""
+
+    words: list[WordCloudEntry] = Field(
+        ..., description="Words sorted by count descending"
+    )

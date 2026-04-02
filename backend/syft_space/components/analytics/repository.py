@@ -113,6 +113,31 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
                 for row in result.all()
             ]
 
+    async def get_query_texts(
+        self,
+        tenant_id: UUID,
+        start: datetime,
+        end: datetime,
+        endpoint_id: UUID | None = None,
+        dataset_id: UUID | None = None,
+        status: str | None = QueryEventStatus.SUCCESS.value,
+    ) -> list[str]:
+        """Get all non-empty query texts in a time range.
+
+        Returns:
+            List of raw query text strings.
+        """
+        async with self.db.get_session() as session:
+            statement = select(QueryEvent.query_text).where(
+                QueryEvent.query_text != "",
+                QueryEvent.query_text.is_not(None),  # type: ignore[union-attr]
+            )
+            statement = self._apply_filters(
+                statement, tenant_id, start, end, endpoint_id, dataset_id, status
+            )
+            result = await session.exec(statement)
+            return [str(row) for row in result.all()]
+
     async def get_top_users(
         self,
         tenant_id: UUID,
