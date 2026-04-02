@@ -6,8 +6,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
-import pytest
-
 from syft_space.components.analytics.collector import QueryEventCollector
 from syft_space.components.analytics.entities import QueryEventStatus
 from syft_space.components.analytics.repository import QueryEventRepository

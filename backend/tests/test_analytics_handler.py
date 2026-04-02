@@ -39,15 +39,13 @@ class TestGetSummaryStats:
         # previous: 80 queries
         # month: $200 revenue
         event_repo.get_summary_counts.side_effect = [
-            (100, 50.0, 10),   # current period
-            (80, 30.0, 8),     # previous period
+            (100, 50.0, 10),  # current period
+            (80, 30.0, 8),  # previous period
             (200, 200.0, 15),  # current month
         ]
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
-        result = await handler.get_summary_stats(
-            _make_tenant(), TimeRange.THIRTY_DAYS
-        )
+        result = await handler.get_summary_stats(_make_tenant(), TimeRange.THIRTY_DAYS)
 
         assert result.active_endpoints.value == 5.0
         assert result.active_endpoints.change_value == 2.0
@@ -65,15 +63,13 @@ class TestGetSummaryStats:
         endpoint_repo.count_published.return_value = 0
         endpoint_repo.count_created_in_range.return_value = 0
         event_repo.get_summary_counts.side_effect = [
-            (50, 0.0, 5),   # current
-            (0, 0.0, 0),    # previous (zero)
-            (0, 0.0, 0),    # month
+            (50, 0.0, 5),  # current
+            (0, 0.0, 0),  # previous (zero)
+            (0, 0.0, 0),  # month
         ]
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
-        result = await handler.get_summary_stats(
-            _make_tenant(), TimeRange.SEVEN_DAYS
-        )
+        result = await handler.get_summary_stats(_make_tenant(), TimeRange.SEVEN_DAYS)
 
         assert result.total_queries.change_value == 100.0
 
@@ -87,9 +83,7 @@ class TestGetSummaryStats:
         event_repo.get_summary_counts.return_value = (0, 0.0, 0)
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
-        result = await handler.get_summary_stats(
-            _make_tenant(), TimeRange.THIRTY_DAYS
-        )
+        result = await handler.get_summary_stats(_make_tenant(), TimeRange.THIRTY_DAYS)
 
         assert result.total_queries.value == 0.0
         assert result.total_queries.change_value == 0.0
@@ -137,20 +131,15 @@ class TestGetTimeSeries:
 
         # Freeze time to a known date for predictable buckets
         fixed_now = datetime(2024, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
-        with patch(
-            "syft_space.components.analytics.handlers.datetime"
-        ) as mock_dt:
+        with patch("syft_space.components.analytics.handlers.datetime") as mock_dt:
             mock_dt.now.return_value = fixed_now
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
 
-            result = await handler.get_time_series(
-                _make_tenant(), TimeRange.SEVEN_DAYS
-            )
+            result = await handler.get_time_series(_make_tenant(), TimeRange.SEVEN_DAYS)
 
         # Should have multiple points (7-8 days), most zero-filled
         assert len(result.query_volume) > 1
         # The bucket for 2024-01-03 should have data
-        labels = [p.label for p in result.query_volume]
         values = {p.label: p.value for p in result.query_volume}
         non_zero = [v for v in values.values() if v > 0]
         assert len(non_zero) >= 1
@@ -162,9 +151,7 @@ class TestGetTimeSeries:
         event_repo.get_time_series_data.return_value = []
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
-        result = await handler.get_time_series(
-            _make_tenant(), TimeRange.SEVEN_DAYS
-        )
+        result = await handler.get_time_series(_make_tenant(), TimeRange.SEVEN_DAYS)
 
         assert len(result.query_volume) > 0
         assert all(p.value == 0.0 for p in result.query_volume)
@@ -178,9 +165,7 @@ class TestGetTimeSeries:
         event_repo.get_time_series_data.return_value = []
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
-        result = await handler.get_time_series(
-            _make_tenant(), TimeRange.THIRTY_DAYS
-        )
+        result = await handler.get_time_series(_make_tenant(), TimeRange.THIRTY_DAYS)
 
         qv_labels = [p.label for p in result.query_volume]
         ua_labels = [p.label for p in result.user_activity]
@@ -204,9 +189,7 @@ class TestGetTopUsers:
         ]
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
-        result = await handler.get_top_users(
-            _make_tenant(), TimeRange.THIRTY_DAYS
-        )
+        result = await handler.get_top_users(_make_tenant(), TimeRange.THIRTY_DAYS)
 
         assert len(result.users) == 2
         assert result.users[0].user_email == "alice@test.com"
@@ -220,9 +203,7 @@ class TestGetTopUsers:
         event_repo.get_top_users.return_value = []
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
-        result = await handler.get_top_users(
-            _make_tenant(), TimeRange.SEVEN_DAYS
-        )
+        result = await handler.get_top_users(_make_tenant(), TimeRange.SEVEN_DAYS)
 
         assert result.users == []
 

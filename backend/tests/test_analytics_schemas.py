@@ -93,9 +93,7 @@ class TestTimeSeriesResponse:
 
 class TestTopUserEntry:
     def test_valid(self):
-        entry = TopUserEntry(
-            user_email="alice@test.com", query_count=100, revenue=50.0
-        )
+        entry = TopUserEntry(user_email="alice@test.com", query_count=100, revenue=50.0)
         assert entry.user_email == "alice@test.com"
         assert entry.query_count == 100
 

@@ -5,15 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-import pytest
-
 from syft_space.components.analytics.entities import QueryEventStatus
 from syft_space.components.analytics.repository import QueryEventRepository
 from syft_space.components.endpoints.repository import EndpointRepository
-from syft_space.components.shared.database import AsyncDatabase
 
 from .conftest import TENANT_ID, make_endpoint, make_event
-
 
 # ============== QueryEventRepository ==============
 
@@ -82,12 +78,8 @@ class TestGetSummaryCounts:
         now = datetime.now(timezone.utc)
         ds_id = uuid4()
 
-        await event_repository.create(
-            make_event(dataset_id=ds_id, timestamp=now)
-        )
-        await event_repository.create(
-            make_event(dataset_id=uuid4(), timestamp=now)
-        )
+        await event_repository.create(make_event(dataset_id=ds_id, timestamp=now))
+        await event_repository.create(make_event(dataset_id=uuid4(), timestamp=now))
 
         count, _, _ = await event_repository.get_summary_counts(
             TENANT_ID, now - timedelta(days=1), now, dataset_id=ds_id
@@ -105,7 +97,10 @@ class TestGetSummaryCounts:
         )
 
         count, _, _ = await event_repository.get_summary_counts(
-            TENANT_ID, now - timedelta(days=1), now, status=QueryEventStatus.SUCCESS.value
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            status=QueryEventStatus.SUCCESS.value,
         )
         assert count == 1
 
@@ -135,15 +130,9 @@ class TestGetTimeSeriesData:
         day1 = now.replace(hour=12, minute=0, second=0, microsecond=0)
         day2 = day1 - timedelta(days=1)
 
-        await event_repository.create(
-            make_event(revenue_amount=10.0, timestamp=day1)
-        )
-        await event_repository.create(
-            make_event(revenue_amount=5.0, timestamp=day1)
-        )
-        await event_repository.create(
-            make_event(revenue_amount=20.0, timestamp=day2)
-        )
+        await event_repository.create(make_event(revenue_amount=10.0, timestamp=day1))
+        await event_repository.create(make_event(revenue_amount=5.0, timestamp=day1))
+        await event_repository.create(make_event(revenue_amount=20.0, timestamp=day2))
 
         rows = await event_repository.get_time_series_data(
             TENANT_ID,
@@ -166,7 +155,9 @@ class TestGetTimeSeriesData:
         assert by_key[day1_key][1] == 2
         assert by_key[day1_key][3] == 15.0
 
-    async def test_empty_returns_empty_list(self, event_repository: QueryEventRepository):
+    async def test_empty_returns_empty_list(
+        self, event_repository: QueryEventRepository
+    ):
         now = datetime.now(timezone.utc)
         rows = await event_repository.get_time_series_data(
             TENANT_ID, now - timedelta(days=7), now, "%Y-%m-%d"
@@ -183,7 +174,9 @@ class TestGetTopUsers:
         # alice: 3 queries, bob: 1 query
         for _ in range(3):
             await event_repository.create(
-                make_event(user_email="alice@test.com", revenue_amount=1.0, timestamp=now)
+                make_event(
+                    user_email="alice@test.com", revenue_amount=1.0, timestamp=now
+                )
             )
         await event_repository.create(
             make_event(user_email="bob@test.com", revenue_amount=100.0, timestamp=now)
@@ -198,7 +191,9 @@ class TestGetTopUsers:
         assert users[0][1] == 3  # query_count
         assert users[1][0] == "bob@test.com"
 
-    async def test_limit_constrains_results(self, event_repository: QueryEventRepository):
+    async def test_limit_constrains_results(
+        self, event_repository: QueryEventRepository
+    ):
         now = datetime.now(timezone.utc)
 
         for i in range(5):
