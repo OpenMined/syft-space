@@ -74,6 +74,22 @@ export const formatTimeAgo = (dateString: string): string => {
 }
 
 /**
+ * Format a number with compact suffix (k, M) for display.
+ */
+export const formatCompactNumber = (value: number): string => {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+  return value.toLocaleString()
+}
+
+/**
+ * Format a number as USD currency with 2 decimal places.
+ */
+export const formatCurrency = (value: number): string => {
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+/**
  * Format a price with minimum 2 decimal places, keeping more if needed for microtransactions.
  * - No decimals → adds .00
  * - ≤2 decimals → formats to 2 decimals

@@ -12,14 +12,26 @@
             Comprehensive analytics across your endpoints, users, and revenue
           </p>
         </div>
-        <Button variant="outline" @click="exportAllData" class="gap-2">
-          <Download class="h-4 w-4" />
-          Export All Data
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="outline"
+                :disabled="!store.hasData"
+                class="gap-2"
+                @click="store.exportData()"
+              >
+                <Download class="h-4 w-4" />
+                Export All Data
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent v-if="!store.hasData">No data to export</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
     </div>
 
-    <!-- Filters (compact inline) -->
+    <!-- Filters -->
     <Card class="mb-6">
       <CardContent class="px-6 py-4">
         <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -30,39 +42,41 @@
           <div class="flex flex-wrap items-center gap-4">
             <div class="flex items-center gap-2">
               <span class="text-sm text-muted-foreground">Time Range:</span>
-              <Select v-model="selectedTimeRange">
+              <Select v-model="store.timeRange">
                 <SelectTrigger class="w-[150px] h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="opt in timeRangeOptions" :key="opt" :value="opt">
-                    {{ opt }}
+                  <SelectItem v-for="opt in timeRangeOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div class="flex items-center gap-2">
               <span class="text-sm text-muted-foreground">Endpoint:</span>
-              <Select v-model="selectedEndpoint">
+              <Select v-model="selectedEndpointId">
                 <SelectTrigger class="w-[170px] h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="opt in endpointOptions" :key="opt" :value="opt">
-                    {{ opt }}
+                  <SelectItem value="">All Endpoints</SelectItem>
+                  <SelectItem v-for="ep in endpointsList" :key="ep.id" :value="ep.id">
+                    {{ ep.name }}
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div class="flex items-center gap-2">
               <span class="text-sm text-muted-foreground">Dataset:</span>
-              <Select v-model="selectedDataset">
+              <Select v-model="selectedDatasetId">
                 <SelectTrigger class="w-[150px] h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="opt in datasetOptions" :key="opt" :value="opt">
-                    {{ opt }}
+                  <SelectItem value="">All Datasets</SelectItem>
+                  <SelectItem v-for="ds in datasetsList" :key="ds.id" :value="ds.id">
+                    {{ ds.name }}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -72,81 +86,155 @@
       </CardContent>
     </Card>
 
-    <!-- Stats Cards -->
+    <!-- Stat Cards -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <Card
-        v-for="stat in mockStatCards"
-        :key="stat.label"
-        class="transition-shadow hover:shadow-md"
-      >
-        <CardContent class="p-5">
-          <div class="flex items-center justify-between mb-3">
-            <p class="text-sm font-medium text-muted-foreground">{{ stat.label }}</p>
-            <div
-              class="w-8 h-8 rounded-lg flex items-center justify-center"
-              :class="iconBg(stat.icon)"
-            >
-              <CheckCircle v-if="stat.icon === 'check'" class="w-4 h-4" :class="iconFg(stat.icon)" />
-              <Activity v-else-if="stat.icon === 'activity'" class="w-4 h-4" :class="iconFg(stat.icon)" />
-              <DollarSign v-else-if="stat.icon === 'dollar'" class="w-4 h-4" :class="iconFg(stat.icon)" />
-              <Users v-else class="w-4 h-4" :class="iconFg(stat.icon)" />
+      <template v-if="store.summaryLoading">
+        <Card v-for="i in 4" :key="`stat-skeleton-${i}`">
+          <CardContent class="p-5">
+            <div class="animate-pulse">
+              <div class="h-3 bg-muted rounded w-1/2 mb-4" />
+              <div class="h-8 bg-muted rounded w-2/3 mb-2" />
+              <div class="h-3 bg-muted rounded w-3/4" />
             </div>
-          </div>
-          <p class="text-3xl font-bold text-foreground tracking-tight">{{ stat.value }}</p>
-          <p
-            class="text-xs mt-1.5"
-            :class="
-              stat.changeType === 'positive'
-                ? 'text-green-600 dark:text-green-400'
-                : 'text-muted-foreground'
-            "
-          >
-            {{ stat.change }}
-          </p>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </template>
+      <template v-else-if="store.summaryError">
+        <Card class="col-span-full">
+          <CardContent class="p-5 text-center">
+            <p class="text-destructive mb-2">{{ store.summaryError }}</p>
+            <Button variant="outline" size="sm" @click="store.fetchSummary()"> Retry </Button>
+          </CardContent>
+        </Card>
+      </template>
+      <template v-else>
+        <Card v-for="stat in statCards" :key="stat.label" class="transition-shadow hover:shadow-md">
+          <CardContent class="p-5">
+            <div class="flex items-center justify-between mb-3">
+              <p class="text-sm font-medium text-muted-foreground">{{ stat.label }}</p>
+              <div class="w-8 h-8 rounded-lg flex items-center justify-center" :class="stat.iconBg">
+                <component :is="stat.iconComponent" class="w-4 h-4" :class="stat.iconFg" />
+              </div>
+            </div>
+            <p class="text-3xl font-bold text-foreground tracking-tight tabular-nums">
+              {{ stat.formattedValue }}
+            </p>
+            <p
+              class="text-xs mt-1.5"
+              :class="
+                stat.changePositive ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'
+              "
+            >
+              {{ stat.changeLabel }}
+            </p>
+          </CardContent>
+        </Card>
+      </template>
     </div>
 
     <!-- Charts Row 1 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      <!-- Query Volume Trends -->
       <Card class="transition-shadow hover:shadow-md">
         <CardContent class="p-5">
           <div class="flex items-center gap-2 mb-0.5">
             <TrendingUp class="h-4 w-4 text-muted-foreground" />
             <span class="text-sm font-semibold text-foreground">Query Volume Trends</span>
           </div>
-          <p class="text-xs text-muted-foreground mb-5">Query count over time (30d)</p>
+          <p class="text-xs text-muted-foreground mb-5">Query count over time</p>
           <div class="h-52">
-            <Line :data="queryVolumeChartData" :options="lineChartOptions" />
+            <template v-if="store.timeSeriesLoading">
+              <div class="animate-pulse h-full bg-muted rounded" />
+            </template>
+            <template v-else-if="store.timeSeriesError">
+              <div class="flex items-center justify-center h-full">
+                <div class="text-center">
+                  <p class="text-sm text-destructive mb-2">Failed to load chart</p>
+                  <Button variant="outline" size="sm" @click="store.fetchTimeSeries()">
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            </template>
+            <template v-else-if="isQueryVolumeEmpty">
+              <div class="flex items-center justify-center h-full">
+                <p class="text-sm text-muted-foreground">No query data for this period</p>
+              </div>
+            </template>
+            <template v-else>
+              <Line :data="queryVolumeChartData" :options="lineChartOptions" />
+            </template>
           </div>
         </CardContent>
       </Card>
 
+      <!-- User Activity -->
       <Card class="transition-shadow hover:shadow-md">
         <CardContent class="p-5">
           <div class="flex items-center gap-2 mb-0.5">
             <UsersRound class="h-4 w-4 text-muted-foreground" />
             <span class="text-sm font-semibold text-foreground">User Activity</span>
           </div>
-          <p class="text-xs text-muted-foreground mb-5">Daily active users this week</p>
+          <p class="text-xs text-muted-foreground mb-5">Distinct active users</p>
           <div class="h-52">
-            <Bar :data="userActivityChartData" :options="barChartOptions" />
+            <template v-if="store.timeSeriesLoading">
+              <div class="animate-pulse h-full bg-muted rounded" />
+            </template>
+            <template v-else-if="store.timeSeriesError">
+              <div class="flex items-center justify-center h-full">
+                <div class="text-center">
+                  <p class="text-sm text-destructive mb-2">Failed to load chart</p>
+                  <Button variant="outline" size="sm" @click="store.fetchTimeSeries()">
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            </template>
+            <template v-else-if="isUserActivityEmpty">
+              <div class="flex items-center justify-center h-full">
+                <p class="text-sm text-muted-foreground">No activity data for this period</p>
+              </div>
+            </template>
+            <template v-else>
+              <Bar :data="userActivityChartData" :options="barChartOptions" />
+            </template>
           </div>
         </CardContent>
       </Card>
     </div>
 
     <!-- Charts Row 2 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- Revenue Overview -->
       <Card class="transition-shadow hover:shadow-md">
         <CardContent class="p-5">
           <div class="flex items-center gap-2 mb-0.5">
             <DollarSign class="h-4 w-4 text-muted-foreground" />
             <span class="text-sm font-semibold text-foreground">Revenue Overview</span>
           </div>
-          <p class="text-xs text-muted-foreground mb-5">Quarterly revenue breakdown</p>
+          <p class="text-xs text-muted-foreground mb-5">Revenue over time</p>
           <div class="h-52">
-            <Line :data="revenueChartData" :options="revenueChartOptions" />
+            <template v-if="store.timeSeriesLoading">
+              <div class="animate-pulse h-full bg-muted rounded" />
+            </template>
+            <template v-else-if="store.timeSeriesError">
+              <div class="flex items-center justify-center h-full">
+                <div class="text-center">
+                  <p class="text-sm text-destructive mb-2">Failed to load chart</p>
+                  <Button variant="outline" size="sm" @click="store.fetchTimeSeries()">
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            </template>
+            <template v-else-if="isRevenueEmpty">
+              <div class="flex items-center justify-center h-full">
+                <p class="text-sm text-muted-foreground">No revenue data for this period</p>
+              </div>
+            </template>
+            <template v-else>
+              <Line :data="revenueChartData" :options="revenueChartOptions" />
+            </template>
           </div>
         </CardContent>
       </Card>
@@ -159,130 +247,93 @@
             <span class="text-sm font-semibold text-foreground">Most Active Users</span>
           </div>
           <p class="text-xs text-muted-foreground mb-4">Top users by query volume</p>
-          <div class="space-y-3">
-            <div
-              v-for="(user, idx) in mockActiveUsers"
-              :key="user.name"
-              class="flex items-center gap-3 rounded-lg px-3 py-2.5 -mx-1 transition-colors hover:bg-muted/50"
-            >
-              <span
-                class="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0"
-                :class="idx === 0 ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
+          <template v-if="store.topUsersLoading">
+            <div class="space-y-3">
+              <div
+                v-for="i in 5"
+                :key="`user-skeleton-${i}`"
+                class="animate-pulse flex items-center gap-3 px-3 py-2.5"
               >
-                {{ idx + 1 }}
-              </span>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center justify-between">
-                  <p class="text-sm font-medium text-foreground">{{ user.name }}</p>
-                  <span class="text-sm font-semibold text-foreground tabular-nums">
-                    ${{ user.revenue.toLocaleString('en-US', { minimumFractionDigits: 2 }) }}
-                  </span>
-                </div>
-                <div class="flex items-center gap-2 mt-1">
-                  <div class="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div
-                      class="h-full rounded-full transition-all"
-                      :class="idx === 0 ? 'bg-primary' : 'bg-primary/40'"
-                      :style="{ width: `${(user.queries / (mockActiveUsers[0]?.queries ?? 1)) * 100}%` }"
-                    ></div>
-                  </div>
-                  <span class="text-xs text-muted-foreground tabular-nums shrink-0">
-                    {{ user.queries.toLocaleString() }}
-                  </span>
+                <div class="w-6 h-6 rounded-full bg-muted shrink-0" />
+                <div class="flex-1">
+                  <div class="h-3 bg-muted rounded w-1/3 mb-2" />
+                  <div class="h-1.5 bg-muted rounded w-full" />
                 </div>
               </div>
             </div>
-          </div>
+          </template>
+          <template v-else-if="store.topUsersError">
+            <div class="text-center py-4">
+              <p class="text-sm text-destructive mb-2">{{ store.topUsersError }}</p>
+              <Button variant="outline" size="sm" @click="store.fetchTopUsers()"> Retry </Button>
+            </div>
+          </template>
+          <template v-else-if="!activeUsers.length">
+            <div class="text-center py-8">
+              <p class="text-sm text-muted-foreground">No user activity for this period</p>
+            </div>
+          </template>
+          <template v-else>
+            <div class="space-y-3">
+              <div
+                v-for="(user, idx) in activeUsers"
+                :key="user.user_email"
+                class="flex items-center gap-3 rounded-lg px-3 py-2.5 -mx-1 transition-colors hover:bg-muted/50"
+              >
+                <span
+                  class="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0"
+                  :class="
+                    idx === 0 ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                  "
+                >
+                  {{ idx + 1 }}
+                </span>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between">
+                    <p class="text-sm font-medium text-foreground truncate">
+                      {{ user.user_email }}
+                    </p>
+                    <span class="text-sm font-semibold text-foreground tabular-nums">
+                      {{ formatCurrency(user.revenue) }}
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-2 mt-1">
+                    <div class="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        class="h-full rounded-full transition-all"
+                        :class="idx === 0 ? 'bg-primary' : 'bg-primary/40'"
+                        :style="{
+                          width: `${(user.query_count / (activeUsers[0]?.query_count ?? 1)) * 100}%`,
+                        }"
+                      />
+                    </div>
+                    <span class="text-xs text-muted-foreground tabular-nums shrink-0">
+                      {{ user.query_count.toLocaleString() }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
         </CardContent>
       </Card>
     </div>
-
-    <!-- Most Queried Topics (full width) -->
-    <Card class="transition-shadow hover:shadow-md">
-      <CardContent class="p-5">
-        <div class="flex items-center justify-between mb-0.5">
-          <div class="flex items-center gap-2">
-            <Search class="h-4 w-4 text-muted-foreground" />
-            <span class="text-sm font-semibold text-foreground">Most Queried Topics</span>
-          </div>
-          <Badge variant="outline" class="text-[11px] font-normal tracking-wide uppercase">
-            Anonymized
-          </Badge>
-        </div>
-        <p class="text-xs text-muted-foreground mb-5">
-          Top query topics across all endpoints (30d)
-        </p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2.5">
-          <div
-            v-for="topic in mockTrendingTopics"
-            :key="topic.rank"
-            class="flex items-center gap-3 rounded-lg px-3 py-2 -mx-1 transition-colors hover:bg-muted/50"
-          >
-            <span
-              class="w-6 h-6 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0"
-              :class="topic.rank <= 3 ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
-            >
-              {{ topic.rank }}
-            </span>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-sm text-foreground truncate pr-2">{{ topic.topic }}</span>
-                <div class="flex items-center gap-1.5 shrink-0">
-                  <span class="text-xs text-muted-foreground tabular-nums">
-                    {{ topic.volume.toLocaleString() }}
-                  </span>
-                  <TrendingUp
-                    v-if="topic.trend === 'up'"
-                    class="h-3 w-3 text-green-500"
-                  />
-                  <TrendingDown
-                    v-else-if="topic.trend === 'down'"
-                    class="h-3 w-3 text-red-400"
-                  />
-                  <Minus v-else class="h-3 w-3 text-muted-foreground" />
-                  <span
-                    class="text-[11px] tabular-nums"
-                    :class="{
-                      'text-green-600 dark:text-green-400': topic.trend === 'up',
-                      'text-red-500': topic.trend === 'down',
-                      'text-muted-foreground': topic.trend === 'stable',
-                    }"
-                  >
-                    {{ topic.trend === 'down' ? '-' : '+' }}{{ topic.changePercent }}%
-                  </span>
-                </div>
-              </div>
-              <div class="h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  class="h-full rounded-full transition-all"
-                  :class="topic.rank <= 3 ? 'bg-primary/70' : 'bg-primary/35'"
-                  :style="{ width: `${(topic.volume / (mockTrendingTopics[0]?.volume ?? 1)) * 100}%` }"
-                ></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, markRaw, onMounted, ref, watch } from 'vue'
 import {
+  Activity,
   BarChart3,
   CheckCircle,
-  Activity,
   DollarSign,
-  Users,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  UsersRound,
-  Heart,
-  Filter,
   Download,
-  Search,
+  Filter,
+  Heart,
+  TrendingUp,
+  Users,
+  UsersRound,
 } from 'lucide-vue-next'
 import {
   Chart as ChartJS,
@@ -297,7 +348,6 @@ import {
 import { Line, Bar } from 'vue-chartjs'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -305,21 +355,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  mockStatCards,
-  mockActiveUsers,
-  mockQueryVolumeLabels,
-  mockQueryVolumeData,
-  mockUserActivityLabels,
-  mockUserActivityData,
-  mockRevenueLabels,
-  mockRevenueData,
-  mockTrendingTopics,
-  timeRangeOptions,
-  endpointOptions,
-  datasetOptions,
-} from '@/stores/analyticsData'
-import { toast } from 'vue-sonner'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { endpointsApi } from '@/api/endpoints/endpoints'
+import { datasetsApi } from '@/api/endpoints/datasets'
+import { useAnalyticsStore } from '@/stores/analytics'
+import { formatCompactNumber, formatCurrency } from '@/lib/formatters'
+import type { TimeRange } from '@/api/types/analytics'
+import type { EndpointListItem, DatasetListItem } from '@/api/types'
 
 ChartJS.register(
   CategoryScale,
@@ -331,51 +373,116 @@ ChartJS.register(
   ChartTooltip,
 )
 
-const selectedTimeRange = ref('Last 30 days')
-const selectedEndpoint = ref('All Endpoints')
-const selectedDataset = ref('All Datasets')
+const store = useAnalyticsStore()
 
-function iconBg(icon: string) {
-  const map: Record<string, string> = {
-    check: 'bg-green-500/10 dark:bg-green-400/10',
-    activity: 'bg-blue-500/10 dark:bg-blue-400/10',
-    dollar: 'bg-emerald-500/10 dark:bg-emerald-400/10',
-    users: 'bg-muted',
-  }
-  return map[icon] ?? 'bg-muted'
+// Icon components wrapped at module level to avoid re-creating in computed
+const icons = {
+  checkCircle: markRaw(CheckCircle),
+  activity: markRaw(Activity),
+  dollarSign: markRaw(DollarSign),
+  users: markRaw(Users),
 }
 
-function iconFg(icon: string) {
-  const map: Record<string, string> = {
-    check: 'text-green-600 dark:text-green-400',
-    activity: 'text-blue-600 dark:text-blue-400',
-    dollar: 'text-emerald-600 dark:text-emerald-400',
-    users: 'text-muted-foreground',
-  }
-  return map[icon] ?? 'text-muted-foreground'
-}
+const statCardMeta = [
+  {
+    key: 'active_endpoints' as const,
+    label: 'Active Endpoints',
+    iconComponent: icons.checkCircle,
+    iconBg: 'bg-green-500/10 dark:bg-green-400/10',
+    iconFg: 'text-green-600 dark:text-green-400',
+    format: formatCompactNumber,
+    alwaysPositive: true,
+  },
+  {
+    key: 'total_queries' as const,
+    label: 'Total Queries',
+    iconComponent: icons.activity,
+    iconBg: 'bg-blue-500/10 dark:bg-blue-400/10',
+    iconFg: 'text-blue-600 dark:text-blue-400',
+    format: formatCompactNumber,
+    alwaysPositive: true,
+  },
+  {
+    key: 'total_revenue' as const,
+    label: 'Total Revenue',
+    iconComponent: icons.dollarSign,
+    iconBg: 'bg-emerald-500/10 dark:bg-emerald-400/10',
+    iconFg: 'text-emerald-600 dark:text-emerald-400',
+    format: formatCurrency,
+    alwaysPositive: true,
+  },
+  {
+    key: 'active_users' as const,
+    label: 'Active Users',
+    iconComponent: icons.users,
+    iconBg: 'bg-muted',
+    iconFg: 'text-muted-foreground',
+    format: formatCompactNumber,
+    alwaysPositive: false,
+  },
+]
 
+// ---- Filter dropdown options ----
+const timeRangeOptions: { value: TimeRange; label: string }[] = [
+  { value: '7d', label: 'Last 7 days' },
+  { value: '30d', label: 'Last 30 days' },
+  { value: '90d', label: 'Last 90 days' },
+  { value: '1y', label: 'Last year' },
+]
+
+const endpointsList = ref<EndpointListItem[]>([])
+const datasetsList = ref<DatasetListItem[]>([])
+
+// Map store.endpointId (string | undefined) ↔ Select value (string, '' = all)
+const selectedEndpointId = computed({
+  get: () => store.endpointId ?? '',
+  set: (v: string) => {
+    store.endpointId = v || undefined
+  },
+})
+const selectedDatasetId = computed({
+  get: () => store.datasetId ?? '',
+  set: (v: string) => {
+    store.datasetId = v || undefined
+  },
+})
+
+// Re-fetch all data when any filter changes (immediate: true handles initial load)
+watch(
+  () => store.filters,
+  () => store.fetchAll(),
+  { immediate: true },
+)
+
+// Load filter dropdown options on mount
+onMounted(async () => {
+  const [endpoints, datasets] = await Promise.allSettled([endpointsApi.list(), datasetsApi.list()])
+  if (endpoints.status === 'fulfilled') endpointsList.value = endpoints.value
+  if (datasets.status === 'fulfilled') datasetsList.value = datasets.value
+})
+
+const statCards = computed(() => {
+  const s = store.summary
+  return statCardMeta.map((meta) => {
+    const card = s?.[meta.key]
+    return {
+      label: meta.label,
+      formattedValue: card ? meta.format(card.value) : meta.key === 'total_revenue' ? '$0.00' : '0',
+      changeLabel: card?.change_label ?? '--',
+      changePositive: meta.alwaysPositive && (card?.change_value ?? 0) > 0,
+      iconComponent: meta.iconComponent,
+      iconBg: meta.iconBg,
+      iconFg: meta.iconFg,
+    }
+  })
+})
+
+// ---- Chart data ----
 const sharedScaleOptions = {
   grid: { color: 'rgba(0,0,0,0.04)' },
   ticks: { color: '#9ca3af', font: { size: 11 } },
   border: { display: false },
 }
-
-const queryVolumeChartData = computed(() => ({
-  labels: mockQueryVolumeLabels,
-  datasets: [
-    {
-      data: mockQueryVolumeData,
-      borderColor: '#10b981',
-      backgroundColor: 'rgba(16, 185, 129, 0.08)',
-      borderWidth: 2,
-      pointRadius: 4,
-      pointBackgroundColor: '#10b981',
-      tension: 0.3,
-      fill: true,
-    },
-  ],
-}))
 
 const lineChartOptions = {
   responsive: true,
@@ -393,18 +500,6 @@ const lineChartOptions = {
   },
 }
 
-const userActivityChartData = computed(() => ({
-  labels: mockUserActivityLabels,
-  datasets: [
-    {
-      data: mockUserActivityData,
-      backgroundColor: '#2dd4bf',
-      borderRadius: 6,
-      barPercentage: 0.55,
-    },
-  ],
-}))
-
 const barChartOptions = {
   responsive: true,
   maintainAspectRatio: false,
@@ -414,21 +509,6 @@ const barChartOptions = {
     y: { ...sharedScaleOptions, beginAtZero: true },
   },
 }
-
-const revenueChartData = computed(() => ({
-  labels: mockRevenueLabels,
-  datasets: [
-    {
-      data: mockRevenueData,
-      borderColor: '#10b981',
-      backgroundColor: 'rgba(16, 185, 129, 0.12)',
-      borderWidth: 2,
-      pointRadius: 0,
-      tension: 0.4,
-      fill: true,
-    },
-  ],
-}))
 
 const revenueChartOptions = {
   responsive: true,
@@ -446,28 +526,55 @@ const revenueChartOptions = {
   },
 }
 
-function exportAllData() {
-  const data = {
-    exportedAt: new Date().toISOString(),
-    filters: {
-      timeRange: selectedTimeRange.value,
-      endpoint: selectedEndpoint.value,
-      dataset: selectedDataset.value,
+const queryVolumeChartData = computed(() => ({
+  labels: store.timeSeries?.query_volume.map((p) => p.label) ?? [],
+  datasets: [
+    {
+      data: store.timeSeries?.query_volume.map((p) => p.value) ?? [],
+      borderColor: '#10b981',
+      backgroundColor: 'rgba(16, 185, 129, 0.08)',
+      borderWidth: 2,
+      pointRadius: 4,
+      pointBackgroundColor: '#10b981',
+      tension: 0.3,
+      fill: true,
     },
-    stats: mockStatCards,
-    queryVolume: { labels: mockQueryVolumeLabels, data: mockQueryVolumeData },
-    userActivity: { labels: mockUserActivityLabels, data: mockUserActivityData },
-    revenue: { labels: mockRevenueLabels, data: mockRevenueData },
-    trendingTopics: mockTrendingTopics,
-    activeUsers: mockActiveUsers,
-  }
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `analytics-export-${new Date().toISOString().slice(0, 10)}.json`
-  a.click()
-  URL.revokeObjectURL(url)
-  toast.success('Analytics data exported')
-}
+  ],
+}))
+
+const userActivityChartData = computed(() => ({
+  labels: store.timeSeries?.user_activity.map((p) => p.label) ?? [],
+  datasets: [
+    {
+      data: store.timeSeries?.user_activity.map((p) => p.value) ?? [],
+      backgroundColor: '#2dd4bf',
+      borderRadius: 6,
+      barPercentage: 0.55,
+    },
+  ],
+}))
+
+const revenueChartData = computed(() => ({
+  labels: store.timeSeries?.revenue.map((p) => p.label) ?? [],
+  datasets: [
+    {
+      data: store.timeSeries?.revenue.map((p) => p.value) ?? [],
+      borderColor: '#10b981',
+      backgroundColor: 'rgba(16, 185, 129, 0.12)',
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.4,
+      fill: true,
+    },
+  ],
+}))
+
+const isQueryVolumeEmpty = computed(() => !store.timeSeries?.query_volume.some((p) => p.value > 0))
+const isUserActivityEmpty = computed(
+  () => !store.timeSeries?.user_activity.some((p) => p.value > 0),
+)
+const isRevenueEmpty = computed(() => !store.timeSeries?.revenue.some((p) => p.value > 0))
+
+// ---- Top users ----
+const activeUsers = computed(() => store.topUsers?.users ?? [])
 </script>
