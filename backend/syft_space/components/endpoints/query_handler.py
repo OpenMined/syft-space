@@ -91,6 +91,14 @@ class QueryEndpointHandler:
             HTTPException: If endpoint not found or query fails
             PaymentRequiredError: If MPP payment is required (caller returns 402)
         """
+        # Extract query text from messages for analytics
+        if isinstance(request.messages, str):
+            query_text = request.messages
+        elif isinstance(request.messages, list) and request.messages:
+            query_text = " ".join(m.content for m in request.messages if m.content)
+        else:
+            query_text = ""
+
         # Event data — populated progressively through the pipeline
         event_data: dict[str, Any] = {
             "tenant_id": tenant.id,
@@ -101,6 +109,7 @@ class QueryEndpointHandler:
             "revenue_amount": 0.0,
             "currency": "USD",
             "status": QueryEventStatus.SUCCESS.value,
+            "query_text": query_text,
         }
 
         try:

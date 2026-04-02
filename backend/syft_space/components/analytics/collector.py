@@ -29,6 +29,7 @@ class QueryEventCollector:
         revenue_amount: float,
         currency: str,
         status: str,
+        query_text: str = "",
     ) -> None:
         """Persist a query event record.
 
@@ -41,6 +42,7 @@ class QueryEventCollector:
             revenue_amount: Amount charged for this query
             currency: Currency of the revenue amount
             status: Query outcome status (see QueryEventStatus)
+            query_text: Raw query text submitted by the user
         """
         try:
             event = QueryEvent(
@@ -52,6 +54,7 @@ class QueryEventCollector:
                 revenue_amount=revenue_amount,
                 currency=currency,
                 status=status,
+                query_text=query_text,
             )
             await self.repository.create(event)
         except Exception as e:

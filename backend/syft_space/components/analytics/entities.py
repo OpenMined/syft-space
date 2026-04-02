@@ -56,6 +56,9 @@ class QueryEvent(SQLModel, table=True):
         default=0.0, description="Amount charged for this query"
     )
     currency: str = Field(default="USD", description="Currency of the revenue amount")
+    query_text: str = Field(
+        default="", description="Raw query text submitted by the user"
+    )
     status: str = Field(
         default=QueryEventStatus.SUCCESS.value,
         description="Query outcome status",

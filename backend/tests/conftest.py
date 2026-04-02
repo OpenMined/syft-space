@@ -121,6 +121,7 @@ def make_event(
     revenue_amount: float = 0.0,
     currency: str = "USD",
     status: str = QueryEventStatus.SUCCESS.value,
+    query_text: str = "",
     timestamp: datetime | None = None,
 ) -> QueryEvent:
     """Factory for QueryEvent with sensible defaults."""
@@ -134,6 +135,7 @@ def make_event(
         revenue_amount=revenue_amount,
         currency=currency,
         status=status,
+        query_text=query_text,
         timestamp=timestamp or datetime.now(timezone.utc),
     )
 
