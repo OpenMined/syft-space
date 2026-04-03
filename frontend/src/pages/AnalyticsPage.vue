@@ -305,16 +305,16 @@
       </Card>
     </div>
 
-    <!-- Query Word Cloud (full width) -->
+    <!-- Most Queried Topics (full width) -->
     <Card class="mt-4 transition-shadow hover:shadow-md">
       <CardContent class="p-5">
         <div class="flex items-center justify-between mb-4">
           <div>
             <div class="flex items-center gap-2 mb-0.5">
-              <Cloud class="h-4 w-4 text-muted-foreground" />
-              <span class="text-sm font-semibold text-foreground">Query Topics</span>
+              <Search class="h-4 w-4 text-muted-foreground" />
+              <span class="text-sm font-semibold text-foreground">Most Queried Topics</span>
             </div>
-            <p class="text-xs text-muted-foreground">Most frequent words in user queries</p>
+            <p class="text-xs text-muted-foreground">Top query topics across all endpoints</p>
           </div>
           <Select v-model="selectedNgramSize">
             <SelectTrigger class="w-[160px] h-8 text-xs">
@@ -327,45 +327,83 @@
             </SelectContent>
           </Select>
         </div>
-        <div class="h-72">
-          <template v-if="store.wordCloudLoading">
-            <div class="animate-pulse h-full bg-muted rounded" />
-          </template>
-          <template v-else-if="store.wordCloudError">
-            <div class="flex items-center justify-center h-full">
-              <div class="text-center">
-                <p class="text-sm text-destructive mb-2">Failed to load word cloud</p>
-                <Button variant="outline" size="sm" @click="store.fetchWordCloud()">
-                  Retry
-                </Button>
+        <template v-if="store.wordCloudLoading">
+          <div class="space-y-3">
+            <div
+              v-for="i in 5"
+              :key="`topic-skeleton-${i}`"
+              class="animate-pulse flex items-center gap-3 px-3 py-2.5"
+            >
+              <div class="w-6 h-6 rounded-full bg-muted shrink-0" />
+              <div class="flex-1">
+                <div class="h-3 bg-muted rounded w-1/3 mb-2" />
+                <div class="h-1.5 bg-muted rounded w-full" />
               </div>
             </div>
-          </template>
-          <template v-else-if="!wordCloudWords.length">
-            <div class="flex items-center justify-center h-full">
-              <p class="text-sm text-muted-foreground">No query data for this period</p>
+          </div>
+        </template>
+        <template v-else-if="store.wordCloudError">
+          <div class="text-center py-4">
+            <p class="text-sm text-destructive mb-2">{{ store.wordCloudError }}</p>
+            <Button variant="outline" size="sm" @click="store.fetchWordCloud()"> Retry </Button>
+          </div>
+        </template>
+        <template v-else-if="!wordCloudWords.length">
+          <div class="text-center py-8">
+            <p class="text-sm text-muted-foreground">No query data for this period</p>
+          </div>
+        </template>
+        <template v-else>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+            <div
+              v-for="(entry, idx) in wordCloudWords"
+              :key="entry.word"
+              class="flex items-center gap-3 rounded-lg px-3 py-2.5 -mx-1 transition-colors hover:bg-muted/50"
+            >
+              <span
+                class="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0"
+                :class="
+                  idx < 3 ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                "
+              >
+                {{ idx + 1 }}
+              </span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <p class="text-sm font-medium text-foreground truncate">{{ entry.word }}</p>
+                  <span class="text-sm font-semibold text-foreground tabular-nums shrink-0 ml-2">
+                    {{ entry.count.toLocaleString() }}
+                  </span>
+                </div>
+                <div class="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    class="h-full rounded-full transition-all"
+                    :class="idx < 3 ? 'bg-primary/70' : 'bg-primary/35'"
+                    :style="{
+                      width: `${(entry.count / (wordCloudWords[0]?.count ?? 1)) * 100}%`,
+                    }"
+                  />
+                </div>
+              </div>
             </div>
-          </template>
-          <template v-else>
-            <canvas ref="wordCloudCanvas" class="w-full h-full" />
-          </template>
-        </div>
+          </div>
+        </template>
       </CardContent>
     </Card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, markRaw, onMounted, ref, watch } from 'vue'
 import {
   Activity,
   BarChart3,
   CheckCircle,
-  Cloud,
   DollarSign,
   Download,
   Filter,
   Heart,
+  Search,
   TrendingUp,
   Users,
   UsersRound,
@@ -392,7 +430,6 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { endpointsApi } from '@/api/endpoints/endpoints'
-import { renderWordCloud } from '@/composables/useWordCloud'
 import { useAnalyticsStore } from '@/stores/analytics'
 import { formatCompactNumber, formatCurrency } from '@/lib/formatters'
 import type { TimeRange } from '@/api/types/analytics'
@@ -610,8 +647,7 @@ const isRevenueEmpty = computed(() => !store.timeSeries?.revenue.some((p) => p.v
 // ---- Top users ----
 const activeUsers = computed(() => store.topUsers?.users ?? [])
 
-// ---- Word cloud ----
-const wordCloudCanvas = ref<HTMLCanvasElement | null>(null)
+// ---- Queried topics ----
 const wordCloudWords = computed(() => store.wordCloud?.words ?? [])
 
 const selectedNgramSize = computed({
@@ -620,16 +656,5 @@ const selectedNgramSize = computed({
     store.ngramSize = Number(v)
     store.fetchWordCloud()
   },
-})
-
-function drawWordCloud() {
-  const canvas = wordCloudCanvas.value
-  if (!canvas || !wordCloudWords.value.length) return
-  renderWordCloud(canvas, wordCloudWords.value)
-}
-
-watch(wordCloudWords, async () => {
-  await nextTick()
-  drawWordCloud()
 })
 </script>

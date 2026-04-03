@@ -47,7 +47,7 @@ export const analyticsApi = {
     signal?: AbortSignal,
   ): Promise<WordCloudResponse> => {
     const response = await apiClient.get<WordCloudResponse>('/analytics/word-cloud', {
-      params: { ...filters, ngram_size: ngramSize },
+      params: { ...filters, ngram_size: ngramSize, max_words: 10 },
       signal,
     })
     return response.data
