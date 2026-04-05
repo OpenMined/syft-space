@@ -290,6 +290,7 @@ export interface CreatePolicyRequest {
   policy_type: string
   configuration: Record<string, unknown>
   endpoint_id: string
+  wallet_id?: string
 }
 
 export interface PolicyResponse {

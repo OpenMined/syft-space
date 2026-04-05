@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { policiesApi } from '@/api/policies/policies'
+import { useUserStore } from '@/stores/user'
 import type { CreatePolicyRequest } from '@/api/types'
 
 export interface PolicyRules {
@@ -157,6 +158,12 @@ export function usePolicyCreation() {
     endpointName: string,
     ruleIndex: number = 1,
   ) => {
+    const userStore = useUserStore()
+
+    if (!userStore.walletId) {
+      throw new Error('Please set up a wallet before creating a pricing policy.')
+    }
+
     const policyName = generatePolicyName('pricing', formData, endpointName, ruleIndex)
     const configuration = createPricingConfiguration(
       formData.price,
@@ -169,6 +176,7 @@ export function usePolicyCreation() {
       policy_type: 'mpp_accounting',
       configuration: configuration,
       endpoint_id: endpointId,
+      wallet_id: userStore.walletId,
     }
 
     return await policiesApi.create(request)
@@ -303,12 +311,21 @@ export function usePolicyCreation() {
         // Map frontend policy type to backend policy type
         const backendPolicyType = policyType === 'pricing' ? 'mpp_accounting' : policyType
 
-        policyRequests.push({
+        const request: CreatePolicyRequest = {
           name: policyName,
           policy_type: backendPolicyType,
           configuration: configuration,
           endpoint_id: '', // Will be set by caller
-        })
+        }
+
+        if (backendPolicyType === 'mpp_accounting') {
+          const userStore = useUserStore()
+          if (userStore.walletId) {
+            request.wallet_id = userStore.walletId
+          }
+        }
+
+        policyRequests.push(request)
       })
     })
 

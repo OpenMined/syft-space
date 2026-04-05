@@ -19,22 +19,23 @@
 │  │                                                                     │     │
 │  │  Middleware: Auth (AdminKey) → Tenant → CORS                        │     │
 │  │                                                                     │     │
-│  │  ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌──────────┐               │     │
-│  │  │ Datasets │ │  Models  │ │ Endpoints │ │ Policies │               │     │
-│  │  │          │ │          │ │           │ │          │               │     │
-│  │  │ ChromaDB │ │ OpenAI-  │ │ Query     │ │ Rate     │               │     │
-│  │  │ Weaviate │ │ compat   │ │ Publish   │ │ Limit    │               │     │
-│  │  │          │ │ API      │ │ Unpublish │ │ Access   │               │     │
-│  │  └────┬─────┘ └────┬─────┘ └─────┬─────┘ │ Account  │               │     │
-│  │       │             │             │        └────┬─────┘             │     │
-│  │       │             └──────┬──────┘             │                   │     │
-│  │       │                    │                    │                   │     │
-│  │       │         ┌──────────▼──────────┐         │                   │     │
-│  │       │         │   Endpoint Query    │◄────────┘                   │     │
-│  │       │         │  Dataset.search()   │                             │     │
-│  │       │         │  Model.chat()       │                             │     │
-│  │       │         │  Policy.enforce()   │                             │     │
-│  │       │         └────────────────────-┘                             │     │
+│  │  ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌─────────┐  │     │
+│  │  │ Datasets │ │  Models  │ │ Endpoints │ │ Policies │ │ Wallets │  │     │
+│  │  │          │ │          │ │           │ │          │ │         │  │     │
+│  │  │ ChromaDB │ │ OpenAI-  │ │ Query     │ │ Rate     │ │ MPP     │  │     │
+│  │  │ Weaviate │ │ compat   │ │ Publish   │ │ Limit    │ │ Xendit  │  │     │
+│  │  │          │ │ API      │ │ Unpublish │ │ Access   │ │ Stripe  │  │     │
+│  │  └────┬─────┘ └────┬─────┘ └─────┬─────┘ │ MPP Acct │ │ Razorpay│  │     │
+│  │       │             │             │        └────┬─────┘ └────┬────┘  │     │
+│  │       │             └──────┬──────┘             │            │       │     │
+│  │       │                    │                    │            │       │     │
+│  │       │         ┌──────────▼──────────┐         │            │       │     │
+│  │       │         │   Endpoint Query    │◄────────┘            │       │     │
+│  │       │         │  Dataset.search()   │                      │       │     │
+│  │       │         │  Model.chat()       │                      │       │     │
+│  │       │         │  Policy.enforce()   │◄─────────────────────┘       │     │
+│  │       │         │  Wallet.charge()    │  (payment policies load      │     │
+│  │       │         └────────────────────-┘   wallet creds at query time)│     │
 │  │       │                                                             │     │
 │  │  ┌────▼──────────────────────────────────────────────────────┐      │     │
 │  │  │              Lifecycle Services                            │     │     │
@@ -47,7 +48,7 @@
 │  │                                                                     │     │
 │  │  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐              │     │
 │  │  │  Tenants    │  │  Settings    │  │  Marketplaces │              │     │
-│  │  │  (multi-    │  │  (public URL,│  │  (credentials,│              │     │
+│  │  │  (multi-    │  │  (public URL,│  │  (login creds,│              │     │
 │  │  │   tenancy)  │  │   config)    │  │   sync state) │              │     │
 │  │  └─────────────┘  └──────────────┘  └───────┬───────┘              │     │
 │  │                                              │                     │     │
@@ -91,8 +92,11 @@
 │  │  ├─ GET  /tunnel/credentials ─── fetch ngrok auth token + domain    │     │
 │  │  └─ POST /tunnel/public-url ──── sync public URL after connect      │     │
 │  │                                                                     │     │
-│  │  ACCOUNTING                                                         │     │
+│  │  ACCOUNTING (legacy)                                                 │     │
 │  │  └─ GET /accounting/credentials ─ fetch billing service creds       │     │
+│  │                                                                     │     │
+│  │  Note: MPP payments are now handled via the Tempo blockchain        │     │
+│  │  directly, using wallet credentials stored in the Wallets component │     │
 │  └─────────────────────────────────────────────────────────────────────┘     │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐     │
@@ -120,6 +124,15 @@
 │         └──── Dataset Types ─┘                      │                         │
 │                (pluggable registry)         Model Types                       │
 │                                            (pluggable registry)              │
+│                                                                              │
+│  ┌─────────────────────────────────┐  ┌──────────────────────────┐          │
+│  │  Tempo Blockchain               │  │  Payment Gateways        │          │
+│  │  (MPP payments, pathUSD token,  │  │  (Xendit, Stripe,        │          │
+│  │   balance + transaction queries)│  │   Razorpay — planned)    │          │
+│  └─────────────────────────────────┘  └──────────────────────────┘          │
+│         ▲                                      ▲                             │
+│         └───── Wallet Providers ───────────────┘                             │
+│                (WalletProvider protocol)                                      │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -140,14 +153,14 @@
 ### SyftHub → Syft Space (via ngrok tunnel)
 
 
-| Interaction          | Description                                                                                                                                                                                                            |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Endpoint Queries** | SyftHub users query published endpoints; Syft Space verifies the SyftHub token, enforces policies (rate limit, access, accounting), runs the RAG pipeline (search dataset → summarize with model), and returns results |
+| Interaction          | Description                                                                                                                                                                                                                                                                                              |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Endpoint Queries** | SyftHub users query published endpoints; Syft Space verifies the SyftHub token, enforces policies (rate limit, access, MPP payment), runs the RAG pipeline (search dataset → summarize with model), and returns results. Payment policies use MPP challenge/credential flow (402 → X-Payment → receipt). |
 
 
 ## Core Data Flow
 
-A user creates **Datasets** (backed by ChromaDB/Weaviate) and **Models** (OpenAI-compatible LLMs), combines them into **Endpoints** with **Policies**, then **publishes** those endpoints to SyftHub where external users can query them through the ngrok tunnel.
+A user creates **Datasets** (backed by ChromaDB/Weaviate) and **Models** (OpenAI-compatible LLMs), optionally sets up a **Wallet** (MPP or payment gateway), combines them into **Endpoints** with **Policies** (including payment policies linked to wallets), then **publishes** those endpoints to SyftHub where external users can query them through the ngrok tunnel.
 
 ---
 
@@ -210,10 +223,12 @@ A user creates **Datasets** (backed by ChromaDB/Weaviate) and **Models** (OpenAI
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  5. ACCOUNTING CREDENTIALS INJECTION                                    │
+│  5. WALLET CREDENTIALS INJECTION                                        │
 │                                                                         │
-│  Fetch default marketplace → validate/refresh accounting creds          │
-│  Inject { accounting_email, accounting_password, accounting_url }       │
+│  For each policy group, check if policy has wallet_id                   │
+│  Load Wallet entity from WalletRepository                               │
+│  If MPP wallet: inject { wallet_address, mpp_secret_key }              │
+│  Also inject X-Payment header (MPP credential from caller)             │
 │  into PolicyContext.metadata                                            │
 └────────────────────────────┬────────────────────────────────────────────┘
                              │
@@ -240,10 +255,12 @@ A user creates **Datasets** (backed by ChromaDB/Weaviate) and **Models** (OpenAI
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                          │ pass                                         │
 │  ┌───────────────────────▼─────────────────────────────────────────┐   │
-│  │  Accounting Policy (pre_hook)                                   │   │
-│  │  ├─ Verify accounting credentials                               │   │
-│  │  ├─ Check balance / pre-authorize transaction                   │   │
-│  │  └─ BLOCKED? ──▶ 403 "Insufficient balance"                    │   │
+│  │  MPP Accounting Policy (pre_hook)                               │   │
+│  │  ├─ Match sender_email to pricing tier                          │   │
+│  │  ├─ Load wallet_address + mpp_secret_key from metadata          │   │
+│  │  ├─ Call mpp.charge() with X-Payment credential                 │   │
+│  │  ├─ If Challenge ──▶ 402 "Payment Required" (WWW-Authenticate)  │   │
+│  │  └─ If verified ──▶ Store receipt in metadata, continue         │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────┬────────────────────────────────────────────┘
                              │ all policies passed
@@ -314,11 +331,11 @@ A user creates **Datasets** (backed by ChromaDB/Weaviate) and **Models** (OpenAI
 │  PolicyContext now includes both request AND response                   │
 │                                                                         │
 │  For each policy type:                                                  │
-│  ├─ Accounting Policy (post_hook) → confirm transaction, record usage   │
+│  ├─ MPP Accounting (post_hook) → add cost + Payment-Receipt header      │
 │  ├─ Rate Limit Policy (post_hook) → record consumption                  │
 │  └─ Access Policy (post_hook) → audit logging                           │
 │                                                                         │
-│  Can still BLOCK response (e.g., accounting confirmation failure)       │
+│  Can still BLOCK response (e.g., payment confirmation failure)          │
 │  BLOCKED? ──▶ 403 (response discarded)                                  │
 └────────────────────────────┬────────────────────────────────────────────┘
                              │
@@ -392,6 +409,9 @@ A user creates **Datasets** (backed by ChromaDB/Weaviate) and **Models** (OpenAI
 │  │  Vector DB (remote) │  Weaviate                                │     │
 │  │  Doc Processing    │  Docling (PDF, DOCX, etc.)                │     │
 │  │  ML Runtime        │  PyTorch + TorchVision                    │     │
+│  │  Payments (MPP)    │  pympp + Web3.py (Tempo blockchain)       │     │
+│  │  Payments (Gateway)│  Xendit SDK (planned: Stripe, Razorpay)  │     │
+│  │  Crypto            │  eth-account (keypair generation)         │     │
 │  └───────────────────────────────────────────────────────────────┘     │
 │                                                                         │
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -411,9 +431,12 @@ A user creates **Datasets** (backed by ChromaDB/Weaviate) and **Models** (OpenAI
 │                                                                         │
 │  ┌───────────────────────────────────────────────────────────────┐     │
 │  │  Marketplace       │  SyftHub (endpoint publishing, auth,     │     │
-│  │                     │  tunnel creds, accounting, feedback)    │     │
-│  │  Accounting        │  External billing service (via SyftHub)  │     │
+│  │                     │  tunnel creds, feedback)                │     │
+│  │  Payments (MPP)    │  Tempo blockchain (pathUSD token,        │     │
+│  │                     │  per-query micropayments via MPP)       │     │
+│  │  Payments (Gateway)│  Xendit, Stripe, Razorpay (planned)     │     │
 │  │  Error Monitoring  │  Sentry                                  │     │
+│  │  Analytics         │  PostHog                                 │     │
 │  └───────────────────────────────────────────────────────────────┘     │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -441,7 +464,7 @@ All three resource types (Datasets, Models, Policies) use a **pluggable registry
 │  │                  │  │                  │  │                  │        │
 │  │ "local_file"     │  │ "openai"         │  │ "access"         │        │
 │  │ "remote_weaviate"│  │                  │  │ "rate_limit"     │        │
-│  │                  │  │                  │  │ "accounting"     │        │
+│  │                  │  │                  │  │ "mpp_accounting" │        │
 │  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘       │
 │           │                     │                      │                 │
 │           ▼                     ▼                      ▼                 │
@@ -491,11 +514,27 @@ All three resource types (Datasets, Models, Policies) use a **pluggable registry
 │                          ▲               │  policy_type ┼──► PolicyTypeRegistry
 │                          │               │  configuration│  (e.g., "rate_limit")
 │                          │               │  endpoint_id ┼──► FK to Endpoint
+│                          │               │  wallet_id ──┼──► FK to Wallet (optional)
 │                          │               │  tenant_id   │               │
-│                          │               └──────────────┘               │
+│                          │               └──────┬───────┘               │
 │                          │                      │                        │
 │                          └──────────────────────┘                        │
 │                           1 endpoint ◄── many policies                   │
+│                                                                          │
+│   ┌──────────────┐                                                      │
+│   │   WALLET      │  Payment credential storage                         │
+│   │              │                                                      │
+│   │  id          │                                                      │
+│   │  tenant_id ──┼──► FK to Tenant (cascade delete)                    │
+│   │  wallet_type │  (mpp, xendit, stripe, razorpay)                    │
+│   │  name        │                                                      │
+│   │  configuration│  JSON blob (type-specific credentials)              │
+│   │  is_active   │                                                      │
+│   └──────────────┘                                                      │
+│          ▲                                                               │
+│          └── Policy.wallet_id (optional, SET NULL on delete)             │
+│              Payment policies (mpp_accounting, xendit) require wallet_id │
+│              All payment policies on an endpoint must use the same wallet│
 │                                                                          │
 │   ┌──────────────────┐                                                  │
 │   │ PROVISIONER STATE │  Shared across datasets of same type            │
@@ -513,6 +552,9 @@ RELATIONSHIP RULES:
   - A Dataset can be linked to MANY endpoints (one-to-many)
   - A Model can be linked to MANY endpoints (one-to-many)
   - A Policy belongs to exactly ONE endpoint
+  - A Policy MAY reference a Wallet (required for payment policy types)
+  - All payment policies on an endpoint MUST use the same wallet
+  - A Wallet belongs to a Tenant (cascade delete); policies SET NULL on wallet delete
   - response_type determines which resources are used at query time:
       "raw"     → dataset only
       "summary" → model only
@@ -667,16 +709,19 @@ Each policy type implements `pre_hook` and `post_hook` methods that run before a
 │  └─────────────────────────────────────────────────────────────┘       │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────┐       │
-│  │  "accounting" — Usage Billing                               │       │
+│  │  "mpp_accounting" — MPP Per-Query Payments                  │       │
 │  │                                                             │       │
 │  │  Config:                                                    │       │
-│  │  ├─ price: float                Price per unit              │       │
-│  │  ├─ pricing_mode: str           "per_call"                  │       │
+│  │  ├─ price: float                Price per query (USD)       │       │
 │  │  └─ applied_to: list[str]       Glob patterns (default: *) │       │
 │  │                                                             │       │
+│  │  Requires: wallet_id → MPP Wallet (wallet_address,          │       │
+│  │            mpp_secret_key loaded at query time)              │       │
 │  │  Aggregation: AND — ALL must succeed                        │       │
-│  │  Pre-hook: create transaction; Post-hook: confirm it        │       │
-│  │  Credentials injected via PolicyContext.metadata             │       │
+│  │  Pre-hook: verify X-Payment via mpp.charge();               │       │
+│  │            402 challenge if no/invalid credential            │       │
+│  │  Post-hook: add cost + Payment-Receipt header               │       │
+│  │  Supports tiered pricing (most specific pattern wins)       │       │
 │  └─────────────────────────────────────────────────────────────┘       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -707,13 +752,18 @@ Each policy type implements `pre_hook` and `post_hook` methods that run before a
      └─ Set slug, name, description
                     │
                     ▼
-  4. Add Policies                         Policy entities saved to DB
-     ├─ Access: allow *@myorg.com ──────► endpoint_id FK to Endpoint
-     ├─ Rate limit: 100/h per_user ────► endpoint_id FK to Endpoint
-     └─ Accounting: $0.01/call ────────► endpoint_id FK to Endpoint
+  4. Create Wallet (if payments needed)    Wallet entity saved to DB
+     ├─ MPP: generate or import keypair ► wallet_address + mpp_secret_key
+     └─ Gateway: provide API creds ─────► stored in wallet.configuration
                     │
                     ▼
-  5. Publish to SyftHub                   SyftHubClient.publish_endpoint()
+  5. Add Policies                         Policy entities saved to DB
+     ├─ Access: allow *@myorg.com ──────► endpoint_id FK to Endpoint
+     ├─ Rate limit: 100/h per_user ────► endpoint_id FK to Endpoint
+     └─ MPP Accounting: $0.01/query ───► endpoint_id FK + wallet_id FK
+                    │
+                    ▼
+  6. Publish to SyftHub                   SyftHubClient.publish_endpoint()
      └─ Endpoint becomes queryable ────► External users discover via
         via ngrok tunnel                  marketplace and send queries
 ```
@@ -747,4 +797,111 @@ To extend the system with a new dataset, model, or policy type:
      __init__.py:
      registry.register_
      lazy_dataset_type(...)
+```
+
+---
+
+## Wallets & Payments
+
+The Wallets component manages payment credentials for per-query billing. It follows Clean Architecture with a `WalletProvider` protocol separating use-case logic from provider-specific implementations.
+
+### Wallet Provider Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  WalletProvider Protocol (interfaces.py)                                │
+│                                                                         │
+│  Required:                                                              │
+│  ├─ NAME: str                        Provider identifier                │
+│  ├─ config_class → type[BaseModel]   Pydantic config validator          │
+│  └─ setup_wallet(raw_creds) → SetupResult                              │
+│       Returns: { credentials: dict, display: dict }                     │
+│       credentials → persisted in Wallet.configuration (secret)          │
+│       display → returned in API responses (safe to expose)              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Built-in Providers:                                                    │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────┐       │
+│  │  "mpp" — Machine Payments Protocol (Tempo blockchain)       │       │
+│  │                                                             │       │
+│  │  Config (MppWalletConfig):                                  │       │
+│  │  ├─ wallet_address: str     0x-prefixed Ethereum address    │       │
+│  │  ├─ wallet_private_key: str Hex-encoded private key         │       │
+│  │  └─ mpp_secret_key: str    HMAC secret for challenge signing│       │
+│  │                                                             │       │
+│  │  Setup modes:                                               │       │
+│  │  ├─ Generate: {} → new keypair via eth_account.Account      │       │
+│  │  └─ Import: {private_key} → derive address via TempoAccount │       │
+│  │  Display: { wallet_address }                                │       │
+│  └─────────────────────────────────────────────────────────────┘       │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────┐       │
+│  │  "xendit" — Xendit Payment Gateway                          │       │
+│  │                                                             │       │
+│  │  Config (XenditWalletConfig):                               │       │
+│  │  ├─ api_key: str            Xendit API credential           │       │
+│  │  └─ callback_token: str     Webhook verification token      │       │
+│  │                                                             │       │
+│  │  Display: {}                                                │       │
+│  └─────────────────────────────────────────────────────────────┘       │
+│                                                                         │
+│  Planned: "stripe", "razorpay" (WalletType enum defined, no impl yet) │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Wallet API Routes
+
+```
+/api/v1/wallets/
+├── GET    /                          List all wallets (tenant-scoped)
+├── GET    /{wallet_id}               Get wallet details (display only)
+├── DELETE /{wallet_id}               Delete wallet
+│
+├── /mpp/
+│   ├── POST   /                      Generate new MPP wallet (keypair)
+│   ├── POST   /import                Import MPP wallet from private key
+│   ├── PUT    /{wallet_id}/address   Update wallet address
+│   ├── GET    /{wallet_id}/balance   Query pathUSD balance from Tempo
+│   └── GET    /{wallet_id}/transactions  Query recent transfers
+│
+└── /gateway/
+    └── POST   /xendit                Create Xendit wallet with API creds
+```
+
+### MPP Payment Query Flow
+
+```
+  Client                         Syft Space                    Tempo Blockchain
+  ──────                         ──────────                    ────────────────
+
+  POST /{slug}/query ──────────► Resolve endpoint
+  (no X-Payment header)          Load policies + wallet
+                                 mpp.charge() → Challenge
+                          ◄───── 402 + WWW-Authenticate: MPP challenge
+
+  Sign challenge with
+  client credentials
+
+  POST /{slug}/query ──────────► mpp.charge(X-Payment) ──────► Verify payment
+  (X-Payment: signed cred)       Payment verified               on Tempo chain
+                                 Execute RAG pipeline
+                          ◄───── 200 + Payment-Receipt header
+```
+
+### Dependency Injection (main.py)
+
+```
+  WalletRepository(database)
+       │
+       ├──► WalletHandler(repository, providers={
+       │         "mpp": MppWalletProvider(),
+       │         "xendit": XenditWalletProvider()
+       │    })
+       │
+       ├──► PolicyHandler(..., wallet_repository)
+       │    (validates wallet_id on payment policy creation)
+       │
+       └──► EndpointHandler(..., wallet_repository)
+            (loads wallet credentials at query time for policy enforcement)
 ```
