@@ -53,9 +53,7 @@ def downgrade() -> None:
     # Re-add accounting fields to marketplaces
     with op.batch_alter_table("marketplaces") as batch_op:
         batch_op.add_column(
-            sa.Column(
-                "accounting_url", sa.String(), nullable=False, server_default=""
-            ),
+            sa.Column("accounting_url", sa.String(), nullable=False, server_default=""),
         )
         batch_op.add_column(
             sa.Column(

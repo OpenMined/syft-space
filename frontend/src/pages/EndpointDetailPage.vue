@@ -1185,8 +1185,9 @@ const handleAddPolicy = async (payload: {
     // Publish changes to marketplace
     await publishToMarketplace()
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create policy'
+    toast.error(message)
     console.error('Failed to create policy:', error)
-    // Error is handled by the composable
   }
 }
 

@@ -70,6 +70,23 @@ class PolicyRepository(AsyncBaseRepository[Policy]):
             result = await session.exec(statement)
             return list(result.all())
 
+    async def has_different_wallet(
+        self, endpoint_id: UUID, tenant_id: UUID, wallet_id: UUID
+    ) -> bool:
+        """Check if any policy on this endpoint uses a different wallet.
+
+        Returns True if a conflicting wallet_id exists.
+        """
+        async with self.db.get_session() as session:
+            statement = select(Policy).where(
+                Policy.endpoint_id == endpoint_id,
+                Policy.tenant_id == tenant_id,
+                Policy.wallet_id.is_not(None),
+                Policy.wallet_id != wallet_id,
+            )
+            result = await session.exec(statement)
+            return result.first() is not None
+
     async def get_by_endpoint_id_grouped(
         self, endpoint_id: UUID, tenant_id: UUID
     ) -> dict[str, list[Policy]]:

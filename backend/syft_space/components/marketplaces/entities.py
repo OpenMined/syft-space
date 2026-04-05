@@ -38,15 +38,6 @@ class Marketplace(SQLModel, table=True):
         default=True, description="Can be used for publishing endpoints"
     )
 
-    # MPP wallet fields
-    wallet_address: str | None = Field(
-        default=None, description="Tempo wallet address (Ethereum format)"
-    )
-    wallet_private_key: str | None = Field(
-        default=None,
-        description="Tempo wallet private key (hex, stored plaintext for now)",  # TODO store this more securely
-    )
-
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

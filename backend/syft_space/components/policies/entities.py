@@ -1,7 +1,7 @@
 """Policy database entities."""
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Index, UniqueConstraint
@@ -10,6 +10,7 @@ from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
 if TYPE_CHECKING:
     from components.endpoints.entities import Endpoint
     from components.tenants.entities import Tenant
+    from components.wallets.entities import Wallet
 
 
 class Policy(SQLModel, table=True):
@@ -41,6 +42,11 @@ class Policy(SQLModel, table=True):
         sa_column=Column(ForeignKey("endpoints.id", ondelete="CASCADE")),
         description="ID of the endpoint this policy is attached to",
     )
+    wallet_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(ForeignKey("wallets.id", ondelete="SET NULL"), nullable=True),
+        description="Wallet ID for payment policies (mpp_accounting, xendit). NULL for non-payment policies.",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -49,6 +55,9 @@ class Policy(SQLModel, table=True):
     endpoint: "Endpoint" = Relationship(
         back_populates="policies",
         sa_relationship_kwargs={"foreign_keys": "[Policy.endpoint_id]"},
+    )
+    wallet: Optional["Wallet"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[Policy.wallet_id]"},
     )
 
     class Config:

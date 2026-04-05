@@ -255,7 +255,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
-import { marketplacesApi } from '@/api/endpoints/marketplaces'
+import { walletsApi } from '@/api/endpoints/wallets'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
 import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
@@ -327,8 +327,9 @@ const fetchNetworkConfig = async () => {
 const fetchWallet = async () => {
   loadingWallet.value = true
   try {
-    const res = await marketplacesApi.getWallet()
-    walletAddress.value = res.address
+    const wallets = await walletsApi.list()
+    const mppWallet = wallets.find((w) => w.wallet_type === 'mpp')
+    walletAddress.value = mppWallet?.display.wallet_address ?? null
   } catch {
     walletAddress.value = null
   } finally {

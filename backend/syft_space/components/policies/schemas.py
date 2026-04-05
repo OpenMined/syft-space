@@ -28,6 +28,10 @@ class CreatePolicyRequest(BaseModel):
         ..., description="Filled configuration schema"
     )
     endpoint_id: UUID = Field(..., description="ID of the endpoint to attach to")
+    wallet_id: UUID | None = Field(
+        default=None,
+        description="Wallet ID for payment policies (required for mpp_accounting, xendit)",
+    )
 
     class Config:
         """Pydantic config."""
@@ -66,6 +70,9 @@ class PolicyResponse(BaseModel):
     policy_type: str = Field(..., description="Policy type name")
     configuration: dict[str, Any] = Field(..., description="Configuration")
     endpoint_id: UUID = Field(..., description="Endpoint ID")
+    wallet_id: UUID | None = Field(
+        default=None, description="Wallet ID for payment policies"
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
@@ -82,6 +89,9 @@ class PolicyListItem(BaseModel):
     name: str = Field(..., description="Policy name")
     policy_type: str = Field(..., description="Policy type name")
     endpoint_id: UUID = Field(..., description="Endpoint ID")
+    wallet_id: UUID | None = Field(
+        default=None, description="Wallet ID for payment policies"
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
 
     class Config:

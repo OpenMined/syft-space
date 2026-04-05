@@ -113,7 +113,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { marketplacesApi } from '@/api/endpoints/marketplaces'
+import { walletsApi } from '@/api/endpoints/wallets'
 import { useUserStore } from '@/stores/user'
 
 const props = defineProps<{
@@ -128,6 +128,7 @@ const emit = defineEmits<{
 const userStore = useUserStore()
 
 const walletAddress = ref<string | null>(null)
+const currentWalletId = ref<string | null>(null)
 const saving = ref(false)
 const showChangeWallet = ref(false)
 const newWalletAddress = ref('')
@@ -141,20 +142,30 @@ const isValidEthAddress = (address: string): boolean => {
 
 const fetchWallet = async () => {
   try {
-    const res = await marketplacesApi.getWallet()
-    walletAddress.value = res.address
+    const wallets = await walletsApi.list()
+    const mppWallet = wallets.find((w) => w.wallet_type === 'mpp')
+    if (mppWallet) {
+      walletAddress.value = mppWallet.display.wallet_address ?? null
+      currentWalletId.value = mppWallet.id
+    } else {
+      walletAddress.value = null
+      currentWalletId.value = null
+    }
   } catch {
     walletAddress.value = null
+    currentWalletId.value = null
   }
 }
 
 const handleCreateWallet = async () => {
   saving.value = true
   try {
-    const res = await marketplacesApi.createWallet()
-    walletAddress.value = res.address
+    const res = await walletsApi.createMpp()
+    walletAddress.value = res.display.wallet_address ?? null
+    currentWalletId.value = res.id
     toast.success('Wallet created successfully')
-    emit('wallet-updated', res.address)
+    emit('wallet-updated', res.display.wallet_address ?? '')
+    await userStore.fetchWalletInfo()
     userStore.fetchBalance()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Failed to create wallet')
@@ -166,12 +177,14 @@ const handleCreateWallet = async () => {
 const handleImportWallet = async () => {
   saving.value = true
   try {
-    const res = await marketplacesApi.importWallet(importPrivateKey.value)
-    walletAddress.value = res.address
+    const res = await walletsApi.importMpp(importPrivateKey.value)
+    walletAddress.value = res.display.wallet_address ?? null
+    currentWalletId.value = res.id
     importPrivateKey.value = ''
     showImportWallet.value = false
     toast.success('Wallet imported successfully')
-    emit('wallet-updated', res.address)
+    emit('wallet-updated', res.display.wallet_address ?? '')
+    await userStore.fetchWalletInfo()
     userStore.fetchBalance()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Failed to import wallet')
@@ -187,14 +200,18 @@ const handleUpdateWallet = async () => {
       'Please enter a valid Ethereum address (0x followed by 40 hex characters)'
     return
   }
+  if (!currentWalletId.value) {
+    toast.error('No wallet to update')
+    return
+  }
   saving.value = true
   try {
-    const res = await marketplacesApi.updateWalletAddress(newWalletAddress.value)
-    walletAddress.value = res.address
+    const res = await walletsApi.updateMppAddress(currentWalletId.value, newWalletAddress.value)
+    walletAddress.value = res.display.wallet_address ?? null
     newWalletAddress.value = ''
     showChangeWallet.value = false
     toast.success('Wallet address updated')
-    emit('wallet-updated', res.address!)
+    emit('wallet-updated', res.display.wallet_address ?? '')
     userStore.fetchBalance()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Failed to update wallet address')
@@ -203,7 +220,6 @@ const handleUpdateWallet = async () => {
   }
 }
 
-// Fetch wallet when dialog opens, reset state when it closes
 watch(
   () => props.open,
   (isOpen) => {
