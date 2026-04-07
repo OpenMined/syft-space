@@ -73,6 +73,10 @@ from syft_space.components.model_types.registry import MODEL_TYPE_REGISTRY
 from syft_space.components.models.handlers import ModelHandler
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.models.routes import build_model_routes
+
+# Import payment components
+from syft_space.components.payments.mpp.handlers import MppPaymentHandler
+from syft_space.components.payments.routes import build_payment_routes
 from syft_space.components.policies.handlers import PolicyHandler
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policies.routes import build_policy_routes
@@ -394,6 +398,9 @@ marketplace_handler = MarketplaceHandler(marketplace_repository)
 wallet_providers = {"mpp": MppWalletProvider(), "xendit": XenditWalletProvider()}
 wallet_handler = WalletHandler(repository=wallet_repository, providers=wallet_providers)
 
+# Initialize payment handlers
+mpp_payment_handler = MppPaymentHandler(wallet_repository=wallet_repository)
+
 # Initialize settings repository and proxy service
 settings_repository = SettingsRepository(database)
 proxy_service = ProxyService(settings_repository)
@@ -460,6 +467,7 @@ router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_settings_routes(settings_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 router.include_router(build_wallet_routes(wallet_handler))
+router.include_router(build_payment_routes(mpp_handler=mpp_payment_handler))
 
 
 @public_route

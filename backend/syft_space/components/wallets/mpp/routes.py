@@ -1,4 +1,4 @@
-"""MPP wallet routes."""
+"""MPP wallet routes — credential management only."""
 
 from uuid import UUID
 
@@ -10,8 +10,6 @@ from syft_space.components.wallets.handlers import WalletHandler
 from syft_space.components.wallets.mpp.schemas import (
     CreateMppWalletRequest,
     ImportMppWalletRequest,
-    MppBalanceResponse,
-    TransactionResponse,
     UpdateMppWalletAddressRequest,
 )
 from syft_space.components.wallets.schemas import WalletResponse
@@ -19,7 +17,7 @@ from syft_space.components.wallets.wallet_configs import WalletType
 
 
 def build_mpp_wallet_routes(handler: WalletHandler) -> APIRouter:
-    """Build MPP-specific wallet routes."""
+    """Build MPP-specific wallet routes (credential management)."""
     router = APIRouter(prefix="/mpp", tags=["wallets", "mpp"])
 
     def get_handler() -> WalletHandler:
@@ -64,24 +62,5 @@ def build_mpp_wallet_routes(handler: WalletHandler) -> APIRouter:
         return await handler.update_mpp_wallet_address(
             wallet_id, request.wallet_address, tenant
         )
-
-    # Temporary — moves to payments component later
-    @router.get("/{wallet_id}/balance", response_model=MppBalanceResponse)
-    async def get_mpp_balance(
-        wallet_id: UUID,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: WalletHandler = Depends(get_handler),
-    ) -> MppBalanceResponse:
-        """Get MPP wallet balance from Tempo blockchain."""
-        return await handler.get_mpp_balance(wallet_id, tenant)
-
-    @router.get("/{wallet_id}/transactions", response_model=list[TransactionResponse])
-    async def get_mpp_transactions(
-        wallet_id: UUID,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: WalletHandler = Depends(get_handler),
-    ) -> list[TransactionResponse]:
-        """Get MPP wallet transactions from Tempo blockchain."""
-        return await handler.get_mpp_transactions(wallet_id, tenant)
 
     return router

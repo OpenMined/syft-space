@@ -13,10 +13,6 @@ from loguru import logger
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.interfaces import WalletProvider
 from syft_space.components.wallets.mpp.config import MppWalletConfig
-from syft_space.components.wallets.mpp.schemas import (
-    MppBalanceResponse,
-    TransactionResponse,
-)
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.schemas import WalletListItem, WalletResponse
 from syft_space.components.wallets.wallet_configs import WalletType
@@ -171,59 +167,6 @@ class WalletHandler:
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
-
-    # --- MPP balance/transactions (TEMPORARY — moves to payments component later) ---
-
-    async def get_mpp_balance(
-        self, wallet_id: UUID, tenant: Tenant
-    ) -> MppBalanceResponse:
-        """Get MPP wallet balance from Tempo blockchain."""
-        wallet = await self.repository.get_by_id(wallet_id, tenant.id)
-        if not wallet:
-            raise HTTPException(status_code=404, detail="Wallet not found")
-        if wallet.wallet_type != WalletType.MPP:
-            raise HTTPException(
-                status_code=400,
-                detail="Balance query is only supported for MPP wallets",
-            )
-
-        config = MppWalletConfig(**wallet.configuration)
-
-        from syft_space.components.wallets.mpp.tempo_utils import (
-            get_wallet_balance,
-            get_wallet_transactions,
-        )
-
-        balance = await get_wallet_balance(config.wallet_address)
-        recent_txs = await get_wallet_transactions(config.wallet_address)
-        return MppBalanceResponse(
-            balance=balance,
-            currency="USD",
-            recent_transactions=[TransactionResponse(**tx) for tx in recent_txs[:10]],
-            wallet_configured=True,
-        )
-
-    async def get_mpp_transactions(
-        self, wallet_id: UUID, tenant: Tenant
-    ) -> list[TransactionResponse]:
-        """Get MPP wallet transactions from Tempo blockchain."""
-        wallet = await self.repository.get_by_id(wallet_id, tenant.id)
-        if not wallet:
-            raise HTTPException(status_code=404, detail="Wallet not found")
-        if wallet.wallet_type != WalletType.MPP:
-            raise HTTPException(
-                status_code=400,
-                detail="Transaction query is only supported for MPP wallets",
-            )
-
-        config = MppWalletConfig(**wallet.configuration)
-
-        from syft_space.components.wallets.mpp.tempo_utils import (
-            get_wallet_transactions,
-        )
-
-        txs = await get_wallet_transactions(config.wallet_address)
-        return [TransactionResponse(**tx) for tx in txs]
 
     # --- Helpers ---
 
