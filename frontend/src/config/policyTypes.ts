@@ -1,7 +1,7 @@
-import { Shield, Gauge, DollarSign } from 'lucide-vue-next'
+import { Shield, Gauge, DollarSign, ScanEye } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
-export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
+export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing' | 'pii_filter'
 
 export interface PolicyConfig {
   id: string
@@ -50,6 +50,14 @@ export const POLICY_TYPES: PolicyType[] = [
     icon: DollarSign,
     color: 'yellow',
   },
+  {
+    id: 'pii_filter',
+    name: 'PII Filter',
+    label: 'Protect private data',
+    description: 'Automatically redact personally identifiable information from query responses',
+    icon: ScanEye,
+    color: 'purple',
+  },
 ]
 
 export const getPolicyTypeLabel = (type: string): string => {
@@ -60,6 +68,8 @@ export const getPolicyTypeLabel = (type: string): string => {
       return 'Rate Limiting'
     case 'pricing':
       return 'Pricing'
+    case 'pii_filter':
+      return 'PII Filter'
     default:
       return 'Policy'
   }
@@ -69,6 +79,7 @@ export const createEmptyPolicyRules = (): PolicyRulesRecord => ({
   access: [],
   rate_limit: [],
   pricing: [],
+  pii_filter: [],
 })
 
 export const generateRuleId = (): string => {
@@ -139,6 +150,12 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
           return `$${formattedPrice} per query for ${userList.join(', ')}`
         }
       }
+
+    case 'pii_filter': {
+      const modelId = config.model_id ? String(config.model_id).slice(0, 8) + '...' : 'none'
+      const target = config.target || 'both'
+      return `Filter ${target} using model ${modelId}`
+    }
 
     default:
       return 'Rule configured'

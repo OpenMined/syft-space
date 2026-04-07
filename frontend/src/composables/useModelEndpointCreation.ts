@@ -18,6 +18,7 @@ export interface PolicyRules {
   access: PolicyRule[]
   rate_limit: PolicyRule[]
   pricing: PolicyRule[]
+  pii_filter: PolicyRule[]
 }
 
 export interface ModelEndpointCreationData {
