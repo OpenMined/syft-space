@@ -14,6 +14,7 @@ LAZY_IMPORTS = [
     'docling_core',
     'docling_ibm_models',
     'docling_parse',
+    'mpp',
 ]
 
 # Packages that bundle data files (migrations, configs, etc.) needed at runtime.
