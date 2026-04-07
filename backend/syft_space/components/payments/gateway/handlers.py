@@ -111,8 +111,9 @@ class PaymentHandler:
         tier = gateway.resolve_purchase(config, request.tier_name, user_email)
 
         # 4. Get wallet
-        wallet = await self.wallet_repo.get_by_type(gateway.PROVIDER_NAME, tenant.id)
-        if not wallet or not wallet.is_active:
+        wallets = await self.wallet_repo.get_by_type(gateway.PROVIDER_NAME, tenant.id)
+        wallet = next((w for w in wallets if w.is_active), None)
+        if not wallet:
             raise HTTPException(
                 status_code=400,
                 detail=f"{gateway.PROVIDER_NAME} wallet not configured or inactive",
@@ -182,9 +183,10 @@ class PaymentHandler:
             return {"status": "ignored", "reason": "invoice not found"}
 
         # 3. Verify webhook authenticity
-        wallet = await self.wallet_repo.get_by_type(
+        wallets = await self.wallet_repo.get_by_type(
             gateway.PROVIDER_NAME, invoice.tenant_id
         )
+        wallet = next((w for w in wallets if w.is_active), None)
         if not wallet:
             logger.error(f"Webhook: wallet not found for tenant_id={invoice.tenant_id}")
             raise HTTPException(status_code=500, detail="Wallet not found")

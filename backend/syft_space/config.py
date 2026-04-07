@@ -77,6 +77,12 @@ class AppSettings(BaseSettings):
         description="Public URL for the Syft Space",
     )
 
+    # Xendit settings
+    xendit_api_url: HttpUrl = Field(
+        default="https://api.xendit.co",
+        description="Xendit API base URL",
+    )
+
     # MPP / Tempo settings
     tempo_testnet: bool = Field(
         default=True,
@@ -101,7 +107,6 @@ class AppSettings(BaseSettings):
         if not isinstance(v, HttpUrl):
             v = HttpUrl(v)
         return v
-
 
 
 # Global settings instance

@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Coroutine
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 from syft_space.components.auth.dependencies import get_verified_user_email
 from syft_space.components.marketplaces.repository import MarketplaceRepository
@@ -20,7 +20,7 @@ def make_verified_sender_email_dependency(
 
     async def get_verified_sender_email(
         request: Request,
-        tenant: Tenant = get_tenant_dependency,
+        tenant: Tenant = Depends(get_tenant_dependency),
     ) -> str:
         marketplace = await marketplace_repository.get_default(tenant.id)
         if not marketplace:
