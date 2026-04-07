@@ -1,6 +1,6 @@
 """Policy type interfaces and domain models."""
 
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -169,4 +169,24 @@ class BasePolicyType(Protocol):
         Raises:
             ValueError: If configuration is invalid
         """
+        ...
+
+
+@runtime_checkable
+class WalletPolicy(Protocol):
+    """Policy types that require a wallet implement this.
+
+    Used to distinguish wallet-bound policies (e.g., mpp_accounting, xendit)
+    from non-wallet policies (e.g., rate_limit, access). The handler uses
+    issubclass(policy_type_cls, WalletPolicy) to determine if wallet_id
+    is required, eliminating hardcoded policy type sets.
+
+    Mutual exclusivity is enforced implicitly: all wallet-bound policies
+    on an endpoint must share the same wallet_id (has_different_wallet check).
+    Different wallet types (MPP vs Xendit) have different wallet_ids, so
+    they can't coexist.
+    """
+
+    def required_wallet_type(self) -> str:
+        """Return the wallet type this policy requires (e.g., 'mpp', 'xendit')."""
         ...

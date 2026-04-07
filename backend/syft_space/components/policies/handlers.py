@@ -14,12 +14,10 @@ from syft_space.components.policies.schemas import (
     PolicyTypeInfoResponse,
     UpdatePolicyRequest,
 )
+from syft_space.components.policy_types.interfaces import WalletPolicy
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.repository import WalletRepository
-
-# Policy types that require a wallet_id
-PAYMENT_POLICY_TYPES = {"mpp_accounting", "xendit"}
 
 
 class PolicyHandler:
@@ -123,8 +121,9 @@ class PolicyHandler:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
-        # Payment policies require a wallet_id
-        if request.policy_type in PAYMENT_POLICY_TYPES:
+        # Wallet-bound policies require a wallet_id
+        if issubclass(policy_type_cls, WalletPolicy):
+            required_type = policy_type_cls().required_wallet_type()
             if not request.wallet_id:
                 raise HTTPException(
                     status_code=400,
@@ -137,7 +136,14 @@ class PolicyHandler:
             )
             if not wallet:
                 raise HTTPException(status_code=404, detail="Wallet not found")
-            # Enforce: all payment policies on this endpoint must use the same wallet
+            # Verify wallet type matches what the policy expects
+            if wallet.wallet_type != required_type:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"This policy requires a '{required_type}' wallet, "
+                    f"got '{wallet.wallet_type}'.",
+                )
+            # Enforce: all wallet policies on this endpoint must use the same wallet
             if await self.repository.has_different_wallet(
                 request.endpoint_id, tenant.id, request.wallet_id
             ):

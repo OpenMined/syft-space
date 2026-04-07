@@ -13,6 +13,7 @@ from syft_space.components.policy_types.interfaces import (
     PaymentRequiredError,
     PolicyContext,
     PolicyViolationError,
+    WalletPolicy,
 )
 from syft_space.components.shared.utils import matches_any_pattern
 from syft_space.config import app_settings
@@ -30,11 +31,14 @@ class MppAccountingConfig(BaseModel):
     )
 
 
-class MppAccountingPolicy(BasePolicyType):
+class MppAccountingPolicy(BasePolicyType, WalletPolicy):
     """MPP-based payment policy using Tempo blockchain."""
 
     NAME: ClassVar[str] = "mpp_accounting"
     _mpp_instances: ClassVar[dict[str, Mpp]] = {}
+
+    def required_wallet_type(self) -> str:
+        return "mpp"
 
     @classmethod
     def name(cls) -> str:
