@@ -44,11 +44,15 @@ class WalletRepository(AsyncBaseRepository[Wallet]):
             result = await session.exec(statement)
             return list(result.all())
 
-    async def get_by_type(self, wallet_type: str, tenant_id: UUID) -> list[Wallet]:
+    async def get_by_type(
+        self, wallet_type: str, tenant_id: UUID, is_active: bool = True
+    ) -> list[Wallet]:
         """Get all wallets of a specific type for a tenant."""
         async with self.db.get_session() as session:
             statement = select(Wallet).where(
-                Wallet.wallet_type == wallet_type, Wallet.tenant_id == tenant_id
+                Wallet.wallet_type == wallet_type,
+                Wallet.tenant_id == tenant_id,
+                Wallet.is_active == is_active,
             )
             result = await session.exec(statement)
             return list(result.all())

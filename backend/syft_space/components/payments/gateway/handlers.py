@@ -184,13 +184,16 @@ class PaymentHandler:
 
         # 3. Verify webhook authenticity
         wallets = await self.wallet_repo.get_by_type(
-            gateway.PROVIDER_NAME, invoice.tenant_id
+            wallet_type=gateway.PROVIDER_NAME,
+            tenant_id=invoice.tenant_id,
+            is_active=True,
         )
-        wallet = next((w for w in wallets if w.is_active), None)
-        if not wallet:
-            logger.error(f"Webhook: wallet not found for tenant_id={invoice.tenant_id}")
+        if not wallets:
+            logger.error(
+                f"Webhook: no active wallets found for tenant_id={invoice.tenant_id}"
+            )
             raise HTTPException(status_code=500, detail="Wallet not found")
-        gateway.verify_webhook(callback_token, wallet)
+        gateway.verify_webhook(callback_token, wallets[0])
 
         # 4. Update invoice status (idempotent — only transitions from PENDING)
         updated = await self.invoice_repo.update_status(
