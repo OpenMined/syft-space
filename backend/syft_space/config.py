@@ -103,6 +103,5 @@ class AppSettings(BaseSettings):
         return v
 
 
-
 # Global settings instance
 app_settings = AppSettings()

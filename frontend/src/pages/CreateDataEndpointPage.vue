@@ -762,11 +762,7 @@
                   <TooltipProvider v-else>
                     <Tooltip>
                       <TooltipTrigger as-child>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          @click="showWalletSetupDialog = true"
-                        >
+                        <Button variant="outline" size="sm" @click="showWalletSetupDialog = true">
                           <Wallet class="h-4 w-4 mr-2" />
                           Set up wallet
                         </Button>
@@ -1480,10 +1476,7 @@
   </Dialog>
 
   <!-- Wallet Setup Dialog -->
-  <WalletSetupDialog
-    v-model:open="showWalletSetupDialog"
-    @wallet-updated="onWalletUpdated"
-  />
+  <WalletSetupDialog v-model:open="showWalletSetupDialog" @wallet-updated="onWalletUpdated" />
 
   <!-- Policy Form Dialog -->
   <PolicyFormDialog

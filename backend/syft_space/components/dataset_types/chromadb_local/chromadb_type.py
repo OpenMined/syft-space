@@ -34,7 +34,6 @@ from syft_space.components.shared.domain_types import (
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 
-
 try:
     from chromadb.errors import NotFoundError as _ChromaNotFoundError
 except ImportError:
