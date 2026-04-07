@@ -51,6 +51,8 @@ from syft_space.components.endpoints.endpoint_heartbeat_manager import (
     EndpointHeartbeatManager,
 )
 from syft_space.components.endpoints.handlers import EndpointHandler
+from syft_space.components.endpoints.publish_handler import PublishEndpointHandler
+from syft_space.components.endpoints.query_handler import QueryEndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.routes import build_endpoint_routes
 
@@ -75,6 +77,16 @@ from syft_space.components.models.repository import ModelRepository
 from syft_space.components.models.routes import build_model_routes
 
 # Import payment components
+from syft_space.components.payments.gateway.bundle_service import BundleService
+from syft_space.components.payments.gateway.bundle_usage_repository import (
+    BundleUsageRepository,
+)
+from syft_space.components.payments.gateway.dependencies import (
+    make_verified_sender_email_dependency,
+)
+from syft_space.components.payments.gateway.handlers import PaymentHandler
+from syft_space.components.payments.gateway.invoice_repository import InvoiceRepository
+from syft_space.components.payments.gateway.xendit.gateway import XenditGateway
 from syft_space.components.payments.mpp.handlers import MppPaymentHandler
 from syft_space.components.payments.routes import build_payment_routes
 from syft_space.components.policies.handlers import PolicyHandler
@@ -163,7 +175,7 @@ async def _sync_public_url_safe(
         logger.warning(f"Marketplace sync failed: {e} - server will continue starting")
 
 
-async def _sync_endpoints_safe(handler: EndpointHandler, tenant: Tenant) -> None:
+async def _sync_endpoints_safe(handler: PublishEndpointHandler, tenant: Tenant) -> None:
     """Sync published endpoints to marketplaces without blocking startup.
 
     This is a fire-and-forget helper that syncs all published endpoints to their
@@ -323,7 +335,7 @@ async def lifespan(app: FastAPI):
             run_after_event(
                 proxy_ready_event,
                 _sync_endpoints_safe,
-                endpoint_handler,
+                publish_endpoint_handler,
                 default_tenant,
             )
         )
@@ -401,11 +413,53 @@ wallet_handler = WalletHandler(repository=wallet_repository, providers=wallet_pr
 # Initialize payment handlers
 mpp_payment_handler = MppPaymentHandler(wallet_repository=wallet_repository)
 
+# Initialize gateway payment components
+invoice_repository = InvoiceRepository(database)
+bundle_usage_repository = BundleUsageRepository(database)
+bundle_service = BundleService(bundle_usage_repository)
+gateway_payment_handler = PaymentHandler(
+    invoice_repository=invoice_repository,
+    bundle_usage_repository=bundle_usage_repository,
+    wallet_repository=wallet_repository,
+    endpoint_repository=endpoint_repository,
+    policy_repository=policy_repository,
+    gateways={"xendit": XenditGateway()},
+)
+get_verified_sender_email = make_verified_sender_email_dependency(
+    marketplace_repository
+)
+
 # Initialize settings repository and proxy service
 settings_repository = SettingsRepository(database)
 proxy_service = ProxyService(settings_repository)
 
+
+# Deletion check callback (dependency inversion — endpoints don't import payments)
+async def check_endpoint_deletable(endpoint_id, tenant_id) -> str | None:
+    if await invoice_repository.has_pending_by_endpoint_id(endpoint_id, tenant_id):
+        return "Cannot delete endpoint with pending invoices. Archive it instead."
+    if await bundle_usage_repository.has_nonzero_balance_by_endpoint_id(
+        endpoint_id, tenant_id
+    ):
+        return (
+            "Cannot delete endpoint while users have remaining bundle balance. "
+            "Archive it instead."
+        )
+    return None
+
+
+# Metadata enricher (dependency inversion — query handler doesn't import payments)
+async def enrich_query_metadata(metadata: dict) -> None:
+    metadata["bundle_service"] = bundle_service
+
+
 endpoint_handler = EndpointHandler(
+    endpoint_repository=endpoint_repository,
+    dataset_repository=dataset_repository,
+    model_repository=model_repository,
+    deletion_check=check_endpoint_deletable,
+)
+query_endpoint_handler = QueryEndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
     model_repository=model_repository,
@@ -413,8 +467,16 @@ endpoint_handler = EndpointHandler(
     dataset_registry=DATASET_TYPE_REGISTRY,
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
-    marketplace_repository=marketplace_repository,
     wallet_repository=wallet_repository,
+    metadata_enricher=enrich_query_metadata,
+)
+publish_endpoint_handler = PublishEndpointHandler(
+    endpoint_repository=endpoint_repository,
+    marketplace_repository=marketplace_repository,
+    dataset_repository=dataset_repository,
+    model_repository=model_repository,
+    dataset_registry=DATASET_TYPE_REGISTRY,
+    model_registry=MODEL_TYPE_REGISTRY,
 )
 tenant_handler = TenantHandler(tenant_repository)
 
@@ -438,7 +500,7 @@ ingestion_handler = IngestionHandler(
 # Initialize lifecycle managers (independent, ordered in lifespan)
 provisioner_manager = ProvisionerManager(dataset_handler)
 endpoint_heartbeat_manager = EndpointHeartbeatManager(
-    health_checker=endpoint_handler,
+    health_checker=publish_endpoint_handler,
     marketplace_repository=marketplace_repository,
     settings_repository=settings_repository,
     enabled=app_settings.heartbeat_enabled,
@@ -460,14 +522,26 @@ router = APIRouter(prefix="/api/v1", dependencies=[Depends(bearer_scheme)])
 router.include_router(build_dataset_routes(dataset_handler, ingestion_manager))
 router.include_router(build_model_routes(model_handler))
 router.include_router(build_policy_routes(policy_handler))
-router.include_router(build_endpoint_routes(endpoint_handler))
+router.include_router(
+    build_endpoint_routes(
+        endpoint_handler,
+        query_endpoint_handler,
+        publish_endpoint_handler,
+    )
+)
 router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_settings_routes(settings_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 router.include_router(build_wallet_routes(wallet_handler))
-router.include_router(build_payment_routes(mpp_handler=mpp_payment_handler))
+router.include_router(
+    build_payment_routes(
+        mpp_handler=mpp_payment_handler,
+        gateway_handler=gateway_payment_handler,
+        get_verified_sender_email=get_verified_sender_email,
+    )
+)
 
 
 @public_route
