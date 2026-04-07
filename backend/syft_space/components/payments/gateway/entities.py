@@ -2,15 +2,10 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import Index, UniqueConstraint
-from sqlmodel import JSON, Column, Field, ForeignKey, Relationship, SQLModel
-
-if TYPE_CHECKING:
-    from syft_space.components.endpoints.entities import Endpoint
-    from syft_space.components.tenants.entities import Tenant
+from sqlmodel import JSON, Column, Field, ForeignKey, SQLModel
 
 
 class InvoiceStatus(str, Enum):
@@ -74,10 +69,6 @@ class Invoice(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    # Relationships
-    tenant: "Tenant" = Relationship(back_populates="invoices")
-    endpoint: "Endpoint" = Relationship(back_populates="invoices")
-
 
 class BundleUsage(SQLModel, table=True):
     """Bundle usage tracking per (user, endpoint, unit_type).
@@ -117,7 +108,3 @@ class BundleUsage(SQLModel, table=True):
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-    # Relationships
-    tenant: "Tenant" = Relationship(back_populates="bundle_usages")
-    endpoint: "Endpoint" = Relationship(back_populates="bundle_usages")
