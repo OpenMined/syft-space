@@ -282,6 +282,9 @@ class EndpointHandler:
         # Build policy context metadata
         metadata: dict = {}
 
+        # Inject tenant_id so policy types can scope their own DB lookups
+        metadata["tenant_id"] = str(tenant.id)
+
         # Load wallets referenced by payment policies (single batch query)
         wallet_ids = list(
             {

@@ -1,6 +1,9 @@
 """Policy handlers for business logic."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -18,8 +21,14 @@ from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.repository import WalletRepository
 
+if TYPE_CHECKING:
+    from syft_space.components.models.repository import ModelRepository
+
 # Policy types that require a wallet_id
 PAYMENT_POLICY_TYPES = {"mpp_accounting", "xendit"}
+
+# Policy types that require a model reference
+MODEL_POLICY_TYPES = {"pii_filter"}
 
 
 class PolicyHandler:
@@ -30,6 +39,7 @@ class PolicyHandler:
         registry: PolicyTypeRegistry,
         repository: PolicyRepository,
         wallet_repository: WalletRepository,
+        model_repository: ModelRepository | None = None,
     ):
         """Initialize the policy handler.
 
@@ -37,10 +47,12 @@ class PolicyHandler:
             registry: Policy type registry
             repository: Policy repository
             wallet_repository: Wallet repository for payment policy validation
+            model_repository: Model repository for pii_filter policy validation
         """
         self.registry = registry
         self.repository = repository
         self.wallet_repository = wallet_repository
+        self.model_repository = model_repository
 
     def list_policy_types(self) -> list[PolicyTypeInfoResponse]:
         """List all available policy types.
@@ -150,6 +162,22 @@ class PolicyHandler:
                 status_code=400,
                 detail=f"wallet_id is not applicable for {request.policy_type} policies.",
             )
+
+        # model-dependent policies require the referenced model to exist
+        if (
+            request.policy_type in MODEL_POLICY_TYPES
+            and self.model_repository is not None
+        ):
+            model_id = UUID(validated_config["model_id"])
+            model = await self.model_repository.get_by_id(model_id, tenant.id)
+            if not model:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"PII filter: model '{model_id}' not found for this tenant. "
+                        "Ensure the model exists before creating this policy."
+                    ),
+                )
 
         # Create policy entity with validated config
         policy = Policy(

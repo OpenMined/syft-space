@@ -79,6 +79,9 @@ from syft_space.components.policies.routes import build_policy_routes
 from syft_space.components.policy_types import (
     register_builtin_types as register_policy_types,
 )
+from syft_space.components.policy_types.pii_filter.pii_filter_type import (
+    set_dependencies as set_pii_dependencies,
+)
 from syft_space.components.policy_types.rate_limit.limiter import (
     InMemoryRateLimitStorage,
 )
@@ -380,13 +383,17 @@ register_policy_types(POLICY_TYPE_REGISTRY)
 logger.info("Initializing rate limiter storage ...")
 set_rate_limit_storage(InMemoryRateLimitStorage())
 
+# Inject model registry + repository into PII filter policy type
+logger.info("Initializing PII filter policy dependencies ...")
+set_pii_dependencies(MODEL_TYPE_REGISTRY, model_repository)
+
 # Initialize handlers
 dataset_handler = DatasetHandler(
     DATASET_TYPE_REGISTRY, dataset_repository, provisioner_state_repository
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 policy_handler = PolicyHandler(
-    POLICY_TYPE_REGISTRY, policy_repository, wallet_repository
+    POLICY_TYPE_REGISTRY, policy_repository, wallet_repository, model_repository
 )
 marketplace_handler = MarketplaceHandler(marketplace_repository)
 

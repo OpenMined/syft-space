@@ -17,11 +17,13 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     # Import and register built-in policy types here as they're implemented
     from .access.access_type import EndpointAccessPolicy
     from .mpp_accounting.mpp_accounting_type import MppAccountingPolicy
+    from .pii_filter.pii_filter_type import PiiFilterPolicy
     from .rate_limit.rate_limit_type import EndpointRateLimitPolicy
 
     registry.register_policy_type(EndpointRateLimitPolicy)
     registry.register_policy_type(EndpointAccessPolicy)
     registry.register_policy_type(MppAccountingPolicy)
+    registry.register_policy_type(PiiFilterPolicy)
 
 
 __all__ = ["register_builtin_types"]
