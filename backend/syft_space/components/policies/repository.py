@@ -70,6 +70,19 @@ class PolicyRepository(AsyncBaseRepository[Policy]):
             result = await session.exec(statement)
             return list(result.all())
 
+    async def get_by_endpoint_and_type(
+        self, endpoint_id: UUID, policy_type: str, tenant_id: UUID
+    ) -> Policy | None:
+        """Get a policy by endpoint ID and policy type within a tenant."""
+        async with self.db.get_session() as session:
+            statement = select(Policy).where(
+                Policy.endpoint_id == endpoint_id,
+                Policy.policy_type == policy_type,
+                Policy.tenant_id == tenant_id,
+            )
+            result = await session.exec(statement)
+            return result.first()
+
     async def has_different_wallet(
         self, endpoint_id: UUID, tenant_id: UUID, wallet_id: UUID
     ) -> bool:

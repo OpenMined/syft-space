@@ -8,11 +8,15 @@ from loguru import logger
 from syft_space.components.payments.gateway.entities import InvoiceStatus
 from syft_space.components.payments.gateway.interfaces import (
     CreatePaymentResult,
+    ResolvedTier,
     WebhookResult,
 )
 from syft_space.components.payments.gateway.xendit.client import (
     XenditClient,
     XenditError,
+)
+from syft_space.components.policy_types.xendit.xendit_accounting_type import (
+    XenditPolicyConfig,
 )
 from syft_space.components.wallets.entities import Wallet
 from syft_space.config import app_settings
@@ -49,6 +53,37 @@ class XenditGateway:
         "payment_session.expired": InvoiceStatus.EXPIRED,
         "payment_session.canceled": InvoiceStatus.EXPIRED,
     }
+
+    def resolve_purchase(
+        self,
+        config: dict,
+        tier_name: str,
+        user_email: str,
+    ) -> ResolvedTier:
+        """Validate tier and user eligibility using XenditPolicyConfig."""
+        validated = XenditPolicyConfig(**config)
+
+        if not validated.applies_to_user(user_email):
+            raise HTTPException(
+                status_code=403,
+                detail="User is not eligible for this endpoint's payment policy",
+            )
+
+        tier = validated.get_tier(tier_name)
+        if not tier:
+            available = [t.name for t in validated.bundle_tiers]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tier '{tier_name}' not found. Available: {available}",
+            )
+
+        return ResolvedTier(
+            name=tier.name,
+            units=tier.units,
+            unit_type=tier.unit_type,
+            price=tier.price,
+            currency=validated.currency,
+        )
 
     async def create_payment(
         self,

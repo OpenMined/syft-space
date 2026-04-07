@@ -30,18 +30,48 @@ class WebhookResult:
     raw_payload: dict  # original payload, stored for audit
 
 
+@dataclass
+class ResolvedTier:
+    """Result of resolving a tier from policy config.
+
+    Returned by gateway.resolve_purchase() — the gateway parses its
+    own policy config schema and validates tier + user eligibility.
+    """
+
+    name: str
+    units: int
+    unit_type: str
+    price: float
+    currency: str
+
+
 class PaymentGateway(Protocol):
     """Adapter interface for payment providers.
 
     Each provider implements this protocol to translate between
     our domain model and the provider's API/webhook format.
-
-    The handler calls these methods after completing shared business logic
-    (validate endpoint, find tier, check applied_to, get wallet).
     """
 
     PROVIDER_NAME: str  # "xendit", "stripe" — matches Wallet.wallet_type
     POLICY_TYPE: str  # "xendit", "stripe" — matches Policy.policy_type
+
+    def resolve_purchase(
+        self,
+        config: dict,
+        tier_name: str,
+        user_email: str,
+    ) -> ResolvedTier:
+        """Validate tier exists and user is eligible.
+
+        The gateway owns the policy config schema interpretation.
+        Raises HTTPException if tier not found or user not eligible.
+
+        Args:
+            config: Raw policy configuration dict
+            tier_name: Requested tier name
+            user_email: Buyer's email for applied_to check
+        """
+        ...
 
     async def create_payment(
         self,
@@ -55,19 +85,7 @@ class PaymentGateway(Protocol):
         policy_config: dict,
         metadata: dict[str, str] | None = None,
     ) -> CreatePaymentResult:
-        """Call provider API to create a payment session/invoice.
-
-        Args:
-            reference_id: Our unique reference (idempotency + webhook join)
-            amount: Payment amount
-            currency: Currency code from policy config
-            payer_email: Buyer's email
-            description: Human-readable description
-            wallet: Wallet entity with provider credentials
-            policy_config: Raw policy configuration dict
-                           (provider extracts what it needs, e.g. country)
-            metadata: Key-value pairs passed to the provider for tracking
-        """
+        """Call provider API to create a payment session/invoice."""
         ...
 
     def verify_webhook(
@@ -75,22 +93,12 @@ class PaymentGateway(Protocol):
         callback_token: str,
         wallet: Wallet,
     ) -> None:
-        """Verify webhook authenticity. Raises HTTPException on failure.
-
-        Each provider has its own verification mechanism:
-        - Xendit: compare x-callback-token against wallet.configuration["callback_token"]
-        - Stripe: verify Stripe-Signature against webhook secret
-        """
+        """Verify webhook authenticity. Raises HTTPException on failure."""
         ...
 
     def normalize_webhook(
         self,
         raw_payload: dict,
     ) -> WebhookResult:
-        """Parse provider-specific webhook payload into domain types.
-
-        Maps provider statuses to InvoiceStatus:
-        - Xendit: SUCCEEDED → PAID, FAILED → FAILED, EXPIRED/CANCELED → EXPIRED
-        - Stripe: payment_intent.succeeded → PAID, etc.
-        """
+        """Parse provider-specific webhook payload into domain types."""
         ...

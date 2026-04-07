@@ -9,7 +9,10 @@ from syft_space.components.policy_types.interfaces import (
     PolicyViolationError,
     WalletPolicy,
 )
-from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.shared.utils import (
+    ConfigSchemaGenerator,
+    matches_any_pattern,
+)
 
 
 class BundleTier(BaseModel):
@@ -39,6 +42,14 @@ class XenditPolicyConfig(BaseModel):
         default_factory=lambda: ["*"],
         description="List of user emails or glob patterns. Use '*' for all users.",
     )
+
+    def applies_to_user(self, user_email: str) -> bool:
+        """Check if this policy applies to the given user email."""
+        return matches_any_pattern(user_email, self.applied_to)
+
+    def get_tier(self, tier_name: str) -> BundleTier | None:
+        """Find a tier by name, or None if not found."""
+        return next((t for t in self.bundle_tiers if t.name == tier_name), None)
 
     @model_validator(mode="after")
     def validate_consistent_unit_type(self) -> "XenditPolicyConfig":
@@ -70,8 +81,7 @@ class XenditAccountingPolicy(WalletPolicy):
     def description(cls) -> str:
         return "Pre-purchased request bundles via Xendit payment"
 
-    @classmethod
-    def required_wallet_type(cls) -> str:
+    def required_wallet_type(self) -> str:
         return "xendit"
 
     @classmethod
@@ -109,7 +119,7 @@ class XenditAccountingPolicy(WalletPolicy):
             )
 
         for config in validated:
-            if not self._applies_to_user(user_email, config.applied_to):
+            if not config.applies_to_user(user_email):
                 continue
 
             # Use the first tier's unit_type to determine reservation

@@ -23,7 +23,6 @@ from syft_space.components.payments.gateway.schemas import (
     InvoiceResponse,
 )
 from syft_space.components.policies.repository import PolicyRepository
-from syft_space.components.shared.utils import matches_any_pattern
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.repository import WalletRepository
 
@@ -90,6 +89,7 @@ class PaymentHandler:
             )
         if not endpoint.published:
             raise HTTPException(status_code=400, detail="Endpoint is not published")
+
         if endpoint.archived:
             raise HTTPException(
                 status_code=400,
@@ -97,9 +97,8 @@ class PaymentHandler:
             )
 
         # 2. Find payment policy matching this provider
-        policies = await self.policy_repo.get_by_endpoint_id(endpoint.id, tenant.id)
-        payment_policy = next(
-            (p for p in policies if p.policy_type == gateway.POLICY_TYPE), None
+        payment_policy = await self.policy_repo.get_by_endpoint_and_type(
+            endpoint.id, gateway.POLICY_TYPE, tenant.id
         )
         if not payment_policy:
             raise HTTPException(
@@ -108,25 +107,10 @@ class PaymentHandler:
             )
         config = payment_policy.configuration
 
-        # 3. Find the requested tier
-        tiers = config.get("bundle_tiers", [])
-        tier = next((t for t in tiers if t["name"] == request.tier_name), None)
-        if not tier:
-            available = [t["name"] for t in tiers]
-            raise HTTPException(
-                status_code=400,
-                detail=f"Tier '{request.tier_name}' not found. Available: {available}",
-            )
+        # 3. Resolve tier + validate user eligibility (gateway owns config schema)
+        tier = gateway.resolve_purchase(config, request.tier_name, user_email)
 
-        # 4. Check applied_to
-        applied_to = config.get("applied_to", ["*"])
-        if not matches_any_pattern(user_email, applied_to):
-            raise HTTPException(
-                status_code=403,
-                detail="User is not eligible for this endpoint's payment policy",
-            )
-
-        # 5. Get wallet
+        # 4. Get wallet
         wallet = await self.wallet_repo.get_by_type(gateway.PROVIDER_NAME, tenant.id)
         if not wallet or not wallet.is_active:
             raise HTTPException(
@@ -134,31 +118,27 @@ class PaymentHandler:
                 detail=f"{gateway.PROVIDER_NAME} wallet not configured or inactive",
             )
 
-        # 6. Call provider API via gateway
-        currency = config.get("currency", "USD")
-        unit_type = tier.get("unit_type", "requests")
-        tier_units = tier["units"]
-        amount = tier["price"]
+        # 5. Call provider API via gateway
         reference_id = f"syft-{endpoint.slug}-{user_email}-{datetime.now(timezone.utc).timestamp()}"
 
         result = await gateway.create_payment(
             reference_id=reference_id,
-            amount=amount,
-            currency=currency,
+            amount=tier.price,
+            currency=tier.currency,
             payer_email=user_email,
-            description=f"Bundle: {tier['name']} ({tier_units} {unit_type}) for {endpoint.slug}",
+            description=f"Bundle: {tier.name} ({tier.units} {tier.unit_type}) for {endpoint.slug}",
             wallet=wallet,
             policy_config=config,
             metadata={
                 "endpoint_slug": endpoint.slug,
                 "tenant_id": str(tenant.id),
-                "tier_name": tier["name"],
-                "tier_units": str(tier_units),
-                "unit_type": unit_type,
+                "tier_name": tier.name,
+                "tier_units": str(tier.units),
+                "unit_type": tier.unit_type,
             },
         )
 
-        # 7. Store invoice
+        # 6. Store invoice
         invoice = Invoice(
             tenant_id=tenant.id,
             endpoint_id=endpoint.id,
@@ -166,11 +146,11 @@ class PaymentHandler:
             provider=gateway.PROVIDER_NAME,
             external_id=result.external_id,
             checkout_url=result.checkout_url,
-            tier_name=tier["name"],
-            tier_units=tier_units,
-            unit_type=unit_type,
-            amount=amount,
-            currency=currency,
+            tier_name=tier.name,
+            tier_units=tier.units,
+            unit_type=tier.unit_type,
+            amount=tier.price,
+            currency=tier.currency,
             status=InvoiceStatus.PENDING.value,
         )
         created = await self.invoice_repo.create(invoice)
