@@ -70,4 +70,12 @@ export const walletsApi = {
     })
     return response.data
   },
+
+  updateXendit: async (
+    walletId: string,
+    updates: { api_key?: string; callback_token?: string },
+  ): Promise<WalletResponse> => {
+    const response = await apiClient.put(`/wallets/gateway/xendit/${walletId}`, updates)
+    return response.data
+  },
 }
