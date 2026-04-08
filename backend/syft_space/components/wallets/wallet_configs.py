@@ -26,8 +26,6 @@ class WalletType(str, Enum):
 
     MPP = "mpp"
     XENDIT = "xendit"
-    STRIPE = "stripe"
-    RAZORPAY = "razorpay"
 
     @property
     def category(self) -> WalletCategory:
@@ -38,8 +36,6 @@ class WalletType(str, Enum):
 WALLET_TYPE_CATEGORIES: dict[WalletType, WalletCategory] = {
     WalletType.MPP: WalletCategory.MPP,
     WalletType.XENDIT: WalletCategory.GATEWAY,
-    WalletType.STRIPE: WalletCategory.GATEWAY,
-    WalletType.RAZORPAY: WalletCategory.GATEWAY,
 }
 
 # Maps each wallet type to its Pydantic config class

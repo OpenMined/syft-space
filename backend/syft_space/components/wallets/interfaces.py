@@ -60,3 +60,25 @@ class WalletProvider(Protocol):
             SetupResult with credentials to persist and display info for frontend.
         """
         ...
+
+    def extract_display(self, configuration: dict[str, Any]) -> dict[str, Any]:
+        """Extract safe display info from stored configuration.
+
+        Called on every get/list to build the response. Must never
+        expose secrets (private keys, API keys, tokens).
+        """
+        ...
+
+    def update_credentials(
+        self,
+        current_config: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply partial updates to stored credentials.
+
+        Returns the full updated configuration dict.
+        Raises ValueError if the update is invalid for this wallet type.
+
+        Default: not supported (raises ValueError).
+        """
+        ...

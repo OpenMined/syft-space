@@ -12,10 +12,8 @@ from loguru import logger
 
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.interfaces import WalletProvider
-from syft_space.components.wallets.mpp.config import MppWalletConfig
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.schemas import WalletListItem, WalletResponse
-from syft_space.components.wallets.wallet_configs import WalletType
 
 
 class WalletHandler:
@@ -138,44 +136,50 @@ class WalletHandler:
             updated_at=wallet.updated_at,
         )
 
-    # --- MPP-specific: address update ---
+    # --- Credential updates (delegates to provider) ---
 
-    async def update_mpp_wallet_address(
-        self, wallet_id: UUID, wallet_address: str, tenant: Tenant
+    async def update_wallet_credentials(
+        self,
+        wallet_id: UUID,
+        updates: dict[str, Any],
+        tenant: Tenant,
     ) -> WalletResponse:
-        """Update the wallet address for an MPP wallet (without changing private key)."""
+        """Partially update wallet credentials via the provider.
+
+        The provider decides what fields are updatable and validates them.
+        """
         wallet = await self.repository.get_by_id(wallet_id, tenant.id)
         if not wallet:
             raise HTTPException(status_code=404, detail="Wallet not found")
-        if wallet.wallet_type != WalletType.MPP:
-            raise HTTPException(
-                status_code=400,
-                detail="Address update is only supported for MPP wallets",
-            )
 
-        config = MppWalletConfig(**wallet.configuration)
-        updated_config = config.model_copy(update={"wallet_address": wallet_address})
+        provider = self._get_provider(wallet.wallet_type)
+        try:
+            updated_config = provider.update_credentials(wallet.configuration, updates)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
         wallet = await self.repository.update_configuration(
-            wallet_id, tenant.id, updated_config.model_dump()
+            wallet_id, tenant.id, updated_config
         )
+        display = provider.extract_display(updated_config)
         return WalletResponse(
             id=wallet.id,
             wallet_type=wallet.wallet_type,
             name=wallet.name,
             is_active=wallet.is_active,
-            display={"wallet_address": wallet_address},
+            display=display,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
 
     # --- Helpers ---
 
-    @staticmethod
-    def _extract_display(wallet_type: str, configuration: dict) -> dict[str, Any]:
-        """Extract safe display info from wallet configuration.
+    def _extract_display(self, wallet_type: str, configuration: dict) -> dict[str, Any]:
+        """Extract safe display info by delegating to the provider.
 
         Never exposes private keys or secrets.
         """
-        if wallet_type == WalletType.MPP:
-            return {"wallet_address": configuration.get("wallet_address", "")}
+        provider = self.providers.get(wallet_type)
+        if provider:
+            return provider.extract_display(configuration)
         return {}

@@ -7,7 +7,6 @@ from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.gateway.schemas import CreateXenditWalletRequest
 from syft_space.components.wallets.handlers import WalletHandler
 from syft_space.components.wallets.schemas import WalletResponse
-from syft_space.components.wallets.wallet_configs import WalletType
 
 
 def build_gateway_wallet_routes(handler: WalletHandler) -> APIRouter:
@@ -25,7 +24,7 @@ def build_gateway_wallet_routes(handler: WalletHandler) -> APIRouter:
     ) -> WalletResponse:
         """Create a Xendit payment gateway wallet."""
         return await handler.create_wallet(
-            wallet_type=WalletType.XENDIT,
+            wallet_type="xendit",
             raw_credentials={
                 "api_key": request.api_key,
                 "callback_token": request.callback_token,

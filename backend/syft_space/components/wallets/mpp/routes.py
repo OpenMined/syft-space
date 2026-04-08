@@ -13,7 +13,6 @@ from syft_space.components.wallets.mpp.schemas import (
     UpdateMppWalletAddressRequest,
 )
 from syft_space.components.wallets.schemas import WalletResponse
-from syft_space.components.wallets.wallet_configs import WalletType
 
 
 def build_mpp_wallet_routes(handler: WalletHandler) -> APIRouter:
@@ -31,7 +30,7 @@ def build_mpp_wallet_routes(handler: WalletHandler) -> APIRouter:
     ) -> WalletResponse:
         """Generate a new MPP wallet keypair."""
         return await handler.create_wallet(
-            wallet_type=WalletType.MPP,
+            wallet_type="mpp",
             raw_credentials={},
             tenant=tenant,
             name=request.name,
@@ -45,7 +44,7 @@ def build_mpp_wallet_routes(handler: WalletHandler) -> APIRouter:
     ) -> WalletResponse:
         """Import an MPP wallet from private key."""
         return await handler.create_wallet(
-            wallet_type=WalletType.MPP,
+            wallet_type="mpp",
             raw_credentials={"private_key": request.private_key},
             tenant=tenant,
             name=request.name,
@@ -59,8 +58,10 @@ def build_mpp_wallet_routes(handler: WalletHandler) -> APIRouter:
         handler: WalletHandler = Depends(get_handler),
     ) -> WalletResponse:
         """Update MPP wallet address manually."""
-        return await handler.update_mpp_wallet_address(
-            wallet_id, request.wallet_address, tenant
+        return await handler.update_wallet_credentials(
+            wallet_id,
+            {"wallet_address": request.wallet_address},
+            tenant,
         )
 
     return router
