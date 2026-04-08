@@ -5,7 +5,7 @@ export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
 
 export interface PolicyConfig {
   id: string
-  [key: string]: string | number
+  [key: string]: unknown
 }
 
 export interface PolicyRule {

@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { policiesApi } from '@/api/policies/policies'
-import { useUserStore } from '@/stores/user'
+import { walletsApi } from '@/api/endpoints/wallets'
 import type { CreatePolicyRequest } from '@/api/types'
 
 export interface PolicyRules {
@@ -158,9 +158,10 @@ export function usePolicyCreation() {
     endpointName: string,
     ruleIndex: number = 1,
   ) => {
-    const userStore = useUserStore()
+    const wallets = await walletsApi.list()
+    const mppWallet = wallets.find((w) => w.wallet_type === 'mpp' && w.is_active)
 
-    if (!userStore.walletId) {
+    if (!mppWallet) {
       throw new Error('Please set up a wallet before creating a pricing policy.')
     }
 
@@ -176,7 +177,7 @@ export function usePolicyCreation() {
       policy_type: 'mpp_accounting',
       configuration: configuration,
       endpoint_id: endpointId,
-      wallet_id: userStore.walletId,
+      wallet_id: mppWallet.id,
     }
 
     return await policiesApi.create(request)
@@ -233,24 +234,24 @@ export function usePolicyCreation() {
   }
 
   // Transform frontend policy rules to backend format for batch creation
-  const transformPolicyRules = (
+  const transformPolicyRules = async (
     policyRules:
       | Record<string, Array<{ id: string; config: Record<string, unknown> }>>
       | PolicyRules,
     endpointName: string,
-  ): CreatePolicyRequest[] => {
+  ): Promise<CreatePolicyRequest[]> => {
     const policyRequests: CreatePolicyRequest[] = []
 
     // Only process implemented policy types (access, rate_limit, pricing)
     const implementedPolicies = ['access', 'rate_limit', 'pricing']
 
-    Object.entries(policyRules).forEach(([policyType, rules]) => {
+    for (const [policyType, rules] of Object.entries(policyRules)) {
       if (!implementedPolicies.includes(policyType)) {
         console.log(`Skipping ${policyType} policy - not implemented yet`)
-        return
+        continue
       }
 
-      rules.forEach((rule: { id: string; config: Record<string, unknown> }, index: number) => {
+      for (const [index, rule] of (rules as Array<{ id: string; config: Record<string, unknown> }>).entries()) {
         const policyName = generatePolicyName(
           policyType,
           rule.config as unknown as PolicyFormData,
@@ -298,18 +299,46 @@ export function usePolicyCreation() {
             scope: backendScope,
           }
         } else if (policyType === 'pricing') {
-          const price = rule.config.price as string
-          const userType = rule.config.userType as 'all' | 'specific'
-          const users = rule.config.users as string
+          const pricingType = rule.config.pricingType as string | undefined
 
-          configuration = createPricingConfiguration(price, userType, users)
+          if (pricingType === 'bundle') {
+            // Bundle pricing — config was already built by AddPricingRuleDialog
+            // Extract fields stored by handlePricingRuleCreated
+            const userType = rule.config.userType as 'all' | 'specific'
+            const users = rule.config.users as string
+            const appliedTo =
+              userType === 'all'
+                ? ['*']
+                : users
+                    .split(',')
+                    .map((u) => u.trim())
+                    .filter((u) => u)
+            configuration = {
+              bundle_tiers: rule.config.bundle_tiers || [],
+              currency: rule.config.currency || 'USD',
+              country: rule.config.country || 'ID',
+              applied_to: appliedTo,
+            }
+          } else {
+            // MPP micro-payment pricing
+            const price = rule.config.price as string
+            const userType = rule.config.userType as 'all' | 'specific'
+            const users = rule.config.users as string
+            configuration = createPricingConfiguration(price, userType, users)
+          }
         } else {
           // Fallback for other policy types
           configuration = rule.config
         }
 
         // Map frontend policy type to backend policy type
-        const backendPolicyType = policyType === 'pricing' ? 'mpp_accounting' : policyType
+        const pricingType = rule.config.pricingType as string | undefined
+        let backendPolicyType: string
+        if (policyType === 'pricing') {
+          backendPolicyType = pricingType === 'bundle' ? 'xendit' : 'mpp_accounting'
+        } else {
+          backendPolicyType = policyType
+        }
 
         const request: CreatePolicyRequest = {
           name: policyName,
@@ -318,16 +347,23 @@ export function usePolicyCreation() {
           endpoint_id: '', // Will be set by caller
         }
 
-        if (backendPolicyType === 'mpp_accounting') {
-          const userStore = useUserStore()
-          if (userStore.walletId) {
-            request.wallet_id = userStore.walletId
+        // Attach wallet_id for payment policies
+        if (backendPolicyType === 'mpp_accounting' || backendPolicyType === 'xendit') {
+          const walletType = backendPolicyType === 'mpp_accounting' ? 'mpp' : 'xendit'
+          try {
+            const wallets = await walletsApi.list()
+            const wallet = wallets.find((w) => w.wallet_type === walletType && w.is_active)
+            if (wallet) {
+              request.wallet_id = wallet.id
+            }
+          } catch {
+            // Wallet lookup failed — policy creation will fail on backend if wallet_id is required
           }
         }
 
         policyRequests.push(request)
-      })
-    })
+      }
+    }
 
     return policyRequests
   }
