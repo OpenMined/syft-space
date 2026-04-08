@@ -242,6 +242,19 @@ export function usePolicyCreation() {
   ): Promise<CreatePolicyRequest[]> => {
     const policyRequests: CreatePolicyRequest[] = []
 
+    // Pre-fetch wallets once for payment policy wallet_id lookup
+    let cachedWallets: Awaited<ReturnType<typeof walletsApi.list>> | null = null
+    const getWalletByType = async (walletType: string) => {
+      if (!cachedWallets) {
+        try {
+          cachedWallets = await walletsApi.list()
+        } catch {
+          cachedWallets = []
+        }
+      }
+      return cachedWallets.find((w) => w.wallet_type === walletType && w.is_active)
+    }
+
     // Only process implemented policy types (access, rate_limit, pricing)
     const implementedPolicies = ['access', 'rate_limit', 'pricing']
 
@@ -350,14 +363,9 @@ export function usePolicyCreation() {
         // Attach wallet_id for payment policies
         if (backendPolicyType === 'mpp_accounting' || backendPolicyType === 'xendit') {
           const walletType = backendPolicyType === 'mpp_accounting' ? 'mpp' : 'xendit'
-          try {
-            const wallets = await walletsApi.list()
-            const wallet = wallets.find((w) => w.wallet_type === walletType && w.is_active)
-            if (wallet) {
-              request.wallet_id = wallet.id
-            }
-          } catch {
-            // Wallet lookup failed — policy creation will fail on backend if wallet_id is required
+          const wallet = await getWalletByType(walletType)
+          if (wallet) {
+            request.wallet_id = wallet.id
           }
         }
 
