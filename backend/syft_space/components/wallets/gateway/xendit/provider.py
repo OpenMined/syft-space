@@ -54,7 +54,13 @@ class XenditWalletProvider:
         current_config: dict[str, Any],
         updates: dict[str, Any],
     ) -> dict[str, Any]:
-        """Xendit credentials are replaced entirely, not partially updated."""
-        raise ValueError(
-            "Xendit wallets do not support partial updates. Delete and recreate."
-        )
+        """Update Xendit credentials (api_key and/or callback_token)."""
+        allowed = XenditWalletConfig.model_fields.keys()
+        invalid = set(updates.keys()) - allowed
+        if invalid:
+            raise ValueError(
+                f"Cannot update fields: {sorted(invalid)}. Allowed: {sorted(allowed)}"
+            )
+        config = XenditWalletConfig(**current_config)
+        updated = config.model_copy(update=updates)
+        return updated.model_dump()

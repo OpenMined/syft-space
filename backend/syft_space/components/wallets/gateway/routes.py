@@ -1,10 +1,15 @@
-"""Gateway wallet routes (Xendit, Stripe, Razorpay)."""
+"""Gateway wallet routes."""
+
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
-from syft_space.components.wallets.gateway.schemas import CreateXenditWalletRequest
+from syft_space.components.wallets.gateway.schemas import (
+    CreateXenditWalletRequest,
+    UpdateXenditWalletRequest,
+)
 from syft_space.components.wallets.handlers import WalletHandler
 from syft_space.components.wallets.schemas import WalletResponse
 
@@ -32,5 +37,16 @@ def build_gateway_wallet_routes(handler: WalletHandler) -> APIRouter:
             tenant=tenant,
             name=request.name,
         )
+
+    @router.put("/xendit/{wallet_id}", response_model=WalletResponse)
+    async def update_xendit_wallet(
+        wallet_id: UUID,
+        request: UpdateXenditWalletRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: WalletHandler = Depends(get_handler),
+    ) -> WalletResponse:
+        """Update Xendit wallet credentials (API key and/or callback token)."""
+        updates = {k: v for k, v in request.model_dump().items() if v is not None}
+        return await handler.update_wallet_credentials(wallet_id, updates, tenant)
 
     return router
