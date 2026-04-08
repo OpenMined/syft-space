@@ -1,8 +1,9 @@
 """MPP Accounting policy type for per-query payments via Machine Payments Protocol."""
 
-import logging
+from enum import StrEnum
 from typing import Any, ClassVar
 
+from loguru import logger
 from mpp import Challenge
 from mpp.methods.tempo import PATH_USD, TESTNET_CHAIN_ID, ChargeIntent, tempo
 from mpp.server import Mpp
@@ -18,13 +19,21 @@ from syft_space.components.policy_types.interfaces import (
 from syft_space.components.shared.utils import matches_any_pattern
 from syft_space.config import app_settings
 
-logger = logging.getLogger(__name__)
+
+class UnitType(StrEnum):
+    """Unit type for MPP accounting policy."""
+
+    REQUESTS = "requests"
 
 
 class MppAccountingConfig(BaseModel):
     """Configuration for MPP accounting policy."""
 
     price: float = Field(ge=0, description="Price per query in USD")
+    unit_type: UnitType = Field(
+        default=UnitType.REQUESTS,
+        description="Unit type for this policy",
+    )
     applied_to: list[str] = Field(
         default_factory=lambda: ["*"],
         description="List of user email patterns. Use '*' for all users.",

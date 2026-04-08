@@ -1,6 +1,7 @@
 """Xendit bundle payment policy type implementation."""
 
-from typing import Any
+from enum import StrEnum
+from typing import Any, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -15,14 +16,43 @@ from syft_space.components.shared.utils import (
 )
 
 
+class UnitType(StrEnum):
+    """Unit type for Xendit accounting policy."""
+
+    REQUESTS = "requests"
+
+
+class CountryCode(StrEnum):
+    """Country for Xendit accounting policy."""
+
+    ID = "ID"
+    PH = "PH"
+    SG = "SG"
+    MY = "MY"
+    VN = "VN"
+    TH = "TH"
+
+
+class CurrencyCode(StrEnum):
+    """Currency for Xendit accounting policy."""
+
+    IDR = "IDR"
+    USD = "USD"
+    PHP = "PHP"
+    SGD = "SGD"
+    MYR = "MYR"
+    VND = "VND"
+    THB = "THB"
+
+
 class BundleTier(BaseModel):
     """A single bundle tier within the xendit policy config."""
 
     name: str = Field(..., description="Tier display name (e.g., 'Starter', 'Pro')")
     units: int = Field(..., gt=0, description="Number of units in this tier")
-    unit_type: str = Field(
-        default="requests",
-        description="Unit type: 'requests', 'tokens', or 'documents'",
+    unit_type: UnitType = Field(
+        default=UnitType.REQUESTS,
+        description="Unit type for this tier",
     )
     price: float = Field(..., gt=0, description="Price for this tier")
 
@@ -33,10 +63,11 @@ class XenditPolicyConfig(BaseModel):
     bundle_tiers: list[BundleTier] = Field(
         ..., min_length=1, description="Available bundle tiers for purchase"
     )
-    currency: str = Field(default="USD", description="Currency for all tiers")
-    country: str = Field(
-        default="ID",
-        description="ISO 3166-1 alpha-2 country code (e.g., 'ID', 'PH', 'SG', 'MY', 'VN', 'TH')",
+    currency: CurrencyCode = Field(
+        default=CurrencyCode.IDR, description="Currency code for all tiers"
+    )
+    country: CountryCode = Field(
+        default=CountryCode.ID, description="Country code for all tiers"
     )
     applied_to: list[str] = Field(
         default_factory=lambda: ["*"],
@@ -52,7 +83,7 @@ class XenditPolicyConfig(BaseModel):
         return next((t for t in self.bundle_tiers if t.name == tier_name), None)
 
     @model_validator(mode="after")
-    def validate_consistent_unit_type(self) -> "XenditPolicyConfig":
+    def validate_consistent_unit_type(self) -> Self:
         """All tiers must have the same unit_type."""
         unit_types = {tier.unit_type for tier in self.bundle_tiers}
         if len(unit_types) > 1:
