@@ -26,6 +26,8 @@ from syft_space.components.models.repository import ModelRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
+from syft_space.components.wallets.repository import WalletRepository
+from syft_space.config import app_settings
 
 
 class PublishEndpointHandler:
@@ -39,6 +41,7 @@ class PublishEndpointHandler:
         model_repository: ModelRepository,
         dataset_registry: DatasetTypeRegistry,
         model_registry: ModelTypeRegistry,
+        wallet_repository: WalletRepository | None = None,
     ):
         self.endpoint_repository = endpoint_repository
         self.marketplace_repository = marketplace_repository
@@ -46,6 +49,7 @@ class PublishEndpointHandler:
         self.model_repository = model_repository
         self.dataset_registry = dataset_registry
         self.model_registry = model_registry
+        self.wallet_repository = wallet_repository
 
     async def publish_endpoint(
         self,
@@ -263,7 +267,7 @@ class PublishEndpointHandler:
                     )
                     continue
 
-                payloads = [self._build_publish_payload(ep) for ep in eps]
+                payloads = [await self._build_publish_payload(ep) for ep in eps]
 
                 async with SyftHubClient(base_url=marketplace.url) as client:
                     await client.login(
@@ -313,7 +317,7 @@ class PublishEndpointHandler:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
-                payload = self._build_publish_payload(endpoint)
+                payload = await self._build_publish_payload(endpoint)
                 await client.publish_endpoint(payload, overwrite=True)
         except SyftHubError as e:
             return PublishResult(
@@ -421,8 +425,11 @@ class PublishEndpointHandler:
                 marketplace_id=marketplace.id, available=None, error=str(e)
             )
 
-    def _build_publish_payload(self, endpoint: Endpoint) -> dict[str, Any]:
-        """Build the publish payload for an endpoint."""
+    async def _build_publish_payload(self, endpoint: Endpoint) -> dict[str, Any]:
+        """Build the publish payload for an endpoint.
+
+        Enriches payment policies with wallet_type and payment URLs.
+        """
         endpoint_type = (
             "model_data_source"
             if endpoint.model_id is not None and endpoint.dataset_id is not None
@@ -431,16 +438,43 @@ class PublishEndpointHandler:
             else "data_source"
         )
 
-        policies = [
-            {
+        # Batch-fetch wallets for payment policies
+        wallet_types: dict[str, str] = {}
+        if self.wallet_repository:
+            wallet_ids = [
+                p.wallet_id for p in endpoint.policies if p.wallet_id is not None
+            ]
+            if wallet_ids:
+                wallets = await self.wallet_repository.get_by_ids(
+                    wallet_ids, endpoint.tenant_id
+                )
+                wallet_types = {str(w.id): w.wallet_type for w in wallets}
+
+        policies = []
+        for policy in endpoint.policies:
+            policy_data: dict[str, Any] = {
                 "type": policy.policy_type,
                 "version": "1.0",
                 "enabled": True,
                 "description": policy.name,
                 "config": policy.configuration,
             }
-            for policy in endpoint.policies
-        ]
+
+            # Enrich payment policies with wallet_type and payment URLs
+            if policy.wallet_id:
+                wtype = wallet_types.get(str(policy.wallet_id))
+                if wtype:
+                    policy_data["wallet_type"] = wtype
+                    if wtype == "xendit" and app_settings.public_url:
+                        base = str(app_settings.public_url).rstrip("/")
+                        policy_data["payment_url"] = (
+                            f"{base}/api/v1/payments/gateway/xendit/invoices"
+                        )
+                        policy_data["bundle_usage_url"] = (
+                            f"{base}/api/v1/payments/gateway/bundles/{endpoint.slug}"
+                        )
+
+            policies.append(policy_data)
 
         connection_config = {
             "path": f"/api/v1/endpoints/{endpoint.slug}/query",

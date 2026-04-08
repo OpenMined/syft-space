@@ -477,6 +477,7 @@ publish_endpoint_handler = PublishEndpointHandler(
     model_repository=model_repository,
     dataset_registry=DATASET_TYPE_REGISTRY,
     model_registry=MODEL_TYPE_REGISTRY,
+    wallet_repository=wallet_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
 
