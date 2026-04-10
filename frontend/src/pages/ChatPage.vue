@@ -10,6 +10,7 @@ import {
   ChevronRight,
   FileText,
   Loader2,
+  Sparkles,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -23,13 +24,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { modelsApi } from '@/api/endpoints/models'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { useLocalChat, type ChatTurn } from '@/composables/useLocalChat'
+import { useNavigation } from '@/composables/useNavigation'
 import type { ModelListItem, DatasetListItem } from '@/api/types'
 
 const { turns, loading, error, modelId, datasetId, sendMessage, clearChat } = useLocalChat()
+const { goToModels } = useNavigation()
 
 const models = ref<ModelListItem[]>([])
 const datasets = ref<DatasetListItem[]>([])
@@ -39,7 +42,10 @@ const inputText = ref('')
 const messagesEndRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
 
-const canSend = computed(() => modelId.value && inputText.value.trim() && !loading.value)
+const hasNoModels = computed(() => !modelsLoading.value && models.value.length === 0)
+const canSubmit = computed(
+  () => inputText.value.trim().length > 0 && modelId.value != null && !loading.value,
+)
 
 onMounted(async () => {
   const [modelsList, datasetsList] = await Promise.all([
@@ -60,17 +66,22 @@ watch(
 )
 
 async function handleSend() {
-  if (!canSend.value) return
+  if (!canSubmit.value) return
   const text = inputText.value.trim()
   inputText.value = ''
   await sendMessage(text)
 }
 
+function isDialogOpen(): boolean {
+  return document.querySelector('[role="dialog"][data-state="open"]') !== null
+}
+
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    handleSend()
-  }
+  if (e.key !== 'Enter' || e.shiftKey) return
+  if (!(e.ctrlKey || e.metaKey)) return
+  if (isDialogOpen()) return
+  e.preventDefault()
+  handleSend()
 }
 
 function toggleRefs(index: number) {
@@ -96,9 +107,26 @@ function isAssistant(turn: ChatTurn) {
     <!-- Messages Area -->
     <ScrollArea class="flex-1">
       <div class="max-w-3xl mx-auto px-6 py-6">
+        <!-- No Models Available State -->
+        <div
+          v-if="hasNoModels && turns.length === 0"
+          class="flex flex-col items-center justify-center py-24"
+        >
+          <Alert class="max-w-md">
+            <Sparkles class="h-4 w-4" />
+            <AlertTitle>No models available</AlertTitle>
+            <AlertDescription>
+              <p class="mb-3">
+                You need at least one model before you can test your resources in chat.
+              </p>
+              <Button size="sm" @click="goToModels"> Add a model </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+
         <!-- Empty State -->
         <div
-          v-if="turns.length === 0 && !loading"
+          v-else-if="turns.length === 0 && !loading"
           class="flex flex-col items-center justify-center py-24 text-center"
         >
           <MessageSquare class="h-12 w-12 text-muted-foreground/40 mb-6" />
@@ -250,13 +278,19 @@ function isAssistant(turn: ChatTurn) {
         <div class="flex gap-3">
           <Textarea
             v-model="inputText"
-            :placeholder="modelId ? 'Ask a question...' : 'Select a model to start chatting'"
+            :placeholder="
+              hasNoModels
+                ? 'Add a model to start chatting'
+                : modelId
+                  ? 'Ask a question...'
+                  : 'Select a model to start chatting'
+            "
             :disabled="!modelId"
             class="resize-none min-h-[44px] max-h-[120px]"
             rows="1"
             @keydown="handleKeydown"
           />
-          <Button :disabled="!canSend" class="shrink-0 self-end" @click="handleSend">
+          <Button :disabled="!canSubmit" class="shrink-0 self-end" @click="handleSend">
             <Send class="h-4 w-4" />
           </Button>
         </div>
