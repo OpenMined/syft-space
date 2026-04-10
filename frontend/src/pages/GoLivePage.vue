@@ -1150,10 +1150,6 @@ const handleOverwriteConfirm = async () => {
                       <Plus class="h-4 w-4" />
                     </Button>
                   </div>
-                  <p class="text-xs text-muted-foreground">
-                    Tags help others discover your content
-                  </p>
-
                   <!-- Popular suggestions -->
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-xs text-muted-foreground">Popular:</span>
