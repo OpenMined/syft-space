@@ -7,6 +7,7 @@ import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
 import { getProviderBaseUrl } from '@/config/providers'
 import { usePolicyCreation } from './usePolicyCreation'
+import { DEFAULT_PII_FILTER_CONFIG } from '@/config/policyTypes'
 import type { PolicyRulesRecord } from '@/config/policyTypes'
 import type {
   CreateDatasetRequest,
@@ -43,6 +44,7 @@ export interface GoLiveData {
   systemPrompt: string
 
   policyRules: PolicyRulesRecord
+  piiFilterEnabled: boolean
 
   name: string
   summary: string
@@ -174,6 +176,19 @@ export function useGoLive() {
 
   const createPolicies = async (data: GoLiveData, endpointId: string): Promise<void> => {
     const policyRequests = transformPolicyRules(data.policyRules, data.name)
+
+    if (data.piiFilterEnabled) {
+      policyRequests.push({
+        name: `PII Filter for ${data.name}`,
+        policy_type: 'pii_filter',
+        configuration: {
+          categories: [...DEFAULT_PII_FILTER_CONFIG.categories],
+          replacement: DEFAULT_PII_FILTER_CONFIG.replacement,
+        },
+        endpoint_id: '',
+      })
+    }
+
     if (policyRequests.length === 0) return
 
     creationStep.value = 'Applying access rules...'

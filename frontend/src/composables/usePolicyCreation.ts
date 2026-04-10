@@ -1,12 +1,18 @@
 import { ref } from 'vue'
 import { policiesApi } from '@/api/policies/policies'
 import { useUserStore } from '@/stores/user'
+import {
+  DEFAULT_PII_FILTER_CONFIG,
+  PII_FILTER_CATEGORIES,
+  type PiiFilterCategory,
+} from '@/config/policyTypes'
 import type { CreatePolicyRequest } from '@/api/types'
 
 export interface PolicyRules {
   access: Array<{ id: string; config: Record<string, unknown> }>
   rate_limit: Array<{ id: string; config: Record<string, unknown> }>
   pricing: Array<{ id: string; config: Record<string, unknown> }>
+  pii_filter?: Array<{ id: string; config: Record<string, unknown> }>
 }
 
 export interface AuthorizationFormData {
@@ -29,7 +35,17 @@ export interface PricingFormData {
   note: string
 }
 
-export type PolicyFormData = AuthorizationFormData | RateLimitFormData | PricingFormData
+export interface PiiFilterFormData {
+  categories: PiiFilterCategory[]
+  replacement: string
+  note: string
+}
+
+export type PolicyFormData =
+  | AuthorizationFormData
+  | RateLimitFormData
+  | PricingFormData
+  | PiiFilterFormData
 
 export function usePolicyCreation() {
   const isCreating = ref(false)
@@ -41,6 +57,7 @@ export function usePolicyCreation() {
       access: 'Authorization',
       rate_limit: 'Rate Limiter',
       pricing: 'Pricing',
+      pii_filter: 'PII Filter',
     }
     return displayNames[policyType as keyof typeof displayNames] || policyType
   }
@@ -60,6 +77,27 @@ export function usePolicyCreation() {
       .split(',')
       .map((u) => u.trim())
       .filter((u) => u.length > 0)
+  }
+
+  // Helper function to build a PII filter configuration from raw input.
+  const createPiiFilterConfiguration = (
+    rawCategories: unknown,
+    rawReplacement: unknown,
+  ): Record<string, unknown> => {
+    const categories = Array.isArray(rawCategories)
+      ? (rawCategories as unknown[]).filter((c): c is PiiFilterCategory =>
+          (PII_FILTER_CATEGORIES as readonly string[]).includes(c as string),
+        )
+      : []
+    const replacement =
+      typeof rawReplacement === 'string' && rawReplacement.length > 0
+        ? rawReplacement
+        : DEFAULT_PII_FILTER_CONFIG.replacement
+
+    return {
+      categories: categories.length > 0 ? categories : [...DEFAULT_PII_FILTER_CONFIG.categories],
+      replacement,
+    }
   }
 
   // Helper function to create pricing configuration
@@ -182,9 +220,28 @@ export function usePolicyCreation() {
     return await policiesApi.create(request)
   }
 
+  const createPiiFilterPolicy = async (
+    formData: PiiFilterFormData,
+    endpointId: string,
+    endpointName: string,
+    ruleIndex: number = 1,
+  ) => {
+    const policyName = generatePolicyName('pii_filter', formData, endpointName, ruleIndex)
+    const configuration = createPiiFilterConfiguration(formData.categories, formData.replacement)
+
+    const request: CreatePolicyRequest = {
+      name: policyName,
+      policy_type: 'pii_filter',
+      configuration,
+      endpoint_id: endpointId,
+    }
+
+    return await policiesApi.create(request)
+  }
+
   // Generic policy creation method that routes to specific handlers
   const createPolicy = async (
-    policyType: 'access' | 'rate_limit' | 'pricing',
+    policyType: 'access' | 'rate_limit' | 'pricing' | 'pii_filter',
     formData: PolicyFormData,
     endpointId: string,
     endpointName: string,
@@ -220,6 +277,14 @@ export function usePolicyCreation() {
             ruleIndex,
           )
           break
+        case 'pii_filter':
+          result = await createPiiFilterPolicy(
+            formData as PiiFilterFormData,
+            endpointId,
+            endpointName,
+            ruleIndex,
+          )
+          break
         default:
           throw new Error(`Unsupported policy type: ${policyType}`)
       }
@@ -241,8 +306,8 @@ export function usePolicyCreation() {
   ): CreatePolicyRequest[] => {
     const policyRequests: CreatePolicyRequest[] = []
 
-    // Only process implemented policy types (access, rate_limit, pricing)
-    const implementedPolicies = ['access', 'rate_limit', 'pricing']
+    // Only process implemented policy types
+    const implementedPolicies = ['access', 'rate_limit', 'pricing', 'pii_filter']
 
     Object.entries(policyRules).forEach(([policyType, rules]) => {
       if (!implementedPolicies.includes(policyType)) {
@@ -303,6 +368,11 @@ export function usePolicyCreation() {
           const users = rule.config.users as string
 
           configuration = createPricingConfiguration(price, userType, users)
+        } else if (policyType === 'pii_filter') {
+          configuration = createPiiFilterConfiguration(
+            rule.config.categories,
+            rule.config.replacement,
+          )
         } else {
           // Fallback for other policy types
           configuration = rule.config
@@ -348,6 +418,10 @@ export function usePolicyCreation() {
     return !isNaN(price) && price >= 0
   }
 
+  const validatePiiFilterForm = (formData: PiiFilterFormData): boolean => {
+    return Array.isArray(formData.categories) && formData.categories.length > 0
+  }
+
   const validatePolicyForm = (policyType: string, formData: PolicyFormData): boolean => {
     switch (policyType) {
       case 'access':
@@ -356,6 +430,8 @@ export function usePolicyCreation() {
         return validateRateLimitForm(formData as RateLimitFormData)
       case 'pricing':
         return validatePricingForm(formData as PricingFormData)
+      case 'pii_filter':
+        return validatePiiFilterForm(formData as PiiFilterFormData)
       default:
         return false
     }
@@ -377,11 +453,13 @@ export function usePolicyCreation() {
     createAuthorizationPolicy,
     createRateLimitPolicy,
     createPricingPolicy,
+    createPiiFilterPolicy,
     transformPolicyRules,
     validatePolicyForm,
     validateAuthorizationForm,
     validateRateLimitForm,
     validatePricingForm,
+    validatePiiFilterForm,
     processUserList,
     generatePolicyName,
     reset,
