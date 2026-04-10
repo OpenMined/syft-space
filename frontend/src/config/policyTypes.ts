@@ -1,11 +1,19 @@
 import { Shield, Gauge, DollarSign } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
-export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
+export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing' | 'pii_filter'
+
+export const PII_FILTER_CATEGORIES = ['email', 'phone', 'ssn', 'credit_card'] as const
+export type PiiFilterCategory = (typeof PII_FILTER_CATEGORIES)[number]
+
+export const DEFAULT_PII_FILTER_CONFIG = {
+  categories: [...PII_FILTER_CATEGORIES] as PiiFilterCategory[],
+  replacement: '[REDACTED]',
+}
 
 export interface PolicyConfig {
   id: string
-  [key: string]: string | number
+  [key: string]: string | number | string[] | undefined
 }
 
 export interface PolicyRule {
@@ -60,6 +68,8 @@ export const getPolicyTypeLabel = (type: string): string => {
       return 'Usage Limits'
     case 'pricing':
       return 'Pricing'
+    case 'pii_filter':
+      return 'PII Filter'
     default:
       return 'Policy'
   }
@@ -69,6 +79,7 @@ export const createEmptyPolicyRules = (): PolicyRulesRecord => ({
   access: [],
   rate_limit: [],
   pricing: [],
+  pii_filter: [],
 })
 
 export const generateRuleId = (): string => {
@@ -139,6 +150,14 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
           return `$${formattedPrice} per query for ${userList.join(', ')}`
         }
       }
+
+    case 'pii_filter': {
+      const categories = Array.isArray((config as unknown as { categories?: unknown }).categories)
+        ? ((config as unknown as { categories: string[] }).categories as string[])
+        : [...PII_FILTER_CATEGORIES]
+      if (categories.length === 0) return 'PII filter configured (no categories)'
+      return `Redact ${categories.join(', ')} from responses`
+    }
 
     default:
       return 'Rule configured'

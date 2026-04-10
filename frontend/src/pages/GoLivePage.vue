@@ -230,7 +230,7 @@ watch(aiModelId, (id) => {
   })
 })
 
-// PII Filter (UI-only, no backend support yet)
+// PII Filter toggle — emits a `pii_filter` policy on publish.
 const piiFilterEnabled = ref(false)
 
 // Multi-rule policy state
@@ -504,6 +504,7 @@ const buildGoLiveData = (): GoLiveData => ({
   aiModelId: hasModel.value ? selectedModelId.value : aiModelId.value,
   systemPrompt: systemPrompt.value.trim(),
   policyRules: policyRules.value,
+  piiFilterEnabled: piiFilterEnabled.value,
   name: name.value.trim(),
   summary: summary.value.trim(),
   description: description.value.trim(),
@@ -902,9 +903,7 @@ const handleOverwriteConfirm = async () => {
                 <div
                   class="flex items-start justify-between gap-4 p-4 rounded-lg border transition-all"
                   :class="
-                    piiFilterEnabled
-                      ? 'border-primary/30 bg-primary/5'
-                      : 'border-border bg-card'
+                    piiFilterEnabled ? 'border-primary/30 bg-primary/5' : 'border-border bg-card'
                   "
                 >
                   <div class="flex items-start gap-3 flex-1 min-w-0">
