@@ -173,7 +173,9 @@ const tabs = [
               <!-- No wallet configured -->
               <template v-else-if="!userStore.walletConfigured">
                 <span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
-                <span class="text-sm font-semibold text-amber-600 dark:text-amber-400">Set up wallet</span>
+                <span class="text-sm font-semibold text-amber-600 dark:text-amber-400"
+                  >Set up wallet</span
+                >
               </template>
               <!-- Normal state -->
               <template v-else>
@@ -193,22 +195,31 @@ const tabs = [
           <DropdownMenuContent class="w-80" align="end">
             <!-- No wallet configured nudge -->
             <div
-              v-if="!userStore.walletConfigured && !userStore.balanceLoading && !userStore.balanceError"
+              v-if="
+                !userStore.walletConfigured && !userStore.balanceLoading && !userStore.balanceError
+              "
               class="px-4 pb-3"
             >
               <div class="flex flex-col items-center text-center py-2 space-y-3">
-                <div class="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                <div
+                  class="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center"
+                >
                   <Wallet class="h-5 w-5 text-amber-600 dark:text-amber-400" />
                 </div>
                 <div>
                   <p class="text-sm font-medium text-foreground">No wallet configured</p>
-                  <p class="text-xs text-muted-foreground mt-1">Set up a wallet to receive payments for your endpoints</p>
+                  <p class="text-xs text-muted-foreground mt-1">
+                    Set up a wallet to receive payments for your endpoints
+                  </p>
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
                   class="w-full"
-                  @click="walletSetupDialogOpen = true; balanceDropdownOpen = false"
+                  @click="
+                    walletSetupDialogOpen = true
+                    balanceDropdownOpen = false
+                  "
                 >
                   Set up wallet
                 </Button>

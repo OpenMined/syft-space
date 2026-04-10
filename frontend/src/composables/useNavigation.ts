@@ -33,64 +33,78 @@ export function useNavigation() {
     }
   }
 
-  // Standard route definitions for consistency
   const routes = {
     home: { name: 'home' },
 
-    // Endpoints
-    endpoints: { name: 'endpoints' },
-    endpointDetail: (slug: string) => ({ name: 'endpoint-detail', params: { slug } }),
-    createEndpoint: { name: 'create-endpoint' },
+    // APIs (was: Endpoints)
+    live: { name: 'endpoints' },
+    liveDetail: (slug: string) => ({ name: 'endpoint-detail', params: { slug } }),
+    goLive: { name: 'go-live' },
     createDataEndpoint: { name: 'create-data-endpoint' },
-    createModelEndpoint: { name: 'create-model-endpoint' },
 
     // Models
     models: { name: 'models' },
     modelDetail: (slug: string) => ({ name: 'model-detail', params: { slug } }),
 
-    // Datasets
-    datasets: { name: 'datasets' },
-    datasetDetail: (slug: string) => ({ name: 'dataset-detail', params: { slug } }),
+    // Data Sources (was: Datasets)
+    dataSources: { name: 'datasets' },
+    dataSourceDetail: (slug: string) => ({ name: 'dataset-detail', params: { slug } }),
 
     // Other pages
     inbox: { name: 'inbox' },
+    analytics: { name: 'analytics' },
     settings: { name: 'settings' },
+
+    // Aliases for backwards compat
+    endpoints: { name: 'endpoints' },
+    datasets: { name: 'datasets' },
+    endpointDetail: (slug: string) => ({ name: 'endpoint-detail', params: { slug } }),
+    datasetDetail: (slug: string) => ({ name: 'dataset-detail', params: { slug } }),
   }
 
-  // Helper methods for common navigation patterns
-  const goToEndpoints = () => navigateTo(routes.endpoints)
-  const goToModels = () => navigateTo(routes.models)
-  const goToDatasets = () => navigateTo(routes.datasets)
   const goToHome = () => navigateTo(routes.home)
+  const goToLive = () => navigateTo(routes.live)
+  const goToModels = () => navigateTo(routes.models)
+  const goToDataSources = () => navigateTo(routes.dataSources)
   const goToInbox = () => navigateTo(routes.inbox)
+  const goToAnalytics = () => navigateTo(routes.analytics)
   const goToSettings = () => navigateTo(routes.settings)
 
-  const goToEndpointDetail = (slug: string) => navigateTo(routes.endpointDetail(slug))
+  const goToLiveDetail = (slug: string) => navigateTo(routes.liveDetail(slug))
   const goToModelDetail = (slug: string) => navigateTo(routes.modelDetail(slug))
-  const goToDatasetDetail = (slug: string) => navigateTo(routes.datasetDetail(slug))
+  const goToDataSourceDetail = (slug: string) => navigateTo(routes.dataSourceDetail(slug))
 
-  const goToCreateEndpoint = () => navigateTo(routes.createEndpoint)
+  const goToGoLive = () => navigateTo(routes.goLive)
   const goToCreateDataEndpoint = () => navigateTo(routes.createDataEndpoint)
-  const goToCreateModelEndpoint = () => navigateTo(routes.createModelEndpoint)
+
+  // Backwards-compatible aliases
+  const goToEndpoints = goToLive
+  const goToDatasets = goToDataSources
+  const goToEndpointDetail = (slug: string) => goToLiveDetail(slug)
+  const goToDatasetDetail = (slug: string) => goToDataSourceDetail(slug)
 
   return {
-    // Core navigation
     navigateTo,
     goBack,
     routes,
 
-    // Helper methods
-    goToEndpoints,
-    goToModels,
-    goToDatasets,
     goToHome,
+    goToLive,
+    goToModels,
+    goToDataSources,
     goToInbox,
+    goToAnalytics,
     goToSettings,
-    goToEndpointDetail,
+    goToLiveDetail,
     goToModelDetail,
-    goToDatasetDetail,
-    goToCreateEndpoint,
+    goToDataSourceDetail,
+    goToGoLive,
     goToCreateDataEndpoint,
-    goToCreateModelEndpoint,
+
+    // Backwards-compatible aliases
+    goToEndpoints,
+    goToDatasets,
+    goToEndpointDetail,
+    goToDatasetDetail,
   }
 }

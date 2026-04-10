@@ -201,7 +201,7 @@
                   >
                     Review & Publish
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
+                  <p class="body-sm text-muted-foreground mt-1">Final check and publish</p>
                   <div
                     v-if="currentSubStep > 4"
                     class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"

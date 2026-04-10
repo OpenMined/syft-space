@@ -210,17 +210,12 @@
           <p class="text-sm text-muted-foreground">
             No wallet configured. Create one to start receiving payments.
           </p>
-          <Button @click="walletDialogOpen = true">
-            Set Up Wallet
-          </Button>
+          <Button @click="walletDialogOpen = true"> Set Up Wallet </Button>
         </div>
       </div>
 
       <!-- Wallet Setup Dialog -->
-      <WalletSetupDialog
-        v-model:open="walletDialogOpen"
-        @wallet-updated="onWalletUpdated"
-      />
+      <WalletSetupDialog v-model:open="walletDialogOpen" @wallet-updated="onWalletUpdated" />
 
       <!-- Diagnostics Section -->
       <div class="bg-card border border-border rounded-xl p-6">

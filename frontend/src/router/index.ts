@@ -10,10 +10,10 @@ import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
 import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
 import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
-import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
 import UpdatesPage from '../pages/UpdatesPage.vue'
 import AboutPage from '../pages/AboutPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
+import GoLivePage from '../pages/GoLivePage.vue'
 import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 import { settingsApi } from '../api/endpoints/settings'
@@ -104,14 +104,14 @@ const router = createRouter({
       component: SettingsPage,
     },
     {
+      path: '/go-live',
+      name: 'go-live',
+      component: GoLivePage,
+    },
+    {
       path: '/create/data-endpoint',
       name: 'create-data-endpoint',
       component: CreateDataEndpointPage,
-    },
-    {
-      path: '/create/model-endpoint',
-      name: 'create-model-endpoint',
-      component: CreateModelEndpointPage,
     },
     {
       path: '/updates',

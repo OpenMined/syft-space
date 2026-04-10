@@ -45,12 +45,7 @@
               <Button variant="ghost" size="sm" @click="showChangeWallet = false">Cancel</Button>
             </div>
           </div>
-          <Button
-            v-else
-            variant="outline"
-            size="sm"
-            @click="showChangeWallet = true"
-          >
+          <Button v-else variant="outline" size="sm" @click="showChangeWallet = true">
             Change Wallet
           </Button>
         </div>
@@ -82,11 +77,7 @@
               />
             </div>
             <div class="flex gap-2">
-              <Button
-                size="sm"
-                @click="handleImportWallet"
-                :disabled="saving || !importPrivateKey"
-              >
+              <Button size="sm" @click="handleImportWallet" :disabled="saving || !importPrivateKey">
                 <Loader2 v-if="saving" class="h-4 w-4 mr-2 animate-spin" />
                 Import Wallet
               </Button>

@@ -40,7 +40,7 @@
 
           <!-- Data Option -->
           <button
-            @click="selectEndpointType('data')"
+            @click="selectEndpointType()"
             class="w-full p-6 bg-card border-2 border-border rounded-lg hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 transition-all text-left group"
           >
             <div class="flex items-start gap-4">
@@ -109,7 +109,7 @@
 
           <!-- Model Option -->
           <button
-            @click="selectEndpointType('model')"
+            @click="selectEndpointType()"
             class="w-full p-6 bg-card border-2 border-border rounded-lg hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-950/30 transition-all text-left group"
           >
             <div class="flex items-start gap-4">
@@ -218,15 +218,8 @@ const emit = defineEmits<Emits>()
 
 const router = useRouter()
 
-const selectEndpointType = (type: 'data' | 'model') => {
-  // Close modal first
+const selectEndpointType = () => {
   emit('update:open', false)
-
-  // Navigate using named routes
-  if (type === 'data') {
-    router.push({ name: 'create-data-endpoint' })
-  } else if (type === 'model') {
-    router.push({ name: 'create-model-endpoint' })
-  }
+  router.push({ name: 'go-live' })
 }
 </script>

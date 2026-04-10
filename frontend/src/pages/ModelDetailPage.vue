@@ -355,7 +355,7 @@ const handleEditDialogClose = () => {
 }
 
 const navigateToCreateEndpoint = () => {
-  router.push({ name: 'create-model-endpoint' })
+  router.push({ name: 'go-live' })
 }
 
 const navigateToEndpoint = (slug: string) => {

@@ -9,9 +9,9 @@
           {{ isEditing ? 'Update this' : 'Create a new' }}
           {{
             policyType === 'access'
-              ? 'authorization'
+              ? 'access control'
               : policyType === 'rate_limit'
-                ? 'rate limiting'
+                ? 'usage limit'
                 : 'pricing'
           }}
           policy for this endpoint.

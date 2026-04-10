@@ -1,11 +1,8 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
     <!-- Header -->
-    <div class="mb-10">
-      <div class="flex items-center gap-3 mb-3">
-        <Brain class="h-6 w-6 text-primary" />
-        <h1 class="heading-3">Your Models</h1>
-      </div>
+    <div class="mb-12">
+      <h1 class="text-2xl font-semibold tracking-tight text-foreground mb-3">Your Models</h1>
       <p class="body-lg text-muted-foreground md:max-w-[60%]">
         Models that live on your machine and work for you. Use endpoints to make them queryable by
         others, on your terms.
@@ -14,7 +11,7 @@
 
     <!-- Actions Bar -->
     <div class="flex items-center justify-between mb-8">
-      <div class="relative w-64">
+      <div class="relative w-full max-w-sm">
         <Search
           class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
         />
@@ -26,7 +23,7 @@
       </div>
       <Button @click="showCreateModelDialog = true">
         <Plus class="h-4 w-4 mr-2" />
-        Add Model
+        Add
       </Button>
     </div>
 
@@ -51,20 +48,17 @@
     </div>
 
     <!-- Error State -->
-    <div
-      v-else-if="error"
-      class="bg-destructive/10 border border-destructive/20 rounded-lg p-6 text-center"
-    >
-      <p class="text-destructive mb-4">{{ error }}</p>
-      <Button @click="fetchModels" variant="outline"> Try Again </Button>
+    <div v-else-if="error" class="text-center py-8">
+      <div class="text-destructive mb-2">Failed to load models</div>
+      <Button @click="fetchModels" variant="outline">Try Again</Button>
     </div>
 
-    <!-- Empty State (when no models exist) -->
+    <!-- Empty State -->
     <div v-else-if="models.length === 0" class="text-center py-8">
-      <Brain class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+      <Brain class="h-10 w-10 text-muted-foreground mx-auto mb-4" />
       <h3 class="heading-3 text-foreground mb-2">No models yet</h3>
       <p class="body-sm text-muted-foreground mb-4">
-        Start by adding or connecting your first AI model
+        Add your first AI model to get started
       </p>
       <Button @click="showCreateModelDialog = true">
         <Plus class="h-4 w-4 mr-2" />
@@ -73,15 +67,15 @@
     </div>
 
     <!-- Models List -->
-    <div v-else class="space-y-5">
+    <div v-else class="space-y-3">
       <div
         v-for="model in filteredModels"
         :key="model.id"
-        class="bg-card border border-border rounded-xl p-6 hover:shadow-lg transition-all cursor-pointer"
+        class="group rounded-lg border border-border/50 bg-card p-5 hover:shadow-sm hover:-translate-y-px transition-all cursor-pointer"
         @click="navigateToDetail(model.name)"
       >
         <div class="flex items-start justify-between">
-          <div class="flex items-start gap-4">
+          <div class="flex items-start gap-4 flex-1">
             <div class="p-3.5 rounded-xl bg-primary/10">
               <IntegrationIcon :name="model.dtype" context="models" class="h-6 w-6" />
             </div>
@@ -134,22 +128,28 @@
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p class="body-sm text-muted-foreground mb-4">
+              <p class="body-sm text-muted-foreground mb-3 line-clamp-2">
                 {{ model.summary }}
               </p>
-              <div v-if="model.tags" class="flex gap-2">
+              <div v-if="model.tags" class="flex gap-1.5 flex-wrap">
                 <Badge
-                  v-for="tag in model.tags.split(',').filter((t) => t.trim())"
+                  v-for="tag in modelTags(model.tags).slice(0, 3)"
                   :key="tag"
-                  variant="outline"
-                  class="body-sm"
+                  variant="secondary"
+                  class="text-[11px] px-2 py-0.5"
                 >
-                  {{ tag.trim() }}
+                  {{ tag }}
                 </Badge>
+                <span
+                  v-if="modelTags(model.tags).length > 3"
+                  class="text-[11px] text-muted-foreground self-center"
+                >
+                  +{{ modelTags(model.tags).length - 3 }}
+                </span>
               </div>
             </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <Button variant="outline" size="sm" @click.stop="handleEditModel(model)">
               <Edit class="h-4 w-4 mr-2" />
               Edit
@@ -250,6 +250,12 @@ const fetchModels = async () => {
     isLoading.value = false
   }
 }
+
+const modelTags = (tags: string) =>
+  tags
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
 
 const filteredModels = computed(() => {
   return models.value.filter((model) => {

@@ -9,7 +9,7 @@
             class="text-muted-foreground hover:text-foreground body-sm font-medium flex items-center transition-colors"
           >
             <Database class="h-4 w-4 mr-2" />
-            Datasets
+            Data Sources
           </router-link>
         </li>
         <li class="flex items-center">
@@ -188,7 +188,7 @@
           </TabsTrigger>
           <TabsTrigger value="analytics" class="flex items-center gap-2">
             <BarChart3 class="h-4 w-4" />
-            Analytics
+            Progress
           </TabsTrigger>
         </TabsList>
 

@@ -28,7 +28,7 @@ export type PolicyRulesRecord = Record<PolicyTypeId, PolicyRule[]>
 export const POLICY_TYPES: PolicyType[] = [
   {
     id: 'access',
-    name: 'Authorization',
+    name: 'Access Control',
     label: 'Who can access?',
     description: 'Control who can use your content - everyone, specific users, or by invitation',
     icon: Shield,
@@ -36,7 +36,7 @@ export const POLICY_TYPES: PolicyType[] = [
   },
   {
     id: 'rate_limit',
-    name: 'Rate Limiter',
+    name: 'Usage Limits',
     label: 'Prevent overuse',
     description: 'Limit how many queries each user can make per day or hour',
     icon: Gauge,
@@ -55,9 +55,9 @@ export const POLICY_TYPES: PolicyType[] = [
 export const getPolicyTypeLabel = (type: string): string => {
   switch (type) {
     case 'access':
-      return 'Authorization'
+      return 'Access Control'
     case 'rate_limit':
-      return 'Rate Limiting'
+      return 'Usage Limits'
     case 'pricing':
       return 'Pricing'
     default:

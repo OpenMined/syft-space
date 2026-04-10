@@ -1,110 +1,72 @@
 <template>
-  <Card class="p-6 hover:shadow-lg transition-shadow cursor-pointer" @click="handleCardClick">
+  <div
+    class="group rounded-lg border border-border/50 bg-card p-5 hover:shadow-sm hover:-translate-y-px transition-all cursor-pointer"
+    @click="handleCardClick"
+  >
     <div class="flex items-start justify-between">
-      <div class="flex-1">
-        <div class="flex items-center gap-3 mb-2">
-          <h3 class="heading-4 text-foreground">{{ endpoint.name }}</h3>
-          <Badge
-            :variant="endpoint.published ? 'default' : 'secondary'"
-            :class="
-              endpoint.published
-                ? 'bg-primary/10 text-primary border border-primary/20'
-                : 'bg-muted text-muted-foreground border border-border'
-            "
-            class="body-sm px-2.5 py-1 rounded-md"
-          >
-            {{ endpoint.published ? 'Published' : 'Draft' }}
-          </Badge>
+      <div class="flex items-start gap-4 flex-1 min-w-0">
+        <div class="p-3.5 rounded-xl bg-primary/10 shrink-0">
+          <Server class="h-6 w-6 text-foreground/60" />
         </div>
-        <p class="body-sm text-muted-foreground mb-4">{{ endpoint.summary }}</p>
-
-        <!-- Watched Paths Preview (only for local_file data sources) -->
-        <div v-if="endpoint.dataSourceType === 'local_file'" class="mb-4 space-y-2 pl-2">
-          <div
-            v-if="!endpoint.watchedPaths || endpoint.watchedPaths.length === 0"
-            class="text-sm text-muted-foreground"
-          >
-            📂 <span class="italic">No paths configured</span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-3 mb-2">
+            <h3 class="heading-4 text-foreground truncate">{{ endpoint.name }}</h3>
+            <div
+              :class="
+                endpoint.published
+                  ? 'w-2 h-2 rounded-full bg-green-500 shrink-0'
+                  : 'w-2 h-2 rounded-full bg-muted-foreground/40 shrink-0'
+              "
+            />
           </div>
+          <p class="body-sm text-muted-foreground mb-3 line-clamp-2">{{ endpoint.summary }}</p>
 
-          <div v-else class="space-y-1">
-            <div class="text-sm text-muted-foreground flex items-center gap-2">
-              📂 <span class="font-medium">Files & Folders:</span>
-            </div>
-            <div class="ml-6 space-y-1 py-1">
-              <div
-                v-for="path in getPathsPreview(endpoint).paths"
-                :key="path"
-                class="text-sm font-mono text-muted-foreground opacity-75"
-              >
-                {{ path }}
-              </div>
-              <div
-                v-if="getPathsPreview(endpoint).hasMore"
-                class="text-sm text-muted-foreground opacity-60 italic"
-              >
-                +{{ getPathsPreview(endpoint).totalCount - 3 }} more...
-              </div>
-            </div>
+          <div v-if="endpoint.tags && endpoint.tags.length > 0" class="flex gap-1.5 flex-wrap">
+            <Badge
+              v-for="tag in endpoint.tags.slice(0, 3)"
+              :key="tag"
+              variant="secondary"
+              class="text-[11px] px-2 py-0.5"
+            >
+              {{ tag }}
+            </Badge>
+            <span
+              v-if="endpoint.tags.length > 3"
+              class="text-[11px] text-muted-foreground self-center"
+            >
+              +{{ endpoint.tags.length - 3 }}
+            </span>
           </div>
-        </div>
-
-        <div class="flex gap-2 flex-wrap">
-          <Badge v-for="tag in endpoint.tags" :key="tag" variant="outline" class="body-sm">
-            {{ tag }}
-          </Badge>
         </div>
       </div>
 
-      <div class="ml-4 text-right">
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" @click.stop="handleEditEndpoint">
-              <Pencil class="h-4 w-4 mr-2" />
-              Edit
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              class="text-destructive hover:text-destructive"
-              @click.stop="handleDeleteEndpoint"
-            >
-              <Trash2 class="h-4 w-4 mr-2" />
-              Delete
-            </Button>
-          </div>
-          <Button
-            v-if="syftHubUrl"
-            variant="outline"
-            size="sm"
-            class="w-full"
-            as="a"
-            :href="syftHubUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            @click.stop
-          >
-            <ExternalLink class="h-4 w-4 mr-2" />
-            View on SyftHub
-          </Button>
-        </div>
+      <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <Button variant="outline" size="sm" @click.stop="handleEditEndpoint">
+          <Pencil class="h-4 w-4 mr-2" />
+          Edit
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          class="text-destructive hover:text-destructive"
+          @click.stop="handleDeleteEndpoint"
+        >
+          <Trash2 class="h-4 w-4 mr-2" />
+          Delete
+        </Button>
       </div>
     </div>
-  </Card>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
-import { Card } from '@/components/ui/card'
+import { Pencil, Server, Trash2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { useUserStore } from '@/stores/user'
 import type { EndpointItem } from '@/stores/endpoints'
 
 const router = useRouter()
-const userStore = useUserStore()
 
 const props = defineProps<{
   endpoint: EndpointItem
@@ -114,10 +76,6 @@ const emit = defineEmits<{
   delete: [endpoint: EndpointItem]
   edit: [endpoint: EndpointItem]
 }>()
-
-const syftHubUrl = computed(() =>
-  props.endpoint.name ? userStore.getEndpointUrlInMarketplace(props.endpoint.name) : null,
-)
 
 const handleCardClick = () => {
   router.push({ name: 'endpoint-detail', params: { slug: props.endpoint.name } })
@@ -131,24 +89,4 @@ const handleEditEndpoint = () => {
   emit('edit', props.endpoint)
 }
 
-// Get preview paths for endpoint card
-const getPathsPreview = (endpoint: EndpointItem) => {
-  if (!endpoint.watchedPaths || endpoint.watchedPaths.length === 0) {
-    return {
-      paths: [],
-      hasMore: false,
-      totalCount: 0,
-    }
-  }
-
-  // Show first 3 paths with "..." if there are more
-  const pathsToShow = endpoint.watchedPaths.slice(0, 3)
-  const hasMore = endpoint.watchedPaths.length > 3
-
-  return {
-    paths: pathsToShow,
-    hasMore,
-    totalCount: endpoint.watchedPaths.length,
-  }
-}
 </script>

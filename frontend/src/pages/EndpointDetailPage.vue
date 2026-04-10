@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
     <!-- Breadcrumb Navigation -->
     <nav class="flex mb-6" aria-label="Breadcrumb">
       <ol class="flex items-center space-x-2">
@@ -9,7 +9,7 @@
             class="text-muted-foreground hover:text-foreground body-sm font-medium flex items-center transition-colors"
           >
             <Server class="h-4 w-4 mr-2" />
-            Endpoints
+            APIs
           </router-link>
         </li>
         <li class="flex items-center">
@@ -24,7 +24,7 @@
     <!-- Loading State -->
     <div v-if="loading" class="space-y-6 animate-pulse">
       <!-- Header Skeleton -->
-      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+      <div class="border-b border-border/50 pb-8 mb-8">
         <div class="flex items-start justify-between">
           <div class="flex items-start gap-4">
             <div class="w-14 h-14 bg-muted rounded-lg"></div>
@@ -53,7 +53,7 @@
         <!-- Left Column (2/3) -->
         <div class="lg:col-span-2 space-y-6">
           <!-- Description Card Skeleton -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+          <div class="border border-border/50 rounded-lg p-5">
             <div class="h-6 bg-muted rounded w-32 mb-4"></div>
             <div class="space-y-2">
               <div class="h-4 bg-muted rounded w-full"></div>
@@ -63,7 +63,7 @@
           </div>
 
           <!-- Watched Paths Card Skeleton -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+          <div class="border border-border/50 rounded-lg p-5">
             <div class="h-6 bg-muted rounded w-36 mb-4"></div>
             <div class="space-y-3">
               <div
@@ -86,7 +86,7 @@
         <!-- Right Column (1/3) -->
         <div class="space-y-4">
           <!-- Details Card Skeleton -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+          <div class="border border-border/50 rounded-lg p-5">
             <div class="h-5 bg-muted rounded w-20 mb-4"></div>
             <div class="space-y-3">
               <div
@@ -101,7 +101,7 @@
           </div>
 
           <!-- Tags Card Skeleton -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+          <div class="border border-border/50 rounded-lg p-5">
             <div class="h-5 bg-muted rounded w-12 mb-3"></div>
             <div class="flex flex-wrap gap-2">
               <div class="h-6 bg-muted rounded w-16"></div>
@@ -118,23 +118,21 @@
       v-else-if="error"
       class="bg-destructive/10 border border-destructive/20 rounded-2xl p-8 text-center"
     >
-      <h3 class="heading-3 text-destructive mb-2">Endpoint not found</h3>
+      <h3 class="heading-3 text-destructive mb-2">Resource not found</h3>
       <p class="text-destructive mb-4">
-        The endpoint you're looking for doesn't exist or has been deleted.
+        The resource you're looking for doesn't exist or has been deleted.
       </p>
-      <Button @click="$router.push('/endpoints')" variant="outline"> Back to Endpoints </Button>
+      <Button @click="$router.push('/endpoints')" variant="outline"> Back to APIs </Button>
     </div>
 
     <!-- Main Content -->
     <div v-else-if="endpoint" class="space-y-6">
       <!-- Header Section -->
-      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
+      <div class="border-b border-border/50 pb-8 mb-8">
         <div class="flex items-start justify-between">
           <div class="flex items-start gap-4">
-            <div
-              class="p-3 rounded-lg bg-gradient-to-br from-purple-100 dark:from-purple-950 to-blue-100 dark:to-blue-950"
-            >
-              <Server class="h-8 w-8 text-purple-600 dark:text-purple-400" />
+            <div class="p-3 rounded-lg bg-primary/10">
+              <Server class="h-6 w-6 text-primary" />
             </div>
             <div>
               <h1 class="heading-2 mb-2">{{ endpoint.name }}</h1>
@@ -155,7 +153,7 @@
                         : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
                     "
                   ></div>
-                  {{ endpoint.published ? 'Live' : 'Draft' }}
+                  {{ endpoint.published ? 'Published' : 'Offline' }}
                 </Badge>
                 <Badge variant="outline" class="bg-primary/10 text-primary border-primary/20">
                   {{ getPricingRange }}
@@ -175,7 +173,7 @@
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Make this endpoint publicly available</p>
+                    <p>Publish this resource</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -184,7 +182,7 @@
                 Edit
               </Button>
               <Button
-                variant="outline"
+                variant="ghost"
                 class="text-destructive hover:text-destructive"
                 @click="
                   () => {
@@ -224,7 +222,7 @@
           </TabsTrigger>
           <TabsTrigger value="access" class="flex items-center gap-2">
             <Shield class="h-4 w-4" />
-            Access Control
+            Policies
           </TabsTrigger>
         </TabsList>
 
@@ -236,7 +234,7 @@
               <!-- Description -->
               <div
                 v-if="endpoint.description && endpoint.description.trim()"
-                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+                class="border border-border/50 rounded-lg p-5"
               >
                 <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
                   <FileText class="h-5 w-5 text-muted-foreground" />
@@ -256,7 +254,7 @@
               <!-- Data Sources -->
               <div
                 v-if="endpoint.dataset && getWatchedPaths.length > 0"
-                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+                class="border border-border/50 rounded-lg p-5"
               >
                 <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
                   <Database class="h-5 w-5 text-muted-foreground" />
@@ -308,9 +306,7 @@
             <!-- Quick Stats -->
             <div class="space-y-4">
               <!-- Endpoint Details Card -->
-              <div
-                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-              >
+              <div class="border border-border/50 rounded-lg p-5">
                 <h3 class="body-sm font-semibold text-foreground mb-4 flex items-center gap-2">
                   <Info class="h-4 w-4 text-muted-foreground" />
                   Details
@@ -360,9 +356,7 @@
               </div>
 
               <!-- Tags -->
-              <div
-                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-              >
+              <div class="border border-border/50 rounded-lg p-5">
                 <h3 class="body-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                   <Tags class="h-4 w-4 text-muted-foreground" />
                   Tags
@@ -398,279 +392,241 @@
           </div>
         </TabsContent>
 
-        <!-- Access Control Tab -->
-        <TabsContent value="access" class="space-y-6">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-            <!-- Authorization Policies -->
-            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
-              <CardHeader>
-                <CardTitle class="flex items-center gap-2">
-                  <UserCheck class="h-5 w-5 text-muted-foreground" />
-                  Authorization
-                </CardTitle>
-                <CardDescription> Control who can access this endpoint </CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3 flex-1">
-                <div
-                  v-if="getAuthorizationPolicies().length === 0"
-                  class="text-sm text-muted-foreground"
-                >
-                  No authorization policies configured
-                </div>
-                <div v-else class="space-y-2">
-                  <div
-                    v-for="policy in getAuthorizationPolicies()"
-                    :key="policy.id"
-                    class="p-3 bg-muted/50 border border-border rounded-lg"
-                  >
-                    <div class="flex items-start justify-between">
-                      <div class="flex-1">
-                        <h4 class="body-sm font-medium text-foreground mb-1">
-                          {{ policy.name }}
-                        </h4>
-                        <p class="body-sm text-muted-foreground">
-                          <template
-                            v-if="
-                              Array.isArray(policy.configuration?.allowed_users) &&
-                              policy.configuration.allowed_users.length
-                            "
-                          >
-                            Allow access for {{ policy.configuration.allowed_users.join(', ') }}
-                          </template>
-                          <template
-                            v-else-if="
-                              Array.isArray(policy.configuration?.denied_users) &&
-                              policy.configuration.denied_users.length
-                            "
-                          >
-                            Deny access for {{ policy.configuration.denied_users.join(', ') }}
-                          </template>
-                          <template v-else> Authorization rule configured </template>
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
-                        @click="handleDeletePolicy(policy.id, policy.name)"
-                      >
-                        <Trash2 class="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button
-                  variant="outline"
-                  class="w-full"
-                  @click="
-                    () => {
-                      selectedPolicyType = 'access'
-                      showAddPolicyDialog = true
-                    }
-                  "
-                >
-                  <Plus class="h-4 w-4 mr-2" />
-                  Add Authorization Rule
-                </Button>
-              </CardFooter>
-            </Card>
-
-            <!-- Rate Limiting Policies -->
-            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
-              <CardHeader>
-                <CardTitle class="flex items-center gap-2">
-                  <Gauge class="h-5 w-5 text-muted-foreground" />
-                  Rate Limiting
-                </CardTitle>
-                <CardDescription> Manage request frequency limits </CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3 flex-1">
-                <div
-                  v-if="getRateLimitPolicies().length === 0"
-                  class="text-sm text-muted-foreground"
-                >
-                  No rate limiting policies configured
-                </div>
-                <div v-else class="space-y-2">
-                  <div
-                    v-for="policy in getRateLimitPolicies()"
-                    :key="policy.id"
-                    class="p-3 bg-muted/50 border border-border rounded-lg"
-                  >
-                    <div class="flex items-start justify-between">
-                      <div class="flex-1">
-                        <h4 class="body-sm font-medium text-foreground mb-1">
-                          {{ policy.name }}
-                        </h4>
-                        <p class="body-sm text-muted-foreground">
-                          <template
-                            v-if="
-                              policy.configuration?.limit &&
-                              typeof policy.configuration?.scope === 'string'
-                            "
-                          >
-                            {{ policy.configuration.limit }} requests per
-                            {{ policy.configuration.windowUnit || 'minute' }}
-                            {{ policy.configuration.scope.replace('_', ' ') }}
-                          </template>
-                          <template v-else-if="policy.configuration?.limit">
-                            Limit: {{ policy.configuration.limit }}
-                          </template>
-                          <template v-else> Rate limiting configured </template>
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
-                        @click="handleDeletePolicy(policy.id, policy.name)"
-                      >
-                        <Trash2 class="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button
-                  variant="outline"
-                  class="w-full"
-                  @click="
-                    () => {
-                      selectedPolicyType = 'rate_limit'
-                      showAddPolicyDialog = true
-                    }
-                  "
-                >
-                  <Plus class="h-4 w-4 mr-2" />
-                  Add Rate Limiting Rule
-                </Button>
-              </CardFooter>
-            </Card>
-
-            <!-- Pricing Policies -->
-            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
-              <CardHeader>
-                <CardTitle class="flex items-center gap-2">
-                  <DollarSign class="h-5 w-5 text-muted-foreground" />
-                  Pricing
-                </CardTitle>
-                <CardDescription> Set pricing for endpoint usage </CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3 flex-1">
-                <div v-if="getPricingPolicies().length === 0" class="text-sm text-muted-foreground">
-                  No pricing policies configured
-                </div>
-                <div v-else class="space-y-2">
-                  <div
-                    v-for="policy in getPricingPolicies()"
-                    :key="policy.id"
-                    class="p-3 bg-muted/50 border border-border rounded-lg"
-                  >
-                    <div class="flex items-start justify-between">
-                      <div class="flex-1">
-                        <h4 class="body-sm font-medium text-foreground mb-1">
-                          {{ policy.name }}
-                        </h4>
-                        <p class="body-sm text-muted-foreground">
-                          <template v-if="policy.configuration?.price !== undefined">
-                            ${{ policy.configuration.price }} per query
-                            <template
-                              v-if="
-                                Array.isArray(policy.configuration?.applied_to) &&
-                                policy.configuration.applied_to.length > 0 &&
-                                !(
-                                  policy.configuration.applied_to.length === 1 &&
-                                  policy.configuration.applied_to[0] === '*'
-                                )
-                              "
-                            >
-                              for {{ policy.configuration.applied_to.join(', ') }}</template
-                            >
-                            <template
-                              v-else-if="
-                                Array.isArray(policy.configuration?.applied_to) &&
-                                policy.configuration.applied_to.length === 1 &&
-                                policy.configuration.applied_to[0] === '*'
-                              "
-                            >
-                              for all users</template
-                            >
-                          </template>
-                          <template v-else> Pricing rule configured </template>
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
-                        @click="handleDeletePolicy(policy.id, policy.name)"
-                      >
-                        <Trash2 class="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button
-                  variant="outline"
-                  class="w-full"
-                  @click="
-                    () => {
-                      selectedPolicyType = 'pricing'
-                      showAddPolicyDialog = true
-                    }
-                  "
-                >
-                  <Plus class="h-4 w-4 mr-2" />
-                  Add Pricing Rule
-                </Button>
-              </CardFooter>
-            </Card>
-
-            <!-- Access Summary -->
-            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
-              <CardHeader>
-                <CardTitle class="flex items-center gap-2">
-                  <Shield class="h-5 w-5 text-muted-foreground" />
-                  Access Summary
-                </CardTitle>
-                <CardDescription> Overview of all access controls </CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3 flex-1">
-                <div class="flex justify-between items-center py-1">
-                  <span class="body-sm text-muted-foreground">Total Policies</span>
-                  <span class="body-sm font-medium text-foreground">{{
-                    getTotalPoliciesCount()
-                  }}</span>
-                </div>
-                <Separator />
-                <div class="flex justify-between items-center py-1">
-                  <span class="body-sm text-muted-foreground">Authorization</span>
-                  <span class="body-sm font-medium text-foreground">{{
-                    getAuthorizationPolicies().length
-                  }}</span>
-                </div>
-                <Separator />
-                <div class="flex justify-between items-center py-1">
-                  <span class="body-sm text-muted-foreground">Rate Limiting</span>
-                  <span class="body-sm font-medium text-foreground">{{
-                    getRateLimitPolicies().length
-                  }}</span>
-                </div>
-                <Separator />
-                <div class="flex justify-between items-center py-1">
-                  <span class="body-sm text-muted-foreground">Pricing</span>
-                  <span class="body-sm font-medium text-foreground">{{
-                    getPricingPolicies().length
-                  }}</span>
-                </div>
-              </CardContent>
-            </Card>
+        <!-- Policies Tab -->
+        <TabsContent value="access" class="space-y-8">
+          <!-- Empty state -->
+          <div
+            v-if="getTotalPoliciesCount() === 0"
+            class="text-center py-12 text-muted-foreground"
+          >
+            <Shield class="h-8 w-8 mx-auto mb-3 opacity-40" />
+            <p class="text-sm mb-1">No policies configured</p>
+            <p class="text-xs">
+              This resource is open to everyone, with no limits and free to use.
+            </p>
           </div>
+
+          <!-- Access Control -->
+          <section>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <UserCheck class="h-4 w-4 text-muted-foreground" />
+                <h3 class="text-sm font-semibold text-foreground">Access Control</h3>
+                <span class="text-xs text-muted-foreground">
+                  — Who can query this resource
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 text-xs"
+                @click="
+                  () => {
+                    selectedPolicyType = 'access'
+                    showAddPolicyDialog = true
+                  }
+                "
+              >
+                <Plus class="h-3.5 w-3.5 mr-1" />
+                Add
+              </Button>
+            </div>
+
+            <div
+              v-if="getAuthorizationPolicies().length === 0"
+              class="text-xs text-muted-foreground ml-6"
+            >
+              Open to everyone
+            </div>
+            <div v-else class="space-y-2">
+              <div
+                v-for="policy in getAuthorizationPolicies()"
+                :key="policy.id"
+                class="flex items-center justify-between py-2 px-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
+              >
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm text-foreground">
+                    <template
+                      v-if="
+                        Array.isArray(policy.configuration?.allowed_users) &&
+                        policy.configuration.allowed_users.length
+                      "
+                    >
+                      Allow {{ policy.configuration.allowed_users.join(', ') }}
+                    </template>
+                    <template
+                      v-else-if="
+                        Array.isArray(policy.configuration?.denied_users) &&
+                        policy.configuration.denied_users.length
+                      "
+                    >
+                      Deny {{ policy.configuration.denied_users.join(', ') }}
+                    </template>
+                    <template v-else>{{ policy.name }}</template>
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                  @click="handleDeletePolicy(policy.id, policy.name)"
+                >
+                  <Trash2 class="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          <!-- Usage Limits -->
+          <section>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <Gauge class="h-4 w-4 text-muted-foreground" />
+                <h3 class="text-sm font-semibold text-foreground">Usage Limits</h3>
+                <span class="text-xs text-muted-foreground">
+                  — How often it can be queried
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 text-xs"
+                @click="
+                  () => {
+                    selectedPolicyType = 'rate_limit'
+                    showAddPolicyDialog = true
+                  }
+                "
+              >
+                <Plus class="h-3.5 w-3.5 mr-1" />
+                Add
+              </Button>
+            </div>
+
+            <div
+              v-if="getRateLimitPolicies().length === 0"
+              class="text-xs text-muted-foreground ml-6"
+            >
+              Unlimited
+            </div>
+            <div v-else class="space-y-2">
+              <div
+                v-for="policy in getRateLimitPolicies()"
+                :key="policy.id"
+                class="flex items-center justify-between py-2 px-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
+              >
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm text-foreground">
+                    <template
+                      v-if="
+                        policy.configuration?.limit &&
+                        typeof policy.configuration?.scope === 'string'
+                      "
+                    >
+                      {{ policy.configuration.limit }} requests per
+                      {{ policy.configuration.windowUnit || 'minute' }}
+                      {{ policy.configuration.scope.replace('_', ' ') }}
+                    </template>
+                    <template v-else-if="policy.configuration?.limit">
+                      {{ policy.configuration.limit }} requests
+                    </template>
+                    <template v-else>{{ policy.name }}</template>
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                  @click="handleDeletePolicy(policy.id, policy.name)"
+                >
+                  <Trash2 class="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          <!-- Pricing -->
+          <section>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <DollarSign class="h-4 w-4 text-muted-foreground" />
+                <h3 class="text-sm font-semibold text-foreground">Pricing</h3>
+                <span class="text-xs text-muted-foreground">
+                  — Cost per query
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 text-xs"
+                @click="
+                  () => {
+                    selectedPolicyType = 'pricing'
+                    showAddPolicyDialog = true
+                  }
+                "
+              >
+                <Plus class="h-3.5 w-3.5 mr-1" />
+                Add
+              </Button>
+            </div>
+
+            <div
+              v-if="getPricingPolicies().length === 0"
+              class="text-xs text-muted-foreground ml-6"
+            >
+              Free for all users
+            </div>
+            <div v-else class="space-y-2">
+              <div
+                v-for="policy in getPricingPolicies()"
+                :key="policy.id"
+                class="flex items-center justify-between py-2 px-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
+              >
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm text-foreground">
+                    <template v-if="policy.configuration?.price !== undefined">
+                      ${{ policy.configuration.price }} per query
+                      <template
+                        v-if="
+                          Array.isArray(policy.configuration?.applied_to) &&
+                          policy.configuration.applied_to.length > 0 &&
+                          !(
+                            policy.configuration.applied_to.length === 1 &&
+                            policy.configuration.applied_to[0] === '*'
+                          )
+                        "
+                      >
+                        for {{ policy.configuration.applied_to.join(', ') }}
+                      </template>
+                      <template
+                        v-else-if="
+                          Array.isArray(policy.configuration?.applied_to) &&
+                          policy.configuration.applied_to.length === 1 &&
+                          policy.configuration.applied_to[0] === '*'
+                        "
+                      >
+                        for all users
+                      </template>
+                    </template>
+                    <template v-else>{{ policy.name }}</template>
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                  @click="handleDeletePolicy(policy.id, policy.name)"
+                >
+                  <Trash2 class="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </section>
         </TabsContent>
       </Tabs>
     </div>
@@ -680,9 +636,9 @@
   <Dialog v-model:open="showDeleteDialog">
     <DialogContent class="sm:max-w-[425px]">
       <DialogHeader>
-        <DialogTitle class="text-destructive">Delete endpoint</DialogTitle>
+        <DialogTitle class="text-destructive">Delete resource</DialogTitle>
         <DialogDescription>
-          This will permanently delete this endpoint and remove it from SyftHub. This action cannot
+          This will permanently delete this resource and remove it from SyftHub. This action cannot
           be undone.
         </DialogDescription>
       </DialogHeader>
@@ -712,7 +668,7 @@
             <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
             Deleting...
           </div>
-          <span v-else>Delete Endpoint</span>
+          <span v-else>Delete</span>
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -775,14 +731,6 @@ import {
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
@@ -1072,7 +1020,7 @@ const deleteEndpoint = async () => {
         await endpointsApi.unpublish(endpoint.value.slug)
       } catch (unpublishError) {
         console.error('Failed to unpublish endpoint:', unpublishError)
-        toast.error('Failed to remove endpoint from SyftHub. Please try again.')
+        toast.error('Failed to remove from SyftHub. Please try again.')
         isDeleting.value = false
         return
       }
@@ -1081,14 +1029,14 @@ const deleteEndpoint = async () => {
     // Call the delete API
     await endpointsApi.delete(endpoint.value.slug)
 
-    toast.success('Endpoint deleted successfully')
+    toast.success('Resource deleted')
 
     // Close dialog and navigate away
     showDeleteDialog.value = false
     router.push('/endpoints')
   } catch (error) {
     console.error('Failed to delete endpoint:', error)
-    toast.error('Failed to delete endpoint. Please try again.')
+    toast.error('Failed to delete. Please try again.')
   } finally {
     isDeleting.value = false
   }

@@ -1,57 +1,31 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
-    <!-- Hero Section with Help -->
-    <div class="mb-10">
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="flex items-center gap-3 mb-3">
-            <Server class="h-6 w-6 text-primary" />
-            <h1 class="heading-3">Your Endpoints</h1>
-          </div>
-          <p class="body-lg text-muted-foreground md:max-w-[60%]">
-            Endpoints are the way to safely share your datasets and models. Create as many as you
-            need per resource, each with its own rules, access controls, and tracking.
-          </p>
-        </div>
-        <div class="flex items-center gap-3">
-          <!-- Help Info -->
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <button class="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                  <HelpCircle class="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="left" class="max-w-xs">
-                <p class="body-base font-semibold mb-1">What are endpoints?</p>
-                <p class="body-sm">
-                  Endpoints are your shared content (documents, databases) or AI models that others
-                  can access through APIs. You control who can use them and can set pricing.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-      </div>
+  <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
+    <!-- Header -->
+    <div class="mb-12">
+      <h1 class="text-2xl font-semibold tracking-tight text-foreground mb-3">APIs</h1>
+      <p class="body-lg text-muted-foreground md:max-w-[60%]">
+        Resources you've shared with the world. Each one has its own access rules, usage limits,
+        and pricing.
+      </p>
     </div>
 
     <!-- Moved analytics summary to Analytics page -->
 
     <!-- Actions Bar -->
     <div class="flex items-center justify-between mb-8">
-      <div class="relative w-64">
+      <div class="relative w-full max-w-sm">
         <Search
           class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
         />
         <Input
           v-model="searchQuery"
-          placeholder="Search endpoints..."
+          placeholder="Search APIs..."
           class="pl-10 pr-4 py-2.5 w-full"
         />
       </div>
-      <Button @click="showCreateEndpointModal = true">
+      <Button @click="router.push({ name: 'go-live' })">
         <Plus class="h-4 w-4 mr-2" />
-        Add Endpoint
+        Publish
       </Button>
     </div>
 
@@ -77,17 +51,12 @@
 
     <!-- Error state -->
     <div v-else-if="endpointsStore.error" class="text-center py-8">
-      <div class="bg-destructive/10 text-destructive rounded-lg p-4 max-w-md mx-auto">
-        <p class="font-medium">Failed to load endpoints</p>
-        <p class="text-sm mt-1">{{ endpointsStore.error }}</p>
-        <Button variant="outline" size="sm" class="mt-3" @click="endpointsStore.fetchEndpoints()">
-          Try again
-        </Button>
-      </div>
+      <div class="text-destructive mb-2">Failed to load APIs</div>
+      <Button @click="endpointsStore.fetchEndpoints()" variant="outline">Try Again</Button>
     </div>
 
     <!-- Endpoint cards -->
-    <div v-else-if="filteredEndpoints.length > 0" class="space-y-5">
+    <div v-else-if="filteredEndpoints.length > 0" class="space-y-3">
       <EndpointCard
         v-for="endpoint in filteredEndpoints"
         :key="endpoint.id"
@@ -99,7 +68,7 @@
 
     <!-- No results state -->
     <div v-else-if="!endpointsStore.isLoading && searchQuery" class="text-center py-12">
-      <p class="text-muted-foreground">No endpoints found matching "{{ searchQuery }}"</p>
+      <p class="text-muted-foreground">No APIs found matching "{{ searchQuery }}"</p>
     </div>
 
     <!-- Empty state -->
@@ -112,20 +81,17 @@
       "
       class="text-center py-8"
     >
-      <Server class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-      <h3 class="heading-3 text-foreground mb-2">No endpoints yet</h3>
+      <Server class="h-10 w-10 text-muted-foreground mx-auto mb-4" />
+      <h3 class="heading-3 text-foreground mb-2">No APIs yet</h3>
       <p class="body-sm text-muted-foreground mb-4">
-        Get started by creating your first endpoint to share data or models.
+        Share your first data source or model with the world.
       </p>
-      <Button @click="showCreateEndpointModal = true">
+      <Button @click="router.push({ name: 'go-live' })">
         <Plus class="h-4 w-4 mr-2" />
-        Create your first endpoint
+        Publish
       </Button>
     </div>
   </div>
-
-  <!-- Create Endpoint Modal -->
-  <CreateEndpointModal v-model:open="showCreateEndpointModal" />
 
   <!-- Edit Endpoint Dialog -->
   <EditEndpointDialog
@@ -187,11 +153,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Search, Plus, Server, HelpCircle } from 'lucide-vue-next'
+import { Search, Plus, Server } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -201,13 +166,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import EndpointCard from '@/components/EndpointCard.vue'
-import CreateEndpointModal from '@/components/CreateEndpointModal.vue'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useEndpointsStore } from '@/stores/endpoints'
 import type { EndpointItem } from '@/stores/endpoints'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { toast } from 'vue-sonner'
+import { useRouter } from 'vue-router'
 
+const router = useRouter()
 const endpointsStore = useEndpointsStore()
 
 // Fetch endpoints on mount
@@ -216,7 +182,6 @@ onMounted(() => {
 })
 
 const searchQuery = ref('')
-const showCreateEndpointModal = ref(false)
 const showDeleteDialog = ref(false)
 const endpointToDelete = ref<EndpointItem | null>(null)
 const deleteNameConfirm = ref('')

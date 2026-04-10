@@ -25,9 +25,9 @@
       </div>
 
       <!-- Two-column layout -->
-      <div class="flex gap-12 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+      <div class="flex gap-8 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
         <!-- Left sidebar with steps -->
-        <div class="w-80 flex-shrink-0">
+        <div class="w-64 flex-shrink-0">
           <div class="sticky top-8">
             <h2 class="heading-3 text-foreground mb-6">Setup Progress</h2>
 
@@ -44,7 +44,7 @@
               >
                 <div
                   :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    'w-7 h-7 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 1
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
@@ -70,18 +70,6 @@
                         : 'Select files to share'
                     }}
                   </p>
-                  <div
-                    v-if="currentSubStep > 1"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
-                    ✓ Completed
-                  </div>
-                  <div
-                    v-else-if="currentSubStep === 1"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
-                    Current step
-                  </div>
                 </div>
               </div>
 
@@ -96,7 +84,7 @@
               >
                 <div
                   :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    'w-7 h-7 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 2
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
@@ -116,18 +104,6 @@
                     How should it work?
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Configure output and AI settings</p>
-                  <div
-                    v-if="currentSubStep > 2"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
-                    ✓ Completed
-                  </div>
-                  <div
-                    v-else-if="currentSubStep === 2"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
-                    Current step
-                  </div>
                 </div>
               </div>
 
@@ -142,7 +118,7 @@
               >
                 <div
                   :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    'w-7 h-7 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 3
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
@@ -162,18 +138,6 @@
                     Who can access it?
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Control who can use your content</p>
-                  <div
-                    v-if="currentSubStep > 3"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
-                    ✓ Completed
-                  </div>
-                  <div
-                    v-else-if="currentSubStep === 3"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
-                    Current step
-                  </div>
                 </div>
               </div>
 
@@ -188,7 +152,7 @@
               >
                 <div
                   :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    'w-7 h-7 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 4
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
@@ -208,18 +172,6 @@
                     Tell us more about it
                   </h3>
                   <p class="body-sm text-muted-foreground mt-1">Name and describe your endpoint</p>
-                  <div
-                    v-if="currentSubStep > 4"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
-                    ✓ Completed
-                  </div>
-                  <div
-                    v-else-if="currentSubStep === 4"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
-                    Current step
-                  </div>
                 </div>
               </div>
 
@@ -234,7 +186,7 @@
               >
                 <div
                   :class="[
-                    'w-8 h-8 rounded-full flex items-center justify-center font-medium body-sm transition-all',
+                    'w-7 h-7 rounded-full flex items-center justify-center font-medium body-sm transition-all',
                     currentSubStep >= 5
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',
@@ -253,19 +205,7 @@
                   >
                     Review & Publish
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
-                  <div
-                    v-if="currentSubStep > 5"
-                    class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
-                  >
-                    ✓ Completed
-                  </div>
-                  <div
-                    v-else-if="currentSubStep === 5"
-                    class="mt-2 body-sm text-primary font-medium"
-                  >
-                    Current step
-                  </div>
+                  <p class="body-sm text-muted-foreground mt-1">Final check and publish</p>
                 </div>
               </div>
             </div>
@@ -276,7 +216,7 @@
         <div class="flex-1 min-w-0">
           <!-- Page title -->
           <div class="mb-8">
-            <h1 class="heading-1 text-foreground mb-2">
+            <h1 class="text-2xl font-semibold tracking-tight text-foreground mb-2">
               {{ stepTitles[currentSubStep - 1] }}
             </h1>
             <p class="text-muted-foreground">
@@ -587,7 +527,7 @@
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <!-- Raw Document Chunks Card -->
                 <Card
-                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-400 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 dark:hover:from-blue-950/30 dark:hover:to-indigo-950/30 border-2 bg-card"
+                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-400 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 dark:hover:from-blue-950/30 dark:hover:to-indigo-950/30 border bg-card"
                   :class="
                     formData.responseType === 'raw'
                       ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30'
@@ -621,7 +561,7 @@
 
                 <!-- AI-Generated Summary Card -->
                 <Card
-                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-purple-300 dark:hover:border-purple-400 hover:bg-gradient-to-br hover:from-purple-50 hover:to-pink-50 dark:hover:from-purple-950/30 dark:hover:to-pink-950/30 border-2 bg-card"
+                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-purple-300 dark:hover:border-purple-400 hover:bg-gradient-to-br hover:from-purple-50 hover:to-pink-50 dark:hover:from-purple-950/30 dark:hover:to-pink-950/30 border bg-card"
                   :class="
                     formData.responseType === 'summary'
                       ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30'
@@ -655,7 +595,7 @@
 
                 <!-- Both Raw and Summary Card -->
                 <Card
-                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 dark:hover:border-green-400 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-950/30 dark:hover:to-emerald-950/30 border-2 bg-card relative"
+                  class="cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-green-300 dark:hover:border-green-400 hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-950/30 dark:hover:to-emerald-950/30 border bg-card relative"
                   :class="
                     formData.responseType === 'both'
                       ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30'
@@ -718,7 +658,7 @@
               <div
                 v-for="policy in POLICY_TYPES"
                 :key="policy.id"
-                class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6"
+                class="border border-border/50 rounded-lg p-5"
               >
                 <!-- Policy Header -->
                 <div class="flex items-center justify-between mb-3">
@@ -762,11 +702,7 @@
                   <TooltipProvider v-else>
                     <Tooltip>
                       <TooltipTrigger as-child>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          @click="showWalletSetupDialog = true"
-                        >
+                        <Button variant="outline" size="sm" @click="showWalletSetupDialog = true">
                           <Wallet class="h-4 w-4 mr-2" />
                           Set up wallet
                         </Button>
@@ -789,7 +725,7 @@
                         >Open access - everyone can use your endpoint</span
                       >
                       <span v-else-if="policy.id === 'rate_limit'"
-                        >No rate limits - unlimited usage</span
+                        >No usage limits - unlimited usage</span
                       >
                       <span v-else-if="policy.id === 'pricing'"
                         >Free access - no charges applied</span
@@ -849,10 +785,7 @@
           </div>
 
           <!-- Step 4: Tell us more about it -->
-          <div
-            v-if="currentSubStep === 4"
-            class="bg-card rounded-lg shadow-sm border border-border p-8 space-y-8"
-          >
+          <div v-if="currentSubStep === 4" class="space-y-8">
             <!-- Interactive examples -->
             <div
               class="mb-8 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg p-4"
@@ -1415,7 +1348,7 @@
           </div>
 
           <!-- Navigation Buttons -->
-          <div class="flex justify-between mt-8 pt-6 border-t border-border">
+          <div class="flex justify-between mt-10 pt-6 border-t border-border">
             <Button
               variant="outline"
               @click="currentSubStep === 1 ? handleBack() : previousStep()"
@@ -1480,10 +1413,7 @@
   </Dialog>
 
   <!-- Wallet Setup Dialog -->
-  <WalletSetupDialog
-    v-model:open="showWalletSetupDialog"
-    @wallet-updated="onWalletUpdated"
-  />
+  <WalletSetupDialog v-model:open="showWalletSetupDialog" @wallet-updated="onWalletUpdated" />
 
   <!-- Policy Form Dialog -->
   <PolicyFormDialog

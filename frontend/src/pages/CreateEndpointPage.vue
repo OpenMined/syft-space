@@ -201,7 +201,7 @@ const selectEndpointType = (type: 'data' | 'model') => {
   if (type === 'data') {
     router.push({ name: 'create-data-endpoint' })
   } else if (type === 'model') {
-    router.push({ name: 'create-model-endpoint' })
+    router.push({ name: 'go-live' })
   }
 }
 </script>
