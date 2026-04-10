@@ -163,6 +163,7 @@ export function useGoLive() {
       response_type: responseType,
       dataset_id: finalDatasetId,
       model_id: finalModelId,
+      system_prompt: data.systemPrompt || undefined,
       published: true,
     }
 
