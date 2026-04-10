@@ -19,6 +19,8 @@ import {
   ExternalLink,
   Lightbulb,
   ChevronRight,
+  ShieldCheck,
+  Info,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -27,6 +29,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Select,
   SelectContent,
@@ -225,6 +229,9 @@ watch(aiModelId, (id) => {
     if (m) aiModelName.value = m.name
   })
 })
+
+// PII Filter (UI-only, no backend support yet)
+const piiFilterEnabled = ref(false)
 
 // Multi-rule policy state
 const policyRules = ref<PolicyRulesRecord>(createEmptyPolicyRules())
@@ -890,6 +897,65 @@ const handleOverwriteConfirm = async () => {
                 <Separator class="mt-8" />
               </section>
 
+              <!-- PII Filter -->
+              <section>
+                <div
+                  class="flex items-start justify-between gap-4 p-4 rounded-lg border transition-all"
+                  :class="
+                    piiFilterEnabled
+                      ? 'border-primary/30 bg-primary/5'
+                      : 'border-border bg-card'
+                  "
+                >
+                  <div class="flex items-start gap-3 flex-1 min-w-0">
+                    <div
+                      class="mt-0.5 p-1.5 rounded-md shrink-0"
+                      :class="piiFilterEnabled ? 'bg-primary/10' : 'bg-muted'"
+                    >
+                      <ShieldCheck
+                        class="h-4 w-4"
+                        :class="piiFilterEnabled ? 'text-primary' : 'text-muted-foreground'"
+                      />
+                    </div>
+                    <div>
+                      <div class="flex items-center gap-1.5">
+                        <h3 class="text-sm font-semibold text-foreground">PII Filter</h3>
+                        <TooltipProvider :delay-duration="0">
+                          <Tooltip>
+                            <TooltipTrigger as-child>
+                              <Info class="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" class="max-w-[300px]">
+                              Automatically detect and redact personal information (names, emails,
+                              phone numbers, addresses) from responses using a local classification
+                              model. Detected PII is replaced with placeholder tokens like [PERSON],
+                              [EMAIL].
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <p class="text-xs text-muted-foreground mt-0.5">
+                        Redact information that is PII (names, addresses, etc).
+                      </p>
+                      <div
+                        v-if="piiFilterEnabled"
+                        class="mt-2 flex items-center gap-1.5 text-xs text-primary"
+                      >
+                        <ShieldCheck class="h-3 w-3" />
+                        Responses will be filtered before delivery
+                      </div>
+                    </div>
+                  </div>
+                  <Switch
+                    :checked="piiFilterEnabled"
+                    class="mt-1 shrink-0"
+                    @update:checked="piiFilterEnabled = $event"
+                  />
+                </div>
+
+                <Separator class="mt-8" />
+              </section>
+
               <!-- Policy sections -->
               <div v-for="policyType in POLICY_TYPES" :key="policyType.id" class="space-y-4">
                 <div class="flex items-center justify-between">
@@ -1279,6 +1345,20 @@ const handleOverwriteConfirm = async () => {
                       class="text-xs text-muted-foreground bg-muted rounded px-3 py-2 font-mono line-clamp-4 whitespace-pre-line"
                     >
                       {{ systemPrompt }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- PII Filter -->
+              <div v-if="piiFilterEnabled" class="border-t pt-6">
+                <p class="text-xs font-medium text-muted-foreground mb-3">Output Filter</p>
+                <div class="bg-muted/50 rounded-lg p-4 flex items-center gap-3">
+                  <ShieldCheck class="w-4 h-4 text-primary shrink-0" />
+                  <div>
+                    <span class="font-medium text-foreground text-sm">PII Filter enabled</span>
+                    <p class="text-xs text-muted-foreground mt-0.5">
+                      Personal information will be automatically redacted from responses
                     </p>
                   </div>
                 </div>

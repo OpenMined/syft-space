@@ -90,8 +90,8 @@
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="per user">For Each User</SelectItem>
-                  <SelectItem value="global">For This Endpoint</SelectItem>
+                    <SelectItem value="per user">Per User</SelectItem>
+                    <SelectItem value="global">Per Full API</SelectItem>
                 </SelectContent>
               </Select>
             </div>

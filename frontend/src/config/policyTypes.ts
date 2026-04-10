@@ -94,7 +94,7 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
     case 'rate_limit':
       if (!config.limit) return 'No limit configured'
       {
-        const scope = config.scope === 'global' ? 'for this endpoint' : 'per user'
+        const scope = config.scope === 'global' ? 'for full API' : 'per user'
         return `${config.limit} requests per ${config.windowUnit} ${scope}`
       }
 
