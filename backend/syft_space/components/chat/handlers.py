@@ -1,7 +1,9 @@
 """Local chat handler for testing models and data sources."""
 
+import asyncio
 from uuid import UUID
 
+import httpx
 from fastapi import HTTPException
 from loguru import logger
 
@@ -28,6 +30,19 @@ from syft_space.components.model_types.interfaces import (
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.tenants.entities import Tenant
+from syft_space.config import app_settings
+
+# Network-level errors that indicate an upstream failure (bad gateway, 502).
+# asyncio.TimeoutError is handled separately as a 504.
+_UPSTREAM_ERRORS: tuple[type[BaseException], ...] = (
+    httpx.HTTPError,
+    ConnectionError,
+)
+
+# Synthetic sender used for local-chat model/dataset contexts. Local chat has
+# no authenticated SyftBox identity, so we inject a placeholder email that
+# satisfies the EmailStr validator on Context.
+_LOCAL_CHAT_SENDER = "local-chat@syft-space.example.com"
 
 
 class LocalChatHandler:
@@ -58,10 +73,14 @@ class LocalChatHandler:
             Response with model summary and optional search references
 
         Raises:
-            HTTPException: If model/dataset not found or query fails
+            HTTPException: Classified error:
+                - 400 if required model/dataset type is not registered
+                - 404 if the model or dataset does not exist in the tenant
+                - 502 if an upstream model/dataset call fails with a network error
+                - 504 if the upstream call exceeds ``chat_timeout_seconds``
+                - 500 on unexpected failures
         """
         references: ReferencesResponse | None = None
-        summary: SummaryResponse | None = None
 
         if request.dataset_id:
             references = await self._search_dataset(request.dataset_id, request, tenant)
@@ -97,19 +116,37 @@ class LocalChatHandler:
         user_messages = [m for m in request.messages if m.role == "user"]
         query = user_messages[-1].content if user_messages else ""
 
-        ctx = SearchContext(sender="local-chat", dataset_id=dataset.id)
+        ctx = SearchContext(sender=_LOCAL_CHAT_SENDER, dataset_id=dataset.id)
         search_params = SearchParameters(
             similarity_threshold=request.similarity_threshold,
             limit=request.limit,
             include_metadata=request.include_metadata,
         )
 
+        timeout = app_settings.chat_timeout_seconds
         try:
-            search_result = await dataset_instance.search(ctx, query, search_params)
+            search_result = await asyncio.wait_for(
+                dataset_instance.search(ctx, query, search_params),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError as e:
+            logger.warning(
+                f"Dataset search timed out after {timeout}s: dataset_id={dataset_id}"
+            )
+            raise HTTPException(
+                status_code=504, detail="Dataset search timed out"
+            ) from e
+        except _UPSTREAM_ERRORS as e:
+            logger.warning(f"Dataset search upstream error: {e}")
+            raise HTTPException(
+                status_code=502, detail=f"Dataset upstream error: {e}"
+            ) from e
+        except HTTPException:
+            raise
         except Exception as e:
             logger.exception(f"Dataset search failed: {e}")
             raise HTTPException(
-                status_code=500, detail=f"Dataset search failed: {str(e)}"
+                status_code=500, detail=f"Dataset search failed: {e}"
             ) from e
 
         documents = [
@@ -139,7 +176,7 @@ class LocalChatHandler:
             model_type_cls = self.model_registry.get_model_type(model.dtype)
         except KeyError:
             raise HTTPException(
-                status_code=500,
+                status_code=400,
                 detail=f"Model type '{model.dtype}' not registered",
             ) from None
 
@@ -159,7 +196,7 @@ class LocalChatHandler:
             )
             messages.insert(0, context_message)
 
-        ctx = ChatContext(sender="local-chat", model_id=model.id)
+        ctx = ChatContext(sender=_LOCAL_CHAT_SENDER, model_id=model.id)
         chat_params = ChatParameters(
             temperature=request.temperature,
             max_tokens=request.max_tokens,
@@ -168,12 +205,28 @@ class LocalChatHandler:
             frequency_penalty=request.frequency_penalty,
         )
 
+        timeout = app_settings.chat_timeout_seconds
         try:
-            chat_result = await model_instance.chat(ctx, messages, chat_params)
+            chat_result = await asyncio.wait_for(
+                model_instance.chat(ctx, messages, chat_params),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError as e:
+            logger.warning(
+                f"Model chat timed out after {timeout}s: model_id={model_id}"
+            )
+            raise HTTPException(status_code=504, detail="Chat request timed out") from e
+        except _UPSTREAM_ERRORS as e:
+            logger.warning(f"Model chat upstream error: {e}")
+            raise HTTPException(
+                status_code=502, detail=f"Model upstream error: {e}"
+            ) from e
+        except HTTPException:
+            raise
         except Exception as e:
             logger.exception(f"Model chat failed: {e}")
             raise HTTPException(
-                status_code=500, detail=f"Model chat failed: {str(e)}"
+                status_code=500, detail=f"Model chat failed: {e}"
             ) from e
 
         last_message = chat_result.messages[-1] if chat_result.messages else None
