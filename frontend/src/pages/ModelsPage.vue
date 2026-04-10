@@ -4,8 +4,8 @@
     <div class="mb-12">
       <h1 class="text-2xl font-semibold tracking-tight text-foreground mb-3">Your Models</h1>
       <p class="body-lg text-muted-foreground md:max-w-[60%]">
-        Models that live on your machine and work for you. Use endpoints to make them queryable by
-        others, on your terms.
+        Models that live on your machine and work for you. Use APIs to make them queryable by others,
+        on your terms.
       </p>
     </div>
 
@@ -57,9 +57,7 @@
     <div v-else-if="models.length === 0" class="text-center py-8">
       <Brain class="h-10 w-10 text-muted-foreground mx-auto mb-4" />
       <h3 class="heading-3 text-foreground mb-2">No models yet</h3>
-      <p class="body-sm text-muted-foreground mb-4">
-        Add your first AI model to get started
-      </p>
+      <p class="body-sm text-muted-foreground mb-4">Add your first AI model to get started</p>
       <Button @click="showCreateModelDialog = true">
         <Plus class="h-4 w-4 mr-2" />
         Add Model
@@ -103,14 +101,14 @@
                         />
                         {{
                           model.endpointCount === 0
-                            ? 'No endpoints'
-                            : `${model.endpointCount} endpoint${model.endpointCount !== 1 ? 's' : ''}`
+                            ? 'No APIs'
+                            : `${model.endpointCount} API${model.endpointCount !== 1 ? 's' : ''}`
                         }}
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent v-if="model.endpointCount > 0">
                       <div class="space-y-1">
-                        <p class="font-medium body-sm">Connected Endpoints:</p>
+                        <p class="font-medium body-sm">Connected APIs:</p>
                         <ul class="space-y-1">
                           <li
                             v-for="endpointName in getEndpointNamesForModel(model.id)"
@@ -123,7 +121,7 @@
                       </div>
                     </TooltipContent>
                     <TooltipContent v-else>
-                      <p class="body-sm">This model is not connected to any endpoint</p>
+                      <p class="body-sm">This model is not connected to any API</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -184,7 +182,7 @@
     item-type="Model"
     :item-name="modelToDelete?.name || ''"
     :dependencies="getEndpointNamesForModel(modelToDelete?.id || '')"
-    dependency-type="endpoint"
+    dependency-type="API"
     :is-deleting="isDeleting"
     @confirm="confirmDeleteModel"
     @cancel="cancelDeleteModel"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   LayoutDashboard,
@@ -11,18 +11,22 @@ import {
   ChevronsLeft,
   ChevronsRight,
   User,
-  Wallet,
   Plus,
+  Search,
+  MessageSquare,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Separator } from '@/components/ui/separator'
 import { useSidebar } from '@/composables/useSidebar'
 import { useInboxStore } from '@/stores/inbox'
 import { useUserStore } from '@/stores/user'
 import { useEndpointsStore } from '@/stores/endpoints'
+import { datasetsApi } from '@/api/endpoints/datasets'
+import { modelsApi } from '@/api/endpoints/models'
 import SyftLogo from '@/assets/syftbox-logo.svg'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 
@@ -35,10 +39,93 @@ const endpointsStore = useEndpointsStore()
 
 const liveCount = computed(() => endpointsStore.endpoints.filter((e) => e.published).length)
 
+const searchQuery = ref('')
+const searchFocused = ref(false)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+
+interface SearchResult {
+  name: string
+  type: 'data-source' | 'model' | 'api'
+  icon: typeof Database
+  route: { name: string; params?: Record<string, string> }
+}
+
+const allResources = ref<SearchResult[]>([])
+const resourcesLoaded = ref(false)
+
+async function loadResources() {
+  if (resourcesLoaded.value) return
+  try {
+    const [datasets, models] = await Promise.all([datasetsApi.list(), modelsApi.list()])
+    const results: SearchResult[] = []
+    for (const d of datasets) {
+      results.push({
+        name: d.name,
+        type: 'data-source',
+        icon: Database,
+        route: { name: 'dataset-detail', params: { name: d.name } },
+      })
+    }
+    for (const m of models) {
+      results.push({
+        name: m.name,
+        type: 'model',
+        icon: Brain,
+        route: { name: 'model-detail', params: { name: m.name } },
+      })
+    }
+    for (const e of endpointsStore.endpoints) {
+      results.push({
+        name: e.name,
+        type: 'api',
+        icon: Globe,
+        route: { name: 'endpoint-detail', params: { slug: e.slug } },
+      })
+    }
+    allResources.value = results
+    resourcesLoaded.value = true
+  } catch {
+    // silently fail — search just won't show results
+  }
+}
+
+const searchResults = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim()
+  if (!q) return []
+  return allResources.value.filter((r) => r.name.toLowerCase().includes(q)).slice(0, 8)
+})
+
+const showDropdown = computed(() => searchFocused.value && searchQuery.value.trim().length > 0)
+
+function handleSearchFocus() {
+  searchFocused.value = true
+  loadResources()
+}
+
+function selectResult(result: SearchResult) {
+  router.push(result.route)
+  searchQuery.value = ''
+  searchFocused.value = false
+}
+
+function handleSearchBlur() {
+  setTimeout(() => {
+    searchFocused.value = false
+  }, 150)
+}
+
+watch(
+  () => route.path,
+  () => {
+    resourcesLoaded.value = false
+  },
+)
+
 const routeMapping: Record<string, string[]> = {
   home: ['home'],
   datasets: ['datasets', 'dataset-detail'],
   models: ['models', 'model-detail'],
+  chat: ['chat'],
   endpoints: ['endpoints', 'endpoint-detail'],
   inbox: ['inbox'],
   analytics: ['analytics'],
@@ -68,6 +155,7 @@ const mainNav: NavItem[] = [{ id: 'home', route: 'home', label: 'Home', icon: La
 const resourceNav: NavItem[] = [
   { id: 'datasets', route: 'datasets', label: 'Data Sources', icon: Database },
   { id: 'models', route: 'models', label: 'Models', icon: Brain },
+  { id: 'chat', route: 'chat', label: 'Chat', icon: MessageSquare },
 ]
 
 const liveNav: NavItem[] = [
@@ -106,7 +194,7 @@ const renderNavItem = (item: NavItem) => ({
     :class="isCollapsed ? 'w-16' : 'w-60'"
   >
     <!-- Logo -->
-    <div class="flex items-center h-16 px-4 border-b border-border shrink-0">
+    <div class="flex items-center justify-between h-16 px-4 border-b border-border shrink-0">
       <button class="flex items-center gap-3 min-w-0" @click="navigateTo('home')">
         <img :src="SyftLogo" alt="Syft Space" class="h-7 w-7 shrink-0" />
         <span
@@ -116,7 +204,72 @@ const renderNavItem = (item: NavItem) => ({
           Syft Space
         </span>
       </button>
+      <div class="flex items-center gap-0.5">
+        <ThemeToggle v-if="!isCollapsed" />
+        <TooltipProvider :delay-duration="0">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button variant="ghost" size="icon" class="h-8 w-8" @click="toggle">
+                <ChevronsLeft v-if="!isCollapsed" class="h-4 w-4" />
+                <ChevronsRight v-else class="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {{ isCollapsed ? 'Expand sidebar' : 'Collapse sidebar' }}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
     </div>
+
+    <!-- Search -->
+    <div v-if="!isCollapsed" class="px-3 pt-3 pb-1 relative">
+      <div class="relative">
+        <Search
+          class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
+        />
+        <Input
+          ref="searchInputRef"
+          v-model="searchQuery"
+          placeholder="Search resources..."
+          class="h-8 pl-8 pr-3 text-sm bg-muted/50 border-transparent focus:border-border focus:bg-background"
+          @focus="handleSearchFocus"
+          @blur="handleSearchBlur"
+        />
+      </div>
+      <div
+        v-if="showDropdown"
+        class="absolute left-3 right-3 top-full mt-1 bg-popover border border-border rounded-md shadow-md z-50 overflow-hidden"
+      >
+        <div v-if="searchResults.length === 0" class="px-3 py-2 text-xs text-muted-foreground">
+          No results for "{{ searchQuery }}"
+        </div>
+        <button
+          v-for="result in searchResults"
+          :key="`${result.type}-${result.name}`"
+          class="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left"
+          @mousedown.prevent="selectResult(result)"
+        >
+          <component :is="result.icon" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span class="truncate flex-1">{{ result.name }}</span>
+          <span class="text-[10px] text-muted-foreground shrink-0 uppercase tracking-wider">{{
+            result.type === 'data-source' ? 'data' : result.type
+          }}</span>
+        </button>
+      </div>
+    </div>
+    <TooltipProvider v-else :delay-duration="0">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <div class="px-2 pt-3 pb-1">
+            <Button variant="ghost" size="icon" class="w-full h-9" @click="toggle">
+              <Search class="h-4 w-4" />
+            </Button>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="right">Search resources</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
 
     <!-- Navigation -->
     <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
@@ -144,9 +297,7 @@ const renderNavItem = (item: NavItem) => ({
           v-else
           :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
           class="w-full justify-start h-9 px-3"
-          :class="
-            renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''
-          "
+          :class="renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''"
           @click="navigateTo(item.route)"
         >
           <component :is="item.icon" class="h-5 w-5 mr-3 shrink-0" />
@@ -323,9 +474,7 @@ const renderNavItem = (item: NavItem) => ({
           v-else
           :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
           class="w-full justify-start h-9 px-3"
-          :class="
-            renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''
-          "
+          :class="renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''"
           @click="navigateTo(item.route)"
         >
           <component :is="item.icon" class="h-5 w-5 mr-3 shrink-0" />
@@ -342,27 +491,6 @@ const renderNavItem = (item: NavItem) => ({
 
       <Separator class="my-2" />
 
-      <!-- Theme + Collapse toggle row -->
-      <div
-        class="flex items-center"
-        :class="isCollapsed ? 'justify-center' : 'justify-between px-1'"
-      >
-        <ThemeToggle />
-        <TooltipProvider :delay-duration="0">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <Button variant="ghost" size="icon" class="h-8 w-8" @click="toggle">
-                <ChevronsLeft v-if="!isCollapsed" class="h-4 w-4" />
-                <ChevronsRight v-else class="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {{ isCollapsed ? 'Expand sidebar' : 'Collapse sidebar' }}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-
       <!-- User card -->
       <div
         class="flex items-center gap-3 rounded-lg p-2 hover:bg-muted transition-colors cursor-default"
@@ -377,12 +505,6 @@ const renderNavItem = (item: NavItem) => ({
           <p class="text-sm font-medium text-foreground truncate">
             {{ userStore.email || 'Not connected' }}
           </p>
-          <div class="flex items-center gap-1.5">
-            <Wallet class="h-3 w-3 text-muted-foreground shrink-0" />
-            <span class="text-xs text-muted-foreground truncate">
-              {{ userStore.formattedBalance() }}
-            </span>
-          </div>
         </div>
       </div>
     </div>

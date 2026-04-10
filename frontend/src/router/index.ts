@@ -14,6 +14,7 @@ import UpdatesPage from '../pages/UpdatesPage.vue'
 import AboutPage from '../pages/AboutPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import GoLivePage from '../pages/GoLivePage.vue'
+import ChatPage from '../pages/ChatPage.vue'
 import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 import { settingsApi } from '../api/endpoints/settings'
@@ -87,6 +88,11 @@ const router = createRouter({
       path: '/models/:slug',
       name: 'model-detail',
       component: ModelDetailPage,
+    },
+    {
+      path: '/chat',
+      name: 'chat',
+      component: ChatPage,
     },
     {
       path: '/inbox',

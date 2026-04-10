@@ -4,8 +4,8 @@
     <div class="mb-12">
       <h1 class="text-2xl font-semibold tracking-tight text-foreground mb-3">APIs</h1>
       <p class="body-lg text-muted-foreground md:max-w-[60%]">
-        Resources you've shared with the world. Each one has its own access rules, usage limits,
-        and pricing.
+        Resources you've shared with the world. Each one has its own access rules, usage limits, and
+        pricing.
       </p>
     </div>
 
@@ -104,10 +104,10 @@
   <Dialog v-model:open="showDeleteDialog">
     <DialogContent class="sm:max-w-[425px]">
       <DialogHeader>
-        <DialogTitle class="text-destructive">Delete endpoint</DialogTitle>
+        <DialogTitle class="text-destructive">Delete API</DialogTitle>
         <DialogDescription>
-          This will permanently delete this endpoint and remove it from SyftHub. This action cannot
-          be undone.
+          This will permanently delete this API and remove it from SyftHub. This action cannot be
+          undone.
         </DialogDescription>
       </DialogHeader>
       <div class="space-y-2">
@@ -117,7 +117,7 @@
         </Label>
         <Input
           v-model="deleteNameConfirm"
-          :placeholder="endpointToDelete?.name || 'endpoint-name'"
+          :placeholder="endpointToDelete?.name || 'api-name'"
         />
         <p
           v-if="deleteNameConfirm"
@@ -144,7 +144,7 @@
             <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
             Deleting...
           </div>
-          <span v-else>Delete Endpoint</span>
+          <span v-else>Delete API</span>
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -254,7 +254,7 @@ const confirmDeleteEndpoint = async () => {
           await endpointsApi.unpublish(endpointToDelete.value.slug)
         } catch (unpublishError) {
           console.error('Failed to unpublish endpoint:', unpublishError)
-          toast.error('Failed to remove endpoint from SyftHub. Please try again.')
+          toast.error('Failed to remove API from SyftHub. Please try again.')
           isDeleting.value = false
           return
         }
@@ -269,7 +269,7 @@ const confirmDeleteEndpoint = async () => {
         endpointsStore.endpoints.splice(index, 1)
       }
 
-      toast.success('Endpoint deleted successfully')
+      toast.success('API deleted successfully')
 
       // Reset dialog state
       showDeleteDialog.value = false
@@ -277,7 +277,7 @@ const confirmDeleteEndpoint = async () => {
       deleteNameConfirm.value = ''
     } catch (error) {
       console.error('Failed to delete endpoint:', error)
-      toast.error('Failed to delete endpoint. Please try again.')
+      toast.error('Failed to delete API. Please try again.')
     } finally {
       isDeleting.value = false
     }

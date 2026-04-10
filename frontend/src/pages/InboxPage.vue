@@ -139,7 +139,7 @@ const formatTimestamp = (date: Date) => {
         </Badge>
       </div>
       <p class="body-lg text-muted-foreground md:max-w-[60%]">
-        Your inbox collects system alerts and requests related to your resources and endpoints.
+        Your inbox collects system alerts and requests related to your resources and APIs.
         Review items here to approve access, resolve issues, and keep things running smoothly.
       </p>
     </div>

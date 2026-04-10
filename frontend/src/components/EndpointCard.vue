@@ -40,7 +40,9 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+      <div
+        class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+      >
         <Button variant="outline" size="sm" @click.stop="handleEditEndpoint">
           <Pencil class="h-4 w-4 mr-2" />
           Edit
@@ -88,5 +90,4 @@ const handleDeleteEndpoint = () => {
 const handleEditEndpoint = () => {
   emit('edit', props.endpoint)
 }
-
 </script>

@@ -439,6 +439,63 @@ export interface UpdateDiagnosticsRequest {
   enabled: boolean
 }
 
+// Local Chat API types
+export interface LocalChatMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+export interface LocalChatRequest {
+  model_id: string
+  dataset_id?: string | null
+  messages: LocalChatMessage[]
+  similarity_threshold?: number
+  limit?: number
+  include_metadata?: boolean
+  max_tokens?: number
+  temperature?: number
+  stop_sequences?: string[]
+  presence_penalty?: number
+  frequency_penalty?: number
+}
+
+export interface LocalChatDocumentResponse {
+  document_id: string
+  content: string
+  metadata: Record<string, unknown>
+  similarity_score: number
+}
+
+export interface LocalChatReferencesResponse {
+  documents: LocalChatDocumentResponse[]
+  search_engine: string | null
+}
+
+export interface LocalChatMessageResponse {
+  role: string
+  content: string
+  tokens: number
+}
+
+export interface LocalChatTokenUsage {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
+export interface LocalChatSummaryResponse {
+  id: string
+  model: string
+  message: LocalChatMessageResponse
+  finish_reason: string
+  usage: LocalChatTokenUsage
+}
+
+export interface LocalChatResponse {
+  summary: LocalChatSummaryResponse | null
+  references: LocalChatReferencesResponse | null
+}
+
 // Wallet API types
 export interface WalletResponse {
   id: string

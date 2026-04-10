@@ -148,7 +148,7 @@ export function useGoLive() {
       if (responseType === 'raw') responseType = 'summary'
     } else if (data.resourceType === 'data-source') {
       finalDatasetId = finalDatasetId || (data.resourceIsNew ? undefined : data.resourceId)
-      finalModelId = data.responseMode === 'raw' ? undefined : (data.aiModelId || undefined)
+      finalModelId = data.responseMode === 'raw' ? undefined : data.aiModelId || undefined
     } else {
       finalModelId = finalModelId || (data.resourceIsNew ? undefined : data.resourceId)
       responseType = 'summary'

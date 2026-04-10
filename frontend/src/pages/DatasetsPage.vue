@@ -57,9 +57,7 @@
     <div v-else-if="datasets.length === 0" class="text-center py-8">
       <Database class="h-10 w-10 text-muted-foreground mx-auto mb-4" />
       <h3 class="heading-3 text-foreground mb-2">No data sources yet</h3>
-      <p class="body-sm text-muted-foreground mb-4">
-        Add your first data source to get started
-      </p>
+      <p class="body-sm text-muted-foreground mb-4">Add your first data source to get started</p>
       <Button @click="showCreateDataSourceDialog = true">
         <Plus class="h-4 w-4 mr-2" />
         Add Data Source
@@ -120,14 +118,14 @@
                           />
                           {{
                             dataSource.endpointCount === 0
-                              ? 'No endpoints'
-                              : `${dataSource.endpointCount} endpoint${dataSource.endpointCount !== 1 ? 's' : ''}`
+                              ? 'No APIs'
+                              : `${dataSource.endpointCount} API${dataSource.endpointCount !== 1 ? 's' : ''}`
                           }}
                         </Badge>
                       </TooltipTrigger>
                       <TooltipContent v-if="dataSource.endpointCount > 0">
                         <div class="space-y-1">
-                          <p class="font-medium body-sm">Connected Endpoints:</p>
+                          <p class="font-medium body-sm">Connected APIs:</p>
                           <ul class="space-y-1">
                             <li
                               v-for="endpointName in getEndpointNamesForDataset(dataSource.id)"
@@ -140,7 +138,7 @@
                         </div>
                       </TooltipContent>
                       <TooltipContent v-else>
-                        <p class="body-sm">This dataset is not connected to any endpoint</p>
+                        <p class="body-sm">This dataset is not connected to any API</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -203,7 +201,7 @@
     item-type="Dataset"
     :item-name="datasetToDelete?.name || ''"
     :dependencies="getEndpointNamesForDataset(datasetToDelete?.id || '')"
-    dependency-type="endpoint"
+    dependency-type="API"
     :is-deleting="isDeleting"
     @confirm="confirmDeleteDataset"
     @cancel="cancelDeleteDataset"

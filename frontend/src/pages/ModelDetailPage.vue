@@ -215,7 +215,7 @@
 
         <!-- Connected Endpoints -->
         <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-          <h2 class="heading-3 mb-4">Connected Endpoints ({{ connectedEndpoints.length }})</h2>
+          <h2 class="heading-3 mb-4">Connected APIs ({{ connectedEndpoints.length }})</h2>
           <div v-if="connectedEndpoints.length > 0" class="space-y-4">
             <div
               v-for="endpoint in connectedEndpoints"
@@ -229,17 +229,17 @@
               <div class="flex-1">
                 <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
                 <p class="body-sm text-muted-foreground mt-1">
-                  {{ endpoint.slug || 'API endpoint' }}
+                  {{ endpoint.slug || 'API' }}
                 </p>
               </div>
             </div>
           </div>
           <div v-else class="text-center py-16">
             <Globe class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <p class="text-muted-foreground body-sm mb-4">No endpoints connected to this model</p>
+            <p class="text-muted-foreground body-sm mb-4">No APIs connected to this model</p>
             <Button size="sm" @click="navigateToCreateEndpoint">
               <Plus class="h-4 w-4 mr-2" />
-              Create Endpoint
+              Create API
             </Button>
           </div>
         </div>
@@ -261,7 +261,7 @@
     item-type="Model"
     :item-name="model?.name || ''"
     :dependencies="modelDependencies"
-    dependency-type="endpoint"
+    dependency-type="API"
     @confirm="confirmDelete"
     @cancel="cancelDelete"
   />

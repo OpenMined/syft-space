@@ -423,12 +423,13 @@ const isCheckingBeforePublish = ref(false)
 const existingEndpointUrl = computed(() => userStore.getEndpointUrlInMarketplace(name.value))
 
 // ──────────────────── Navigation ────────────────────
-const canProceedStep1 = computed(
-  () => !!selectedDataSourceId.value || !!selectedModelId.value,
-)
+const canProceedStep1 = computed(() => !!selectedDataSourceId.value || !!selectedModelId.value)
 
 const canProceedStep2 = computed(() => {
-  if (showsResponseMode.value && (responseMode.value === 'summary' || responseMode.value === 'both')) {
+  if (
+    showsResponseMode.value &&
+    (responseMode.value === 'summary' || responseMode.value === 'both')
+  ) {
     if (!hasModel.value && !aiModelId.value) return false
   }
   return true
@@ -471,11 +472,11 @@ const goToStep = (step: number) => {
 }
 
 // ──────────────────── Review helpers ────────────────────
-const selectedDataSourceName = computed(() =>
-  datasets.value.find((d) => d.id === selectedDataSourceId.value)?.name ?? '',
+const selectedDataSourceName = computed(
+  () => datasets.value.find((d) => d.id === selectedDataSourceId.value)?.name ?? '',
 )
-const selectedModelName = computed(() =>
-  models.value.find((m) => m.id === selectedModelId.value)?.name ?? '',
+const selectedModelName = computed(
+  () => models.value.find((m) => m.id === selectedModelId.value)?.name ?? '',
 )
 
 const responseModeLabel = computed(() => {
@@ -718,9 +719,7 @@ const handleOverwriteConfirm = async () => {
           <!-- ============ STEP 2: Configure ============ -->
           <div v-if="currentStep === 2">
             <h1 class="text-2xl font-semibold text-foreground mb-2">Configure</h1>
-            <p class="text-muted-foreground mb-8">
-              Set up how people can access your resource.
-            </p>
+            <p class="text-muted-foreground mb-8">Set up how people can access your resource.</p>
 
             <div class="space-y-8">
               <!-- Response mode (data sources only) -->
@@ -970,9 +969,7 @@ const handleOverwriteConfirm = async () => {
             </p>
 
             <!-- Example prefillers -->
-            <div
-              class="mb-8 bg-muted/50 border border-border/50 rounded-lg p-4"
-            >
+            <div class="mb-8 bg-muted/50 border border-border/50 rounded-lg p-4">
               <h4 class="font-medium text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-2">
                 <Lightbulb class="w-4 h-4" />
                 Popular examples to get you started
@@ -1271,10 +1268,7 @@ const handleOverwriteConfirm = async () => {
                       >
                         — {{ selectedModelName }}
                       </span>
-                      <span
-                        v-else-if="aiModelName"
-                        class="text-sm text-muted-foreground ml-1"
-                      >
+                      <span v-else-if="aiModelName" class="text-sm text-muted-foreground ml-1">
                         — {{ aiModelName }}
                       </span>
                     </div>
@@ -1436,16 +1430,15 @@ const handleOverwriteConfirm = async () => {
           <section class="space-y-3">
             <Label class="text-sm font-medium">System prompt</Label>
 
-            <Select :model-value="selectedPromptPreset" @update:model-value="handlePromptPresetChange">
+            <Select
+              :model-value="selectedPromptPreset"
+              @update:model-value="handlePromptPresetChange"
+            >
               <SelectTrigger class="w-full">
                 <SelectValue placeholder="Choose a prompt template" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem
-                  v-for="(preset, key) in PROMPT_PRESETS"
-                  :key="key"
-                  :value="key"
-                >
+                <SelectItem v-for="(preset, key) in PROMPT_PRESETS" :key="key" :value="key">
                   {{ preset.label }}
                 </SelectItem>
               </SelectContent>

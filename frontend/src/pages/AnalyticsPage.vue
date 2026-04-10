@@ -6,7 +6,7 @@
         <BarChart3 class="h-6 w-6 text-primary" />
         <h1 class="heading-3">Analytics</h1>
       </div>
-      <p class="body-lg text-muted-foreground">Aggregated analytics across your endpoints</p>
+      <p class="body-lg text-muted-foreground">Aggregated analytics across your APIs</p>
     </div>
 
     <!-- Aggregated Stats (moved from Endpoints) -->

@@ -102,7 +102,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   open: false,
   dependencies: () => [],
-  dependencyType: 'endpoint',
+  dependencyType: 'API',
   isDeleting: false,
 })
 

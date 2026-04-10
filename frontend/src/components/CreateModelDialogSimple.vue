@@ -2,9 +2,7 @@
   <Dialog v-model:open="isOpen">
     <DialogContent class="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle class="heading-3">{{
-          props.model ? 'Edit Model' : 'Add Model'
-        }}</DialogTitle>
+        <DialogTitle class="heading-3">{{ props.model ? 'Edit Model' : 'Add Model' }}</DialogTitle>
       </DialogHeader>
 
       <div class="space-y-6 mt-6">
@@ -80,9 +78,7 @@
             :disabled="isLoadingModels"
             placeholder="Select a model"
           />
-          <p v-if="isLoadingModels" class="text-xs text-muted-foreground">
-            Fetching models...
-          </p>
+          <p v-if="isLoadingModels" class="text-xs text-muted-foreground">Fetching models...</p>
           <p v-else-if="hasModelsFetched" class="text-xs text-muted-foreground">
             {{ providerModels.length }} available
           </p>

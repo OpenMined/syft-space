@@ -9,13 +9,8 @@
     <div class="min-h-screen">
       <!-- Hero with gradient glow -->
       <div class="relative overflow-hidden">
-        <div
-          class="absolute inset-0 -z-10 opacity-30 dark:opacity-20 blur-3xl"
-          aria-hidden="true"
-        >
-          <div
-            class="absolute top-[-10%] left-[10%] h-72 w-72 rounded-full bg-primary/40"
-          />
+        <div class="absolute inset-0 -z-10 opacity-30 dark:opacity-20 blur-3xl" aria-hidden="true">
+          <div class="absolute top-[-10%] left-[10%] h-72 w-72 rounded-full bg-primary/40" />
           <div
             class="absolute top-[5%] right-[15%] h-56 w-56 rounded-full bg-cyan-400/30 dark:bg-cyan-500/20"
           />
@@ -82,10 +77,10 @@
       </div>
 
       <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
-        <!-- Your Endpoints -->
+        <!-- Your APIs -->
         <div class="rounded-xl border border-border/50 bg-card mb-12">
           <div class="flex items-center justify-between px-5 py-4 border-b border-border/50">
-            <h2 class="text-sm font-semibold text-foreground">Your Endpoints</h2>
+            <h2 class="text-sm font-semibold text-foreground">Your APIs</h2>
             <button
               @click="router.push({ name: 'endpoints' })"
               class="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -104,27 +99,20 @@
           </div>
 
           <!-- Empty State -->
-          <div
-            v-else-if="endpointsStore.endpoints.length === 0"
-            class="px-5 py-10 text-center"
-          >
+          <div v-else-if="endpointsStore.endpoints.length === 0" class="px-5 py-10 text-center">
             <div class="p-3 rounded-full bg-primary/10 w-fit mx-auto mb-3">
               <Radio class="w-5 h-5 text-primary" />
             </div>
             <p class="text-sm text-muted-foreground mb-4">
-              No endpoints yet. Publish your first resource.
+              No APIs yet. Publish your first resource.
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              @click="router.push({ name: 'go-live' })"
-            >
+            <Button variant="outline" size="sm" @click="router.push({ name: 'go-live' })">
               <Zap class="w-3.5 h-3.5 mr-1.5" />
               Publish
             </Button>
           </div>
 
-          <!-- Endpoint List -->
+          <!-- API List -->
           <div v-else class="divide-y divide-border/40">
             <button
               v-for="ep in recentEndpoints"
@@ -142,7 +130,7 @@
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-foreground truncate">{{ ep.name }}</div>
                 <div class="text-xs text-muted-foreground truncate">
-                  {{ ep.dataSourceType || ep.modelType || 'Endpoint' }}
+                  {{ ep.dataSourceType || ep.modelType || 'API' }}
                 </div>
               </div>
               <div class="text-[11px] text-muted-foreground shrink-0">
@@ -164,7 +152,9 @@
               rel="noopener noreferrer"
               class="group flex items-center gap-3 p-3.5 rounded-lg border border-transparent hover:border-border/50 hover:bg-card transition-all"
             >
-              <div class="p-2 rounded-lg bg-green-500/10 group-hover:bg-green-500/15 transition-colors">
+              <div
+                class="p-2 rounded-lg bg-green-500/10 group-hover:bg-green-500/15 transition-colors"
+              >
                 <Zap class="w-4 h-4 text-green-600 dark:text-green-400" />
               </div>
               <div>
@@ -178,7 +168,9 @@
               rel="noopener noreferrer"
               class="group flex items-center gap-3 p-3.5 rounded-lg border border-transparent hover:border-border/50 hover:bg-card transition-all"
             >
-              <div class="p-2 rounded-lg bg-blue-500/10 group-hover:bg-blue-500/15 transition-colors">
+              <div
+                class="p-2 rounded-lg bg-blue-500/10 group-hover:bg-blue-500/15 transition-colors"
+              >
                 <FileText class="w-4 h-4 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
@@ -192,12 +184,14 @@
               rel="noopener noreferrer"
               class="group flex items-center gap-3 p-3.5 rounded-lg border border-transparent hover:border-border/50 hover:bg-card transition-all"
             >
-              <div class="p-2 rounded-lg bg-indigo-500/10 group-hover:bg-indigo-500/15 transition-colors">
+              <div
+                class="p-2 rounded-lg bg-indigo-500/10 group-hover:bg-indigo-500/15 transition-colors"
+              >
                 <Brain class="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               </div>
               <div>
                 <div class="text-sm font-medium text-foreground">Connect AI Models</div>
-                <div class="text-xs text-muted-foreground">Link your vLLM endpoints</div>
+                <div class="text-xs text-muted-foreground">Link your vLLM models</div>
               </div>
             </a>
             <a
@@ -206,7 +200,9 @@
               rel="noopener noreferrer"
               class="group flex items-center gap-3 p-3.5 rounded-lg border border-transparent hover:border-border/50 hover:bg-card transition-all"
             >
-              <div class="p-2 rounded-lg bg-purple-500/10 group-hover:bg-purple-500/15 transition-colors">
+              <div
+                class="p-2 rounded-lg bg-purple-500/10 group-hover:bg-purple-500/15 transition-colors"
+              >
                 <Shield class="w-4 h-4 text-purple-600 dark:text-purple-400" />
               </div>
               <div>

@@ -316,8 +316,8 @@
                     <span class="body-sm text-muted-foreground">Type</span>
                     <span class="body-sm font-medium text-foreground">{{ getEndpointType }}</span>
                   </div>
-                  <!-- Only show Response type for Data endpoints, not AI Model endpoints -->
-                  <template v-if="getEndpointType !== 'AI Model Endpoint'">
+                  <!-- Only show Response type for Data APIs, not AI Model APIs -->
+                  <template v-if="getEndpointType !== 'AI Model API'">
                     <Separator />
                     <div class="flex justify-between items-center py-1">
                       <span class="body-sm text-muted-foreground">Response</span>
@@ -395,10 +395,7 @@
         <!-- Policies Tab -->
         <TabsContent value="access" class="space-y-8">
           <!-- Empty state -->
-          <div
-            v-if="getTotalPoliciesCount() === 0"
-            class="text-center py-12 text-muted-foreground"
-          >
+          <div v-if="getTotalPoliciesCount() === 0" class="text-center py-12 text-muted-foreground">
             <Shield class="h-8 w-8 mx-auto mb-3 opacity-40" />
             <p class="text-sm mb-1">No policies configured</p>
             <p class="text-xs">
@@ -412,9 +409,7 @@
               <div class="flex items-center gap-2">
                 <UserCheck class="h-4 w-4 text-muted-foreground" />
                 <h3 class="text-sm font-semibold text-foreground">Access Control</h3>
-                <span class="text-xs text-muted-foreground">
-                  — Who can query this resource
-                </span>
+                <span class="text-xs text-muted-foreground"> — Who can query this resource </span>
               </div>
               <Button
                 variant="ghost"
@@ -485,9 +480,7 @@
               <div class="flex items-center gap-2">
                 <Gauge class="h-4 w-4 text-muted-foreground" />
                 <h3 class="text-sm font-semibold text-foreground">Usage Limits</h3>
-                <span class="text-xs text-muted-foreground">
-                  — How often it can be queried
-                </span>
+                <span class="text-xs text-muted-foreground"> — How often it can be queried </span>
               </div>
               <Button
                 variant="ghost"
@@ -555,9 +548,7 @@
               <div class="flex items-center gap-2">
                 <DollarSign class="h-4 w-4 text-muted-foreground" />
                 <h3 class="text-sm font-semibold text-foreground">Pricing</h3>
-                <span class="text-xs text-muted-foreground">
-                  — Cost per query
-                </span>
+                <span class="text-xs text-muted-foreground"> — Cost per query </span>
               </div>
               <Button
                 variant="ghost"
@@ -646,7 +637,7 @@
         <Label class="gap-1">
           Type <span class="font-semibold text-foreground">{{ endpoint?.name }}</span> to confirm
         </Label>
-        <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'endpoint-name'" />
+        <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'api-name'" />
         <p
           v-if="deleteNameConfirm"
           class="text-sm"
@@ -961,8 +952,8 @@ const getEndpointType = computed(() => {
   const hasDataset = !!endpoint.value.dataset
   const hasModel = !!endpoint.value.model
 
-  if (hasDataset) return 'Data Endpoint'
-  if (hasModel) return 'AI Model Endpoint'
+  if (hasDataset) return 'Data API'
+  if (hasModel) return 'AI Model API'
   return 'Unknown'
 })
 

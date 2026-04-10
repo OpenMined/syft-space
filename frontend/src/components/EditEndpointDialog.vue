@@ -2,8 +2,8 @@
   <Dialog :open="open" @update:open="$emit('update:open', $event)">
     <DialogContent class="sm:max-w-[600px] max-h-[90vh] flex flex-col">
       <DialogHeader>
-        <DialogTitle>Edit endpoint</DialogTitle>
-        <DialogDescription> Update the endpoint summary and description. </DialogDescription>
+        <DialogTitle>Edit API</DialogTitle>
+        <DialogDescription> Update the API summary and description. </DialogDescription>
       </DialogHeader>
       <div class="space-y-4 py-4 overflow-y-auto flex-1 -mr-6 pr-6">
         <div class="space-y-2">

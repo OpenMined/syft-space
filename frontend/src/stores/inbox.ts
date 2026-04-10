@@ -244,7 +244,7 @@ Overall, federated learning can enhance HIPAA compliance when properly implement
     },
     {
       id: '7',
-      source: 'Endpoint Status',
+      source: 'API Status',
       title: 'Vector database maintenance completed',
       summary: 'Weaviate database has been successfully optimized',
       longDescription: `## Maintenance Report
@@ -264,7 +264,7 @@ The scheduled maintenance for your Weaviate vector database has been completed s
 - **Index Size**: Reduced by 18%
 - **Downtime**: 0 minutes (online maintenance)
 
-No action required from your end. All endpoints are operating normally.`,
+No action required from your end. All APIs are operating normally.`,
       timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48),
       read: true,
       dismissed: false,
@@ -283,7 +283,7 @@ No action required from your end. All endpoints are operating normally.`,
 - **Days Left**: 5
 
 ### Top Consumers
-1. Legal Document Analysis Endpoint: 45%
+1. Legal Document Analysis API: 45%
 2. Customer Insights Engine: 30%
 3. Research Assistant: 15%
 4. Other: 10%
