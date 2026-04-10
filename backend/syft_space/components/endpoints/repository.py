@@ -109,6 +109,7 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
         name: str | None = None,
         summary: str | None = None,
         description: str | None = None,
+        system_prompt: str | None = None,
     ) -> Endpoint | None:
         """Update an endpoint by slug within a tenant.
 
@@ -118,6 +119,9 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
             name: New endpoint name
             summary: Updated summary
             description: Updated markdown description
+            system_prompt: Updated custom system prompt. An empty string
+                clears the override (falls back to model default); ``None``
+                leaves the existing value untouched.
 
         Returns:
             Updated endpoint if found, None otherwise
@@ -145,6 +149,9 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 endpoint.summary = summary
             if description is not None:
                 endpoint.description = description
+            if system_prompt is not None:
+                # Empty string clears the override; any non-empty value sets it
+                endpoint.system_prompt = system_prompt or None
 
             endpoint.updated_at = datetime.now(timezone.utc)
             session.add(endpoint)
