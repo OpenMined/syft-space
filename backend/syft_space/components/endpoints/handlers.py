@@ -153,6 +153,7 @@ class EndpointHandler:
             response_type=request.response_type,
             published=request.published,
             tags=request.tags,
+            system_prompt=request.system_prompt,
             tenant_id=tenant.id,  # Set tenant_id explicitly
         )
 
@@ -214,6 +215,7 @@ class EndpointHandler:
             name=request.name,
             summary=request.summary,
             description=request.description,
+            system_prompt=request.system_prompt,
         )
         if not updated_endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
@@ -493,6 +495,19 @@ class EndpointHandler:
             messages = [
                 ChatMessage(role=m.role, content=m.content) for m in request.messages
             ]
+
+        # Apply endpoint-level system prompt override. When set, it takes
+        # precedence over the model's default system prompt. If the caller
+        # already supplied a leading system message, replace its content;
+        # otherwise, insert a new one at the front. References context is
+        # added afterwards as a separate system message.
+        if endpoint.system_prompt:
+            if messages and messages[0].role == "system":
+                messages[0] = ChatMessage(role="system", content=endpoint.system_prompt)
+            else:
+                messages.insert(
+                    0, ChatMessage(role="system", content=endpoint.system_prompt)
+                )
 
         # Add references to context if available
         if references and references.documents:

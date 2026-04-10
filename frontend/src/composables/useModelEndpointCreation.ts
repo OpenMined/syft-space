@@ -39,6 +39,9 @@ export interface ModelEndpointCreationData {
   summary: string
   description: string
   tags: string[]
+  // Optional endpoint-level system prompt. Persisted on the endpoint so it
+  // wins over the underlying model's stored system prompt at query time.
+  systemPrompt?: string
 }
 
 export function useModelEndpointCreation() {
@@ -112,6 +115,7 @@ export function useModelEndpointCreation() {
       model_id:
         modelId || (data.selectedModelSourceType === 'existing' ? data.selectedModelId : undefined),
       published: true,
+      system_prompt: data.systemPrompt || undefined,
     }
 
     const response = await endpointsApi.create(createRequest)

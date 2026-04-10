@@ -245,6 +245,7 @@ export interface CreateEndpointRequest {
   response_type?: string
   published?: boolean
   tags?: string
+  system_prompt?: string | null
 }
 
 export interface AttachedPolicy {
@@ -265,6 +266,7 @@ export interface EndpointResponse {
   response_type: string
   published: boolean
   tags: string
+  system_prompt?: string | null
   created_at: string
   updated_at: string
   // Fields included in detail response
@@ -407,6 +409,7 @@ export interface UpdateEndpointRequest {
   name?: string
   summary?: string
   description?: string
+  system_prompt?: string | null
 }
 
 // Feedback API types
