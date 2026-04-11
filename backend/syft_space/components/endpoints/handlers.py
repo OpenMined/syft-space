@@ -496,11 +496,7 @@ class EndpointHandler:
                 ChatMessage(role=m.role, content=m.content) for m in request.messages
             ]
 
-        # Apply endpoint-level system prompt override. When set, it takes
-        # precedence over the model's default system prompt. If the caller
-        # already supplied a leading system message, replace its content;
-        # otherwise, insert a new one at the front. References context is
-        # added afterwards as a separate system message.
+        # Endpoint system prompt overrides the model default and any caller-supplied one.
         if endpoint.system_prompt:
             if messages and messages[0].role == "system":
                 messages[0] = ChatMessage(role="system", content=endpoint.system_prompt)
@@ -635,11 +631,11 @@ class EndpointHandler:
                     detail=f"Marketplaces not found: {[str(id) for id in missing_ids]}",
                 )
 
-        # Publish to each marketplace
-        results: list[PublishResult] = []
-        for marketplace in marketplaces:
-            result = await self._publish_to_marketplace(endpoint, marketplace)
-            results.append(result)
+        results: list[PublishResult] = list(
+            await asyncio.gather(
+                *(self._publish_to_marketplace(endpoint, m) for m in marketplaces)
+            )
+        )
 
         return PublishEndpointResponse(
             endpoint_slug=slug,
@@ -672,10 +668,11 @@ class EndpointHandler:
         if not marketplaces:
             raise HTTPException(status_code=404, detail="Marketplaces not found")
 
-        results: list[UnpublishResult] = []
-        for marketplace in marketplaces:
-            result = await self._unpublish_endpoint(endpoint, marketplace)
-            results.append(result)
+        results: list[UnpublishResult] = list(
+            await asyncio.gather(
+                *(self._unpublish_endpoint(endpoint, m) for m in marketplaces)
+            )
+        )
 
         return results
 
@@ -875,10 +872,11 @@ class EndpointHandler:
                 )
             )
 
-        # Check each found marketplace
-        for marketplace in marketplaces:
-            result = await self._check_marketplace_availability(slug, marketplace)
-            marketplace_results.append(result)
+        marketplace_results.extend(
+            await asyncio.gather(
+                *(self._check_marketplace_availability(slug, m) for m in marketplaces)
+            )
+        )
 
         return SlugAvailabilityResponse(
             slug=slug,

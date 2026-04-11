@@ -213,6 +213,9 @@ class EndpointListItem(BaseModel):
     response_type: str = Field(..., description="Type of response")
     published: bool = Field(..., description="Whether published")
     tags: str = Field(..., description="Comma-separated tags")
+    system_prompt: str | None = Field(
+        default=None, description="Custom system prompt override"
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
 
     model: AttachedModel | None = Field(default=None, description="Attached model")
