@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { chatApi } from '@/api/endpoints/chat'
 import type {
   LocalChatMessage,
@@ -13,12 +13,18 @@ export interface ChatTurn {
   summary?: LocalChatSummaryResponse | null
 }
 
+export interface SendMessageOptions {
+  content: string
+  modelId: string
+  datasetId?: string | null
+  systemPrompt?: string | null
+}
+
 export function useLocalChat() {
   const turns = ref<ChatTurn[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const modelId = ref<string | null>(null)
-  const datasetId = ref<string | null>(null)
+  let abortController: AbortController | null = null
 
   function buildMessageHistory(): LocalChatMessage[] {
     return turns.value.map((t) => ({
@@ -27,23 +33,30 @@ export function useLocalChat() {
     }))
   }
 
-  async function sendMessage(content: string) {
-    if (!modelId.value) return
+  async function sendMessage(options: SendMessageOptions) {
+    const { content, modelId, datasetId, systemPrompt } = options
 
-    const userTurn: ChatTurn = { role: 'user', content }
-    turns.value.push(userTurn)
+    abortController?.abort()
+    abortController = new AbortController()
+    const signal = abortController.signal
+
+    turns.value.push({ role: 'user', content })
 
     loading.value = true
     error.value = null
 
     try {
-      const response = await chatApi.send({
-        model_id: modelId.value,
-        dataset_id: datasetId.value,
-        messages: buildMessageHistory(),
-        max_tokens: 500,
-        temperature: 0.7,
-      })
+      const response = await chatApi.send(
+        {
+          model_id: modelId,
+          dataset_id: datasetId ?? null,
+          messages: buildMessageHistory(),
+          system_prompt: systemPrompt ?? null,
+          max_tokens: 500,
+          temperature: 0.7,
+        },
+        { signal },
+      )
 
       const assistantContent = response.summary?.message.content ?? 'No response from model.'
 
@@ -54,11 +67,10 @@ export function useLocalChat() {
         summary: response.summary,
       })
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Chat request failed'
-      error.value = message
-      turns.value.pop()
+      if (signal.aborted) return
+      error.value = e instanceof Error ? e.message : 'Chat request failed'
     } finally {
-      loading.value = false
+      if (!signal.aborted) loading.value = false
     }
   }
 
@@ -67,12 +79,15 @@ export function useLocalChat() {
     error.value = null
   }
 
+  onBeforeUnmount(() => {
+    abortController?.abort()
+    abortController = null
+  })
+
   return {
     turns,
     loading,
     error,
-    modelId,
-    datasetId,
     sendMessage,
     clearChat,
   }

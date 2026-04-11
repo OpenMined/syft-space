@@ -64,6 +64,7 @@ export interface EndpointListItem {
   response_type: string
   published: boolean
   tags: string
+  system_prompt?: string | null
   created_at: string
   model?: {
     id: string
@@ -373,7 +374,7 @@ export interface SlugAvailabilityResponse {
   marketplaces?: Array<{
     marketplace_id: string
     marketplace_name: string
-    available: boolean
+    available: boolean | null
     error?: string
   }> | null
 }
@@ -452,6 +453,7 @@ export interface LocalChatRequest {
   model_id: string
   dataset_id?: string | null
   messages: LocalChatMessage[]
+  system_prompt?: string | null
   similarity_threshold?: number
   limit?: number
   include_metadata?: boolean

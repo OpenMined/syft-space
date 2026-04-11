@@ -25,35 +25,39 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { modelsApi } from '@/api/endpoints/models'
-import { datasetsApi } from '@/api/endpoints/datasets'
-import { useLocalChat, type ChatTurn } from '@/composables/useLocalChat'
+import { useEndpointsStore } from '@/stores/endpoints'
+import { useLocalChat } from '@/composables/useLocalChat'
 import { useNavigation } from '@/composables/useNavigation'
-import type { ModelListItem, DatasetListItem } from '@/api/types'
 
-const { turns, loading, error, modelId, datasetId, sendMessage, clearChat } = useLocalChat()
-const { goToModels } = useNavigation()
+const { turns, loading, error, sendMessage, clearChat } = useLocalChat()
+const { goToGoLive } = useNavigation()
+const endpointsStore = useEndpointsStore()
 
-const models = ref<ModelListItem[]>([])
-const datasets = ref<DatasetListItem[]>([])
-const modelsLoading = ref(true)
-const datasetsLoading = ref(true)
+const modelApiSlug = ref<string | null>(null)
+const dataApiSlug = ref<string | null>(null)
 const inputText = ref('')
 const messagesEndRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
 
-const hasNoModels = computed(() => !modelsLoading.value && models.value.length === 0)
-const canSubmit = computed(
-  () => inputText.value.trim().length > 0 && modelId.value != null && !loading.value,
+const modelApis = computed(() => endpointsStore.endpoints.filter((e) => e.modelId != null))
+const dataApis = computed(() => endpointsStore.endpoints.filter((e) => e.datasetId != null))
+
+const selectedModelApi = computed(
+  () => modelApis.value.find((e) => e.slug === modelApiSlug.value) ?? null,
+)
+const selectedDataApi = computed(
+  () => dataApis.value.find((e) => e.slug === dataApiSlug.value) ?? null,
 )
 
-onMounted(async () => {
-  const [modelsList, datasetsList] = await Promise.all([
-    modelsApi.list().finally(() => (modelsLoading.value = false)),
-    datasetsApi.list().finally(() => (datasetsLoading.value = false)),
-  ])
-  models.value = modelsList
-  datasets.value = datasetsList
+const hasNoModelApis = computed(
+  () => !endpointsStore.isLoading && modelApis.value.length === 0,
+)
+const canSubmit = computed(
+  () => inputText.value.trim().length > 0 && selectedModelApi.value != null && !loading.value,
+)
+
+onMounted(() => {
+  endpointsStore.fetchEndpoints()
 })
 
 watch(
@@ -66,10 +70,19 @@ watch(
 )
 
 async function handleSend() {
-  if (!canSubmit.value) return
+  if (!canSubmit.value || !selectedModelApi.value) return
+  const modelId = selectedModelApi.value.modelId
+  if (!modelId) return
+
   const text = inputText.value.trim()
   inputText.value = ''
-  await sendMessage(text)
+
+  await sendMessage({
+    content: text,
+    modelId,
+    datasetId: selectedDataApi.value?.datasetId ?? null,
+    systemPrompt: selectedModelApi.value.systemPrompt ?? null,
+  })
 }
 
 function isDialogOpen(): boolean {
@@ -78,7 +91,6 @@ function isDialogOpen(): boolean {
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key !== 'Enter' || e.shiftKey) return
-  if (!(e.ctrlKey || e.metaKey)) return
   if (isDialogOpen()) return
   e.preventDefault()
   handleSend()
@@ -96,10 +108,6 @@ function handleClear() {
   clearChat()
   expandedRefs.value.clear()
 }
-
-function isAssistant(turn: ChatTurn) {
-  return turn.role === 'assistant'
-}
 </script>
 
 <template>
@@ -107,19 +115,19 @@ function isAssistant(turn: ChatTurn) {
     <!-- Messages Area -->
     <ScrollArea class="flex-1">
       <div class="max-w-3xl mx-auto px-6 py-6">
-        <!-- No Models Available State -->
+        <!-- No Model APIs Available State -->
         <div
-          v-if="hasNoModels && turns.length === 0"
+          v-if="hasNoModelApis && turns.length === 0"
           class="flex flex-col items-center justify-center py-24"
         >
           <Alert class="max-w-md">
             <Sparkles class="h-4 w-4" />
-            <AlertTitle>No models available</AlertTitle>
+            <AlertTitle>No APIs with a model yet</AlertTitle>
             <AlertDescription>
               <p class="mb-3">
-                You need at least one model before you can test your resources in chat.
+                Publish an API that has a model attached before you can test it in chat.
               </p>
-              <Button size="sm" @click="goToModels"> Add a model </Button>
+              <Button size="sm" @click="goToGoLive"> Go live with an API </Button>
             </AlertDescription>
           </Alert>
         </div>
@@ -130,10 +138,10 @@ function isAssistant(turn: ChatTurn) {
           class="flex flex-col items-center justify-center py-24 text-center"
         >
           <MessageSquare class="h-12 w-12 text-muted-foreground/40 mb-6" />
-          <h2 class="text-xl font-semibold text-foreground mb-2">Test your resources</h2>
+          <h2 class="text-xl font-semibold text-foreground mb-2">Test your APIs</h2>
           <p class="text-sm text-muted-foreground max-w-md">
-            Select a model and optionally a data source below, then ask a question to test whether
-            your resources are working correctly.
+            Pick an API with a model, optionally attach a data source API for context, then ask a
+            question to test whether your setup is working.
           </p>
         </div>
 
@@ -164,7 +172,7 @@ function isAssistant(turn: ChatTurn) {
 
               <!-- References -->
               <div
-                v-if="isAssistant(turn) && turn.references?.documents?.length"
+                v-if="turn.role === 'assistant' && turn.references?.documents?.length"
                 class="max-w-[90%]"
               >
                 <button
@@ -228,71 +236,87 @@ function isAssistant(turn: ChatTurn) {
       </div>
     </ScrollArea>
 
-    <!-- Input Area (includes selectors) -->
-    <div class="shrink-0 border-t border-border px-6 py-3">
-      <div class="max-w-3xl mx-auto flex flex-col gap-2">
-        <!-- Selectors row -->
-        <div class="flex items-center gap-2 flex-wrap">
-          <Select v-model="modelId">
-            <SelectTrigger
-              class="w-auto h-7 gap-1.5 px-2.5 text-xs border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors rounded-full"
-            >
-              <Brain class="h-3 w-3 text-muted-foreground shrink-0" />
-              <SelectValue placeholder="Select model" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="m in models" :key="m.id" :value="m.id">
-                {{ m.name }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select v-model="datasetId">
-            <SelectTrigger
-              class="w-auto h-7 gap-1.5 px-2.5 text-xs border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors rounded-full"
-            >
-              <Database class="h-3 w-3 text-muted-foreground shrink-0" />
-              <SelectValue placeholder="Select context" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem :value="null as unknown as string"> None </SelectItem>
-              <SelectItem v-for="d in datasets" :key="d.id" :value="d.id">
-                {{ d.name }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-
-          <TooltipProvider v-if="turns.length > 0" :delay-duration="0">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <Button variant="ghost" size="icon" class="h-7 w-7 shrink-0" @click="handleClear">
-                  <Trash2 class="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Clear conversation</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-
-        <!-- Text input + send -->
-        <div class="flex gap-3">
+    <!-- Input Area (selectors + send fused inside the prompt) -->
+    <div class="shrink-0 px-6 py-3">
+      <div class="max-w-3xl mx-auto">
+        <div
+          class="flex flex-col rounded-3xl border border-border bg-background dark:bg-input/30 shadow-sm transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30"
+        >
           <Textarea
             v-model="inputText"
             :placeholder="
-              hasNoModels
-                ? 'Add a model to start chatting'
-                : modelId
+              hasNoModelApis
+                ? 'Publish a model API to start chatting'
+                : selectedModelApi
                   ? 'Ask a question...'
-                  : 'Select a model to start chatting'
+                  : 'Select a model API to start chatting'
             "
-            :disabled="!modelId"
-            class="resize-none min-h-[44px] max-h-[120px]"
-            rows="1"
+            :disabled="!selectedModelApi"
+            class="resize-none min-h-[76px] max-h-[192px] border-0 shadow-none bg-transparent dark:bg-transparent rounded-3xl px-5 pt-4 pb-2 focus-visible:ring-0 focus-visible:border-0"
+            rows="2"
             @keydown="handleKeydown"
           />
-          <Button :disabled="!canSubmit" class="shrink-0 self-end" @click="handleSend">
-            <Send class="h-4 w-4" />
-          </Button>
+
+          <div class="flex items-center justify-between gap-2 px-3 pb-3">
+            <!-- Left: data API dropdown + clear -->
+            <div class="flex items-center gap-2">
+              <Select v-model="dataApiSlug" :disabled="dataApis.length === 0">
+                <SelectTrigger
+                  class="w-auto h-8 gap-1.5 px-2.5 text-xs border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors rounded-full"
+                >
+                  <Database class="h-3 w-3 text-muted-foreground shrink-0" />
+                  <SelectValue placeholder="Add context" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="api in dataApis" :key="api.id" :value="api.slug">
+                    {{ api.name }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              <TooltipProvider v-if="turns.length > 0" :delay-duration="0">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8 shrink-0 rounded-full"
+                      @click="handleClear"
+                    >
+                      <Trash2 class="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Clear conversation</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            <!-- Right: model dropdown + send -->
+            <div class="flex items-center gap-2">
+              <Select v-model="modelApiSlug">
+                <SelectTrigger
+                  class="w-auto h-8 gap-1.5 px-2.5 text-xs border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors rounded-full"
+                >
+                  <Brain class="h-3 w-3 text-muted-foreground shrink-0" />
+                  <SelectValue placeholder="Select model API" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="api in modelApis" :key="api.id" :value="api.slug">
+                    {{ api.name }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Button
+                :disabled="!canSubmit"
+                size="icon"
+                class="h-8 w-8 rounded-full shrink-0"
+                @click="handleSend"
+              >
+                <Send class="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
