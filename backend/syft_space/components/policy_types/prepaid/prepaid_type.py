@@ -1,9 +1,4 @@
-"""Prepaid policy type implementation.
-
-Enforces a prepaid quota system: buyers must purchase bundles of requests
-in advance. Each API call decrements the quota by 1. When quota reaches
-zero, requests are hard-blocked.
-"""
+"""Prepaid quota policy: buyers purchase bundles in advance, each call decrements, zero blocks."""
 
 from enum import Enum
 from typing import Any
@@ -34,11 +29,7 @@ class BundleTier(BaseModel):
 
 
 class PrepaidConfig(BaseModel):
-    """Configuration schema for prepaid policy.
-
-    Stored in the Policy entity's configuration JSON field.
-    Defines the bundle tiers available for purchase on this endpoint.
-    """
+    """Bundle tiers + unit/provider settings stored in Policy.configuration."""
 
     bundle_tiers: list[BundleTier] = Field(
         ...,
@@ -64,18 +55,7 @@ class PrepaidConfig(BaseModel):
 
 
 class PrepaidPolicy(BasePolicyType):
-    """Prepaid quota policy type.
-
-    Like a prepaid SIM card: buyers purchase bundles in advance,
-    each API call decrements the quota, and requests are blocked
-    when the quota reaches zero.
-
-    The pre_hook checks quota and the post_hook decrements it.
-    Quota state is managed in the prepaid_subscriptions table,
-    accessed via the PrepaidRepository injected through PolicyContext.metadata.
-
-    Aggregation: AND logic - all prepaid policies must pass.
-    """
+    """Prepaid quota policy: pre_hook checks remaining quota, post_hook decrements."""
 
     NAME = "prepaid"
 
@@ -176,9 +156,9 @@ class PrepaidPolicy(BasePolicyType):
         if not prepaid_repo:
             return context
 
-        await prepaid_repo.decrement_quota(subscription_id)
-
-        remaining = context.metadata.get("prepaid_remaining_before", 0) - 1
+        decremented = await prepaid_repo.decrement_quota(subscription_id)
+        before = context.metadata.get("prepaid_remaining_before", 0)
+        remaining = max(before - 1, 0) if decremented else 0
         if context.response:
             if context.response.get("summary"):
                 context.response["summary"]["prepaid_remaining"] = remaining

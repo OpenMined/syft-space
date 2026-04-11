@@ -1,5 +1,6 @@
 """Prepaid policy handlers for business logic."""
 
+import asyncio
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -44,11 +45,9 @@ class PrepaidHandler:
         self, endpoint_id: UUID, tenant: Tenant
     ) -> PrepaidEndpointStats:
         """Get aggregated prepaid stats for an endpoint."""
-        subs = await self.prepaid_repo.get_subscribers_by_endpoint(
-            endpoint_id, tenant.id
-        )
-        purchases = await self.prepaid_repo.get_purchases_by_endpoint(
-            endpoint_id, tenant.id
+        subs, purchases = await asyncio.gather(
+            self.prepaid_repo.get_subscribers_by_endpoint(endpoint_id, tenant.id),
+            self.prepaid_repo.get_purchases_by_endpoint(endpoint_id, tenant.id),
         )
 
         total_revenue = sum(
@@ -75,16 +74,15 @@ class PrepaidHandler:
         self, endpoint_id: UUID, buyer_email: str, tenant: Tenant
     ) -> PrepaidSubscriberDetail:
         """Get detailed subscriber info with purchase history."""
-        sub = await self.prepaid_repo.get_subscription(buyer_email, endpoint_id)
+        sub, purchases = await asyncio.gather(
+            self.prepaid_repo.get_subscription(buyer_email, endpoint_id),
+            self.prepaid_repo.get_purchases_by_buyer(buyer_email, endpoint_id),
+        )
         if not sub:
             raise HTTPException(
                 status_code=404,
                 detail=f"No subscription found for {buyer_email}",
             )
-
-        purchases = await self.prepaid_repo.get_purchases_by_buyer(
-            buyer_email, endpoint_id
-        )
 
         return PrepaidSubscriberDetail(
             subscription=PrepaidSubscriptionResponse.model_validate(sub),
@@ -106,15 +104,11 @@ class PrepaidHandler:
         self, purchase_id: UUID, tenant: Tenant
     ) -> PrepaidPurchaseResponse:
         """Manually activate a purchase (admin action)."""
-        purchase = await self.prepaid_repo.get_purchase_by_id(purchase_id)
+        purchase = await self.prepaid_repo.get_purchase_by_id(
+            purchase_id, tenant_id=tenant.id
+        )
         if not purchase:
-            raise HTTPException(
-                status_code=404, detail="Purchase not found"
-            )
-        if purchase.tenant_id != tenant.id:
-            raise HTTPException(
-                status_code=404, detail="Purchase not found"
-            )
+            raise HTTPException(status_code=404, detail="Purchase not found")
         if purchase.status == PurchaseStatus.ACTIVATED:
             raise HTTPException(
                 status_code=400, detail="Purchase already activated"

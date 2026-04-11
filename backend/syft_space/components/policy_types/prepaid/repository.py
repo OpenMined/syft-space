@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlmodel import select
+from sqlmodel import select, update
 
 from syft_space.components.policy_types.prepaid.entities import (
     PrepaidPurchase,
@@ -80,18 +80,29 @@ class PrepaidRepository:
             result = await session.exec(stmt)
             return list(result.all())
 
-    async def decrement_quota(self, subscription_id: UUID | str) -> None:
-        """Atomically decrement remaining_quota by 1 and increment total_used."""
+    async def decrement_quota(self, subscription_id: UUID | str) -> bool:
+        """Atomically decrement remaining_quota by 1 and increment total_used.
+
+        Returns True if a row was updated, False if the subscription was
+        missing or already at zero. Concurrent-safe via a single UPDATE ... WHERE.
+        """
+        sub_uuid = UUID(str(subscription_id))
         async with self.db.get_session() as session:
-            sub = await session.get(
-                PrepaidSubscription, UUID(str(subscription_id))
+            stmt = (
+                update(PrepaidSubscription)
+                .where(
+                    PrepaidSubscription.id == sub_uuid,
+                    PrepaidSubscription.remaining_quota > 0,
+                )
+                .values(
+                    remaining_quota=PrepaidSubscription.remaining_quota - 1,
+                    total_used=PrepaidSubscription.total_used + 1,
+                    updated_at=datetime.now(timezone.utc),
+                )
             )
-            if sub and sub.remaining_quota > 0:
-                sub.remaining_quota -= 1
-                sub.total_used += 1
-                sub.updated_at = datetime.now(timezone.utc)
-                session.add(sub)
-                await session.commit()
+            result = await session.execute(stmt)
+            await session.commit()
+            return getattr(result, "rowcount", 0) > 0
 
     async def add_quota(
         self, subscription_id: UUID, volume: int
@@ -119,10 +130,15 @@ class PrepaidRepository:
             return purchase
 
     async def get_purchase_by_id(
-        self, purchase_id: UUID
+        self, purchase_id: UUID, tenant_id: UUID | None = None
     ) -> PrepaidPurchase | None:
         async with self.db.get_session() as session:
-            return await session.get(PrepaidPurchase, purchase_id)
+            purchase = await session.get(PrepaidPurchase, purchase_id)
+            if purchase is None:
+                return None
+            if tenant_id is not None and purchase.tenant_id != tenant_id:
+                return None
+            return purchase
 
     async def get_purchase_by_payment_ref(
         self, payment_reference: str
