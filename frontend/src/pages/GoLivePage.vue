@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -83,7 +83,6 @@ const steps = [
   { num: 4, label: 'Review', desc: 'Confirm & publish' },
 ]
 
-// ──────────────────── Step 1: Resource picker ────────────────────
 const selectedDataSourceId = ref('')
 const selectedModelId = ref('')
 const datasets = ref<DatasetListItem[]>([])
@@ -91,7 +90,6 @@ const models = ref<ModelListItem[]>([])
 const isLoadingResources = ref(false)
 
 const resourceType = computed<ResourceType | ''>(() => {
-  if (selectedDataSourceId.value && selectedModelId.value) return 'data-source'
   if (selectedDataSourceId.value) return 'data-source'
   if (selectedModelId.value) return 'model'
   return ''
@@ -130,23 +128,62 @@ const toggleModel = (id: string) => {
 const showCreateDatasetDialog = ref(false)
 const showCreateModelDialog = ref(false)
 
-const handleDatasetCreated = () => {
+const handleDatasetCreated = async () => {
   showCreateDatasetDialog.value = false
-  loadResources()
+  datasets.value = await datasetsApi.list()
 }
 
-const handleModelCreated = () => {
+const handleModelCreated = async () => {
   showCreateModelDialog.value = false
-  loadResources()
+  models.value = await modelsApi.list()
 }
 
-// ──────────────────── Step 2: Configure ────────────────────
 const responseMode = ref<ResponseMode>('raw')
 const aiModelId = ref('')
-const aiModelName = ref('')
 const systemPrompt = ref('')
 const showAiConfigDialog = ref(false)
 const pendingResponseMode = ref<ResponseMode>('raw')
+
+interface ResponseModeOption {
+  id: ResponseMode
+  icon: typeof Search
+  iconClass: string
+  title: string
+  description: string
+  badge?: string
+  showUsingBadge: boolean
+}
+
+const RESPONSE_MODES: ResponseModeOption[] = [
+  {
+    id: 'raw',
+    icon: Search,
+    iconClass: 'text-blue-500',
+    title: 'Search results',
+    description:
+      'Returns the raw matching documents from your data source. Best for structured data, APIs, or when consumers want to process results themselves.',
+    badge: 'Default',
+    showUsingBadge: false,
+  },
+  {
+    id: 'summary',
+    icon: Sparkles,
+    iconClass: 'text-amber-500',
+    title: 'AI-generated',
+    description:
+      'An AI model reads the matching documents and generates a natural-language answer. Great for Q&A, summaries, or conversational access to your data.',
+    showUsingBadge: true,
+  },
+  {
+    id: 'both',
+    icon: Globe,
+    iconClass: 'text-green-500',
+    title: 'Both',
+    description:
+      'Returns the raw search results alongside an AI-generated summary. Consumers get the best of both worlds — verifiable sources plus a readable answer.',
+    showUsingBadge: true,
+  },
+]
 
 const PROMPT_PRESETS: Record<string, { label: string; prompt: string }> = {
   'summarise-cite': {
@@ -173,9 +210,8 @@ const PROMPT_PRESETS: Record<string, { label: string; prompt: string }> = {
 
 const selectedPromptPreset = ref('summarise-cite')
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const handlePromptPresetChange = (presetId: any) => {
-  const id = String(presetId ?? '')
+const handlePromptPresetChange = (presetId: unknown) => {
+  const id = typeof presetId === 'string' ? presetId : ''
   selectedPromptPreset.value = id
   systemPrompt.value = PROMPT_PRESETS[id]?.prompt ?? ''
 }
@@ -219,21 +255,12 @@ const handleAiModelUpdate = (modelId: string) => {
   aiModelId.value = modelId
 }
 
-watch(aiModelId, (id) => {
-  if (!id) {
-    aiModelName.value = ''
-    return
-  }
-  modelsApi.list().then((list) => {
-    const m = list.find((x) => x.id === id)
-    if (m) aiModelName.value = m.name
-  })
-})
+const aiModelName = computed(
+  () => models.value.find((m) => m.id === aiModelId.value)?.name ?? '',
+)
 
-// PII Filter toggle — emits a `pii_filter` policy on publish.
 const piiFilterEnabled = ref(false)
 
-// Multi-rule policy state
 const policyRules = ref<PolicyRulesRecord>(createEmptyPolicyRules())
 
 const showPolicyDialog = ref(false)
@@ -299,7 +326,6 @@ const totalRuleCount = computed(() =>
   Object.values(policyRules.value).reduce((sum, rules) => sum + rules.length, 0),
 )
 
-// ──────────────────── Step 3: Details ────────────────────
 const name = ref('')
 const summary = ref('')
 const description = ref('')
@@ -339,9 +365,10 @@ const checkNameAvailability = (val: string) => {
         check_all_marketplaces: true,
       })
       const localOk = result.local_available
-      const mktOk = !result.marketplaces || result.marketplaces.every((m) => m.available)
+      const mktOk = !result.marketplaces || result.marketplaces.every((m) => m.available !== false)
       nameAvailability.value = localOk && mktOk ? 'available' : 'taken'
-    } catch {
+    } catch (error) {
+      console.error('Failed to check name availability:', error)
       nameAvailability.value = null
     } finally {
       isCheckingName.value = false
@@ -352,6 +379,10 @@ const checkNameAvailability = (val: string) => {
 watch(name, (val) => {
   nameAvailability.value = null
   checkNameAvailability(val.trim())
+})
+
+onBeforeUnmount(() => {
+  if (nameDebounce) clearTimeout(nameDebounce)
 })
 
 const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
@@ -422,14 +453,12 @@ const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
   checkNameAvailability(name.value)
 }
 
-// ──────────────────── Step 4: Overwrite dialog ────────────────────
 const showOverwriteDialog = ref(false)
 const showDescriptionPreview = ref(false)
 const isCheckingBeforePublish = ref(false)
 
 const existingEndpointUrl = computed(() => userStore.getEndpointUrlInMarketplace(name.value))
 
-// ──────────────────── Navigation ────────────────────
 const canProceedStep1 = computed(() => !!selectedDataSourceId.value || !!selectedModelId.value)
 
 const canProceedStep2 = computed(() => {
@@ -478,7 +507,6 @@ const goToStep = (step: number) => {
   }
 }
 
-// ──────────────────── Review helpers ────────────────────
 const selectedDataSourceName = computed(
   () => datasets.value.find((d) => d.id === selectedDataSourceId.value)?.name ?? '',
 )
@@ -495,11 +523,9 @@ const responseModeLabel = computed(() => {
   return map[responseMode.value] || responseMode.value
 })
 
-// ──────────────────── Submit ────────────────────
 const buildGoLiveData = (): GoLiveData => ({
   resourceType: resourceType.value as ResourceType,
   resourceId: selectedResourceId.value,
-  resourceIsNew: false,
   responseMode: responseMode.value,
   aiModelId: hasModel.value ? selectedModelId.value : aiModelId.value,
   systemPrompt: systemPrompt.value.trim(),
@@ -520,13 +546,13 @@ const handleGoLive = async () => {
       slug: name.value.trim(),
       check_all_marketplaces: true,
     })
-    const mktOk = !result.marketplaces || result.marketplaces.every((m) => m.available)
+    const mktOk = !result.marketplaces || result.marketplaces.every((m) => m.available !== false)
     if (!mktOk) {
       showOverwriteDialog.value = true
       return
     }
-  } catch {
-    // proceed even if check fails
+  } catch (error) {
+    console.error('Pre-publish slug check failed:', error)
   } finally {
     isCheckingBeforePublish.value = false
   }
@@ -741,76 +767,41 @@ const handleOverwriteConfirm = async () => {
                 </p>
 
                 <div class="space-y-3">
-                  <!-- Search results (default) -->
                   <button
+                    v-for="mode in RESPONSE_MODES"
+                    :key="mode.id"
                     class="w-full flex items-start gap-3 p-4 rounded-lg border text-left transition-all"
                     :class="
-                      responseMode === 'raw'
+                      responseMode === mode.id
                         ? 'border-primary bg-primary/5'
                         : 'border-border hover:border-primary/40'
                     "
-                    @click="handleResponseModeChange('raw')"
+                    @click="handleResponseModeChange(mode.id)"
                   >
                     <div
                       class="shrink-0 mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center"
                       :class="
-                        responseMode === 'raw'
+                        responseMode === mode.id
                           ? 'border-primary bg-primary'
                           : 'border-muted-foreground/40'
                       "
                     >
                       <div
-                        v-if="responseMode === 'raw'"
+                        v-if="responseMode === mode.id"
                         class="h-1.5 w-1.5 rounded-full bg-primary-foreground"
                       />
                     </div>
                     <div class="flex-1">
                       <div class="flex items-center gap-2">
-                        <Search class="h-3.5 w-3.5 text-blue-500" />
-                        <p class="font-medium text-sm text-foreground">Search results</p>
-                        <Badge variant="secondary" class="text-[10px]">Default</Badge>
+                        <component :is="mode.icon" class="h-3.5 w-3.5" :class="mode.iconClass" />
+                        <p class="font-medium text-sm text-foreground">{{ mode.title }}</p>
+                        <Badge v-if="mode.badge" variant="secondary" class="text-[10px]">
+                          {{ mode.badge }}
+                        </Badge>
                       </div>
-                      <p class="text-xs text-muted-foreground mt-1">
-                        Returns the raw matching documents from your data source. Best for
-                        structured data, APIs, or when consumers want to process results themselves.
-                      </p>
-                    </div>
-                  </button>
-
-                  <!-- AI-generated -->
-                  <button
-                    class="w-full flex items-start gap-3 p-4 rounded-lg border text-left transition-all"
-                    :class="
-                      responseMode === 'summary'
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/40'
-                    "
-                    @click="handleResponseModeChange('summary')"
-                  >
-                    <div
-                      class="shrink-0 mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center"
-                      :class="
-                        responseMode === 'summary'
-                          ? 'border-primary bg-primary'
-                          : 'border-muted-foreground/40'
-                      "
-                    >
+                      <p class="text-xs text-muted-foreground mt-1">{{ mode.description }}</p>
                       <div
-                        v-if="responseMode === 'summary'"
-                        class="h-1.5 w-1.5 rounded-full bg-primary-foreground"
-                      />
-                    </div>
-                    <div class="flex-1">
-                      <div class="flex items-center gap-1.5">
-                        <Sparkles class="h-3.5 w-3.5 text-amber-500" />
-                        <p class="font-medium text-sm text-foreground">AI-generated</p>
-                      </div>
-                      <p class="text-xs text-muted-foreground mt-1">
-                        An AI model reads the matching documents and generates a natural-language
-                        answer. Great for Q&A, summaries, or conversational access to your data.
-                      </p>
-                      <div
-                        v-if="responseMode === 'summary' && (hasModel || aiModelId)"
+                        v-if="mode.showUsingBadge && responseMode === mode.id && (hasModel || aiModelId)"
                         class="mt-2 flex items-center gap-2 text-xs text-primary"
                       >
                         <Check class="h-3 w-3" />
@@ -823,61 +814,7 @@ const handleOverwriteConfirm = async () => {
                         <button
                           v-if="!hasModel"
                           class="underline hover:no-underline text-muted-foreground"
-                          @click.stop="openAiConfigDialog('summary')"
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </div>
-                  </button>
-
-                  <!-- Both -->
-                  <button
-                    class="w-full flex items-start gap-3 p-4 rounded-lg border text-left transition-all"
-                    :class="
-                      responseMode === 'both'
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/40'
-                    "
-                    @click="handleResponseModeChange('both')"
-                  >
-                    <div
-                      class="shrink-0 mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center"
-                      :class="
-                        responseMode === 'both'
-                          ? 'border-primary bg-primary'
-                          : 'border-muted-foreground/40'
-                      "
-                    >
-                      <div
-                        v-if="responseMode === 'both'"
-                        class="h-1.5 w-1.5 rounded-full bg-primary-foreground"
-                      />
-                    </div>
-                    <div class="flex-1">
-                      <div class="flex items-center gap-2">
-                        <Globe class="h-3.5 w-3.5 text-green-500" />
-                        <p class="font-medium text-sm text-foreground">Both</p>
-                      </div>
-                      <p class="text-xs text-muted-foreground mt-1">
-                        Returns the raw search results alongside an AI-generated summary. Consumers
-                        get the best of both worlds — verifiable sources plus a readable answer.
-                      </p>
-                      <div
-                        v-if="responseMode === 'both' && (hasModel || aiModelId)"
-                        class="mt-2 flex items-center gap-2 text-xs text-primary"
-                      >
-                        <Check class="h-3 w-3" />
-                        <span>
-                          Using
-                          <strong>{{
-                            hasModel ? selectedModelName : aiModelName || 'selected model'
-                          }}</strong>
-                        </span>
-                        <button
-                          v-if="!hasModel"
-                          class="underline hover:no-underline text-muted-foreground"
-                          @click.stop="openAiConfigDialog('both')"
+                          @click.stop="openAiConfigDialog(mode.id)"
                         >
                           Edit
                         </button>
@@ -945,11 +882,7 @@ const handleOverwriteConfirm = async () => {
                       </div>
                     </div>
                   </div>
-                  <Switch
-                    :checked="piiFilterEnabled"
-                    class="mt-1 shrink-0"
-                    @update:checked="piiFilterEnabled = $event"
-                  />
+                  <Switch v-model="piiFilterEnabled" class="mt-1 shrink-0" />
                 </div>
 
                 <Separator class="mt-8" />

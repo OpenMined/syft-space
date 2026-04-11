@@ -1,20 +1,13 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { datasetsApi } from '@/api/endpoints/datasets'
-import { modelsApi } from '@/api/endpoints/models'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
-import { getProviderBaseUrl } from '@/config/providers'
+import { useEndpointsStore } from '@/stores/endpoints'
 import { usePolicyCreation } from './usePolicyCreation'
 import { DEFAULT_PII_FILTER_CONFIG } from '@/config/policyTypes'
-import type { PolicyRulesRecord } from '@/config/policyTypes'
-import type {
-  CreateDatasetRequest,
-  CreateModelRequest,
-  CreateEndpointRequest,
-  PolicyResponse,
-} from '@/api/types'
+import type { PolicyRulesRecord, PolicyTypeId } from '@/config/policyTypes'
+import type { CreateEndpointRequest, PolicyResponse } from '@/api/types'
 
 export type ResourceType = 'data-source' | 'model'
 export type ResponseMode = 'raw' | 'summary' | 'both'
@@ -22,22 +15,9 @@ export type ResponseMode = 'raw' | 'summary' | 'both'
 export interface GoLiveData {
   resourceType: ResourceType
   resourceId: string
-  resourceIsNew: boolean
 
   dataSourceId?: string
   modelId?: string
-
-  newDataSource?: {
-    files: string[]
-    fileDescriptions: Record<string, string>
-  }
-
-  newModel?: {
-    provider: string
-    model: string
-    apiKey: string
-    baseUrl: string
-  }
 
   responseMode: ResponseMode
   aiModelId: string
@@ -54,117 +34,64 @@ export interface GoLiveData {
 
 export function useGoLive() {
   const router = useRouter()
+  const endpointsStore = useEndpointsStore()
   const { transformPolicyRules } = usePolicyCreation()
 
   const isCreating = ref(false)
   const creationError = ref<string | null>(null)
   const creationStep = ref('')
   const createdResources = ref<{
-    datasetId?: string
-    datasetName?: string
-    modelId?: string
-    modelName?: string
     endpointId?: string
     endpointSlug?: string
     policyIds: string[]
   }>({ policyIds: [] })
 
   const resetCreatedResources = () => {
-    createdResources.value = {
-      policyIds: [],
-      datasetId: undefined,
-      datasetName: undefined,
-      modelId: undefined,
-      modelName: undefined,
-      endpointId: undefined,
-      endpointSlug: undefined,
-    }
+    createdResources.value = { policyIds: [] }
   }
 
-  const createDatasetIfNeeded = async (data: GoLiveData): Promise<string | undefined> => {
-    if (data.resourceType !== 'data-source' || !data.resourceIsNew || !data.newDataSource) {
-      return undefined
+  const resolveEndpointResources = (
+    data: GoLiveData,
+  ): { datasetId?: string; modelId?: string; responseType: string } => {
+    if (data.dataSourceId && data.modelId) {
+      return {
+        datasetId: data.dataSourceId,
+        modelId: data.modelId,
+        responseType: data.responseMode,
+      }
     }
-
-    creationStep.value = 'Creating data source...'
-
-    const filePaths = data.newDataSource.files.map((path) => ({
-      path,
-      description: data.newDataSource!.fileDescriptions[path] || '',
-    }))
-
-    const request: CreateDatasetRequest = {
-      dtype: 'local_file',
-      name: data.name,
-      summary: `Dataset for ${data.summary}`,
-      tags: data.tags.join(','),
-      configuration: { filePaths },
+    if (data.resourceType === 'data-source') {
+      return {
+        datasetId: data.dataSourceId || data.resourceId,
+        modelId: data.responseMode === 'raw' ? undefined : data.aiModelId || undefined,
+        responseType: data.responseMode,
+      }
     }
-
-    const response = await datasetsApi.create(request)
-    createdResources.value.datasetId = response.id
-    createdResources.value.datasetName = response.name
-    return response.id
-  }
-
-  const createModelIfNeeded = async (data: GoLiveData): Promise<string | undefined> => {
-    if (data.resourceType !== 'model' || !data.resourceIsNew || !data.newModel) {
-      return undefined
+    // Model-only endpoints never return raw documents, so responseType is always 'summary'.
+    return {
+      datasetId: data.dataSourceId,
+      modelId: data.modelId || data.resourceId,
+      responseType: 'summary',
     }
-
-    creationStep.value = 'Creating model...'
-
-    const request: CreateModelRequest = {
-      name: data.name,
-      dtype: 'openai',
-      configuration: {
-        api_key: data.newModel.apiKey,
-        model: data.newModel.model,
-        base_url: data.newModel.baseUrl || getProviderBaseUrl(data.newModel.provider),
-        system_prompt: data.systemPrompt || '',
-      },
-      summary: data.summary ? `Model for ${data.summary}` : '',
-      tags: data.tags.join(', '),
-    }
-
-    const response = await modelsApi.create(request)
-    createdResources.value.modelId = response.id
-    createdResources.value.modelName = response.name
-    return response.id
   }
 
   const createEndpoint = async (
     data: GoLiveData,
-    datasetId?: string,
-    modelId?: string,
-  ): Promise<string> => {
+  ): Promise<{ id: string; slug: string }> => {
     creationStep.value = 'Setting up your resource...'
 
-    let finalDatasetId = datasetId || data.dataSourceId
-    let finalModelId = modelId || data.modelId
-    let responseType: string = data.responseMode
-
-    if (data.dataSourceId && data.modelId) {
-      finalDatasetId = data.dataSourceId
-      finalModelId = data.modelId
-      if (responseType === 'raw') responseType = 'summary'
-    } else if (data.resourceType === 'data-source') {
-      finalDatasetId = finalDatasetId || (data.resourceIsNew ? undefined : data.resourceId)
-      finalModelId = data.responseMode === 'raw' ? undefined : data.aiModelId || undefined
-    } else {
-      finalModelId = finalModelId || (data.resourceIsNew ? undefined : data.resourceId)
-      responseType = 'summary'
-    }
+    const resolved = resolveEndpointResources(data)
+    const slug = data.name.trim()
 
     const request: CreateEndpointRequest = {
-      name: data.name.trim(),
-      slug: data.name.trim(),
+      name: slug,
+      slug,
       summary: data.summary,
       description: data.description || '',
       tags: data.tags.join(','),
-      response_type: responseType,
-      dataset_id: finalDatasetId,
-      model_id: finalModelId,
+      response_type: resolved.responseType,
+      dataset_id: resolved.datasetId,
+      model_id: resolved.modelId,
       system_prompt: data.systemPrompt || undefined,
       published: true,
     }
@@ -172,21 +99,25 @@ export function useGoLive() {
     const response = await endpointsApi.create(request)
     createdResources.value.endpointId = response.id
     createdResources.value.endpointSlug = response.slug
-    return response.id
+    return { id: response.id, slug: response.slug }
   }
 
   const createPolicies = async (data: GoLiveData, endpointId: string): Promise<void> => {
-    const policyRequests = transformPolicyRules(data.policyRules, data.name)
+    const policyRequests = transformPolicyRules(data.policyRules, data.name).map((request) => ({
+      ...request,
+      endpoint_id: endpointId,
+    }))
 
     if (data.piiFilterEnabled) {
+      const piiFilterType: PolicyTypeId = 'pii_filter'
       policyRequests.push({
         name: `PII Filter for ${data.name}`,
-        policy_type: 'pii_filter',
+        policy_type: piiFilterType,
         configuration: {
           categories: [...DEFAULT_PII_FILTER_CONFIG.categories],
           replacement: DEFAULT_PII_FILTER_CONFIG.replacement,
         },
-        endpoint_id: '',
+        endpoint_id: endpointId,
       })
     }
 
@@ -194,9 +125,10 @@ export function useGoLive() {
 
     creationStep.value = 'Applying access rules...'
 
-    for (const request of policyRequests) {
-      request.endpoint_id = endpointId
-      const response: PolicyResponse = await policiesApi.create(request)
+    const responses: PolicyResponse[] = await Promise.all(
+      policyRequests.map((request) => policiesApi.create(request)),
+    )
+    for (const response of responses) {
       createdResources.value.policyIds.push(response.id)
     }
   }
@@ -232,22 +164,6 @@ export function useGoLive() {
         console.warn(`Rollback: failed to delete endpoint`, e)
       }
     }
-
-    if (createdResources.value.datasetName) {
-      try {
-        await datasetsApi.delete(createdResources.value.datasetName)
-      } catch (e) {
-        console.warn(`Rollback: failed to delete dataset`, e)
-      }
-    }
-
-    if (createdResources.value.modelName) {
-      try {
-        await modelsApi.delete(createdResources.value.modelName)
-      } catch (e) {
-        console.warn(`Rollback: failed to delete model`, e)
-      }
-    }
   }
 
   const goLive = async (data: GoLiveData): Promise<boolean> => {
@@ -256,13 +172,12 @@ export function useGoLive() {
     resetCreatedResources()
 
     try {
-      const datasetId = await createDatasetIfNeeded(data)
-      const modelId = await createModelIfNeeded(data)
-      const endpointId = await createEndpoint(data, datasetId, modelId)
-      await createPolicies(data, endpointId)
-      await publishEndpoint(data.name)
+      const endpoint = await createEndpoint(data)
+      await createPolicies(data, endpoint.id)
+      await publishEndpoint(endpoint.slug)
 
       creationStep.value = 'Complete!'
+      endpointsStore.invalidate()
       toast.success(`"${data.name}" is now published`)
       router.push({ name: 'endpoints' })
       return true
