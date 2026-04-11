@@ -83,7 +83,7 @@ export const createEmptyPolicyRules = (): PolicyRulesRecord => ({
 })
 
 export const generateRuleId = (): string => {
-  return 'rule_' + Math.random().toString(36).substr(2, 9)
+  return 'rule_' + Math.random().toString(36).slice(2, 11)
 }
 
 export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {

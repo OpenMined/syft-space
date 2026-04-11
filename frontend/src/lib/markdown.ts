@@ -1,50 +1,58 @@
-/**
- * Markdown processing utilities
- */
-
 export const markdownToHtml = (markdown: string): string => {
   if (!markdown) return ''
 
-  let html = markdown
-    // Headers
-    .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold text-gray-900 mb-2 mt-4">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold text-gray-900 mb-3 mt-5">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold text-gray-900 mb-4 mt-6">$1</h1>')
-
-    // Bold and italic
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em class="italic text-gray-700">$1</em>')
-
-    // Code blocks and inline code
+  const inline = markdown
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/```(\w+)?\n([^`]+)```/g, '<pre><code>$2</code></pre>')
+    .replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(
-      /`([^`]+)`/g,
-      '<code class="bg-gray-100 text-gray-800 px-1 py-0.5 rounded text-sm font-mono">$1</code>',
+      /\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" class="text-primary hover:text-primary/80 underline">$1</a>',
     )
+    .replace(/\n\n/g, '</p><p>')
 
-    // Lists
-    .replace(/^• (.*$)/gim, '<li class="text-gray-700 mb-1">$1</li>')
-    .replace(/^- (.*$)/gim, '<li class="text-gray-700 mb-1">$1</li>')
+  const OL_CLASS = 'list-decimal list-inside space-y-1'
+  const UL_CLASS = 'list-disc list-inside space-y-1'
 
-    // Line breaks
-    .replace(/\n\n/g, '</p><p class="text-gray-700 mb-3">')
-    .replace(/\n/g, '<br>')
-
-  // Wrap in paragraph tags if not already wrapped
-  if (
-    !html.includes('<p>') &&
-    !html.includes('<h1>') &&
-    !html.includes('<h2>') &&
-    !html.includes('<h3>')
-  ) {
-    html = `<p class="text-gray-700 mb-3">${html}</p>`
-  } else if (html.includes('<li>')) {
-    // Wrap lists in ul tags
-    html = html.replace(/(<li.*?<\/li>)/g, (match) => {
-      return `<ul class="list-disc list-inside mb-4 space-y-1">${match}</ul>`
-    })
+  const out: string[] = []
+  let listType: 'ol' | 'ul' | null = null
+  const closeList = () => {
+    if (listType) {
+      out.push(`</${listType}>`)
+      listType = null
+    }
   }
 
-  return html
+  for (const line of inline.split('\n')) {
+    const ordered = /^\d+\.\s(.*)$/.exec(line)
+    const unordered = /^-\s(.*)$/.exec(line)
+    if (ordered) {
+      if (listType !== 'ol') {
+        closeList()
+        out.push(`<ol class="${OL_CLASS}">`)
+        listType = 'ol'
+      }
+      out.push(`<li>${ordered[1]}</li>`)
+    } else if (unordered) {
+      if (listType !== 'ul') {
+        closeList()
+        out.push(`<ul class="${UL_CLASS}">`)
+        listType = 'ul'
+      }
+      out.push(`<li>${unordered[1]}</li>`)
+    } else {
+      closeList()
+      out.push(line)
+    }
+  }
+  closeList()
+
+  return ('<p>' + out.join('\n') + '</p>').replace(/<p>\s*<\/p>/g, '')
 }
 
 export const stripMarkdown = (markdown: string): string => {

@@ -1700,7 +1700,6 @@ const isValidSlug = (slug: string): boolean => {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)
 }
 
-// Check name availability with the API
 const checkNameAvailability = async (name: string) => {
   if (!name || !isValidSlug(name)) {
     nameAvailabilityResult.value = null
@@ -1716,10 +1715,10 @@ const checkNameAvailability = async (name: string) => {
       check_all_marketplaces: true,
     })
 
-    // Must be available locally and on all marketplaces
+    // Marketplaces with unknown status (null) don't block availability.
     const localAvailable = response.local_available
     const marketplacesAvailable =
-      !response.marketplaces || response.marketplaces.every((m) => m.available)
+      !response.marketplaces || response.marketplaces.every((m) => m.available !== false)
 
     nameAvailabilityResult.value = localAvailable && marketplacesAvailable ? 'available' : 'taken'
   } catch (error) {
@@ -1730,7 +1729,6 @@ const checkNameAvailability = async (name: string) => {
   }
 }
 
-// Debounced name checking
 const debouncedCheckNameAvailability = (name: string) => {
   if (nameCheckDebounceTimer.value) {
     clearTimeout(nameCheckDebounceTimer.value)
@@ -1738,7 +1736,7 @@ const debouncedCheckNameAvailability = (name: string) => {
 
   nameCheckDebounceTimer.value = setTimeout(() => {
     checkNameAvailability(name)
-  }, 500) // 500ms debounce
+  }, 500)
 }
 
 const endpointNameError = computed(() => {
@@ -1798,20 +1796,16 @@ const isCurrentStepValid = computed(() => {
   return true
 })
 
-// Methods
 const handleBack = () => {
   router.push({ name: 'endpoints' })
 }
 
-// Handle endpoint name input changes
 const handleEndpointNameInput = () => {
   hasTypedEndpointName.value = true
   const name = formData.value.endpointName.trim()
 
-  // Reset availability state when name changes
   nameAvailabilityResult.value = null
 
-  // Only check availability if the name is valid format
   if (name && isValidSlug(name)) {
     debouncedCheckNameAvailability(name)
   }
@@ -1836,7 +1830,7 @@ const nextStep = async () => {
       })
 
       const marketplacesAvailable =
-        !response.marketplaces || response.marketplaces.every((m) => m.available)
+        !response.marketplaces || response.marketplaces.every((m) => m.available !== false)
 
       if (!marketplacesAvailable) {
         // Show warning dialog if name is taken on any marketplace

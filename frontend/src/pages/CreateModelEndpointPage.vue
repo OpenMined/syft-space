@@ -1434,10 +1434,10 @@ const checkNameAvailability = async (name: string) => {
       check_all_marketplaces: true,
     })
 
-    // Must be available locally and on all marketplaces
+    // Must be available locally; marketplaces with unknown status (null) don't block
     const localAvailable = response.local_available
     const marketplacesAvailable =
-      !response.marketplaces || response.marketplaces.every((m) => m.available)
+      !response.marketplaces || response.marketplaces.every((m) => m.available !== false)
 
     nameAvailabilityResult.value = localAvailable && marketplacesAvailable ? 'available' : 'taken'
   } catch (error) {
@@ -1548,7 +1548,7 @@ const nextStep = async () => {
       })
 
       const marketplacesAvailable =
-        !response.marketplaces || response.marketplaces.every((m) => m.available)
+        !response.marketplaces || response.marketplaces.every((m) => m.available !== false)
 
       if (!marketplacesAvailable) {
         // Show warning dialog if name is taken on any marketplace

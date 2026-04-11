@@ -255,7 +255,7 @@
             <div class="p-6">
               <div
                 class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-primary prose-code:font-mono prose-pre:bg-muted prose-pre:border prose-pre:font-mono prose-li:text-muted-foreground dark:prose-invert"
-                v-html="markdownToHtml(selectedItem.longDescription)"
+                v-html="selectedItemMarkdown"
               />
             </div>
           </div>
@@ -311,12 +311,6 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Brain,
-  Users,
-  Gauge,
-  Calculator,
-  Activity,
-  AlertCircle,
-  Info,
   Trash2,
   FileText,
   Zap,
@@ -338,6 +332,12 @@ import { useInboxStore, type InboxItem } from '@/stores/inbox'
 import { useEndpointsStore } from '@/stores/endpoints'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  getInboxSourceColor as getSourceColor,
+  getInboxSourceIcon as getSourceIcon,
+} from '@/lib/inboxFormatters'
+import { formatTimestamp } from '@/lib/formatters'
+import { markdownToHtml } from '@/lib/markdown'
 
 const router = useRouter()
 const inboxStore = useInboxStore()
@@ -373,88 +373,11 @@ const handleNegativeAction = (item: InboxItem) => {
   dismissItem(item)
 }
 
-const getSourceIcon = (source: string) => {
-  if (source === 'Human-in-the-Loop Policy') return Users
-  if (source.includes('Rate Limiting')) return Gauge
-  if (source === 'Accounting Policy') return Calculator
-  if (source === 'OpenTelemetry Observability Policy') return Activity
-  if (source.includes('Security')) return AlertCircle
-  return Info
-}
-
-const getSourceColor = (source: string) => {
-  if (source === 'Human-in-the-Loop Policy')
-    return 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/50'
-  if (source.includes('Rate Limiting'))
-    return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50'
-  if (source === 'Accounting Policy')
-    return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/50'
-  if (source === 'OpenTelemetry Observability Policy') return 'text-primary bg-primary/10'
-  if (source.includes('Security')) return 'text-destructive bg-destructive/10'
-  if (source.includes('Update'))
-    return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50'
-  if (source.includes('Usage')) return 'text-primary bg-primary/10'
-  return 'text-muted-foreground bg-muted'
-}
-
-const formatTimestamp = (date: Date) => {
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
-
-  if (minutes < 1) return 'Just now'
-  if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
-  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`
-  if (days < 7) return `${days} day${days > 1 ? 's' : ''} ago`
-
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
-  })
-}
-
 const refreshDashboard = () => {
-  console.log('Refreshing dashboard data...')
+  endpointsStore.fetchEndpoints()
 }
 
-function markdownToHtml(markdown: string): string {
-  let html = markdown
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/```(\w+)?\n([^`]+)```/g, '<pre><code>$2</code></pre>')
-    .replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" class="text-primary hover:text-primary/80 underline">$1</a>',
-    )
-    .replace(/\n\n/g, '</p><p>')
-    .split('\n')
-    .map((line) => {
-      if (/^\d+\.\s/.test(line)) {
-        return '<li>' + line.substring(line.indexOf('.') + 2) + '</li>'
-      } else if (/^-\s/.test(line)) {
-        return '<li>' + line.substring(2) + '</li>'
-      }
-      return line
-    })
-    .join('\n')
-
-  html = '<p>' + html + '</p>'
-  html = html.replace(/<p>\s*<\/p>/g, '')
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => {
-    if (match.includes('<li>1.')) {
-      return '<ol class="list-decimal list-inside space-y-1">' + match + '</ol>'
-    }
-    return '<ul class="list-disc list-inside space-y-1">' + match + '</ul>'
-  })
-
-  return html
-}
+const selectedItemMarkdown = computed(() =>
+  selectedItem.value?.longDescription ? markdownToHtml(selectedItem.value.longDescription) : '',
+)
 </script>

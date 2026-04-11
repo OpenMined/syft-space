@@ -431,9 +431,7 @@
             </div>
             <div v-else class="text-center py-16">
               <Globe class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p class="text-muted-foreground body-sm mb-4">
-                No APIs connected to this dataset
-              </p>
+              <p class="text-muted-foreground body-sm mb-4">No APIs connected to this dataset</p>
               <Button size="sm" @click="$router.push({ name: 'create-data-endpoint' })">
                 <Plus class="h-4 w-4 mr-2" />
                 Create API
@@ -751,19 +749,17 @@ const loadDataset = async (name: string) => {
       message: healthResponse.message,
     }
 
-    // Fetch dataset type information
-    try {
-      const typeInfoResponse = await datasetsApi.getType(datasetResponse.dtype)
-      datasetTypeInfo.value = typeInfoResponse
-    } catch (typeErr) {
+    const typeInfoPromise = datasetsApi.getType(datasetResponse.dtype).catch((typeErr) => {
       console.error('Failed to load dataset type info:', typeErr)
-      datasetTypeInfo.value = null
-    }
+      return null
+    })
+    const ingestionPromise =
+      getDatasetManagement() === 'Self-managed'
+        ? loadIngestionData(datasetResponse.id)
+        : Promise.resolve()
 
-    // Load ingestion data if dataset is self-managed
-    if (getDatasetManagement() === 'Self-managed') {
-      await loadIngestionData(datasetResponse.id)
-    }
+    const [typeInfoResponse] = await Promise.all([typeInfoPromise, ingestionPromise])
+    datasetTypeInfo.value = typeInfoResponse
   } catch (err) {
     console.error('Failed to load dataset:', err)
     error.value = true
