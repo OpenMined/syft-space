@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute, type RouteLocationRaw } from 'vue-router'
 import { toast } from 'vue-sonner'
 import {
@@ -17,7 +17,6 @@ import {
   MessageSquare,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -31,6 +30,7 @@ import { datasetsApi } from '@/api/endpoints/datasets'
 import { modelsApi } from '@/api/endpoints/models'
 import SyftLogo from '@/assets/syftbox-logo.svg'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import SidebarNavItem from '@/components/SidebarNavItem.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -152,11 +152,18 @@ function selectResult(result: SearchResult) {
   searchFocused.value = false
 }
 
+let blurTimer: ReturnType<typeof setTimeout> | null = null
 function handleSearchBlur() {
-  setTimeout(() => {
+  if (blurTimer) clearTimeout(blurTimer)
+  blurTimer = setTimeout(() => {
     searchFocused.value = false
+    blurTimer = null
   }, 150)
 }
+
+onBeforeUnmount(() => {
+  if (blurTimer) clearTimeout(blurTimer)
+})
 
 function handleSearchKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
@@ -248,14 +255,24 @@ const bottomNav: NavItem[] = [
     badge: () => (inboxStore.unreadCount > 0 ? inboxStore.unreadCount : undefined),
     badgeVariant: 'destructive',
   },
-  { id: 'settings', route: 'settings', label: 'Settings', icon: Settings },
 ]
 
-const renderNavItem = (item: NavItem) => ({
-  ...item,
-  active: isActive(item.id),
-  badgeValue: item.badge?.(),
-})
+interface ResolvedNavItem extends NavItem {
+  active: boolean
+  badgeValue: number | string | undefined
+}
+
+const resolveNav = (items: NavItem[]): ResolvedNavItem[] =>
+  items.map((item) => ({
+    ...item,
+    active: isActive(item.id),
+    badgeValue: item.badge?.(),
+  }))
+
+const mainNavResolved = computed(() => resolveNav(mainNav))
+const resourceNavResolved = computed(() => resolveNav(resourceNav))
+const liveNavResolved = computed(() => resolveNav(liveNav))
+const bottomNavResolved = computed(() => resolveNav(bottomNav))
 </script>
 
 <template>
@@ -355,37 +372,13 @@ const renderNavItem = (item: NavItem) => ({
 
     <!-- Navigation -->
     <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-      <!-- Main -->
-      <template v-for="item in mainNav" :key="item.id">
-        <TooltipProvider v-if="isCollapsed" :delay-duration="0">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <Button
-                :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
-                size="icon"
-                class="w-full h-9"
-                :class="
-                  renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''
-                "
-                @click="navigateTo(item.route)"
-              >
-                <component :is="item.icon" class="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{{ item.label }}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        <Button
-          v-else
-          :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
-          class="w-full justify-start h-9 px-3"
-          :class="renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''"
-          @click="navigateTo(item.route)"
-        >
-          <component :is="item.icon" class="h-5 w-5 mr-3 shrink-0" />
-          <span class="truncate">{{ item.label }}</span>
-        </Button>
-      </template>
+      <SidebarNavItem
+        v-for="item in mainNavResolved"
+        :key="item.id"
+        :item="item"
+        :collapsed="isCollapsed"
+        @click="navigateTo(item.route)"
+      />
 
       <!-- Resources Section -->
       <div class="pt-4">
@@ -397,40 +390,13 @@ const renderNavItem = (item: NavItem) => ({
         </p>
         <Separator v-else class="mb-2" />
         <div class="space-y-0.5">
-          <template v-for="item in resourceNav" :key="item.id">
-            <TooltipProvider v-if="isCollapsed" :delay-duration="0">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <Button
-                    :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
-                    size="icon"
-                    class="w-full h-9"
-                    :class="
-                      renderNavItem(item).active
-                        ? 'text-primary bg-primary/8 hover:bg-primary/12'
-                        : ''
-                    "
-                    @click="navigateTo(item.route)"
-                  >
-                    <component :is="item.icon" class="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">{{ item.label }}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <Button
-              v-else
-              :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
-              class="w-full justify-start h-9 px-3"
-              :class="
-                renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''
-              "
-              @click="navigateTo(item.route)"
-            >
-              <component :is="item.icon" class="h-5 w-5 mr-3 shrink-0" />
-              <span class="truncate">{{ item.label }}</span>
-            </Button>
-          </template>
+          <SidebarNavItem
+            v-for="item in resourceNavResolved"
+            :key="item.id"
+            :item="item"
+            :collapsed="isCollapsed"
+            @click="navigateTo(item.route)"
+          />
         </div>
       </div>
 
@@ -461,122 +427,33 @@ const renderNavItem = (item: NavItem) => ({
           </TooltipProvider>
         </div>
         <div class="space-y-0.5">
-          <template v-for="item in liveNav" :key="item.id">
-            <TooltipProvider v-if="isCollapsed" :delay-duration="0">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <Button
-                    :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
-                    size="icon"
-                    class="w-full h-9 relative"
-                    :class="
-                      renderNavItem(item).active
-                        ? 'text-primary bg-primary/8 hover:bg-primary/12'
-                        : ''
-                    "
-                    @click="navigateTo(item.route)"
-                  >
-                    <component :is="item.icon" class="h-5 w-5" />
-                    <Badge
-                      v-if="renderNavItem(item).badgeValue"
-                      :variant="item.badgeVariant ?? 'secondary'"
-                      class="absolute -top-1 -right-1 h-5 min-w-[20px] flex items-center justify-center text-xs px-1"
-                    >
-                      {{ renderNavItem(item).badgeValue }}
-                    </Badge>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  {{ item.label }}
-                  <template v-if="renderNavItem(item).badgeValue">
-                    ({{ renderNavItem(item).badgeValue }})
-                  </template>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <Button
-              v-else
-              :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
-              class="w-full justify-start h-9 px-3"
-              :class="
-                renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''
-              "
-              @click="navigateTo(item.route)"
-            >
-              <component :is="item.icon" class="h-5 w-5 mr-3 shrink-0" />
-              <span class="truncate flex-1 text-left">{{ item.label }}</span>
-              <Badge
-                v-if="renderNavItem(item).badgeValue"
-                :variant="item.badgeVariant ?? 'secondary'"
-                class="ml-auto text-xs"
-              >
-                {{ renderNavItem(item).badgeValue }}
-              </Badge>
-            </Button>
-          </template>
+          <SidebarNavItem
+            v-for="item in liveNavResolved"
+            :key="item.id"
+            :item="item"
+            :collapsed="isCollapsed"
+            @click="navigateTo(item.route)"
+          />
         </div>
       </div>
     </nav>
 
     <!-- Bottom Section -->
     <div class="mt-auto border-t border-border px-2 py-3 space-y-0.5">
-      <!-- Inbox & Settings -->
-      <template v-for="item in bottomNav" :key="item.id">
-        <TooltipProvider v-if="isCollapsed" :delay-duration="0">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <Button
-                :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
-                size="icon"
-                class="w-full h-9 relative"
-                :class="
-                  renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''
-                "
-                @click="navigateTo(item.route)"
-              >
-                <component :is="item.icon" class="h-5 w-5" />
-                <Badge
-                  v-if="renderNavItem(item).badgeValue"
-                  :variant="item.badgeVariant ?? 'secondary'"
-                  class="absolute -top-1 -right-1 h-5 min-w-[20px] flex items-center justify-center text-xs px-1"
-                >
-                  {{ renderNavItem(item).badgeValue }}
-                </Badge>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {{ item.label }}
-              <template v-if="renderNavItem(item).badgeValue">
-                ({{ renderNavItem(item).badgeValue }})
-              </template>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        <Button
-          v-else
-          :variant="renderNavItem(item).active ? 'secondary' : 'ghost'"
-          class="w-full justify-start h-9 px-3"
-          :class="renderNavItem(item).active ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''"
-          @click="navigateTo(item.route)"
-        >
-          <component :is="item.icon" class="h-5 w-5 mr-3 shrink-0" />
-          <span class="truncate flex-1 text-left">{{ item.label }}</span>
-          <Badge
-            v-if="renderNavItem(item).badgeValue"
-            :variant="item.badgeVariant ?? 'secondary'"
-            class="ml-auto text-xs"
-          >
-            {{ renderNavItem(item).badgeValue }}
-          </Badge>
-        </Button>
-      </template>
+      <SidebarNavItem
+        v-for="item in bottomNavResolved"
+        :key="item.id"
+        :item="item"
+        :collapsed="isCollapsed"
+        @click="navigateTo(item.route)"
+      />
 
       <Separator class="my-2" />
 
-      <!-- User card -->
+      <!-- User card + Settings -->
       <div
-        class="flex items-center gap-3 rounded-lg p-2 hover:bg-muted transition-colors cursor-default"
-        :class="isCollapsed ? 'justify-center' : ''"
+        class="flex items-center gap-2 rounded-lg p-2"
+        :class="isCollapsed ? 'flex-col' : ''"
       >
         <Avatar class="h-8 w-8 shrink-0">
           <AvatarFallback class="bg-muted text-muted-foreground text-xs">
@@ -588,6 +465,22 @@ const renderNavItem = (item: NavItem) => ({
             {{ userStore.email || 'Not connected' }}
           </p>
         </div>
+        <TooltipProvider :delay-duration="0">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                :variant="isActive('settings') ? 'secondary' : 'ghost'"
+                size="icon"
+                class="h-8 w-8 shrink-0"
+                :class="isActive('settings') ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''"
+                @click="navigateTo('settings')"
+              >
+                <Settings class="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent :side="isCollapsed ? 'right' : 'top'"> Settings </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
     </div>
   </aside>

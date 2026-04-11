@@ -1,13 +1,8 @@
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
+import { useStorage } from '@vueuse/core'
 
-const STORAGE_KEY = 'syft-sidebar-collapsed'
-
-const isCollapsed = ref<boolean>(localStorage.getItem(STORAGE_KEY) === 'true')
+const isCollapsed = useStorage<boolean>('syft-sidebar-collapsed', false)
 const isMobileOpen = ref(false)
-
-watch(isCollapsed, (val) => {
-  localStorage.setItem(STORAGE_KEY, String(val))
-})
 
 export function useSidebar() {
   const toggle = () => {
