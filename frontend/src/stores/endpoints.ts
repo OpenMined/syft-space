@@ -12,6 +12,9 @@ export interface EndpointItem {
   description: string
   dataSourceType?: ValueOf<typeof DATA_SOURCE_TYPES>
   modelType?: ValueOf<typeof MODEL_TYPES>
+  modelId?: string
+  datasetId?: string
+  systemPrompt?: string | null
   price: string
   languages: string[]
   domains: string[]
@@ -21,10 +24,14 @@ export interface EndpointItem {
   watchedPaths?: string[]
 }
 
+const FRESHNESS_MS = 30_000
+
 export const useEndpointsStore = defineStore('endpoints', () => {
   const endpoints = ref<EndpointItem[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+  let lastLoadedAt = 0
+  let inFlight: Promise<void> | null = null
 
   // Transform API response to frontend model
   const transformEndpointListItem = (item: EndpointListItem): EndpointItem => {
@@ -49,31 +56,45 @@ export const useEndpointsStore = defineStore('endpoints', () => {
       name: item.name,
       slug: item.slug,
       summary: item.summary,
-      description: '', // Not provided in list API
+      description: '',
       dataSourceType: item.dataset?.dtype as ValueOf<typeof DATA_SOURCE_TYPES>,
       modelType: item.model?.dtype as ValueOf<typeof MODEL_TYPES>,
-      price: '$0.00 - $0.00 / request', // Default, not provided by API
-      languages: [], // Default, not provided by API
-      domains: domain ? [domain] : [], // Extract from tags
-      mcpCompatible: false, // Default, not provided by API
+      modelId: item.model?.id,
+      datasetId: item.dataset?.id,
+      systemPrompt: item.system_prompt ?? null,
+      price: '$0.00 - $0.00 / request',
+      languages: [],
+      domains: domain ? [domain] : [],
+      mcpCompatible: false,
       tags: tagList,
       published: item.published,
       watchedPaths,
     }
   }
 
-  const fetchEndpoints = async () => {
+  const fetchEndpoints = async (options: { force?: boolean } = {}): Promise<void> => {
+    if (inFlight) return inFlight
+    if (!options.force && Date.now() - lastLoadedAt < FRESHNESS_MS) return
     isLoading.value = true
     error.value = null
-    try {
-      const response = await endpointsApi.list()
-      endpoints.value = response.map(transformEndpointListItem)
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to fetch endpoints'
-      console.error('Failed to fetch endpoints:', err)
-    } finally {
-      isLoading.value = false
-    }
+    inFlight = (async () => {
+      try {
+        const response = await endpointsApi.list()
+        endpoints.value = response.map(transformEndpointListItem)
+        lastLoadedAt = Date.now()
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : 'Failed to fetch endpoints'
+        console.error('Failed to fetch endpoints:', err)
+      } finally {
+        isLoading.value = false
+        inFlight = null
+      }
+    })()
+    return inFlight
+  }
+
+  const invalidate = () => {
+    lastLoadedAt = 0
   }
 
   return {
@@ -81,5 +102,6 @@ export const useEndpointsStore = defineStore('endpoints', () => {
     isLoading,
     error,
     fetchEndpoints,
+    invalidate,
   }
 })

@@ -738,6 +738,7 @@ import {
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import type { PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
+import { useEndpointsStore } from '@/stores/endpoints'
 import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import { policiesApi } from '@/api/policies/policies'
@@ -753,6 +754,7 @@ import { formatPrice } from '@/lib/formatters'
 
 const route = useRoute()
 const router = useRouter()
+const endpointsStore = useEndpointsStore()
 const userStore = useUserStore()
 const { isDark } = useTheme()
 const error = ref(false)
@@ -1017,12 +1019,11 @@ const deleteEndpoint = async () => {
       }
     }
 
-    // Call the delete API
     await endpointsApi.delete(endpoint.value.slug)
+    endpointsStore.invalidate()
 
     toast.success('Resource deleted')
 
-    // Close dialog and navigate away
     showDeleteDialog.value = false
     router.push('/endpoints')
   } catch (error) {

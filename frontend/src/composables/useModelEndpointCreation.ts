@@ -5,6 +5,7 @@ import { modelsApi } from '@/api/endpoints/models'
 import { getProviderBaseUrl } from '@/config/providers'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
+import { useEndpointsStore } from '@/stores/endpoints'
 import { usePolicyCreation } from './usePolicyCreation'
 import type { CreateModelRequest, CreateEndpointRequest, PolicyResponse } from '@/api/types'
 
@@ -46,6 +47,7 @@ export interface ModelEndpointCreationData {
 
 export function useModelEndpointCreation() {
   const router = useRouter()
+  const endpointsStore = useEndpointsStore()
   const { transformPolicyRules } = usePolicyCreation()
 
   // State
@@ -250,11 +252,10 @@ export function useModelEndpointCreation() {
       // Step 4: Publish endpoint to all marketplaces
       await publishEndpoint(data.endpointName)
 
-      // Success!
       creationStep.value = 'Complete!'
+      endpointsStore.invalidate()
       toast.success(`Model endpoint "${data.endpointName}" published successfully to SyftHub`)
 
-      // Navigate to the endpoint details page
       router.push({ name: 'endpoints' })
 
       return true

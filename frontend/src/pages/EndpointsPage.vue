@@ -9,8 +9,6 @@
       </p>
     </div>
 
-    <!-- Moved analytics summary to Analytics page -->
-
     <!-- Actions Bar -->
     <div class="flex items-center justify-between mb-8">
       <div class="relative w-full max-w-sm">
@@ -115,10 +113,7 @@
           Type <span class="font-semibold text-foreground">{{ endpointToDelete?.name }}</span> to
           confirm
         </Label>
-        <Input
-          v-model="deleteNameConfirm"
-          :placeholder="endpointToDelete?.name || 'api-name'"
-        />
+        <Input v-model="deleteNameConfirm" :placeholder="endpointToDelete?.name || 'api-name'" />
         <p
           v-if="deleteNameConfirm"
           class="text-sm"
