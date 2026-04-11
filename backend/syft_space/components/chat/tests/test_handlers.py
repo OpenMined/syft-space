@@ -83,11 +83,13 @@ def _make_request(
     *,
     model_id: UUID | None = None,
     dataset_id: UUID | None = None,
+    system_prompt: str | None = None,
 ) -> LocalChatRequest:
     return LocalChatRequest(
         model_id=model_id or uuid4(),
         dataset_id=dataset_id,
         messages=[ChatMessageRequest(role="user", content="hi")],
+        system_prompt=system_prompt,
     )
 
 
@@ -182,6 +184,42 @@ async def test_chat_happy_path_with_dataset() -> None:
     assert response.references is not None
     assert len(response.references.documents) == 1
     assert response.references.search_engine == "fake-dataset"
+
+
+async def test_chat_system_prompt_prepended_as_first_message() -> None:
+    model = _make_model()
+    chat_mock = AsyncMock(return_value=_make_chat_result())
+    handler, _, _ = _build_handler(model=model, model_chat=chat_mock)
+    request = _make_request(
+        model_id=model.id, system_prompt="You are a friendly tutor."
+    )
+
+    await handler.chat(request, _make_tenant())
+
+    sent_messages = chat_mock.call_args.args[1]
+    assert sent_messages[0].role == "system"
+    assert sent_messages[0].content == "You are a friendly tutor."
+    assert sent_messages[-1].role == "user"
+
+
+async def test_chat_system_prompt_precedes_references_context() -> None:
+    model = _make_model()
+    dataset = _make_dataset()
+    chat_mock = AsyncMock(return_value=_make_chat_result())
+    handler, _, _ = _build_handler(model=model, dataset=dataset, model_chat=chat_mock)
+    request = _make_request(
+        model_id=model.id,
+        dataset_id=dataset.id,
+        system_prompt="Override prompt.",
+    )
+
+    await handler.chat(request, _make_tenant())
+
+    sent_messages = chat_mock.call_args.args[1]
+    assert sent_messages[0].role == "system"
+    assert sent_messages[0].content == "Override prompt."
+    assert sent_messages[1].role == "system"
+    assert "Use the following context" in sent_messages[1].content
 
 
 # ---------------------------------------------------------------------------

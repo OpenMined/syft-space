@@ -1,6 +1,6 @@
 """Local chat API schemas for request/response models."""
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field
 class ChatMessageRequest(BaseModel):
     """A single message in the conversation."""
 
-    role: str = Field(..., description="Role (user/assistant/system)")
+    role: Literal["user", "assistant", "system"] = Field(
+        ..., description="Role of the message sender"
+    )
     content: str = Field(..., description="Message content")
 
 
@@ -22,6 +24,10 @@ class LocalChatRequest(BaseModel):
     )
     messages: list[ChatMessageRequest] = Field(
         ..., min_length=1, description="Conversation messages"
+    )
+    system_prompt: str | None = Field(
+        default=None,
+        description="Optional system prompt override applied before any references context",
     )
     similarity_threshold: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Similarity threshold for matching"

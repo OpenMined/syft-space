@@ -1,6 +1,8 @@
 """Local chat handler for testing models and data sources."""
 
 import asyncio
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 from uuid import UUID
 
 import httpx
@@ -45,6 +47,32 @@ _UPSTREAM_ERRORS: tuple[type[BaseException], ...] = (
 _LOCAL_CHAT_SENDER = "local-chat@syft-space.example.com"
 
 
+@asynccontextmanager
+async def _classify_upstream_errors(
+    operation: str, identifier: object
+) -> AsyncIterator[None]:
+    """Translate upstream/timeout/unknown errors into classified HTTPExceptions."""
+    try:
+        yield
+    except asyncio.TimeoutError as e:
+        logger.warning(f"{operation} timed out: id={identifier}")
+        raise HTTPException(
+            status_code=504, detail=f"{operation} timed out"
+        ) from e
+    except _UPSTREAM_ERRORS as e:
+        logger.warning(f"{operation} upstream error: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"{operation} upstream error: {e}"
+        ) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"{operation} failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"{operation} failed: {e}"
+        ) from e
+
+
 class LocalChatHandler:
     """Handler for local chat — direct model + data source testing."""
 
@@ -63,23 +91,7 @@ class LocalChatHandler:
     async def chat(
         self, request: LocalChatRequest, tenant: Tenant
     ) -> LocalChatResponse:
-        """Run a local chat query against a model, optionally with data source context.
-
-        Args:
-            request: Chat request with model_id, optional dataset_id, and messages
-            tenant: Tenant context
-
-        Returns:
-            Response with model summary and optional search references
-
-        Raises:
-            HTTPException: Classified error:
-                - 400 if required model/dataset type is not registered
-                - 404 if the model or dataset does not exist in the tenant
-                - 502 if an upstream model/dataset call fails with a network error
-                - 504 if the upstream call exceeds ``chat_timeout_seconds``
-                - 500 on unexpected failures
-        """
+        """Run a local chat query against a model, optionally with data source context."""
         references: ReferencesResponse | None = None
 
         if request.dataset_id:
@@ -123,31 +135,11 @@ class LocalChatHandler:
             include_metadata=request.include_metadata,
         )
 
-        timeout = app_settings.chat_timeout_seconds
-        try:
+        async with _classify_upstream_errors("Dataset search", dataset_id):
             search_result = await asyncio.wait_for(
                 dataset_instance.search(ctx, query, search_params),
-                timeout=timeout,
+                timeout=app_settings.chat_timeout_seconds,
             )
-        except asyncio.TimeoutError as e:
-            logger.warning(
-                f"Dataset search timed out after {timeout}s: dataset_id={dataset_id}"
-            )
-            raise HTTPException(
-                status_code=504, detail="Dataset search timed out"
-            ) from e
-        except _UPSTREAM_ERRORS as e:
-            logger.warning(f"Dataset search upstream error: {e}")
-            raise HTTPException(
-                status_code=502, detail=f"Dataset upstream error: {e}"
-            ) from e
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.exception(f"Dataset search failed: {e}")
-            raise HTTPException(
-                status_code=500, detail=f"Dataset search failed: {e}"
-            ) from e
 
         documents = [
             DocumentResponse(
@@ -182,19 +174,24 @@ class LocalChatHandler:
 
         model_instance = model_type_cls(model.configuration)
 
-        messages = [
-            ChatMessage(role=m.role, content=m.content) for m in request.messages
-        ]
-
+        messages: list[ChatMessage] = []
+        if request.system_prompt:
+            messages.append(
+                ChatMessage(role="system", content=request.system_prompt)
+            )
         if references and references.documents:
             context_content = "\n\n".join(
                 f"[{doc.document_id}] {doc.content}" for doc in references.documents[:3]
             )
-            context_message = ChatMessage(
-                role="system",
-                content=f"Use the following context to answer:\n{context_content}",
+            messages.append(
+                ChatMessage(
+                    role="system",
+                    content=f"Use the following context to answer:\n{context_content}",
+                )
             )
-            messages.insert(0, context_message)
+        messages.extend(
+            ChatMessage(role=m.role, content=m.content) for m in request.messages
+        )
 
         ctx = ChatContext(sender=_LOCAL_CHAT_SENDER, model_id=model.id)
         chat_params = ChatParameters(
@@ -205,29 +202,11 @@ class LocalChatHandler:
             frequency_penalty=request.frequency_penalty,
         )
 
-        timeout = app_settings.chat_timeout_seconds
-        try:
+        async with _classify_upstream_errors("Model chat", model_id):
             chat_result = await asyncio.wait_for(
                 model_instance.chat(ctx, messages, chat_params),
-                timeout=timeout,
+                timeout=app_settings.chat_timeout_seconds,
             )
-        except asyncio.TimeoutError as e:
-            logger.warning(
-                f"Model chat timed out after {timeout}s: model_id={model_id}"
-            )
-            raise HTTPException(status_code=504, detail="Chat request timed out") from e
-        except _UPSTREAM_ERRORS as e:
-            logger.warning(f"Model chat upstream error: {e}")
-            raise HTTPException(
-                status_code=502, detail=f"Model upstream error: {e}"
-            ) from e
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.exception(f"Model chat failed: {e}")
-            raise HTTPException(
-                status_code=500, detail=f"Model chat failed: {e}"
-            ) from e
 
         last_message = chat_result.messages[-1] if chat_result.messages else None
         if not last_message:
