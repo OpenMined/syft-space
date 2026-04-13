@@ -10,14 +10,14 @@ class CreateInvoiceRequest(BaseModel):
     """Request model for creating a bundle purchase invoice."""
 
     endpoint_slug: str = Field(..., description="Slug of the endpoint to purchase for")
-    tier_name: str = Field(..., description="Name of the bundle tier to purchase")
+    bundle_name: str = Field(..., description="Name of the bundle to purchase")
 
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
                     "endpoint_slug": "my-rag",
-                    "tier_name": "Pro",
+                    "bundle_name": "Pro",
                 }
             ]
         }
@@ -33,9 +33,7 @@ class InvoiceResponse(BaseModel):
     provider: str
     external_id: str
     checkout_url: str
-    tier_name: str
-    tier_units: int
-    unit_type: str
+    bundle_name: str
     amount: float
     currency: str
     status: str
@@ -51,8 +49,7 @@ class BundleUsageResponse(BaseModel):
 
     endpoint_slug: str
     user_email: str
-    unit_type: str
-    remaining_units: int
-    total_purchased: int
+    remaining_balance: float
+    total_deposited: float
 
     model_config = ConfigDict(from_attributes=True)

@@ -73,7 +73,7 @@ class PaymentHandler:
     ) -> InvoiceResponse:
         """Create an invoice for a bundle purchase.
 
-        Shared flow: validate endpoint → find policy → find tier →
+        Shared flow: validate endpoint → find policy → resolve bundle →
         check applied_to → get wallet → gateway.create_payment() → store Invoice.
         """
         gateway = self._get_gateway(provider)
@@ -107,8 +107,8 @@ class PaymentHandler:
             )
         config = payment_policy.configuration
 
-        # 3. Resolve tier + validate user eligibility (gateway owns config schema)
-        tier = gateway.resolve_purchase(config, request.tier_name, user_email)
+        # 3. Resolve bundle + validate user eligibility (gateway owns config schema)
+        bundle = gateway.resolve_purchase(config, request.bundle_name, user_email)
 
         # 4. Get wallet
         wallets = await self.wallet_repo.get_by_type(gateway.PROVIDER_NAME, tenant.id)
@@ -124,18 +124,16 @@ class PaymentHandler:
 
         result = await gateway.create_payment(
             reference_id=reference_id,
-            amount=tier.price,
-            currency=tier.currency,
+            amount=bundle.amount,
+            currency=bundle.currency,
             payer_email=user_email,
-            description=f"Bundle: {tier.name} ({tier.units} {tier.unit_type}) for {endpoint.slug}",
+            description=f"Bundle: {bundle.name} ({bundle.amount} {bundle.currency}) for {endpoint.slug}",
             wallet=wallet,
             policy_config=config,
             metadata={
                 "endpoint_slug": endpoint.slug,
                 "tenant_id": str(tenant.id),
-                "tier_name": tier.name,
-                "tier_units": str(tier.units),
-                "unit_type": tier.unit_type,
+                "bundle_name": bundle.name,
             },
         )
 
@@ -147,11 +145,9 @@ class PaymentHandler:
             provider=gateway.PROVIDER_NAME,
             external_id=result.external_id,
             checkout_url=result.checkout_url,
-            tier_name=tier.name,
-            tier_units=tier.units,
-            unit_type=tier.unit_type,
-            amount=tier.price,
-            currency=tier.currency,
+            bundle_name=bundle.name,
+            amount=bundle.amount,
+            currency=bundle.currency,
             status=InvoiceStatus.PENDING.value,
         )
         created = await self.invoice_repo.create(invoice)
@@ -207,20 +203,19 @@ class PaymentHandler:
             logger.info(f"Webhook: invoice {invoice.id} already processed (idempotent)")
             return {"status": "already_processed"}
 
-        # 5. Credit bundle if paid
+        # 5. Credit bundle balance if paid
         if webhook_result.status == InvoiceStatus.PAID:
-            await self.bundle_usage_repo.upsert_add_units(
+            await self.bundle_usage_repo.upsert_add_balance(
                 tenant_id=invoice.tenant_id,
                 endpoint_id=invoice.endpoint_id,
                 user_email=invoice.user_email,
-                unit_type=invoice.unit_type,
-                add_units=invoice.tier_units,
+                amount=invoice.amount,
             )
             logger.info(
-                f"Webhook: credited {invoice.tier_units} {invoice.unit_type} "
+                f"Webhook: credited {invoice.amount} {invoice.currency} "
                 f"to {invoice.user_email} for {invoice.endpoint_id}"
             )
-            return {"status": "paid", "units_credited": invoice.tier_units}
+            return {"status": "paid", "amount_credited": invoice.amount}
 
         return {"status": webhook_result.status.value}
 
@@ -253,7 +248,6 @@ class PaymentHandler:
         endpoint_slug: str,
         user_email: str,
         tenant: Tenant,
-        unit_type: str = "requests",
     ) -> BundleUsageResponse:
         """Get bundle balance for a user on an endpoint."""
         endpoint = await self.endpoint_repo.get_by_slug(endpoint_slug, tenant.id)
@@ -264,15 +258,14 @@ class PaymentHandler:
             )
 
         usage = await self.bundle_usage_repo.get_by_user_endpoint(
-            user_email, endpoint.id, tenant.id, unit_type
+            user_email, endpoint.id, tenant.id
         )
 
         return BundleUsageResponse(
             endpoint_slug=endpoint_slug,
             user_email=user_email,
-            unit_type=unit_type,
-            remaining_units=usage.remaining_units if usage else 0,
-            total_purchased=usage.total_purchased if usage else 0,
+            remaining_balance=usage.remaining_balance if usage else 0.0,
+            total_deposited=usage.total_deposited if usage else 0.0,
         )
 
     async def get_all_bundle_usages(
@@ -290,9 +283,8 @@ class PaymentHandler:
             BundleUsageResponse(
                 endpoint_slug=endpoint_slug,
                 user_email=u.user_email,
-                unit_type=u.unit_type,
-                remaining_units=u.remaining_units,
-                total_purchased=u.total_purchased,
+                remaining_balance=u.remaining_balance,
+                total_deposited=u.total_deposited,
             )
             for u in usages
         ]

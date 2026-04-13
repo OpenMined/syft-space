@@ -21,15 +21,13 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
         user_email: str,
         endpoint_id: UUID,
         tenant_id: UUID,
-        unit_type: str,
     ) -> BundleUsage | None:
-        """Get bundle usage for a specific user, endpoint, and unit type."""
+        """Get bundle usage for a specific user and endpoint."""
         async with self.db.get_session() as session:
             statement = select(BundleUsage).where(
                 BundleUsage.user_email == user_email,
                 BundleUsage.endpoint_id == endpoint_id,
                 BundleUsage.tenant_id == tenant_id,
-                BundleUsage.unit_type == unit_type,
             )
             result = await session.exec(statement)
             return result.first()
@@ -46,27 +44,23 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
             result = await session.exec(statement)
             return list(result.all())
 
-    async def upsert_add_units(
+    async def upsert_add_balance(
         self,
         tenant_id: UUID,
         endpoint_id: UUID,
         user_email: str,
-        unit_type: str,
-        add_units: int,
+        amount: float,
     ) -> BundleUsage:
-        """Add units to a user's bundle. Creates row if it doesn't exist.
-
-        Uses INSERT ... ON CONFLICT UPDATE for atomicity.
-        """
+        """Add money to a user's balance. Creates row if it doesn't exist."""
         async with self.db.get_session() as session:
             existing = await self.get_by_user_endpoint(
-                user_email, endpoint_id, tenant_id, unit_type
+                user_email, endpoint_id, tenant_id
             )
             now = datetime.now(timezone.utc)
 
             if existing:
-                existing.remaining_units += add_units
-                existing.total_purchased += add_units
+                existing.remaining_balance += amount
+                existing.total_deposited += amount
                 existing.updated_at = now
                 session.add(existing)
                 await session.commit()
@@ -77,9 +71,8 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
                     tenant_id=tenant_id,
                     endpoint_id=endpoint_id,
                     user_email=user_email,
-                    unit_type=unit_type,
-                    remaining_units=add_units,
-                    total_purchased=add_units,
+                    remaining_balance=amount,
+                    total_deposited=amount,
                     created_at=now,
                     updated_at=now,
                 )
@@ -93,12 +86,11 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
         user_email: str,
         endpoint_id: UUID,
         tenant_id: UUID,
-        unit_type: str,
-        amount: int,
+        amount: float,
     ) -> bool:
-        """Atomically deduct units. Returns False if insufficient balance.
+        """Atomically deduct money. Returns False if insufficient balance.
 
-        Uses UPDATE ... WHERE remaining_units >= amount for atomicity.
+        Uses UPDATE ... WHERE remaining_balance >= amount for atomicity.
         """
         async with self.db.get_session() as session:
             stmt = (
@@ -107,11 +99,10 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
                     BundleUsage.user_email == user_email,
                     BundleUsage.endpoint_id == endpoint_id,
                     BundleUsage.tenant_id == tenant_id,
-                    BundleUsage.unit_type == unit_type,
-                    BundleUsage.remaining_units >= amount,
+                    BundleUsage.remaining_balance >= amount,
                 )
                 .values(
-                    remaining_units=BundleUsage.remaining_units - amount,
+                    remaining_balance=BundleUsage.remaining_balance - amount,
                     updated_at=datetime.now(timezone.utc),
                 )
             )
@@ -124,10 +115,9 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
         user_email: str,
         endpoint_id: UUID,
         tenant_id: UUID,
-        unit_type: str,
-        amount: int,
+        amount: float,
     ) -> None:
-        """Atomically restore units (settle refund or cancel rollback)."""
+        """Atomically restore money (settle refund or cancel rollback)."""
         async with self.db.get_session() as session:
             stmt = (
                 update(BundleUsage)
@@ -135,10 +125,9 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
                     BundleUsage.user_email == user_email,
                     BundleUsage.endpoint_id == endpoint_id,
                     BundleUsage.tenant_id == tenant_id,
-                    BundleUsage.unit_type == unit_type,
                 )
                 .values(
-                    remaining_units=BundleUsage.remaining_units + amount,
+                    remaining_balance=BundleUsage.remaining_balance + amount,
                     updated_at=datetime.now(timezone.utc),
                 )
             )
@@ -153,7 +142,7 @@ class BundleUsageRepository(AsyncBaseRepository[BundleUsage]):
             statement = select(BundleUsage).where(
                 BundleUsage.endpoint_id == endpoint_id,
                 BundleUsage.tenant_id == tenant_id,
-                BundleUsage.remaining_units > 0,
+                BundleUsage.remaining_balance > 0,
             )
             result = await session.exec(statement)
             return result.first() is not None

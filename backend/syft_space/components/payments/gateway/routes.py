@@ -62,15 +62,12 @@ def build_gateway_routes(
     @router.get("/bundles/{endpoint_slug}", response_model=BundleUsageResponse)
     async def get_bundle_usage(
         endpoint_slug: str,
-        unit_type: str = Query(default="requests", description="Unit type to check"),
         tenant: Tenant = Depends(get_tenant_dependency),
         user_email: str = Depends(get_verified_sender_email),
         handler: PaymentHandler = Depends(get_handler),
     ) -> BundleUsageResponse:
         """Get user's bundle balance for an endpoint (PUBLIC, requires satellite token)."""
-        return await handler.get_bundle_usage(
-            endpoint_slug, user_email, tenant, unit_type
-        )
+        return await handler.get_bundle_usage(endpoint_slug, user_email, tenant)
 
     # Provider-specific sub-routers
     router.include_router(build_xendit_routes(handler, get_verified_sender_email))
