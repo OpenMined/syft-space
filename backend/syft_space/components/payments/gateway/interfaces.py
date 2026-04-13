@@ -31,17 +31,15 @@ class WebhookResult:
 
 
 @dataclass
-class ResolvedTier:
-    """Result of resolving a tier from policy config.
+class ResolvedBundle:
+    """Result of resolving a bundle from policy config.
 
     Returned by gateway.resolve_purchase() — the gateway parses its
-    own policy config schema and validates tier + user eligibility.
+    own policy config schema and validates bundle + user eligibility.
     """
 
     name: str
-    units: int
-    unit_type: str
-    price: float
+    amount: float  # money amount in policy currency
     currency: str
 
 
@@ -58,17 +56,17 @@ class PaymentGateway(Protocol):
     def resolve_purchase(
         self,
         config: dict,
-        tier_name: str,
+        bundle_name: str,
         user_email: str,
-    ) -> ResolvedTier:
-        """Validate tier exists and user is eligible.
+    ) -> ResolvedBundle:
+        """Validate bundle exists and user is eligible.
 
         The gateway owns the policy config schema interpretation.
-        Raises HTTPException if tier not found or user not eligible.
+        Raises HTTPException if bundle not found or user not eligible.
 
         Args:
             config: Raw policy configuration dict
-            tier_name: Requested tier name
+            bundle_name: Requested bundle name
             user_email: Buyer's email for applied_to check
         """
         ...

@@ -1,18 +1,19 @@
-"""Add invoices, bundle_usage tables and archived column on endpoints.
+"""add invoices bundle_usage tables and archived column
 
-Revision ID: e5f6a7b8c9d0
+Revision ID: beb8d008c9c8
 Revises: d4e5f6a7b8c9
-Create Date: 2026-04-07
+Create Date: 2026-04-13 12:25:23.811556
 
 """
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+import sqlmodel  # noqa: F401 — required for SQLModel column types
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "e5f6a7b8c9d0"
+revision: str = "beb8d008c9c8"
 down_revision: str | None = "d4e5f6a7b8c9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -29,9 +30,7 @@ def upgrade() -> None:
         sa.Column("provider", sa.String(), nullable=False),
         sa.Column("external_id", sa.String(), nullable=False),
         sa.Column("checkout_url", sa.String(), nullable=False),
-        sa.Column("tier_name", sa.String(), nullable=False),
-        sa.Column("tier_units", sa.Integer(), nullable=False),
-        sa.Column("unit_type", sa.String(), nullable=False),
+        sa.Column("bundle_name", sa.String(), nullable=False),
         sa.Column("amount", sa.Float(), nullable=False),
         sa.Column("currency", sa.String(), nullable=False),
         sa.Column("status", sa.String(), nullable=False, server_default="pending"),
@@ -47,16 +46,15 @@ def upgrade() -> None:
     op.create_index("idx_invoice_tenant_user", "invoices", ["tenant_id", "user_email"])
     op.create_index("idx_invoice_status", "invoices", ["status"])
 
-    # 2. Create bundle_usage table
+    # 2. Create bundle_usage table (tracks money balance per user+endpoint)
     op.create_table(
         "bundle_usage",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("tenant_id", sa.Uuid(), nullable=False),
         sa.Column("endpoint_id", sa.Uuid(), nullable=False),
         sa.Column("user_email", sa.String(), nullable=False),
-        sa.Column("unit_type", sa.String(), nullable=False),
-        sa.Column("remaining_units", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("total_purchased", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("remaining_balance", sa.Float(), nullable=False, server_default="0"),
+        sa.Column("total_deposited", sa.Float(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
@@ -66,8 +64,7 @@ def upgrade() -> None:
             "tenant_id",
             "endpoint_id",
             "user_email",
-            "unit_type",
-            name="uq_bundle_usage_user_endpoint_type",
+            name="uq_bundle_usage_user_endpoint",
         ),
     )
 

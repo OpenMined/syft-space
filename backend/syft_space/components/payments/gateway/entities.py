@@ -50,10 +50,8 @@ class Invoice(SQLModel, table=True):
     provider: str = Field(..., description="Payment provider (e.g., 'xendit')")
     external_id: str = Field(..., description="Provider invoice ID (webhook join key)")
     checkout_url: str = Field(..., description="Provider hosted checkout URL")
-    tier_name: str = Field(..., description="Bundle tier name at time of purchase")
-    tier_units: int = Field(..., description="Number of units in the purchased tier")
-    unit_type: str = Field(..., description="Unit type (e.g., 'requests', 'tokens')")
-    amount: float = Field(..., description="Invoice amount")
+    bundle_name: str = Field(..., description="Bundle name at time of purchase")
+    amount: float = Field(..., description="Bundle amount in currency")
     currency: str = Field(..., description="Currency code (e.g., 'USD')")
     status: str = Field(
         default=InvoiceStatus.PENDING.value, description="Invoice status"
@@ -71,9 +69,10 @@ class Invoice(SQLModel, table=True):
 
 
 class BundleUsage(SQLModel, table=True):
-    """Bundle usage tracking per (user, endpoint, unit_type).
+    """Money balance tracking per (user, endpoint).
 
-    Remaining units stack on purchase and decrement atomically on query.
+    Balance increases on bundle purchase and decreases by price_per_request
+    on each query.
     """
 
     __tablename__ = "bundle_usage"
@@ -82,8 +81,7 @@ class BundleUsage(SQLModel, table=True):
             "tenant_id",
             "endpoint_id",
             "user_email",
-            "unit_type",
-            name="uq_bundle_usage_user_endpoint_type",
+            name="uq_bundle_usage_user_endpoint",
         ),
     )
 
@@ -99,12 +97,11 @@ class BundleUsage(SQLModel, table=True):
         description="Endpoint this usage tracks",
     )
     user_email: str = Field(..., description="User email")
-    unit_type: str = Field(
-        ..., description="Unit type (e.g., 'requests', 'tokens', 'documents')"
+    remaining_balance: float = Field(
+        default=0.0, description="Remaining money balance in policy currency"
     )
-    remaining_units: int = Field(default=0, description="Remaining units available")
-    total_purchased: int = Field(
-        default=0, description="Lifetime total units purchased"
+    total_deposited: float = Field(
+        default=0.0, description="Lifetime total money deposited"
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
