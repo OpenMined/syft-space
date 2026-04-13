@@ -315,8 +315,7 @@ export function usePolicyCreation() {
           const pricingType = rule.config.pricingType as string | undefined
 
           if (pricingType === 'bundle') {
-            // Bundle pricing — config was already built by AddPricingRuleDialog
-            // Extract fields stored by handlePricingRuleCreated
+            // Xendit bundle pricing — price_per_request + currency + country
             const userType = rule.config.userType as 'all' | 'specific'
             const users = rule.config.users as string
             const appliedTo =
@@ -327,8 +326,8 @@ export function usePolicyCreation() {
                     .map((u) => u.trim())
                     .filter((u) => u)
             configuration = {
-              bundle_tiers: rule.config.bundle_tiers || [],
-              currency: rule.config.currency || 'USD',
+              price_per_request: rule.config.price_per_request,
+              currency: rule.config.currency || 'IDR',
               country: rule.config.country || 'ID',
               applied_to: appliedTo,
             }

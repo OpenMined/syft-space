@@ -1835,11 +1835,11 @@ const handlePricingRuleCreated = (payload: {
   if (payload.type === 'micro') {
     config.price = String(payload.config.price)
   } else {
-    config.bundle_tiers = payload.config.bundle_tiers
+    // Bundle — store price_per_request/currency/country for transformPolicyRules
+    config.price_per_request = payload.config.price_per_request
     config.currency = payload.config.currency
     config.country = payload.config.country
-    const tiers = payload.config.bundle_tiers as Array<{ price: number; units: number }>
-    config.price = tiers?.[0] ? String(tiers[0].price) : '0'
+    config.price = String(payload.config.price_per_request)
   }
 
   policyRules.value.pricing.push({

@@ -25,8 +25,8 @@
               <h3 class="font-semibold text-foreground">Bundle Payments</h3>
             </div>
             <p class="text-sm text-muted-foreground mb-4 flex-1">
-              Users buy a prepaid package of requests (e.g. 1,000 queries for $10), then use them
-              over time.
+              Set a price per request. Users buy prepaid bundles via Xendit checkout and their
+              balance is deducted on each query.
             </p>
             <div class="mb-4">
               <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
@@ -34,7 +34,7 @@
               </p>
               <ol class="text-sm text-foreground space-y-0.5 list-decimal list-inside">
                 <li>Connect Xendit</li>
-                <li>Create bundles</li>
+                <li>Set price per request</li>
                 <li>Choose who pays</li>
               </ol>
             </div>
@@ -464,102 +464,79 @@
           </template>
         </div>
 
-        <!-- Bundle Step 2: Define Bundles -->
+        <!-- Bundle Step 2: Set Price -->
         <div v-if="bundleStep === 1" class="py-4 space-y-4">
-          <p class="text-sm text-muted-foreground">
-            Create a bundle that users can purchase. You can add more bundles later.
-          </p>
-
           <div
-            v-for="(tier, tierIdx) in bundleForm.tiers"
-            :key="tierIdx"
-            class="p-4 border border-border rounded-xl space-y-4"
+            class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg"
           >
-            <!-- Sell X units for Y currency -->
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-sm font-medium">Sell</span>
+            <p class="text-sm text-blue-700 dark:text-blue-300">
+              Set a price per request. Users will purchase prepaid bundles in your chosen currency
+              and their balance is deducted on each query.
+            </p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <Label for="bundle-price" class="text-sm font-medium">Price per request</Label>
               <Input
-                v-model="tier.units"
+                id="bundle-price"
+                v-model="bundleForm.pricePerRequest"
                 type="number"
-                min="1"
-                placeholder="100"
-                class="h-9 w-20"
-              />
-              <Select v-model="tier.unitType">
-                <SelectTrigger class="h-9 w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="ut in unitTypeOptions" :key="ut" :value="ut">
-                    {{ ut }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <span class="text-sm font-medium">for</span>
-              <Input
-                v-model="tier.price"
-                type="number"
-                min="0"
                 step="any"
-                placeholder="10.00"
-                class="h-9 w-24"
+                min="0"
+                placeholder="500"
+                class="h-10"
               />
-              <Select v-model="tier.currency">
-                <SelectTrigger class="h-9 w-20">
+            </div>
+            <div class="space-y-2">
+              <Label class="text-sm font-medium">Currency</Label>
+              <Select v-model="bundleForm.currency">
+                <SelectTrigger class="h-10">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="IDR">IDR</SelectItem>
                   <SelectItem value="USD">USD</SelectItem>
                   <SelectItem value="PHP">PHP</SelectItem>
-                  <SelectItem value="THB">THB</SelectItem>
+                  <SelectItem value="SGD">SGD</SelectItem>
                   <SelectItem value="MYR">MYR</SelectItem>
                   <SelectItem value="VND">VND</SelectItem>
+                  <SelectItem value="THB">THB</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div class="space-y-2">
-                <Label class="text-sm font-medium">Bundle name</Label>
-                <Input v-model="tier.name" placeholder="Starter" class="h-9" />
-              </div>
-              <div class="space-y-2">
-                <Label class="text-sm font-medium">Country</Label>
-                <Select v-model="tier.country">
-                  <SelectTrigger class="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ID">Indonesia</SelectItem>
-                    <SelectItem value="PH">Philippines</SelectItem>
-                    <SelectItem value="TH">Thailand</SelectItem>
-                    <SelectItem value="MY">Malaysia</SelectItem>
-                    <SelectItem value="VN">Vietnam</SelectItem>
-                    <SelectItem value="US">United States</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <Button
-              v-if="bundleForm.tiers.length > 1"
-              variant="ghost"
-              size="sm"
-              class="text-destructive hover:text-destructive"
-              @click="bundleForm.tiers.splice(tierIdx, 1)"
-            >
-              <Trash2 class="h-4 w-4 mr-1" />
-              Remove
-            </Button>
           </div>
+          <p v-if="bundlePriceHint" class="text-sm text-muted-foreground -mt-2">
+            {{ bundlePriceHint }}
+          </p>
 
-          <button
-            class="text-sm text-primary hover:text-primary/80 font-medium"
-            @click="addBundleTier"
-          >
-            + Add another bundle
-          </button>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <Label class="text-sm font-medium">Country</Label>
+              <Select v-model="bundleForm.country">
+                <SelectTrigger class="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ID">Indonesia</SelectItem>
+                  <SelectItem value="PH">Philippines</SelectItem>
+                  <SelectItem value="SG">Singapore</SelectItem>
+                  <SelectItem value="MY">Malaysia</SelectItem>
+                  <SelectItem value="VN">Vietnam</SelectItem>
+                  <SelectItem value="TH">Thailand</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="space-y-2">
+              <Label for="bundle-name" class="text-sm font-medium">Name (optional)</Label>
+              <Input
+                id="bundle-name"
+                v-model="bundleForm.name"
+                placeholder="e.g. Standard rate"
+                class="h-10"
+              />
+            </div>
+          </div>
         </div>
 
         <!-- Bundle Step 3: Apply -->
@@ -597,15 +574,17 @@
             <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Summary</p>
             <div class="grid grid-cols-2 gap-y-1 text-sm">
               <span class="text-muted-foreground">Type</span>
-              <span class="text-right font-medium">Bundle (prepaid)</span>
+              <span class="text-right font-medium">Prepaid bundles</span>
               <span class="text-muted-foreground">Provider</span>
               <span class="text-right font-medium">Xendit</span>
-              <span class="text-muted-foreground">Bundle</span>
+              <span class="text-muted-foreground">Price</span>
               <span class="text-right font-medium">
-                {{ bundleForm.tiers[0]?.name || 'Unnamed' }} &mdash;
-                {{ bundleForm.tiers[0]?.units || 0 }} reqs for
-                {{ bundleForm.tiers[0]?.currency }} {{ bundleForm.tiers[0]?.price || '0' }}
+                {{ bundleForm.pricePerRequest || '0' }} {{ bundleForm.currency }} / request
               </span>
+              <span class="text-muted-foreground">Applies to</span>
+              <span class="text-right font-medium">{{
+                bundleForm.userType === 'all' ? 'All users' : 'Specific users'
+              }}</span>
             </div>
           </div>
         </div>
@@ -660,7 +639,6 @@ import {
   ArrowLeft,
   Check,
   Wallet as WalletIcon,
-  Trash2,
   Loader2,
   Copy,
 } from 'lucide-vue-next'
@@ -691,15 +669,6 @@ import { toast } from 'vue-sonner'
 
 export type PricingType = 'bundle' | 'micro'
 
-interface BundleTier {
-  name: string
-  units: string
-  unitType: string
-  price: string
-  currency: string
-  country: string
-}
-
 const props = defineProps<{
   open: boolean
   lockedType?: PricingType | null
@@ -726,7 +695,6 @@ const selectType = (type: PricingType) => {
     fetchPolicyTypeSchema('mpp_accounting')
   } else {
     fetchBundleWallet()
-    fetchPolicyTypeSchema('xendit')
   }
 }
 
@@ -734,15 +702,7 @@ const extractEnumFromSchema = (schema: Record<string, unknown>): string[] | null
   const defs = schema?.['$defs'] as Record<string, Record<string, unknown>> | undefined
   if (!defs) return null
 
-  // Case 1 (xendit): $defs.BundleTier.properties.unit_type.enum
-  const bundleTier = defs['BundleTier'] as Record<string, unknown> | undefined
-  const tierProps = bundleTier?.['properties'] as Record<string, Record<string, unknown>> | undefined
-  const tierUnitType = tierProps?.['unit_type']
-  if (tierUnitType?.['enum'] && Array.isArray(tierUnitType['enum'])) {
-    return tierUnitType['enum'] as string[]
-  }
-
-  // Case 2 (mpp): properties.unit_type.$ref → $defs.UnitType.enum
+  // MPP: properties.unit_type.$ref → $defs.UnitType.enum
   const topProps = schema['properties'] as Record<string, Record<string, unknown>> | undefined
   const topUnitType = topProps?.['unit_type']
   if (topUnitType?.['$ref']) {
@@ -752,7 +712,7 @@ const extractEnumFromSchema = (schema: Record<string, unknown>): string[] | null
       return refDef['enum'] as string[]
     }
   }
-  // Case 3: inline enum on top-level property
+  // Inline enum on top-level property
   if (topUnitType?.['enum'] && Array.isArray(topUnitType['enum'])) {
     return topUnitType['enum'] as string[]
   }
@@ -871,7 +831,7 @@ const submitMicro = () => {
 }
 
 // ── Bundle payments state ──
-const bundleStepLabels = ['Connect provider', 'Define bundles', 'Apply']
+const bundleStepLabels = ['Connect provider', 'Set price', 'Apply']
 const bundleStep = ref(0)
 const bundleWalletConnected = ref(false)
 const bundleWebhookUrl = ref<string | null>(null)
@@ -890,32 +850,26 @@ const fetchBundleWallet = async () => {
   }
 }
 
-const createEmptyTier = (): BundleTier => ({
-  name: 'Starter',
-  units: '100',
-  unitType: 'requests',
-  price: '10.00',
-  currency: 'IDR',
-  country: 'ID',
-})
-
 const bundleForm = ref({
   gateway: 'xendit',
   apiKey: '',
   callbackToken: '',
-  tiers: [createEmptyTier()],
+  pricePerRequest: '',
+  currency: 'IDR',
+  country: 'ID',
+  name: '',
   userType: 'all' as 'all' | 'specific',
   users: '',
 })
 
-const addBundleTier = () => {
-  bundleForm.value.tiers.push({
-    ...createEmptyTier(),
-    name: `Tier ${bundleForm.value.tiers.length + 1}`,
-  })
-}
-
 const bundleCreating = ref(false)
+
+const bundlePriceHint = computed(() => {
+  const price = parseFloat(bundleForm.value.pricePerRequest)
+  if (isNaN(price) || price <= 0) return ''
+  const cost1k = (price * 1000).toLocaleString()
+  return `1,000 requests = ${cost1k} ${bundleForm.value.currency}`
+})
 
 const canAdvanceBundle = computed(() => {
   if (bundleStep.value === 0) {
@@ -926,14 +880,8 @@ const canAdvanceBundle = computed(() => {
     )
   }
   if (bundleStep.value === 1) {
-    return bundleForm.value.tiers.every(
-      (t) =>
-        t.name.trim() &&
-        parseInt(t.units) > 0 &&
-        parseFloat(t.price) > 0 &&
-        t.currency &&
-        t.country,
-    )
+    const price = parseFloat(bundleForm.value.pricePerRequest)
+    return !isNaN(price) && price > 0 && !!bundleForm.value.currency && !!bundleForm.value.country
   }
   return true
 })
@@ -979,15 +927,11 @@ const submitBundle = () => {
   emit('pricing-created', {
     type: 'bundle',
     config: {
-      bundle_tiers: bundleForm.value.tiers.map((t) => ({
-        name: t.name,
-        units: parseInt(t.units),
-        unit_type: t.unitType,
-        price: parseFloat(t.price),
-      })),
-      currency: bundleForm.value.tiers[0]?.currency || 'USD',
-      country: bundleForm.value.tiers[0]?.country || 'ID',
+      price_per_request: parseFloat(bundleForm.value.pricePerRequest) || 0,
+      currency: bundleForm.value.currency,
+      country: bundleForm.value.country,
       applied_to: appliedTo,
+      name: bundleForm.value.name,
     },
   })
   emit('update:open', false)
@@ -1013,7 +957,10 @@ watch(
         gateway: 'xendit',
         apiKey: '',
         callbackToken: '',
-        tiers: [createEmptyTier()],
+        pricePerRequest: '',
+        currency: 'IDR',
+        country: 'ID',
+        name: '',
         userType: 'all',
         users: '',
       }

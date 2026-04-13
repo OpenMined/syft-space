@@ -467,10 +467,10 @@ class PublishEndpointHandler:
                     policy_data["wallet_type"] = wtype
                     if wtype == "xendit" and app_settings.public_url:
                         base = str(app_settings.public_url).rstrip("/")
-                        policy_data["payment_url"] = (
+                        policy_data["config"]["payment_url"] = (
                             f"{base}/api/v1/payments/gateway/xendit/invoices"
                         )
-                        policy_data["bundle_usage_url"] = (
+                        policy_data["config"]["credits_url"] = (
                             f"{base}/api/v1/payments/gateway/bundles/{endpoint.slug}"
                         )
 

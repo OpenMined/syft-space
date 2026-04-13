@@ -7,9 +7,7 @@ export interface InvoiceResponse {
   provider: string
   external_id: string
   checkout_url: string
-  tier_name: string
-  tier_units: number
-  unit_type: string
+  bundle_name: string
   amount: number
   currency: string
   status: string
@@ -21,9 +19,8 @@ export interface InvoiceResponse {
 export interface BundleUsageResponse {
   endpoint_slug: string
   user_email: string
-  unit_type: string
-  remaining_units: number
-  total_purchased: number
+  remaining_balance: number
+  total_deposited: number
 }
 
 export const paymentsApi = {

@@ -757,7 +757,7 @@
                   <div class="min-w-0 flex-1">
                     <p class="text-sm font-medium truncate">{{ inv.user_email }}</p>
                     <p class="text-xs text-muted-foreground">
-                      {{ inv.tier_name }} &middot; {{ inv.tier_units }} {{ inv.unit_type }}
+                      {{ inv.bundle_name }} &middot; {{ inv.amount }} {{ inv.currency }}
                       &middot;
                       {{ formatTimeAgo(inv.created_at) }}
                     </p>
@@ -1170,15 +1170,10 @@ const getPricingPolicySummary = (policy: { policy_type: string; configuration: R
     return `$${config.price} per query ${appliedLabel}`.trim()
   }
 
-  // Xendit: bundle tiers
-  if (policy.policy_type === 'xendit' && Array.isArray(config?.bundle_tiers)) {
-    const tiers = config.bundle_tiers as Array<{ name: string; units: number; price: number }>
-    const currency = (config.currency as string) || 'USD'
-    if (tiers.length === 1) {
-      const t = tiers[0]!
-      return `${t.name}: ${t.units} requests for ${currency} ${t.price} ${appliedLabel}`.trim()
-    }
-    return `${tiers.length} bundle tiers (${currency}) ${appliedLabel}`.trim()
+  // Xendit: price per request
+  if (policy.policy_type === 'xendit' && config?.price_per_request !== undefined) {
+    const currency = (config.currency as string) || 'IDR'
+    return `${config.price_per_request} ${currency} per request ${appliedLabel}`.trim()
   }
 
   return 'Pricing rule configured'
