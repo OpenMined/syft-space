@@ -386,7 +386,10 @@ set_rate_limit_storage(InMemoryRateLimitStorage())
 
 # Initialize handlers
 dataset_handler = DatasetHandler(
-    DATASET_TYPE_REGISTRY, dataset_repository, provisioner_state_repository
+    DATASET_TYPE_REGISTRY,
+    dataset_repository,
+    provisioner_state_repository,
+    endpoint_repository=endpoint_repository,
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 policy_handler = PolicyHandler(

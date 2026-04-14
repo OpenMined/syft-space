@@ -26,6 +26,7 @@ from syft_space.components.datasets.provisioner_state_repository import (
     ProvisionerStateRepository,
 )
 from syft_space.components.datasets.repository import DatasetRepository
+from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.datasets.schemas import (
     BrowseResponse,
     CreateDatasetRequest,
@@ -50,6 +51,7 @@ class DatasetHandler:
         registry: DatasetTypeRegistry,
         repository: DatasetRepository,
         provisioner_state_repository: ProvisionerStateRepository,
+        endpoint_repository: EndpointRepository | None = None,
     ):
         """Initialize the dataset handler.
 
@@ -57,10 +59,12 @@ class DatasetHandler:
             registry: Dataset type registry
             repository: Dataset repository
             provisioner_state_repository: Provisioner state repository
+            endpoint_repository: Endpoint repository (used to guard against deleting datasets in use)
         """
         self.registry = registry
         self.repository = repository
         self.provisioner_state_repository = provisioner_state_repository
+        self.endpoint_repository = endpoint_repository
 
     # ============== Private Provisioner Lifecycle Methods ==============
 
@@ -547,6 +551,17 @@ class DatasetHandler:
         dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        if self.endpoint_repository:
+            attached = await self.endpoint_repository.get_by_dataset_id(
+                dataset.id, tenant.id
+            )
+            if attached:
+                names = ", ".join(f"'{e.name}'" for e in attached)
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot delete data source '{name}': it is used by {len(attached)} API(s): {names}. Remove it from those APIs first.",
+                )
 
         if dataset.provisioner_state_id:
             logger.info(
