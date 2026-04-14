@@ -181,7 +181,7 @@ class LocalChatHandler:
             )
         if references and references.documents:
             context_content = "\n\n".join(
-                f"[{doc.document_id}] {doc.content}" for doc in references.documents[:3]
+                f"[{doc.document_id}] {doc.content}" for doc in references.documents
             )
             messages.append(
                 ChatMessage(
