@@ -18,6 +18,20 @@
                   : 'w-2 h-2 rounded-full bg-muted-foreground/40 shrink-0'
               "
             />
+            <Badge
+              v-if="!endpoint.modelId && endpoint.datasetId"
+              variant="secondary"
+              class="text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 border-0 shrink-0"
+            >
+              Data API
+            </Badge>
+            <Badge
+              v-else-if="endpoint.modelId && !endpoint.datasetId"
+              variant="secondary"
+              class="text-[10px] px-1.5 py-0 bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400 border-0 shrink-0"
+            >
+              Model API
+            </Badge>
           </div>
           <p class="body-sm text-muted-foreground mb-3 line-clamp-2">{{ endpoint.summary }}</p>
 
@@ -80,7 +94,7 @@ const emit = defineEmits<{
 }>()
 
 const handleCardClick = () => {
-  router.push({ name: 'endpoint-detail', params: { slug: props.endpoint.name } })
+  router.push({ name: 'endpoint-detail', params: { slug: props.endpoint.slug } })
 }
 
 const handleDeleteEndpoint = () => {
