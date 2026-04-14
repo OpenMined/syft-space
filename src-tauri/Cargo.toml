@@ -28,7 +28,7 @@ time-macros = "0.2.27"
 tauri-plugin-shell = "2.3.5"
 sysinfo = "0.38.0"
 dirs = "6.0.0"
-rand = "0.9.2"
+rand = "0.9.3"
 hex = "0.4.3"
 reqwest = { version = "0.12", features = ["json"] }
 arboard = "3.4"
