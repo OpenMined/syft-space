@@ -4,8 +4,8 @@
     <div class="mb-12">
       <h1 class="text-2xl font-semibold tracking-tight text-foreground mb-3">Your Models</h1>
       <p class="body-lg text-muted-foreground md:max-w-[60%]">
-        Models that live on your machine and work for you. Use APIs to make them queryable by others,
-        on your terms.
+        Models that live on your machine and work for you. Use APIs to make them queryable by
+        others, on your terms.
       </p>
     </div>
 

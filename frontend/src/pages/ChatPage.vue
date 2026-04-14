@@ -40,7 +40,11 @@ const messagesEndRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
 
 const modelApis = computed(() => endpointsStore.endpoints.filter((e) => e.modelId != null))
-const dataApis = computed(() => endpointsStore.endpoints.filter((e) => e.datasetId != null))
+// Only pure data-source endpoints (no model attached) — combined endpoints appear exclusively
+// in the model dropdown and auto-contribute their dataset as context (see handleSend).
+const dataApis = computed(() =>
+  endpointsStore.endpoints.filter((e) => e.datasetId != null && e.modelId == null),
+)
 
 const selectedModelApi = computed(
   () => modelApis.value.find((e) => e.slug === modelApiSlug.value) ?? null,
@@ -51,6 +55,12 @@ const selectedDataApi = computed(
 
 const hasNoModelApis = computed(
   () => !endpointsStore.isLoading && modelApis.value.length === 0,
+)
+
+// When the selected model endpoint already has a dataset, its context is used automatically.
+// Show "Override context" to signal that picking a data source here replaces it.
+const dataSourcePlaceholder = computed(() =>
+  selectedModelApi.value?.datasetId ? 'Override context' : 'Add context',
 )
 const canSubmit = computed(
   () => inputText.value.trim().length > 0 && selectedModelApi.value != null && !loading.value,
@@ -77,10 +87,15 @@ async function handleSend() {
   const text = inputText.value.trim()
   inputText.value = ''
 
+  // Explicit data-source selection takes precedence; fall back to the model endpoint's
+  // own dataset (for combined endpoints) so context is never silently dropped.
+  const datasetId =
+    selectedDataApi.value?.datasetId ?? selectedModelApi.value.datasetId ?? null
+
   await sendMessage({
     content: text,
     modelId,
-    datasetId: selectedDataApi.value?.datasetId ?? null,
+    datasetId,
     systemPrompt: selectedModelApi.value.systemPrompt ?? null,
   })
 }
@@ -265,7 +280,7 @@ function handleClear() {
                   class="w-auto h-8 gap-1.5 px-2.5 text-xs border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors rounded-full"
                 >
                   <Database class="h-3 w-3 text-muted-foreground shrink-0" />
-                  <SelectValue placeholder="Add context" />
+                  <SelectValue :placeholder="dataSourcePlaceholder" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem v-for="api in dataApis" :key="api.id" :value="api.slug">

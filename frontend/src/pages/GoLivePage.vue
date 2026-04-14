@@ -224,6 +224,16 @@ const needsModel = computed(() => {
   return responseMode.value === 'summary' || responseMode.value === 'both'
 })
 
+const isDataOnlyRaw = computed(
+  () => hasDataSource.value && !hasModel.value && responseMode.value === 'raw',
+)
+
+const apiTypeLabel = computed(() => {
+  if (hasDataSource.value && hasModel.value) return 'Combined API'
+  if (hasDataSource.value) return 'Data API'
+  return 'Model API'
+})
+
 const openAiConfigDialog = (mode: ResponseMode) => {
   pendingResponseMode.value = mode
   if (!systemPrompt.value) {
@@ -832,6 +842,23 @@ const handleOverwriteConfirm = async () => {
                   Select an AI model to continue
                 </p>
 
+                <!-- Data-only / raw callout -->
+                <div
+                  v-if="isDataOnlyRaw"
+                  class="mt-4 flex items-start gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-4 py-3"
+                >
+                  <Info class="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p class="text-sm font-medium text-blue-900 dark:text-blue-300">
+                      This API is search-only
+                    </p>
+                    <p class="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
+                      It won't appear in the Chat model selector. It can be attached as a data
+                      context when testing other model APIs in Chat.
+                    </p>
+                  </div>
+                </div>
+
                 <Separator class="mt-8" />
               </section>
 
@@ -1195,6 +1222,18 @@ const handleOverwriteConfirm = async () => {
                       <Badge variant="secondary" class="text-[10px]">Model</Badge>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <!-- API Type -->
+              <div>
+                <p class="text-xs font-medium text-muted-foreground mb-1">API Type</p>
+                <div class="flex items-center gap-2">
+                  <span class="text-foreground font-medium">{{ apiTypeLabel }}</span>
+                  <span
+                    v-if="isDataOnlyRaw"
+                    class="text-xs text-blue-600 dark:text-blue-400"
+                  >— search-only, not available in Chat model selector</span>
                 </div>
               </div>
 
