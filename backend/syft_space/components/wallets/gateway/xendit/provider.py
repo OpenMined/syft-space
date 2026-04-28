@@ -21,6 +21,7 @@ class XenditWalletProvider:
     """Adapter for Xendit payment gateway wallets."""
 
     NAME = "xendit"
+    WEBHOOK_PATH = "api/v1/payments/gateway/xendit/webhooks"
 
     @property
     def config_class(self) -> type[BaseModel]:
@@ -33,9 +34,8 @@ class XenditWalletProvider:
         Validation happens in the handler via config_class().
         """
 
-        webhook_url = (
-            f"{app_settings.public_url}/api/v1/payments/gateway/xendit/webhooks"
-        )
+        base = str(app_settings.public_url).rstrip("/")
+        webhook_url = f"{base}/{self.WEBHOOK_PATH}"
 
         return SetupResult(
             credentials=raw_credentials,
@@ -44,9 +44,8 @@ class XenditWalletProvider:
 
     def extract_display(self, configuration: dict[str, Any]) -> dict[str, Any]:
         """Return webhook URL — never expose api_key or callback_token."""
-        webhook_url = (
-            f"{app_settings.public_url}/api/v1/payments/gateway/xendit/webhooks"
-        )
+        base = str(app_settings.public_url).rstrip("/")
+        webhook_url = f"{base}/{self.WEBHOOK_PATH}"
         return {"webhook_url": webhook_url}
 
     def update_credentials(

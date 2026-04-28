@@ -464,7 +464,7 @@ class PublishEndpointHandler:
             if policy.wallet_id:
                 wtype = wallet_types.get(str(policy.wallet_id))
                 if wtype:
-                    policy_data["wallet_type"] = wtype
+                    policy_data["type"] = wtype
                     if wtype == "xendit" and app_settings.public_url:
                         base = str(app_settings.public_url).rstrip("/")
                         policy_data["config"]["payment_url"] = (
