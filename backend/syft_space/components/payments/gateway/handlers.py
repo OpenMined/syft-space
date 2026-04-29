@@ -103,10 +103,15 @@ class PaymentHandler:
             if endpoint:
                 endpoint_id = endpoint.id
 
-        # 4. Call provider API via gateway
-        reference_id = (
-            f"syft-{wallet.id}-{user_email}-{datetime.now(timezone.utc).timestamp()}"
-        )
+        # 4. Call provider API via gateway. Xendit caps reference_id at 64 chars,
+        # so we use int Unix seconds and truncate the email portion to whatever
+        # budget remains. The full email is also persisted on the Invoice row,
+        # so the reference_id is purely an opaque webhook-join key.
+        ts = str(int(datetime.now(timezone.utc).timestamp()))
+        prefix = f"syft-{wallet.id}-"
+        suffix = f"-{ts}"
+        email_budget = max(64 - len(prefix) - len(suffix), 0)
+        reference_id = f"{prefix}{user_email[:email_budget]}{suffix}"
         result = await gateway.create_payment(
             reference_id=reference_id,
             amount=bundle.amount,
