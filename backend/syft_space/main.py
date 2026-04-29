@@ -77,15 +77,12 @@ from syft_space.components.models.repository import ModelRepository
 from syft_space.components.models.routes import build_model_routes
 
 # Import payment components
-from syft_space.components.payments.gateway.bundle_service import BundleService
-from syft_space.components.payments.gateway.bundle_usage_repository import (
-    BundleUsageRepository,
-)
+from syft_space.components.payments.gateway.balance_service import BalanceService
 from syft_space.components.payments.gateway.dependencies import (
     make_verified_sender_email_dependency,
 )
 from syft_space.components.payments.gateway.handlers import PaymentHandler
-from syft_space.components.payments.gateway.invoice_repository import InvoiceRepository
+from syft_space.components.payments.gateway.payment_ledger import PaymentLedger
 from syft_space.components.payments.gateway.xendit.gateway import XenditGateway
 from syft_space.components.payments.mpp.handlers import MppPaymentHandler
 from syft_space.components.payments.routes import build_payment_routes
@@ -408,25 +405,52 @@ marketplace_handler = MarketplaceHandler(marketplace_repository)
 
 # Initialize wallet handler with providers (Clean Architecture: concrete adapters injected here)
 wallet_providers = {"mpp": MppWalletProvider(), "xendit": XenditWalletProvider()}
-wallet_handler = WalletHandler(repository=wallet_repository, providers=wallet_providers)
 
 # Initialize payment handlers
 mpp_payment_handler = MppPaymentHandler(wallet_repository=wallet_repository)
 
-# Initialize gateway payment components
-invoice_repository = InvoiceRepository(database)
-bundle_usage_repository = BundleUsageRepository(database)
-bundle_service = BundleService(bundle_usage_repository)
+
+# Initialize gateway payment components.
+# PaymentLedger is the unit-of-work that hands the three payment repos a
+# shared session. Each business operation borrows a fresh ledger.
+def payment_ledger_factory() -> PaymentLedger:
+    return PaymentLedger(database)
+
+
+balance_service = BalanceService(payment_ledger_factory)
 gateway_payment_handler = PaymentHandler(
-    invoice_repository=invoice_repository,
-    bundle_usage_repository=bundle_usage_repository,
+    balance_service=balance_service,
+    payment_ledger_factory=payment_ledger_factory,
     wallet_repository=wallet_repository,
     endpoint_repository=endpoint_repository,
-    policy_repository=policy_repository,
     gateways={"xendit": XenditGateway()},
 )
 get_verified_sender_email = make_verified_sender_email_dependency(
     marketplace_repository
+)
+
+
+# Wallet deletion guard (dependency inversion — wallets don't import payments).
+# Returns an error string if the wallet has live balance or pending invoices.
+async def check_wallet_deletable(wallet_id, tenant_id) -> str | None:
+    async with payment_ledger_factory() as ledger:
+        if await ledger.invoices.has_pending_by_wallet_id(wallet_id, tenant_id):
+            return (
+                "Cannot delete wallet with pending invoices. "
+                "Wait for them to settle or pass force=true."
+            )
+        if await ledger.balances.has_nonzero_balance_by_wallet(wallet_id, tenant_id):
+            return (
+                "Cannot delete wallet while users have remaining balance. "
+                "Refund users or pass force=true."
+            )
+    return None
+
+
+wallet_handler = WalletHandler(
+    repository=wallet_repository,
+    providers=wallet_providers,
+    deletion_check=check_wallet_deletable,
 )
 
 # Initialize settings repository and proxy service
@@ -434,23 +458,15 @@ settings_repository = SettingsRepository(database)
 proxy_service = ProxyService(settings_repository)
 
 
-# Deletion check callback (dependency inversion — endpoints don't import payments)
+# Endpoint deletion check — wallet-scoped balance no longer hangs off endpoints,
+# so the only block is pending invoices that *originated* from this endpoint.
 async def check_endpoint_deletable(endpoint_id, tenant_id) -> str | None:
-    if await invoice_repository.has_pending_by_endpoint_id(endpoint_id, tenant_id):
-        return "Cannot delete endpoint with pending invoices. Archive it instead."
-    if await bundle_usage_repository.has_nonzero_balance_by_endpoint_id(
-        endpoint_id, tenant_id
-    ):
-        return (
-            "Cannot delete endpoint while users have remaining bundle balance. "
-            "Archive it instead."
-        )
     return None
 
 
 # Metadata enricher (dependency inversion — query handler doesn't import payments)
 async def enrich_query_metadata(metadata: dict) -> None:
-    metadata["bundle_service"] = bundle_service
+    metadata["balance_service"] = balance_service
 
 
 endpoint_handler = EndpointHandler(

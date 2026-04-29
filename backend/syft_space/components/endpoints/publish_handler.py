@@ -439,7 +439,7 @@ class PublishEndpointHandler:
         )
 
         # Batch-fetch wallets for payment policies
-        wallet_types: dict[str, str] = {}
+        wallets_by_id: dict[str, Any] = {}
         if self.wallet_repository:
             wallet_ids = [
                 p.wallet_id for p in endpoint.policies if p.wallet_id is not None
@@ -448,7 +448,7 @@ class PublishEndpointHandler:
                 wallets = await self.wallet_repository.get_by_ids(
                     wallet_ids, endpoint.tenant_id
                 )
-                wallet_types = {str(w.id): w.wallet_type for w in wallets}
+                wallets_by_id = {str(w.id): w for w in wallets}
 
         policies = []
         for policy in endpoint.policies:
@@ -457,21 +457,26 @@ class PublishEndpointHandler:
                 "version": "1.0",
                 "enabled": True,
                 "description": policy.name,
-                "config": policy.configuration,
+                "config": dict(policy.configuration),
             }
 
-            # Enrich payment policies with wallet_type and payment URLs
+            # Enrich payment policies with wallet info + wallet-scoped URLs.
+            # URLs are identical across endpoints sharing the same wallet —
+            # balance is fungible across them.
             if policy.wallet_id:
-                wtype = wallet_types.get(str(policy.wallet_id))
-                if wtype:
-                    policy_data["wallet_type"] = wtype
-                    if wtype == "xendit" and app_settings.public_url:
+                wallet = wallets_by_id.get(str(policy.wallet_id))
+                if wallet:
+                    policy_data["wallet_type"] = wallet.wallet_type
+                    policy_data["config"]["currency"] = wallet.currency
+                    if wallet.country:
+                        policy_data["config"]["country"] = wallet.country
+                    if wallet.wallet_type == "xendit" and app_settings.public_url:
                         base = str(app_settings.public_url).rstrip("/")
-                        policy_data["payment_url"] = (
-                            f"{base}/api/v1/payments/gateway/xendit/invoices"
+                        policy_data["config"]["payment_url"] = (
+                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices"
                         )
-                        policy_data["bundle_usage_url"] = (
-                            f"{base}/api/v1/payments/gateway/bundles/{endpoint.slug}"
+                        policy_data["config"]["credits_url"] = (
+                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/balance"
                         )
 
             policies.append(policy_data)

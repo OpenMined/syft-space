@@ -104,7 +104,7 @@ class QueryEndpointHandler:
             "tenant_id": tenant.id,
         }
 
-        # Enrich metadata with cross-component services (e.g., bundle_service)
+        # Enrich metadata with cross-component services (e.g., balance_service)
         if self.metadata_enricher:
             await self.metadata_enricher(metadata)
 
@@ -120,6 +120,11 @@ class QueryEndpointHandler:
         if wallet_ids and self.wallet_repository:
             wallets = await self.wallet_repository.get_by_ids(wallet_ids, tenant.id)
             metadata["wallets"] = {w.wallet_type: w.configuration for w in wallets}
+            # Surface wallet identity per type for prepaid policies (they need
+            # the wallet_id + currency to record balance movements).
+            for w in wallets:
+                metadata[f"{w.wallet_type}_wallet_id"] = w.id
+                metadata[f"{w.wallet_type}_wallet_currency"] = w.currency
 
         # Inject X-Payment credential for MPP accounting policy
         if x_payment:
