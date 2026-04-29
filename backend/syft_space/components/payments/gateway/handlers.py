@@ -140,10 +140,16 @@ class PaymentHandler:
             currency=bundle.currency,
             status=InvoiceStatus.PENDING.value,
         )
+        # Snapshot the invoice fields up-front: SQLAlchemy expires attributes
+        # on commit (default expire_on_commit=True), so any sync getattr after
+        # commit would trigger a refresh and raise MissingGreenlet inside an
+        # async session. Building the response from the in-memory dict avoids
+        # going through ORM lazy-load entirely.
+        response_data = invoice.model_dump()
         async with self._ledger() as ledger:
             await ledger.invoices.create(invoice)
             await ledger.commit()
-        return InvoiceResponse.model_validate(invoice)
+        return InvoiceResponse.model_validate(response_data)
 
     # ── Provider-scoped: webhook handling ──────────────────────────
 
