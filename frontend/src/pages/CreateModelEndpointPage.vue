@@ -1266,7 +1266,7 @@
   <!-- Add Pricing Rule Dialog (for pricing — bundle or micro) -->
   <AddPricingRuleDialog
     v-model:open="showAddPricingRuleDialog"
-    :locked-type="lockedPricingType"
+    :locked-wallet-id="lockedWalletId"
     @pricing-created="handlePricingRuleCreated"
   />
 </template>
@@ -1314,7 +1314,6 @@ import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import ProviderModelCombobox from '@/components/ProviderModelCombobox.vue'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
-import type { PricingType } from '@/components/AddPricingRuleDialog.vue'
 import { PROVIDERS, getProviderLabel, getProviderBaseUrl } from '@/config/providers'
 import {
   POLICY_TYPES,
@@ -1808,38 +1807,43 @@ const deletePolicy = (policyId: PolicyTypeId, ruleId: string) => {
   }
 }
 
-const lockedPricingType = computed(() => {
+// All pricing rules in a single create-endpoint flow share one wallet
+// (mirrors the per-endpoint constraint). Picked from the first rule added.
+const lockedWalletId = computed<string | null>(() => {
   const firstRule = policyRules.value.pricing[0]
   if (!firstRule) return null
-  return (firstRule.config.pricingType as PricingType) || null
+  return (firstRule.config.walletId as string) || null
 })
 
 const handlePricingRuleCreated = (payload: {
-  type: PricingType
+  walletId: string
+  walletType: string
+  walletCurrency: string
+  policyType: 'mpp_accounting' | 'xendit'
+  name: string
   config: Record<string, unknown>
 }) => {
   const ruleId = generateRuleId()
-  const appliedTo = payload.config.applied_to as string[]
-  const name = (payload.config.name as string) || ''
+  const appliedTo = (payload.config.applied_to as string[]) ?? ['*']
   const userType = appliedTo.length === 1 && appliedTo[0] === '*' ? 'all' : 'specific'
   const users = userType === 'specific' ? appliedTo.join(', ') : ''
 
+  // Different field name per provider — normalize to a string `price` for display.
+  const rawPrice =
+    payload.walletType === 'mpp'
+      ? payload.config.price
+      : payload.config.price_per_request
+
   const config: Record<string, unknown> = {
     id: ruleId,
+    walletId: payload.walletId,
+    walletType: payload.walletType,
+    walletCurrency: payload.walletCurrency,
+    policyType: payload.policyType,
     userType,
     users,
-    note: name,
-    pricingType: payload.type,
-  }
-
-  if (payload.type === 'micro') {
-    config.price = String(payload.config.price)
-  } else {
-    // Bundle — store price_per_request/currency/country for transformPolicyRules
-    config.price_per_request = payload.config.price_per_request
-    config.currency = payload.config.currency
-    config.country = payload.config.country
-    config.price = String(payload.config.price_per_request)
+    note: payload.name,
+    price: String(rawPrice ?? '0'),
   }
 
   policyRules.value.pricing.push({

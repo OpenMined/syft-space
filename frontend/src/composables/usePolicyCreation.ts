@@ -242,19 +242,6 @@ export function usePolicyCreation() {
   ): Promise<CreatePolicyRequest[]> => {
     const policyRequests: CreatePolicyRequest[] = []
 
-    // Pre-fetch wallets once for payment policy wallet_id lookup
-    let cachedWallets: Awaited<ReturnType<typeof walletsApi.list>> | null = null
-    const getWalletByType = async (walletType: string) => {
-      if (!cachedWallets) {
-        try {
-          cachedWallets = await walletsApi.list()
-        } catch {
-          cachedWallets = []
-        }
-      }
-      return cachedWallets.find((w) => w.wallet_type === walletType && w.is_active)
-    }
-
     // Only process implemented policy types (access, rate_limit, pricing)
     const implementedPolicies = ['access', 'rate_limit', 'pricing']
 
@@ -273,6 +260,8 @@ export function usePolicyCreation() {
         )
 
         let configuration: Record<string, unknown>
+        let backendPolicyType = policyType
+        let walletId: string | undefined
 
         if (policyType === 'access') {
           const userList = processUserList((rule.config.users as string) || '')
@@ -294,7 +283,6 @@ export function usePolicyCreation() {
           const windowUnit = rule.config.windowUnit as string
           const scope = rule.config.scope as string
 
-          // Convert windowUnit to backend format
           const unitMap: Record<string, string> = {
             second: 's',
             minute: 'm',
@@ -303,8 +291,6 @@ export function usePolicyCreation() {
 
           const backendUnit = unitMap[windowUnit] || 'm'
           const formattedLimit = `${limit}/${backendUnit}`
-
-          // Convert scope to backend format
           const backendScope = scope === 'per user' ? 'per_user' : 'global'
 
           configuration = {
@@ -312,60 +298,55 @@ export function usePolicyCreation() {
             scope: backendScope,
           }
         } else if (policyType === 'pricing') {
-          const pricingType = rule.config.pricingType as string | undefined
+          // New shape: rule.config carries walletId, walletType, policyType.
+          // Wallet is resolved by the dialog; we just build the right config.
+          walletId = rule.config.walletId as string | undefined
+          const walletType = rule.config.walletType as string | undefined
+          const explicitPolicyType = rule.config.policyType as
+            | 'mpp_accounting'
+            | 'xendit'
+            | undefined
+          backendPolicyType =
+            explicitPolicyType ??
+            (walletType === 'mpp' ? 'mpp_accounting' : 'xendit')
 
-          if (pricingType === 'bundle') {
-            // Xendit bundle pricing — price_per_request + currency + country
-            const userType = rule.config.userType as 'all' | 'specific'
-            const users = rule.config.users as string
-            const appliedTo =
-              userType === 'all'
-                ? ['*']
-                : users
-                    .split(',')
-                    .map((u) => u.trim())
-                    .filter((u) => u)
+          const userType = rule.config.userType as 'all' | 'specific'
+          const users = rule.config.users as string
+          const appliedTo =
+            userType === 'all'
+              ? ['*']
+              : users
+                  .split(',')
+                  .map((u) => u.trim())
+                  .filter((u) => u)
+
+          if (backendPolicyType === 'mpp_accounting') {
+            // Currency lives on the wallet now; only price + applied_to here.
+            configuration = createPricingConfiguration(
+              rule.config.price as string,
+              userType,
+              users,
+            )
+            configuration.applied_to = appliedTo
+          } else {
             configuration = {
-              price_per_request: rule.config.price_per_request,
-              currency: rule.config.currency || 'IDR',
-              country: rule.config.country || 'ID',
+              price_per_request: parseFloat(rule.config.price as string) || 0,
               applied_to: appliedTo,
             }
-          } else {
-            // MPP micro-payment pricing
-            const price = rule.config.price as string
-            const userType = rule.config.userType as 'all' | 'specific'
-            const users = rule.config.users as string
-            configuration = createPricingConfiguration(price, userType, users)
           }
         } else {
-          // Fallback for other policy types
           configuration = rule.config
-        }
-
-        // Map frontend policy type to backend policy type
-        const pricingType = rule.config.pricingType as string | undefined
-        let backendPolicyType: string
-        if (policyType === 'pricing') {
-          backendPolicyType = pricingType === 'bundle' ? 'xendit' : 'mpp_accounting'
-        } else {
-          backendPolicyType = policyType
         }
 
         const request: CreatePolicyRequest = {
           name: policyName,
           policy_type: backendPolicyType,
-          configuration: configuration,
+          configuration,
           endpoint_id: '', // Will be set by caller
         }
 
-        // Attach wallet_id for payment policies
-        if (backendPolicyType === 'mpp_accounting' || backendPolicyType === 'xendit') {
-          const walletType = backendPolicyType === 'mpp_accounting' ? 'mpp' : 'xendit'
-          const wallet = await getWalletByType(walletType)
-          if (wallet) {
-            request.wallet_id = wallet.id
-          }
+        if (walletId) {
+          request.wallet_id = walletId
         }
 
         policyRequests.push(request)

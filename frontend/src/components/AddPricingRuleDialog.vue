@@ -1,649 +1,371 @@
 <template>
   <Dialog :open="open" @update:open="$emit('update:open', $event)">
-    <DialogContent class="sm:max-w-[680px]">
-      <!-- ═══ SCREEN 1: Payment type selection ═══ -->
-      <template v-if="!selectedType">
+    <DialogContent class="sm:max-w-[600px]">
+      <!-- ═══ View: Pick a wallet provider ═══ -->
+      <template v-if="view === 'pick-provider'">
         <DialogHeader>
-          <DialogTitle>Add Pricing Rule</DialogTitle>
+          <DialogTitle class="flex items-center gap-2">
+            <WalletIcon class="h-5 w-5 text-primary" />
+            Set up a wallet
+          </DialogTitle>
           <DialogDescription>
-            Choose how users pay to access your endpoint.
+            A pricing rule needs a wallet to receive payments. Pick a provider.
           </DialogDescription>
         </DialogHeader>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
-          <!-- Bundle Payments card -->
           <button
-            class="group text-left p-5 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-md transition-all cursor-pointer flex flex-col"
-            @click="selectType('bundle')"
+            class="text-left p-4 rounded-xl border border-border hover:border-primary/40 hover:shadow-md transition-all flex flex-col gap-2"
+            @click="pickProvider('mpp')"
           >
-            <div class="flex items-center gap-3 mb-3">
-              <div
-                class="h-10 w-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center"
-              >
-                <Package class="h-5 w-5 text-violet-600 dark:text-violet-400" />
-              </div>
-              <h3 class="font-semibold text-foreground">Bundle Payments</h3>
+            <div
+              class="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center"
+            >
+              <Zap class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <p class="text-sm text-muted-foreground mb-4 flex-1">
-              Set a price per request. Users buy prepaid bundles via Xendit checkout and their
-              balance is deducted on each query.
+            <h3 class="font-semibold text-foreground">MPP (Tempo)</h3>
+            <p class="text-sm text-muted-foreground">
+              Per-request micro-payments via the Machine Payments Protocol.
             </p>
-            <div class="mb-4">
-              <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                Steps
-              </p>
-              <ol class="text-sm text-foreground space-y-0.5 list-decimal list-inside">
-                <li>Connect Xendit</li>
-                <li>Set price per request</li>
-                <li>Choose who pays</li>
-              </ol>
-            </div>
-            <div class="flex items-center justify-between">
-              <Badge
-                variant="outline"
-                class="text-xs text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-700"
-              >
-                Popular in SE Asia
-              </Badge>
-              <ChevronRight
-                class="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors"
-              />
-            </div>
           </button>
-
-          <!-- Micro-payments card -->
           <button
-            class="group text-left p-5 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-md transition-all cursor-pointer flex flex-col"
-            @click="selectType('micro')"
+            class="text-left p-4 rounded-xl border border-border hover:border-primary/40 hover:shadow-md transition-all flex flex-col gap-2"
+            @click="pickProvider('xendit')"
           >
-            <div class="flex items-center gap-3 mb-3">
-              <div
-                class="h-10 w-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center"
-              >
-                <Zap class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <h3 class="font-semibold text-foreground">Micro-payments</h3>
+            <div
+              class="h-9 w-9 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center"
+            >
+              <Package class="h-5 w-5 text-violet-600 dark:text-violet-400" />
             </div>
-            <p class="text-sm text-muted-foreground mb-4 flex-1">
-              Users pay a small amount per request automatically. No bundles — they only pay for
-              what they use.
+            <h3 class="font-semibold text-foreground">Xendit</h3>
+            <p class="text-sm text-muted-foreground">
+              Prepaid bundles paid via Xendit checkout (SE Asia currencies).
             </p>
-            <div class="mb-4">
-              <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                Steps
-              </p>
-              <ol class="text-sm text-foreground space-y-0.5 list-decimal list-inside">
-                <li>Set up wallet</li>
-                <li>Set price per request</li>
-                <li>Choose who pays</li>
-              </ol>
-            </div>
-            <div class="flex items-center justify-end">
-              <ChevronRight
-                class="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors"
-              />
-            </div>
           </button>
         </div>
 
-        <div class="flex items-center justify-center gap-6 pt-2 text-xs text-muted-foreground">
-          <div class="flex items-center gap-1.5">
-            <Globe class="h-3.5 w-3.5" />
-            Powered by Xendit
-          </div>
-          <div class="flex items-center gap-1.5">
-            <Globe class="h-3.5 w-3.5" />
-            Powered by MPP (Tempo)
-          </div>
-        </div>
+        <DialogFooter v-if="wallets.length > 0">
+          <Button variant="outline" @click="view = 'pricing-form'">
+            <ArrowLeft class="h-4 w-4 mr-2" />
+            Back
+          </Button>
+        </DialogFooter>
       </template>
 
-      <!-- ═══ SCREEN 2: Micro-payments wizard ═══ -->
-      <template v-if="selectedType === 'micro'">
+      <!-- ═══ View: Provider setup form ═══ -->
+      <template v-else-if="view === 'setup-form'">
         <DialogHeader>
           <DialogTitle class="flex items-center gap-2">
             <button
               class="p-1 -ml-1 rounded hover:bg-muted transition-colors"
-              @click="goBackToSelection"
+              @click="view = 'pick-provider'"
             >
               <ArrowLeft class="h-4 w-4" />
             </button>
-            <Zap class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-            Micro-payments
+            <component
+              :is="selectedProviderType === 'mpp' ? Zap : Package"
+              class="h-5 w-5"
+              :class="
+                selectedProviderType === 'mpp'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-violet-600 dark:text-violet-400'
+              "
+            />
+            {{ selectedProviderType === 'mpp' ? 'MPP Wallet' : 'Xendit Wallet' }}
           </DialogTitle>
+          <DialogDescription v-if="selectedProviderType === 'mpp'">
+            Create a fresh MPP wallet for this server.
+          </DialogDescription>
+          <DialogDescription v-else>
+            Enter your Xendit credentials and pick the wallet currency.
+          </DialogDescription>
         </DialogHeader>
 
-        <!-- Stepper -->
-        <div class="flex items-center gap-2 border-b pb-4">
-          <button
-            v-for="(label, idx) in microStepLabels"
-            :key="idx"
-            class="flex items-center gap-2 px-4 py-2 rounded-full text-sm transition-colors"
-            :class="
-              microStep === idx
-                ? 'bg-muted font-medium text-foreground'
-                : microStep > idx
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-muted-foreground'
-            "
-            :disabled="idx > microStep"
-            @click="idx < microStep && (microStep = idx)"
-          >
-            <span
-              v-if="microStep > idx"
-              class="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30"
-            >
-              <Check class="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-            </span>
-            <span
-              v-else
-              class="flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium"
-              :class="
-                microStep === idx
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-muted text-muted-foreground'
-              "
-            >
-              {{ idx + 1 }}
-            </span>
-            {{ label }}
-          </button>
+        <!-- MPP setup -->
+        <div v-if="selectedProviderType === 'mpp'" class="space-y-3 py-2">
+          <Button class="w-full" :disabled="creatingWallet" @click="createMppWallet">
+            <Loader2 v-if="creatingWallet" class="h-4 w-4 mr-2 animate-spin" />
+            Create MPP Wallet
+          </Button>
+          <p class="text-xs text-muted-foreground text-center">
+            To import an existing wallet via private key, use Settings → Add Wallet.
+          </p>
         </div>
 
-        <!-- Micro Step 1: Wallet -->
-        <div v-if="microStep === 0" class="py-4">
-          <div v-if="microWalletAddress" class="space-y-3">
-            <div
-              class="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-lg"
-            >
-              <Check class="h-4 w-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <span class="text-sm text-emerald-700 dark:text-emerald-300">
-                Wallet: {{ truncateAddress(microWalletAddress) }}
-              </span>
+        <!-- Xendit setup -->
+        <div v-else class="space-y-3 py-2">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-2">
+              <Label>Currency</Label>
+              <Select v-model="xenditForm.currency">
+                <SelectTrigger class="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="code in XENDIT_CURRENCIES"
+                    :key="code"
+                    :value="code"
+                  >
+                    {{ code }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="space-y-2">
+              <Label>Country</Label>
+              <Select v-model="xenditForm.country">
+                <SelectTrigger class="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="c in XENDIT_COUNTRIES"
+                    :key="c.code"
+                    :value="c.code"
+                  >
+                    {{ c.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          <div v-else class="py-8">
-            <div
-              class="border-2 border-dashed border-border rounded-xl p-8 flex flex-col items-center gap-4"
-            >
-              <div
-                class="h-12 w-12 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center"
-              >
-                <WalletIcon class="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div class="text-center">
-                <h4 class="font-medium text-foreground mb-1">Set up your wallet</h4>
-                <p class="text-sm text-muted-foreground max-w-sm">
-                  Micro-payments go directly to your wallet. Create one in seconds or connect an
-                  existing one.
-                </p>
-              </div>
-              <Button
-                class="bg-emerald-600 hover:bg-emerald-700 text-white"
-                @click="showMicroWalletSetup = true"
-              >
-                <WalletIcon class="h-4 w-4 mr-2" />
-                Set Up Wallet
-              </Button>
-            </div>
+          <div class="space-y-2">
+            <Label for="xendit-api-key">API Key</Label>
+            <Input
+              id="xendit-api-key"
+              v-model="xenditForm.apiKey"
+              type="password"
+              autocomplete="off"
+              placeholder="xnd_production_..."
+              class="font-mono"
+            />
           </div>
-        </div>
-
-        <!-- Micro Step 2: Set Price -->
-        <div v-if="microStep === 1" class="py-4 space-y-4">
-          <div
-            v-if="microWalletAddress"
-            class="flex items-center justify-between p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-lg"
+          <div class="space-y-2">
+            <Label for="xendit-callback">Callback Verification Token</Label>
+            <Input
+              id="xendit-callback"
+              v-model="xenditForm.callbackToken"
+              type="password"
+              autocomplete="off"
+              placeholder="Enter your Xendit callback token"
+              class="font-mono"
+            />
+          </div>
+          <Button
+            class="w-full"
+            :disabled="!canCreateXendit || creatingWallet"
+            @click="createXenditWallet"
           >
-            <div class="flex items-center gap-2">
-              <Check class="h-4 w-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <span class="text-sm text-emerald-700 dark:text-emerald-300">
-                Wallet: {{ truncateAddress(microWalletAddress) }}
-              </span>
-            </div>
+            <Loader2 v-if="creatingWallet" class="h-4 w-4 mr-2 animate-spin" />
+            Connect Xendit
+          </Button>
+        </div>
+      </template>
+
+      <!-- ═══ View: Xendit wallet success — show webhook URL ═══ -->
+      <template v-else-if="view === 'wallet-success'">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <Check class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            Wallet connected
+          </DialogTitle>
+          <DialogDescription>
+            Paste this webhook URL into your Xendit dashboard so payment events
+            reach this server.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-2 py-2">
+          <Label>Webhook URL</Label>
+          <div class="flex gap-2">
+            <Input
+              :model-value="newWalletWebhookUrl ?? ''"
+              readonly
+              class="h-9 font-mono text-xs flex-1"
+            />
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              class="h-7 w-7 p-0"
-              @click="copyToClipboard(microWalletAddress!)"
+              class="h-9 px-3"
+              @click="copyToClipboard(newWalletWebhookUrl ?? '')"
             >
               <Copy class="h-3.5 w-3.5" />
             </Button>
           </div>
-
-          <div
-            class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg"
-          >
-            <p class="text-sm text-blue-700 dark:text-blue-300">
-              Each API call costs a fixed amount (typical range: $0.001 - $1.00), charged
-              automatically regardless of how many results are returned.
-            </p>
-          </div>
-
-          <div class="space-y-2">
-            <Label class="text-sm font-medium">Unit type</Label>
-            <Select v-model="microForm.unitType">
-              <SelectTrigger class="h-10">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="ut in unitTypeOptions" :key="ut" :value="ut">
-                  {{ ut }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div class="space-y-2">
-            <Label for="micro-price" class="text-sm font-medium">
-              Price per {{ microForm.unitType === 'requests' ? 'request' : microForm.unitType }} ($)
-            </Label>
-            <Input
-              id="micro-price"
-              v-model="microForm.price"
-              type="number"
-              step="any"
-              min="0"
-              placeholder="0.10"
-              class="h-10"
-            />
-            <p v-if="microPriceHint" class="text-sm text-muted-foreground">
-              {{ microPriceHint }}
-            </p>
-          </div>
-
-          <div class="space-y-2">
-            <Label for="micro-name" class="text-sm font-medium">Name (optional)</Label>
-            <Input
-              id="micro-name"
-              v-model="microForm.name"
-              placeholder="e.g. Standard rate for weather data"
-              class="h-10"
-            />
-          </div>
         </div>
 
-        <!-- Micro Step 3: Apply -->
-        <div v-if="microStep === 2" class="py-4 space-y-4">
-          <div class="space-y-2">
-            <Label class="text-sm font-medium">Apply pricing to</Label>
-            <Select v-model="microForm.userType">
-              <SelectTrigger class="h-10">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All users</SelectItem>
-                <SelectItem value="specific">Specific users only</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div v-if="microForm.userType === 'specific'" class="space-y-2">
-            <Label class="text-sm font-medium">User emails</Label>
-            <Textarea
-              v-model="microForm.users"
-              placeholder="alice@example.com&#10;bob@example.com"
-              class="min-h-[100px]"
-            />
-            <p class="text-xs text-muted-foreground">
-              One email per line. Only these users will be required to pay.
-            </p>
-          </div>
-
-          <!-- Summary -->
-          <div class="p-4 bg-muted/50 border border-border rounded-lg space-y-2">
-            <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Summary</p>
-            <div class="grid grid-cols-2 gap-y-1 text-sm">
-              <span class="text-muted-foreground">Type</span>
-              <span class="text-right font-medium">Micro-payment (per {{ microForm.unitType === 'requests' ? 'request' : microForm.unitType }})</span>
-              <span class="text-muted-foreground">Provider</span>
-              <span class="text-right font-medium">MPP (Tempo)</span>
-              <span class="text-muted-foreground">Price</span>
-              <span class="text-right font-medium">${{ microForm.price || '0' }} / {{ microForm.unitType === 'requests' ? 'request' : microForm.unitType }}</span>
-              <span class="text-muted-foreground">Applies to</span>
-              <span class="text-right font-medium">{{
-                microForm.userType === 'all' ? 'All users' : 'Specific users'
-              }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Footer -->
-        <DialogFooter class="flex items-center justify-between sm:justify-between">
-          <Button
-            variant="outline"
-            @click="microStep === 0 ? goBackToSelection() : microStep--"
-          >
-            <ArrowLeft class="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <Button
-            v-if="microStep < 2"
-            :disabled="!canAdvanceMicro"
-            @click="microStep++"
-            class="bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            {{ microStep === 0 ? 'Next' : 'Choose Who Pays' }}
+        <DialogFooter>
+          <Button @click="continueToPricingForm">
+            Continue
             <ChevronRight class="h-4 w-4 ml-2" />
-          </Button>
-          <Button
-            v-else
-            :disabled="!canSubmitMicro"
-            @click="submitMicro"
-            class="bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            <Check class="h-4 w-4 mr-2" />
-            Add Pricing Rule
           </Button>
         </DialogFooter>
       </template>
 
-      <!-- ═══ SCREEN 3: Bundle Payments wizard ═══ -->
-      <template v-if="selectedType === 'bundle'">
+      <!-- ═══ View: Pricing form (wallet picker + price + applied_to) ═══ -->
+      <template v-else>
         <DialogHeader>
           <DialogTitle class="flex items-center gap-2">
-            <button
-              class="p-1 -ml-1 rounded hover:bg-muted transition-colors"
-              @click="goBackToSelection"
-            >
-              <ArrowLeft class="h-4 w-4" />
-            </button>
-            <Package class="h-5 w-5 text-violet-600 dark:text-violet-400" />
-            Bundle Payments
+            <DollarSign class="h-5 w-5 text-primary" />
+            Add Pricing Rule
           </DialogTitle>
+          <DialogDescription>
+            Charge users per request through a configured wallet.
+          </DialogDescription>
         </DialogHeader>
 
-        <!-- Stepper -->
-        <div class="flex items-center gap-2 border-b pb-4">
-          <button
-            v-for="(label, idx) in bundleStepLabels"
-            :key="idx"
-            class="flex items-center gap-2 px-4 py-2 rounded-full text-sm transition-colors"
-            :class="
-              bundleStep === idx
-                ? 'bg-muted font-medium text-foreground'
-                : bundleStep > idx
-                  ? 'text-violet-600 dark:text-violet-400'
-                  : 'text-muted-foreground'
-            "
-            :disabled="idx > bundleStep"
-            @click="idx < bundleStep && (bundleStep = idx)"
-          >
-            <span
-              v-if="bundleStep > idx"
-              class="flex h-5 w-5 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-900/30"
-            >
-              <Check class="h-3 w-3 text-violet-600 dark:text-violet-400" />
-            </span>
-            <span
-              v-else
-              class="flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium"
-              :class="
-                bundleStep === idx
-                  ? 'bg-violet-600 text-white'
-                  : 'bg-muted text-muted-foreground'
-              "
-            >
-              {{ idx + 1 }}
-            </span>
-            {{ label }}
-          </button>
-        </div>
-
-        <!-- Bundle Step 1: Connect Provider -->
-        <div v-if="bundleStep === 0" class="py-4 space-y-4">
-          <div v-if="bundleWalletConnected" class="space-y-3">
-            <div
-              class="flex items-center gap-2 p-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800/50 rounded-lg"
-            >
-              <Check class="h-4 w-4 text-violet-600 dark:text-violet-400 flex-shrink-0" />
-              <span class="text-sm text-violet-700 dark:text-violet-300">
-                Xendit connected
+        <div class="space-y-4 py-2">
+          <!-- Wallet picker -->
+          <div class="space-y-2">
+            <Label class="text-sm font-medium">
+              Wallet
+              <span v-if="lockedWalletId" class="text-xs text-muted-foreground font-normal ml-1">
+                (locked — endpoint already uses this wallet)
               </span>
-            </div>
-            <div v-if="bundleWebhookUrl" class="space-y-1">
-              <Label class="text-sm font-medium">Webhook URL</Label>
-              <p class="text-xs text-muted-foreground">
-                Paste this URL into your Xendit dashboard under Webhook settings.
-              </p>
-              <div class="flex gap-2">
-                <Input
-                  :model-value="bundleWebhookUrl"
-                  readonly
-                  class="h-9 font-mono text-xs flex-1"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="h-9 px-3"
-                  @click="copyToClipboard(bundleWebhookUrl!)"
-                >
-                  <Copy class="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          </div>
-          <template v-else>
-            <div class="space-y-2">
-              <Label class="text-sm font-medium">Gateway</Label>
-              <Select v-model="bundleForm.gateway" disabled>
-                <SelectTrigger class="h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="xendit">Xendit</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div class="space-y-2">
-              <Label for="bundle-api-key" class="text-sm font-medium">Xendit API Key</Label>
-              <Input
-                id="bundle-api-key"
-                v-model="bundleForm.apiKey"
-                type="password"
-                autocomplete="off"
-                placeholder="xnd_production_..."
-                class="h-10 font-mono"
-              />
-            </div>
-
-            <div class="space-y-2">
-              <Label for="bundle-callback-token" class="text-sm font-medium"
-                >Callback Verification Token</Label
-              >
-              <Input
-                id="bundle-callback-token"
-                v-model="bundleForm.callbackToken"
-                type="password"
-                autocomplete="off"
-                placeholder="Enter your Xendit callback token"
-                class="h-10 font-mono"
-              />
-            </div>
-          </template>
-        </div>
-
-        <!-- Bundle Step 2: Set Price -->
-        <div v-if="bundleStep === 1" class="py-4 space-y-4">
-          <div
-            class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg"
-          >
-            <p class="text-sm text-blue-700 dark:text-blue-300">
-              Set a price per request. Users will purchase prepaid bundles in your chosen currency
-              and their balance is deducted on each query.
+            </Label>
+            <Select
+              v-model="selectedWalletId"
+              :disabled="!!lockedWalletId || loadingWallets"
+            >
+              <SelectTrigger class="h-10">
+                <SelectValue placeholder="Select a wallet" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="w in wallets" :key="w.id" :value="w.id">
+                  {{ w.name }} · {{ providerLabel(w.wallet_type) }} · {{ w.currency }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <button
+              v-if="!lockedWalletId"
+              class="text-xs text-primary hover:text-primary/80 underline-offset-2 hover:underline"
+              @click="view = 'pick-provider'"
+            >
+              + Set up another wallet
+            </button>
+            <p v-if="lockedWalletId" class="text-xs text-muted-foreground">
+              All payment policies on an endpoint must share the same wallet.
             </p>
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
+          <!-- Form (visible once wallet picked) -->
+          <template v-if="selectedWallet">
             <div class="space-y-2">
-              <Label for="bundle-price" class="text-sm font-medium">Price per request</Label>
-              <Input
-                id="bundle-price"
-                v-model="bundleForm.pricePerRequest"
-                type="number"
-                step="any"
-                min="0"
-                placeholder="500"
-                class="h-10"
-              />
+              <Label for="price-per-request" class="text-sm font-medium">
+                Price per request
+              </Label>
+              <div class="flex gap-2 items-stretch">
+                <Input
+                  id="price-per-request"
+                  v-model="form.price"
+                  type="number"
+                  step="any"
+                  min="0"
+                  placeholder="0.10"
+                  class="h-10 flex-1"
+                />
+                <div
+                  class="px-3 inline-flex items-center rounded-md border border-input bg-muted text-sm font-medium"
+                >
+                  {{ selectedWallet.currency }}
+                </div>
+              </div>
+              <p v-if="priceHint" class="text-xs text-muted-foreground">
+                {{ priceHint }}
+              </p>
             </div>
-            <div class="space-y-2">
-              <Label class="text-sm font-medium">Currency</Label>
-              <Select v-model="bundleForm.currency">
-                <SelectTrigger class="h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="IDR">IDR</SelectItem>
-                  <SelectItem value="USD">USD</SelectItem>
-                  <SelectItem value="PHP">PHP</SelectItem>
-                  <SelectItem value="SGD">SGD</SelectItem>
-                  <SelectItem value="MYR">MYR</SelectItem>
-                  <SelectItem value="VND">VND</SelectItem>
-                  <SelectItem value="THB">THB</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <p v-if="bundlePriceHint" class="text-sm text-muted-foreground -mt-2">
-            {{ bundlePriceHint }}
-          </p>
 
-          <div class="grid grid-cols-2 gap-4">
             <div class="space-y-2">
-              <Label class="text-sm font-medium">Country</Label>
-              <Select v-model="bundleForm.country">
-                <SelectTrigger class="h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ID">Indonesia</SelectItem>
-                  <SelectItem value="PH">Philippines</SelectItem>
-                  <SelectItem value="SG">Singapore</SelectItem>
-                  <SelectItem value="MY">Malaysia</SelectItem>
-                  <SelectItem value="VN">Vietnam</SelectItem>
-                  <SelectItem value="TH">Thailand</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div class="space-y-2">
-              <Label for="bundle-name" class="text-sm font-medium">Name (optional)</Label>
+              <Label for="policy-name" class="text-sm font-medium">
+                Policy name <span class="text-muted-foreground font-normal">(optional)</span>
+              </Label>
               <Input
-                id="bundle-name"
-                v-model="bundleForm.name"
+                id="policy-name"
+                v-model="form.name"
                 placeholder="e.g. Standard rate"
                 class="h-10"
               />
             </div>
-          </div>
-        </div>
 
-        <!-- Bundle Step 3: Apply -->
-        <div v-if="bundleStep === 2" class="py-4 space-y-4">
-          <div class="space-y-2">
-            <Label class="text-sm font-medium">Apply pricing to</Label>
-            <Select v-model="bundleForm.userType">
-              <SelectTrigger class="h-10">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All users</SelectItem>
-                <SelectItem value="specific">Specific users only</SelectItem>
-              </SelectContent>
-            </Select>
-            <p class="text-xs text-muted-foreground">
-              "All users" means everyone must purchase a bundle to access your endpoint.
-            </p>
-          </div>
-
-          <div v-if="bundleForm.userType === 'specific'" class="space-y-2">
-            <Label class="text-sm font-medium">User emails</Label>
-            <Textarea
-              v-model="bundleForm.users"
-              placeholder="alice@example.com&#10;bob@example.com"
-              class="min-h-[100px]"
-            />
-            <p class="text-xs text-muted-foreground">
-              One email per line. Only these users will be required to pay.
-            </p>
-          </div>
-
-          <!-- Summary -->
-          <div class="p-4 bg-muted/50 border border-border rounded-lg space-y-2">
-            <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Summary</p>
-            <div class="grid grid-cols-2 gap-y-1 text-sm">
-              <span class="text-muted-foreground">Type</span>
-              <span class="text-right font-medium">Prepaid bundles</span>
-              <span class="text-muted-foreground">Provider</span>
-              <span class="text-right font-medium">Xendit</span>
-              <span class="text-muted-foreground">Price</span>
-              <span class="text-right font-medium">
-                {{ bundleForm.pricePerRequest || '0' }} {{ bundleForm.currency }} / request
-              </span>
-              <span class="text-muted-foreground">Applies to</span>
-              <span class="text-right font-medium">{{
-                bundleForm.userType === 'all' ? 'All users' : 'Specific users'
-              }}</span>
+            <div class="space-y-2">
+              <Label class="text-sm font-medium">Apply to</Label>
+              <Select v-model="form.userType">
+                <SelectTrigger class="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All users</SelectItem>
+                  <SelectItem value="specific">Specific users only</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          </div>
-        </div>
 
-        <!-- Footer -->
-        <DialogFooter class="flex items-center justify-between sm:justify-between">
-          <Button
-            variant="outline"
-            @click="bundleStep === 0 ? goBackToSelection() : bundleStep--"
-          >
-            <ArrowLeft class="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <Button
-            v-if="bundleStep < 2"
-            :disabled="!canAdvanceBundle || bundleCreating"
-            @click="advanceBundle"
-            class="bg-violet-600 hover:bg-violet-700 text-white"
-          >
-            <Loader2 v-if="bundleCreating" class="h-4 w-4 mr-2 animate-spin" />
-            {{ bundleStep === 0 ? (bundleWalletConnected ? 'Next' : 'Connect') : 'Choose Who Pays' }}
-            <ChevronRight v-if="!bundleCreating" class="h-4 w-4 ml-2" />
-          </Button>
-          <Button
-            v-else
-            :disabled="!canSubmitBundle"
-            @click="submitBundle"
-            class="bg-violet-600 hover:bg-violet-700 text-white"
-          >
-            <Check class="h-4 w-4 mr-2" />
-            Add Pricing Rule
-          </Button>
-        </DialogFooter>
+            <div v-if="form.userType === 'specific'" class="space-y-2">
+              <Label class="text-sm font-medium">User emails</Label>
+              <Textarea
+                v-model="form.users"
+                placeholder="alice@example.com&#10;bob@example.com"
+                class="min-h-[100px]"
+              />
+              <p class="text-xs text-muted-foreground">
+                One email per line. Only these users will be charged.
+              </p>
+            </div>
+
+            <!-- Summary -->
+            <div
+              class="p-4 bg-muted/50 border border-border rounded-lg space-y-2"
+            >
+              <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Summary
+              </p>
+              <div class="grid grid-cols-2 gap-y-1 text-sm">
+                <span class="text-muted-foreground">Wallet</span>
+                <span class="text-right font-medium">{{ selectedWallet.name }}</span>
+                <span class="text-muted-foreground">Provider</span>
+                <span class="text-right font-medium">
+                  {{ providerLabel(selectedWallet.wallet_type) }}
+                </span>
+                <span class="text-muted-foreground">Price</span>
+                <span class="text-right font-medium">
+                  {{ form.price || '0' }} {{ selectedWallet.currency }} / request
+                </span>
+                <span class="text-muted-foreground">Applies to</span>
+                <span class="text-right font-medium">
+                  {{ form.userType === 'all' ? 'All users' : 'Specific users' }}
+                </span>
+              </div>
+            </div>
+          </template>
+
+          <DialogFooter>
+            <Button variant="outline" @click="$emit('update:open', false)">Cancel</Button>
+            <Button :disabled="!canSubmit" @click="submit">
+              <Check class="h-4 w-4 mr-2" />
+              Add Pricing Rule
+            </Button>
+          </DialogFooter>
+        </div>
       </template>
     </DialogContent>
   </Dialog>
-
-  <!-- Wallet setup dialog (reused for micro-payments) -->
-  <WalletSetupDialog
-    v-model:open="showMicroWalletSetup"
-    @wallet-updated="handleMicroWalletUpdated"
-  />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import {
-  Package,
-  Zap,
-  ChevronRight,
-  Globe,
-  ArrowLeft,
-  Check,
+  DollarSign,
   Wallet as WalletIcon,
-  Loader2,
+  Check,
+  ArrowLeft,
+  ChevronRight,
   Copy,
+  Loader2,
+  Zap,
+  Package,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -662,78 +384,146 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
 import { walletsApi } from '@/api/endpoints/wallets'
-import { policyTypesApi } from '@/api/policies/policies'
 import { toast } from 'vue-sonner'
+import type { WalletListItem } from '@/api/types'
 
-export type PricingType = 'bundle' | 'micro'
+const XENDIT_CURRENCIES = ['IDR', 'USD', 'PHP', 'SGD', 'MYR', 'VND', 'THB'] as const
+const XENDIT_COUNTRIES = [
+  { code: 'ID', label: 'Indonesia' },
+  { code: 'PH', label: 'Philippines' },
+  { code: 'SG', label: 'Singapore' },
+  { code: 'MY', label: 'Malaysia' },
+  { code: 'VN', label: 'Vietnam' },
+  { code: 'TH', label: 'Thailand' },
+] as const
+
+type View = 'pricing-form' | 'pick-provider' | 'setup-form' | 'wallet-success'
 
 const props = defineProps<{
   open: boolean
-  lockedType?: PricingType | null
+  /**
+   * Pre-select and lock the wallet picker. Used when an endpoint already
+   * has a payment policy — all payment policies on the same endpoint must
+   * share one wallet.
+   */
+  lockedWalletId?: string | null
 }>()
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
   'pricing-created': [
     payload: {
-      type: PricingType
+      walletId: string
+      walletType: string
+      walletCurrency: string
+      policyType: 'mpp_accounting' | 'xendit'
+      name: string
       config: Record<string, unknown>
     },
   ]
 }>()
 
-// ── Shared state ──
-const selectedType = ref<PricingType | null>(null)
-const unitTypeOptions = ref<string[]>(['requests'])
+const view = ref<View>('pricing-form')
 
-const selectType = (type: PricingType) => {
-  selectedType.value = type
-  if (type === 'micro') {
-    fetchMicroWallet()
-    fetchPolicyTypeSchema('mpp_accounting')
-  } else {
-    fetchBundleWallet()
+const wallets = ref<WalletListItem[]>([])
+const loadingWallets = ref(false)
+const selectedWalletId = ref<string | null>(null)
+
+// ── Inline wallet setup state ──
+const selectedProviderType = ref<'mpp' | 'xendit' | null>(null)
+const creatingWallet = ref(false)
+const newWalletWebhookUrl = ref<string | null>(null)
+const newWalletId = ref<string | null>(null)
+const xenditForm = ref({
+  apiKey: '',
+  callbackToken: '',
+  currency: 'USD',
+  country: 'ID',
+})
+
+// ── Pricing form state ──
+const form = ref({
+  price: '',
+  name: '',
+  userType: 'all' as 'all' | 'specific',
+  users: '',
+})
+
+const selectedWallet = computed(() =>
+  wallets.value.find((w) => w.id === selectedWalletId.value) ?? null,
+)
+
+const priceHint = computed(() => {
+  const price = parseFloat(form.value.price)
+  if (isNaN(price) || price <= 0 || !selectedWallet.value) return ''
+  const cost1k = (price * 1000).toLocaleString()
+  return `1,000 requests = ${cost1k} ${selectedWallet.value.currency}`
+})
+
+const canSubmit = computed(() => {
+  if (!selectedWallet.value) return false
+  const price = parseFloat(form.value.price)
+  if (isNaN(price) || price <= 0) return false
+  if (form.value.userType === 'specific') {
+    return form.value.users.trim().length > 0
+  }
+  return true
+})
+
+const canCreateXendit = computed(
+  () =>
+    xenditForm.value.apiKey.trim().length > 0 &&
+    xenditForm.value.callbackToken.trim().length > 0,
+)
+
+const providerLabel = (walletType: string): string => {
+  switch (walletType) {
+    case 'mpp':
+      return 'MPP (Tempo)'
+    case 'xendit':
+      return 'Xendit'
+    default:
+      return walletType
   }
 }
 
-const extractEnumFromSchema = (schema: Record<string, unknown>): string[] | null => {
-  const defs = schema?.['$defs'] as Record<string, Record<string, unknown>> | undefined
-  if (!defs) return null
-
-  // MPP: properties.unit_type.$ref → $defs.UnitType.enum
-  const topProps = schema['properties'] as Record<string, Record<string, unknown>> | undefined
-  const topUnitType = topProps?.['unit_type']
-  if (topUnitType?.['$ref']) {
-    const refName = (topUnitType['$ref'] as string).replace('#/$defs/', '')
-    const refDef = defs[refName]
-    if (refDef?.['enum'] && Array.isArray(refDef['enum'])) {
-      return refDef['enum'] as string[]
-    }
-  }
-  // Inline enum on top-level property
-  if (topUnitType?.['enum'] && Array.isArray(topUnitType['enum'])) {
-    return topUnitType['enum'] as string[]
-  }
-
-  return null
+const policyTypeForWallet = (walletType: string): 'mpp_accounting' | 'xendit' => {
+  if (walletType === 'mpp') return 'mpp_accounting'
+  return 'xendit'
 }
 
-const fetchPolicyTypeSchema = async (policyName: string) => {
+const buildConfig = (walletType: string): Record<string, unknown> => {
+  const price = parseFloat(form.value.price) || 0
+  const appliedTo =
+    form.value.userType === 'all'
+      ? ['*']
+      : form.value.users
+          .split('\n')
+          .map((e) => e.trim())
+          .filter((e) => e)
+
+  // MPP and Xendit use different price field names.
+  if (walletType === 'mpp') {
+    return { price, unit_type: 'requests', applied_to: appliedTo }
+  }
+  return { price_per_request: price, applied_to: appliedTo }
+}
+
+const fetchWallets = async () => {
+  loadingWallets.value = true
   try {
-    const info = await policyTypesApi.get(policyName)
-    const schema = info.config_schema as Record<string, unknown>
-    const extracted = extractEnumFromSchema(schema)
-    if (extracted && extracted.length > 0) {
-      unitTypeOptions.value = extracted
-    }
+    const all = await walletsApi.list()
+    wallets.value = all.filter((w) => w.is_active)
   } catch {
-    unitTypeOptions.value = ['requests']
+    wallets.value = []
+  } finally {
+    loadingWallets.value = false
   }
 }
 
 const copyToClipboard = async (text: string) => {
+  if (!text) return
   try {
     await navigator.clipboard.writeText(text)
     toast.success('Copied to clipboard')
@@ -742,228 +532,115 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
-const goBackToSelection = () => {
-  if (props.lockedType) {
-    emit('update:open', false)
-  } else {
-    selectedType.value = null
-  }
+const pickProvider = (providerType: 'mpp' | 'xendit') => {
+  selectedProviderType.value = providerType
+  view.value = 'setup-form'
 }
 
-// ── Micro-payments state ──
-const microStepLabels = ['Wallet', 'Set price', 'Apply']
-const microStep = ref(0)
-const microWalletAddress = ref<string | null>(null)
-const showMicroWalletSetup = ref(false)
-
-const microForm = ref({
-  price: '',
-  name: '',
-  unitType: 'requests',
-  userType: 'all' as 'all' | 'specific',
-  users: '',
-})
-
-const truncateAddress = (addr: string) => {
-  if (addr.length <= 12) return addr
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`
-}
-
-const microPriceHint = computed(() => {
-  const price = parseFloat(microForm.value.price)
-  if (isNaN(price) || price <= 0) return ''
-  const cost1k = (price * 1000).toFixed(2)
-  return `1,000 ${microForm.value.unitType} = $${cost1k}`
-})
-
-const canAdvanceMicro = computed(() => {
-  if (microStep.value === 0) return !!microWalletAddress.value
-  if (microStep.value === 1) {
-    const price = parseFloat(microForm.value.price)
-    return !isNaN(price) && price >= 0
-  }
-  return true
-})
-
-const canSubmitMicro = computed(() => {
-  if (microForm.value.userType === 'specific') {
-    return microForm.value.users.trim().length > 0
-  }
-  return true
-})
-
-const fetchMicroWallet = async () => {
+const createMppWallet = async () => {
+  creatingWallet.value = true
   try {
-    const wallets = await walletsApi.list()
-    const mppWallet = wallets.find((w) => w.wallet_type === 'mpp' && w.is_active)
-    if (mppWallet) {
-      microWalletAddress.value = mppWallet.display.wallet_address ?? null
-      microStep.value = 1
-    }
-  } catch {
-    microWalletAddress.value = null
+    const wallet = await walletsApi.createMpp()
+    newWalletId.value = wallet.id
+    await fetchWallets()
+    toast.success('MPP wallet created')
+    selectedWalletId.value = wallet.id
+    view.value = 'pricing-form'
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to create wallet')
+  } finally {
+    creatingWallet.value = false
   }
 }
 
-const handleMicroWalletUpdated = (address: string) => {
-  microWalletAddress.value = address
-}
-
-const submitMicro = () => {
-  const appliedTo =
-    microForm.value.userType === 'all'
-      ? ['*']
-      : microForm.value.users
-          .split('\n')
-          .map((e) => e.trim())
-          .filter((e) => e)
-
-  emit('pricing-created', {
-    type: 'micro',
-    config: {
-      price: parseFloat(microForm.value.price) || 0,
-      unit_type: microForm.value.unitType,
-      applied_to: appliedTo,
-      name: microForm.value.name,
-    },
-  })
-  emit('update:open', false)
-}
-
-// ── Bundle payments state ──
-const bundleStepLabels = ['Connect provider', 'Set price', 'Apply']
-const bundleStep = ref(0)
-const bundleWalletConnected = ref(false)
-const bundleWebhookUrl = ref<string | null>(null)
-
-const fetchBundleWallet = async () => {
-  try {
-    const wallets = await walletsApi.list()
-    const xenditWallet = wallets.find((w) => w.wallet_type === 'xendit' && w.is_active)
-    if (xenditWallet) {
-      bundleWalletConnected.value = true
-      bundleWebhookUrl.value = xenditWallet.display.webhook_url ?? null
-      bundleStep.value = 1
-    }
-  } catch {
-    bundleWalletConnected.value = false
-  }
-}
-
-const bundleForm = ref({
-  gateway: 'xendit',
-  apiKey: '',
-  callbackToken: '',
-  pricePerRequest: '',
-  currency: 'IDR',
-  country: 'ID',
-  name: '',
-  userType: 'all' as 'all' | 'specific',
-  users: '',
-})
-
-const bundleCreating = ref(false)
-
-const bundlePriceHint = computed(() => {
-  const price = parseFloat(bundleForm.value.pricePerRequest)
-  if (isNaN(price) || price <= 0) return ''
-  const cost1k = (price * 1000).toLocaleString()
-  return `1,000 requests = ${cost1k} ${bundleForm.value.currency}`
-})
-
-const canAdvanceBundle = computed(() => {
-  if (bundleStep.value === 0) {
-    if (bundleWalletConnected.value) return true
-    return (
-      bundleForm.value.apiKey.trim().length > 0 &&
-      bundleForm.value.callbackToken.trim().length > 0
+const createXenditWallet = async () => {
+  // Frontend guard: backend enforces UNIQUE(tenant, type, currency) too.
+  if (
+    wallets.value.some(
+      (w) =>
+        w.wallet_type === 'xendit' &&
+        w.currency === xenditForm.value.currency,
     )
-  }
-  if (bundleStep.value === 1) {
-    const price = parseFloat(bundleForm.value.pricePerRequest)
-    return !isNaN(price) && price > 0 && !!bundleForm.value.currency && !!bundleForm.value.country
-  }
-  return true
-})
-
-const canSubmitBundle = computed(() => {
-  if (bundleForm.value.userType === 'specific') {
-    return bundleForm.value.users.trim().length > 0
-  }
-  return true
-})
-
-const advanceBundle = async () => {
-  if (bundleStep.value === 0 && !bundleWalletConnected.value) {
-    // Create the Xendit wallet via API
-    bundleCreating.value = true
-    try {
-      const wallet = await walletsApi.createXendit(
-        bundleForm.value.apiKey,
-        bundleForm.value.callbackToken,
-      )
-      bundleWalletConnected.value = true
-      bundleWebhookUrl.value = wallet.display.webhook_url ?? null
-      toast.success('Xendit wallet connected')
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to connect Xendit')
-    } finally {
-      bundleCreating.value = false
-    }
+  ) {
+    toast.error(
+      `A Xendit wallet for ${xenditForm.value.currency} already exists.`,
+    )
     return
   }
-  bundleStep.value++
+
+  creatingWallet.value = true
+  try {
+    const wallet = await walletsApi.createXendit({
+      apiKey: xenditForm.value.apiKey,
+      callbackToken: xenditForm.value.callbackToken,
+      currency: xenditForm.value.currency,
+      country: xenditForm.value.country,
+    })
+    newWalletId.value = wallet.id
+    newWalletWebhookUrl.value = wallet.display.webhook_url ?? null
+    await fetchWallets()
+    toast.success('Xendit wallet connected')
+    selectedWalletId.value = wallet.id
+    view.value = 'wallet-success'
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to connect Xendit')
+  } finally {
+    creatingWallet.value = false
+  }
 }
 
-const submitBundle = () => {
-  const appliedTo =
-    bundleForm.value.userType === 'all'
-      ? ['*']
-      : bundleForm.value.users
-          .split('\n')
-          .map((e) => e.trim())
-          .filter((e) => e)
+const continueToPricingForm = () => {
+  view.value = 'pricing-form'
+}
 
+const submit = () => {
+  if (!selectedWallet.value) return
+  const w = selectedWallet.value
   emit('pricing-created', {
-    type: 'bundle',
-    config: {
-      price_per_request: parseFloat(bundleForm.value.pricePerRequest) || 0,
-      currency: bundleForm.value.currency,
-      country: bundleForm.value.country,
-      applied_to: appliedTo,
-      name: bundleForm.value.name,
-    },
+    walletId: w.id,
+    walletType: w.wallet_type,
+    walletCurrency: w.currency,
+    policyType: policyTypeForWallet(w.wallet_type),
+    name: form.value.name.trim(),
+    config: buildConfig(w.wallet_type),
   })
   emit('update:open', false)
 }
 
-// ── Reset on close, auto-select on open ──
+const resetState = () => {
+  view.value = 'pricing-form'
+  selectedWalletId.value = null
+  selectedProviderType.value = null
+  newWalletId.value = null
+  newWalletWebhookUrl.value = null
+  creatingWallet.value = false
+  xenditForm.value = {
+    apiKey: '',
+    callbackToken: '',
+    currency: 'USD',
+    country: 'ID',
+  }
+  form.value = { price: '', name: '', userType: 'all', users: '' }
+}
+
 watch(
   () => props.open,
-  (isOpen) => {
-    if (isOpen && props.lockedType) {
-      selectType(props.lockedType)
-    } else if (!isOpen) {
-      selectedType.value = null
-      unitTypeOptions.value = ['requests']
-      microStep.value = 0
-      microWalletAddress.value = null
-      microForm.value = { price: '', name: '', unitType: 'requests', userType: 'all', users: '' }
-      bundleStep.value = 0
-      bundleWalletConnected.value = false
-      bundleWebhookUrl.value = null
-      bundleCreating.value = false
-      bundleForm.value = {
-        gateway: 'xendit',
-        apiKey: '',
-        callbackToken: '',
-        pricePerRequest: '',
-        currency: 'IDR',
-        country: 'ID',
-        name: '',
-        userType: 'all',
-        users: '',
+  async (isOpen) => {
+    if (isOpen) {
+      await fetchWallets()
+      if (props.lockedWalletId) {
+        selectedWalletId.value = props.lockedWalletId
+        view.value = 'pricing-form'
+        const found = wallets.value.find((w) => w.id === props.lockedWalletId)
+        if (!found) {
+          toast.error('Locked wallet not found among active wallets')
+        }
+        return
       }
+      // Empty state: jump straight to wallet setup.
+      view.value = wallets.value.length === 0 ? 'pick-provider' : 'pricing-form'
+    } else {
+      resetState()
     }
   },
 )

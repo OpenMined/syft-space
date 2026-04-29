@@ -1,8 +1,13 @@
 import { apiClient } from '../client'
+import type {
+  LedgerEntryPage,
+  UserBalanceResponse,
+} from '../types'
 
 export interface InvoiceResponse {
   id: string
-  endpoint_id: string
+  wallet_id: string | null
+  endpoint_id: string | null
   user_email: string
   provider: string
   external_id: string
@@ -16,23 +21,61 @@ export interface InvoiceResponse {
   updated_at: string
 }
 
-export interface BundleUsageResponse {
-  endpoint_slug: string
-  user_email: string
-  remaining_balance: number
-  total_deposited: number
+export interface CreateInvoiceRequest {
+  bundle_name: string
+  endpoint_slug?: string
 }
 
 export const paymentsApi = {
-  getInvoicesByEndpoint: async (endpointSlug: string): Promise<InvoiceResponse[]> => {
-    const response = await apiClient.get(`/payments/gateway/invoices/endpoint/${endpointSlug}`)
+  // ── Public (satellite-token authenticated) ──
+
+  createInvoice: async (
+    walletId: string,
+    request: CreateInvoiceRequest,
+  ): Promise<InvoiceResponse> => {
+    const response = await apiClient.post(
+      `/payments/gateway/wallets/${walletId}/invoices`,
+      request,
+    )
     return response.data
   },
 
-  getBundleUsages: async (endpointSlug: string): Promise<BundleUsageResponse[]> => {
-    const response = await apiClient.get('/payments/gateway/bundles', {
-      params: { endpoint_slug: endpointSlug },
-    })
+  getBalance: async (walletId: string): Promise<UserBalanceResponse> => {
+    const response = await apiClient.get(`/payments/gateway/wallets/${walletId}/balance`)
+    return response.data
+  },
+
+  listMyTransactions: async (
+    walletId: string,
+    params?: { cursor?: string; limit?: number },
+  ): Promise<LedgerEntryPage> => {
+    const response = await apiClient.get(
+      `/payments/gateway/wallets/${walletId}/transactions/me`,
+      { params },
+    )
+    return response.data
+  },
+
+  // ── Admin (tenant-authenticated) ──
+
+  getInvoiceById: async (invoiceId: string): Promise<InvoiceResponse> => {
+    const response = await apiClient.get(`/payments/gateway/invoices/${invoiceId}`)
+    return response.data
+  },
+
+  getInvoicesByWallet: async (walletId: string): Promise<InvoiceResponse[]> => {
+    const response = await apiClient.get(`/payments/gateway/wallets/${walletId}/invoices`)
+    return response.data
+  },
+
+  listWalletTransactions: async (
+    walletId: string,
+    params?: { cursor?: string; limit?: number },
+  ): Promise<LedgerEntryPage> => {
+    const response = await apiClient.get(
+      `/payments/gateway/wallets/${walletId}/transactions`,
+      { params },
+    )
     return response.data
   },
 }

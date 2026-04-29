@@ -58,15 +58,19 @@ export const walletsApi = {
 
   // --- Gateway ---
 
-  createXendit: async (
-    apiKey: string,
-    callbackToken: string,
-    name?: string,
-  ): Promise<WalletResponse> => {
+  createXendit: async (params: {
+    apiKey: string
+    callbackToken: string
+    currency: string
+    country: string
+    name?: string
+  }): Promise<WalletResponse> => {
     const response = await apiClient.post('/wallets/gateway/xendit', {
-      api_key: apiKey,
-      callback_token: callbackToken,
-      name,
+      api_key: params.apiKey,
+      callback_token: params.callbackToken,
+      currency: params.currency,
+      country: params.country,
+      name: params.name,
     })
     return response.data
   },

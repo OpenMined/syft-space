@@ -685,7 +685,7 @@
 
           <!-- MPP Transactions -->
           <Card
-            v-if="lockedPricingType === 'micro' || !lockedPricingType"
+            v-if="!lockedWallet || lockedWallet.wallet_type === 'mpp'"
             class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
           >
             <CardHeader class="pb-3">
@@ -729,7 +729,7 @@
 
           <!-- Gateway (Xendit) Invoices -->
           <Card
-            v-if="lockedPricingType === 'bundle' || !lockedPricingType"
+            v-if="!lockedWallet || lockedWallet.wallet_type === 'xendit'"
             class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
           >
             <CardHeader class="pb-3">
@@ -855,10 +855,10 @@
     @save="handleAddPolicy"
   />
 
-  <!-- Add Pricing Rule Dialog (for pricing — bundle or micro) -->
+  <!-- Add Pricing Rule Dialog -->
   <AddPricingRuleDialog
     v-model:open="showAddPricingRuleDialog"
-    :locked-type="lockedPricingType"
+    :locked-wallet-id="lockedWalletId"
     @pricing-created="handlePricingCreated"
   />
 
@@ -922,7 +922,6 @@ import {
 } from '@/components/ui/dialog'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
-import type { PricingType } from '@/components/AddPricingRuleDialog.vue'
 
 import type { PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
@@ -932,7 +931,7 @@ import { policiesApi } from '@/api/policies/policies'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { paymentsApi } from '@/api/endpoints/payments'
 import type { InvoiceResponse } from '@/api/endpoints/payments'
-import type { TransactionResponse } from '@/api/types'
+import type { TransactionResponse, WalletListItem } from '@/api/types'
 import { formatPrice, formatTimeAgo } from '@/lib/formatters'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
@@ -1138,6 +1137,17 @@ const getRateLimitPolicies = () => {
   return endpoint.value?.policies?.filter((p) => p.policy_type === 'rate_limit') || []
 }
 
+const walletsById = ref<Record<string, WalletListItem>>({})
+
+const fetchWallets = async () => {
+  try {
+    const list = await walletsApi.list()
+    walletsById.value = Object.fromEntries(list.map((w) => [w.id, w]))
+  } catch {
+    walletsById.value = {}
+  }
+}
+
 const getPricingPolicies = () => {
   return (
     endpoint.value?.policies?.filter(
@@ -1146,16 +1156,32 @@ const getPricingPolicies = () => {
   )
 }
 
-const lockedPricingType = computed(() => {
-  const policies = getPricingPolicies()
-  if (policies.length === 0) return null
-  const firstType = policies[0]!.policy_type
-  if (firstType === 'mpp_accounting') return 'micro' as const
-  if (firstType === 'xendit') return 'bundle' as const
-  return null
+// All payment policies on an endpoint share one wallet (frontend-enforced).
+// The first pricing policy decides which wallet future ones must use.
+const lockedWallet = computed<WalletListItem | null>(() => {
+  const first = getPricingPolicies()[0] as
+    | { wallet_id?: string; configuration?: Record<string, unknown> }
+    | undefined
+  if (!first?.wallet_id) return null
+  return walletsById.value[first.wallet_id] ?? null
 })
 
-const getPricingPolicySummary = (policy: { policy_type: string; configuration: Record<string, unknown> }): string => {
+const lockedWalletId = computed(() => lockedWallet.value?.id ?? null)
+
+const policyWallet = (policy: {
+  policy_type: string
+  configuration: Record<string, unknown>
+  wallet_id?: string | null
+}): WalletListItem | null => {
+  if (policy.wallet_id) return walletsById.value[policy.wallet_id] ?? null
+  return null
+}
+
+const getPricingPolicySummary = (policy: {
+  policy_type: string
+  configuration: Record<string, unknown>
+  wallet_id?: string | null
+}): string => {
   const config = policy.configuration
   const appliedTo = config?.applied_to as string[] | undefined
   const appliedLabel =
@@ -1165,14 +1191,16 @@ const getPricingPolicySummary = (policy: { policy_type: string; configuration: R
         ? `for ${appliedTo.join(', ')}`
         : ''
 
+  const wallet = policyWallet(policy)
+  const currency = wallet?.currency ?? 'USD'
+
   // MPP: price per query
   if (policy.policy_type === 'mpp_accounting' && config?.price !== undefined) {
-    return `$${config.price} per query ${appliedLabel}`.trim()
+    return `${config.price} ${currency} per query ${appliedLabel}`.trim()
   }
 
   // Xendit: price per request
   if (policy.policy_type === 'xendit' && config?.price_per_request !== undefined) {
-    const currency = (config.currency as string) || 'IDR'
     return `${config.price_per_request} ${currency} per request ${appliedLabel}`.trim()
   }
 
@@ -1198,27 +1226,31 @@ const filteredGatewayInvoices = computed(() => {
 })
 
 const fetchTransactions = async () => {
-  if (!endpoint.value?.slug) return
+  if (!endpoint.value) return
   txnLoading.value = true
   try {
-    const slug = endpoint.value.slug
+    const wallet = lockedWallet.value
+    if (!wallet) {
+      // No payment policy on this endpoint — nothing to fetch.
+      mppTransactions.value = []
+      gatewayInvoices.value = []
+      return
+    }
 
-    // Fetch MPP transactions if there's an MPP wallet
-    const wallets = await walletsApi.list()
-    const mppWallet = wallets.find((w) => w.wallet_type === 'mpp' && w.is_active)
-    if (mppWallet) {
+    if (wallet.wallet_type === 'mpp') {
       try {
-        mppTransactions.value = await walletsApi.getMppTransactions(mppWallet.id)
+        mppTransactions.value = await walletsApi.getMppTransactions(wallet.id)
       } catch {
         mppTransactions.value = []
       }
-    }
-
-    // Fetch gateway invoices
-    try {
-      gatewayInvoices.value = await paymentsApi.getInvoicesByEndpoint(slug)
-    } catch {
       gatewayInvoices.value = []
+    } else if (wallet.wallet_type === 'xendit') {
+      try {
+        gatewayInvoices.value = await paymentsApi.getInvoicesByWallet(wallet.id)
+      } catch {
+        gatewayInvoices.value = []
+      }
+      mppTransactions.value = []
     }
   } finally {
     txnLoading.value = false
@@ -1353,44 +1385,29 @@ const confirmDeletePolicy = async () => {
   }
 }
 
-// Handle pricing rule created from AddPricingRuleDialog
+// Handle pricing rule created from AddPricingRuleDialog.
+// Dialog already resolved the wallet; we just create the policy and refresh.
 const handlePricingCreated = async (payload: {
-  type: PricingType
+  walletId: string
+  walletType: string
+  policyType: 'mpp_accounting' | 'xendit'
+  name: string
   config: Record<string, unknown>
 }) => {
   if (!endpoint.value?.id) return
 
-  const policyType = payload.type === 'micro' ? 'mpp_accounting' : 'xendit'
-  const existingPricing = getPricingPolicies()
-  const ruleIndex = existingPricing.length + 1
-  const name = (payload.config.name as string) || ''
+  const ruleIndex = getPricingPolicies().length + 1
+  const policyLabel = payload.policyType === 'mpp_accounting' ? 'MPP' : 'Xendit'
   const policyName =
-    name || `${endpoint.value.name} ${policyType === 'mpp_accounting' ? 'Pricing' : 'Bundle'} Rule #${ruleIndex}`
-
-  // Get wallet_id for the policy
-  let walletId: string | undefined
-  try {
-    const wallets = await walletsApi.list()
-    const walletType = payload.type === 'micro' ? 'mpp' : 'xendit'
-    const wallet = wallets.find((w) => w.wallet_type === walletType && w.is_active)
-    walletId = wallet?.id
-  } catch {
-    toast.error('Failed to find wallet for pricing policy')
-    return
-  }
-
-  // Build configuration (exclude 'name' — that's for the policy name, not config)
-  const configuration = Object.fromEntries(
-    Object.entries(payload.config).filter(([key]) => key !== 'name'),
-  )
+    payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
 
   try {
     const newPolicy = await policiesApi.create({
       name: policyName,
-      policy_type: policyType,
-      configuration,
+      policy_type: payload.policyType,
+      configuration: payload.config,
       endpoint_id: endpoint.value.id,
-      wallet_id: walletId,
+      wallet_id: payload.walletId,
     })
 
     if (endpoint.value.policies) {
@@ -1399,7 +1416,8 @@ const handlePricingCreated = async (payload: {
         name: newPolicy.name,
         policy_type: newPolicy.policy_type,
         configuration: newPolicy.configuration,
-      })
+        wallet_id: payload.walletId,
+      } as (typeof endpoint.value.policies)[number])
     }
 
     toast.success('Pricing rule added')
@@ -1475,6 +1493,10 @@ onMounted(async () => {
   const endpointSlug = route.params.slug as string
   loading.value = true
   error.value = false
+
+  // Wallet lookup table — populated in parallel with endpoint fetch.
+  // Used by pricing-policy display and the add-pricing dialog lock logic.
+  fetchWallets()
 
   try {
     // Fetch the endpoint details directly from the API

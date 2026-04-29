@@ -235,6 +235,7 @@
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
                   <p class="text-sm font-medium text-foreground">{{ wallet.name }}</p>
+                  <Badge variant="outline" class="text-xs">{{ wallet.currency }}</Badge>
                   <Badge
                     variant="outline"
                     class="text-xs"
@@ -433,6 +434,42 @@
                 </div>
               </div>
               <template v-else>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="space-y-2">
+                    <Label>Currency</Label>
+                    <Select v-model="addXenditForm.currency">
+                      <SelectTrigger class="h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem
+                          v-for="code in XENDIT_CURRENCIES"
+                          :key="code"
+                          :value="code"
+                        >
+                          {{ code }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div class="space-y-2">
+                    <Label>Country</Label>
+                    <Select v-model="addXenditForm.country">
+                      <SelectTrigger class="h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem
+                          v-for="c in XENDIT_COUNTRIES"
+                          :key="c.code"
+                          :value="c.code"
+                        >
+                          {{ c.label }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <div class="space-y-2">
                   <Label for="add-xendit-api-key">API Key</Label>
                   <Input
@@ -592,7 +629,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
+import type { WalletListItem } from '@/api/types'
+
+const XENDIT_CURRENCIES = ['IDR', 'USD', 'PHP', 'SGD', 'MYR', 'VND', 'THB'] as const
+const XENDIT_COUNTRIES = [
+  { code: 'ID', label: 'Indonesia' },
+  { code: 'PH', label: 'Philippines' },
+  { code: 'SG', label: 'Singapore' },
+  { code: 'MY', label: 'Malaysia' },
+  { code: 'VN', label: 'Vietnam' },
+  { code: 'TH', label: 'Thailand' },
+] as const
 
 const userStore = useUserStore()
 
@@ -605,7 +660,7 @@ const diagnosticsEnabled = ref(false)
 
 // Wallet state
 const loadingWallets = ref(true)
-const allWallets = ref<Array<{ id: string; wallet_type: string; name: string; is_active: boolean; display: Record<string, string> }>>([])
+const allWallets = ref<WalletListItem[]>([])
 const walletDialogOpen = ref(false)
 
 const proxyStatus = reactive({
@@ -731,7 +786,12 @@ const addWalletType = ref<'mpp' | 'xendit' | null>(null)
 const addWalletSaving = ref(false)
 const showMppImport = ref(false)
 const mppImportKey = ref('')
-const addXenditForm = ref({ apiKey: '', callbackToken: '' })
+const addXenditForm = ref({
+  apiKey: '',
+  callbackToken: '',
+  currency: 'USD',
+  country: 'ID',
+})
 const addWalletWebhookUrl = ref<string | null>(null)
 
 watch(
@@ -742,7 +802,12 @@ watch(
       addWalletSaving.value = false
       showMppImport.value = false
       mppImportKey.value = ''
-      addXenditForm.value = { apiKey: '', callbackToken: '' }
+      addXenditForm.value = {
+        apiKey: '',
+        callbackToken: '',
+        currency: 'USD',
+        country: 'ID',
+      }
       addWalletWebhookUrl.value = null
     }
   },
@@ -777,12 +842,27 @@ const handleImportMpp = async () => {
 }
 
 const handleCreateXendit = async () => {
+  if (
+    allWallets.value.some(
+      (w) =>
+        w.wallet_type === 'xendit' &&
+        w.currency === addXenditForm.value.currency,
+    )
+  ) {
+    toast.error(
+      `A Xendit wallet for ${addXenditForm.value.currency} already exists. Only one wallet per currency is allowed.`,
+    )
+    return
+  }
+
   addWalletSaving.value = true
   try {
-    const wallet = await walletsApi.createXendit(
-      addXenditForm.value.apiKey,
-      addXenditForm.value.callbackToken,
-    )
+    const wallet = await walletsApi.createXendit({
+      apiKey: addXenditForm.value.apiKey,
+      callbackToken: addXenditForm.value.callbackToken,
+      currency: addXenditForm.value.currency,
+      country: addXenditForm.value.country,
+    })
     addWalletWebhookUrl.value = wallet.display.webhook_url ?? null
     toast.success('Xendit wallet connected')
     await fetchWallets()
