@@ -18,8 +18,9 @@ from syft_space.components.ingestion.entities import IngestionJob  # noqa: F401
 from syft_space.components.marketplaces.entities import Marketplace  # noqa: F401
 from syft_space.components.models.entities import Model  # noqa: F401
 from syft_space.components.payments.gateway.entities import (  # noqa: F401
-    BundleUsage,
     Invoice,
+    LedgerEntry,
+    UserBalance,
 )
 from syft_space.components.policies.entities import Policy  # noqa: F401
 from syft_space.components.settings.entities import Settings  # noqa: F401

@@ -9,6 +9,6 @@ from uuid import UUID
 DeletionCheck = Callable[[UUID, UUID], Coroutine[Any, Any, str | None]]
 
 # Metadata enricher — called before policy hooks to inject cross-component
-# services (e.g., bundle_service) into the policy context metadata dict.
+# services (e.g., balance_service) into the policy context metadata dict.
 # Keeps payment imports out of the query handler.
 MetadataEnricher = Callable[[dict], Coroutine[Any, Any, None]]

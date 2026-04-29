@@ -21,15 +21,23 @@ class WalletHandler:
 
     Orchestrates wallet CRUD via the WalletProvider Protocol.
     Provider dispatch: wallet_type → provider instance (injected by main.py).
+
+    Enforces (tenant, wallet_type, currency) uniqueness at the application
+    layer (also DB-enforced via UniqueConstraint).
     """
 
     def __init__(
         self,
         repository: WalletRepository,
         providers: dict[str, WalletProvider],
+        deletion_check=None,
     ) -> None:
         self.repository = repository
         self.providers = providers
+        # Optional callback returning a string error if the wallet has live
+        # balances (set by main.py via dependency inversion to avoid the
+        # wallet component importing payments).
+        self.deletion_check = deletion_check
 
     def _get_provider(self, wallet_type: str) -> WalletProvider:
         """Get provider for a wallet type."""
@@ -54,6 +62,8 @@ class WalletHandler:
                     id=w.id,
                     wallet_type=w.wallet_type,
                     name=w.name,
+                    currency=w.currency,
+                    country=w.country,
                     is_active=w.is_active,
                     display=display,
                     created_at=w.created_at,
@@ -71,14 +81,32 @@ class WalletHandler:
             id=wallet.id,
             wallet_type=wallet.wallet_type,
             name=wallet.name,
+            currency=wallet.currency,
+            country=wallet.country,
             is_active=wallet.is_active,
             display=display,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
 
-    async def delete_wallet(self, wallet_id: UUID, tenant: Tenant) -> dict[str, str]:
-        """Delete a wallet."""
+    async def delete_wallet(
+        self, wallet_id: UUID, tenant: Tenant, force: bool = False
+    ) -> dict[str, str]:
+        """Delete a wallet.
+
+        Blocked if any user has a nonzero balance for this wallet, unless
+        force=True. The deletion_check callback (set by main.py) provides
+        the UserBalance lookup without creating a wallet→payments import.
+        """
+        wallet = await self.repository.get_by_id(wallet_id, tenant.id)
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found")
+
+        if not force and self.deletion_check is not None:
+            error = await self.deletion_check(wallet_id, tenant.id)
+            if error:
+                raise HTTPException(status_code=409, detail=error)
+
         deleted = await self.repository.delete_wallet(wallet_id, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Wallet not found")
@@ -95,19 +123,29 @@ class WalletHandler:
     ) -> WalletResponse:
         """Create a wallet using the appropriate provider.
 
-        The provider handles type-specific logic (keypair generation for MPP,
-        credential validation for Xendit). The handler validates the result
-        via the config class and persists it.
+        The provider validates and enriches credentials, returning currency
+        and (optionally) country alongside the configuration. The handler
+        enforces (tenant, wallet_type, currency) uniqueness.
         """
         provider = self._get_provider(wallet_type)
 
-        # Delegate to provider
         try:
             result = await provider.setup_wallet(raw_credentials)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
-        # Validate credentials via config class
+        existing = await self.repository.get_by_type_and_currency(
+            wallet_type, result.currency, tenant.id
+        )
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A {wallet_type} wallet for {result.currency} already exists. "
+                    "Update the existing wallet instead."
+                ),
+            )
+
         config_cls = provider.config_class
         try:
             validated = config_cls(**result.credentials)
@@ -117,21 +155,23 @@ class WalletHandler:
                 status_code=500, detail="Wallet creation failed: invalid credentials"
             ) from None
 
-        # Persist
         wallet = await self.repository.create_wallet(
             tenant_id=tenant.id,
             wallet_type=wallet_type,
             name=name or f"{wallet_type.upper()} Wallet",
+            currency=result.currency,
+            country=result.country,
             configuration=validated.model_dump(),
         )
 
-        display = result.display
         return WalletResponse(
             id=wallet.id,
             wallet_type=wallet.wallet_type,
             name=wallet.name,
+            currency=wallet.currency,
+            country=wallet.country,
             is_active=wallet.is_active,
-            display=display,
+            display=result.display,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
@@ -146,7 +186,11 @@ class WalletHandler:
     ) -> WalletResponse:
         """Partially update wallet credentials via the provider.
 
-        The provider decides what fields are updatable and validates them.
+        Currency edits are blocked downstream by the partial-update path;
+        if a provider's update_credentials silently allows it, the entity
+        column will diverge from configuration JSON. Currency lock is
+        enforced at the provider layer (allowed update fields are listed
+        explicitly).
         """
         wallet = await self.repository.get_by_id(wallet_id, tenant.id)
         if not wallet:
@@ -166,6 +210,8 @@ class WalletHandler:
             id=wallet.id,
             wallet_type=wallet.wallet_type,
             name=wallet.name,
+            currency=wallet.currency,
+            country=wallet.country,
             is_active=wallet.is_active,
             display=display,
             created_at=wallet.created_at,
@@ -175,10 +221,7 @@ class WalletHandler:
     # --- Helpers ---
 
     def _extract_display(self, wallet_type: str, configuration: dict) -> dict[str, Any]:
-        """Extract safe display info by delegating to the provider.
-
-        Never exposes private keys or secrets.
-        """
+        """Extract safe display info by delegating to the provider."""
         provider = self.providers.get(wallet_type)
         if provider:
             return provider.extract_display(configuration)

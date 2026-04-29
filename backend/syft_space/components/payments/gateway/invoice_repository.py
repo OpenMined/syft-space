@@ -1,38 +1,96 @@
-"""Invoice repository for database operations."""
+"""Invoice repository for database operations.
+
+Session-bound: every method runs against the session passed at construction
+time. Repos do not commit; the owning PaymentLedger commits or rolls back.
+"""
 
 from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy import update
 from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from syft_space.components.payments.gateway.entities import Invoice, InvoiceStatus
-from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class InvoiceRepository(AsyncBaseRepository[Invoice]):
-    """Repository for Invoice CRUD operations."""
+class InvoiceRepository:
+    """Repository for Invoice CRUD."""
 
-    def __init__(self, db: AsyncDatabase):
-        super().__init__(db, Invoice)
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, invoice: Invoice) -> Invoice:
+        """Stage a new invoice on the session. PaymentLedger commits."""
+        self.session.add(invoice)
+        return invoice
 
     async def get_by_id(self, id: UUID, tenant_id: UUID) -> Invoice | None:
         """Get an invoice by ID within a tenant."""
-        async with self.db.get_session() as session:
-            statement = select(Invoice).where(
-                Invoice.id == id, Invoice.tenant_id == tenant_id
-            )
-            result = await session.exec(statement)
-            return result.first()
+        statement = select(Invoice).where(
+            Invoice.id == id, Invoice.tenant_id == tenant_id
+        )
+        result = await self.session.exec(statement)
+        return result.first()
 
     async def get_by_external_id(self, external_id: str) -> Invoice | None:
         """Get an invoice by external provider ID.
 
         No tenant filter — webhooks don't know the tenant.
         """
-        async with self.db.get_session() as session:
-            statement = select(Invoice).where(Invoice.external_id == external_id)
-            result = await session.exec(statement)
-            return result.first()
+        statement = select(Invoice).where(Invoice.external_id == external_id)
+        result = await self.session.exec(statement)
+        return result.first()
+
+    async def get_by_wallet_id(self, wallet_id: UUID, tenant_id: UUID) -> list[Invoice]:
+        """Get all invoices for a wallet."""
+        statement = (
+            select(Invoice)
+            .where(
+                Invoice.wallet_id == wallet_id,
+                Invoice.tenant_id == tenant_id,
+            )
+            .order_by(Invoice.created_at.desc())
+        )
+        result = await self.session.exec(statement)
+        return list(result.all())
+
+    async def has_pending_by_wallet_id(self, wallet_id: UUID, tenant_id: UUID) -> bool:
+        """Check if any pending invoices exist for a wallet."""
+        statement = select(Invoice).where(
+            Invoice.wallet_id == wallet_id,
+            Invoice.tenant_id == tenant_id,
+            Invoice.status == InvoiceStatus.PENDING.value,
+        )
+        result = await self.session.exec(statement)
+        return result.first() is not None
+
+    async def mark_paid(
+        self,
+        id: UUID,
+        paid_at: datetime,
+        webhook_payload: dict,
+    ) -> bool:
+        """Atomically transition PENDING → PAID. No-op (returns False) otherwise.
+
+        Idempotent via the WHERE status='pending' guard: replayed webhooks
+        find the invoice already paid and the row count is 0.
+        """
+        stmt = (
+            update(Invoice)
+            .where(
+                Invoice.id == id,
+                Invoice.status == InvoiceStatus.PENDING.value,
+            )
+            .values(
+                status=InvoiceStatus.PAID.value,
+                paid_at=paid_at,
+                webhook_payload=webhook_payload,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        result = await self.session.exec(stmt)
+        return result.rowcount > 0
 
     async def update_status(
         self,
@@ -41,56 +99,26 @@ class InvoiceRepository(AsyncBaseRepository[Invoice]):
         paid_at: datetime | None = None,
         webhook_payload: dict | None = None,
     ) -> bool:
-        """Update invoice status. Idempotent — only transitions from PENDING.
+        """Transition PENDING → terminal status (EXPIRED/FAILED).
 
-        Returns True if the update was applied, False if already transitioned.
+        For PAID, prefer mark_paid() — it carries the paid_at + payload contract
+        explicitly. This method handles non-PAID terminal states.
         """
-        async with self.db.get_session() as session:
-            statement = select(Invoice).where(
-                Invoice.id == id,
-                Invoice.status == InvoiceStatus.PENDING.value,
-            )
-            result = await session.exec(statement)
-            invoice = result.first()
-            if not invoice:
-                return False
+        statement = select(Invoice).where(
+            Invoice.id == id,
+            Invoice.status == InvoiceStatus.PENDING.value,
+        )
+        result = await self.session.exec(statement)
+        invoice = result.first()
+        if not invoice:
+            return False
 
-            invoice.status = status.value
-            invoice.updated_at = datetime.now(timezone.utc)
-            if paid_at:
-                invoice.paid_at = paid_at
-            if webhook_payload:
-                invoice.webhook_payload = webhook_payload
+        invoice.status = status.value
+        invoice.updated_at = datetime.now(timezone.utc)
+        if paid_at:
+            invoice.paid_at = paid_at
+        if webhook_payload:
+            invoice.webhook_payload = webhook_payload
 
-            session.add(invoice)
-            await session.commit()
-            return True
-
-    async def get_by_endpoint_id(
-        self, endpoint_id: UUID, tenant_id: UUID
-    ) -> list[Invoice]:
-        """Get all invoices for an endpoint."""
-        async with self.db.get_session() as session:
-            statement = (
-                select(Invoice)
-                .where(
-                    Invoice.endpoint_id == endpoint_id,
-                    Invoice.tenant_id == tenant_id,
-                )
-                .order_by(Invoice.created_at.desc())
-            )
-            result = await session.exec(statement)
-            return list(result.all())
-
-    async def has_pending_by_endpoint_id(
-        self, endpoint_id: UUID, tenant_id: UUID
-    ) -> bool:
-        """Check if any pending invoices exist for an endpoint."""
-        async with self.db.get_session() as session:
-            statement = select(Invoice).where(
-                Invoice.endpoint_id == endpoint_id,
-                Invoice.tenant_id == tenant_id,
-                Invoice.status == InvoiceStatus.PENDING.value,
-            )
-            result = await session.exec(statement)
-            return result.first() is not None
+        self.session.add(invoice)
+        return True

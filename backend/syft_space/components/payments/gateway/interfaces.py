@@ -55,19 +55,13 @@ class PaymentGateway(Protocol):
 
     def resolve_purchase(
         self,
-        config: dict,
+        wallet: Wallet,
         bundle_name: str,
-        user_email: str,
     ) -> ResolvedBundle:
-        """Validate bundle exists and user is eligible.
+        """Validate bundle exists on the wallet's catalog.
 
-        The gateway owns the policy config schema interpretation.
-        Raises HTTPException if bundle not found or user not eligible.
-
-        Args:
-            config: Raw policy configuration dict
-            bundle_name: Requested bundle name
-            user_email: Buyer's email for applied_to check
+        Wallet-scoped: bundles and currency live on the wallet, not the policy.
+        Raises HTTPException if bundle not found.
         """
         ...
 
@@ -80,7 +74,6 @@ class PaymentGateway(Protocol):
         payer_email: str,
         description: str,
         wallet: Wallet,
-        policy_config: dict,
         metadata: dict[str, str] | None = None,
     ) -> CreatePaymentResult:
         """Call provider API to create a payment session/invoice."""

@@ -7,17 +7,25 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CreateInvoiceRequest(BaseModel):
-    """Request model for creating a bundle purchase invoice."""
+    """Request model for creating a bundle purchase invoice.
 
-    endpoint_slug: str = Field(..., description="Slug of the endpoint to purchase for")
+    Wallet-scoped: the user buys credits against a wallet (not an endpoint).
+    `endpoint_slug` is optional context for analytics — where the user clicked
+    through from.
+    """
+
     bundle_name: str = Field(..., description="Name of the bundle to purchase")
+    endpoint_slug: str | None = Field(
+        default=None,
+        description="Optional originating endpoint slug (analytics context)",
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
-                    "endpoint_slug": "my-rag",
                     "bundle_name": "Pro",
+                    "endpoint_slug": "my-rag",
                 }
             ]
         }
@@ -28,7 +36,8 @@ class InvoiceResponse(BaseModel):
     """Response model for invoice details."""
 
     id: UUID
-    endpoint_id: UUID
+    wallet_id: UUID | None
+    endpoint_id: UUID | None
     user_email: str
     provider: str
     external_id: str
@@ -44,12 +53,35 @@ class InvoiceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class BundleUsageResponse(BaseModel):
-    """Response model for bundle balance."""
+class UserBalanceResponse(BaseModel):
+    """Wallet-scoped money balance for a user."""
 
-    endpoint_slug: str
+    wallet_id: UUID
     user_email: str
-    remaining_balance: float
-    total_deposited: float
+    balance: float
+    currency: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LedgerEntryResponse(BaseModel):
+    """Single spend-ledger entry (debit or cancelled)."""
+
+    id: UUID
+    transaction_id: UUID
+    type: str
+    amount: float
+    currency: str
+    user_email: str
+    wallet_id: UUID | None
+    endpoint_id: UUID | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LedgerEntryPage(BaseModel):
+    """Cursor-paginated ledger entry listing."""
+
+    items: list[LedgerEntryResponse]
+    next_cursor: str | None = None
