@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from syft_space.components.wallets.gateway.xendit.config import (
     CountryCode,
     CurrencyCode,
+    MoneyBundle,
 )
 
 
@@ -17,6 +18,10 @@ class CreateXenditWalletRequest(BaseModel):
     )
     currency: CurrencyCode = Field(..., description="Wallet currency")
     country: CountryCode = Field(..., description="Country code for Xendit API")
+    bundles: list[MoneyBundle] | None = Field(
+        default=None,
+        description="Custom money bundles. Defaults for the currency are used if omitted.",
+    )
     name: str | None = Field(None, description="Optional wallet label")
 
 
@@ -26,4 +31,7 @@ class UpdateXenditWalletRequest(BaseModel):
     api_key: str | None = Field(None, description="New Xendit API key")
     callback_token: str | None = Field(
         None, description="New callback verification token"
+    )
+    bundles: list[MoneyBundle] | None = Field(
+        None, description="Replacement money bundles (currency/country are immutable)"
     )
