@@ -4,20 +4,18 @@ Revision ID: cd1cf206c880
 Revises: d4e5f6a7b8c9
 Create Date: 2026-04-28 14:32:49.700321
 
-Reshapes the prepaid-balance model from per-(user, endpoint) to per-(tenant,
-wallet, user) and adds an append-only ledger.
+Introduces the wallet-scoped prepaid model in one shot:
 
-- Drops `bundle_usage` (endpoint-scoped balance).
-- Adds `user_balance` (wallet-scoped, single `balance` column).
-- Adds `ledger_entry` (append-only ledger; debit / cancelled).
-- Adds `invoices.wallet_id` (FK → wallets, SET NULL on delete).
-- Adds `wallets.currency` (required) and `wallets.country` (optional).
-- Adds UNIQUE(tenant_id, wallet_type, currency) on wallets.
+- Creates `invoices` (carries wallet_id from day one).
+- Creates `user_balance` (per (tenant, wallet, user) materialized aggregate).
+- Creates `ledger_entry` (append-only debit / cancelled ledger).
+- Adds `endpoints.archived` flag (was previously in a separate migration that
+  this one supersedes).
+- Adds `wallets.currency` (required) and `wallets.country` (optional), plus
+  UNIQUE(tenant_id, wallet_type, currency).
 
-Note: the original autogen flagged spurious VARCHAR↔Uuid type changes on
-columns that haven't actually changed in this PR. Those were introduced by
-SQLAlchemy/SQLModel inferring different SA types over time; pruning them
-keeps the migration to its actual intent.
+Replaces an earlier draft pair (invoices + bundle_usage, then a follow-up to
+reshape) — collapsed into this single migration since neither was released.
 """
 
 from collections.abc import Sequence
@@ -34,7 +32,46 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # ── New tables ─────────────────────────────────────────────────
+    # ── Invoices ───────────────────────────────────────────────────
+    op.create_table(
+        "invoices",
+        sa.Column("id", sa.Uuid(), primary_key=True, nullable=False),
+        sa.Column("tenant_id", sa.Uuid(), nullable=False),
+        sa.Column("wallet_id", sa.Uuid(), nullable=True),
+        sa.Column("endpoint_id", sa.Uuid(), nullable=True),
+        sa.Column("user_email", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("provider", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("external_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("checkout_url", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("bundle_name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("amount", sa.Float(), nullable=False),
+        sa.Column("currency", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column(
+            "status",
+            sqlmodel.sql.sqltypes.AutoString(),
+            nullable=False,
+            server_default="pending",
+        ),
+        sa.Column("webhook_payload", sa.JSON(), nullable=True),
+        sa.Column("paid_at", sa.DateTime(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["wallet_id"],
+            ["wallets.id"],
+            name="fk_invoices_wallet",
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(["endpoint_id"], ["endpoints.id"], ondelete="SET NULL"),
+    )
+    op.create_index("ix_invoices_id", "invoices", ["id"], unique=False)
+    op.create_index("idx_invoice_external_id", "invoices", ["external_id"], unique=True)
+    op.create_index("idx_invoice_tenant_user", "invoices", ["tenant_id", "user_email"])
+    op.create_index("idx_invoice_status", "invoices", ["status"])
+    op.create_index("idx_invoice_wallet", "invoices", ["wallet_id"])
+
+    # ── User balance (materialized aggregate) ──────────────────────
     op.create_table(
         "user_balance",
         sa.Column("id", sa.Uuid(), primary_key=True, nullable=False),
@@ -55,6 +92,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_user_balance_id", "user_balance", ["id"], unique=False)
 
+    # ── Ledger entries (append-only debits / cancelled) ────────────
     op.create_table(
         "ledger_entry",
         sa.Column("id", sa.Uuid(), primary_key=True, nullable=False),
@@ -92,20 +130,11 @@ def upgrade() -> None:
         ["transaction_id"],
     )
 
-    # ── Drop the old endpoint-scoped balance table ─────────────────
-    op.drop_table("bundle_usage")
-
-    # ── Invoices: wallet_id FK ─────────────────────────────────────
-    with op.batch_alter_table("invoices") as batch_op:
-        batch_op.add_column(sa.Column("wallet_id", sa.Uuid(), nullable=True))
-        batch_op.create_foreign_key(
-            "fk_invoices_wallet",
-            "wallets",
-            ["wallet_id"],
-            ["id"],
-            ondelete="SET NULL",
+    # ── Endpoints: archived flag (formerly part of beb8d008c9c8) ──
+    with op.batch_alter_table("endpoints") as batch_op:
+        batch_op.add_column(
+            sa.Column("archived", sa.Boolean(), nullable=False, server_default="0")
         )
-        batch_op.create_index("idx_invoice_wallet", ["wallet_id"])
 
     # ── Wallets: currency / country / uniqueness ───────────────────
     with op.batch_alter_table("wallets") as batch_op:
@@ -137,30 +166,8 @@ def downgrade() -> None:
         batch_op.drop_column("country")
         batch_op.drop_column("currency")
 
-    with op.batch_alter_table("invoices") as batch_op:
-        batch_op.drop_index("idx_invoice_wallet")
-        batch_op.drop_constraint("fk_invoices_wallet", type_="foreignkey")
-        batch_op.drop_column("wallet_id")
-
-    op.create_table(
-        "bundle_usage",
-        sa.Column("id", sa.Uuid(), primary_key=True, nullable=False),
-        sa.Column("tenant_id", sa.Uuid(), nullable=False),
-        sa.Column("endpoint_id", sa.Uuid(), nullable=False),
-        sa.Column("user_email", sa.VARCHAR(), nullable=False),
-        sa.Column("remaining_balance", sa.FLOAT(), nullable=False),
-        sa.Column("total_deposited", sa.FLOAT(), nullable=False),
-        sa.Column("created_at", sa.DATETIME(), nullable=False),
-        sa.Column("updated_at", sa.DATETIME(), nullable=False),
-        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["endpoint_id"], ["endpoints.id"], ondelete="CASCADE"),
-        sa.UniqueConstraint(
-            "tenant_id",
-            "endpoint_id",
-            "user_email",
-            name="uq_bundle_usage_user_endpoint",
-        ),
-    )
+    with op.batch_alter_table("endpoints") as batch_op:
+        batch_op.drop_column("archived")
 
     op.drop_index("ix_ledger_entry_transaction_id", table_name="ledger_entry")
     op.drop_index("ix_ledger_entry_id", table_name="ledger_entry")
@@ -171,3 +178,10 @@ def downgrade() -> None:
 
     op.drop_index("ix_user_balance_id", table_name="user_balance")
     op.drop_table("user_balance")
+
+    op.drop_index("idx_invoice_wallet", table_name="invoices")
+    op.drop_index("idx_invoice_status", table_name="invoices")
+    op.drop_index("idx_invoice_tenant_user", table_name="invoices")
+    op.drop_index("idx_invoice_external_id", table_name="invoices")
+    op.drop_index("ix_invoices_id", table_name="invoices")
+    op.drop_table("invoices")
