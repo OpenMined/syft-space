@@ -47,7 +47,10 @@ class MppWalletProvider:
                 "wallet_address": tempo_acct.address,
                 "wallet_private_key": tempo_acct.private_key,
                 "mpp_secret_key": mpp_secret_key,
+                "currency": "USD",
             },
+            currency="USD",
+            country=None,
             display={"wallet_address": tempo_acct.address},
         )
 

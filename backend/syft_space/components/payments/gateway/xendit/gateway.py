@@ -15,10 +15,8 @@ from syft_space.components.payments.gateway.xendit.client import (
     XenditClient,
     XenditError,
 )
-from syft_space.components.policy_types.xendit.xendit_accounting_type import (
-    XenditPolicyConfig,
-)
 from syft_space.components.wallets.entities import Wallet
+from syft_space.components.wallets.gateway.xendit.config import XenditWalletConfig
 from syft_space.config import app_settings
 
 
@@ -56,22 +54,19 @@ class XenditGateway:
 
     def resolve_purchase(
         self,
-        config: dict,
+        wallet: Wallet,
         bundle_name: str,
-        user_email: str,
     ) -> ResolvedBundle:
-        """Validate bundle and user eligibility using XenditPolicyConfig."""
-        validated = XenditPolicyConfig(**config)
+        """Validate bundle exists on the wallet's catalog and resolve amount + currency.
 
-        if not validated.applies_to_user(user_email):
-            raise HTTPException(
-                status_code=403,
-                detail="User is not eligible for this endpoint's payment policy",
-            )
-
-        bundle = validated.get_bundle(bundle_name)
+        Wallet-scoped: bundles and currency live on the wallet, not the policy.
+        Per-policy applies_to is checked separately at the route layer (it
+        depends on which endpoint the user clicked through from).
+        """
+        wallet_config = XenditWalletConfig(**wallet.configuration)
+        bundle = wallet_config.get_bundle(bundle_name)
         if not bundle:
-            available = [b.name for b in validated.get_bundles()]
+            available = [b.name for b in wallet_config.resolved_bundles()]
             raise HTTPException(
                 status_code=400,
                 detail=f"Bundle '{bundle_name}' not found. Available: {available}",
@@ -80,7 +75,7 @@ class XenditGateway:
         return ResolvedBundle(
             name=bundle.name,
             amount=bundle.amount,
-            currency=validated.currency,
+            currency=wallet_config.currency,
         )
 
     async def create_payment(
@@ -92,7 +87,6 @@ class XenditGateway:
         payer_email: str,
         description: str,
         wallet: Wallet,
-        policy_config: dict,
         metadata: dict[str, str] | None = None,
     ) -> CreatePaymentResult:
         """Create a Xendit Payment Session."""
@@ -100,7 +94,7 @@ class XenditGateway:
         if not api_key:
             raise HTTPException(status_code=500, detail="Xendit wallet missing API key")
 
-        country = policy_config.get("country", "ID")
+        country = wallet.country or "ID"
 
         try:
             xendit_base_url = str(app_settings.xendit_api_url)

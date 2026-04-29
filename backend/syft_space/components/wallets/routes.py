@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -41,11 +41,15 @@ def build_wallet_routes(handler: WalletHandler) -> APIRouter:
     @router.delete("/{wallet_id}")
     async def delete_wallet(
         wallet_id: UUID,
+        force: bool = Query(
+            default=False,
+            description="If true, delete even when users have nonzero balance.",
+        ),
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: WalletHandler = Depends(get_handler),
     ) -> dict[str, str]:
-        """Delete a wallet."""
-        return await handler.delete_wallet(wallet_id, tenant)
+        """Delete a wallet (blocked if users have live balance, unless force=true)."""
+        return await handler.delete_wallet(wallet_id, tenant, force=force)
 
     # --- Include category-specific sub-routers ---
     # These mount under /wallets/mpp/... and /wallets/gateway/...

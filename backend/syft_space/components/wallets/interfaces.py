@@ -24,7 +24,13 @@ class SetupResult:
     """
 
     credentials: dict[str, Any]
-    """Validated credentials to store in Wallet.configuration."""
+    """Validated credentials + provider-specific config to store in Wallet.configuration."""
+
+    currency: str
+    """Wallet currency code, surfaced to the entity (queryable, uniqueness key)."""
+
+    country: str | None = None
+    """Optional country code (ISO 3166-1 alpha-2). Region-specific providers only."""
 
     display: dict[str, Any] = field(default_factory=dict)
     """Type-specific info for the frontend.
