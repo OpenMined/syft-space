@@ -244,6 +244,14 @@ class PaymentHandler:
             invoices = await ledger.invoices.get_by_wallet_id(wallet.id, tenant.id)
         return [InvoiceResponse.model_validate(inv) for inv in invoices]
 
+    async def list_all_invoices(
+        self, tenant: Tenant, status: str | None = None
+    ) -> list[InvoiceResponse]:
+        """Admin: all invoices for the tenant across wallets."""
+        async with self._ledger() as ledger:
+            invoices = await ledger.invoices.list_for_tenant(tenant.id, status=status)
+        return [InvoiceResponse.model_validate(inv) for inv in invoices]
+
     async def get_user_balance(
         self,
         wallet_id: UUID,
@@ -304,6 +312,29 @@ class PaymentHandler:
             rows, next_cursor = await ledger.entries.list_for_wallet(
                 tenant_id=tenant.id,
                 wallet_id=wallet.id,
+                cursor=cursor,
+                limit=limit,
+            )
+        return LedgerEntryPage(
+            items=[LedgerEntryResponse.model_validate(r) for r in rows],
+            next_cursor=next_cursor,
+        )
+
+    async def list_endpoint_transactions(
+        self,
+        endpoint_id: UUID,
+        tenant: Tenant,
+        cursor: str | None,
+        limit: int,
+    ) -> LedgerEntryPage:
+        """Admin transaction history across all users for an endpoint."""
+        endpoint = await self.endpoint_repo.get_by_id(endpoint_id, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail="Endpoint not found")
+        async with self._ledger() as ledger:
+            rows, next_cursor = await ledger.entries.list_for_endpoint(
+                tenant_id=tenant.id,
+                endpoint_id=endpoint.id,
                 cursor=cursor,
                 limit=limit,
             )

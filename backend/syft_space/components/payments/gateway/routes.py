@@ -31,7 +31,9 @@ def build_gateway_routes(
       GET    /gateway/wallets/{wallet_id}/transactions/me     (PUBLIC, satellite token)
       GET    /gateway/wallets/{wallet_id}/transactions        (admin, tenant)
       GET    /gateway/wallets/{wallet_id}/invoices            (admin, tenant)
+      GET    /gateway/invoices                                (admin, tenant)
       GET    /gateway/invoices/{invoice_id}                   (admin, tenant)
+      GET    /gateway/endpoints/{endpoint_id}/transactions    (admin, tenant)
     """
     router = APIRouter(prefix="/gateway", tags=["payments", "gateway"])
 
@@ -39,6 +41,15 @@ def build_gateway_routes(
         return handler
 
     # ── Admin routes (tenant-authenticated) ────────────────────────
+
+    @router.get("/invoices", response_model=list[InvoiceResponse])
+    async def list_invoices(
+        status: str | None = Query(default=None),
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PaymentHandler = Depends(get_handler),
+    ) -> list[InvoiceResponse]:
+        """All invoices for the tenant across wallets, newest first."""
+        return await handler.list_all_invoices(tenant, status=status)
 
     @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
     async def get_invoice(
@@ -69,6 +80,22 @@ def build_gateway_routes(
         """Cursor-paginated transaction ledger across all users for this wallet (admin)."""
         return await handler.list_wallet_transactions(
             wallet_id, tenant, cursor=cursor, limit=limit
+        )
+
+    @router.get(
+        "/endpoints/{endpoint_id}/transactions",
+        response_model=LedgerEntryPage,
+    )
+    async def list_endpoint_transactions(
+        endpoint_id: UUID,
+        cursor: str | None = Query(default=None),
+        limit: int = Query(default=100, ge=1, le=500),
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PaymentHandler = Depends(get_handler),
+    ) -> LedgerEntryPage:
+        """Cursor-paginated transaction ledger across all users for this endpoint (admin)."""
+        return await handler.list_endpoint_transactions(
+            endpoint_id, tenant, cursor=cursor, limit=limit
         )
 
     # ── Public routes (satellite-token authenticated) ──────────────
