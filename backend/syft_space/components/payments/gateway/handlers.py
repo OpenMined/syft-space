@@ -311,3 +311,26 @@ class PaymentHandler:
             items=[LedgerEntryResponse.model_validate(r) for r in rows],
             next_cursor=next_cursor,
         )
+
+    async def list_endpoint_transactions(
+        self,
+        endpoint_id: UUID,
+        tenant: Tenant,
+        cursor: str | None,
+        limit: int,
+    ) -> LedgerEntryPage:
+        """Admin transaction history across all users for an endpoint."""
+        endpoint = await self.endpoint_repo.get_by_id(endpoint_id, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail="Endpoint not found")
+        async with self._ledger() as ledger:
+            rows, next_cursor = await ledger.entries.list_for_endpoint(
+                tenant_id=tenant.id,
+                endpoint_id=endpoint.id,
+                cursor=cursor,
+                limit=limit,
+            )
+        return LedgerEntryPage(
+            items=[LedgerEntryResponse.model_validate(r) for r in rows],
+            next_cursor=next_cursor,
+        )

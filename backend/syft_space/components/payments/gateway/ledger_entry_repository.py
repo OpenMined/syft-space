@@ -118,6 +118,43 @@ class LedgerEntryRepository:
             next_cursor = _encode_cursor(tail.created_at, tail.id)
         return rows, next_cursor
 
+    async def list_for_endpoint(
+        self,
+        tenant_id: UUID,
+        endpoint_id: UUID,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> tuple[list[LedgerEntry], str | None]:
+        """Cursor-paginated admin history across all users for an endpoint.
+
+        Spans wallets — historical entries for an endpoint that was previously
+        bound to a different wallet remain visible. Entries for deleted
+        endpoints disappear from this view (endpoint_id is SET NULL on delete).
+        """
+        statement = select(LedgerEntry).where(
+            LedgerEntry.tenant_id == tenant_id,
+            LedgerEntry.endpoint_id == endpoint_id,
+        )
+        if cursor:
+            cursor_ts, cursor_id = _decode_cursor(cursor)
+            statement = statement.where(
+                (LedgerEntry.created_at < cursor_ts)
+                | ((LedgerEntry.created_at == cursor_ts) & (LedgerEntry.id < cursor_id))
+            )
+        statement = statement.order_by(
+            LedgerEntry.created_at.desc(), LedgerEntry.id.desc()
+        ).limit(limit + 1)
+
+        result = await self.session.exec(statement)
+        rows = list(result.all())
+
+        next_cursor: str | None = None
+        if len(rows) > limit:
+            rows = rows[:limit]
+            tail = rows[-1]
+            next_cursor = _encode_cursor(tail.created_at, tail.id)
+        return rows, next_cursor
+
     async def aggregate_spent(
         self, tenant_id: UUID, wallet_id: UUID, user_email: str
     ) -> float:
