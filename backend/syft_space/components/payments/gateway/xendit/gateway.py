@@ -57,16 +57,17 @@ class XenditGateway:
         wallet: Wallet,
         bundle_name: str,
     ) -> ResolvedBundle:
-        """Validate bundle exists on the wallet's catalog and resolve amount + currency.
+        """Validate bundle exists in the currency's catalog and resolve amount + currency.
 
-        Wallet-scoped: bundles and currency live on the wallet, not the policy.
-        Per-policy applies_to is checked separately at the route layer (it
-        depends on which endpoint the user clicked through from).
+        Wallet-scoped: currency lives on the wallet, not the policy; bundles
+        are derived from the wallet's currency. Per-policy applies_to is
+        checked separately at the route layer (it depends on which endpoint
+        the user clicked through from).
         """
         wallet_config = XenditWalletConfig(**wallet.configuration)
         bundle = wallet_config.get_bundle(bundle_name)
         if not bundle:
-            available = [b.name for b in wallet_config.resolved_bundles()]
+            available = [b.name for b in wallet_config.prepaid_balance_bundles]
             raise HTTPException(
                 status_code=400,
                 detail=f"Bundle '{bundle_name}' not found. Available: {available}",

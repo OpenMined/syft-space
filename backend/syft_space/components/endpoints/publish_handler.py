@@ -474,16 +474,11 @@ class PublishEndpointHandler:
                     if wallet.wallet_type == "xendit":
                         # Bundles drive the SyftHub purchase UI; without them
                         # the marketplace has no plans to render.
-                        try:
-                            xendit_config = XenditWalletConfig(**wallet.configuration)
-                            policy_data["config"]["bundles"] = [
-                                {"name": b.name, "amount": b.amount}
-                                for b in xendit_config.resolved_bundles()
-                            ]
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to resolve bundles for wallet {wallet.id}: {e}"
-                            )
+                        xendit_config = XenditWalletConfig(**wallet.configuration)
+                        policy_data["config"]["bundles"] = [
+                            {"name": b.name, "amount": b.amount}
+                            for b in xendit_config.prepaid_balance_bundles
+                        ]
                         if app_settings.public_url:
                             base = str(app_settings.public_url).rstrip("/")
                             policy_data["config"]["payment_url"] = (

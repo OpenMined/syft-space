@@ -28,17 +28,14 @@ def build_gateway_wallet_routes(handler: WalletHandler) -> APIRouter:
         handler: WalletHandler = Depends(get_handler),
     ) -> WalletResponse:
         """Create a Xendit payment gateway wallet."""
-        raw_credentials: dict = {
-            "api_key": request.api_key,
-            "callback_token": request.callback_token,
-            "currency": request.currency.value,
-            "country": request.country.value,
-        }
-        if request.bundles is not None:
-            raw_credentials["bundles"] = [b.model_dump() for b in request.bundles]
         return await handler.create_wallet(
             wallet_type="xendit",
-            raw_credentials=raw_credentials,
+            raw_credentials={
+                "api_key": request.api_key,
+                "callback_token": request.callback_token,
+                "currency": request.currency.value,
+                "country": request.country.value,
+            },
             tenant=tenant,
             name=request.name,
         )

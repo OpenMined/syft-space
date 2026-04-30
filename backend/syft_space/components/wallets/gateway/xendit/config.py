@@ -1,8 +1,9 @@
 """Xendit wallet configuration.
 
 Houses the wallet-level config schema plus the money-bundle catalog.
-With wallet-scoped balances, bundles and currency live here — not on
-the pricing policy.
+With wallet-scoped balances, currency lives here — not on the pricing
+policy. Bundles are a static per-currency catalog (see
+PRE_PAID_BALANCE_BUNDLES).
 """
 
 from enum import StrEnum
@@ -40,9 +41,9 @@ class MoneyBundle(BaseModel):
     amount: float = Field(..., gt=0, description="Bundle price in the wallet currency")
 
 
-# Sensible defaults per currency. Used when the admin does not provide
-# custom bundles on the wallet.
-DEFAULT_BUNDLES: dict[str, list[MoneyBundle]] = {
+# Pre-paid balance catalog per currency. Admins cannot override — bundles
+# are derived from the wallet's currency.
+PRE_PAID_BALANCE_BUNDLES: dict[str, list[MoneyBundle]] = {
     CurrencyCode.IDR: [
         MoneyBundle(name="Starter", amount=10_000),
         MoneyBundle(name="Basic", amount=50_000),
@@ -97,17 +98,14 @@ class XenditWalletConfig(BaseModel):
     )
     currency: CurrencyCode = Field(..., description="Wallet currency")
     country: CountryCode = Field(..., description="Country code for Xendit API")
-    bundles: list[MoneyBundle] | None = Field(
-        default=None,
-        description="Custom money bundles. Defaults for the currency are used if omitted.",
-    )
 
-    def resolved_bundles(self) -> list[MoneyBundle]:
-        """Return custom bundles or currency defaults."""
-        if self.bundles:
-            return self.bundles
-        return DEFAULT_BUNDLES.get(self.currency, [])
+    @property
+    def prepaid_balance_bundles(self) -> list[MoneyBundle]:
+        """Return pre-paid balance bundles for the currency."""
+        return PRE_PAID_BALANCE_BUNDLES.get(self.currency, [])
 
     def get_bundle(self, bundle_name: str) -> MoneyBundle | None:
         """Find a bundle by name, or None if not found."""
-        return next((b for b in self.resolved_bundles() if b.name == bundle_name), None)
+        return next(
+            (b for b in self.prepaid_balance_bundles if b.name == bundle_name), None
+        )
