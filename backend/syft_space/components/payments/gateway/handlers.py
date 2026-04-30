@@ -244,6 +244,14 @@ class PaymentHandler:
             invoices = await ledger.invoices.get_by_wallet_id(wallet.id, tenant.id)
         return [InvoiceResponse.model_validate(inv) for inv in invoices]
 
+    async def list_all_invoices(
+        self, tenant: Tenant, status: str | None = None
+    ) -> list[InvoiceResponse]:
+        """Admin: all invoices for the tenant across wallets."""
+        async with self._ledger() as ledger:
+            invoices = await ledger.invoices.list_for_tenant(tenant.id, status=status)
+        return [InvoiceResponse.model_validate(inv) for inv in invoices]
+
     async def get_user_balance(
         self,
         wallet_id: UUID,

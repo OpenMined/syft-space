@@ -55,6 +55,21 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return list(result.all())
 
+    async def list_for_tenant(
+        self, tenant_id: UUID, status: str | None = None
+    ) -> list[Invoice]:
+        """Admin view: all invoices for a tenant, newest first.
+
+        Optional status filter (pending|paid|expired|failed). No pagination —
+        invoice volume is low (a few per user per month).
+        """
+        statement = select(Invoice).where(Invoice.tenant_id == tenant_id)
+        if status:
+            statement = statement.where(Invoice.status == status)
+        statement = statement.order_by(Invoice.created_at.desc())
+        result = await self.session.exec(statement)
+        return list(result.all())
+
     async def has_pending_by_wallet_id(self, wallet_id: UUID, tenant_id: UUID) -> bool:
         """Check if any pending invoices exist for a wallet."""
         statement = select(Invoice).where(

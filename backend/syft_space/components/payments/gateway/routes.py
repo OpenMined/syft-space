@@ -31,6 +31,7 @@ def build_gateway_routes(
       GET    /gateway/wallets/{wallet_id}/transactions/me     (PUBLIC, satellite token)
       GET    /gateway/wallets/{wallet_id}/transactions        (admin, tenant)
       GET    /gateway/wallets/{wallet_id}/invoices            (admin, tenant)
+      GET    /gateway/invoices                                (admin, tenant)
       GET    /gateway/invoices/{invoice_id}                   (admin, tenant)
       GET    /gateway/endpoints/{endpoint_id}/transactions    (admin, tenant)
     """
@@ -40,6 +41,15 @@ def build_gateway_routes(
         return handler
 
     # ── Admin routes (tenant-authenticated) ────────────────────────
+
+    @router.get("/invoices", response_model=list[InvoiceResponse])
+    async def list_invoices(
+        status: str | None = Query(default=None),
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PaymentHandler = Depends(get_handler),
+    ) -> list[InvoiceResponse]:
+        """All invoices for the tenant across wallets, newest first."""
+        return await handler.list_all_invoices(tenant, status=status)
 
     @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
     async def get_invoice(
