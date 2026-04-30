@@ -6,8 +6,7 @@ Wallet-scoped: invoices and balance hang off Wallet, not Endpoint.
 """
 
 from collections.abc import Callable
-from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from loguru import logger
@@ -103,15 +102,15 @@ class PaymentHandler:
             if endpoint:
                 endpoint_id = endpoint.id
 
-        # 4. Call provider API via gateway. Xendit caps reference_id at 64 chars,
-        # so we use int Unix seconds and truncate the email portion to whatever
-        # budget remains. The full email is also persisted on the Invoice row,
-        # so the reference_id is purely an opaque webhook-join key.
-        ts = str(int(datetime.now(timezone.utc).timestamp()))
-        prefix = f"syft-{wallet.id}-"
-        suffix = f"-{ts}"
-        email_budget = max(64 - len(prefix) - len(suffix), 0)
-        reference_id = f"{prefix}{user_email[:email_budget]}{suffix}"
+        # 4. Call provider API via gateway. The reference_id is the Invoice
+        # PK with a "syft-" prefix — 41 chars total, comfortably under
+        # Xendit's 64-char cap (and the 59-char effective budget once
+        # client.py's "cust-" prefix is accounted for). Generating the
+        # invoice id up front lets us use it as both the DB primary key and
+        # the Xendit webhook-join key, eliminating same-second collisions
+        # and the prior length-budget juggling.
+        invoice_id = uuid4()
+        reference_id = f"syft-{invoice_id}"
         result = await gateway.create_payment(
             reference_id=reference_id,
             amount=bundle.amount,
@@ -128,6 +127,7 @@ class PaymentHandler:
 
         # 5. Store invoice
         invoice = Invoice(
+            id=invoice_id,
             tenant_id=tenant.id,
             wallet_id=wallet.id,
             endpoint_id=endpoint_id,
