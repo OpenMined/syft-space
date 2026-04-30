@@ -26,6 +26,7 @@ from syft_space.components.models.repository import ModelRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
+from syft_space.components.wallets.gateway.xendit.config import XenditWalletConfig
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.config import app_settings
 
@@ -470,14 +471,22 @@ class PublishEndpointHandler:
                     policy_data["config"]["currency"] = wallet.currency
                     if wallet.country:
                         policy_data["config"]["country"] = wallet.country
-                    if wallet.wallet_type == "xendit" and app_settings.public_url:
-                        base = str(app_settings.public_url).rstrip("/")
-                        policy_data["config"]["payment_url"] = (
-                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices"
-                        )
-                        policy_data["config"]["credits_url"] = (
-                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/balance"
-                        )
+                    if wallet.wallet_type == "xendit":
+                        # Bundles drive the SyftHub purchase UI; without them
+                        # the marketplace has no plans to render.
+                        xendit_config = XenditWalletConfig(**wallet.configuration)
+                        policy_data["config"]["bundles"] = [
+                            {"name": b.name, "amount": b.amount}
+                            for b in xendit_config.prepaid_balance_bundles
+                        ]
+                        if app_settings.public_url:
+                            base = str(app_settings.public_url).rstrip("/")
+                            policy_data["config"]["payment_url"] = (
+                                f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices"
+                            )
+                            policy_data["config"]["credits_url"] = (
+                                f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/balance"
+                            )
 
             policies.append(policy_data)
 
