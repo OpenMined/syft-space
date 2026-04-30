@@ -21,6 +21,7 @@ class XenditWalletProvider:
     """Adapter for Xendit payment gateway wallets."""
 
     NAME = "xendit"
+    WEBHOOK_PATH = "api/v1/payments/gateway/xendit/webhooks"
 
     @property
     def config_class(self) -> type[BaseModel]:

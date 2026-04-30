@@ -33,6 +33,8 @@ def build_gateway_wallet_routes(handler: WalletHandler) -> APIRouter:
             raw_credentials={
                 "api_key": request.api_key,
                 "callback_token": request.callback_token,
+                "currency": request.currency.value,
+                "country": request.country.value,
             },
             tenant=tenant,
             name=request.name,

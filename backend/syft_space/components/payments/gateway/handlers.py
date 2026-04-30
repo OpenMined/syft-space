@@ -6,8 +6,7 @@ Wallet-scoped: invoices and balance hang off Wallet, not Endpoint.
 """
 
 from collections.abc import Callable
-from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from loguru import logger
@@ -103,10 +102,15 @@ class PaymentHandler:
             if endpoint:
                 endpoint_id = endpoint.id
 
-        # 4. Call provider API via gateway
-        reference_id = (
-            f"syft-{wallet.id}-{user_email}-{datetime.now(timezone.utc).timestamp()}"
-        )
+        # 4. Call provider API via gateway. The reference_id is the Invoice
+        # PK with a "syft-" prefix — 41 chars total, comfortably under
+        # Xendit's 64-char cap (and the 59-char effective budget once
+        # client.py's "cust-" prefix is accounted for). Generating the
+        # invoice id up front lets us use it as both the DB primary key and
+        # the Xendit webhook-join key, eliminating same-second collisions
+        # and the prior length-budget juggling.
+        invoice_id = uuid4()
+        reference_id = f"syft-{invoice_id}"
         result = await gateway.create_payment(
             reference_id=reference_id,
             amount=bundle.amount,
@@ -123,6 +127,7 @@ class PaymentHandler:
 
         # 5. Store invoice
         invoice = Invoice(
+            id=invoice_id,
             tenant_id=tenant.id,
             wallet_id=wallet.id,
             endpoint_id=endpoint_id,
@@ -135,10 +140,16 @@ class PaymentHandler:
             currency=bundle.currency,
             status=InvoiceStatus.PENDING.value,
         )
+        # Snapshot the invoice fields up-front: SQLAlchemy expires attributes
+        # on commit (default expire_on_commit=True), so any sync getattr after
+        # commit would trigger a refresh and raise MissingGreenlet inside an
+        # async session. Building the response from the in-memory dict avoids
+        # going through ORM lazy-load entirely.
+        response_data = invoice.model_dump()
         async with self._ledger() as ledger:
             await ledger.invoices.create(invoice)
             await ledger.commit()
-        return InvoiceResponse.model_validate(invoice)
+        return InvoiceResponse.model_validate(response_data)
 
     # ── Provider-scoped: webhook handling ──────────────────────────
 

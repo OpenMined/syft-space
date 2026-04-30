@@ -128,7 +128,7 @@ export function useDataEndpointCreation() {
     creationStep.value = 'Applying policies...'
 
     // Transform frontend policy rules to backend format using the composable
-    const policyRequests = transformPolicyRules(data.policyRules, data.endpointName)
+    const policyRequests = await transformPolicyRules(data.policyRules, data.endpointName)
 
     // Set the endpoint_id for each request
     policyRequests.forEach((request) => {

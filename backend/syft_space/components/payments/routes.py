@@ -1,14 +1,20 @@
 """Payments routes — single entry point that composes all sub-routers.
 
 Produces:
+    # MPP
     /payments/mpp/{wallet_id}/balance
     /payments/mpp/{wallet_id}/transactions
-    /payments/gateway/invoices/endpoint/{slug}
-    /payments/gateway/invoices/{id}
-    /payments/gateway/bundles
-    /payments/gateway/bundles/{slug}
-    /payments/gateway/xendit/invoices
-    /payments/gateway/xendit/webhooks
+
+    # Gateway (wallet-scoped invoices + balance + ledger)
+    POST   /payments/gateway/wallets/{wallet_id}/invoices         (public)
+    GET    /payments/gateway/wallets/{wallet_id}/balance          (public)
+    GET    /payments/gateway/wallets/{wallet_id}/transactions/me  (public)
+    GET    /payments/gateway/wallets/{wallet_id}/invoices         (admin)
+    GET    /payments/gateway/wallets/{wallet_id}/transactions     (admin)
+    GET    /payments/gateway/invoices/{invoice_id}                (admin)
+
+    # Xendit-specific (webhook receiver only)
+    POST   /payments/gateway/xendit/webhooks
 """
 
 from fastapi import APIRouter
