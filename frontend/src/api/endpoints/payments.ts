@@ -68,12 +68,28 @@ export const paymentsApi = {
     return response.data
   },
 
+  listInvoices: async (params?: { status?: string }): Promise<InvoiceResponse[]> => {
+    const response = await apiClient.get('/payments/gateway/invoices', { params })
+    return response.data
+  },
+
   listWalletTransactions: async (
     walletId: string,
     params?: { cursor?: string; limit?: number },
   ): Promise<LedgerEntryPage> => {
     const response = await apiClient.get(
       `/payments/gateway/wallets/${walletId}/transactions`,
+      { params },
+    )
+    return response.data
+  },
+
+  listEndpointTransactions: async (
+    endpointId: string,
+    params?: { cursor?: string; limit?: number },
+  ): Promise<LedgerEntryPage> => {
+    const response = await apiClient.get(
+      `/payments/gateway/endpoints/${endpointId}/transactions`,
       { params },
     )
     return response.data

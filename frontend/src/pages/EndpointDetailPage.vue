@@ -727,7 +727,7 @@
             </CardContent>
           </Card>
 
-          <!-- Gateway (Xendit) Invoices -->
+          <!-- Gateway (Xendit) Ledger Entries -->
           <Card
             v-if="!lockedWallet || lockedWallet.wallet_type === 'xendit'"
             class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
@@ -735,7 +735,7 @@
             <CardHeader class="pb-3">
               <CardTitle class="text-base flex items-center gap-2">
                 <Package class="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                Bundle Invoices
+                Transactions
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -743,42 +743,34 @@
                 <Skeleton v-for="i in 3" :key="i" class="h-12 w-full" />
               </div>
               <div
-                v-else-if="filteredGatewayInvoices.length === 0"
+                v-else-if="filteredLedgerEntries.length === 0"
                 class="text-center py-6 text-sm text-muted-foreground"
               >
-                No invoices found
+                No transactions found
               </div>
               <div v-else class="divide-y divide-border">
                 <div
-                  v-for="inv in filteredGatewayInvoices"
-                  :key="inv.id"
+                  v-for="entry in filteredLedgerEntries"
+                  :key="entry.id"
                   class="flex items-center justify-between py-3"
                 >
                   <div class="min-w-0 flex-1">
-                    <p class="text-sm font-medium truncate">{{ inv.user_email }}</p>
+                    <p class="text-sm font-medium truncate">{{ entry.user_email }}</p>
                     <p class="text-xs text-muted-foreground">
-                      {{ inv.bundle_name }} &middot; {{ inv.amount }} {{ inv.currency }}
-                      &middot;
-                      {{ formatTimeAgo(inv.created_at) }}
+                      {{ formatTimeAgo(entry.created_at) }}
+                      <span class="ml-1">&middot; {{ entry.type }}</span>
                     </p>
                   </div>
-                  <div class="flex items-center gap-3 ml-4">
-                    <Badge
-                      variant="outline"
-                      class="text-xs"
-                      :class="{
-                        'text-emerald-600 border-emerald-300': inv.status === 'paid',
-                        'text-amber-600 border-amber-300': inv.status === 'pending',
-                        'text-red-600 border-red-300':
-                          inv.status === 'expired' || inv.status === 'failed',
-                      }"
-                    >
-                      {{ inv.status }}
-                    </Badge>
-                    <span class="text-sm font-semibold">
-                      {{ inv.currency }} {{ inv.amount.toLocaleString() }}
-                    </span>
-                  </div>
+                  <span
+                    class="text-sm font-semibold ml-4"
+                    :class="{
+                      'text-emerald-600 dark:text-emerald-400': entry.type === 'debit',
+                      'text-muted-foreground line-through': entry.type === 'cancelled',
+                    }"
+                  >
+                    {{ entry.type === 'debit' ? '+' : '-' }}{{ formatPrice(entry.amount) }}
+                    {{ entry.currency }}
+                  </span>
                 </div>
               </div>
             </CardContent>
@@ -930,8 +922,7 @@ import { ingestionApi } from '@/api/endpoints/ingestion'
 import { policiesApi } from '@/api/policies/policies'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { paymentsApi } from '@/api/endpoints/payments'
-import type { InvoiceResponse } from '@/api/endpoints/payments'
-import type { TransactionResponse, WalletListItem } from '@/api/types'
+import type { LedgerEntryResponse, TransactionResponse, WalletListItem } from '@/api/types'
 import { formatPrice, formatTimeAgo } from '@/lib/formatters'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
@@ -1211,7 +1202,7 @@ const getPricingPolicySummary = (policy: {
 const txnLoading = ref(false)
 const txnEmailFilter = ref('')
 const mppTransactions = ref<TransactionResponse[]>([])
-const gatewayInvoices = ref<InvoiceResponse[]>([])
+const ledgerEntries = ref<LedgerEntryResponse[]>([])
 
 const filteredMppTransactions = computed(() => {
   const filter = txnEmailFilter.value.toLowerCase().trim()
@@ -1219,10 +1210,10 @@ const filteredMppTransactions = computed(() => {
   return mppTransactions.value.filter((t) => t.sender_email.toLowerCase().includes(filter))
 })
 
-const filteredGatewayInvoices = computed(() => {
+const filteredLedgerEntries = computed(() => {
   const filter = txnEmailFilter.value.toLowerCase().trim()
-  if (!filter) return gatewayInvoices.value
-  return gatewayInvoices.value.filter((i) => i.user_email.toLowerCase().includes(filter))
+  if (!filter) return ledgerEntries.value
+  return ledgerEntries.value.filter((e) => e.user_email.toLowerCase().includes(filter))
 })
 
 const fetchTransactions = async () => {
@@ -1233,7 +1224,7 @@ const fetchTransactions = async () => {
     if (!wallet) {
       // No payment policy on this endpoint — nothing to fetch.
       mppTransactions.value = []
-      gatewayInvoices.value = []
+      ledgerEntries.value = []
       return
     }
 
@@ -1243,12 +1234,13 @@ const fetchTransactions = async () => {
       } catch {
         mppTransactions.value = []
       }
-      gatewayInvoices.value = []
+      ledgerEntries.value = []
     } else if (wallet.wallet_type === 'xendit') {
       try {
-        gatewayInvoices.value = await paymentsApi.getInvoicesByWallet(wallet.id)
+        const page = await paymentsApi.listEndpointTransactions(endpoint.value.id)
+        ledgerEntries.value = page.items
       } catch {
-        gatewayInvoices.value = []
+        ledgerEntries.value = []
       }
       mppTransactions.value = []
     }
