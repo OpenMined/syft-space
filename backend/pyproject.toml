@@ -41,7 +41,7 @@ build = [
 
 # Testing dependencies
 test = [
-    "pytest>=7.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0",
     "httpx>=0.24.0",  # For FastAPI testing
