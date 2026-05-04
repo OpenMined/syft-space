@@ -90,6 +90,11 @@ class PaymentGateway(Protocol):
     def normalize_webhook(
         self,
         raw_payload: dict,
-    ) -> WebhookResult:
-        """Parse provider-specific webhook payload into domain types."""
+    ) -> WebhookResult | None:
+        """Parse provider-specific webhook payload into domain types.
+
+        Returns None when the payload is well-authenticated but uninteresting
+        (unknown event type, missing fields). Caller should log + 200-ack so
+        the provider does not retry.
+        """
         ...

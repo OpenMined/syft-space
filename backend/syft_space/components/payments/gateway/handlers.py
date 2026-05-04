@@ -164,6 +164,11 @@ class PaymentHandler:
         gateway = self._get_gateway(provider)
 
         webhook_result = gateway.normalize_webhook(raw_payload)
+        if webhook_result is None:
+            # Provider sent a payload we can't / don't act on (unknown event,
+            # missing reference_id). Already logged inside normalize_webhook.
+            # Ack so the provider doesn't retry indefinitely.
+            return {"status": "ignored", "reason": "unparseable or unhandled event"}
 
         async with self._ledger() as ledger:
             invoice = await ledger.invoices.get_by_external_id(
