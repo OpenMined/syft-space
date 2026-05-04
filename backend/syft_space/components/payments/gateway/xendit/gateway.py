@@ -145,6 +145,7 @@ class XenditGateway:
 
         reference_id = data.get("reference_id", "")
         if not reference_id:
+            logger.error(f"Webhook payload missing data.reference_id: {raw_payload}")
             raise HTTPException(
                 status_code=400,
                 detail="Webhook payload missing data.reference_id",
@@ -153,6 +154,7 @@ class XenditGateway:
         # Map event type to our domain status
         status = self._EVENT_STATUS_MAP.get(event)
         if not status:
+            logger.error(f"Unhandled Xendit event: {event}: {raw_payload}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Unhandled Xendit event: {event}",

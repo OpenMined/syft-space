@@ -8,9 +8,12 @@ Produces:
     # Gateway (wallet-scoped invoices + balance + ledger)
     POST   /payments/gateway/wallets/{wallet_id}/invoices         (public)
     GET    /payments/gateway/wallets/{wallet_id}/balance          (public)
+    GET    /payments/gateway/wallets/{wallet_id}/invoices/me      (public)
     GET    /payments/gateway/wallets/{wallet_id}/transactions/me  (public)
     GET    /payments/gateway/wallets/{wallet_id}/invoices         (admin)
     GET    /payments/gateway/wallets/{wallet_id}/transactions     (admin)
+    GET    /payments/gateway/invoices                             (admin)
+    GET    /payments/gateway/endpoints/{id}/transactions          (admin)
     GET    /payments/gateway/invoices/{invoice_id}                (admin)
 
     # Xendit-specific (webhook receiver only)

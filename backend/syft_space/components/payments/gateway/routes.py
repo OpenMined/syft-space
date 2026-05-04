@@ -28,6 +28,7 @@ def build_gateway_routes(
     Wallet-scoped paths:
       POST   /gateway/wallets/{wallet_id}/invoices            (PUBLIC, satellite token)
       GET    /gateway/wallets/{wallet_id}/balance             (PUBLIC, satellite token)
+      GET    /gateway/wallets/{wallet_id}/invoices/me         (PUBLIC, satellite token)
       GET    /gateway/wallets/{wallet_id}/transactions/me     (PUBLIC, satellite token)
       GET    /gateway/wallets/{wallet_id}/transactions        (admin, tenant)
       GET    /gateway/wallets/{wallet_id}/invoices            (admin, tenant)
@@ -129,6 +130,26 @@ def build_gateway_routes(
     ) -> UserBalanceResponse:
         """Read the caller's wallet balance (PUBLIC, satellite token)."""
         return await handler.get_user_balance(wallet_id, user_email, tenant)
+
+    @router.get(
+        "/wallets/{wallet_id}/invoices/me",
+        response_model=list[InvoiceResponse],
+    )
+    async def list_my_invoices(
+        wallet_id: UUID,
+        status: str | None = Query(default=None),
+        tenant: Tenant = Depends(get_tenant_dependency),
+        user_email: str = Depends(get_verified_sender_email),
+        handler: PaymentHandler = Depends(get_handler),
+    ) -> list[InvoiceResponse]:
+        """Caller's own invoices for this wallet, newest first (PUBLIC, satellite token).
+
+        Intended for SyftHub to check for an existing pending invoice before
+        triggering a new bundle purchase.
+        """
+        return await handler.list_user_invoices(
+            wallet_id, user_email, tenant, status=status
+        )
 
     @router.get(
         "/wallets/{wallet_id}/transactions/me",

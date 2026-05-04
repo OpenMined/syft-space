@@ -70,6 +70,30 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return list(result.all())
 
+    async def list_for_user_in_wallet(
+        self,
+        wallet_id: UUID,
+        tenant_id: UUID,
+        user_email: str,
+        status: str | None = None,
+    ) -> list[Invoice]:
+        """Caller's own invoices for a wallet, newest first.
+
+        Used by the satellite-token /invoices/me endpoint so callers can check
+        whether a pending invoice already exists before creating a new one.
+        Optional status filter (pending|paid|expired|failed).
+        """
+        statement = select(Invoice).where(
+            Invoice.wallet_id == wallet_id,
+            Invoice.tenant_id == tenant_id,
+            Invoice.user_email == user_email,
+        )
+        if status:
+            statement = statement.where(Invoice.status == status)
+        statement = statement.order_by(Invoice.created_at.desc())
+        result = await self.session.exec(statement)
+        return list(result.all())
+
     async def has_pending_by_wallet_id(self, wallet_id: UUID, tenant_id: UUID) -> bool:
         """Check if any pending invoices exist for a wallet."""
         statement = select(Invoice).where(

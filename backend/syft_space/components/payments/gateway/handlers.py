@@ -252,6 +252,26 @@ class PaymentHandler:
             invoices = await ledger.invoices.list_for_tenant(tenant.id, status=status)
         return [InvoiceResponse.model_validate(inv) for inv in invoices]
 
+    async def list_user_invoices(
+        self,
+        wallet_id: UUID,
+        user_email: str,
+        tenant: Tenant,
+        status: str | None = None,
+    ) -> list[InvoiceResponse]:
+        """User-facing: caller's invoices for a wallet (e.g. to detect a pending one)."""
+        wallet = await self.wallet_repo.get_by_id(wallet_id, tenant.id)
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found")
+        async with self._ledger() as ledger:
+            invoices = await ledger.invoices.list_for_user_in_wallet(
+                wallet_id=wallet.id,
+                tenant_id=tenant.id,
+                user_email=user_email,
+                status=status,
+            )
+        return [InvoiceResponse.model_validate(inv) for inv in invoices]
+
     async def get_user_balance(
         self,
         wallet_id: UUID,

@@ -484,6 +484,9 @@ class PublishEndpointHandler:
                             policy_data["config"]["payment_url"] = (
                                 f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices"
                             )
+                            policy_data["config"]["invoices_url"] = (
+                                f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices/me"
+                            )
                             policy_data["config"]["credits_url"] = (
                                 f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/balance"
                             )
