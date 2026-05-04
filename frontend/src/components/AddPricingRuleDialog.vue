@@ -102,21 +102,29 @@
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="code in XENDIT_CURRENCIES" :key="code" :value="code">
-                    {{ code }}
+                  <SelectItem
+                    v-for="r in XENDIT_REGIONS"
+                    :key="r.currency"
+                    :value="r.currency"
+                  >
+                    {{ r.currency }}
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div class="space-y-2">
               <Label>Country</Label>
-              <Select v-model="xenditForm.country">
+              <Select v-model="xenditForm.country" disabled>
                 <SelectTrigger class="h-10">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="c in XENDIT_COUNTRIES" :key="c.code" :value="c.code">
-                    {{ c.label }}
+                  <SelectItem
+                    v-for="r in XENDIT_REGIONS"
+                    :key="r.country"
+                    :value="r.country"
+                  >
+                    {{ r.countryLabel }}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -371,16 +379,7 @@ import {
 import { walletsApi } from '@/api/endpoints/wallets'
 import { toast } from 'vue-sonner'
 import type { WalletListItem } from '@/api/types'
-
-const XENDIT_CURRENCIES = ['IDR', 'USD', 'PHP', 'SGD', 'MYR', 'VND', 'THB'] as const
-const XENDIT_COUNTRIES = [
-  { code: 'ID', label: 'Indonesia' },
-  { code: 'PH', label: 'Philippines' },
-  { code: 'SG', label: 'Singapore' },
-  { code: 'MY', label: 'Malaysia' },
-  { code: 'VN', label: 'Vietnam' },
-  { code: 'TH', label: 'Thailand' },
-] as const
+import { XENDIT_REGIONS, countryForCurrency } from '@/lib/xenditRegions'
 
 type View = 'pricing-form' | 'pick-provider' | 'setup-form' | 'wallet-success'
 
@@ -422,9 +421,19 @@ const newWalletId = ref<string | null>(null)
 const xenditForm = ref({
   apiKey: '',
   callbackToken: '',
-  currency: 'USD',
+  currency: 'IDR',
   country: 'ID',
 })
+
+// Currency drives country (1:1 within Xendit's per-country channel
+// catalogs). Cross-border combinations are blocked at the backend, so we
+// avoid them here too.
+watch(
+  () => xenditForm.value.currency,
+  (currency) => {
+    xenditForm.value.country = countryForCurrency(currency)
+  },
+)
 
 // ── Pricing form state ──
 const form = ref({
@@ -596,7 +605,7 @@ const resetState = () => {
   xenditForm.value = {
     apiKey: '',
     callbackToken: '',
-    currency: 'USD',
+    currency: 'IDR',
     country: 'ID',
   }
   form.value = { price: '', name: '', userType: 'all', users: '' }
