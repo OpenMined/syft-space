@@ -162,7 +162,9 @@ class XenditGateway:
             )
             return None
 
-        # Extract timestamp for paid events
+        # Extract timestamp for paid events. Falling back to wall-clock time
+        # is the safest default if Xendit ever changes its format, but we
+        # want a log so the silent-wrong audit timestamp is observable.
         paid_at = None
         if status == InvoiceStatus.PAID:
             timestamp = data.get("updated") or data.get("created")
@@ -170,8 +172,16 @@ class XenditGateway:
                 try:
                     paid_at = datetime.fromisoformat(timestamp)
                 except ValueError:
+                    logger.warning(
+                        f"Xendit paid_at parse failed (got {timestamp!r}); "
+                        f"falling back to now() for reference_id={reference_id}"
+                    )
                     paid_at = datetime.now(timezone.utc)
             else:
+                logger.warning(
+                    f"Xendit PAID webhook missing data.updated/created; "
+                    f"falling back to now() for reference_id={reference_id}"
+                )
                 paid_at = datetime.now(timezone.utc)
 
         return WebhookResult(
