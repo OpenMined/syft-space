@@ -6,25 +6,38 @@
         <Receipt class="h-6 w-6 text-primary" />
         <h1 class="heading-3">Earnings</h1>
       </div>
-      <p class="body-lg text-muted-foreground">Invoices captured across your wallets</p>
+      <p class="body-lg text-muted-foreground">Invoices for the selected wallet</p>
     </div>
 
-    <div class="space-y-6">
-      <!-- Stat cards: Total Earned / Pending / Lost, per currency -->
+    <!-- No-wallets empty state -->
+    <div
+      v-if="!walletsLoading && wallets.length === 0"
+      class="text-center py-16 text-sm text-muted-foreground"
+    >
+      No payment wallets configured. Add a wallet to start tracking earnings.
+    </div>
+
+    <div v-else class="space-y-6">
+      <!-- Wallet selector (primary) -->
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-medium text-muted-foreground">Wallet</span>
+        <Select v-model="selectedWalletId" :disabled="walletsLoading">
+          <SelectTrigger class="w-72">
+            <SelectValue placeholder="Select a wallet" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="w in wallets" :key="w.id" :value="w.id">
+              {{ w.name }} &middot; {{ w.currency }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <!-- Stat cards: Total Earned (currency), Pending / Expired (counts) -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard
-          title="Total Earned"
-          :totals="earnedTotals"
-          :count="paidCount"
-          tone="emerald"
-        />
-        <StatCard
-          title="Pending"
-          :totals="pendingTotals"
-          :count="pendingCount"
-          tone="amber"
-        />
-        <StatCard title="Lost" :totals="lostTotals" :count="lostCount" tone="red" />
+        <StatCard title="Total Earned" :totals="earnedTotals" :count="paidCount" tone="emerald" />
+        <StatCard title="Pending" :count="pendingCount" tone="amber" />
+        <StatCard title="Expired" :count="expiredCount" tone="red" />
       </div>
 
       <!-- Filters -->
@@ -41,11 +54,7 @@
             <SelectItem value="failed">Failed</SelectItem>
           </SelectContent>
         </Select>
-        <Input
-          v-model="emailFilter"
-          placeholder="Filter by email..."
-          class="h-9 max-w-sm flex-1"
-        />
+        <Input v-model="emailFilter" placeholder="Filter by email..." class="h-9 max-w-sm flex-1" />
         <Button variant="outline" size="sm" @click="fetchInvoices" :disabled="loading">
           <Loader2 v-if="loading" class="h-4 w-4 mr-2 animate-spin" />
           Refresh
@@ -113,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h } from 'vue'
+import { ref, computed, onMounted, watch, h } from 'vue'
 import { Receipt, Loader2, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -129,7 +138,13 @@ import {
 } from '@/components/ui/select'
 import { paymentsApi } from '@/api/endpoints/payments'
 import type { InvoiceResponse } from '@/api/endpoints/payments'
+import { walletsApi } from '@/api/endpoints/wallets'
+import type { WalletListItem } from '@/api/types'
 import { formatTimeAgo } from '@/lib/formatters'
+
+const wallets = ref<WalletListItem[]>([])
+const walletsLoading = ref(false)
+const selectedWalletId = ref<string>('')
 
 const loading = ref(false)
 const invoices = ref<InvoiceResponse[]>([])
@@ -161,21 +176,38 @@ function sumByCurrency(statuses: string[]): { currency: string; amount: number }
 }
 
 const earnedTotals = computed(() => sumByCurrency(['paid']))
-const pendingTotals = computed(() => sumByCurrency(['pending']))
-const lostTotals = computed(() => sumByCurrency(['expired', 'failed']))
 
 const paidCount = computed(() => invoices.value.filter((i) => i.status === 'paid').length)
-const pendingCount = computed(
-  () => invoices.value.filter((i) => i.status === 'pending').length,
-)
-const lostCount = computed(
+const pendingCount = computed(() => invoices.value.filter((i) => i.status === 'pending').length)
+const expiredCount = computed(
   () => invoices.value.filter((i) => i.status === 'expired' || i.status === 'failed').length,
 )
 
+const fetchWallets = async () => {
+  walletsLoading.value = true
+  try {
+    const all = await walletsApi.list()
+    // MPP wallets use on-chain transactions, not invoices — exclude them.
+    wallets.value = all.filter((w) => w.wallet_type !== 'mpp')
+    const first = wallets.value[0]
+    if (first && !selectedWalletId.value) {
+      selectedWalletId.value = first.id
+    }
+  } catch {
+    wallets.value = []
+  } finally {
+    walletsLoading.value = false
+  }
+}
+
 const fetchInvoices = async () => {
+  if (!selectedWalletId.value) {
+    invoices.value = []
+    return
+  }
   loading.value = true
   try {
-    invoices.value = await paymentsApi.listInvoices()
+    invoices.value = await paymentsApi.getInvoicesByWallet(selectedWalletId.value)
   } catch {
     invoices.value = []
   } finally {
@@ -183,7 +215,13 @@ const fetchInvoices = async () => {
   }
 }
 
-onMounted(fetchInvoices)
+watch(selectedWalletId, () => {
+  fetchInvoices()
+})
+
+// Selecting the default wallet inside fetchWallets triggers the watcher,
+// which fetches invoices — no explicit second call needed here.
+onMounted(fetchWallets)
 
 const TONE_CLASSES: Record<string, string> = {
   emerald: 'text-emerald-600 dark:text-emerald-400',
@@ -193,36 +231,41 @@ const TONE_CLASSES: Record<string, string> = {
 
 const StatCard = (props: {
   title: string
-  totals: { currency: string; amount: number }[]
+  totals?: { currency: string; amount: number }[]
   count: number
   tone: 'emerald' | 'amber' | 'red'
 }) => {
+  const countLabel = `${props.count} invoice${props.count === 1 ? '' : 's'}`
+  const toneClass = TONE_CLASSES[props.tone]
+
+  // Currency mode: show per-currency totals prominently, count as sub-label.
+  // Count mode (no totals prop): show the count itself prominently.
+  const body = props.totals
+    ? props.totals.length === 0
+      ? [h('p', { class: ['text-xl font-semibold mt-1', toneClass] }, '—')]
+      : [
+          h(
+            'div',
+            { class: 'mt-1 space-y-0.5' },
+            props.totals.map((t) =>
+              h(
+                'p',
+                { class: ['text-xl font-semibold leading-tight', toneClass] },
+                `${t.amount.toLocaleString()} ${t.currency}`,
+              ),
+            ),
+          ),
+        ]
+    : [h('p', { class: ['text-xl font-semibold mt-1', toneClass] }, countLabel)]
+
   return h('div', { class: 'bg-card rounded-lg p-4 border border-border' }, [
     h(
       'p',
       { class: 'text-xs font-medium text-muted-foreground uppercase tracking-wide' },
       props.title,
     ),
-    props.totals.length === 0
-      ? h('p', { class: ['text-xl font-semibold mt-1', TONE_CLASSES[props.tone]] }, '—')
-      : h(
-          'div',
-          { class: 'mt-1 space-y-0.5' },
-          props.totals.map((t) =>
-            h(
-              'p',
-              {
-                class: ['text-xl font-semibold leading-tight', TONE_CLASSES[props.tone]],
-              },
-              `${t.amount.toLocaleString()} ${t.currency}`,
-            ),
-          ),
-        ),
-    h(
-      'p',
-      { class: 'text-xs text-muted-foreground mt-2' },
-      `${props.count} invoice${props.count === 1 ? '' : 's'}`,
-    ),
+    ...body,
+    props.totals ? h('p', { class: 'text-xs text-muted-foreground mt-2' }, countLabel) : null,
   ])
 }
 </script>
