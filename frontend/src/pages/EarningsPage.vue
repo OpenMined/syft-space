@@ -141,6 +141,7 @@ import type { InvoiceResponse } from '@/api/endpoints/payments'
 import { walletsApi } from '@/api/endpoints/wallets'
 import type { WalletListItem } from '@/api/types'
 import { formatTimeAgo } from '@/lib/formatters'
+import { toast } from 'vue-sonner'
 
 const wallets = ref<WalletListItem[]>([])
 const walletsLoading = ref(false)
@@ -151,14 +152,19 @@ const invoices = ref<InvoiceResponse[]>([])
 const statusFilter = ref<string>('all')
 const emailFilter = ref('')
 
+// Stat cards reflect the email filter (per-user view) but not the status
+// filter — otherwise filtering to e.g. "Paid" trivially makes the Pending
+// and Expired cards always show 0.
+const emailScopedInvoices = computed(() => {
+  const email = emailFilter.value.toLowerCase().trim()
+  if (!email) return invoices.value
+  return invoices.value.filter((i) => i.user_email.toLowerCase().includes(email))
+})
+
 const filteredInvoices = computed(() => {
-  let list = invoices.value
+  let list = emailScopedInvoices.value
   if (statusFilter.value && statusFilter.value !== 'all') {
     list = list.filter((i) => i.status === statusFilter.value)
-  }
-  const email = emailFilter.value.toLowerCase().trim()
-  if (email) {
-    list = list.filter((i) => i.user_email.toLowerCase().includes(email))
   }
   return list
 })
@@ -166,7 +172,7 @@ const filteredInvoices = computed(() => {
 // Sum invoice amounts per currency, filtered by status set.
 function sumByCurrency(statuses: string[]): { currency: string; amount: number }[] {
   const sums: Record<string, number> = {}
-  for (const inv of invoices.value) {
+  for (const inv of emailScopedInvoices.value) {
     if (!statuses.includes(inv.status)) continue
     sums[inv.currency] = (sums[inv.currency] || 0) + inv.amount
   }
@@ -177,10 +183,17 @@ function sumByCurrency(statuses: string[]): { currency: string; amount: number }
 
 const earnedTotals = computed(() => sumByCurrency(['paid']))
 
-const paidCount = computed(() => invoices.value.filter((i) => i.status === 'paid').length)
-const pendingCount = computed(() => invoices.value.filter((i) => i.status === 'pending').length)
+const paidCount = computed(
+  () => emailScopedInvoices.value.filter((i) => i.status === 'paid').length,
+)
+const pendingCount = computed(
+  () => emailScopedInvoices.value.filter((i) => i.status === 'pending').length,
+)
 const expiredCount = computed(
-  () => invoices.value.filter((i) => i.status === 'expired' || i.status === 'failed').length,
+  () =>
+    emailScopedInvoices.value.filter(
+      (i) => i.status === 'expired' || i.status === 'failed',
+    ).length,
 )
 
 const fetchWallets = async () => {
@@ -193,8 +206,9 @@ const fetchWallets = async () => {
     if (first && !selectedWalletId.value) {
       selectedWalletId.value = first.id
     }
-  } catch {
+  } catch (e) {
     wallets.value = []
+    toast.error(e instanceof Error ? e.message : 'Failed to load wallets')
   } finally {
     walletsLoading.value = false
   }
@@ -208,8 +222,9 @@ const fetchInvoices = async () => {
   loading.value = true
   try {
     invoices.value = await paymentsApi.getInvoicesByWallet(selectedWalletId.value)
-  } catch {
+  } catch (e) {
     invoices.value = []
+    toast.error(e instanceof Error ? e.message : 'Failed to load invoices')
   } finally {
     loading.value = false
   }
