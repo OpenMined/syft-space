@@ -25,8 +25,8 @@ class InvoiceStatus(str, Enum):
 
     PENDING = "pending"
     PAID = "paid"
-    EXPIRED = "expired"
-    FAILED = "failed"
+    EXPIRED = "expired"  # provider session timed out
+    CANCELLED = "cancelled"  # user or admin abandoned the session
 
 
 class EntryType(str, Enum):

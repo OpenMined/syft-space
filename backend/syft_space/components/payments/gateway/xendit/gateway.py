@@ -49,7 +49,7 @@ class XenditGateway:
     _EVENT_STATUS_MAP = {
         "payment_session.completed": InvoiceStatus.PAID,
         "payment_session.expired": InvoiceStatus.EXPIRED,
-        "payment_session.canceled": InvoiceStatus.EXPIRED,
+        "payment_session.canceled": InvoiceStatus.CANCELLED,
     }
 
     def resolve_purchase(
@@ -132,35 +132,39 @@ class XenditGateway:
     def normalize_webhook(
         self,
         raw_payload: dict,
-    ) -> WebhookResult:
+    ) -> WebhookResult | None:
         """Parse Xendit webhook into domain types.
 
         Xendit sends a nested payload:
           { "event": "payment_session.completed", "data": { "reference_id": ..., "status": ..., ... } }
 
         We map the event type to our InvoiceStatus and extract fields from data.
+
+        Returns None for unparseable / unhandled events so the caller can
+        200-ack — Xendit retries on any non-2xx, and we don't want event types
+        we don't care about (e.g. payment.capture) to drive a retry storm.
         """
         event = raw_payload.get("event", "")
         data = raw_payload.get("data", {})
 
         reference_id = data.get("reference_id", "")
         if not reference_id:
-            logger.error(f"Webhook payload missing data.reference_id: {raw_payload}")
-            raise HTTPException(
-                status_code=400,
-                detail="Webhook payload missing data.reference_id",
+            logger.info(
+                f"Xendit webhook missing data.reference_id; ignoring: {raw_payload}"
             )
+            return None
 
         # Map event type to our domain status
         status = self._EVENT_STATUS_MAP.get(event)
         if not status:
-            logger.error(f"Unhandled Xendit event: {event}: {raw_payload}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unhandled Xendit event: {event}",
+            logger.info(
+                f"Xendit webhook event '{event}' not handled; ignoring: {raw_payload}"
             )
+            return None
 
-        # Extract timestamp for paid events
+        # Extract timestamp for paid events. Falling back to wall-clock time
+        # is the safest default if Xendit ever changes its format, but we
+        # want a log so the silent-wrong audit timestamp is observable.
         paid_at = None
         if status == InvoiceStatus.PAID:
             timestamp = data.get("updated") or data.get("created")
@@ -168,8 +172,16 @@ class XenditGateway:
                 try:
                     paid_at = datetime.fromisoformat(timestamp)
                 except ValueError:
+                    logger.warning(
+                        f"Xendit paid_at parse failed (got {timestamp!r}); "
+                        f"falling back to now() for reference_id={reference_id}"
+                    )
                     paid_at = datetime.now(timezone.utc)
             else:
+                logger.warning(
+                    f"Xendit PAID webhook missing data.updated/created; "
+                    f"falling back to now() for reference_id={reference_id}"
+                )
                 paid_at = datetime.now(timezone.utc)
 
         return WebhookResult(
