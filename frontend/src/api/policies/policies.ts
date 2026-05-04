@@ -1,6 +1,26 @@
 import { apiClient } from '../client'
 import type { CreatePolicyRequest, PolicyResponse, PolicyListItem } from '../types'
 
+export interface PolicyTypeInfo {
+  name: string
+  description: string
+  config_schema: Record<string, unknown>
+  icon: string
+  enabled: boolean
+}
+
+export const policyTypesApi = {
+  list: async (): Promise<PolicyTypeInfo[]> => {
+    const response = await apiClient.get<PolicyTypeInfo[]>('/policies/types/')
+    return response.data
+  },
+
+  get: async (name: string): Promise<PolicyTypeInfo> => {
+    const response = await apiClient.get<PolicyTypeInfo>(`/policies/types/${name}`)
+    return response.data
+  },
+}
+
 export const policiesApi = {
   create: async (request: CreatePolicyRequest): Promise<PolicyResponse> => {
     const response = await apiClient.post<PolicyResponse>('/policies/', request)

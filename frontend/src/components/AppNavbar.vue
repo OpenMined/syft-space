@@ -1,16 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import {
-  User,
-  ExternalLink,
-  Settings,
-  ChevronUp,
-  RefreshCw,
-  CircleAlert,
-  ArrowDownLeft,
-  Wallet,
-} from 'lucide-vue-next'
+import { User, ExternalLink, Settings } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -21,73 +12,15 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useUserStore } from '@/stores/user'
 import { useInboxStore } from '@/stores/inbox'
-import { formatPrice, truncateEmail, formatTimeAgo } from '@/lib/formatters'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import SyftLogo from '@/assets/syftbox-logo.svg'
-import TransactionsDialog from '@/components/TransactionsDialog.vue'
-import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const inboxStore = useInboxStore()
-
-const balanceDropdownOpen = ref(false)
-const isRefreshing = ref(false)
-const transactionsDialogOpen = ref(false)
-const walletSetupDialogOpen = ref(false)
-
-// Auto-refresh balance every 30 seconds
-let balanceRefreshInterval: ReturnType<typeof setInterval> | null = null
-
-onMounted(() => {
-  balanceRefreshInterval = setInterval(() => {
-    if (userStore.walletConfigured) {
-      userStore.fetchBalance(true)
-    }
-  }, 30000)
-})
-
-onUnmounted(() => {
-  if (balanceRefreshInterval) {
-    clearInterval(balanceRefreshInterval)
-  }
-})
-
-const isLowBalance = computed(() => {
-  return userStore.balance !== null && userStore.balance > 0 && userStore.balance <= 20
-})
-
-const isZeroBalance = computed(() => {
-  return userStore.balance !== null && userStore.balance === 0
-})
-
-const balanceIndicatorColor = computed(() => {
-  if (userStore.balance === 0) return 'bg-red-500'
-  if (userStore.balance !== null && userStore.balance <= 20) return 'bg-amber-500'
-  return ''
-})
-
-const formattedBalanceNumber = computed(() => {
-  if (userStore.balance === null) return '--'
-  return formatPrice(userStore.balance)
-})
-
-const refreshBalance = async () => {
-  isRefreshing.value = true
-  await userStore.fetchBalance()
-  isRefreshing.value = false
-}
-
-const openTransactionsDialog = () => {
-  transactionsDialogOpen.value = true
-  balanceDropdownOpen.value = false
-}
 
 const currentRouteName = computed(() => route.name as string)
 
@@ -111,6 +44,7 @@ const tabs = [
   { id: 'datasets', label: 'Datasets' },
   { id: 'models', label: 'Models' },
   { id: 'endpoints', label: 'Endpoints' },
+  { id: 'earnings', label: 'Earnings' },
 ]
 </script>
 
@@ -156,217 +90,6 @@ const tabs = [
       <div class="flex items-center space-x-3">
         <!-- Theme Toggle -->
         <ThemeToggle />
-        <!-- Balance Dropdown -->
-        <DropdownMenu v-model:open="balanceDropdownOpen">
-          <DropdownMenuTrigger as-child>
-            <Button variant="outline" size="sm" class="flex items-center gap-2 px-3 py-1.5 h-auto">
-              <span class="text-sm text-muted-foreground">Balance:</span>
-              <!-- Loading state -->
-              <template v-if="userStore.balanceLoading">
-                <RefreshCw class="h-4 w-4 text-muted-foreground animate-spin" />
-              </template>
-              <!-- Error state -->
-              <template v-else-if="userStore.balanceError">
-                <CircleAlert class="h-4 w-4 text-red-500" />
-                <span class="text-sm font-semibold text-red-500">Error</span>
-              </template>
-              <!-- No wallet configured -->
-              <template v-else-if="!userStore.walletConfigured">
-                <span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
-                <span class="text-sm font-semibold text-amber-600 dark:text-amber-400">Set up wallet</span>
-              </template>
-              <!-- Normal state -->
-              <template v-else>
-                <span
-                  v-if="isLowBalance || isZeroBalance"
-                  class="h-2.5 w-2.5 rounded-full"
-                  :class="balanceIndicatorColor"
-                ></span>
-                <span class="text-sm font-semibold">${{ formattedBalanceNumber }}</span>
-              </template>
-              <ChevronUp
-                class="h-4 w-4 text-muted-foreground transition-transform duration-200"
-                :class="{ 'rotate-180': !balanceDropdownOpen }"
-              />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent class="w-80" align="end">
-            <!-- No wallet configured nudge -->
-            <div
-              v-if="!userStore.walletConfigured && !userStore.balanceLoading && !userStore.balanceError"
-              class="px-4 pb-3"
-            >
-              <div class="flex flex-col items-center text-center py-2 space-y-3">
-                <div class="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                  <Wallet class="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                </div>
-                <div>
-                  <p class="text-sm font-medium text-foreground">No wallet configured</p>
-                  <p class="text-xs text-muted-foreground mt-1">Set up a wallet to receive payments for your endpoints</p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  class="w-full"
-                  @click="walletSetupDialogOpen = true; balanceDropdownOpen = false"
-                >
-                  Set up wallet
-                </Button>
-              </div>
-            </div>
-
-            <!-- Balance Display (only when wallet is configured) -->
-            <template v-else>
-              <!-- Header -->
-              <div class="flex items-center justify-between px-4 pt-4 pb-2">
-                <span class="text-xs font-semibold text-muted-foreground tracking-wide"
-                  >AVAILABLE CREDITS</span
-                >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="h-6 w-6"
-                  @click.stop="refreshBalance"
-                  :disabled="isRefreshing"
-                >
-                  <RefreshCw
-                    class="h-4 w-4 text-muted-foreground"
-                    :class="{ 'animate-spin': isRefreshing }"
-                  />
-                </Button>
-              </div>
-              <div class="px-4 pb-3">
-                <!-- Error state -->
-                <div v-if="userStore.balanceError" class="flex items-center gap-2">
-                  <CircleAlert class="h-5 w-5 text-red-500" />
-                  <span class="text-base font-medium text-red-500">Failed to load balance</span>
-                </div>
-                <!-- Loading state -->
-                <div v-else-if="userStore.balanceLoading">
-                  <Skeleton class="h-8 w-32" />
-                </div>
-                <!-- Normal state -->
-                <div v-else class="flex items-center gap-2">
-                  <span
-                    v-if="isLowBalance || isZeroBalance"
-                    class="h-3 w-3 rounded-full"
-                    :class="balanceIndicatorColor"
-                  ></span>
-                  <span class="text-3xl font-bold">${{ formattedBalanceNumber }}</span>
-                  <span class="text-lg text-muted-foreground">{{ userStore.currency }}</span>
-                </div>
-              </div>
-
-              <!-- Low Balance Warning -->
-              <div
-                v-if="isLowBalance && !userStore.balanceLoading && !userStore.balanceError"
-                class="px-4 pb-3"
-              >
-                <Alert
-                  class="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/50"
-                >
-                  <AlertDescription class="text-amber-700 dark:text-amber-400 text-sm">
-                    Your balance is running low. Consider adding more credits.
-                  </AlertDescription>
-                </Alert>
-              </div>
-
-              <!-- Zero Balance Warning -->
-              <div
-                v-if="isZeroBalance && !userStore.balanceLoading && !userStore.balanceError"
-                class="px-4 pb-3"
-              >
-                <Alert class="border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/50">
-                  <AlertDescription class="text-red-700 dark:text-red-400 text-sm">
-                    Your balance is empty. Add credits to continue using services.
-                  </AlertDescription>
-                </Alert>
-              </div>
-            </template>
-
-            <!-- Recent Activity Section (only when wallet is configured) -->
-            <div v-if="userStore.walletConfigured" class="px-4 py-3 border-t border-border">
-              <h4 class="text-sm font-medium mb-3">Recent Transactions</h4>
-              <div class="space-y-3">
-                <!-- Loading state -->
-                <template v-if="userStore.balanceLoading">
-                  <div v-for="i in 3" :key="i" class="flex items-center gap-3">
-                    <Skeleton class="h-10 w-10 rounded-full" />
-                    <div class="flex-1 space-y-1.5">
-                      <Skeleton class="h-4 w-32" />
-                      <Skeleton class="h-3 w-20" />
-                    </div>
-                    <Skeleton class="h-4 w-12" />
-                  </div>
-                </template>
-                <!-- Transaction list -->
-                <template v-else-if="userStore.transactions.length > 0">
-                  <div
-                    v-for="transaction in userStore.transactions"
-                    :key="transaction.id"
-                    class="flex items-center gap-3"
-                  >
-                    <div
-                      class="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center"
-                    >
-                      <ArrowDownLeft class="h-4 w-4 text-green-600 dark:text-green-400" />
-                    </div>
-                    <div class="flex-1 min-w-0">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger as-child>
-                            <p class="text-sm font-medium truncate cursor-default">
-                              From {{ truncateEmail(transaction.sender_email) }}
-                            </p>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{{ transaction.sender_email }}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger as-child>
-                            <span class="text-xs text-muted-foreground cursor-default">
-                              {{ formatTimeAgo(transaction.created_at) }}
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{{ new Date(transaction.created_at).toLocaleString() }}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <span class="text-sm font-semibold text-green-600 dark:text-green-400">
-                      +${{ formatPrice(transaction.amount) }}
-                    </span>
-                  </div>
-                </template>
-                <!-- Empty state -->
-                <p v-else class="text-sm text-muted-foreground text-center py-4">
-                  No recent activity
-                </p>
-              </div>
-            </div>
-
-            <template v-if="userStore.walletConfigured">
-              <DropdownMenuSeparator />
-
-              <!-- Footer Actions -->
-              <div class="p-2">
-                <Button variant="default" size="sm" class="w-full" @click="openTransactionsDialog">
-                  View All
-                </Button>
-              </div>
-            </template>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <!-- Transactions Dialog -->
-        <TransactionsDialog v-model:open="transactionsDialogOpen" />
-
-        <!-- Wallet Setup Dialog -->
-        <WalletSetupDialog v-model:open="walletSetupDialogOpen" />
 
         <!-- Avatar with Dropdown -->
         <DropdownMenu>

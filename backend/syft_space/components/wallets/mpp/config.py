@@ -1,18 +1,25 @@
 """MPP wallet configuration."""
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class MppWalletConfig(BaseModel):
-    """MPP wallet credentials (Tempo blockchain)."""
+    """MPP wallet credentials (Tempo blockchain).
+
+    MPP is fixed to USD via PATH_USD on Tempo — currency is intrinsic to
+    the chain, not a user choice. We surface it for the wallet entity's
+    (tenant, wallet_type, currency) uniqueness invariant.
+    """
 
     wallet_address: str = Field(..., description="Tempo wallet address (0x-prefixed)")
     wallet_private_key: str = Field(..., description="Wallet private key (hex)")
     mpp_secret_key: str = Field(
         ..., description="HMAC secret key for MPP challenge signing"
     )
+    currency: Literal["USD"] = Field(default="USD", description="Fixed to USD on Tempo")
 
     @field_validator("wallet_address")
     @classmethod

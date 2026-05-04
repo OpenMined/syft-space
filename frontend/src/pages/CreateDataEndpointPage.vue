@@ -715,8 +715,9 @@
           <div v-if="currentSubStep === 3" class="space-y-6">
             <!-- Policy Configuration -->
             <div class="space-y-6">
+              <!-- Auth + Rate Limit policies (loop only non-pricing) -->
               <div
-                v-for="policy in POLICY_TYPES"
+                v-for="policy in POLICY_TYPES.filter((p) => p.id !== 'pricing')"
                 :key="policy.id"
                 class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6"
               >
@@ -728,9 +729,6 @@
                         'p-2 rounded-lg',
                         policy.color === 'blue' ? 'bg-blue-100 dark:bg-blue-900' : '',
                         policy.color === 'green' ? 'bg-green-100 dark:bg-green-900' : '',
-                        policy.color === 'yellow' ? 'bg-yellow-100 dark:bg-yellow-900' : '',
-                        policy.color === 'purple' ? 'bg-purple-100 dark:bg-purple-900' : '',
-                        policy.color === 'red' ? 'bg-red-100 dark:bg-red-900' : '',
                       ]"
                     >
                       <component
@@ -739,9 +737,6 @@
                           'h-5 w-5',
                           policy.color === 'blue' ? 'text-blue-600 dark:text-blue-400' : '',
                           policy.color === 'green' ? 'text-green-600 dark:text-green-400' : '',
-                          policy.color === 'yellow' ? 'text-yellow-600 dark:text-yellow-400' : '',
-                          policy.color === 'purple' ? 'text-purple-600 dark:text-purple-400' : '',
-                          policy.color === 'red' ? 'text-red-600 dark:text-red-400' : '',
                         ]"
                       />
                     </div>
@@ -750,32 +745,10 @@
                       <p class="body-sm text-muted-foreground">{{ policy.description }}</p>
                     </div>
                   </div>
-                  <Button
-                    v-if="policy.id !== 'pricing' || walletConfigured || loadingWalletCheck"
-                    @click="openAddPolicyDialog(policy.id)"
-                    variant="outline"
-                    size="sm"
-                  >
+                  <Button @click="openAddPolicyDialog(policy.id)" variant="outline" size="sm">
                     <Plus class="h-4 w-4 mr-2" />
                     Add {{ policy.name }} rule
                   </Button>
-                  <TooltipProvider v-else>
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          @click="showWalletSetupDialog = true"
-                        >
-                          <Wallet class="h-4 w-4 mr-2" />
-                          Set up wallet
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>A wallet is required before adding pricing rules</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
                 </div>
 
                 <!-- Default Policy Message -->
@@ -791,10 +764,6 @@
                       <span v-else-if="policy.id === 'rate_limit'"
                         >No rate limits - unlimited usage</span
                       >
-                      <span v-else-if="policy.id === 'pricing'"
-                        >Free access - no charges applied</span
-                      >
-                      <span v-else>Open access - most permissive settings</span>
                     </p>
                   </div>
                 </div>
@@ -841,6 +810,67 @@
                           Delete
                         </Button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pricing section (uses AddPricingRuleDialog) -->
+              <div class="bg-card/60 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-yellow-100 dark:bg-yellow-900">
+                      <DollarSign class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                    </div>
+                    <div class="flex-1">
+                      <h3 class="font-medium text-foreground">Set your price</h3>
+                      <p class="body-sm text-muted-foreground">
+                        Charge per query or make it free - you decide
+                      </p>
+                    </div>
+                  </div>
+                  <Button @click="showAddPricingRuleDialog = true" variant="outline" size="sm">
+                    <Plus class="h-4 w-4 mr-2" />
+                    Add Pricing rule
+                  </Button>
+                </div>
+
+                <div v-if="policyRules.pricing?.length === 0" class="mb-3">
+                  <div
+                    class="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50 rounded-xl px-4 py-3"
+                  >
+                    <p class="body-sm text-green-700 dark:text-green-300">
+                      <strong class="font-medium">Default: </strong>
+                      Free access - no charges applied
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  v-if="policyRules.pricing?.length === 0"
+                  class="text-center py-8 border-2 border-dashed border-border/50 rounded-xl bg-muted/50/20"
+                >
+                  <p class="text-muted-foreground body-sm">No pricing rule added yet</p>
+                </div>
+
+                <div v-if="policyRules.pricing?.length > 0" class="space-y-3">
+                  <div
+                    v-for="(rule, ruleIndex) in policyRules.pricing"
+                    :key="rule.id"
+                    class="bg-muted/50/30 border border-border/50/50 rounded-xl p-4"
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <h4 class="body-sm font-medium text-foreground">
+                          {{ rule.config.note || `Pricing Rule #${ruleIndex + 1}` }}
+                        </h4>
+                        <p class="body-sm text-muted-foreground mt-1">
+                          {{ getRuleSummary('pricing', rule.config) }}
+                        </p>
+                      </div>
+                      <Button variant="outline" size="sm" @click="deletePolicy('pricing', rule.id)">
+                        Delete
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -1479,18 +1509,19 @@
     </DialogContent>
   </Dialog>
 
-  <!-- Wallet Setup Dialog -->
-  <WalletSetupDialog
-    v-model:open="showWalletSetupDialog"
-    @wallet-updated="onWalletUpdated"
-  />
-
-  <!-- Policy Form Dialog -->
+  <!-- Policy Form Dialog (for auth + rate limit) -->
   <PolicyFormDialog
     v-model:open="showPolicyDialog"
     :policy-type="dialogPolicyType"
     :initial-data="dialogInitialData"
     @save="handlePolicyDialogSave"
+  />
+
+  <!-- Add Pricing Rule Dialog (for pricing — bundle or micro) -->
+  <AddPricingRuleDialog
+    v-model:open="showAddPricingRuleDialog"
+    :locked-wallet-id="lockedWalletId"
+    @pricing-created="handlePricingRuleCreated"
   />
 </template>
 
@@ -1515,14 +1546,13 @@ import {
   Check,
   AlertTriangle,
   ExternalLink,
-  Wallet,
+  DollarSign,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -1535,21 +1565,20 @@ import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import FileExplorer from '@/components/FileExplorer.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
-import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
+import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 import {
   POLICY_TYPES,
   getRuleSummary,
   generateRuleId,
   createEmptyPolicyRules,
 } from '@/config/policyTypes'
-import type { PolicyTypeId, PolicyRulesRecord } from '@/config/policyTypes'
+import type { PolicyTypeId, PolicyRulesRecord, PolicyConfig } from '@/config/policyTypes'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { useTheme } from '@/composables/useTheme'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
-import { walletsApi } from '@/api/endpoints/wallets'
 import { useDataEndpointCreation } from '@/composables/useDataEndpointCreation'
 import { useUserStore } from '@/stores/user'
 import type { DatasetListItem } from '@/api/types'
@@ -1593,14 +1622,7 @@ const nameCheckDebounceTimer = ref<number | null>(null)
 const showOverwriteDialog = ref(false)
 const isCheckingBeforePublish = ref(false)
 
-// Wallet check state
-const walletConfigured = ref(false)
-const loadingWalletCheck = ref(true)
-const showWalletSetupDialog = ref(false)
-
-const onWalletUpdated = (address: string) => {
-  walletConfigured.value = !!address
-}
+const showAddPricingRuleDialog = ref(false)
 
 // Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
@@ -2111,6 +2133,50 @@ const deletePolicy = (policyId: PolicyTypeId, ruleId: string) => {
   }
 }
 
+// All pricing rules in a single create-endpoint flow share one wallet
+// (mirrors the per-endpoint constraint). Picked from the first rule added.
+const lockedWalletId = computed<string | null>(() => {
+  const firstRule = policyRules.value.pricing[0]
+  if (!firstRule) return null
+  return (firstRule.config.walletId as string) || null
+})
+
+const handlePricingRuleCreated = (payload: {
+  walletId: string
+  walletType: string
+  walletCurrency: string
+  policyType: 'mpp_accounting' | 'xendit'
+  name: string
+  config: Record<string, unknown>
+}) => {
+  const ruleId = generateRuleId()
+  const appliedTo = (payload.config.applied_to as string[]) ?? ['*']
+  const userType = appliedTo.length === 1 && appliedTo[0] === '*' ? 'all' : 'specific'
+  const users = userType === 'specific' ? appliedTo.join(', ') : ''
+
+  // Different field name per provider — normalize to a string `price` for display.
+  const rawPrice =
+    payload.walletType === 'mpp' ? payload.config.price : payload.config.price_per_request
+
+  const config: Record<string, unknown> = {
+    id: ruleId,
+    walletId: payload.walletId,
+    walletType: payload.walletType,
+    walletCurrency: payload.walletCurrency,
+    policyType: payload.policyType,
+    userType,
+    users,
+    note: payload.name,
+    price: String(rawPrice ?? '0'),
+  }
+
+  policyRules.value.pricing.push({
+    id: ruleId,
+    config: config as PolicyConfig,
+    isEditing: false,
+  })
+}
+
 // Handle Step 3 Create Model (placeholder)
 const handleStep3CreateModel = () => {
   console.log('Create model dialog would open here')
@@ -2159,20 +2225,6 @@ const getModelDisplayName = (): string => {
   return cachedModelName.value || formData.value.aiModel
 }
 
-// Check wallet configuration
-const checkWalletStatus = async () => {
-  loadingWalletCheck.value = true
-  try {
-    const wallets = await walletsApi.list()
-    const mppWallet = wallets.find((w) => w.wallet_type === 'mpp')
-    walletConfigured.value = !!mppWallet
-  } catch {
-    walletConfigured.value = false
-  } finally {
-    loadingWalletCheck.value = false
-  }
-}
-
 // Load datasets when component mounts
 onMounted(async () => {
   await loadExistingDatasets()
@@ -2181,8 +2233,6 @@ onMounted(async () => {
   if (existingDataSourcesCount.value === 0 && !selectedDataSourceType.value) {
     selectedDataSourceType.value = 'filesystem'
   }
-
-  checkWalletStatus()
 })
 
 // Cleanup debounce timer when component unmounts

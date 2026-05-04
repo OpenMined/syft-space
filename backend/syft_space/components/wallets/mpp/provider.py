@@ -47,6 +47,27 @@ class MppWalletProvider:
                 "wallet_address": tempo_acct.address,
                 "wallet_private_key": tempo_acct.private_key,
                 "mpp_secret_key": mpp_secret_key,
+                "currency": "USD",
             },
+            currency="USD",
+            country=None,
             display={"wallet_address": tempo_acct.address},
         )
+
+    def extract_display(self, configuration: dict[str, Any]) -> dict[str, Any]:
+        """Return wallet address — never expose private key or secret."""
+        return {"wallet_address": configuration.get("wallet_address", "")}
+
+    def update_credentials(
+        self,
+        current_config: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Update MPP wallet address (keeps private key and secret unchanged)."""
+        if "wallet_address" not in updates:
+            raise ValueError("Only 'wallet_address' can be updated for MPP wallets")
+        config = MppWalletConfig(**current_config)
+        updated = config.model_copy(
+            update={"wallet_address": updates["wallet_address"]}
+        )
+        return updated.model_dump()

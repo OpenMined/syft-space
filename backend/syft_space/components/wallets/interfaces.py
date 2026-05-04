@@ -24,7 +24,13 @@ class SetupResult:
     """
 
     credentials: dict[str, Any]
-    """Validated credentials to store in Wallet.configuration."""
+    """Validated credentials + provider-specific config to store in Wallet.configuration."""
+
+    currency: str
+    """Wallet currency code, surfaced to the entity (queryable, uniqueness key)."""
+
+    country: str | None = None
+    """Optional country code (ISO 3166-1 alpha-2). Region-specific providers only."""
 
     display: dict[str, Any] = field(default_factory=dict)
     """Type-specific info for the frontend.
@@ -58,5 +64,27 @@ class WalletProvider(Protocol):
 
         Returns:
             SetupResult with credentials to persist and display info for frontend.
+        """
+        ...
+
+    def extract_display(self, configuration: dict[str, Any]) -> dict[str, Any]:
+        """Extract safe display info from stored configuration.
+
+        Called on every get/list to build the response. Must never
+        expose secrets (private keys, API keys, tokens).
+        """
+        ...
+
+    def update_credentials(
+        self,
+        current_config: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply partial updates to stored credentials.
+
+        Returns the full updated configuration dict.
+        Raises ValueError if the update is invalid for this wallet type.
+
+        Default: not supported (raises ValueError).
         """
         ...
