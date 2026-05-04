@@ -140,6 +140,13 @@ class PaymentHandler:
         # the row sits unreachable (empty checkout_url) until a future sweep
         # job times it out. Marking FAILED here would block webhook recovery
         # because mark_paid/update_status guard on status='pending'.
+        #
+        # TODO: reconciliation. Stale PENDING rows (no webhook ever arrives —
+        # shared dev webhook URL, lost in transit, or Xendit didn't actually
+        # create the session) need a recovery path. Either lazy-poll Xendit's
+        # GET /payment_sessions/{id} on read for stale pendings, or run a
+        # background sweep. Both require storing payment_session_id alongside
+        # external_id; we currently only persist our own reference_id.
         try:
             result = await gateway.create_payment(
                 reference_id=reference_id,

@@ -8,6 +8,7 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import datetime
 from uuid import UUID
 
+from fastapi import HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -20,10 +21,19 @@ def _encode_cursor(created_at: datetime, entry_id: UUID) -> str:
 
 
 def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
-    padded = cursor + "=" * (-len(cursor) % 4)
-    raw = urlsafe_b64decode(padded.encode()).decode()
-    ts, tid = raw.split("|", 1)
-    return datetime.fromisoformat(ts), UUID(tid)
+    """Decode a paginate cursor produced by _encode_cursor.
+
+    Raises HTTPException(400) on any malformed input (bad base64, missing
+    delimiter, unparseable timestamp or UUID) so a tampered or stale cursor
+    surfaces as a client error instead of a 500.
+    """
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw = urlsafe_b64decode(padded.encode()).decode()
+        ts, tid = raw.split("|", 1)
+        return datetime.fromisoformat(ts), UUID(tid)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor") from exc
 
 
 class LedgerEntryRepository:
