@@ -60,8 +60,13 @@ class InvoiceRepository:
     ) -> list[Invoice]:
         """Admin view: all invoices for a tenant, newest first.
 
-        Optional status filter (pending|paid|expired|failed). No pagination —
+        Optional status filter (pending|paid|expired|cancelled). No pagination —
         invoice volume is low (a few per user per month).
+
+        TODO: paginate when any tenant exceeds ~5k invoices. Likely wants
+        date-range filters too rather than just cursor (admin reporting use
+        cases want "last 30 days," not "next 50 rows"). Defer until concrete
+        scale or product requirement.
         """
         statement = select(Invoice).where(Invoice.tenant_id == tenant_id)
         if status:
@@ -81,7 +86,7 @@ class InvoiceRepository:
 
         Used by the satellite-token /invoices/me endpoint so callers can check
         whether a pending invoice already exists before creating a new one.
-        Optional status filter (pending|paid|expired|failed).
+        Optional status filter (pending|paid|expired|cancelled).
         """
         statement = select(Invoice).where(
             Invoice.wallet_id == wallet_id,

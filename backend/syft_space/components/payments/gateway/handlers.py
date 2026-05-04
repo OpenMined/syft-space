@@ -314,6 +314,18 @@ class PaymentHandler:
         wallet = await self.wallet_repo.get_by_id(wallet_id, tenant.id)
         if not wallet:
             raise HTTPException(status_code=404, detail="Wallet not found")
+        # Only gateway wallets (e.g. xendit) carry a UserBalance row. MPP and
+        # other non-gateway types would silently return 0.0 here, which reads
+        # as a successful "you have no money" response — confusing. Reject
+        # them so the caller sees a clear error instead.
+        if wallet.wallet_type not in self.gateways:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Wallet type '{wallet.wallet_type}' does not support "
+                    f"prepaid balance lookup"
+                ),
+            )
         balance = await self.balance_service.get_balance(
             wallet_id=wallet.id, tenant_id=tenant.id, user_email=user_email
         )

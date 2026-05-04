@@ -39,7 +39,7 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
             result = await session.exec(statement)
             return list(result.all())
 
-    async def get_by_id(self, id: int, tenant_id: UUID) -> Endpoint | None:
+    async def get_by_id(self, id: UUID, tenant_id: UUID) -> Endpoint | None:
         """Get an endpoint by ID within a tenant.
 
         Args:

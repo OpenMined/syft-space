@@ -49,7 +49,7 @@ class XenditGateway:
     _EVENT_STATUS_MAP = {
         "payment_session.completed": InvoiceStatus.PAID,
         "payment_session.expired": InvoiceStatus.EXPIRED,
-        "payment_session.canceled": InvoiceStatus.EXPIRED,
+        "payment_session.canceled": InvoiceStatus.CANCELLED,
     }
 
     def resolve_purchase(

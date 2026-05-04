@@ -51,7 +51,7 @@
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="paid">Paid</SelectItem>
             <SelectItem value="expired">Expired</SelectItem>
-            <SelectItem value="failed">Failed</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
         <Input v-model="emailFilter" placeholder="Filter by email..." class="h-9 max-w-sm flex-1" />
@@ -94,7 +94,7 @@
                     'text-emerald-600 border-emerald-300': inv.status === 'paid',
                     'text-amber-600 border-amber-300': inv.status === 'pending',
                     'text-red-600 border-red-300':
-                      inv.status === 'expired' || inv.status === 'failed',
+                      inv.status === 'expired' || inv.status === 'cancelled',
                   }"
                 >
                   {{ inv.status }}
@@ -192,7 +192,7 @@ const pendingCount = computed(
 const expiredCount = computed(
   () =>
     emailScopedInvoices.value.filter(
-      (i) => i.status === 'expired' || i.status === 'failed',
+      (i) => i.status === 'expired' || i.status === 'cancelled',
     ).length,
 )
 
