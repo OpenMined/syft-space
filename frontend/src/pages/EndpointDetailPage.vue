@@ -1126,6 +1126,12 @@ const getRateLimitPolicies = () => {
 
 const walletsById = ref<Record<string, WalletListItem>>({})
 
+// Cached promise so callers can await the initial fetch even if it's already
+// in-flight, without triggering a duplicate network request. Anything that
+// reads walletsById (e.g. lockedWallet) should call ensureWallets() first
+// rather than racing the initial onMounted fetch.
+let walletsPromise: Promise<void> | null = null
+
 const fetchWallets = async () => {
   try {
     const list = await walletsApi.list()
@@ -1133,6 +1139,11 @@ const fetchWallets = async () => {
   } catch {
     walletsById.value = {}
   }
+}
+
+const ensureWallets = (): Promise<void> => {
+  walletsPromise ??= fetchWallets()
+  return walletsPromise
 }
 
 const getPricingPolicies = () => {
@@ -1216,6 +1227,11 @@ const fetchTransactions = async () => {
   if (!endpoint.value) return
   txnLoading.value = true
   try {
+    // lockedWallet derives from walletsById, which is populated asynchronously
+    // in onMounted. Without this await, clicking the Transactions tab before
+    // the wallet list lands would see lockedWallet=null and short-circuit to
+    // an empty state until the user hit Refresh.
+    await ensureWallets()
     const wallet = lockedWallet.value
     if (!wallet) {
       // No payment policy on this endpoint — nothing to fetch.
@@ -1483,7 +1499,8 @@ onMounted(async () => {
 
   // Wallet lookup table — populated in parallel with endpoint fetch.
   // Used by pricing-policy display and the add-pricing dialog lock logic.
-  fetchWallets()
+  // The cached promise lets fetchTransactions() await this on tab activation.
+  ensureWallets()
 
   try {
     // Fetch the endpoint details directly from the API
