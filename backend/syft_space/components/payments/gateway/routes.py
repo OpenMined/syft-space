@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from syft_space.components.payments.gateway.dependencies import (
     get_verified_sender_email_dependency,
 )
+from syft_space.components.payments.gateway.entities import InvoiceStatus
 from syft_space.components.payments.gateway.handlers import PaymentHandler
 from syft_space.components.payments.gateway.schemas import (
     CreateInvoiceRequest,
@@ -45,12 +46,14 @@ def build_gateway_routes(
 
     @router.get("/invoices", response_model=list[InvoiceResponse])
     async def list_invoices(
-        status: str | None = Query(default=None),
+        status: InvoiceStatus | None = Query(default=None),
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: PaymentHandler = Depends(get_handler),
     ) -> list[InvoiceResponse]:
         """All invoices for the tenant across wallets, newest first."""
-        return await handler.list_all_invoices(tenant, status=status)
+        return await handler.list_all_invoices(
+            tenant, status=status.value if status else None
+        )
 
     @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
     async def get_invoice(
@@ -137,7 +140,7 @@ def build_gateway_routes(
     )
     async def list_my_invoices(
         wallet_id: UUID,
-        status: str | None = Query(default=None),
+        status: InvoiceStatus | None = Query(default=None),
         tenant: Tenant = Depends(get_tenant_dependency),
         user_email: str = Depends(get_verified_sender_email),
         handler: PaymentHandler = Depends(get_handler),
@@ -148,7 +151,10 @@ def build_gateway_routes(
         triggering a new bundle purchase.
         """
         return await handler.list_user_invoices(
-            wallet_id, user_email, tenant, status=status
+            wallet_id,
+            user_email,
+            tenant,
+            status=status.value if status else None,
         )
 
     @router.get(
