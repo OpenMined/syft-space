@@ -104,6 +104,28 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return result.first() is not None
 
+    async def set_checkout_url(self, id: UUID, checkout_url: str) -> bool:
+        """Set checkout_url on a still-pending invoice.
+
+        Used to patch the URL in after the provider returns it, when the
+        invoice was inserted PENDING with an empty placeholder. Guarded by
+        WHERE status='pending' so a concurrent webhook can't be clobbered.
+        Returns False if no row was updated (already terminal).
+        """
+        stmt = (
+            update(Invoice)
+            .where(
+                Invoice.id == id,
+                Invoice.status == InvoiceStatus.PENDING.value,
+            )
+            .values(
+                checkout_url=checkout_url,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        result = await self.session.exec(stmt)
+        return result.rowcount > 0
+
     async def mark_paid(
         self,
         id: UUID,

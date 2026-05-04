@@ -102,30 +102,14 @@ class PaymentHandler:
             if endpoint:
                 endpoint_id = endpoint.id
 
-        # 4. Call provider API via gateway. The reference_id is the Invoice
-        # PK with a "syft-" prefix — 41 chars total, comfortably under
-        # Xendit's 64-char cap (and the 59-char effective budget once
-        # client.py's "cust-" prefix is accounted for). Generating the
-        # invoice id up front lets us use it as both the DB primary key and
-        # the Xendit webhook-join key, eliminating same-second collisions
-        # and the prior length-budget juggling.
+        # 4. Persist Invoice as PENDING up front so a successful Xendit
+        # session can never outlive the local row. The reference_id (= our
+        # invoice id with a "syft-" prefix) is what Xendit echoes on every
+        # webhook, so we set external_id to it now and patch in the
+        # checkout_url after Xendit returns. checkout_url is "" until then;
+        # the frontend already gates the checkout link on a non-empty value.
         invoice_id = uuid4()
         reference_id = f"syft-{invoice_id}"
-        result = await gateway.create_payment(
-            reference_id=reference_id,
-            amount=bundle.amount,
-            currency=bundle.currency,
-            payer_email=user_email,
-            description=f"Bundle: {bundle.name} ({bundle.amount} {bundle.currency})",
-            wallet=wallet,
-            metadata={
-                "wallet_id": str(wallet.id),
-                "tenant_id": str(tenant.id),
-                "bundle_name": bundle.name,
-            },
-        )
-
-        # 5. Store invoice
         invoice = Invoice(
             id=invoice_id,
             tenant_id=tenant.id,
@@ -133,22 +117,58 @@ class PaymentHandler:
             endpoint_id=endpoint_id,
             user_email=user_email,
             provider=gateway.PROVIDER_NAME,
-            external_id=result.external_id,
-            checkout_url=result.checkout_url,
+            external_id=reference_id,
+            checkout_url="",
             bundle_name=bundle.name,
             amount=bundle.amount,
             currency=bundle.currency,
             status=InvoiceStatus.PENDING.value,
         )
-        # Snapshot the invoice fields up-front: SQLAlchemy expires attributes
-        # on commit (default expire_on_commit=True), so any sync getattr after
-        # commit would trigger a refresh and raise MissingGreenlet inside an
-        # async session. Building the response from the in-memory dict avoids
-        # going through ORM lazy-load entirely.
+        # Snapshot now: SQLAlchemy expires attributes on commit, so reading
+        # them after would trigger a sync refresh and raise MissingGreenlet
+        # inside an async session. We patch checkout_url onto this dict once
+        # Xendit returns.
         response_data = invoice.model_dump()
         async with self._ledger() as ledger:
             await ledger.invoices.create(invoice)
             await ledger.commit()
+
+        # 5. Call provider API. On failure we deliberately leave the invoice
+        # PENDING rather than marking it FAILED: a network error doesn't tell
+        # us whether the provider actually created the session. If it did,
+        # the webhook will arrive later and update the row normally; if not,
+        # the row sits unreachable (empty checkout_url) until a future sweep
+        # job times it out. Marking FAILED here would block webhook recovery
+        # because mark_paid/update_status guard on status='pending'.
+        try:
+            result = await gateway.create_payment(
+                reference_id=reference_id,
+                amount=bundle.amount,
+                currency=bundle.currency,
+                payer_email=user_email,
+                description=f"Bundle: {bundle.name} ({bundle.amount} {bundle.currency})",
+                wallet=wallet,
+                metadata={
+                    "wallet_id": str(wallet.id),
+                    "tenant_id": str(tenant.id),
+                    "bundle_name": bundle.name,
+                },
+            )
+        except Exception:
+            logger.exception(
+                f"Provider create_payment failed for invoice {invoice_id}; "
+                f"left PENDING for webhook reconciliation"
+            )
+            raise
+
+        # 6. Patch in the checkout URL Xendit returned. set_checkout_url is
+        # guarded on status='pending', so if a webhook somehow flipped status
+        # in the meantime, the no-op is the right outcome.
+        async with self._ledger() as ledger:
+            await ledger.invoices.set_checkout_url(invoice_id, result.checkout_url)
+            await ledger.commit()
+
+        response_data["checkout_url"] = result.checkout_url
         return InvoiceResponse.model_validate(response_data)
 
     # ── Provider-scoped: webhook handling ──────────────────────────
