@@ -183,9 +183,7 @@
             </div>
             <div>
               <h3 class="text-lg font-medium text-foreground">Payments</h3>
-              <p class="text-sm text-muted-foreground">
-                Manage your payment wallets
-              </p>
+              <p class="text-sm text-muted-foreground">Manage your payment wallets</p>
             </div>
           </div>
           <Button variant="outline" size="sm" @click="addWalletDialogOpen = true">
@@ -227,10 +225,7 @@
                   v-if="wallet.wallet_type === 'mpp'"
                   class="h-4 w-4 text-emerald-600 dark:text-emerald-400"
                 />
-                <Package
-                  v-else
-                  class="h-4 w-4 text-violet-600 dark:text-violet-400"
-                />
+                <Package v-else class="h-4 w-4 text-violet-600 dark:text-violet-400" />
               </div>
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
@@ -289,10 +284,7 @@
       </div>
 
       <!-- MPP Wallet Setup Dialog (opened from Manage button) -->
-      <WalletSetupDialog
-        v-model:open="walletDialogOpen"
-        @wallet-updated="onWalletUpdated"
-      />
+      <WalletSetupDialog v-model:open="walletDialogOpen" @wallet-updated="onWalletUpdated" />
 
       <!-- Add Wallet Dialog (type selection → config) -->
       <Dialog v-model:open="addWalletDialogOpen">
@@ -301,9 +293,7 @@
           <template v-if="!addWalletType">
             <DialogHeader>
               <DialogTitle>Add Wallet</DialogTitle>
-              <DialogDescription>
-                Choose a wallet type to set up.
-              </DialogDescription>
+              <DialogDescription> Choose a wallet type to set up. </DialogDescription>
             </DialogHeader>
             <div class="grid grid-cols-2 gap-3 py-2">
               <button
@@ -318,9 +308,7 @@
                   </div>
                   <h4 class="font-medium text-foreground text-sm">MPP (Tempo)</h4>
                 </div>
-                <p class="text-xs text-muted-foreground">
-                  Blockchain wallet for micro-payments
-                </p>
+                <p class="text-xs text-muted-foreground">Blockchain wallet for micro-payments</p>
               </button>
               <button
                 class="group text-left p-4 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-md transition-all"
@@ -334,9 +322,7 @@
                   </div>
                   <h4 class="font-medium text-foreground text-sm">Xendit</h4>
                 </div>
-                <p class="text-xs text-muted-foreground">
-                  Payment gateway for bundle purchases
-                </p>
+                <p class="text-xs text-muted-foreground">Payment gateway for bundle purchases</p>
               </button>
             </div>
           </template>
@@ -406,17 +392,13 @@
                 <Package class="h-5 w-5 text-violet-600 dark:text-violet-400" />
                 Xendit Wallet
               </DialogTitle>
-              <DialogDescription>
-                Enter your Xendit API credentials.
-              </DialogDescription>
+              <DialogDescription> Enter your Xendit API credentials. </DialogDescription>
             </DialogHeader>
             <div class="space-y-4 py-2">
               <!-- Show webhook URL after creation -->
               <div v-if="addWalletWebhookUrl" class="space-y-1">
                 <Label class="text-sm font-medium">Webhook URL</Label>
-                <p class="text-xs text-muted-foreground">
-                  Paste this into your Xendit dashboard.
-                </p>
+                <p class="text-xs text-muted-foreground">Paste this into your Xendit dashboard.</p>
                 <div class="flex gap-2">
                   <Input
                     :model-value="addWalletWebhookUrl"
@@ -442,11 +424,7 @@
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem
-                          v-for="code in XENDIT_CURRENCIES"
-                          :key="code"
-                          :value="code"
-                        >
+                        <SelectItem v-for="code in XENDIT_CURRENCIES" :key="code" :value="code">
                           {{ code }}
                         </SelectItem>
                       </SelectContent>
@@ -459,11 +437,7 @@
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem
-                          v-for="c in XENDIT_COUNTRIES"
-                          :key="c.code"
-                          :value="c.code"
-                        >
+                        <SelectItem v-for="c in XENDIT_COUNTRIES" :key="c.code" :value="c.code">
                           {{ c.label }}
                         </SelectItem>
                       </SelectContent>
@@ -495,7 +469,9 @@
                 <Button
                   class="w-full"
                   @click="handleCreateXendit"
-                  :disabled="addWalletSaving || !addXenditForm.apiKey || !addXenditForm.callbackToken"
+                  :disabled="
+                    addWalletSaving || !addXenditForm.apiKey || !addXenditForm.callbackToken
+                  "
                 >
                   <Loader2 v-if="addWalletSaving" class="h-4 w-4 mr-2 animate-spin" />
                   Connect Xendit
@@ -844,9 +820,7 @@ const handleImportMpp = async () => {
 const handleCreateXendit = async () => {
   if (
     allWallets.value.some(
-      (w) =>
-        w.wallet_type === 'xendit' &&
-        w.currency === addXenditForm.value.currency,
+      (w) => w.wallet_type === 'xendit' && w.currency === addXenditForm.value.currency,
     )
   ) {
     toast.error(

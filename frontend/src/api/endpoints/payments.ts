@@ -1,8 +1,5 @@
 import { apiClient } from '../client'
-import type {
-  LedgerEntryPage,
-  UserBalanceResponse,
-} from '../types'
+import type { LedgerEntryPage, UserBalanceResponse } from '../types'
 
 export interface InvoiceResponse {
   id: string
@@ -33,10 +30,7 @@ export const paymentsApi = {
     walletId: string,
     request: CreateInvoiceRequest,
   ): Promise<InvoiceResponse> => {
-    const response = await apiClient.post(
-      `/payments/gateway/wallets/${walletId}/invoices`,
-      request,
-    )
+    const response = await apiClient.post(`/payments/gateway/wallets/${walletId}/invoices`, request)
     return response.data
   },
 
@@ -49,10 +43,9 @@ export const paymentsApi = {
     walletId: string,
     params?: { cursor?: string; limit?: number },
   ): Promise<LedgerEntryPage> => {
-    const response = await apiClient.get(
-      `/payments/gateway/wallets/${walletId}/transactions/me`,
-      { params },
-    )
+    const response = await apiClient.get(`/payments/gateway/wallets/${walletId}/transactions/me`, {
+      params,
+    })
     return response.data
   },
 
@@ -77,10 +70,9 @@ export const paymentsApi = {
     walletId: string,
     params?: { cursor?: string; limit?: number },
   ): Promise<LedgerEntryPage> => {
-    const response = await apiClient.get(
-      `/payments/gateway/wallets/${walletId}/transactions`,
-      { params },
-    )
+    const response = await apiClient.get(`/payments/gateway/wallets/${walletId}/transactions`, {
+      params,
+    })
     return response.data
   },
 
@@ -88,10 +80,9 @@ export const paymentsApi = {
     endpointId: string,
     params?: { cursor?: string; limit?: number },
   ): Promise<LedgerEntryPage> => {
-    const response = await apiClient.get(
-      `/payments/gateway/endpoints/${endpointId}/transactions`,
-      { params },
-    )
+    const response = await apiClient.get(`/payments/gateway/endpoints/${endpointId}/transactions`, {
+      params,
+    })
     return response.data
   },
 }

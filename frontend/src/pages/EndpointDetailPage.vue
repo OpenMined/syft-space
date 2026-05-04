@@ -571,11 +571,7 @@
                       </CardDescription>
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    @click="showAddPricingRuleDialog = true"
-                  >
+                  <Button variant="outline" size="sm" @click="showAddPricingRuleDialog = true">
                     <Plus class="h-4 w-4 mr-2" />
                     Add Pricing rule
                   </Button>
@@ -1390,8 +1386,7 @@ const handlePricingCreated = async (payload: {
 
   const ruleIndex = getPricingPolicies().length + 1
   const policyLabel = payload.policyType === 'mpp_accounting' ? 'MPP' : 'Xendit'
-  const policyName =
-    payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
+  const policyName = payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
 
   try {
     const newPolicy = await policiesApi.create({

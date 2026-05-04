@@ -624,11 +624,7 @@
                       </p>
                     </div>
                   </div>
-                  <Button
-                    @click="showAddPricingRuleDialog = true"
-                    variant="outline"
-                    size="sm"
-                  >
+                  <Button @click="showAddPricingRuleDialog = true" variant="outline" size="sm">
                     <Plus class="h-4 w-4 mr-2" />
                     Add Pricing rule
                   </Button>
@@ -667,11 +663,7 @@
                           {{ getRuleSummary('pricing', rule.config) }}
                         </p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        @click="deletePolicy('pricing', rule.id)"
-                      >
+                      <Button variant="outline" size="sm" @click="deletePolicy('pricing', rule.id)">
                         Delete
                       </Button>
                     </div>
@@ -1830,9 +1822,7 @@ const handlePricingRuleCreated = (payload: {
 
   // Different field name per provider — normalize to a string `price` for display.
   const rawPrice =
-    payload.walletType === 'mpp'
-      ? payload.config.price
-      : payload.config.price_per_request
+    payload.walletType === 'mpp' ? payload.config.price : payload.config.price_per_request
 
   const config: Record<string, unknown> = {
     id: ruleId,

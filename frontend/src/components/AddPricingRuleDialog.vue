@@ -102,11 +102,7 @@
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem
-                    v-for="code in XENDIT_CURRENCIES"
-                    :key="code"
-                    :value="code"
-                  >
+                  <SelectItem v-for="code in XENDIT_CURRENCIES" :key="code" :value="code">
                     {{ code }}
                   </SelectItem>
                 </SelectContent>
@@ -119,11 +115,7 @@
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem
-                    v-for="c in XENDIT_COUNTRIES"
-                    :key="c.code"
-                    :value="c.code"
-                  >
+                  <SelectItem v-for="c in XENDIT_COUNTRIES" :key="c.code" :value="c.code">
                     {{ c.label }}
                   </SelectItem>
                 </SelectContent>
@@ -138,7 +130,7 @@
               type="password"
               autocomplete="off"
               placeholder="xnd_production_..."
-              class="font-mono"
+              class="font-mono placeholder:text-muted-foreground/50"
             />
           </div>
           <div class="space-y-2">
@@ -149,7 +141,7 @@
               type="password"
               autocomplete="off"
               placeholder="Enter your Xendit callback token"
-              class="font-mono"
+              class="font-mono placeholder:text-muted-foreground/50"
             />
           </div>
           <Button
@@ -171,8 +163,7 @@
             Wallet connected
           </DialogTitle>
           <DialogDescription>
-            Paste this webhook URL into your Xendit dashboard so payment events
-            reach this server.
+            Paste this webhook URL into your Xendit dashboard so payment events reach this server.
           </DialogDescription>
         </DialogHeader>
 
@@ -224,10 +215,7 @@
                 (locked — endpoint already uses this wallet)
               </span>
             </Label>
-            <Select
-              v-model="selectedWalletId"
-              :disabled="!!lockedWalletId || loadingWallets"
-            >
+            <Select v-model="selectedWalletId" :disabled="!!lockedWalletId || loadingWallets">
               <SelectTrigger class="h-10">
                 <SelectValue placeholder="Select a wallet" />
               </SelectTrigger>
@@ -252,9 +240,7 @@
           <!-- Form (visible once wallet picked) -->
           <template v-if="selectedWallet">
             <div class="space-y-2">
-              <Label for="price-per-request" class="text-sm font-medium">
-                Price per request
-              </Label>
+              <Label for="price-per-request" class="text-sm font-medium"> Price per request </Label>
               <div class="flex gap-2 items-stretch">
                 <Input
                   id="price-per-request"
@@ -263,7 +249,7 @@
                   step="any"
                   min="0"
                   placeholder="0.10"
-                  class="h-10 flex-1"
+                  class="h-10 flex-1 placeholder:text-muted-foreground/50"
                 />
                 <div
                   class="px-3 inline-flex items-center rounded-md border border-input bg-muted text-sm font-medium"
@@ -284,7 +270,7 @@
                 id="policy-name"
                 v-model="form.name"
                 placeholder="e.g. Standard rate"
-                class="h-10"
+                class="h-10 placeholder:text-muted-foreground/50"
               />
             </div>
 
@@ -306,7 +292,7 @@
               <Textarea
                 v-model="form.users"
                 placeholder="alice@example.com&#10;bob@example.com"
-                class="min-h-[100px]"
+                class="min-h-[100px] placeholder:text-muted-foreground/50"
               />
               <p class="text-xs text-muted-foreground">
                 One email per line. Only these users will be charged.
@@ -314,9 +300,7 @@
             </div>
 
             <!-- Summary -->
-            <div
-              class="p-4 bg-muted/50 border border-border rounded-lg space-y-2"
-            >
+            <div class="p-4 bg-muted/50 border border-border rounded-lg space-y-2">
               <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 Summary
               </p>
@@ -450,8 +434,8 @@ const form = ref({
   users: '',
 })
 
-const selectedWallet = computed(() =>
-  wallets.value.find((w) => w.id === selectedWalletId.value) ?? null,
+const selectedWallet = computed(
+  () => wallets.value.find((w) => w.id === selectedWalletId.value) ?? null,
 )
 
 const priceHint = computed(() => {
@@ -473,8 +457,7 @@ const canSubmit = computed(() => {
 
 const canCreateXendit = computed(
   () =>
-    xenditForm.value.apiKey.trim().length > 0 &&
-    xenditForm.value.callbackToken.trim().length > 0,
+    xenditForm.value.apiKey.trim().length > 0 && xenditForm.value.callbackToken.trim().length > 0,
 )
 
 const providerLabel = (walletType: string): string => {
@@ -557,14 +540,10 @@ const createXenditWallet = async () => {
   // Frontend guard: backend enforces UNIQUE(tenant, type, currency) too.
   if (
     wallets.value.some(
-      (w) =>
-        w.wallet_type === 'xendit' &&
-        w.currency === xenditForm.value.currency,
+      (w) => w.wallet_type === 'xendit' && w.currency === xenditForm.value.currency,
     )
   ) {
-    toast.error(
-      `A Xendit wallet for ${xenditForm.value.currency} already exists.`,
-    )
+    toast.error(`A Xendit wallet for ${xenditForm.value.currency} already exists.`)
     return
   }
 

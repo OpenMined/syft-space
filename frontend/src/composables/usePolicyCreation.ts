@@ -251,7 +251,9 @@ export function usePolicyCreation() {
         continue
       }
 
-      for (const [index, rule] of (rules as Array<{ id: string; config: Record<string, unknown> }>).entries()) {
+      for (const [index, rule] of (
+        rules as Array<{ id: string; config: Record<string, unknown> }>
+      ).entries()) {
         const policyName = generatePolicyName(
           policyType,
           rule.config as unknown as PolicyFormData,
@@ -307,8 +309,7 @@ export function usePolicyCreation() {
             | 'xendit'
             | undefined
           backendPolicyType =
-            explicitPolicyType ??
-            (walletType === 'mpp' ? 'mpp_accounting' : 'xendit')
+            explicitPolicyType ?? (walletType === 'mpp' ? 'mpp_accounting' : 'xendit')
 
           const userType = rule.config.userType as 'all' | 'specific'
           const users = rule.config.users as string
@@ -322,11 +323,7 @@ export function usePolicyCreation() {
 
           if (backendPolicyType === 'mpp_accounting') {
             // Currency lives on the wallet now; only price + applied_to here.
-            configuration = createPricingConfiguration(
-              rule.config.price as string,
-              userType,
-              users,
-            )
+            configuration = createPricingConfiguration(rule.config.price as string, userType, users)
             configuration.applied_to = appliedTo
           } else {
             configuration = {
