@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
+from syft_space.components.auth.public import public_route
 from syft_space.components.payments.gateway.dependencies import (
     get_verified_sender_email_dependency,
 )
@@ -44,6 +45,7 @@ def build_gateway_routes(
 
     # ── Admin routes (tenant-authenticated) ────────────────────────
 
+    @public_route
     @router.get("/invoices", response_model=list[InvoiceResponse])
     async def list_invoices(
         status: InvoiceStatus | None = Query(default=None),
@@ -55,6 +57,7 @@ def build_gateway_routes(
             tenant, status=status.value if status else None
         )
 
+    @public_route
     @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
     async def get_invoice(
         invoice_id: UUID,
@@ -64,6 +67,7 @@ def build_gateway_routes(
         """Get invoice details by ID."""
         return await handler.get_invoice(invoice_id, tenant)
 
+    @public_route
     @router.get("/wallets/{wallet_id}/invoices", response_model=list[InvoiceResponse])
     async def list_wallet_invoices(
         wallet_id: UUID,
@@ -73,6 +77,7 @@ def build_gateway_routes(
         """All invoices for a wallet (admin view)."""
         return await handler.get_invoices_by_wallet(wallet_id, tenant)
 
+    @public_route
     @router.get("/wallets/{wallet_id}/transactions", response_model=LedgerEntryPage)
     async def list_wallet_transactions(
         wallet_id: UUID,

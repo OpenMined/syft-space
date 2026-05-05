@@ -6,6 +6,7 @@ provider-specific webhook stays here.
 
 from fastapi import APIRouter, Header, Request
 
+from syft_space.components.auth.public import public_route
 from syft_space.components.payments.gateway.dependencies import (
     get_verified_sender_email_dependency,
 )
@@ -19,6 +20,7 @@ def build_xendit_routes(
     """Build the Xendit-specific webhook route under /xendit."""
     router = APIRouter(prefix="/xendit", tags=["payments", "xendit"])
 
+    @public_route
     @router.post("/webhooks")
     async def xendit_webhook(
         request: Request,
