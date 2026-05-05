@@ -28,15 +28,15 @@ def build_gateway_routes(
     """Build gateway payment routes under /gateway.
 
     Wallet-scoped paths:
+      GET    /gateway/invoices                                (admin, tenant)
+      GET    /gateway/invoices/{invoice_id}                   (admin, tenant)
+      GET    /gateway/wallets/{wallet_id}/invoices            (admin, tenant)
+      GET    /gateway/wallets/{wallet_id}/transactions        (admin, tenant)
+      GET    /gateway/endpoints/{endpoint_id}/transactions    (admin, tenant)
       POST   /gateway/wallets/{wallet_id}/invoices            (PUBLIC, satellite token)
       GET    /gateway/wallets/{wallet_id}/balance             (PUBLIC, satellite token)
       GET    /gateway/wallets/{wallet_id}/invoices/me         (PUBLIC, satellite token)
       GET    /gateway/wallets/{wallet_id}/transactions/me     (PUBLIC, satellite token)
-      GET    /gateway/wallets/{wallet_id}/transactions        (admin, tenant)
-      GET    /gateway/wallets/{wallet_id}/invoices            (admin, tenant)
-      GET    /gateway/invoices                                (admin, tenant)
-      GET    /gateway/invoices/{invoice_id}                   (admin, tenant)
-      GET    /gateway/endpoints/{endpoint_id}/transactions    (admin, tenant)
     """
     router = APIRouter(prefix="/gateway", tags=["payments", "gateway"])
 
@@ -45,7 +45,6 @@ def build_gateway_routes(
 
     # ── Admin routes (tenant-authenticated) ────────────────────────
 
-    @public_route
     @router.get("/invoices", response_model=list[InvoiceResponse])
     async def list_invoices(
         status: InvoiceStatus | None = Query(default=None),
@@ -57,7 +56,6 @@ def build_gateway_routes(
             tenant, status=status.value if status else None
         )
 
-    @public_route
     @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
     async def get_invoice(
         invoice_id: UUID,
@@ -67,7 +65,6 @@ def build_gateway_routes(
         """Get invoice details by ID."""
         return await handler.get_invoice(invoice_id, tenant)
 
-    @public_route
     @router.get("/wallets/{wallet_id}/invoices", response_model=list[InvoiceResponse])
     async def list_wallet_invoices(
         wallet_id: UUID,
@@ -77,7 +74,6 @@ def build_gateway_routes(
         """All invoices for a wallet (admin view)."""
         return await handler.get_invoices_by_wallet(wallet_id, tenant)
 
-    @public_route
     @router.get("/wallets/{wallet_id}/transactions", response_model=LedgerEntryPage)
     async def list_wallet_transactions(
         wallet_id: UUID,
@@ -109,6 +105,7 @@ def build_gateway_routes(
 
     # ── Public routes (satellite-token authenticated) ──────────────
 
+    @public_route
     @router.post(
         "/wallets/{wallet_id}/invoices",
         response_model=InvoiceResponse,
@@ -129,6 +126,7 @@ def build_gateway_routes(
             "xendit", wallet_id, request, tenant, user_email
         )
 
+    @public_route
     @router.get("/wallets/{wallet_id}/balance", response_model=UserBalanceResponse)
     async def get_balance(
         wallet_id: UUID,
@@ -139,6 +137,7 @@ def build_gateway_routes(
         """Read the caller's wallet balance (PUBLIC, satellite token)."""
         return await handler.get_user_balance(wallet_id, user_email, tenant)
 
+    @public_route
     @router.get(
         "/wallets/{wallet_id}/invoices/me",
         response_model=list[InvoiceResponse],
@@ -162,6 +161,7 @@ def build_gateway_routes(
             status=status.value if status else None,
         )
 
+    @public_route
     @router.get(
         "/wallets/{wallet_id}/transactions/me",
         response_model=LedgerEntryPage,
