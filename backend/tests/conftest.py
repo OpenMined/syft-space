@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+import pytest_asyncio
 from sqlmodel import SQLModel
 
 from syft_space.components.analytics.entities import QueryEvent, QueryEventStatus
@@ -24,29 +24,19 @@ from syft_space.components.models.entities import Model  # noqa: F401
 from syft_space.components.policies.entities import Policy  # noqa: F401
 from syft_space.components.shared.database import AsyncDatabase, SQLiteConfig
 from syft_space.components.tenants.entities import Tenant
-
-# ============== Event loop ==============
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create a single event loop for the entire test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
+from syft_space.components.wallets.entities import Wallet  # noqa: F401
 
 # ============== Databases ==============
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def tmp_dir():
     """Temporary directory cleaned up after each test."""
     with tempfile.TemporaryDirectory() as d:
         yield Path(d)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def analytics_db(tmp_dir: Path) -> AsyncDatabase:
     """In-memory-like analytics database (temp file) with tables created."""
     db_path = tmp_dir / "analytics_test.db"
@@ -60,7 +50,7 @@ async def analytics_db(tmp_dir: Path) -> AsyncDatabase:
     await db.dispose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def main_db(tmp_dir: Path) -> AsyncDatabase:
     """Main database with tenant + endpoint tables for cross-DB handler tests."""
     db_path = tmp_dir / "main_test.db"
@@ -77,12 +67,12 @@ async def main_db(tmp_dir: Path) -> AsyncDatabase:
 # ============== Repositories ==============
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def event_repository(analytics_db: AsyncDatabase) -> QueryEventRepository:
     return QueryEventRepository(analytics_db)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def endpoint_repository(main_db: AsyncDatabase) -> EndpointRepository:
     return EndpointRepository(main_db)
 
@@ -92,7 +82,7 @@ async def endpoint_repository(main_db: AsyncDatabase) -> EndpointRepository:
 TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def tenant(main_db: AsyncDatabase) -> Tenant:
     """Create and persist a test tenant."""
     t = Tenant(
