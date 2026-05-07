@@ -11,6 +11,7 @@ import {
   FileText,
   Loader2,
   Sparkles,
+  Layers,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -26,44 +27,39 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useEndpointsStore } from '@/stores/endpoints'
-import { useLocalChat } from '@/composables/useLocalChat'
+import { useEndpointChat } from '@/composables/useEndpointChat'
 import { useNavigation } from '@/composables/useNavigation'
 
-const { turns, loading, error, sendMessage, clearChat } = useLocalChat()
+const { turns, loading, error, sendMessage, clearChat } = useEndpointChat()
 const { goToGoLive } = useNavigation()
 const endpointsStore = useEndpointsStore()
 
-const modelApiSlug = ref<string | null>(null)
-const dataApiSlug = ref<string | null>(null)
+const endpointSlug = ref<string | null>(null)
 const inputText = ref('')
 const messagesEndRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
 
-const modelApis = computed(() => endpointsStore.endpoints.filter((e) => e.modelId != null))
-// Only pure data-source endpoints (no model attached) — combined endpoints appear exclusively
-// in the model dropdown and auto-contribute their dataset as context (see handleSend).
-const dataApis = computed(() =>
-  endpointsStore.endpoints.filter((e) => e.datasetId != null && e.modelId == null),
+const allEndpoints = computed(() => endpointsStore.endpoints)
+const hasNoEndpoints = computed(() => !endpointsStore.isLoading && allEndpoints.value.length === 0)
+
+const selectedEndpoint = computed(
+  () => allEndpoints.value.find((e) => e.slug === endpointSlug.value) ?? null,
 )
 
-const selectedModelApi = computed(
-  () => modelApis.value.find((e) => e.slug === modelApiSlug.value) ?? null,
-)
-const selectedDataApi = computed(
-  () => dataApis.value.find((e) => e.slug === dataApiSlug.value) ?? null,
-)
+function endpointTypeLabel(endpoint: { modelId?: string; datasetId?: string }): string {
+  if (endpoint.modelId && endpoint.datasetId) return 'Model + Data'
+  if (endpoint.modelId) return 'Model'
+  return 'Data'
+}
 
-const hasNoModelApis = computed(
-  () => !endpointsStore.isLoading && modelApis.value.length === 0,
-)
+function endpointTypeIcon(endpoint: { modelId?: string; datasetId?: string }) {
+  if (endpoint.modelId && endpoint.datasetId) return Layers
+  if (endpoint.modelId) return Brain
+  return Database
+}
 
-// When the selected model endpoint already has a dataset, its context is used automatically.
-// Show "Override context" to signal that picking a data source here replaces it.
-const dataSourcePlaceholder = computed(() =>
-  selectedModelApi.value?.datasetId ? 'Override context' : 'Add context',
-)
 const canSubmit = computed(
-  () => inputText.value.trim().length > 0 && selectedModelApi.value != null && !loading.value,
+  () => inputText.value.trim().length > 0 && selectedEndpoint.value != null && !loading.value,
 )
 
 onMounted(() => {
@@ -80,24 +76,12 @@ watch(
 )
 
 async function handleSend() {
-  if (!canSubmit.value || !selectedModelApi.value) return
-  const modelId = selectedModelApi.value.modelId
-  if (!modelId) return
+  if (!canSubmit.value || !endpointSlug.value) return
 
   const text = inputText.value.trim()
   inputText.value = ''
 
-  // Explicit data-source selection takes precedence; fall back to the model endpoint's
-  // own dataset (for combined endpoints) so context is never silently dropped.
-  const datasetId =
-    selectedDataApi.value?.datasetId ?? selectedModelApi.value.datasetId ?? null
-
-  await sendMessage({
-    content: text,
-    modelId,
-    datasetId,
-    systemPrompt: selectedModelApi.value.systemPrompt ?? null,
-  })
+  await sendMessage({ content: text, endpointSlug: endpointSlug.value })
 }
 
 function isDialogOpen(): boolean {
@@ -130,19 +114,20 @@ function handleClear() {
     <!-- Messages Area -->
     <ScrollArea class="flex-1">
       <div class="max-w-3xl mx-auto px-6 py-6">
-        <!-- No Model APIs Available State -->
+        <!-- No Endpoints Available State -->
         <div
-          v-if="hasNoModelApis && turns.length === 0"
+          v-if="hasNoEndpoints && turns.length === 0"
           class="flex flex-col items-center justify-center py-24"
         >
           <Alert class="max-w-md">
             <Sparkles class="h-4 w-4" />
-            <AlertTitle>No APIs with a model yet</AlertTitle>
+            <AlertTitle>No APIs published yet</AlertTitle>
             <AlertDescription>
               <p class="mb-3">
-                Publish an API that has a model attached before you can test it in chat.
+                Publish an API first — this chat tests it exactly as your users will experience it,
+                including all your access rules, usage limits, and filters.
               </p>
-              <Button size="sm" @click="goToGoLive"> Go live with an API </Button>
+              <Button size="sm" @click="goToGoLive"> Publish your first API </Button>
             </AlertDescription>
           </Alert>
         </div>
@@ -155,8 +140,8 @@ function handleClear() {
           <MessageSquare class="h-12 w-12 text-muted-foreground/40 mb-6" />
           <h2 class="text-xl font-semibold text-foreground mb-2">Test your APIs</h2>
           <p class="text-sm text-muted-foreground max-w-md">
-            Pick an API with a model, optionally attach a data source API for context, then ask a
-            question to test whether your setup is working.
+            Select an endpoint below and send a message. You'll get the exact same response your
+            users do — policies, filters, and all.
           </p>
         </div>
 
@@ -251,7 +236,7 @@ function handleClear() {
       </div>
     </ScrollArea>
 
-    <!-- Input Area (selectors + send fused inside the prompt) -->
+    <!-- Input Area -->
     <div class="shrink-0 px-6 py-3">
       <div class="max-w-3xl mx-auto">
         <div
@@ -260,35 +245,21 @@ function handleClear() {
           <Textarea
             v-model="inputText"
             :placeholder="
-              hasNoModelApis
-                ? 'Publish a model API to start chatting'
-                : selectedModelApi
+              hasNoEndpoints
+                ? 'Publish an API to start testing'
+                : selectedEndpoint
                   ? 'Ask a question...'
-                  : 'Select a model API to start chatting'
+                  : 'Select an endpoint to start testing'
             "
-            :disabled="!selectedModelApi"
+            :disabled="!selectedEndpoint"
             class="resize-none min-h-[76px] max-h-[192px] border-0 shadow-none bg-transparent dark:bg-transparent rounded-3xl px-5 pt-4 pb-2 focus-visible:ring-0 focus-visible:border-0"
             rows="2"
             @keydown="handleKeydown"
           />
 
           <div class="flex items-center justify-between gap-2 px-3 pb-3">
-            <!-- Left: data API dropdown + clear -->
+            <!-- Left: clear button -->
             <div class="flex items-center gap-2">
-              <Select v-model="dataApiSlug" :disabled="dataApis.length === 0">
-                <SelectTrigger
-                  class="w-auto h-8 gap-1.5 px-2.5 text-xs border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors rounded-full"
-                >
-                  <Database class="h-3 w-3 text-muted-foreground shrink-0" />
-                  <SelectValue :placeholder="dataSourcePlaceholder" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="api in dataApis" :key="api.id" :value="api.slug">
-                    {{ api.name }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
               <TooltipProvider v-if="turns.length > 0" :delay-duration="0">
                 <Tooltip>
                   <TooltipTrigger as-child>
@@ -306,18 +277,34 @@ function handleClear() {
               </TooltipProvider>
             </div>
 
-            <!-- Right: model dropdown + send -->
+            <!-- Right: endpoint selector + send -->
             <div class="flex items-center gap-2">
-              <Select v-model="modelApiSlug">
+              <Select v-model="endpointSlug">
                 <SelectTrigger
                   class="w-auto h-8 gap-1.5 px-2.5 text-xs border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors rounded-full"
                 >
-                  <Brain class="h-3 w-3 text-muted-foreground shrink-0" />
-                  <SelectValue placeholder="Select model API" />
+                  <component
+                    :is="selectedEndpoint ? endpointTypeIcon(selectedEndpoint) : Brain"
+                    class="h-3 w-3 text-muted-foreground shrink-0"
+                  />
+                  <SelectValue placeholder="Select endpoint" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="api in modelApis" :key="api.id" :value="api.slug">
-                    {{ api.name }}
+                  <SelectItem
+                    v-for="endpoint in allEndpoints"
+                    :key="endpoint.id"
+                    :value="endpoint.slug"
+                  >
+                    <div class="flex items-center gap-2">
+                      <component
+                        :is="endpointTypeIcon(endpoint)"
+                        class="h-3 w-3 text-muted-foreground shrink-0"
+                      />
+                      <span>{{ endpoint.name }}</span>
+                      <Badge variant="secondary" class="text-[10px] px-1.5 py-0 ml-1">
+                        {{ endpointTypeLabel(endpoint) }}
+                      </Badge>
+                    </div>
                   </SelectItem>
                 </SelectContent>
               </Select>

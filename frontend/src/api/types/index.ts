@@ -443,62 +443,56 @@ export interface UpdateDiagnosticsRequest {
   enabled: boolean
 }
 
-// Local Chat API types
-export interface LocalChatMessage {
-  role: 'user' | 'assistant' | 'system'
+// Endpoint query API types
+export interface EndpointQueryMessage {
+  role: 'user' | 'assistant'
   content: string
 }
 
-export interface LocalChatRequest {
-  model_id: string
-  dataset_id?: string | null
-  messages: LocalChatMessage[]
-  system_prompt?: string | null
-  similarity_threshold?: number
-  limit?: number
-  include_metadata?: boolean
+export interface EndpointQueryRequest {
+  messages: EndpointQueryMessage[]
   max_tokens?: number
   temperature?: number
+  similarity_threshold?: number
+  limit?: number
   stop_sequences?: string[]
-  presence_penalty?: number
-  frequency_penalty?: number
 }
 
-export interface LocalChatDocumentResponse {
+export interface ChatDocumentResponse {
   document_id: string
   content: string
   metadata: Record<string, unknown>
   similarity_score: number
 }
 
-export interface LocalChatReferencesResponse {
-  documents: LocalChatDocumentResponse[]
+export interface ChatReferencesResponse {
+  documents: ChatDocumentResponse[]
   search_engine: string | null
 }
 
-export interface LocalChatMessageResponse {
+export interface ChatMessageResponse {
   role: string
   content: string
   tokens: number
 }
 
-export interface LocalChatTokenUsage {
+export interface ChatTokenUsage {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
 }
 
-export interface LocalChatSummaryResponse {
+export interface ChatSummaryResponse {
   id: string
   model: string
-  message: LocalChatMessageResponse
+  message: ChatMessageResponse
   finish_reason: string
-  usage: LocalChatTokenUsage
+  usage: ChatTokenUsage
 }
 
-export interface LocalChatResponse {
-  summary: LocalChatSummaryResponse | null
-  references: LocalChatReferencesResponse | null
+export interface EndpointQueryResponse {
+  summary: ChatSummaryResponse | null
+  references: ChatReferencesResponse | null
 }
 
 // Wallet API types

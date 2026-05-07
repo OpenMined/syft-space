@@ -26,6 +26,18 @@ from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
 
 
+def _build_query_response(
+    response: QueryEndpointResponse, payment_receipt: str | None
+) -> QueryEndpointResponse | JSONResponse:
+    if payment_receipt:
+        return JSONResponse(
+            status_code=200,
+            content=response.model_dump(),
+            headers={"Payment-Receipt": payment_receipt},
+        )
+    return response
+
+
 def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
     """Build the endpoint routes.
 
@@ -205,15 +217,48 @@ def build_endpoint_routes(handler: EndpointHandler) -> APIRouter:
                 headers={"WWW-Authenticate": e.www_authenticate},
             )
 
-        # If there's a payment receipt, include it in the response header
-        if payment_receipt:
+        return _build_query_response(response, payment_receipt)
+
+    @router.post("/{slug}/preview", response_model=QueryEndpointResponse)
+    async def preview_endpoint(
+        slug: str,
+        request: QueryEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: EndpointHandler = Depends(get_handler),
+    ) -> QueryEndpointResponse | JSONResponse:
+        """Preview an endpoint as the space owner (admin auth, full policy pipeline).
+
+        Identical to /query but authenticates with the admin key instead of a
+        SyftHub satellite token. This lets the owner test their published API —
+        including all policies, filters, and PII rules — exactly as external
+        users experience it, without needing a SyftHub account.
+
+        Args:
+            slug: Endpoint slug
+            request: Query request with messages and parameters
+            tenant: Current tenant (injected)
+            handler: Endpoint handler (injected)
+
+        Returns:
+            Query response with summary and/or references
+        """
+        marketplace = await handler.marketplace_repository.get_default(tenant.id)
+        sender_email = marketplace.email if marketplace else "owner@localhost.local"
+
+        auth_request = AuthenticatedQueryRequest.from_request(request, sender_email)
+
+        try:
+            response, payment_receipt = await handler.query_endpoint(
+                slug, auth_request, tenant, x_payment=None
+            )
+        except PaymentRequiredError as e:
             return JSONResponse(
-                status_code=200,
-                content=response.model_dump(),
-                headers={"Payment-Receipt": payment_receipt},
+                status_code=402,
+                content={"detail": e.description or "Payment required"},
+                headers={"WWW-Authenticate": e.www_authenticate},
             )
 
-        return response
+        return _build_query_response(response, payment_receipt)
 
     @router.post("/{slug}/publish", response_model=PublishEndpointResponse)
     async def publish_endpoint(

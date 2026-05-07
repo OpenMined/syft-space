@@ -120,9 +120,6 @@ from syft_space.components.wallets.mpp.provider import MppWalletProvider
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.routes import build_wallet_routes
 
-# Import chat components
-from syft_space.components.chat.handlers import LocalChatHandler
-from syft_space.components.chat.routes import build_chat_routes
 from syft_space.config import app_settings
 
 
@@ -416,12 +413,6 @@ endpoint_handler = EndpointHandler(
     marketplace_repository=marketplace_repository,
     wallet_repository=wallet_repository,
 )
-local_chat_handler = LocalChatHandler(
-    dataset_repository=dataset_repository,
-    model_repository=model_repository,
-    dataset_registry=DATASET_TYPE_REGISTRY,
-    model_registry=MODEL_TYPE_REGISTRY,
-)
 tenant_handler = TenantHandler(tenant_repository)
 
 # Initialize settings handler with proxy service
@@ -473,7 +464,6 @@ router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_settings_routes(settings_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 router.include_router(build_wallet_routes(wallet_handler))
-router.include_router(build_chat_routes(local_chat_handler))
 
 
 @public_route

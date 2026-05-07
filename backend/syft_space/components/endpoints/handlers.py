@@ -342,7 +342,13 @@ class EndpointHandler:
             response_type in [ResponseType.SUMMARY, ResponseType.BOTH]
             and endpoint.model_id
         ):
-            summary = await self._chat_with_model(endpoint, request, references)
+            summary, _model_instance, _model_id = await self._chat_with_model(
+                endpoint, request, references
+            )
+            # Make the model instance available to post-hooks (e.g. pii_filter).
+            if "pii_filter" in configs_by_type:
+                policy_context.metadata["model_instance"] = _model_instance
+                policy_context.metadata["model_id"] = _model_id
 
         # Create response
         query_response = QueryEndpointResponse(summary=summary, references=references)
@@ -452,7 +458,7 @@ class EndpointHandler:
         endpoint: Endpoint,
         request: AuthenticatedQueryRequest,
         references: ReferencesResponse | None,
-    ) -> SummaryResponse:
+    ) -> tuple[SummaryResponse, Any, str]:
         """Chat with the model.
 
         Args:
@@ -549,7 +555,7 @@ class EndpointHandler:
             )
             raise HTTPException(status_code=500, detail="Model returned no messages")
 
-        return SummaryResponse(
+        summary = SummaryResponse(
             id=chat_result.id,
             model=chat_result.model,
             message=MessageResponse(
@@ -566,6 +572,7 @@ class EndpointHandler:
             cost=0.0,  # TODO: Implement cost tracking
             provider_info=ProviderInfo(api_version="v1"),
         )
+        return summary, model_instance, str(model.id)
 
     async def publish_endpoint(
         self,

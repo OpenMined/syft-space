@@ -263,7 +263,7 @@ class QueryEndpointRequest(BaseModel):
         default=0.7, ge=0.0, le=2.0, description="Temperature for generation"
     )
     stop_sequences: list[str] = Field(
-        default_factory=lambda: ["\n"], description="Stop sequences"
+        default_factory=list, description="Stop sequences"
     )
     stream: bool = Field(default=False, description="Whether to stream the response")
     presence_penalty: float = Field(

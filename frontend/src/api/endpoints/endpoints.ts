@@ -9,6 +9,8 @@ import type {
   PublishEndpointResponse,
   UnpublishResult,
   UpdateEndpointRequest,
+  EndpointQueryRequest,
+  EndpointQueryResponse,
 } from '../types'
 
 export const endpointsApi = {
@@ -58,6 +60,19 @@ export const endpointsApi = {
 
   unpublish: async (slug: string): Promise<UnpublishResult[]> => {
     const response = await apiClient.delete<UnpublishResult[]>(`/endpoints/${slug}/unpublish`)
+    return response.data
+  },
+
+  query: async (
+    slug: string,
+    request: EndpointQueryRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<EndpointQueryResponse> => {
+    const response = await apiClient.post<EndpointQueryResponse>(
+      `/endpoints/${slug}/preview`,
+      request,
+      { signal: options?.signal },
+    )
     return response.data
   },
 }
