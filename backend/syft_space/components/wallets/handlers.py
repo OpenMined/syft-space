@@ -12,14 +12,8 @@ from loguru import logger
 
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.interfaces import WalletProvider
-from syft_space.components.wallets.mpp.config import MppWalletConfig
-from syft_space.components.wallets.mpp.schemas import (
-    MppBalanceResponse,
-    TransactionResponse,
-)
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.schemas import WalletListItem, WalletResponse
-from syft_space.components.wallets.wallet_configs import WalletType
 
 
 class WalletHandler:
@@ -27,15 +21,23 @@ class WalletHandler:
 
     Orchestrates wallet CRUD via the WalletProvider Protocol.
     Provider dispatch: wallet_type → provider instance (injected by main.py).
+
+    Enforces (tenant, wallet_type, currency) uniqueness at the application
+    layer (also DB-enforced via UniqueConstraint).
     """
 
     def __init__(
         self,
         repository: WalletRepository,
         providers: dict[str, WalletProvider],
+        deletion_check=None,
     ) -> None:
         self.repository = repository
         self.providers = providers
+        # Optional callback returning a string error if the wallet has live
+        # balances (set by main.py via dependency inversion to avoid the
+        # wallet component importing payments).
+        self.deletion_check = deletion_check
 
     def _get_provider(self, wallet_type: str) -> WalletProvider:
         """Get provider for a wallet type."""
@@ -60,6 +62,8 @@ class WalletHandler:
                     id=w.id,
                     wallet_type=w.wallet_type,
                     name=w.name,
+                    currency=w.currency,
+                    country=w.country,
                     is_active=w.is_active,
                     display=display,
                     created_at=w.created_at,
@@ -77,14 +81,32 @@ class WalletHandler:
             id=wallet.id,
             wallet_type=wallet.wallet_type,
             name=wallet.name,
+            currency=wallet.currency,
+            country=wallet.country,
             is_active=wallet.is_active,
             display=display,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
 
-    async def delete_wallet(self, wallet_id: UUID, tenant: Tenant) -> dict[str, str]:
-        """Delete a wallet."""
+    async def delete_wallet(
+        self, wallet_id: UUID, tenant: Tenant, force: bool = False
+    ) -> dict[str, str]:
+        """Delete a wallet.
+
+        Blocked if any user has a nonzero balance for this wallet, unless
+        force=True. The deletion_check callback (set by main.py) provides
+        the UserBalance lookup without creating a wallet→payments import.
+        """
+        wallet = await self.repository.get_by_id(wallet_id, tenant.id)
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found")
+
+        if not force and self.deletion_check is not None:
+            error = await self.deletion_check(wallet_id, tenant.id)
+            if error:
+                raise HTTPException(status_code=409, detail=error)
+
         deleted = await self.repository.delete_wallet(wallet_id, tenant.id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Wallet not found")
@@ -101,19 +123,29 @@ class WalletHandler:
     ) -> WalletResponse:
         """Create a wallet using the appropriate provider.
 
-        The provider handles type-specific logic (keypair generation for MPP,
-        credential validation for Xendit). The handler validates the result
-        via the config class and persists it.
+        The provider validates and enriches credentials, returning currency
+        and (optionally) country alongside the configuration. The handler
+        enforces (tenant, wallet_type, currency) uniqueness.
         """
         provider = self._get_provider(wallet_type)
 
-        # Delegate to provider
         try:
             result = await provider.setup_wallet(raw_credentials)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
-        # Validate credentials via config class
+        existing = await self.repository.get_by_type_and_currency(
+            wallet_type, result.currency, tenant.id
+        )
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A {wallet_type} wallet for {result.currency} already exists. "
+                    "Update the existing wallet instead."
+                ),
+            )
+
         config_cls = provider.config_class
         try:
             validated = config_cls(**result.credentials)
@@ -123,116 +155,74 @@ class WalletHandler:
                 status_code=500, detail="Wallet creation failed: invalid credentials"
             ) from None
 
-        # Persist
         wallet = await self.repository.create_wallet(
             tenant_id=tenant.id,
             wallet_type=wallet_type,
             name=name or f"{wallet_type.upper()} Wallet",
+            currency=result.currency,
+            country=result.country,
             configuration=validated.model_dump(),
         )
 
-        display = result.display
         return WalletResponse(
             id=wallet.id,
             wallet_type=wallet.wallet_type,
             name=wallet.name,
+            currency=wallet.currency,
+            country=wallet.country,
+            is_active=wallet.is_active,
+            display=result.display,
+            created_at=wallet.created_at,
+            updated_at=wallet.updated_at,
+        )
+
+    # --- Credential updates (delegates to provider) ---
+
+    async def update_wallet_credentials(
+        self,
+        wallet_id: UUID,
+        updates: dict[str, Any],
+        tenant: Tenant,
+    ) -> WalletResponse:
+        """Partially update wallet credentials via the provider.
+
+        Currency edits are blocked downstream by the partial-update path;
+        if a provider's update_credentials silently allows it, the entity
+        column will diverge from configuration JSON. Currency lock is
+        enforced at the provider layer (allowed update fields are listed
+        explicitly).
+        """
+        wallet = await self.repository.get_by_id(wallet_id, tenant.id)
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found")
+
+        provider = self._get_provider(wallet.wallet_type)
+        try:
+            updated_config = provider.update_credentials(wallet.configuration, updates)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        wallet = await self.repository.update_configuration(
+            wallet_id, tenant.id, updated_config
+        )
+        display = provider.extract_display(updated_config)
+        return WalletResponse(
+            id=wallet.id,
+            wallet_type=wallet.wallet_type,
+            name=wallet.name,
+            currency=wallet.currency,
+            country=wallet.country,
             is_active=wallet.is_active,
             display=display,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
 
-    # --- MPP-specific: address update ---
-
-    async def update_mpp_wallet_address(
-        self, wallet_id: UUID, wallet_address: str, tenant: Tenant
-    ) -> WalletResponse:
-        """Update the wallet address for an MPP wallet (without changing private key)."""
-        wallet = await self.repository.get_by_id(wallet_id, tenant.id)
-        if not wallet:
-            raise HTTPException(status_code=404, detail="Wallet not found")
-        if wallet.wallet_type != WalletType.MPP:
-            raise HTTPException(
-                status_code=400,
-                detail="Address update is only supported for MPP wallets",
-            )
-
-        config = MppWalletConfig(**wallet.configuration)
-        updated_config = config.model_copy(update={"wallet_address": wallet_address})
-        wallet = await self.repository.update_configuration(
-            wallet_id, tenant.id, updated_config.model_dump()
-        )
-        return WalletResponse(
-            id=wallet.id,
-            wallet_type=wallet.wallet_type,
-            name=wallet.name,
-            is_active=wallet.is_active,
-            display={"wallet_address": wallet_address},
-            created_at=wallet.created_at,
-            updated_at=wallet.updated_at,
-        )
-
-    # --- MPP balance/transactions (TEMPORARY — moves to payments component later) ---
-
-    async def get_mpp_balance(
-        self, wallet_id: UUID, tenant: Tenant
-    ) -> MppBalanceResponse:
-        """Get MPP wallet balance from Tempo blockchain."""
-        wallet = await self.repository.get_by_id(wallet_id, tenant.id)
-        if not wallet:
-            raise HTTPException(status_code=404, detail="Wallet not found")
-        if wallet.wallet_type != WalletType.MPP:
-            raise HTTPException(
-                status_code=400,
-                detail="Balance query is only supported for MPP wallets",
-            )
-
-        config = MppWalletConfig(**wallet.configuration)
-
-        from syft_space.components.wallets.mpp.tempo_utils import (
-            get_wallet_balance,
-            get_wallet_transactions,
-        )
-
-        balance = await get_wallet_balance(config.wallet_address)
-        recent_txs = await get_wallet_transactions(config.wallet_address)
-        return MppBalanceResponse(
-            balance=balance,
-            currency="USD",
-            recent_transactions=[TransactionResponse(**tx) for tx in recent_txs[:10]],
-            wallet_configured=True,
-        )
-
-    async def get_mpp_transactions(
-        self, wallet_id: UUID, tenant: Tenant
-    ) -> list[TransactionResponse]:
-        """Get MPP wallet transactions from Tempo blockchain."""
-        wallet = await self.repository.get_by_id(wallet_id, tenant.id)
-        if not wallet:
-            raise HTTPException(status_code=404, detail="Wallet not found")
-        if wallet.wallet_type != WalletType.MPP:
-            raise HTTPException(
-                status_code=400,
-                detail="Transaction query is only supported for MPP wallets",
-            )
-
-        config = MppWalletConfig(**wallet.configuration)
-
-        from syft_space.components.wallets.mpp.tempo_utils import (
-            get_wallet_transactions,
-        )
-
-        txs = await get_wallet_transactions(config.wallet_address)
-        return [TransactionResponse(**tx) for tx in txs]
-
     # --- Helpers ---
 
-    @staticmethod
-    def _extract_display(wallet_type: str, configuration: dict) -> dict[str, Any]:
-        """Extract safe display info from wallet configuration.
-
-        Never exposes private keys or secrets.
-        """
-        if wallet_type == WalletType.MPP:
-            return {"wallet_address": configuration.get("wallet_address", "")}
+    def _extract_display(self, wallet_type: str, configuration: dict) -> dict[str, Any]:
+        """Extract safe display info by delegating to the provider."""
+        provider = self.providers.get(wallet_type)
+        if provider:
+            return provider.extract_display(configuration)
         return {}

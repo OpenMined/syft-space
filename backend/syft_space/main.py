@@ -51,6 +51,8 @@ from syft_space.components.endpoints.endpoint_heartbeat_manager import (
     EndpointHeartbeatManager,
 )
 from syft_space.components.endpoints.handlers import EndpointHandler
+from syft_space.components.endpoints.publish_handler import PublishEndpointHandler
+from syft_space.components.endpoints.query_handler import QueryEndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.routes import build_endpoint_routes
 
@@ -73,6 +75,17 @@ from syft_space.components.model_types.registry import MODEL_TYPE_REGISTRY
 from syft_space.components.models.handlers import ModelHandler
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.models.routes import build_model_routes
+
+# Import payment components
+from syft_space.components.payments.gateway.balance_service import BalanceService
+from syft_space.components.payments.gateway.dependencies import (
+    make_verified_sender_email_dependency,
+)
+from syft_space.components.payments.gateway.handlers import PaymentHandler
+from syft_space.components.payments.gateway.payment_ledger import PaymentLedger
+from syft_space.components.payments.gateway.xendit.gateway import XenditGateway
+from syft_space.components.payments.mpp.handlers import MppPaymentHandler
+from syft_space.components.payments.routes import build_payment_routes
 from syft_space.components.policies.handlers import PolicyHandler
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policies.routes import build_policy_routes
@@ -160,7 +173,7 @@ async def _sync_public_url_safe(
         logger.warning(f"Marketplace sync failed: {e} - server will continue starting")
 
 
-async def _sync_endpoints_safe(handler: EndpointHandler, tenant: Tenant) -> None:
+async def _sync_endpoints_safe(handler: PublishEndpointHandler, tenant: Tenant) -> None:
     """Sync published endpoints to marketplaces without blocking startup.
 
     This is a fire-and-forget helper that syncs all published endpoints to their
@@ -320,7 +333,7 @@ async def lifespan(app: FastAPI):
             run_after_event(
                 proxy_ready_event,
                 _sync_endpoints_safe,
-                endpoint_handler,
+                publish_endpoint_handler,
                 default_tenant,
             )
         )
@@ -396,13 +409,77 @@ marketplace_handler = MarketplaceHandler(marketplace_repository)
 
 # Initialize wallet handler with providers (Clean Architecture: concrete adapters injected here)
 wallet_providers = {"mpp": MppWalletProvider(), "xendit": XenditWalletProvider()}
-wallet_handler = WalletHandler(repository=wallet_repository, providers=wallet_providers)
+
+# Initialize payment handlers
+mpp_payment_handler = MppPaymentHandler(wallet_repository=wallet_repository)
+
+
+# Initialize gateway payment components.
+# PaymentLedger is the unit-of-work that hands the three payment repos a
+# shared session. Each business operation borrows a fresh ledger.
+def payment_ledger_factory() -> PaymentLedger:
+    return PaymentLedger(database)
+
+
+balance_service = BalanceService(payment_ledger_factory)
+gateway_payment_handler = PaymentHandler(
+    balance_service=balance_service,
+    payment_ledger_factory=payment_ledger_factory,
+    wallet_repository=wallet_repository,
+    endpoint_repository=endpoint_repository,
+    gateways={"xendit": XenditGateway()},
+)
+get_verified_sender_email = make_verified_sender_email_dependency(
+    marketplace_repository
+)
+
+
+# Wallet deletion guard (dependency inversion — wallets don't import payments).
+# Returns an error string if the wallet has live balance or pending invoices.
+async def check_wallet_deletable(wallet_id, tenant_id) -> str | None:
+    async with payment_ledger_factory() as ledger:
+        if await ledger.invoices.has_pending_by_wallet_id(wallet_id, tenant_id):
+            return (
+                "Cannot delete wallet with pending invoices. "
+                "Wait for them to settle or pass force=true."
+            )
+        if await ledger.balances.has_nonzero_balance_by_wallet(wallet_id, tenant_id):
+            return (
+                "Cannot delete wallet while users have remaining balance. "
+                "Refund users or pass force=true."
+            )
+    return None
+
+
+wallet_handler = WalletHandler(
+    repository=wallet_repository,
+    providers=wallet_providers,
+    deletion_check=check_wallet_deletable,
+)
 
 # Initialize settings repository and proxy service
 settings_repository = SettingsRepository(database)
 proxy_service = ProxyService(settings_repository)
 
+
+# Endpoint deletion check — wallet-scoped balance no longer hangs off endpoints,
+# so the only block is pending invoices that *originated* from this endpoint.
+async def check_endpoint_deletable(endpoint_id, tenant_id) -> str | None:
+    return None
+
+
+# Metadata enricher (dependency inversion — query handler doesn't import payments)
+async def enrich_query_metadata(metadata: dict) -> None:
+    metadata["balance_service"] = balance_service
+
+
 endpoint_handler = EndpointHandler(
+    endpoint_repository=endpoint_repository,
+    dataset_repository=dataset_repository,
+    model_repository=model_repository,
+    deletion_check=check_endpoint_deletable,
+)
+query_endpoint_handler = QueryEndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
     model_repository=model_repository,
@@ -410,7 +487,16 @@ endpoint_handler = EndpointHandler(
     dataset_registry=DATASET_TYPE_REGISTRY,
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
+    wallet_repository=wallet_repository,
+    metadata_enricher=enrich_query_metadata,
+)
+publish_endpoint_handler = PublishEndpointHandler(
+    endpoint_repository=endpoint_repository,
     marketplace_repository=marketplace_repository,
+    dataset_repository=dataset_repository,
+    model_repository=model_repository,
+    dataset_registry=DATASET_TYPE_REGISTRY,
+    model_registry=MODEL_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
@@ -435,7 +521,7 @@ ingestion_handler = IngestionHandler(
 # Initialize lifecycle managers (independent, ordered in lifespan)
 provisioner_manager = ProvisionerManager(dataset_handler)
 endpoint_heartbeat_manager = EndpointHeartbeatManager(
-    health_checker=endpoint_handler,
+    health_checker=publish_endpoint_handler,
     marketplace_repository=marketplace_repository,
     settings_repository=settings_repository,
     enabled=app_settings.heartbeat_enabled,
@@ -457,13 +543,26 @@ router = APIRouter(prefix="/api/v1", dependencies=[Depends(bearer_scheme)])
 router.include_router(build_dataset_routes(dataset_handler, ingestion_manager))
 router.include_router(build_model_routes(model_handler))
 router.include_router(build_policy_routes(policy_handler))
-router.include_router(build_endpoint_routes(endpoint_handler))
+router.include_router(
+    build_endpoint_routes(
+        endpoint_handler,
+        query_endpoint_handler,
+        publish_endpoint_handler,
+    )
+)
 router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_settings_routes(settings_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 router.include_router(build_wallet_routes(wallet_handler))
+router.include_router(
+    build_payment_routes(
+        mpp_handler=mpp_payment_handler,
+        gateway_handler=gateway_payment_handler,
+        get_verified_sender_email=get_verified_sender_email,
+    )
+)
 
 
 @public_route
@@ -486,11 +585,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "http://localhost:8080",
+        "https://syfthub.openmined.org",
         "tauri://localhost",
         "http://tauri.localhost",
         "https://tauri.localhost",
-        "https://*.syfthub.ngrok.app",
     ],
+    allow_origin_regex=r"^https://[\w-]+\.syfthub\.ngrok\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

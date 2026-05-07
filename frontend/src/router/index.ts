@@ -6,6 +6,7 @@ import ModelsPage from '../pages/ModelsPage.vue'
 import InboxPage from '../pages/InboxPage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
 import AnalyticsPage from '../pages/AnalyticsPage.vue'
+import EarningsPage from '../pages/EarningsPage.vue'
 import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
 import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
@@ -113,6 +114,11 @@ const router = createRouter({
       path: '/go-live',
       name: 'go-live',
       component: GoLivePage,
+    },
+    {
+      path: '/earnings',
+      name: 'earnings',
+      component: EarningsPage,
     },
     {
       path: '/create/data-endpoint',

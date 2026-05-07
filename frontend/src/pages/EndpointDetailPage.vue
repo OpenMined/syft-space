@@ -214,7 +214,7 @@
       <!-- Tabs Section -->
       <Tabs v-model="activeTab" class="space-y-4">
         <TabsList
-          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-2"
+          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3"
         >
           <TabsTrigger value="overview" class="flex items-center gap-2">
             <Layout class="h-4 w-4" />
@@ -223,6 +223,10 @@
           <TabsTrigger value="access" class="flex items-center gap-2">
             <Shield class="h-4 w-4" />
             Policies
+          </TabsTrigger>
+          <TabsTrigger value="transactions" class="flex items-center gap-2">
+            <Receipt class="h-4 w-4" />
+            Transactions
           </TabsTrigger>
         </TabsList>
 
@@ -392,232 +396,375 @@
           </div>
         </TabsContent>
 
-        <!-- Policies Tab -->
-        <TabsContent value="access" class="space-y-8">
-          <!-- Empty state -->
-          <div v-if="getTotalPoliciesCount() === 0" class="text-center py-12 text-muted-foreground">
-            <Shield class="h-8 w-8 mx-auto mb-3 opacity-40" />
-            <p class="text-sm mb-1">No policies configured</p>
-            <p class="text-xs">
-              This resource is open to everyone, with no limits and free to use.
-            </p>
+        <!-- Access Control Tab -->
+        <TabsContent value="access" class="space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+            <!-- Authorization Policies -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <UserCheck class="h-5 w-5 text-muted-foreground" />
+                  Authorization
+                </CardTitle>
+                <CardDescription> Control who can access this endpoint </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 flex-1">
+                <div
+                  v-if="getAuthorizationPolicies().length === 0"
+                  class="text-sm text-muted-foreground"
+                >
+                  No authorization policies configured
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+                    v-for="policy in getAuthorizationPolicies()"
+                    :key="policy.id"
+                    class="p-3 bg-muted/50 border border-border rounded-lg"
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <h4 class="body-sm font-medium text-foreground mb-1">
+                          {{ policy.name }}
+                        </h4>
+                        <p class="body-sm text-muted-foreground">
+                          <template
+                            v-if="
+                              Array.isArray(policy.configuration?.allowed_users) &&
+                              policy.configuration.allowed_users.length
+                            "
+                          >
+                            Allow access for {{ policy.configuration.allowed_users.join(', ') }}
+                          </template>
+                          <template
+                            v-else-if="
+                              Array.isArray(policy.configuration?.denied_users) &&
+                              policy.configuration.denied_users.length
+                            "
+                          >
+                            Deny access for {{ policy.configuration.denied_users.join(', ') }}
+                          </template>
+                          <template v-else> Authorization rule configured </template>
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
+                        @click="handleDeletePolicy(policy.id, policy.name)"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button
+                  variant="outline"
+                  class="w-full"
+                  @click="
+                    () => {
+                      selectedPolicyType = 'access'
+                      showAddPolicyDialog = true
+                    }
+                  "
+                >
+                  <Plus class="h-4 w-4 mr-2" />
+                  Add Authorization Rule
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <!-- Rate Limiting Policies -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <Gauge class="h-5 w-5 text-muted-foreground" />
+                  Rate Limiting
+                </CardTitle>
+                <CardDescription> Manage request frequency limits </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 flex-1">
+                <div
+                  v-if="getRateLimitPolicies().length === 0"
+                  class="text-sm text-muted-foreground"
+                >
+                  No rate limiting policies configured
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+                    v-for="policy in getRateLimitPolicies()"
+                    :key="policy.id"
+                    class="p-3 bg-muted/50 border border-border rounded-lg"
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <h4 class="body-sm font-medium text-foreground mb-1">
+                          {{ policy.name }}
+                        </h4>
+                        <p class="body-sm text-muted-foreground">
+                          <template
+                            v-if="
+                              policy.configuration?.limit &&
+                              typeof policy.configuration?.scope === 'string'
+                            "
+                          >
+                            {{ policy.configuration.limit }} requests per
+                            {{ policy.configuration.windowUnit || 'minute' }}
+                            {{ policy.configuration.scope.replace('_', ' ') }}
+                          </template>
+                          <template v-else-if="policy.configuration?.limit">
+                            Limit: {{ policy.configuration.limit }}
+                          </template>
+                          <template v-else> Rate limiting configured </template>
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
+                        @click="handleDeletePolicy(policy.id, policy.name)"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button
+                  variant="outline"
+                  class="w-full"
+                  @click="
+                    () => {
+                      selectedPolicyType = 'rate_limit'
+                      showAddPolicyDialog = true
+                    }
+                  "
+                >
+                  <Plus class="h-4 w-4 mr-2" />
+                  Add Rate Limiting Rule
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <!-- Pricing Policies -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <CardHeader>
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div
+                      class="h-10 w-10 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center"
+                    >
+                      <DollarSign class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                    </div>
+                    <div>
+                      <CardTitle>Set your price</CardTitle>
+                      <CardDescription>
+                        Charge per query or make it free - you decide
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" @click="showAddPricingRuleDialog = true">
+                    <Plus class="h-4 w-4 mr-2" />
+                    Add Pricing rule
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent class="space-y-3 flex-1">
+                <!-- Default free access banner (only when no pricing rules) -->
+                <div
+                  v-if="getPricingPolicies().length === 0"
+                  class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-xl px-4 py-3"
+                >
+                  <p class="text-sm text-emerald-700 dark:text-emerald-300">
+                    <strong class="font-medium">Default:</strong> Free access - no charges applied
+                  </p>
+                </div>
+
+                <div v-if="getPricingPolicies().length === 0" class="text-center py-4">
+                  <p class="text-sm text-muted-foreground">No pricing rule added yet</p>
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+                    v-for="policy in getPricingPolicies()"
+                    :key="policy.id"
+                    class="p-3 bg-muted/50 border border-border rounded-lg"
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <h4 class="body-sm font-medium text-foreground mb-1">
+                          {{ policy.name }}
+                        </h4>
+                        <p class="body-sm text-muted-foreground">
+                          {{ getPricingPolicySummary(policy) }}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 h-8 w-8 p-0"
+                        @click="handleDeletePolicy(policy.id, policy.name)"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <!-- Access Summary -->
+            <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <Shield class="h-5 w-5 text-muted-foreground" />
+                  Access Summary
+                </CardTitle>
+                <CardDescription> Overview of all access controls </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 flex-1">
+                <div class="flex justify-between items-center py-1">
+                  <span class="body-sm text-muted-foreground">Total Policies</span>
+                  <span class="body-sm font-medium text-foreground">{{
+                    getTotalPoliciesCount()
+                  }}</span>
+                </div>
+                <Separator />
+                <div class="flex justify-between items-center py-1">
+                  <span class="body-sm text-muted-foreground">Authorization</span>
+                  <span class="body-sm font-medium text-foreground">{{
+                    getAuthorizationPolicies().length
+                  }}</span>
+                </div>
+                <Separator />
+                <div class="flex justify-between items-center py-1">
+                  <span class="body-sm text-muted-foreground">Rate Limiting</span>
+                  <span class="body-sm font-medium text-foreground">{{
+                    getRateLimitPolicies().length
+                  }}</span>
+                </div>
+                <Separator />
+                <div class="flex justify-between items-center py-1">
+                  <span class="body-sm text-muted-foreground">Pricing</span>
+                  <span class="body-sm font-medium text-foreground">{{
+                    getPricingPolicies().length
+                  }}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+                </TabsContent>
+
+        <!-- Transactions Tab -->
+        <TabsContent value="transactions" class="space-y-4">
+          <!-- Filter bar -->
+          <div class="flex items-center gap-3">
+            <div class="flex-1">
+              <Input
+                v-model="txnEmailFilter"
+                placeholder="Filter by email..."
+                class="h-9 max-w-sm"
+              />
+            </div>
+            <Button variant="outline" size="sm" @click="fetchTransactions" :disabled="txnLoading">
+              <Loader2 v-if="txnLoading" class="h-4 w-4 mr-2 animate-spin" />
+              Refresh
+            </Button>
           </div>
 
-          <!-- Access Control -->
-          <section>
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <UserCheck class="h-4 w-4 text-muted-foreground" />
-                <h3 class="text-sm font-semibold text-foreground">Access Control</h3>
-                <span class="text-xs text-muted-foreground"> — Who can query this resource </span>
+          <!-- MPP Transactions -->
+          <Card
+            v-if="!lockedWallet || lockedWallet.wallet_type === 'mpp'"
+            class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
+          >
+            <CardHeader class="pb-3">
+              <CardTitle class="text-base flex items-center gap-2">
+                <Zap class="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                MPP Transactions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div v-if="txnLoading" class="space-y-3">
+                <Skeleton v-for="i in 3" :key="i" class="h-12 w-full" />
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                class="h-7 text-xs"
-                @click="
-                  () => {
-                    selectedPolicyType = 'access'
-                    showAddPolicyDialog = true
-                  }
-                "
-              >
-                <Plus class="h-3.5 w-3.5 mr-1" />
-                Add
-              </Button>
-            </div>
-
-            <div
-              v-if="getAuthorizationPolicies().length === 0"
-              class="text-xs text-muted-foreground ml-6"
-            >
-              Open to everyone
-            </div>
-            <div v-else class="space-y-2">
               <div
-                v-for="policy in getAuthorizationPolicies()"
-                :key="policy.id"
-                class="flex items-center justify-between py-2 px-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
+                v-else-if="filteredMppTransactions.length === 0"
+                class="text-center py-6 text-sm text-muted-foreground"
               >
-                <div class="min-w-0 flex-1">
-                  <p class="text-sm text-foreground">
-                    <template
-                      v-if="
-                        Array.isArray(policy.configuration?.allowed_users) &&
-                        policy.configuration.allowed_users.length
-                      "
-                    >
-                      Allow {{ policy.configuration.allowed_users.join(', ') }}
-                    </template>
-                    <template
-                      v-else-if="
-                        Array.isArray(policy.configuration?.denied_users) &&
-                        policy.configuration.denied_users.length
-                      "
-                    >
-                      Deny {{ policy.configuration.denied_users.join(', ') }}
-                    </template>
-                    <template v-else>{{ policy.name }}</template>
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-                  @click="handleDeletePolicy(policy.id, policy.name)"
+                No MPP transactions found
+              </div>
+              <div v-else class="divide-y divide-border">
+                <div
+                  v-for="txn in filteredMppTransactions"
+                  :key="txn.id"
+                  class="flex items-center justify-between py-3"
                 >
-                  <Trash2 class="h-3.5 w-3.5" />
-                </Button>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-medium truncate">{{ txn.sender_email }}</p>
+                    <p class="text-xs text-muted-foreground">
+                      {{ formatTimeAgo(txn.created_at) }}
+                      <span v-if="txn.app_ep_path" class="ml-1">
+                        &middot; {{ txn.app_ep_path }}
+                      </span>
+                    </p>
+                  </div>
+                  <span class="text-sm font-semibold text-emerald-600 dark:text-emerald-400 ml-4">
+                    +${{ formatPrice(txn.amount) }}
+                  </span>
+                </div>
               </div>
-            </div>
-          </section>
+            </CardContent>
+          </Card>
 
-          <Separator />
-
-          <!-- Usage Limits -->
-          <section>
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <Gauge class="h-4 w-4 text-muted-foreground" />
-                <h3 class="text-sm font-semibold text-foreground">Usage Limits</h3>
-                <span class="text-xs text-muted-foreground"> — How often it can be queried </span>
+          <!-- Gateway (Xendit) Ledger Entries -->
+          <Card
+            v-if="!lockedWallet || lockedWallet.wallet_type === 'xendit'"
+            class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
+          >
+            <CardHeader class="pb-3">
+              <CardTitle class="text-base flex items-center gap-2">
+                <Package class="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                Transactions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div v-if="txnLoading" class="space-y-3">
+                <Skeleton v-for="i in 3" :key="i" class="h-12 w-full" />
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                class="h-7 text-xs"
-                @click="
-                  () => {
-                    selectedPolicyType = 'rate_limit'
-                    showAddPolicyDialog = true
-                  }
-                "
-              >
-                <Plus class="h-3.5 w-3.5 mr-1" />
-                Add
-              </Button>
-            </div>
-
-            <div
-              v-if="getRateLimitPolicies().length === 0"
-              class="text-xs text-muted-foreground ml-6"
-            >
-              Unlimited
-            </div>
-            <div v-else class="space-y-2">
               <div
-                v-for="policy in getRateLimitPolicies()"
-                :key="policy.id"
-                class="flex items-center justify-between py-2 px-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
+                v-else-if="filteredLedgerEntries.length === 0"
+                class="text-center py-6 text-sm text-muted-foreground"
               >
-                <div class="min-w-0 flex-1">
-                  <p class="text-sm text-foreground">
-                    <template
-                      v-if="
-                        policy.configuration?.limit &&
-                        typeof policy.configuration?.scope === 'string'
-                      "
-                    >
-                      {{ policy.configuration.limit }} requests per
-                      {{ policy.configuration.windowUnit || 'minute' }}
-                      {{ policy.configuration.scope.replace('_', ' ') }}
-                    </template>
-                    <template v-else-if="policy.configuration?.limit">
-                      {{ policy.configuration.limit }} requests
-                    </template>
-                    <template v-else>{{ policy.name }}</template>
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-                  @click="handleDeletePolicy(policy.id, policy.name)"
+                No transactions found
+              </div>
+              <div v-else class="divide-y divide-border">
+                <div
+                  v-for="entry in filteredLedgerEntries"
+                  :key="entry.id"
+                  class="flex items-center justify-between py-3"
                 >
-                  <Trash2 class="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          </section>
-
-          <Separator />
-
-          <!-- Pricing -->
-          <section>
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <DollarSign class="h-4 w-4 text-muted-foreground" />
-                <h3 class="text-sm font-semibold text-foreground">Pricing</h3>
-                <span class="text-xs text-muted-foreground"> — Cost per query </span>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                class="h-7 text-xs"
-                @click="
-                  () => {
-                    selectedPolicyType = 'pricing'
-                    showAddPolicyDialog = true
-                  }
-                "
-              >
-                <Plus class="h-3.5 w-3.5 mr-1" />
-                Add
-              </Button>
-            </div>
-
-            <div
-              v-if="getPricingPolicies().length === 0"
-              class="text-xs text-muted-foreground ml-6"
-            >
-              Free for all users
-            </div>
-            <div v-else class="space-y-2">
-              <div
-                v-for="policy in getPricingPolicies()"
-                :key="policy.id"
-                class="flex items-center justify-between py-2 px-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
-              >
-                <div class="min-w-0 flex-1">
-                  <p class="text-sm text-foreground">
-                    <template v-if="policy.configuration?.price !== undefined">
-                      ${{ policy.configuration.price }} per query
-                      <template
-                        v-if="
-                          Array.isArray(policy.configuration?.applied_to) &&
-                          policy.configuration.applied_to.length > 0 &&
-                          !(
-                            policy.configuration.applied_to.length === 1 &&
-                            policy.configuration.applied_to[0] === '*'
-                          )
-                        "
-                      >
-                        for {{ policy.configuration.applied_to.join(', ') }}
-                      </template>
-                      <template
-                        v-else-if="
-                          Array.isArray(policy.configuration?.applied_to) &&
-                          policy.configuration.applied_to.length === 1 &&
-                          policy.configuration.applied_to[0] === '*'
-                        "
-                      >
-                        for all users
-                      </template>
-                    </template>
-                    <template v-else>{{ policy.name }}</template>
-                  </p>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-medium truncate">{{ entry.user_email }}</p>
+                    <p class="text-xs text-muted-foreground">
+                      {{ formatTimeAgo(entry.created_at) }}
+                      <span class="ml-1">&middot; {{ entry.type }}</span>
+                    </p>
+                  </div>
+                  <span
+                    class="text-sm font-semibold ml-4"
+                    :class="{
+                      'text-emerald-600 dark:text-emerald-400': entry.type === 'debit',
+                      'text-muted-foreground line-through': entry.type === 'cancelled',
+                    }"
+                  >
+                    {{ entry.type === 'debit' ? '+' : '-' }}{{ formatPrice(entry.amount) }}
+                    {{ entry.currency }}
+                  </span>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-                  @click="handleDeletePolicy(policy.id, policy.name)"
-                >
-                  <Trash2 class="h-3.5 w-3.5" />
-                </Button>
               </div>
-            </div>
-          </section>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
@@ -682,12 +829,19 @@
     </DialogContent>
   </Dialog>
 
-  <!-- Add Policy Dialog -->
+  <!-- Add Policy Dialog (for auth + rate limit) -->
   <PolicyFormDialog
     v-model:open="showAddPolicyDialog"
     :policy-type="selectedPolicyType"
     :is-submitting="policyCreating"
     @save="handleAddPolicy"
+  />
+
+  <!-- Add Pricing Rule Dialog -->
+  <AddPricingRuleDialog
+    v-model:open="showAddPricingRuleDialog"
+    :locked-wallet-id="lockedWalletId"
+    @pricing-created="handlePricingCreated"
   />
 
   <!-- Edit Endpoint Dialog -->
@@ -699,7 +853,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import {
@@ -719,6 +873,10 @@ import {
   Plus,
   ExternalLink,
   Pencil,
+  Receipt,
+  Zap,
+  Package,
+  Loader2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -726,6 +884,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
@@ -736,12 +895,18 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
+import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
+
 import type { PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import { policiesApi } from '@/api/policies/policies'
+import { walletsApi } from '@/api/endpoints/wallets'
+import { paymentsApi } from '@/api/endpoints/payments'
+import type { LedgerEntryResponse, TransactionResponse, WalletListItem } from '@/api/types'
+import { formatPrice, formatTimeAgo } from '@/lib/formatters'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
@@ -750,7 +915,6 @@ import type { EndpointResponse } from '@/api/types'
 import type { IngestionStatusResponse, IngestionJobListResponse } from '@/api/types'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
-import { formatPrice } from '@/lib/formatters'
 
 const route = useRoute()
 const router = useRouter()
@@ -761,12 +925,21 @@ const error = ref(false)
 const loading = ref(true)
 const endpoint = ref<EndpointResponse | null>(null)
 const activeTab = ref('overview')
+
+watch(activeTab, (tab) => {
+  if (tab === 'transactions') {
+    fetchTransactions()
+  }
+})
+
 const deleteNameConfirm = ref('')
 const showDeleteDialog = ref(false)
 const isDeleting = ref(false)
 const showDeletePolicyDialog = ref(false)
 const policyToDelete = ref<{ id: string; name: string } | null>(null)
 const showAddPolicyDialog = ref(false)
+const showAddPricingRuleDialog = ref(false)
+
 const showEditDialog = ref(false)
 const selectedPolicyType = ref<PolicyTypeId>('access')
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
@@ -939,8 +1112,141 @@ const getRateLimitPolicies = () => {
   return endpoint.value?.policies?.filter((p) => p.policy_type === 'rate_limit') || []
 }
 
+const walletsById = ref<Record<string, WalletListItem>>({})
+
+// Cached promise so callers can await the initial fetch even if it's already
+// in-flight, without triggering a duplicate network request. Anything that
+// reads walletsById (e.g. lockedWallet) should call ensureWallets() first
+// rather than racing the initial onMounted fetch.
+let walletsPromise: Promise<void> | null = null
+
+const fetchWallets = async () => {
+  try {
+    const list = await walletsApi.list()
+    walletsById.value = Object.fromEntries(list.map((w) => [w.id, w]))
+  } catch {
+    walletsById.value = {}
+  }
+}
+
+const ensureWallets = (): Promise<void> => {
+  walletsPromise ??= fetchWallets()
+  return walletsPromise
+}
+
 const getPricingPolicies = () => {
-  return endpoint.value?.policies?.filter((p) => p.policy_type === 'mpp_accounting') || []
+  return (
+    endpoint.value?.policies?.filter(
+      (p) => p.policy_type === 'mpp_accounting' || p.policy_type === 'xendit',
+    ) || []
+  )
+}
+
+// All payment policies on an endpoint share one wallet (frontend-enforced).
+// The first pricing policy decides which wallet future ones must use.
+const lockedWallet = computed<WalletListItem | null>(() => {
+  const first = getPricingPolicies()[0] as
+    | { wallet_id?: string; configuration?: Record<string, unknown> }
+    | undefined
+  if (!first?.wallet_id) return null
+  return walletsById.value[first.wallet_id] ?? null
+})
+
+const lockedWalletId = computed(() => lockedWallet.value?.id ?? null)
+
+const policyWallet = (policy: {
+  policy_type: string
+  configuration: Record<string, unknown>
+  wallet_id?: string | null
+}): WalletListItem | null => {
+  if (policy.wallet_id) return walletsById.value[policy.wallet_id] ?? null
+  return null
+}
+
+const getPricingPolicySummary = (policy: {
+  policy_type: string
+  configuration: Record<string, unknown>
+  wallet_id?: string | null
+}): string => {
+  const config = policy.configuration
+  const appliedTo = config?.applied_to as string[] | undefined
+  const appliedLabel =
+    appliedTo && appliedTo.length === 1 && appliedTo[0] === '*'
+      ? 'for all users'
+      : appliedTo && appliedTo.length > 0
+        ? `for ${appliedTo.join(', ')}`
+        : ''
+
+  const wallet = policyWallet(policy)
+  const currency = wallet?.currency ?? 'USD'
+
+  // MPP: price per query
+  if (policy.policy_type === 'mpp_accounting' && config?.price !== undefined) {
+    return `${config.price} ${currency} per query ${appliedLabel}`.trim()
+  }
+
+  // Xendit: price per request
+  if (policy.policy_type === 'xendit' && config?.price_per_request !== undefined) {
+    return `${config.price_per_request} ${currency} per request ${appliedLabel}`.trim()
+  }
+
+  return 'Pricing rule configured'
+}
+
+// ── Transactions state ──
+const txnLoading = ref(false)
+const txnEmailFilter = ref('')
+const mppTransactions = ref<TransactionResponse[]>([])
+const ledgerEntries = ref<LedgerEntryResponse[]>([])
+
+const filteredMppTransactions = computed(() => {
+  const filter = txnEmailFilter.value.toLowerCase().trim()
+  if (!filter) return mppTransactions.value
+  return mppTransactions.value.filter((t) => t.sender_email.toLowerCase().includes(filter))
+})
+
+const filteredLedgerEntries = computed(() => {
+  const filter = txnEmailFilter.value.toLowerCase().trim()
+  if (!filter) return ledgerEntries.value
+  return ledgerEntries.value.filter((e) => e.user_email.toLowerCase().includes(filter))
+})
+
+const fetchTransactions = async () => {
+  if (!endpoint.value) return
+  txnLoading.value = true
+  try {
+    // lockedWallet derives from walletsById, which is populated asynchronously
+    // in onMounted. Without this await, clicking the Transactions tab before
+    // the wallet list lands would see lockedWallet=null and short-circuit to
+    // an empty state until the user hit Refresh.
+    await ensureWallets()
+    const wallet = lockedWallet.value
+    if (!wallet) {
+      // No payment policy on this endpoint — nothing to fetch.
+      mppTransactions.value = []
+      ledgerEntries.value = []
+      return
+    }
+
+    if (wallet.wallet_type === 'mpp') {
+      try {
+        mppTransactions.value = await walletsApi.getMppTransactions(wallet.id)
+      } catch {
+        mppTransactions.value = []
+      }
+      ledgerEntries.value = []
+    } else if (wallet.wallet_type === 'xendit') {
+      try {
+        const page = await paymentsApi.listEndpointTransactions(endpoint.value.id)
+        ledgerEntries.value = page.items
+      } catch {
+        ledgerEntries.value = []
+      }
+      mppTransactions.value = []
+    }
+  } finally {
+    txnLoading.value = false
+  }
 }
 
 const getTotalPoliciesCount = () => {
@@ -1070,6 +1376,48 @@ const confirmDeletePolicy = async () => {
   }
 }
 
+// Handle pricing rule created from AddPricingRuleDialog.
+// Dialog already resolved the wallet; we just create the policy and refresh.
+const handlePricingCreated = async (payload: {
+  walletId: string
+  walletType: string
+  policyType: 'mpp_accounting' | 'xendit'
+  name: string
+  config: Record<string, unknown>
+}) => {
+  if (!endpoint.value?.id) return
+
+  const ruleIndex = getPricingPolicies().length + 1
+  const policyLabel = payload.policyType === 'mpp_accounting' ? 'MPP' : 'Xendit'
+  const policyName = payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
+
+  try {
+    const newPolicy = await policiesApi.create({
+      name: policyName,
+      policy_type: payload.policyType,
+      configuration: payload.config,
+      endpoint_id: endpoint.value.id,
+      wallet_id: payload.walletId,
+    })
+
+    if (endpoint.value.policies) {
+      endpoint.value.policies.push({
+        id: newPolicy.id,
+        name: newPolicy.name,
+        policy_type: newPolicy.policy_type,
+        configuration: newPolicy.configuration,
+        wallet_id: payload.walletId,
+      } as (typeof endpoint.value.policies)[number])
+    }
+
+    toast.success('Pricing rule added')
+    await publishToMarketplace()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create pricing policy'
+    toast.error(message)
+  }
+}
+
 // Publish endpoint changes to marketplace
 const publishToMarketplace = async () => {
   if (!endpoint.value?.slug) return
@@ -1135,6 +1483,11 @@ onMounted(async () => {
   const endpointSlug = route.params.slug as string
   loading.value = true
   error.value = false
+
+  // Wallet lookup table — populated in parallel with endpoint fetch.
+  // Used by pricing-policy display and the add-pricing dialog lock logic.
+  // The cached promise lets fetchTransactions() await this on tab activation.
+  ensureWallets()
 
   try {
     // Fetch the endpoint details directly from the API

@@ -5,7 +5,7 @@ export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing' | 'pii_filter'
 
 export interface PolicyConfig {
   id: string
-  [key: string]: string | number | string[] | undefined
+  [key: string]: unknown
 }
 
 export interface PolicyRule {
@@ -126,9 +126,10 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
           }
         }
 
+        const currency = (config.walletCurrency as string) || 'USD'
         const formattedPrice = price.toFixed(8).replace(/\.?0+$/, '')
         if (config.userType === 'all') {
-          return `$${formattedPrice} per query for all users`
+          return `${formattedPrice} ${currency} per query for all users`
         } else {
           const userList = config.users
             ? (config.users as string)
@@ -137,9 +138,9 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
                 .filter((u) => u)
             : []
           if (userList.length === 0) {
-            return `$${formattedPrice} per query for specific users (none configured)`
+            return `${formattedPrice} ${currency} per query for specific users (none configured)`
           }
-          return `$${formattedPrice} per query for ${userList.join(', ')}`
+          return `${formattedPrice} ${currency} per query for ${userList.join(', ')}`
         }
       }
 

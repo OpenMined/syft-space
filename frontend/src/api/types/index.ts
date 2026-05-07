@@ -254,6 +254,7 @@ export interface AttachedPolicy {
   name: string
   policy_type: string
   configuration: Record<string, unknown>
+  wallet_id?: string | null
 }
 
 export interface EndpointResponse {
@@ -500,6 +501,8 @@ export interface WalletResponse {
   id: string
   wallet_type: string
   name: string
+  currency: string
+  country: string | null
   is_active: boolean
   display: Record<string, string>
   created_at: string
@@ -510,6 +513,8 @@ export interface WalletListItem {
   id: string
   wallet_type: string
   name: string
+  currency: string
+  country: string | null
   is_active: boolean
   display: Record<string, string>
   created_at: string
@@ -520,4 +525,30 @@ export interface MppBalanceResponse {
   currency: string
   recent_transactions: TransactionResponse[]
   wallet_configured: boolean
+}
+
+// Wallet-scoped payment API types
+
+export interface UserBalanceResponse {
+  wallet_id: string
+  user_email: string
+  balance: number
+  currency: string
+}
+
+export interface LedgerEntryResponse {
+  id: string
+  transaction_id: string
+  type: string
+  amount: number
+  currency: string
+  user_email: string
+  wallet_id: string | null
+  endpoint_id: string | null
+  created_at: string
+}
+
+export interface LedgerEntryPage {
+  items: LedgerEntryResponse[]
+  next_cursor: string | null
 }

@@ -44,11 +44,15 @@ class WalletRepository(AsyncBaseRepository[Wallet]):
             result = await session.exec(statement)
             return list(result.all())
 
-    async def get_by_type(self, wallet_type: str, tenant_id: UUID) -> list[Wallet]:
+    async def get_by_type(
+        self, wallet_type: str, tenant_id: UUID, is_active: bool = True
+    ) -> list[Wallet]:
         """Get all wallets of a specific type for a tenant."""
         async with self.db.get_session() as session:
             statement = select(Wallet).where(
-                Wallet.wallet_type == wallet_type, Wallet.tenant_id == tenant_id
+                Wallet.wallet_type == wallet_type,
+                Wallet.tenant_id == tenant_id,
+                Wallet.is_active == is_active,
             )
             result = await session.exec(statement)
             return list(result.all())
@@ -59,6 +63,8 @@ class WalletRepository(AsyncBaseRepository[Wallet]):
         tenant_id: UUID,
         wallet_type: str,
         name: str,
+        currency: str,
+        country: str | None,
         configuration: dict,
     ) -> Wallet:
         """Create a new wallet."""
@@ -66,9 +72,24 @@ class WalletRepository(AsyncBaseRepository[Wallet]):
             tenant_id=tenant_id,
             wallet_type=wallet_type,
             name=name,
+            currency=currency,
+            country=country,
             configuration=configuration,
         )
         return await self.create(wallet)
+
+    async def get_by_type_and_currency(
+        self, wallet_type: str, currency: str, tenant_id: UUID
+    ) -> Wallet | None:
+        """Lookup the unique wallet for (tenant, type, currency)."""
+        async with self.db.get_session() as session:
+            statement = select(Wallet).where(
+                Wallet.wallet_type == wallet_type,
+                Wallet.currency == currency,
+                Wallet.tenant_id == tenant_id,
+            )
+            result = await session.exec(statement)
+            return result.first()
 
     async def delete_wallet(self, id: UUID, tenant_id: UUID) -> bool:
         """Delete a wallet by ID within a tenant."""
