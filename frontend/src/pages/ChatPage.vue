@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import VueMarkdown from 'vue-markdown-render'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { useEndpointChat } from '@/composables/useEndpointChat'
 import { useNavigation } from '@/composables/useNavigation'
@@ -160,7 +161,9 @@ function handleClear() {
             <!-- Assistant Message -->
             <div v-else class="flex flex-col gap-2">
               <div class="bg-muted/50 rounded-2xl rounded-bl-md px-4 py-3 max-w-[90%]">
-                <p class="text-sm text-foreground whitespace-pre-wrap">{{ turn.content }}</p>
+                <div class="prose prose-sm dark:prose-invert max-w-none text-foreground">
+                  <VueMarkdown :source="turn.content" :options="{ linkify: true, breaks: true }" />
+                </div>
 
                 <!-- Token Usage -->
                 <div v-if="turn.summary" class="mt-2 pt-2 border-t border-border/50">
