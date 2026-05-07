@@ -51,7 +51,6 @@ const tabs = [
   { id: 'datasets', label: 'Datasets' },
   { id: 'models', label: 'Models' },
   { id: 'endpoints', label: 'Endpoints' },
-  { id: 'earnings', label: 'Earnings' },
   { id: 'analytics', label: 'Stats' },
 ]
 </script>
