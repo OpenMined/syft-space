@@ -280,7 +280,7 @@
                       {{ user.user_email }}
                     </p>
                     <span class="text-sm font-semibold text-foreground tabular-nums">
-                      {{ formatCurrency(user.revenue) }}
+                      {{ formatCurrencyBreakdown(user.revenue, '—') }}
                     </span>
                   </div>
                   <div class="flex items-center gap-2 mt-1">
@@ -417,6 +417,7 @@ import {
   BarElement,
   Filler,
   Tooltip as ChartTooltip,
+  type TooltipItem,
 } from 'chart.js'
 import { Line, Bar } from 'vue-chartjs'
 import { Card, CardContent } from '@/components/ui/card'
@@ -431,7 +432,11 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useAnalyticsStore } from '@/stores/analytics'
-import { formatCompactNumber, formatCurrency } from '@/lib/formatters'
+import {
+  formatCompactNumber,
+  formatCurrencyAmount,
+  formatCurrencyBreakdown,
+} from '@/lib/formatters'
 import type { TimeRange } from '@/api/types/analytics'
 import type { EndpointListItem } from '@/api/types'
 
@@ -455,7 +460,7 @@ const icons = {
   users: markRaw(Users),
 }
 
-const statCardMeta = [
+const simpleStatCardMeta = [
   {
     key: 'active_endpoints' as const,
     label: 'Active Endpoints',
@@ -475,15 +480,6 @@ const statCardMeta = [
     alwaysPositive: true,
   },
   {
-    key: 'total_revenue' as const,
-    label: 'Total Revenue',
-    iconComponent: icons.dollarSign,
-    iconBg: 'bg-emerald-500/10 dark:bg-emerald-400/10',
-    iconFg: 'text-emerald-600 dark:text-emerald-400',
-    format: formatCurrency,
-    alwaysPositive: true,
-  },
-  {
     key: 'active_users' as const,
     label: 'Active Users',
     iconComponent: icons.users,
@@ -492,7 +488,14 @@ const statCardMeta = [
     format: formatCompactNumber,
     alwaysPositive: false,
   },
-]
+] as const
+
+const revenueCardMeta = {
+  label: 'Total Revenue',
+  iconComponent: icons.dollarSign,
+  iconBg: 'bg-emerald-500/10 dark:bg-emerald-400/10',
+  iconFg: 'text-emerald-600 dark:text-emerald-400',
+} as const
 
 // ---- Filter dropdown options ----
 const timeRangeOptions: { value: TimeRange; label: string }[] = [
@@ -532,18 +535,40 @@ onMounted(async () => {
 
 const statCards = computed(() => {
   const s = store.summary
-  return statCardMeta.map((meta) => {
+
+  const renderSimple = (meta: (typeof simpleStatCardMeta)[number]) => {
     const card = s?.[meta.key]
     return {
       label: meta.label,
-      formattedValue: card ? meta.format(card.value) : meta.key === 'total_revenue' ? '$0.00' : '0',
+      formattedValue: card ? meta.format(card.value) : '0',
       changeLabel: card?.change_label ?? '--',
       changePositive: meta.alwaysPositive && (card?.change_value ?? 0) > 0,
       iconComponent: meta.iconComponent,
       iconBg: meta.iconBg,
       iconFg: meta.iconFg,
     }
-  })
+  }
+
+  const revenueCard = s?.total_revenue
+  const revenue = {
+    label: revenueCardMeta.label,
+    formattedValue: formatCurrencyBreakdown(revenueCard?.breakdown ?? []),
+    changeLabel: revenueCard
+      ? `${formatCurrencyBreakdown(revenueCard.change_breakdown, '$0.00')} this month`
+      : '--',
+    changePositive: (revenueCard?.change_breakdown.length ?? 0) > 0,
+    iconComponent: revenueCardMeta.iconComponent,
+    iconBg: revenueCardMeta.iconBg,
+    iconFg: revenueCardMeta.iconFg,
+  }
+
+  const [endpointsMeta, queriesMeta, usersMeta] = simpleStatCardMeta
+  return [
+    renderSimple(endpointsMeta),
+    renderSimple(queriesMeta),
+    revenue,
+    renderSimple(usersMeta),
+  ]
 })
 
 // ---- Chart data ----
@@ -579,21 +604,57 @@ const barChartOptions = {
   },
 }
 
-const revenueChartOptions = {
+// Stable color per currency. Keep this list in sync with any new currencies
+// you start charging in. The fallback walks PALETTE for currencies we
+// haven't pinned a color to.
+const CURRENCY_COLORS: Record<string, string> = {
+  USD: '#10b981',
+  IDR: '#3b82f6',
+  EUR: '#f59e0b',
+  GBP: '#a855f7',
+}
+const PALETTE = ['#10b981', '#3b82f6', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4']
+const colorForCurrency = (currency: string, idx: number): string =>
+  CURRENCY_COLORS[currency] ?? PALETTE[idx % PALETTE.length] ?? '#10b981'
+
+const revenueChartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: { enabled: true } },
+  plugins: {
+    // With multiple currencies in the data we render multiple lines, so the
+    // legend is essential for disambiguation. Hide it for a single series to
+    // keep the visual quiet.
+    legend: {
+      display: (store.timeSeries?.revenue.length ?? 0) > 1,
+      position: 'top' as const,
+      labels: { color: '#9ca3af', font: { size: 11 }, boxWidth: 12 },
+    },
+    tooltip: {
+      enabled: true,
+      callbacks: {
+        // Each dataset's `label` is the currency code; format the y value
+        // accordingly so the tooltip reads as money, not a bare number.
+        label: (ctx: TooltipItem<'line'>) => {
+          const code = ctx.dataset.label ?? 'USD'
+          return formatCurrencyAmount(ctx.parsed.y ?? 0, code)
+        },
+      },
+    },
+  },
   scales: {
     x: sharedScaleOptions,
     y: {
       ...sharedScaleOptions,
       ticks: {
         ...sharedScaleOptions.ticks,
-        callback: (v: string | number) => `$${(Number(v) / 1000).toFixed(1)}k`,
+        // Y axis ticks are currency-agnostic numbers because multiple
+        // currencies share the axis. Use compact formatting; the tooltip
+        // shows the actual currency.
+        callback: (v: string | number) => formatCompactNumber(Number(v)),
       },
     },
   },
-}
+}))
 
 const queryVolumeChartData = computed(() => ({
   labels: store.timeSeries?.query_volume.map((p) => p.label) ?? [],
@@ -623,26 +684,41 @@ const userActivityChartData = computed(() => ({
   ],
 }))
 
-const revenueChartData = computed(() => ({
-  labels: store.timeSeries?.revenue.map((p) => p.label) ?? [],
-  datasets: [
-    {
-      data: store.timeSeries?.revenue.map((p) => p.value) ?? [],
-      borderColor: '#10b981',
-      backgroundColor: 'rgba(16, 185, 129, 0.12)',
-      borderWidth: 2,
-      pointRadius: 0,
-      tension: 0.4,
-      fill: true,
-    },
-  ],
-}))
+// One Chart.js dataset per currency, all sharing the x-axis labels from
+// query_volume (the backend gap-fills every CurrencySeries against the same
+// bucket sequence so the points line up).
+const revenueChartData = computed(() => {
+  const series = store.timeSeries?.revenue ?? []
+  const labels = store.timeSeries?.query_volume.map((p) => p.label) ?? []
+  return {
+    labels,
+    datasets: series.map((s, idx) => {
+      const color = colorForCurrency(s.currency, idx)
+      return {
+        label: s.currency,
+        data: s.points.map((p) => p.value),
+        borderColor: color,
+        // Fill only when there's a single line — overlapping fills get
+        // muddy with multiple currencies.
+        backgroundColor: series.length === 1 ? `${color}1f` : 'transparent',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.4,
+        fill: series.length === 1,
+      }
+    }),
+  }
+})
 
 const isQueryVolumeEmpty = computed(() => !store.timeSeries?.query_volume.some((p) => p.value > 0))
 const isUserActivityEmpty = computed(
   () => !store.timeSeries?.user_activity.some((p) => p.value > 0),
 )
-const isRevenueEmpty = computed(() => !store.timeSeries?.revenue.some((p) => p.value > 0))
+const isRevenueEmpty = computed(() => {
+  const series = store.timeSeries?.revenue ?? []
+  if (series.length === 0) return true
+  return !series.some((s) => s.points.some((p) => p.value > 0))
+})
 
 // ---- Top users ----
 const activeUsers = computed(() => store.topUsers?.users ?? [])

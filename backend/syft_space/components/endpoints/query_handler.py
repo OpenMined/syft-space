@@ -1,6 +1,7 @@
 """Query endpoint handler — RAG pipeline with policy enforcement."""
 
 import asyncio
+import re
 from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
@@ -19,6 +20,7 @@ from syft_space.components.endpoints.interfaces import MetadataEnricher
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.schemas import (
     AuthenticatedQueryRequest,
+    ChatMessageRequest,
     DocumentResponse,
     MessageResponse,
     ProviderInfo,
@@ -46,6 +48,46 @@ from syft_space.components.wallets.repository import WalletRepository
 
 if TYPE_CHECKING:
     from syft_space.components.analytics.collector import QueryEventCollector
+
+
+# SyftHub's aggregator wraps every forwarded query in a prompt-builder
+# template. All four template variants (NO_CONTEXT, EMPTY_CONTEXT,
+# DEFAULT, CITATION) put the actual question between
+# `USER QUESTION:\n` and a trailing `\n---` marker. We peel that out so
+# analytics captures only what the user typed, not the prompt scaffolding.
+_AGGREGATOR_QUESTION_RE = re.compile(
+    r"USER QUESTION:\s*\n(?P<q>.*?)\n---",
+    re.DOTALL,
+)
+
+
+def _strip_aggregator_wrapper(content: str) -> str:
+    """If `content` is a SyftHub-aggregator-wrapped payload, return just
+    the question. Otherwise return content unchanged.
+    """
+    match = _AGGREGATOR_QUESTION_RE.search(content)
+    if match:
+        return match.group("q").strip()
+    return content.strip()
+
+
+def _extract_user_query(messages: str | list[ChatMessageRequest]) -> str:
+    """Extract the user's actual query from a request payload.
+
+    Returns the last user-role message content (or the raw string if
+    `messages` is a string), with SyftHub-aggregator scaffolding peeled
+    off. System prompts, assistant turns, and earlier user turns are
+    discarded — the analytics layer treats *this* request as a single
+    question, and earlier turns were captured as their own events when
+    they originally fired.
+    """
+    if isinstance(messages, str):
+        return _strip_aggregator_wrapper(messages)
+    if isinstance(messages, list):
+        for m in reversed(messages):
+            if m.role == "user" and m.content:
+                return _strip_aggregator_wrapper(m.content)
+    return ""
 
 
 class QueryEndpointHandler:
@@ -91,15 +133,11 @@ class QueryEndpointHandler:
             HTTPException: If endpoint not found or query fails
             PaymentRequiredError: If MPP payment is required (caller returns 402)
         """
-        # Extract query text from messages for analytics
-        if isinstance(request.messages, str):
-            query_text = request.messages
-        elif isinstance(request.messages, list) and request.messages:
-            query_text = " ".join(m.content for m in request.messages if m.content)
-        else:
-            query_text = ""
-
-        # Event data — populated progressively through the pipeline
+        # Extract the user's actual query (last user-role message) for
+        # analytics. System prompts and assistant turns are excluded so they
+        # don't pollute the word cloud. Capped to bound DB row size and the
+        # downstream NLP pass on the wordcloud handler.
+        user_query = _extract_user_query(request.messages)
         event_data: dict[str, Any] = {
             "tenant_id": tenant.id,
             "user_email": request.sender_email,
@@ -109,7 +147,7 @@ class QueryEndpointHandler:
             "revenue_amount": 0.0,
             "currency": "USD",
             "status": QueryEventStatus.SUCCESS.value,
-            "query_text": query_text,
+            "query_text": user_query[:4000],
         }
 
         try:
@@ -207,7 +245,7 @@ class QueryEndpointHandler:
                 response_type in [ResponseType.RAW, ResponseType.BOTH]
                 and endpoint.dataset_id
             ):
-                references = await self._search_dataset(endpoint, request)
+                references = await self._search_dataset(endpoint, request, user_query)
 
             # Chat with model if needed
             if (
@@ -244,10 +282,22 @@ class QueryEndpointHandler:
             # Extract payment receipt header if present (set by MppAccountingPolicy post-hook)
             payment_receipt = policy_context.metadata.get("payment_receipt_header")
 
-            # Capture revenue from MPP policy
-            event_data["revenue_amount"] = policy_context.metadata.get(
-                "mpp_total_amount", 0.0
-            )
+            # Capture recognized revenue for analytics. Each accounting policy
+            # publishes its outcome to context.metadata; xendit clears its keys
+            # in post_hook on a refund, so what we read here is post-cancel.
+            # Xendit is preferred because it carries the wallet's real currency;
+            # MPP falls back to USD by convention. The two are mutually exclusive
+            # in practice — only one accounting policy fires per query.
+            xendit_amount = policy_context.metadata.get("xendit_revenue_amount", 0.0)
+            xendit_currency = policy_context.metadata.get("xendit_revenue_currency")
+            if xendit_amount and xendit_currency:
+                event_data["revenue_amount"] = float(xendit_amount)
+                event_data["currency"] = str(xendit_currency)
+            else:
+                mpp_amount = policy_context.metadata.get("mpp_total_amount", 0.0)
+                if mpp_amount:
+                    event_data["revenue_amount"] = float(mpp_amount)
+                    event_data["currency"] = "USD"
 
             return (
                 QueryEndpointResponse.model_validate(policy_context.response),
@@ -269,7 +319,10 @@ class QueryEndpointHandler:
                 asyncio.create_task(self.event_collector.capture(**event_data))
 
     async def _search_dataset(
-        self, endpoint: Endpoint, request: AuthenticatedQueryRequest
+        self,
+        endpoint: Endpoint,
+        request: AuthenticatedQueryRequest,
+        query: str,
     ) -> ReferencesResponse:
         """Search the dataset linked to this endpoint."""
         dataset = await self.dataset_repository.get_by_id(
@@ -286,12 +339,6 @@ class QueryEndpointHandler:
             ) from None
 
         dataset_instance = dataset_type_cls(dataset.configuration)
-
-        if isinstance(request.messages, str):
-            query = request.messages
-        else:
-            user_messages = [m for m in request.messages if m.role == "user"]
-            query = user_messages[-1].content if user_messages else ""
 
         ctx = SearchContext(sender=request.sender_email, dataset_id=dataset.id)
         search_params = SearchParameters(
