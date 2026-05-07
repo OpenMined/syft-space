@@ -220,3 +220,4 @@ src-tauri/binaries
 
 # Superset
 .superset/
+.gitnexus

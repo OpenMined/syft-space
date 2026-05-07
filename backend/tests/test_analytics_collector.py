@@ -41,7 +41,8 @@ class TestQueryEventCollector:
             TENANT_ID, now - timedelta(minutes=1), now
         )
         assert count == 1
-        assert revenue == 1.50
+        # Revenue is now per-currency: list of (currency, sum)
+        assert dict(revenue) == {"USD": 1.50}
         assert users == 1
 
     async def test_capture_swallows_exceptions(self):

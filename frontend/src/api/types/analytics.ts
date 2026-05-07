@@ -6,10 +6,20 @@ export interface StatCard {
   change_label: string
 }
 
+export interface CurrencyAmount {
+  currency: string
+  amount: number
+}
+
+export interface RevenueStatCard {
+  breakdown: CurrencyAmount[]
+  change_breakdown: CurrencyAmount[]
+}
+
 export interface SummaryStatsResponse {
   active_endpoints: StatCard
   total_queries: StatCard
-  total_revenue: StatCard
+  total_revenue: RevenueStatCard
   active_users: StatCard
 }
 
@@ -18,16 +28,21 @@ export interface TimeSeriesPoint {
   value: number
 }
 
+export interface CurrencySeries {
+  currency: string
+  points: TimeSeriesPoint[]
+}
+
 export interface TimeSeriesResponse {
   query_volume: TimeSeriesPoint[]
   user_activity: TimeSeriesPoint[]
-  revenue: TimeSeriesPoint[]
+  revenue: CurrencySeries[]
 }
 
 export interface TopUserEntry {
   user_email: string
   query_count: number
-  revenue: number
+  revenue: CurrencyAmount[]
 }
 
 export interface TopUsersResponse {

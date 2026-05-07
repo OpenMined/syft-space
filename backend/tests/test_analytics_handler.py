@@ -35,13 +35,13 @@ class TestGetSummaryStats:
         endpoint_repo.count_published.return_value = 5
         endpoint_repo.count_created_in_range.return_value = 2
 
-        # current: 100 queries, $50 revenue, 10 users
+        # current: 100 queries / 10 users / mixed-currency revenue
         # previous: 80 queries
-        # month: $200 revenue
+        # month: USD 200 + IDR 100k revenue
         event_repo.get_summary_counts.side_effect = [
-            (100, 50.0, 10),  # current period
-            (80, 30.0, 8),  # previous period
-            (200, 200.0, 15),  # current month
+            (100, [("USD", 50.0), ("IDR", 25000.0)], 10),  # current
+            (80, [("USD", 30.0)], 8),                       # previous
+            (200, [("USD", 200.0), ("IDR", 100000.0)], 15), # this month
         ]
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
@@ -51,8 +51,11 @@ class TestGetSummaryStats:
         assert result.active_endpoints.change_value == 2.0
         assert result.total_queries.value == 100.0
         assert result.total_queries.change_value == 25.0  # (100-80)/80 * 100
-        assert result.total_revenue.value == 50.0
-        assert result.total_revenue.change_value == 200.0  # month revenue
+        # Revenue: per-currency breakdown for current and month windows
+        breakdown = {ca.currency: ca.amount for ca in result.total_revenue.breakdown}
+        assert breakdown == {"USD": 50.0, "IDR": 25000.0}
+        change = {ca.currency: ca.amount for ca in result.total_revenue.change_breakdown}
+        assert change == {"USD": 200.0, "IDR": 100000.0}
         assert result.active_users.value == 10.0
 
     async def test_summary_with_zero_previous(self):
@@ -63,15 +66,16 @@ class TestGetSummaryStats:
         endpoint_repo.count_published.return_value = 0
         endpoint_repo.count_created_in_range.return_value = 0
         event_repo.get_summary_counts.side_effect = [
-            (50, 0.0, 5),  # current
-            (0, 0.0, 0),  # previous (zero)
-            (0, 0.0, 0),  # month
+            (50, [], 5),  # current
+            (0, [], 0),  # previous (zero)
+            (0, [], 0),  # month
         ]
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
         result = await handler.get_summary_stats(_make_tenant(), TimeRange.SEVEN_DAYS)
 
         assert result.total_queries.change_value == 100.0
+        assert result.total_revenue.breakdown == []
 
     async def test_summary_all_zeros(self):
         """Completely empty data returns zeros."""
@@ -80,13 +84,15 @@ class TestGetSummaryStats:
 
         endpoint_repo.count_published.return_value = 0
         endpoint_repo.count_created_in_range.return_value = 0
-        event_repo.get_summary_counts.return_value = (0, 0.0, 0)
+        event_repo.get_summary_counts.return_value = (0, [], 0)
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
         result = await handler.get_summary_stats(_make_tenant(), TimeRange.THIRTY_DAYS)
 
         assert result.total_queries.value == 0.0
         assert result.total_queries.change_value == 0.0
+        assert result.total_revenue.breakdown == []
+        assert result.total_revenue.change_breakdown == []
 
     async def test_summary_passes_filters(self):
         """endpoint_id and dataset_id are forwarded to repo."""
@@ -95,7 +101,7 @@ class TestGetSummaryStats:
 
         endpoint_repo.count_published.return_value = 0
         endpoint_repo.count_created_in_range.return_value = 0
-        event_repo.get_summary_counts.return_value = (0, 0.0, 0)
+        event_repo.get_summary_counts.return_value = (0, [], 0)
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
         ep_id = uuid4()
@@ -122,10 +128,11 @@ class TestGetTimeSeries:
         event_repo = AsyncMock()
         endpoint_repo = AsyncMock()
 
-        # Return data for only 1 bucket
-        event_repo.get_time_series_data.return_value = [
-            ("2024-01-03", 5, 2, 10.0),
-        ]
+        # Repository returns (counts, revenue) tuples
+        event_repo.get_time_series_data.return_value = (
+            [("2024-01-03", 5, 2)],
+            [("2024-01-03", "USD", 10.0)],
+        )
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
 
@@ -139,16 +146,23 @@ class TestGetTimeSeries:
 
         # Should have multiple points (7-8 days), most zero-filled
         assert len(result.query_volume) > 1
-        # The bucket for 2024-01-03 should have data
         values = {p.label: p.value for p in result.query_volume}
         non_zero = [v for v in values.values() if v > 0]
         assert len(non_zero) >= 1
 
+        # Revenue: one CurrencySeries for USD, gap-filled across same x-axis.
+        assert len(result.revenue) == 1
+        usd_series = result.revenue[0]
+        assert usd_series.currency == "USD"
+        assert len(usd_series.points) == len(result.query_volume)
+        non_zero_rev = [p for p in usd_series.points if p.value > 0]
+        assert len(non_zero_rev) == 1 and non_zero_rev[0].value == 10.0
+
     async def test_empty_data_returns_all_zero_buckets(self):
-        """No data returns series of zero-valued points."""
+        """No data returns count series of zero points and an empty revenue list."""
         event_repo = AsyncMock()
         endpoint_repo = AsyncMock()
-        event_repo.get_time_series_data.return_value = []
+        event_repo.get_time_series_data.return_value = ([], [])
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
         result = await handler.get_time_series(_make_tenant(), TimeRange.SEVEN_DAYS)
@@ -156,21 +170,28 @@ class TestGetTimeSeries:
         assert len(result.query_volume) > 0
         assert all(p.value == 0.0 for p in result.query_volume)
         assert all(p.value == 0.0 for p in result.user_activity)
-        assert all(p.value == 0.0 for p in result.revenue)
+        # No currencies → no revenue series at all
+        assert result.revenue == []
 
     async def test_three_series_aligned(self):
-        """All three series have the same bucket labels."""
+        """Count series and any revenue series share the same x-axis labels."""
         event_repo = AsyncMock()
         endpoint_repo = AsyncMock()
-        event_repo.get_time_series_data.return_value = []
+        event_repo.get_time_series_data.return_value = (
+            [],
+            [("2024-01-03", "IDR", 100.0)],
+        )
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
         result = await handler.get_time_series(_make_tenant(), TimeRange.THIRTY_DAYS)
 
         qv_labels = [p.label for p in result.query_volume]
         ua_labels = [p.label for p in result.user_activity]
-        rev_labels = [p.label for p in result.revenue]
-        assert qv_labels == ua_labels == rev_labels
+        assert qv_labels == ua_labels
+        # The IDR revenue series shares the same labels too
+        assert len(result.revenue) == 1
+        rev_labels = [p.label for p in result.revenue[0].points]
+        assert rev_labels == qv_labels
 
 
 # ============== get_top_users ==============
@@ -184,8 +205,8 @@ class TestGetTopUsers:
         endpoint_repo = AsyncMock()
 
         event_repo.get_top_users.return_value = [
-            ("alice@test.com", 50, 100.0),
-            ("bob@test.com", 30, 50.0),
+            ("alice@test.com", 50, [("USD", 100.0)]),
+            ("bob@test.com", 30, [("IDR", 50000.0), ("USD", 5.0)]),
         ]
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
@@ -194,8 +215,14 @@ class TestGetTopUsers:
         assert len(result.users) == 2
         assert result.users[0].user_email == "alice@test.com"
         assert result.users[0].query_count == 50
-        assert result.users[0].revenue == 100.0
+        assert {ca.currency: ca.amount for ca in result.users[0].revenue} == {
+            "USD": 100.0
+        }
         assert result.users[1].user_email == "bob@test.com"
+        assert {ca.currency: ca.amount for ca in result.users[1].revenue} == {
+            "IDR": 50000.0,
+            "USD": 5.0,
+        }
 
     async def test_empty_returns_empty(self):
         event_repo = AsyncMock()

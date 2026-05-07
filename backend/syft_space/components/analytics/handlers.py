@@ -9,6 +9,9 @@ from uuid import UUID
 from syft_space.components.analytics.entities import QueryEventStatus
 from syft_space.components.analytics.repository import QueryEventRepository
 from syft_space.components.analytics.schemas import (
+    CurrencyAmount,
+    CurrencySeries,
+    RevenueStatCard,
     StatCard,
     SummaryStatsResponse,
     TimeRange,
@@ -121,9 +124,9 @@ class AnalyticsHandler:
             ),
         )
 
-        current_count, current_revenue, current_users = current_counts
+        current_count, current_revenue_breakdown, current_users = current_counts
         previous_count = previous_counts[0]
-        month_revenue = month_counts[1]
+        month_revenue_breakdown = month_counts[1]
 
         query_pct_change = self._compute_pct_change(current_count, previous_count)
 
@@ -138,10 +141,15 @@ class AnalyticsHandler:
                 change_value=query_pct_change,
                 change_label=f"{query_pct_change:+.1f}% from last period",
             ),
-            total_revenue=StatCard(
-                value=current_revenue,
-                change_value=month_revenue,
-                change_label=f"${month_revenue:,.2f} this month",
+            total_revenue=RevenueStatCard(
+                breakdown=[
+                    CurrencyAmount(currency=c, amount=a)
+                    for c, a in current_revenue_breakdown
+                ],
+                change_breakdown=[
+                    CurrencyAmount(currency=c, amount=a)
+                    for c, a in month_revenue_breakdown
+                ],
             ),
             active_users=StatCard(
                 value=float(current_users),
@@ -165,20 +173,27 @@ class AnalyticsHandler:
         granularity, bucket_format = _BUCKET_CONFIG[time_range]
 
         # Query aggregated data from analytics DB
-        raw_data = await self.query_event_repository.get_time_series_data(
-            tenant.id,
-            current_start,
-            current_end,
-            bucket_format,
-            endpoint_id,
-            dataset_id,
-            QueryEventStatus.SUCCESS.value,
+        counts_data, revenue_data = (
+            await self.query_event_repository.get_time_series_data(
+                tenant.id,
+                current_start,
+                current_end,
+                bucket_format,
+                endpoint_id,
+                dataset_id,
+                QueryEventStatus.SUCCESS.value,
+            )
         )
 
-        # Build lookup from bucket_key -> (query_count, user_count, revenue)
-        data_by_bucket: dict[str, tuple[int, int, float]] = {}
-        for bucket_key, query_count, user_count, revenue in raw_data:
-            data_by_bucket[bucket_key] = (query_count, user_count, revenue)
+        # Build lookups
+        counts_by_bucket: dict[str, tuple[int, int]] = {
+            bucket_key: (query_count, user_count)
+            for bucket_key, query_count, user_count in counts_data
+        }
+        # currency -> bucket_key -> revenue_sum
+        revenue_by_currency: dict[str, dict[str, float]] = {}
+        for bucket_key, currency, revenue_sum in revenue_data:
+            revenue_by_currency.setdefault(currency, {})[bucket_key] = revenue_sum
 
         # Generate all expected bucket keys and gap-fill
         expected_buckets = self._generate_bucket_keys(
@@ -187,13 +202,23 @@ class AnalyticsHandler:
 
         query_volume: list[TimeSeriesPoint] = []
         user_activity: list[TimeSeriesPoint] = []
-        revenue: list[TimeSeriesPoint] = []
-
         for bucket_key, label in expected_buckets:
-            counts = data_by_bucket.get(bucket_key, (0, 0, 0.0))
+            counts = counts_by_bucket.get(bucket_key, (0, 0))
             query_volume.append(TimeSeriesPoint(label=label, value=float(counts[0])))
             user_activity.append(TimeSeriesPoint(label=label, value=float(counts[1])))
-            revenue.append(TimeSeriesPoint(label=label, value=counts[2]))
+
+        # One CurrencySeries per currency present in the data, gap-filled
+        # against the same x-axis as query_volume.
+        revenue: list[CurrencySeries] = []
+        for currency in sorted(revenue_by_currency):
+            bucket_to_amount = revenue_by_currency[currency]
+            points = [
+                TimeSeriesPoint(
+                    label=label, value=float(bucket_to_amount.get(bucket_key, 0.0))
+                )
+                for bucket_key, label in expected_buckets
+            ]
+            revenue.append(CurrencySeries(currency=currency, points=points))
 
         return TimeSeriesResponse(
             query_volume=query_volume,
@@ -228,9 +253,11 @@ class AnalyticsHandler:
             TopUserEntry(
                 user_email=email,
                 query_count=count,
-                revenue=revenue,
+                revenue=[
+                    CurrencyAmount(currency=c, amount=a) for c, a in revenue_breakdown
+                ],
             )
-            for email, count, revenue in raw_users
+            for email, count, revenue_breakdown in raw_users
         ]
 
         return TopUsersResponse(users=users)

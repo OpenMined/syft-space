@@ -24,7 +24,13 @@ import { analyticsApi } from '@/api/endpoints/analytics'
 const mockSummary: SummaryStatsResponse = {
   active_endpoints: { value: 5, change_value: 2, change_label: '+2 this period' },
   total_queries: { value: 100, change_value: 25, change_label: '+25% from last period' },
-  total_revenue: { value: 50.0, change_value: 200, change_label: '$200.00 this month' },
+  total_revenue: {
+    breakdown: [
+      { currency: 'USD', amount: 50.0 },
+      { currency: 'IDR', amount: 25000.0 },
+    ],
+    change_breakdown: [{ currency: 'USD', amount: 200.0 }],
+  },
   active_users: { value: 10, change_value: 0, change_label: '30d' },
 }
 
@@ -38,15 +44,28 @@ const mockTimeSeries: TimeSeriesResponse = {
     { label: 'Jan 2', value: 5 },
   ],
   revenue: [
-    { label: 'Jan 1', value: 5.0 },
-    { label: 'Jan 2', value: 10.0 },
+    {
+      currency: 'USD',
+      points: [
+        { label: 'Jan 1', value: 5.0 },
+        { label: 'Jan 2', value: 10.0 },
+      ],
+    },
   ],
 }
 
 const mockTopUsers: TopUsersResponse = {
   users: [
-    { user_email: 'alice@test.com', query_count: 50, revenue: 100.0 },
-    { user_email: 'bob@test.com', query_count: 30, revenue: 50.0 },
+    {
+      user_email: 'alice@test.com',
+      query_count: 50,
+      revenue: [{ currency: 'USD', amount: 100.0 }],
+    },
+    {
+      user_email: 'bob@test.com',
+      query_count: 30,
+      revenue: [{ currency: 'IDR', amount: 50000.0 }],
+    },
   ],
 }
 

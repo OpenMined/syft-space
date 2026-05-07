@@ -30,6 +30,34 @@ class StatCard(BaseModel):
     )
 
 
+class CurrencyAmount(BaseModel):
+    """A monetary amount in a specific currency.
+
+    Revenue is reported per-currency rather than as a single sum because
+    Syft Space supports multiple wallet types (xendit/IDR, mpp/USD) and
+    cross-currency totals are not meaningful without an FX rate.
+    """
+
+    currency: str = Field(..., description="ISO currency code (e.g., 'USD', 'IDR')")
+    amount: float = Field(..., description="Amount in that currency")
+
+
+class RevenueStatCard(BaseModel):
+    """Revenue stat card with per-currency breakdowns.
+
+    The frontend renders `breakdown` as the primary value and
+    `change_breakdown` as the secondary comparison. Formatting is the
+    frontend's responsibility because currency display rules vary.
+    """
+
+    breakdown: list[CurrencyAmount] = Field(
+        ..., description="Revenue per currency for the selected period"
+    )
+    change_breakdown: list[CurrencyAmount] = Field(
+        ..., description="Revenue per currency for the comparison window (this month)"
+    )
+
+
 class SummaryStatsResponse(BaseModel):
     """Response for the 4 dashboard stat cards."""
 
@@ -37,7 +65,9 @@ class SummaryStatsResponse(BaseModel):
     total_queries: StatCard = Field(
         ..., description="Count of query events in selected range"
     )
-    total_revenue: StatCard = Field(..., description="Sum of revenue in selected range")
+    total_revenue: RevenueStatCard = Field(
+        ..., description="Per-currency revenue in selected range"
+    )
     active_users: StatCard = Field(
         ..., description="Count of distinct users in selected range"
     )
@@ -53,6 +83,19 @@ class TimeSeriesPoint(BaseModel):
     value: float = Field(..., description="Aggregated value for this bucket")
 
 
+class CurrencySeries(BaseModel):
+    """A revenue time series in a single currency.
+
+    All series in a TimeSeriesResponse share the same x-axis labels so the
+    frontend can stack/overlay them without re-aligning buckets.
+    """
+
+    currency: str = Field(..., description="ISO currency code")
+    points: list[TimeSeriesPoint] = Field(
+        ..., description="Revenue per time bucket for this currency"
+    )
+
+
 class TimeSeriesResponse(BaseModel):
     """Response containing 3 time-bucketed series."""
 
@@ -62,8 +105,12 @@ class TimeSeriesResponse(BaseModel):
     user_activity: list[TimeSeriesPoint] = Field(
         ..., description="Distinct user count per time bucket"
     )
-    revenue: list[TimeSeriesPoint] = Field(
-        ..., description="Revenue sum per time bucket"
+    revenue: list[CurrencySeries] = Field(
+        ...,
+        description=(
+            "Revenue per currency, one series per currency present in the data. "
+            "Empty list when there is no revenue in the period."
+        ),
     )
 
 
@@ -75,7 +122,13 @@ class TopUserEntry(BaseModel):
 
     user_email: str = Field(..., description="User email address")
     query_count: int = Field(..., description="Number of queries in the time range")
-    revenue: float = Field(..., description="Sum of revenue from this user's queries")
+    revenue: list[CurrencyAmount] = Field(
+        ...,
+        description=(
+            "Revenue from this user's queries, broken down by currency. "
+            "Empty list if the user only triggered free or refunded queries."
+        ),
+    )
 
 
 class TopUsersResponse(BaseModel):
