@@ -5,7 +5,6 @@ import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { usePolicyCreation } from './usePolicyCreation'
-import { DEFAULT_PII_FILTER_CONFIG } from '@/config/policyTypes'
 import type { PolicyRulesRecord, PolicyTypeId } from '@/config/policyTypes'
 import type { CreateEndpointRequest, PolicyResponse } from '@/api/types'
 
@@ -113,10 +112,7 @@ export function useGoLive() {
       policyRequests.push({
         name: `PII Filter for ${data.name}`,
         policy_type: piiFilterType,
-        configuration: {
-          categories: [...DEFAULT_PII_FILTER_CONFIG.categories],
-          replacement: DEFAULT_PII_FILTER_CONFIG.replacement,
-        },
+        configuration: {},
         endpoint_id: endpointId,
       })
     }

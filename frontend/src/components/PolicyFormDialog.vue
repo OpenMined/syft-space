@@ -160,33 +160,13 @@
 
         <!-- PII Filter Policy Form -->
         <div v-if="policyType === 'pii_filter'" class="space-y-4">
-          <div class="space-y-2">
-            <Label class="body-sm text-muted-foreground font-medium">Categories to redact</Label>
-            <div class="grid grid-cols-2 gap-2">
-              <label
-                v-for="category in PII_FILTER_CATEGORIES"
-                :key="category"
-                class="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
-              >
-                <input
-                  type="checkbox"
-                  :checked="piiFilterForm.categories.includes(category)"
-                  @change="togglePiiCategory(category)"
-                />
-                <span class="body-sm capitalize">{{ category.replace('_', ' ') }}</span>
-              </label>
-            </div>
-            <p class="text-xs text-muted-foreground">
-              Matched values in endpoint responses are replaced with a placeholder token.
+          <div class="rounded-lg border border-border bg-muted/40 px-4 py-3">
+            <p class="text-sm font-medium text-foreground">No configuration required</p>
+            <p class="text-xs text-muted-foreground mt-1">
+              The endpoint's AI model will evaluate its own response and replace any detected
+              personally identifiable information with [REDACTED] before returning it to the
+              caller.
             </p>
-          </div>
-          <div class="space-y-1">
-            <Label class="body-sm text-muted-foreground font-medium">Replacement token</Label>
-            <Input
-              v-model="piiFilterForm.replacement"
-              placeholder="[REDACTED]"
-              class="h-9 rounded-lg border-border bg-card body-sm"
-            />
           </div>
           <div class="space-y-1">
             <Label class="body-sm text-muted-foreground font-medium">Note</Label>
@@ -237,12 +217,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
-import {
-  getPolicyTypeLabel,
-  PII_FILTER_CATEGORIES,
-  DEFAULT_PII_FILTER_CONFIG,
-} from '@/config/policyTypes'
-import type { PolicyTypeId, PiiFilterCategory } from '@/config/policyTypes'
+import { getPolicyTypeLabel } from '@/config/policyTypes'
+import type { PolicyTypeId } from '@/config/policyTypes'
 import type {
   AuthorizationFormData,
   RateLimitFormData,
@@ -288,19 +264,8 @@ const pricingForm = ref<PricingFormData>({
 })
 
 const piiFilterForm = ref<PiiFilterFormData>({
-  categories: [...DEFAULT_PII_FILTER_CONFIG.categories],
-  replacement: DEFAULT_PII_FILTER_CONFIG.replacement,
   note: '',
 })
-
-const togglePiiCategory = (category: PiiFilterCategory) => {
-  const idx = piiFilterForm.value.categories.indexOf(category)
-  if (idx >= 0) {
-    piiFilterForm.value.categories.splice(idx, 1)
-  } else {
-    piiFilterForm.value.categories.push(category)
-  }
-}
 
 // Get current form data based on policy type
 const getCurrentFormData = () => {
@@ -337,11 +302,7 @@ const resetForm = (policyType: PolicyTypeId) => {
       pricingForm.value = { price: '', userType: 'all', users: '', note: '' }
       break
     case 'pii_filter':
-      piiFilterForm.value = {
-        categories: [...DEFAULT_PII_FILTER_CONFIG.categories],
-        replacement: DEFAULT_PII_FILTER_CONFIG.replacement,
-        note: '',
-      }
+      piiFilterForm.value = { note: '' }
       break
   }
 }
@@ -372,19 +333,9 @@ const loadInitialData = (policyType: PolicyTypeId, data: Record<string, unknown>
         note: (data.note as string) || '',
       }
       break
-    case 'pii_filter': {
-      const rawCategories = Array.isArray(data.categories)
-        ? (data.categories as string[]).filter((c): c is PiiFilterCategory =>
-            (PII_FILTER_CATEGORIES as readonly string[]).includes(c),
-          )
-        : [...DEFAULT_PII_FILTER_CONFIG.categories]
-      piiFilterForm.value = {
-        categories: rawCategories,
-        replacement: (data.replacement as string) || DEFAULT_PII_FILTER_CONFIG.replacement,
-        note: (data.note as string) || '',
-      }
+    case 'pii_filter':
+      piiFilterForm.value = { note: (data.note as string) || '' }
       break
-    }
   }
 }
 

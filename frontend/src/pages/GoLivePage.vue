@@ -270,6 +270,9 @@ const aiModelName = computed(
 )
 
 const piiFilterEnabled = ref(false)
+watch(hasModel, (modelSelected) => {
+  if (!modelSelected) piiFilterEnabled.value = false
+})
 
 const policyRules = ref<PolicyRulesRecord>(createEmptyPolicyRules())
 
@@ -862,8 +865,8 @@ const handleOverwriteConfirm = async () => {
                 <Separator class="mt-8" />
               </section>
 
-              <!-- PII Filter -->
-              <section>
+              <!-- PII Filter (model endpoints only) -->
+              <section v-if="hasModel">
                 <div
                   class="flex items-start justify-between gap-4 p-4 rounded-lg border transition-all"
                   :class="
@@ -889,10 +892,10 @@ const handleOverwriteConfirm = async () => {
                               <Info class="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                             </TooltipTrigger>
                             <TooltipContent side="top" class="max-w-[300px]">
-                              Automatically detect and redact personal information (names, emails,
-                              phone numbers, addresses) from responses using a local classification
-                              model. Detected PII is replaced with placeholder tokens like [PERSON],
-                              [EMAIL].
+                              The AI model reviews its own response and replaces any personally
+                              identifiable information (names, emails, phone numbers, addresses,
+                              IDs) with [REDACTED] before the response is returned. Only
+                              available for model endpoints.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
