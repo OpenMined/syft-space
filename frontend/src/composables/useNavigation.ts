@@ -21,7 +21,6 @@ export function useNavigation() {
     datasetDetail: (slug: string) => ({ name: 'dataset-detail', params: { slug } }),
 
     // Other pages
-    inbox: { name: 'inbox' },
     settings: { name: 'settings' },
     earnings: { name: 'earnings' },
   }
@@ -32,7 +31,6 @@ export function useNavigation() {
   const goToModels = () => navigateTo(routes.models)
   const goToDatasets = () => navigateTo(routes.datasets)
   const goToHome = () => navigateTo(routes.home)
-  const goToInbox = () => navigateTo(routes.inbox)
   const goToSettings = () => navigateTo(routes.settings)
   const goToEarnings = () => navigateTo(routes.earnings)
 
@@ -51,7 +49,6 @@ export function useNavigation() {
     goToModels,
     goToDatasets,
     goToHome,
-    goToInbox,
     goToSettings,
     goToEarnings,
     goToEndpointDetail,

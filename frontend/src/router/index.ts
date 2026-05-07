@@ -3,7 +3,6 @@ import HomePage from '../pages/HomePage.vue'
 import EndpointsPage from '../pages/EndpointsPage.vue'
 import DatasetsPage from '../pages/DatasetsPage.vue'
 import ModelsPage from '../pages/ModelsPage.vue'
-import InboxPage from '../pages/InboxPage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
 import AnalyticsPage from '../pages/AnalyticsPage.vue'
 import EarningsPage from '../pages/EarningsPage.vue'
@@ -94,11 +93,6 @@ const router = createRouter({
       path: '/chat',
       name: 'chat',
       component: ChatPage,
-    },
-    {
-      path: '/inbox',
-      name: 'inbox',
-      component: InboxPage,
     },
     {
       path: '/analytics',

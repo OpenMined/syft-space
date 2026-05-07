@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, ExternalLink, Settings } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,14 +19,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useUserStore } from '@/stores/user'
-import { useInboxStore } from '@/stores/inbox'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import SyftLogo from '@/assets/syftbox-logo.svg'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
-const inboxStore = useInboxStore()
 
 const currentRouteName = computed(() => route.name as string)
 
@@ -83,13 +80,6 @@ const tabs = [
           >
             {{ tab.label }}
           </Button>
-          <Badge
-            v-if="tab.id === 'inbox' && inboxStore.unreadCount > 0"
-            variant="destructive"
-            class="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center text-xs font-semibold min-w-[20px] rounded-full border-2 border-background"
-          >
-            {{ inboxStore.unreadCount > 9 ? '9+' : inboxStore.unreadCount }}
-          </Badge>
         </div>
       </nav>
 

@@ -7,7 +7,6 @@ import {
   Database,
   Brain,
   Globe,
-  Inbox,
   Settings,
   ChevronsLeft,
   ChevronsRight,
@@ -23,7 +22,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Separator } from '@/components/ui/separator'
 import { useSidebar } from '@/composables/useSidebar'
 import { useNavigation } from '@/composables/useNavigation'
-import { useInboxStore } from '@/stores/inbox'
 import { useUserStore } from '@/stores/user'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { datasetsApi } from '@/api/endpoints/datasets'
@@ -36,7 +34,6 @@ const router = useRouter()
 const route = useRoute()
 const { isCollapsed, toggle } = useSidebar()
 const { routes } = useNavigation()
-const inboxStore = useInboxStore()
 const userStore = useUserStore()
 const endpointsStore = useEndpointsStore()
 
@@ -204,7 +201,6 @@ const routeMapping: Record<string, string[]> = {
   models: ['models', 'model-detail'],
   chat: ['chat'],
   endpoints: ['endpoints', 'endpoint-detail'],
-  inbox: ['inbox'],
   analytics: ['analytics'],
   settings: ['settings'],
 }
@@ -246,16 +242,7 @@ const liveNav: NavItem[] = [
   },
 ]
 
-const bottomNav: NavItem[] = [
-  {
-    id: 'inbox',
-    route: 'inbox',
-    label: 'Inbox',
-    icon: Inbox,
-    badge: () => (inboxStore.unreadCount > 0 ? inboxStore.unreadCount : undefined),
-    badgeVariant: 'destructive',
-  },
-]
+const bottomNav: NavItem[] = []
 
 interface ResolvedNavItem extends NavItem {
   active: boolean

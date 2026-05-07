@@ -213,105 +213,15 @@
           </div>
         </div>
       </div>
-
-      <!-- Item Detail Dialog -->
-      <Dialog v-model:open="dialogOpen">
-        <DialogContent
-          v-if="selectedItem"
-          class="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden sm:max-w-5xl"
-        >
-          <div class="flex-shrink-0 border-b bg-muted/50">
-            <DialogHeader class="p-6 pb-4">
-              <div class="flex items-start justify-between mb-3">
-                <div class="flex items-center gap-3">
-                  <div :class="`p-3 rounded-lg ${getSourceColor(selectedItem.source)}`">
-                    <component :is="getSourceIcon(selectedItem.source)" class="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div class="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" class="body-sm">{{ selectedItem.source }}</Badge>
-                      <div
-                        v-if="!selectedItem.read"
-                        class="flex items-center gap-1 body-sm text-primary"
-                      >
-                        <div class="w-2 h-2 bg-primary rounded-full"></div>
-                        <span>New</span>
-                      </div>
-                    </div>
-                    <span class="body-sm text-muted-foreground">
-                      {{ formatTimestamp(selectedItem.timestamp) }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <DialogTitle class="heading-2">{{ selectedItem.title }}</DialogTitle>
-              <DialogDescription class="mt-2 body-base">{{
-                selectedItem.summary
-              }}</DialogDescription>
-            </DialogHeader>
-          </div>
-
-          <div class="flex-1 min-h-0 overflow-y-auto">
-            <div class="p-6">
-              <div
-                class="prose prose-sm max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-primary prose-code:font-mono prose-pre:bg-muted prose-pre:border prose-pre:font-mono prose-li:text-muted-foreground dark:prose-invert"
-                v-html="selectedItemMarkdown"
-              />
-            </div>
-          </div>
-
-          <div class="flex-shrink-0 border-t bg-muted/50">
-            <DialogFooter class="p-6 pt-4">
-              <div class="flex items-center justify-between w-full">
-                <div class="flex items-center gap-4">
-                  <Button
-                    variant="ghost"
-                    size="default"
-                    class="text-muted-foreground hover:text-foreground"
-                    @click="
-                      () => {
-                        selectedItem && dismissItem(selectedItem)
-                        dialogOpen = false
-                      }
-                    "
-                  >
-                    <Trash2 class="h-4 w-4 mr-2" />
-                    Dismiss
-                  </Button>
-                </div>
-                <div class="flex items-center gap-3">
-                  <Button
-                    v-if="selectedItem.actions?.negative"
-                    variant="outline"
-                    size="default"
-                    @click="selectedItem && handleNegativeAction(selectedItem)"
-                  >
-                    {{ selectedItem.actions.negative.label }}
-                  </Button>
-                  <Button
-                    v-if="selectedItem.actions?.positive"
-                    variant="default"
-                    size="default"
-                    @click="selectedItem && handlePositiveAction(selectedItem)"
-                  >
-                    {{ selectedItem.actions.positive.label }}
-                  </Button>
-                </div>
-              </div>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   </ErrorBoundary>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Brain,
-  Trash2,
   FileText,
   Zap,
   Shield,
@@ -319,28 +229,11 @@ import {
   BarChart3,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { useInboxStore, type InboxItem } from '@/stores/inbox'
 import { useEndpointsStore } from '@/stores/endpoints'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  getInboxSourceColor as getSourceColor,
-  getInboxSourceIcon as getSourceIcon,
-} from '@/lib/inboxFormatters'
-import { formatTimestamp } from '@/lib/formatters'
-import { markdownToHtml } from '@/lib/markdown'
 
 const router = useRouter()
-const inboxStore = useInboxStore()
 const endpointsStore = useEndpointsStore()
 
 const recentEndpoints = computed(() => endpointsStore.endpoints.slice(0, 5))
@@ -349,35 +242,7 @@ onMounted(() => {
   endpointsStore.fetchEndpoints()
 })
 
-const selectedItem = ref<InboxItem | null>(null)
-const dialogOpen = ref(false)
-
-const dismissItem = (item: InboxItem) => {
-  inboxStore.dismissItem(item.id)
-  if (selectedItem.value?.id === item.id) {
-    dialogOpen.value = false
-  }
-}
-
-const handlePositiveAction = (item: InboxItem) => {
-  if (item.actions?.positive?.handler) {
-    item.actions.positive.handler()
-  }
-  dismissItem(item)
-}
-
-const handleNegativeAction = (item: InboxItem) => {
-  if (item.actions?.negative?.handler) {
-    item.actions.negative.handler()
-  }
-  dismissItem(item)
-}
-
 const refreshDashboard = () => {
   endpointsStore.fetchEndpoints()
 }
-
-const selectedItemMarkdown = computed(() =>
-  selectedItem.value?.longDescription ? markdownToHtml(selectedItem.value.longDescription) : '',
-)
 </script>
