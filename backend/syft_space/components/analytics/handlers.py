@@ -295,9 +295,10 @@ class AnalyticsHandler:
             status=QueryEventStatus.SUCCESS.value,
         )
 
-        # Batch-clean all texts and aggregate n-gram frequencies
-        cleaned_texts = clean_texts_batch(
-            raw_texts, custom_stop_words=custom_stop_words
+        # spaCy lemmatization is CPU-bound — off-load so a word-cloud
+        # request doesn't block the event loop.
+        cleaned_texts = await asyncio.to_thread(
+            clean_texts_batch, raw_texts, custom_stop_words=custom_stop_words
         )
         word_counts: Counter[str] = Counter()
         for cleaned in cleaned_texts:
