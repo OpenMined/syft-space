@@ -341,10 +341,21 @@ class SummaryResponse(BaseModel):
     finish_reason: str = Field(..., description="Reason for completion")
     usage: TokenUsage = Field(..., description="Token usage information")
     logprobs: LogProbs | None = Field(default=None, description="Log probabilities")
-    cost: float = Field(..., description="Cost of the generation")
+    cost: float | None = Field(
+        default=None, description="Cost of the generation, if billed"
+    )
+    currency: str | None = Field(
+        default=None, description="Currency of the cost (ISO code)"
+    )
     provider_info: ProviderInfo = Field(
         ..., description="Provider-specific information"
     )
+
+    @model_validator(mode="after")
+    def _cost_currency_paired(self) -> "SummaryResponse":
+        if self.cost is not None and self.currency is None:
+            raise ValueError("currency is required when cost is set")
+        return self
 
 
 class DocumentResponse(BaseModel):
@@ -367,7 +378,18 @@ class ReferencesResponse(BaseModel):
         ..., description="List of reference documents"
     )
     provider_info: ProviderInfo = Field(..., description="Search provider information")
-    cost: float = Field(..., description="Cost of the search")
+    cost: float | None = Field(
+        default=None, description="Cost of the search, if billed"
+    )
+    currency: str | None = Field(
+        default=None, description="Currency of the cost (ISO code)"
+    )
+
+    @model_validator(mode="after")
+    def _cost_currency_paired(self) -> "ReferencesResponse":
+        if self.cost is not None and self.currency is None:
+            raise ValueError("currency is required when cost is set")
+        return self
 
 
 class QueryEndpointResponse(BaseModel):

@@ -129,12 +129,13 @@ class XenditAccountingPolicy(WalletPolicy):
                 ) from exc
 
             context.metadata["xendit_transaction_id"] = transaction_id
-            # Surface the recognized revenue (and its currency) for analytics
-            # capture. The query handler reads these to populate the
-            # query_event row. Cleared in post_hook if the reservation is
-            # cancelled (empty-response refund path).
-            context.metadata["xendit_revenue_amount"] = config.price_per_request
-            context.metadata["xendit_revenue_currency"] = currency
+            # Surface the recognized revenue on the response so the analytics
+            # adapter can read it without knowing about Xendit. Cleared in
+            # post_hook on the empty-response refund path.
+            context.response = context.response or {}
+            summary = context.response.setdefault("summary", {})
+            summary["cost"] = config.price_per_request
+            summary["currency"] = currency
             # Only one applicable config per user — first match wins.
             break
 
@@ -165,9 +166,11 @@ class XenditAccountingPolicy(WalletPolicy):
         balance_service = context.metadata.get("balance_service")
         if balance_service:
             await balance_service.cancel(transaction_id)
-            # Refund issued — the request did not generate recognized revenue.
-            context.metadata.pop("xendit_revenue_amount", None)
-            context.metadata.pop("xendit_revenue_currency", None)
+            # Refund issued — clear the cost/currency on the response so
+            # downstream consumers don't see a charge.
+            summary = (context.response or {}).get("summary") or {}
+            summary["cost"] = None
+            summary["currency"] = None
 
         return context
 

@@ -154,7 +154,6 @@ class MppAccountingPolicy(BasePolicyType, WalletPolicy):
 
         # Free tier - skip payment
         if price == 0:
-            context.metadata["mpp_total_amount"] = 0.0
             return context
 
         # Get wallet configuration from context metadata
@@ -199,7 +198,6 @@ class MppAccountingPolicy(BasePolicyType, WalletPolicy):
             "status": receipt.status,
             "external_id": receipt.external_id,
         }
-        context.metadata["mpp_total_amount"] = price
 
         logger.info(
             f"MPP payment verified: ${price} from {credential.source} "
@@ -211,15 +209,24 @@ class MppAccountingPolicy(BasePolicyType, WalletPolicy):
     async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
-        """Post-hook: add cost and receipt info to response metadata."""
-        total_amount = context.metadata.get("mpp_total_amount", 0.0)
+        """Post-hook: surface cost+currency on the response and the receipt
+        reference for the Payment-Receipt header.
+
+        Cost is only written when a charge actually happened (receipt
+        present). Free-tier requests leave cost/currency as None — absence
+        is meaningful for downstream consumers.
+        """
         receipt_info = context.metadata.get("mpp_receipt")
 
-        if context.response:
-            if context.response.get("summary"):
-                context.response["summary"]["cost"] = total_amount
-            if context.response.get("references"):
-                context.response["references"]["cost"] = total_amount
+        if receipt_info and context.response:
+            price = self._find_matching_price(context.sender_email, configs)
+            if price is not None and price > 0:
+                if context.response.get("summary"):
+                    context.response["summary"]["cost"] = price
+                    context.response["summary"]["currency"] = "USD"
+                if context.response.get("references"):
+                    context.response["references"]["cost"] = price
+                    context.response["references"]["currency"] = "USD"
 
         # Store receipt reference for Payment-Receipt header
         if receipt_info:
