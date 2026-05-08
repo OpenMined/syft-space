@@ -134,12 +134,10 @@ class AnalyticsHandler:
             active_endpoints=StatCard(
                 value=float(published_count),
                 change_value=float(created_in_range),
-                change_label=f"+{created_in_range} this period",
             ),
             total_queries=StatCard(
                 value=float(current_count),
                 change_value=query_pct_change,
-                change_label=f"{query_pct_change:+.1f}% from last period",
             ),
             total_revenue=RevenueStatCard(
                 breakdown=[
@@ -154,7 +152,6 @@ class AnalyticsHandler:
             active_users=StatCard(
                 value=float(current_users),
                 change_value=0.0,
-                change_label=time_range.value,
             ),
         )
 

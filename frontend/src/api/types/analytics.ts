@@ -3,7 +3,6 @@ export type TimeRange = '7d' | '30d' | '90d' | '1y'
 export interface StatCard {
   value: number
   change_value: number
-  change_label: string
 }
 
 export interface CurrencyAmount {

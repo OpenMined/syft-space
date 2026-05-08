@@ -37,14 +37,13 @@ class TestTimeRange:
 
 class TestStatCard:
     def test_valid(self):
-        card = StatCard(value=42.0, change_value=10.5, change_label="+10.5%")
+        card = StatCard(value=42.0, change_value=10.5)
         assert card.value == 42.0
         assert card.change_value == 10.5
-        assert card.change_label == "+10.5%"
 
     def test_required_fields(self):
         with pytest.raises(ValidationError):
-            StatCard(value=1.0)  # missing change_value and change_label
+            StatCard(value=1.0)  # missing change_value
 
 
 class TestRevenueStatCard:
@@ -69,7 +68,7 @@ class TestRevenueStatCard:
 
 class TestSummaryStatsResponse:
     def test_full_response(self):
-        card = StatCard(value=0.0, change_value=0.0, change_label="--")
+        card = StatCard(value=0.0, change_value=0.0)
         revenue = RevenueStatCard(breakdown=[], change_breakdown=[])
         resp = SummaryStatsResponse(
             active_endpoints=card,
@@ -81,7 +80,7 @@ class TestSummaryStatsResponse:
         assert resp.total_revenue.breakdown == []
 
     def test_missing_field(self):
-        card = StatCard(value=0.0, change_value=0.0, change_label="--")
+        card = StatCard(value=0.0, change_value=0.0)
         with pytest.raises(ValidationError):
             SummaryStatsResponse(
                 active_endpoints=card,

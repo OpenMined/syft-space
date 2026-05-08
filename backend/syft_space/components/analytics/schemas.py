@@ -18,15 +18,15 @@ class TimeRange(str, Enum):
 
 
 class StatCard(BaseModel):
-    """A single stat card with value and comparison indicator."""
+    """A single stat card with value and comparison indicator.
+
+    The frontend formats comparison labels from `change_value` plus the
+    selected time range — currency/locale display rules live in the UI.
+    """
 
     value: float = Field(..., description="Raw numeric value")
     change_value: float = Field(
         ..., description="Raw comparison value (count, percentage, or amount)"
-    )
-    change_label: str = Field(
-        ...,
-        description="Pre-formatted comparison text (e.g., '+2 this period')",
     )
 
 

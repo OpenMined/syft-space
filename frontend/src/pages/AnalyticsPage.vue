@@ -760,6 +760,7 @@ const simpleStatCardMeta = [
     iconFg: 'text-green-600 dark:text-green-400',
     format: formatCompactNumber,
     alwaysPositive: true,
+    formatChange: (change: number) => `+${change} this period`,
   },
   {
     key: 'total_queries' as const,
@@ -769,6 +770,8 @@ const simpleStatCardMeta = [
     iconFg: 'text-blue-600 dark:text-blue-400',
     format: formatCompactNumber,
     alwaysPositive: true,
+    formatChange: (change: number) =>
+      `${change >= 0 ? '+' : ''}${change.toFixed(1)}% from last period`,
   },
   {
     key: 'active_users' as const,
@@ -778,6 +781,7 @@ const simpleStatCardMeta = [
     iconFg: 'text-muted-foreground',
     format: formatCompactNumber,
     alwaysPositive: false,
+    formatChange: () => store.timeRange,
   },
 ] as const
 
@@ -796,7 +800,7 @@ const statCards = computed(() => {
     return {
       label: meta.label,
       formattedValue: card ? meta.format(card.value) : '0',
-      changeLabel: card?.change_label ?? '--',
+      changeLabel: card ? meta.formatChange(card.change_value) : '--',
       changePositive: meta.alwaysPositive && (card?.change_value ?? 0) > 0,
       iconComponent: meta.iconComponent,
       iconBg: meta.iconBg,

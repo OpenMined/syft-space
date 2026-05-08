@@ -22,8 +22,8 @@ vi.mock('@/api/endpoints/analytics', () => ({
 import { analyticsApi } from '@/api/endpoints/analytics'
 
 const mockSummary: SummaryStatsResponse = {
-  active_endpoints: { value: 5, change_value: 2, change_label: '+2 this period' },
-  total_queries: { value: 100, change_value: 25, change_label: '+25% from last period' },
+  active_endpoints: { value: 5, change_value: 2 },
+  total_queries: { value: 100, change_value: 25 },
   total_revenue: {
     breakdown: [
       { currency: 'USD', amount: 50.0 },
@@ -31,7 +31,7 @@ const mockSummary: SummaryStatsResponse = {
     ],
     change_breakdown: [{ currency: 'USD', amount: 200.0 }],
   },
-  active_users: { value: 10, change_value: 0, change_label: '30d' },
+  active_users: { value: 10, change_value: 0 },
 }
 
 const mockTimeSeries: TimeSeriesResponse = {
