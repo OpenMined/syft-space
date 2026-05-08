@@ -9,7 +9,15 @@ from syft_space.components.analytics.entities import QueryEventStatus
 from syft_space.components.analytics.repository import QueryEventRepository
 from syft_space.components.endpoints.repository import EndpointRepository
 
-from .conftest import TENANT_ID, make_endpoint, make_event
+from .conftest import TENANT_ID, make_cost_line, make_endpoint, make_event
+
+SUCCESS = QueryEventStatus.SUCCESS.value
+
+
+async def _create(repo: QueryEventRepository, event, lines=()):
+    """Convenience: persist an event and any cost lines through the repo."""
+    return await repo.create_with_lines(event, list(lines))
+
 
 # ============== QueryEventRepository ==============
 
@@ -20,7 +28,12 @@ class TestGetSummaryCounts:
     async def test_empty_returns_zeros(self, event_repository: QueryEventRepository):
         now = datetime.now(timezone.utc)
         count, revenue, users = await event_repository.get_summary_counts(
-            TENANT_ID, now - timedelta(days=7), now
+            TENANT_ID,
+            now - timedelta(days=7),
+            now,
+            endpoint_id=None,
+            dataset_id=None,
+            status=SUCCESS,
         )
         assert count == 0
         assert revenue == []
@@ -30,59 +43,66 @@ class TestGetSummaryCounts:
         now = datetime.now(timezone.utc)
         ep_id = uuid4()
 
-        # 3 events in range (USD), 1 outside the window, 2 IDR events
         for i in range(3):
-            await event_repository.create(
-                make_event(
-                    endpoint_id=ep_id,
-                    user_email=f"user{i}@test.com",
-                    revenue_amount=10.0,
-                    currency="USD",
-                    timestamp=now - timedelta(hours=i + 1),
-                )
-            )
-        await event_repository.create(
-            make_event(
+            ev = make_event(
                 endpoint_id=ep_id,
-                user_email="old@test.com",
-                revenue_amount=5.0,
-                currency="USD",
-                timestamp=now - timedelta(days=30),  # outside window
+                user_email=f"user{i}@test.com",
+                timestamp=now - timedelta(hours=i + 1),
             )
+            await _create(
+                event_repository,
+                ev,
+                [make_cost_line(ev, amount=10.0, currency="USD")],
+            )
+        old = make_event(
+            endpoint_id=ep_id,
+            user_email="old@test.com",
+            timestamp=now - timedelta(days=30),  # outside window
+        )
+        await _create(
+            event_repository, old, [make_cost_line(old, amount=5.0, currency="USD")]
         )
         for amt in (1000.0, 2500.0):
-            await event_repository.create(
-                make_event(
-                    endpoint_id=ep_id,
-                    user_email="ionesio@openmined.org",
-                    revenue_amount=amt,
-                    currency="IDR",
-                    timestamp=now - timedelta(hours=2),
-                )
+            ev = make_event(
+                endpoint_id=ep_id,
+                user_email="ionesio@openmined.org",
+                timestamp=now - timedelta(hours=2),
+            )
+            await _create(
+                event_repository,
+                ev,
+                [make_cost_line(ev, amount=amt, currency="IDR")],
             )
 
         count, revenue, users = await event_repository.get_summary_counts(
-            TENANT_ID, now - timedelta(days=7), now
+            TENANT_ID,
+            now - timedelta(days=7),
+            now,
+            endpoint_id=None,
+            dataset_id=None,
+            status=SUCCESS,
         )
         assert count == 5
-        # Per-currency breakdown — USD: 30, IDR: 3500. Order is not guaranteed.
         assert dict(revenue) == {"USD": 30.0, "IDR": 3500.0}
-        assert users == 4  # 3 user{i} + ionesio
+        assert users == 4
 
     async def test_filters_by_endpoint_id(self, event_repository: QueryEventRepository):
         now = datetime.now(timezone.utc)
         target_ep = uuid4()
         other_ep = uuid4()
 
-        await event_repository.create(
-            make_event(endpoint_id=target_ep, revenue_amount=10.0, timestamp=now)
-        )
-        await event_repository.create(
-            make_event(endpoint_id=other_ep, revenue_amount=20.0, timestamp=now)
-        )
+        ev1 = make_event(endpoint_id=target_ep, timestamp=now)
+        await _create(event_repository, ev1, [make_cost_line(ev1, amount=10.0)])
+        ev2 = make_event(endpoint_id=other_ep, timestamp=now)
+        await _create(event_repository, ev2, [make_cost_line(ev2, amount=20.0)])
 
         count, revenue, _ = await event_repository.get_summary_counts(
-            TENANT_ID, now - timedelta(days=1), now, endpoint_id=target_ep
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            endpoint_id=target_ep,
+            dataset_id=None,
+            status=SUCCESS,
         )
         assert count == 1
         assert dict(revenue) == {"USD": 10.0}
@@ -91,28 +111,37 @@ class TestGetSummaryCounts:
         now = datetime.now(timezone.utc)
         ds_id = uuid4()
 
-        await event_repository.create(make_event(dataset_id=ds_id, timestamp=now))
-        await event_repository.create(make_event(dataset_id=uuid4(), timestamp=now))
+        await _create(event_repository, make_event(dataset_id=ds_id, timestamp=now))
+        await _create(event_repository, make_event(dataset_id=uuid4(), timestamp=now))
 
         count, _, _ = await event_repository.get_summary_counts(
-            TENANT_ID, now - timedelta(days=1), now, dataset_id=ds_id
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            endpoint_id=None,
+            dataset_id=ds_id,
+            status=SUCCESS,
         )
         assert count == 1
 
     async def test_filters_by_status(self, event_repository: QueryEventRepository):
         now = datetime.now(timezone.utc)
 
-        await event_repository.create(
-            make_event(status=QueryEventStatus.SUCCESS.value, timestamp=now)
+        await _create(
+            event_repository,
+            make_event(status=QueryEventStatus.SUCCESS.value, timestamp=now),
         )
-        await event_repository.create(
-            make_event(status=QueryEventStatus.INTERNAL_ERROR.value, timestamp=now)
+        await _create(
+            event_repository,
+            make_event(status=QueryEventStatus.INTERNAL_ERROR.value, timestamp=now),
         )
 
         count, _, _ = await event_repository.get_summary_counts(
             TENANT_ID,
             now - timedelta(days=1),
             now,
+            endpoint_id=None,
+            dataset_id=None,
             status=QueryEventStatus.SUCCESS.value,
         )
         assert count == 1
@@ -120,14 +149,19 @@ class TestGetSummaryCounts:
     async def test_distinct_user_count(self, event_repository: QueryEventRepository):
         now = datetime.now(timezone.utc)
 
-        # Same user, 3 events
         for _ in range(3):
-            await event_repository.create(
-                make_event(user_email="same@test.com", timestamp=now)
+            await _create(
+                event_repository,
+                make_event(user_email="same@test.com", timestamp=now),
             )
 
         count, _, users = await event_repository.get_summary_counts(
-            TENANT_ID, now - timedelta(days=1), now
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            endpoint_id=None,
+            dataset_id=None,
+            status=SUCCESS,
         )
         assert count == 3
         assert users == 1
@@ -139,23 +173,26 @@ class TestGetTimeSeriesData:
     async def test_daily_buckets(self, event_repository: QueryEventRepository):
         now = datetime.now(timezone.utc)
 
-        # Events on two different days
         day1 = now.replace(hour=12, minute=0, second=0, microsecond=0)
         day2 = day1 - timedelta(days=1)
 
-        # Day1: 2 USD events (10 + 5) + 1 IDR event (1000)
-        # Day2: 1 USD event (20)
-        await event_repository.create(
-            make_event(revenue_amount=10.0, currency="USD", timestamp=day1)
+        # Day1: 2 USD lines (10 + 5) + 1 IDR line (1000)
+        # Day2: 1 USD line (20)
+        ev = make_event(timestamp=day1)
+        await _create(
+            event_repository, ev, [make_cost_line(ev, amount=10.0, currency="USD")]
         )
-        await event_repository.create(
-            make_event(revenue_amount=5.0, currency="USD", timestamp=day1)
+        ev = make_event(timestamp=day1)
+        await _create(
+            event_repository, ev, [make_cost_line(ev, amount=5.0, currency="USD")]
         )
-        await event_repository.create(
-            make_event(revenue_amount=1000.0, currency="IDR", timestamp=day1)
+        ev = make_event(timestamp=day1)
+        await _create(
+            event_repository, ev, [make_cost_line(ev, amount=1000.0, currency="IDR")]
         )
-        await event_repository.create(
-            make_event(revenue_amount=20.0, currency="USD", timestamp=day2)
+        ev = make_event(timestamp=day2)
+        await _create(
+            event_repository, ev, [make_cost_line(ev, amount=20.0, currency="USD")]
         )
 
         counts, revenue = await event_repository.get_time_series_data(
@@ -163,11 +200,11 @@ class TestGetTimeSeriesData:
             day2 - timedelta(hours=1),
             day1 + timedelta(hours=1),
             "%Y-%m-%d",
+            endpoint_id=None,
+            dataset_id=None,
+            status=SUCCESS,
         )
 
-        # Counts: 2 buckets, ordered ascending. Day2 has 1 query, Day1 has 3.
-        # All events use make_event's default user_email so distinct_users is 1
-        # for every bucket here.
         assert len(counts) == 2
         counts_by_key = {bucket: (qc, du) for bucket, qc, du in counts}
         day1_key = day1.strftime("%Y-%m-%d")
@@ -175,7 +212,6 @@ class TestGetTimeSeriesData:
         assert counts_by_key[day2_key] == (1, 1)
         assert counts_by_key[day1_key] == (3, 1)
 
-        # Revenue rows: 3 entries — (day1, USD, 15) (day1, IDR, 1000) (day2, USD, 20)
         revenue_by_key = {(bucket, currency): amt for bucket, currency, amt in revenue}
         assert revenue_by_key == {
             (day1_key, "USD"): 15.0,
@@ -188,7 +224,13 @@ class TestGetTimeSeriesData:
     ):
         now = datetime.now(timezone.utc)
         counts, revenue = await event_repository.get_time_series_data(
-            TENANT_ID, now - timedelta(days=7), now, "%Y-%m-%d"
+            TENANT_ID,
+            now - timedelta(days=7),
+            now,
+            "%Y-%m-%d",
+            endpoint_id=None,
+            dataset_id=None,
+            status=SUCCESS,
         )
         assert counts == []
         assert revenue == []
@@ -200,32 +242,33 @@ class TestGetTopUsers:
     async def test_ranks_by_query_count(self, event_repository: QueryEventRepository):
         now = datetime.now(timezone.utc)
 
-        # alice: 3 USD queries; bob: 1 IDR query at 100k
         for _ in range(3):
-            await event_repository.create(
-                make_event(
-                    user_email="alice@test.com",
-                    revenue_amount=1.0,
-                    currency="USD",
-                    timestamp=now,
-                )
+            ev = make_event(user_email="alice@test.com", timestamp=now)
+            await _create(
+                event_repository,
+                ev,
+                [make_cost_line(ev, amount=1.0, currency="USD")],
             )
-        await event_repository.create(
-            make_event(
-                user_email="bob@test.com",
-                revenue_amount=100000.0,
-                currency="IDR",
-                timestamp=now,
-            )
+        ev = make_event(user_email="bob@test.com", timestamp=now)
+        await _create(
+            event_repository,
+            ev,
+            [make_cost_line(ev, amount=100000.0, currency="IDR")],
         )
 
         users = await event_repository.get_top_users(
-            TENANT_ID, now - timedelta(days=1), now, limit=10
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            limit=10,
+            endpoint_id=None,
+            dataset_id=None,
+            status=SUCCESS,
         )
 
         assert len(users) == 2
         assert users[0][0] == "alice@test.com"
-        assert users[0][1] == 3  # query_count
+        assert users[0][1] == 3
         assert dict(users[0][2]) == {"USD": 3.0}
         assert users[1][0] == "bob@test.com"
         assert users[1][1] == 1
@@ -237,19 +280,32 @@ class TestGetTopUsers:
         now = datetime.now(timezone.utc)
 
         for i in range(5):
-            await event_repository.create(
-                make_event(user_email=f"user{i}@test.com", timestamp=now)
+            await _create(
+                event_repository,
+                make_event(user_email=f"user{i}@test.com", timestamp=now),
             )
 
         users = await event_repository.get_top_users(
-            TENANT_ID, now - timedelta(days=1), now, limit=3
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            limit=3,
+            endpoint_id=None,
+            dataset_id=None,
+            status=SUCCESS,
         )
         assert len(users) == 3
 
     async def test_empty_returns_empty(self, event_repository: QueryEventRepository):
         now = datetime.now(timezone.utc)
         users = await event_repository.get_top_users(
-            TENANT_ID, now - timedelta(days=1), now
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            limit=5,
+            endpoint_id=None,
+            dataset_id=None,
+            status=SUCCESS,
         )
         assert users == []
 

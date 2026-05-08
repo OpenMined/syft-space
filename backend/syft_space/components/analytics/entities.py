@@ -21,11 +21,15 @@ class QueryEventStatus(str, Enum):
 
 
 class QueryEvent(SQLModel, table=True):
-    """Persistent record of a query processed by the system.
+    """Per-query header. One row per query, regardless of how many
+    accounting policies fire.
 
     Stored in a separate analytics database (analytics.db), detached from
     the main application database. No foreign key constraints — all IDs
     are plain UUIDs for cross-database historical reference.
+
+    Revenue is stored in QueryCostLine (one row per chargeable component)
+    so a single query can carry charges across multiple currencies.
     """
 
     __tablename__ = "query_events"
@@ -52,10 +56,6 @@ class QueryEvent(SQLModel, table=True):
         default=None, description="Dataset ID (None if endpoint has no dataset)"
     )
     user_email: str = Field(..., description="Email of the querying user")
-    revenue_amount: float = Field(
-        default=0.0, description="Amount charged for this query"
-    )
-    currency: str = Field(default="USD", description="Currency of the revenue amount")
     query_text: str = Field(
         default="", description="Raw query text submitted by the user"
     )
@@ -63,3 +63,51 @@ class QueryEvent(SQLModel, table=True):
         default=QueryEventStatus.SUCCESS.value,
         description="Query outcome status",
     )
+
+
+class QueryCostLine(SQLModel, table=True):
+    """One row per chargeable component within a query.
+
+    `tenant_id`, `timestamp`, `user_email`, and `status` are denormalized
+    from the parent QueryEvent so per-currency revenue aggregations can
+    filter and group purely on this table without joining back to
+    query_events.
+    """
+
+    __tablename__ = "query_cost_lines"
+    __table_args__ = (
+        Index(
+            "idx_qcl_tenant_ts_currency",
+            "tenant_id",
+            "timestamp",
+            "currency",
+        ),
+        Index("idx_qcl_event", "query_event_id"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
+    query_event_id: UUID = Field(
+        ...,
+        description="References QueryEvent.id (no FK constraint)",
+    )
+    tenant_id: UUID = Field(..., description="Tenant (denormalized for aggregation)")
+    timestamp: datetime = Field(
+        ..., description="Parent event timestamp (denormalized for time-bucket queries)"
+    )
+    user_email: str = Field(..., description="Querying user (denormalized for top-users)")
+    endpoint_id: UUID | None = Field(
+        default=None,
+        description="Endpoint ID (denormalized for filter)",
+    )
+    dataset_id: UUID | None = Field(
+        default=None,
+        description="Dataset ID (denormalized for filter)",
+    )
+    status: str = Field(
+        ..., description="Parent event status (denormalized for filter)"
+    )
+    component: str = Field(
+        ..., description='Which response component was charged: "summary" or "references"'
+    )
+    amount: float = Field(..., description="Charged amount in `currency`")
+    currency: str = Field(..., description="ISO currency code (e.g., 'USD', 'IDR')")

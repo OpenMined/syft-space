@@ -17,10 +17,10 @@ from .conftest import TENANT_ID
 class TestQueryEventCollector:
     """Fire-and-forget event capture."""
 
-    async def test_capture_persists_event(
+    async def test_capture_persists_event_with_cost_lines(
         self, event_repository: QueryEventRepository, analytics_db: AsyncDatabase
     ):
-        """capture() persists a query event to the database."""
+        """capture() persists a query event and its cost lines."""
         collector = QueryEventCollector(event_repository)
         ep_id = uuid4()
 
@@ -30,29 +30,58 @@ class TestQueryEventCollector:
             endpoint_slug="test-slug",
             dataset_id=None,
             user_email="alice@test.com",
-            revenue_amount=1.50,
-            currency="USD",
+            status=QueryEventStatus.SUCCESS.value,
+            cost_lines=[("summary", 1.50, "USD")],
+        )
+
+        now = datetime.now(timezone.utc)
+        count, revenue, users = await event_repository.get_summary_counts(
+            TENANT_ID,
+            now - timedelta(minutes=1),
+            now,
+            endpoint_id=None,
+            dataset_id=None,
+            status=QueryEventStatus.SUCCESS.value,
+        )
+        assert count == 1
+        assert dict(revenue) == {"USD": 1.50}
+        assert users == 1
+
+    async def test_capture_no_cost_lines_records_event_only(
+        self, event_repository: QueryEventRepository
+    ):
+        """An event with no charges still records the query (free tier)."""
+        collector = QueryEventCollector(event_repository)
+
+        await collector.capture(
+            tenant_id=TENANT_ID,
+            endpoint_id=uuid4(),
+            endpoint_slug="free-slug",
+            dataset_id=None,
+            user_email="bob@test.com",
             status=QueryEventStatus.SUCCESS.value,
         )
 
-        # Verify event was stored
         now = datetime.now(timezone.utc)
         count, revenue, users = await event_repository.get_summary_counts(
-            TENANT_ID, now - timedelta(minutes=1), now
+            TENANT_ID,
+            now - timedelta(minutes=1),
+            now,
+            endpoint_id=None,
+            dataset_id=None,
+            status=QueryEventStatus.SUCCESS.value,
         )
         assert count == 1
-        # Revenue is now per-currency: list of (currency, sum)
-        assert dict(revenue) == {"USD": 1.50}
+        assert revenue == []
         assert users == 1
 
     async def test_capture_swallows_exceptions(self):
         """Exceptions in capture are logged, not raised."""
         mock_repo = AsyncMock(spec=QueryEventRepository)
-        mock_repo.create.side_effect = RuntimeError("DB down")
+        mock_repo.create_with_lines.side_effect = RuntimeError("DB down")
 
         collector = QueryEventCollector(mock_repo)
 
-        # Should not raise
         with patch("syft_space.components.analytics.collector.logger") as mock_logger:
             await collector.capture(
                 tenant_id=TENANT_ID,
@@ -60,8 +89,6 @@ class TestQueryEventCollector:
                 endpoint_slug="test",
                 dataset_id=None,
                 user_email="user@test.com",
-                revenue_amount=0.0,
-                currency="USD",
                 status=QueryEventStatus.SUCCESS.value,
             )
 
@@ -80,23 +107,26 @@ class TestQueryEventCollector:
             endpoint_slug="missing",
             dataset_id=None,
             user_email="user@test.com",
-            revenue_amount=0.0,
-            currency="USD",
             status=QueryEventStatus.NOT_FOUND.value,
         )
 
         now = datetime.now(timezone.utc)
-        # With status=None we get all events regardless of status
         count, _, _ = await event_repository.get_summary_counts(
-            TENANT_ID, now - timedelta(minutes=1), now, status=None
+            TENANT_ID,
+            now - timedelta(minutes=1),
+            now,
+            endpoint_id=None,
+            dataset_id=None,
+            status=None,
         )
         assert count == 1
 
-        # With status=SUCCESS we should get 0 (it was NOT_FOUND)
         count_success, _, _ = await event_repository.get_summary_counts(
             TENANT_ID,
             now - timedelta(minutes=1),
             now,
+            endpoint_id=None,
+            dataset_id=None,
             status=QueryEventStatus.SUCCESS.value,
         )
         assert count_success == 0

@@ -1,4 +1,4 @@
-"""Repository for analytics query events."""
+"""Repository for analytics query events and cost lines."""
 
 from datetime import datetime
 from uuid import UUID
@@ -6,27 +6,50 @@ from uuid import UUID
 from sqlalchemy import func, text
 from sqlmodel import select
 
-from syft_space.components.analytics.entities import QueryEvent, QueryEventStatus
+from syft_space.components.analytics.entities import (
+    QueryCostLine,
+    QueryEvent,
+    QueryEventStatus,
+)
 from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
 class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
-    """Repository for QueryEvent CRUD and aggregation operations."""
+    """Repository for QueryEvent + QueryCostLine CRUD and aggregations.
+
+    Query identity (count, distinct users, query text) lives on QueryEvent.
+    Per-currency revenue lives on QueryCostLine — one row per chargeable
+    component within a query, supporting multi-currency-per-query.
+    """
 
     def __init__(self, db: AsyncDatabase):
         super().__init__(db, QueryEvent)
 
-    def _apply_filters(
+    async def create_with_lines(
+        self,
+        event: QueryEvent,
+        lines: list[QueryCostLine],
+    ) -> QueryEvent:
+        """Persist a QueryEvent and its cost lines in a single transaction."""
+        async with self.db.get_session() as session:
+            session.add(event)
+            for line in lines:
+                session.add(line)
+            await session.commit()
+            await session.refresh(event)
+            return event
+
+    def _apply_event_filters(
         self,
         statement,
         tenant_id: UUID,
         start: datetime,
         end: datetime,
-        endpoint_id: UUID | None = None,
-        dataset_id: UUID | None = None,
-        status: str | None = QueryEventStatus.SUCCESS.value,
+        endpoint_id: UUID | None,
+        dataset_id: UUID | None,
+        status: str | None,
     ):
-        """Apply common filters to a query statement."""
+        """Apply filters to a QueryEvent-based statement."""
         statement = statement.where(
             QueryEvent.tenant_id == tenant_id,
             QueryEvent.timestamp >= start,
@@ -40,23 +63,50 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
             statement = statement.where(QueryEvent.status == status)
         return statement
 
+    def _apply_line_filters(
+        self,
+        statement,
+        tenant_id: UUID,
+        start: datetime,
+        end: datetime,
+        endpoint_id: UUID | None,
+        dataset_id: UUID | None,
+        status: str | None,
+    ):
+        """Apply filters to a QueryCostLine-based statement.
+
+        All filter columns are denormalized onto cost lines so revenue
+        aggregations don't need to join QueryEvent.
+        """
+        statement = statement.where(
+            QueryCostLine.tenant_id == tenant_id,
+            QueryCostLine.timestamp >= start,
+            QueryCostLine.timestamp <= end,
+        )
+        if endpoint_id is not None:
+            statement = statement.where(QueryCostLine.endpoint_id == endpoint_id)
+        if dataset_id is not None:
+            statement = statement.where(QueryCostLine.dataset_id == dataset_id)
+        if status is not None:
+            statement = statement.where(QueryCostLine.status == status)
+        return statement
+
     async def get_summary_counts(
         self,
         tenant_id: UUID,
         start: datetime,
         end: datetime,
-        endpoint_id: UUID | None = None,
-        dataset_id: UUID | None = None,
-        status: str | None = QueryEventStatus.SUCCESS.value,
+        endpoint_id: UUID | None,
+        dataset_id: UUID | None,
+        status: str | None,
     ) -> tuple[int, list[tuple[str, float]], int]:
         """Get aggregated counts for summary statistics.
 
-        Revenue is grouped by currency because Syft Space supports multiple
-        wallet types (xendit/IDR, mpp/USD) and a cross-currency sum is not
-        meaningful. Currencies with zero net revenue are omitted.
+        Query count + distinct users come from QueryEvent. Revenue is
+        per-currency from QueryCostLine.
 
         Returns:
-            Tuple of (event_count, [(currency, revenue_sum), ...], distinct_user_count)
+            (event_count, [(currency, revenue_sum), ...], distinct_user_count)
         """
         async with self.db.get_session() as session:
             count_stmt = select(
@@ -65,7 +115,7 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
                     "distinct_users"
                 ),
             )
-            count_stmt = self._apply_filters(
+            count_stmt = self._apply_event_filters(
                 count_stmt, tenant_id, start, end, endpoint_id, dataset_id, status
             )
             count_result = await session.exec(count_stmt)
@@ -74,13 +124,13 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
             distinct_users = int(count_row[1]) if count_row else 0
 
             revenue_stmt = select(
-                QueryEvent.currency,
-                func.sum(QueryEvent.revenue_amount).label("revenue_sum"),
-            ).where(QueryEvent.revenue_amount > 0)
-            revenue_stmt = self._apply_filters(
+                QueryCostLine.currency,
+                func.sum(QueryCostLine.amount).label("revenue_sum"),
+            ).where(QueryCostLine.amount > 0)
+            revenue_stmt = self._apply_line_filters(
                 revenue_stmt, tenant_id, start, end, endpoint_id, dataset_id, status
             )
-            revenue_stmt = revenue_stmt.group_by(QueryEvent.currency)
+            revenue_stmt = revenue_stmt.group_by(QueryCostLine.currency)
             revenue_result = await session.exec(revenue_stmt)
             breakdown = [
                 (str(row[0]), float(row[1])) for row in revenue_result.all()
@@ -94,35 +144,28 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
         start: datetime,
         end: datetime,
         bucket_format: str,
-        endpoint_id: UUID | None = None,
-        dataset_id: UUID | None = None,
-        status: str | None = QueryEventStatus.SUCCESS.value,
+        endpoint_id: UUID | None,
+        dataset_id: UUID | None,
+        status: str | None,
     ) -> tuple[list[tuple[str, int, int]], list[tuple[str, str, float]]]:
         """Get time-bucketed aggregations for the dashboard time-series.
 
-        Returns two parallel datasets:
-        - per-bucket counts (currency-agnostic): query_count and distinct users
-        - per-(bucket, currency) revenue sums
-
-        Args:
-            bucket_format: SQLite strftime format (e.g., '%Y-%m-%d' for daily)
-
         Returns:
-            Tuple of:
-              - counts: list of (bucket_key, query_count, distinct_users)
-              - revenue: list of (bucket_key, currency, revenue_sum)
+            counts: list of (bucket_key, query_count, distinct_users)
+            revenue: list of (bucket_key, currency, revenue_sum)
         """
         async with self.db.get_session() as session:
-            bucket_expr = func.strftime(bucket_format, QueryEvent.timestamp)
+            event_bucket = func.strftime(bucket_format, QueryEvent.timestamp)
+            line_bucket = func.strftime(bucket_format, QueryCostLine.timestamp)
 
             counts_stmt = select(
-                bucket_expr.label("bucket"),
+                event_bucket.label("bucket"),
                 func.count().label("query_count"),
                 func.count(func.distinct(QueryEvent.user_email)).label(
                     "distinct_users"
                 ),
             )
-            counts_stmt = self._apply_filters(
+            counts_stmt = self._apply_event_filters(
                 counts_stmt, tenant_id, start, end, endpoint_id, dataset_id, status
             )
             counts_stmt = counts_stmt.group_by(text("bucket")).order_by(text("bucket"))
@@ -133,15 +176,15 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
             ]
 
             revenue_stmt = select(
-                bucket_expr.label("bucket"),
-                QueryEvent.currency,
-                func.sum(QueryEvent.revenue_amount).label("revenue_sum"),
-            ).where(QueryEvent.revenue_amount > 0)
-            revenue_stmt = self._apply_filters(
+                line_bucket.label("bucket"),
+                QueryCostLine.currency,
+                func.sum(QueryCostLine.amount).label("revenue_sum"),
+            ).where(QueryCostLine.amount > 0)
+            revenue_stmt = self._apply_line_filters(
                 revenue_stmt, tenant_id, start, end, endpoint_id, dataset_id, status
             )
             revenue_stmt = revenue_stmt.group_by(
-                text("bucket"), QueryEvent.currency
+                text("bucket"), QueryCostLine.currency
             ).order_by(text("bucket"))
             revenue_result = await session.exec(revenue_stmt)
             revenue = [
@@ -156,21 +199,17 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
         tenant_id: UUID,
         start: datetime,
         end: datetime,
-        endpoint_id: UUID | None = None,
-        dataset_id: UUID | None = None,
-        status: str | None = QueryEventStatus.SUCCESS.value,
+        endpoint_id: UUID | None,
+        dataset_id: UUID | None,
+        status: str | None,
     ) -> list[str]:
-        """Get all non-empty query texts in a time range.
-
-        Returns:
-            List of raw query text strings.
-        """
+        """Get all non-empty query texts in a time range."""
         async with self.db.get_session() as session:
             statement = select(QueryEvent.query_text).where(
                 QueryEvent.query_text != "",
                 QueryEvent.query_text.is_not(None),  # type: ignore[union-attr]
             )
-            statement = self._apply_filters(
+            statement = self._apply_event_filters(
                 statement, tenant_id, start, end, endpoint_id, dataset_id, status
             )
             result = await session.exec(statement)
@@ -181,25 +220,26 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
         tenant_id: UUID,
         start: datetime,
         end: datetime,
-        limit: int = 5,
-        endpoint_id: UUID | None = None,
-        dataset_id: UUID | None = None,
-        status: str | None = QueryEventStatus.SUCCESS.value,
+        limit: int,
+        endpoint_id: UUID | None,
+        dataset_id: UUID | None,
+        status: str | None,
     ) -> list[tuple[str, int, list[tuple[str, float]]]]:
         """Get top users ranked by query count.
 
-        Revenue is per-currency because Syft Space supports multi-currency
-        wallets. The query_count is currency-agnostic (one row per query).
+        query_count comes from QueryEvent (currency-agnostic — one row per
+        query). Revenue is per-currency from QueryCostLine, joined back to
+        the user via the denormalized user_email column.
 
         Returns:
-            List of (user_email, query_count, [(currency, revenue_sum), ...])
+            [(user_email, query_count, [(currency, revenue_sum), ...])]
         """
         async with self.db.get_session() as session:
             count_stmt = select(
                 QueryEvent.user_email,
                 func.count().label("query_count"),
             )
-            count_stmt = self._apply_filters(
+            count_stmt = self._apply_event_filters(
                 count_stmt, tenant_id, start, end, endpoint_id, dataset_id, status
             )
             count_stmt = (
@@ -214,18 +254,18 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
 
             top_emails = [email for email, _ in top]
             revenue_stmt = select(
-                QueryEvent.user_email,
-                QueryEvent.currency,
-                func.sum(QueryEvent.revenue_amount).label("revenue_sum"),
+                QueryCostLine.user_email,
+                QueryCostLine.currency,
+                func.sum(QueryCostLine.amount).label("revenue_sum"),
             ).where(
-                QueryEvent.revenue_amount > 0,
-                QueryEvent.user_email.in_(top_emails),  # type: ignore[union-attr]
+                QueryCostLine.amount > 0,
+                QueryCostLine.user_email.in_(top_emails),  # type: ignore[union-attr]
             )
-            revenue_stmt = self._apply_filters(
+            revenue_stmt = self._apply_line_filters(
                 revenue_stmt, tenant_id, start, end, endpoint_id, dataset_id, status
             )
             revenue_stmt = revenue_stmt.group_by(
-                QueryEvent.user_email, QueryEvent.currency
+                QueryCostLine.user_email, QueryCostLine.currency
             )
             revenue_result = await session.exec(revenue_stmt)
             revenue_by_user: dict[str, list[tuple[str, float]]] = {}
@@ -238,3 +278,7 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
                 (email, count, revenue_by_user.get(email, []))
                 for email, count in top
             ]
+
+
+# Re-export for backward import compatibility (tests, future ports).
+__all__ = ["QueryEventRepository", "QueryEvent", "QueryCostLine", "QueryEventStatus"]

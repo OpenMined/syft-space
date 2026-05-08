@@ -11,7 +11,11 @@ import pytest
 import pytest_asyncio
 from sqlmodel import SQLModel
 
-from syft_space.components.analytics.entities import QueryEvent, QueryEventStatus
+from syft_space.components.analytics.entities import (
+    QueryCostLine,
+    QueryEvent,
+    QueryEventStatus,
+)
 from syft_space.components.analytics.repository import QueryEventRepository
 
 # Import ALL entity modules so SQLAlchemy mappers resolve relationships
@@ -44,7 +48,12 @@ async def analytics_db(tmp_dir: Path) -> AsyncDatabase:
     db = AsyncDatabase(config)
 
     async with db.engine.begin() as conn:
-        await conn.run_sync(lambda c: QueryEvent.__table__.create(c, checkfirst=True))
+        await conn.run_sync(
+            lambda c: QueryEvent.__table__.create(c, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda c: QueryCostLine.__table__.create(c, checkfirst=True)
+        )
 
     yield db
     await db.dispose()
@@ -108,8 +117,6 @@ def make_event(
     endpoint_slug: str = "test-endpoint",
     dataset_id: UUID | None = None,
     user_email: str = "user@example.com",
-    revenue_amount: float = 0.0,
-    currency: str = "USD",
     status: str = QueryEventStatus.SUCCESS.value,
     query_text: str = "",
     timestamp: datetime | None = None,
@@ -122,11 +129,32 @@ def make_event(
         endpoint_slug=endpoint_slug,
         dataset_id=dataset_id,
         user_email=user_email,
-        revenue_amount=revenue_amount,
-        currency=currency,
         status=status,
         query_text=query_text,
         timestamp=timestamp or datetime.now(timezone.utc),
+    )
+
+
+def make_cost_line(
+    event: QueryEvent,
+    *,
+    component: str = "summary",
+    amount: float = 0.0,
+    currency: str = "USD",
+) -> QueryCostLine:
+    """Factory for a QueryCostLine bound to an existing event."""
+    return QueryCostLine(
+        id=uuid4(),
+        query_event_id=event.id,
+        tenant_id=event.tenant_id,
+        timestamp=event.timestamp,
+        user_email=event.user_email,
+        endpoint_id=event.endpoint_id,
+        dataset_id=event.dataset_id,
+        status=event.status,
+        component=component,
+        amount=amount,
+        currency=currency,
     )
 
 

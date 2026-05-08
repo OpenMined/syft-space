@@ -7,7 +7,7 @@ from alembic.config import Config as AlembicConfig
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from syft_space.components.analytics.entities import QueryEvent
+from syft_space.components.analytics.entities import QueryCostLine, QueryEvent
 
 
 async def run_analytics_migrations(engine: AsyncEngine, reset: bool = False) -> None:
@@ -31,9 +31,7 @@ async def run_analytics_migrations(engine: AsyncEngine, reset: bool = False) -> 
             "falling back to direct table creation"
         )
         async with engine.connect() as connection:
-            await connection.run_sync(
-                lambda conn: QueryEvent.__table__.create(conn, checkfirst=True)
-            )
+            await connection.run_sync(_create_tables_directly)
             await connection.commit()
         return
 
@@ -41,6 +39,7 @@ async def run_analytics_migrations(engine: AsyncEngine, reset: bool = False) -> 
 
     def do_run_migrations(connection) -> None:
         if reset:
+            QueryCostLine.__table__.drop(connection, checkfirst=True)
             QueryEvent.__table__.drop(connection, checkfirst=True)
 
         alembic_cfg.attributes["connection"] = connection
@@ -54,7 +53,7 @@ async def run_analytics_migrations(engine: AsyncEngine, reset: bool = False) -> 
                 logger.warning(
                     "Dev mode: Creating analytics tables directly and stamping to head"
                 )
-                QueryEvent.__table__.create(connection, checkfirst=True)
+                _create_tables_directly(connection)
                 try:
                     command.stamp(alembic_cfg, "head")
                 except Exception as stamp_error:
@@ -67,3 +66,9 @@ async def run_analytics_migrations(engine: AsyncEngine, reset: bool = False) -> 
 
     async with engine.connect() as connection:
         await connection.run_sync(do_run_migrations)
+
+
+def _create_tables_directly(connection) -> None:
+    """Create both analytics tables in dependency order, idempotent."""
+    QueryEvent.__table__.create(connection, checkfirst=True)
+    QueryCostLine.__table__.create(connection, checkfirst=True)

@@ -33,17 +33,24 @@ class TestGetQueryTexts:
     ):
         now = datetime.now(timezone.utc)
 
-        await event_repository.create(
-            make_event(query_text="machine learning models", timestamp=now)
+        await event_repository.create_with_lines(
+            make_event(query_text="machine learning models", timestamp=now), []
         )
-        await event_repository.create(
-            make_event(query_text="natural language processing", timestamp=now)
+        await event_repository.create_with_lines(
+            make_event(query_text="natural language processing", timestamp=now), []
         )
         # Empty text should be excluded
-        await event_repository.create(make_event(query_text="", timestamp=now))
+        await event_repository.create_with_lines(
+            make_event(query_text="", timestamp=now), []
+        )
 
         texts = await event_repository.get_query_texts(
-            TENANT_ID, now - timedelta(days=1), now
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            endpoint_id=None,
+            dataset_id=None,
+            status=None,
         )
 
         assert len(texts) == 2
@@ -53,7 +60,12 @@ class TestGetQueryTexts:
     async def test_empty_range(self, event_repository: QueryEventRepository):
         now = datetime.now(timezone.utc)
         texts = await event_repository.get_query_texts(
-            TENANT_ID, now - timedelta(days=1), now
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            endpoint_id=None,
+            dataset_id=None,
+            status=None,
         )
         assert texts == []
 
@@ -66,15 +78,24 @@ class TestGetQueryTexts:
         ep1 = uuid4()
         ep2 = uuid4()
 
-        await event_repository.create(
-            make_event(endpoint_id=ep1, query_text="data analysis", timestamp=now)
+        await event_repository.create_with_lines(
+            make_event(endpoint_id=ep1, query_text="data analysis", timestamp=now),
+            [],
         )
-        await event_repository.create(
-            make_event(endpoint_id=ep2, query_text="image recognition", timestamp=now)
+        await event_repository.create_with_lines(
+            make_event(
+                endpoint_id=ep2, query_text="image recognition", timestamp=now
+            ),
+            [],
         )
 
         texts = await event_repository.get_query_texts(
-            TENANT_ID, now - timedelta(days=1), now, endpoint_id=ep1
+            TENANT_ID,
+            now - timedelta(days=1),
+            now,
+            endpoint_id=ep1,
+            dataset_id=None,
+            status=None,
         )
 
         assert len(texts) == 1
