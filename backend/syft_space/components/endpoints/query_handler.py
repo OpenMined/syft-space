@@ -1,13 +1,7 @@
 """Query endpoint handler — RAG pipeline with policy enforcement."""
 
-import asyncio
-import re
-from typing import TYPE_CHECKING, Any
-
 from fastapi import HTTPException
 from loguru import logger
-
-from syft_space.components.analytics.entities import QueryEventStatus
 
 from syft_space.components.dataset_types.interfaces import (
     SearchContext,
@@ -16,11 +10,15 @@ from syft_space.components.dataset_types.interfaces import (
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint, ResponseType
-from syft_space.components.endpoints.interfaces import MetadataEnricher
+from syft_space.components.endpoints.interfaces import (
+    MetadataEnricher,
+    QueryEventReporter,
+    QueryOutcome,
+    QueryOutcomeEvent,
+)
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.schemas import (
     AuthenticatedQueryRequest,
-    ChatMessageRequest,
     DocumentResponse,
     MessageResponse,
     ProviderInfo,
@@ -46,49 +44,6 @@ from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.repository import WalletRepository
 
-if TYPE_CHECKING:
-    from syft_space.components.analytics.collector import QueryEventCollector
-
-
-# SyftHub's aggregator wraps every forwarded query in a prompt-builder
-# template. All four template variants (NO_CONTEXT, EMPTY_CONTEXT,
-# DEFAULT, CITATION) put the actual question between
-# `USER QUESTION:\n` and a trailing `\n---` marker. We peel that out so
-# analytics captures only what the user typed, not the prompt scaffolding.
-_AGGREGATOR_QUESTION_RE = re.compile(
-    r"USER QUESTION:\s*\n(?P<q>.*?)\n---",
-    re.DOTALL,
-)
-
-
-def _strip_aggregator_wrapper(content: str) -> str:
-    """If `content` is a SyftHub-aggregator-wrapped payload, return just
-    the question. Otherwise return content unchanged.
-    """
-    match = _AGGREGATOR_QUESTION_RE.search(content)
-    if match:
-        return match.group("q").strip()
-    return content.strip()
-
-
-def _extract_user_query(messages: str | list[ChatMessageRequest]) -> str:
-    """Extract the user's actual query from a request payload.
-
-    Returns the last user-role message content (or the raw string if
-    `messages` is a string), with SyftHub-aggregator scaffolding peeled
-    off. System prompts, assistant turns, and earlier user turns are
-    discarded — the analytics layer treats *this* request as a single
-    question, and earlier turns were captured as their own events when
-    they originally fired.
-    """
-    if isinstance(messages, str):
-        return _strip_aggregator_wrapper(messages)
-    if isinstance(messages, list):
-        for m in reversed(messages):
-            if m.role == "user" and m.content:
-                return _strip_aggregator_wrapper(m.content)
-    return ""
-
 
 class QueryEndpointHandler:
     """Handler for the endpoint query pipeline (RAG + policy enforcement)."""
@@ -104,7 +59,7 @@ class QueryEndpointHandler:
         policy_registry: PolicyTypeRegistry,
         wallet_repository: WalletRepository | None = None,
         metadata_enricher: MetadataEnricher | None = None,
-        event_collector: "QueryEventCollector | None" = None,
+        event_reporter: QueryEventReporter | None = None,
     ):
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
@@ -115,7 +70,7 @@ class QueryEndpointHandler:
         self.policy_registry = policy_registry
         self.wallet_repository = wallet_repository
         self.metadata_enricher = metadata_enricher
-        self.event_collector = event_collector
+        self.event_reporter = event_reporter
 
     async def query_endpoint(
         self,
@@ -133,37 +88,21 @@ class QueryEndpointHandler:
             HTTPException: If endpoint not found or query fails
             PaymentRequiredError: If MPP payment is required (caller returns 402)
         """
-        # Extract the user's actual query (last user-role message) for
-        # analytics. System prompts and assistant turns are excluded so they
-        # don't pollute the word cloud. Capped to bound DB row size and the
-        # downstream NLP pass on the wordcloud handler.
-        user_query = _extract_user_query(request.messages)
-        event_data: dict[str, Any] = {
-            "tenant_id": tenant.id,
-            "user_email": request.sender_email,
-            "endpoint_slug": slug,
-            "endpoint_id": None,
-            "dataset_id": None,
-            "revenue_amount": 0.0,
-            "currency": "USD",
-            "status": QueryEventStatus.SUCCESS.value,
-            "query_text": user_query[:4000],
-        }
+        endpoint: Endpoint | None = None
+        outcome: QueryOutcome = QueryOutcome.SUCCESS
+        final_response: QueryEndpointResponse | None = None
 
         try:
             endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
             if not endpoint:
-                event_data["status"] = QueryEventStatus.NOT_FOUND.value
+                outcome = QueryOutcome.NOT_FOUND
                 raise HTTPException(
                     status_code=404, detail=f"Endpoint '{slug}' not found"
                 )
 
-            event_data["endpoint_id"] = endpoint.id
-            event_data["dataset_id"] = endpoint.dataset_id
-
             # Check if published
             if not endpoint.published:
-                event_data["status"] = QueryEventStatus.NOT_PUBLISHED.value
+                outcome = QueryOutcome.NOT_PUBLISHED
                 raise HTTPException(status_code=403, detail="Endpoint is not published")
 
             # Get policies grouped by type and extract configurations
@@ -228,7 +167,7 @@ class QueryEndpointHandler:
                         configs, policy_context
                     )
                 except PolicyViolationError as e:
-                    event_data["status"] = QueryEventStatus.POLICY_VIOLATION.value
+                    outcome = QueryOutcome.POLICY_VIOLATION
                     raise HTTPException(
                         status_code=403,
                         detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
@@ -245,7 +184,22 @@ class QueryEndpointHandler:
                 response_type in [ResponseType.RAW, ResponseType.BOTH]
                 and endpoint.dataset_id
             ):
-                references = await self._search_dataset(endpoint, request, user_query)
+                # Pass the query through unchanged for retrieval. The
+                # aggregator-wrapper stripping is an analytics concern.
+                if isinstance(request.messages, str):
+                    search_query = request.messages
+                else:
+                    search_query = next(
+                        (
+                            m.content
+                            for m in reversed(request.messages)
+                            if m.role == "user" and m.content
+                        ),
+                        "",
+                    )
+                references = await self._search_dataset(
+                    endpoint, request, search_query
+                )
 
             # Chat with model if needed
             if (
@@ -273,7 +227,7 @@ class QueryEndpointHandler:
                         configs, policy_context
                     )
                 except PolicyViolationError as e:
-                    event_data["status"] = QueryEventStatus.POLICY_VIOLATION.value
+                    outcome = QueryOutcome.POLICY_VIOLATION
                     raise HTTPException(
                         status_code=403,
                         detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
@@ -282,41 +236,38 @@ class QueryEndpointHandler:
             # Extract payment receipt header if present (set by MppAccountingPolicy post-hook)
             payment_receipt = policy_context.metadata.get("payment_receipt_header")
 
-            # Capture recognized revenue for analytics. Each accounting policy
-            # publishes its outcome to context.metadata; xendit clears its keys
-            # in post_hook on a refund, so what we read here is post-cancel.
-            # Xendit is preferred because it carries the wallet's real currency;
-            # MPP falls back to USD by convention. The two are mutually exclusive
-            # in practice — only one accounting policy fires per query.
-            xendit_amount = policy_context.metadata.get("xendit_revenue_amount", 0.0)
-            xendit_currency = policy_context.metadata.get("xendit_revenue_currency")
-            if xendit_amount and xendit_currency:
-                event_data["revenue_amount"] = float(xendit_amount)
-                event_data["currency"] = str(xendit_currency)
-            else:
-                mpp_amount = policy_context.metadata.get("mpp_total_amount", 0.0)
-                if mpp_amount:
-                    event_data["revenue_amount"] = float(mpp_amount)
-                    event_data["currency"] = "USD"
-
-            return (
-                QueryEndpointResponse.model_validate(policy_context.response),
-                payment_receipt,
+            final_response = QueryEndpointResponse.model_validate(
+                policy_context.response
             )
+            return final_response, payment_receipt
 
         except PaymentRequiredError:
-            event_data["status"] = QueryEventStatus.PAYMENT_REQUIRED.value
+            outcome = QueryOutcome.PAYMENT_REQUIRED
             raise
         except HTTPException:
-            if event_data["status"] == QueryEventStatus.SUCCESS.value:
-                event_data["status"] = QueryEventStatus.INTERNAL_ERROR.value
+            if outcome == QueryOutcome.SUCCESS:
+                outcome = QueryOutcome.INTERNAL_ERROR
             raise
         except Exception:
-            event_data["status"] = QueryEventStatus.INTERNAL_ERROR.value
+            outcome = QueryOutcome.INTERNAL_ERROR
             raise
         finally:
-            if self.event_collector:
-                asyncio.create_task(self.event_collector.capture(**event_data))
+            if self.event_reporter:
+                await self.event_reporter(
+                    QueryOutcomeEvent(
+                        tenant_id=tenant.id,
+                        user_email=str(request.sender_email),
+                        endpoint_slug=slug,
+                        endpoint=endpoint,
+                        outcome=outcome,
+                        messages=request.messages,
+                        response=(
+                            final_response
+                            if outcome == QueryOutcome.SUCCESS
+                            else None
+                        ),
+                    )
+                )
 
     async def _search_dataset(
         self,
@@ -368,7 +319,6 @@ class QueryEndpointHandler:
         return ReferencesResponse(
             documents=documents,
             provider_info=ProviderInfo(search_engine=dataset.dtype),
-            cost=0.0,
         )
 
     async def _chat_with_model(
@@ -458,6 +408,5 @@ class QueryEndpointHandler:
                 completion_tokens=chat_result.usage.completion_tokens,
                 total_tokens=chat_result.usage.total_tokens,
             ),
-            cost=0.0,
             provider_info=ProviderInfo(api_version="v1"),
         )

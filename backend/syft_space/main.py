@@ -20,10 +20,12 @@ import syft_space.components.shared.logging_config  # noqa: F401, I001
 
 # Import analytics components
 from syft_space.components.analytics.collector import QueryEventCollector
+from syft_space.components.analytics.entities import QueryEventStatus
 from syft_space.components.analytics.handlers import AnalyticsHandler
 from syft_space.components.analytics.migrations import run_analytics_migrations
 from syft_space.components.analytics.repository import QueryEventRepository
 from syft_space.components.analytics.routes import build_analytics_routes
+from syft_space.components.analytics.text_processing import extract_user_query
 
 # Import auth components
 from syft_space.components.auth.dependencies import bearer_scheme
@@ -58,6 +60,10 @@ from syft_space.components.endpoints.endpoint_heartbeat_manager import (
     EndpointHeartbeatManager,
 )
 from syft_space.components.endpoints.handlers import EndpointHandler
+from syft_space.components.endpoints.interfaces import (
+    QueryOutcome,
+    QueryOutcomeEvent,
+)
 from syft_space.components.endpoints.publish_handler import PublishEndpointHandler
 from syft_space.components.endpoints.query_handler import QueryEndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
@@ -362,6 +368,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.exception(f"Error shutting down {name}: {e}")
 
+    # 8.1. Drain any in-flight analytics capture tasks. Bounded so a slow
+    # SQLite write doesn't hang shutdown; events past the timeout are dropped
+    # (logged by the collector if they raise).
+    if _pending_event_tasks:
+        await asyncio.wait(
+            _pending_event_tasks,
+            timeout=5.0,
+            return_when=asyncio.ALL_COMPLETED,
+        )
+
     # 9. Dispose database engines (close all pooled connections)
     await database.dispose()
     await analytics_database.dispose()
@@ -491,6 +507,59 @@ async def enrich_query_metadata(metadata: dict) -> None:
     metadata["balance_service"] = balance_service
 
 
+# Analytics adapter (dependency inversion — endpoints doesn't import analytics).
+# Translates a domain QueryOutcomeEvent into an analytics row + cost lines and
+# fires the capture in the background. The set + done-callback holds task
+# references against GC; the lifespan drains in-flight tasks on shutdown.
+_OUTCOME_TO_STATUS = {o: QueryEventStatus(o.value) for o in QueryOutcome}
+_pending_event_tasks: set[asyncio.Task] = set()
+
+
+def _cost_lines_from_response(
+    response: dict | None,
+) -> list[tuple[str, float, str]]:
+    """Extract (component, amount, currency) tuples from a response dict.
+
+    Reads only response-level cost+currency, never policy-specific
+    metadata sidecar keys.
+    """
+    if not response:
+        return []
+    lines: list[tuple[str, float, str]] = []
+    for component in ("summary", "references"):
+        sub = response.get(component) or {}
+        cost = sub.get("cost")
+        currency = sub.get("currency")
+        if cost is not None and currency is not None:
+            lines.append((component, float(cost), str(currency)))
+    return lines
+
+
+async def report_query_event(event: QueryOutcomeEvent) -> None:
+    """Translate a QueryOutcomeEvent and fire-and-forget the capture."""
+    response_dict = event.response.model_dump() if event.response else None
+    cost_lines = (
+        _cost_lines_from_response(response_dict)
+        if event.outcome == QueryOutcome.SUCCESS
+        else []
+    )
+    query_text = extract_user_query(event.messages)[:4000]
+    task = asyncio.create_task(
+        event_collector.capture(
+            tenant_id=event.tenant_id,
+            endpoint_id=event.endpoint.id if event.endpoint else None,
+            endpoint_slug=event.endpoint_slug,
+            dataset_id=event.endpoint.dataset_id if event.endpoint else None,
+            user_email=event.user_email,
+            status=_OUTCOME_TO_STATUS[event.outcome].value,
+            query_text=query_text,
+            cost_lines=cost_lines,
+        )
+    )
+    _pending_event_tasks.add(task)
+    task.add_done_callback(_pending_event_tasks.discard)
+
+
 endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
@@ -507,7 +576,7 @@ query_endpoint_handler = QueryEndpointHandler(
     policy_registry=POLICY_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
     metadata_enricher=enrich_query_metadata,
-    event_collector=event_collector,
+    event_reporter=report_query_event,
 )
 publish_endpoint_handler = PublishEndpointHandler(
     endpoint_repository=endpoint_repository,

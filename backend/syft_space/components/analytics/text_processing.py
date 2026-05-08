@@ -7,9 +7,51 @@ lemmatization, and domain-specific filtering.
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 import spacy
 from spacy.lang.en.stop_words import STOP_WORDS
+
+if TYPE_CHECKING:
+    from syft_space.components.endpoints.schemas import ChatMessageRequest
+
+# SyftHub's aggregator wraps every forwarded query in a prompt-builder
+# template. All four template variants (NO_CONTEXT, EMPTY_CONTEXT,
+# DEFAULT, CITATION) put the actual question between
+# `USER QUESTION:\n` and a trailing `\n---` marker. We peel that out so
+# analytics captures only what the user typed, not the prompt scaffolding.
+_AGGREGATOR_QUESTION_RE = re.compile(
+    r"USER QUESTION:\s*\n(?P<q>.*?)\n---",
+    re.DOTALL,
+)
+
+
+def _strip_aggregator_wrapper(content: str) -> str:
+    """If `content` is a SyftHub-aggregator-wrapped payload, return just
+    the question. Otherwise return content unchanged.
+    """
+    match = _AGGREGATOR_QUESTION_RE.search(content)
+    if match:
+        return match.group("q").strip()
+    return content.strip()
+
+
+def extract_user_query(messages: "str | list[ChatMessageRequest]") -> str:
+    """Extract the user's actual query from a request payload.
+
+    Returns the last user-role message content (or the raw string if
+    `messages` is a string), with SyftHub-aggregator scaffolding peeled
+    off. System prompts, assistant turns, and earlier user turns are
+    discarded — analytics treats *this* request as a single question;
+    earlier turns were captured as their own events when they fired.
+    """
+    if isinstance(messages, str):
+        return _strip_aggregator_wrapper(messages)
+    if isinstance(messages, list):
+        for m in reversed(messages):
+            if m.role == "user" and m.content:
+                return _strip_aggregator_wrapper(m.content)
+    return ""
 
 # Compile patterns once at module level
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
