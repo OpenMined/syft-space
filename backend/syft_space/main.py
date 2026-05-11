@@ -511,7 +511,14 @@ async def enrich_query_metadata(metadata: dict) -> None:
 # Translates a domain QueryOutcomeEvent into an analytics row + cost lines and
 # fires the capture in the background. The set + done-callback holds task
 # references against GC; the lifespan drains in-flight tasks on shutdown.
-_OUTCOME_TO_STATUS = {o: QueryEventStatus(o.value) for o in QueryOutcome}
+_OUTCOME_TO_STATUS = {
+    QueryOutcome.SUCCESS: QueryEventStatus.SUCCESS,
+    QueryOutcome.NOT_FOUND: QueryEventStatus.NOT_FOUND,
+    QueryOutcome.NOT_PUBLISHED: QueryEventStatus.NOT_PUBLISHED,
+    QueryOutcome.PAYMENT_REQUIRED: QueryEventStatus.PAYMENT_REQUIRED,
+    QueryOutcome.POLICY_VIOLATION: QueryEventStatus.POLICY_VIOLATION,
+    QueryOutcome.INTERNAL_ERROR: QueryEventStatus.INTERNAL_ERROR,
+}
 _pending_event_tasks: set[asyncio.Task] = set()
 
 
@@ -536,16 +543,21 @@ def _cost_lines_from_response(
 
 
 async def report_query_event(event: QueryOutcomeEvent) -> None:
-    """Translate a QueryOutcomeEvent and fire-and-forget the capture."""
-    response_dict = event.response.model_dump() if event.response else None
-    cost_lines = (
-        _cost_lines_from_response(response_dict)
-        if event.outcome == QueryOutcome.SUCCESS
-        else []
-    )
-    query_text = extract_user_query(event.messages)[:4000]
-    task = asyncio.create_task(
-        event_collector.capture(
+    """Fire-and-forget the analytics capture.
+
+    All translation work runs inside the task body so the request handler's
+    awaited path does only task scheduling.
+    """
+
+    async def _capture() -> None:
+        response_dict = event.response.model_dump() if event.response else None
+        cost_lines = (
+            _cost_lines_from_response(response_dict)
+            if event.outcome == QueryOutcome.SUCCESS
+            else []
+        )
+        query_text = extract_user_query(event.messages)[:4000]
+        await event_collector.capture(
             tenant_id=event.tenant_id,
             endpoint_id=event.endpoint.id if event.endpoint else None,
             endpoint_slug=event.endpoint_slug,
@@ -555,7 +567,8 @@ async def report_query_event(event: QueryOutcomeEvent) -> None:
             query_text=query_text,
             cost_lines=cost_lines,
         )
-    )
+
+    task = asyncio.create_task(_capture())
     _pending_event_tasks.add(task)
     task.add_done_callback(_pending_event_tasks.discard)
 
