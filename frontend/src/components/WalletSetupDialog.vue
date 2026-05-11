@@ -131,6 +131,21 @@ const isValidEthAddress = (address: string): boolean => {
   return /^0x[0-9a-fA-F]{40}$/.test(address)
 }
 
+const fundWalletFromFaucet = async (address: string) => {
+  try {
+    const response = await fetch('https://docs.tempo.xyz/api/faucet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    })
+    if (!response.ok) {
+      throw new Error(`Faucet returned ${response.status}`)
+    }
+  } catch (error) {
+    console.error('Failed to fund wallet from faucet:', error)
+  }
+}
+
 const fetchWallet = async () => {
   try {
     const wallets = await walletsApi.list()
@@ -156,6 +171,9 @@ const handleCreateWallet = async () => {
     currentWalletId.value = res.id
     toast.success('Wallet created successfully')
     emit('wallet-updated', res.display.wallet_address ?? '')
+    if (res.display.wallet_address) {
+      await fundWalletFromFaucet(res.display.wallet_address)
+    }
     await userStore.fetchWalletInfo()
     userStore.fetchBalance()
   } catch (error) {

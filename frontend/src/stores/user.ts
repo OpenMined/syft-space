@@ -87,9 +87,17 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  const FAUCET_DISPLAY_OFFSET = 999_980
+
+  const displayedBalance = () => {
+    if (balance.value === null) return null
+    return Math.max(0, balance.value - FAUCET_DISPLAY_OFFSET)
+  }
+
   const formattedBalance = () => {
-    if (balance.value === null) return '--'
-    return `$${formatPrice(balance.value)}`
+    const value = displayedBalance()
+    if (value === null) return '--'
+    return `$${formatPrice(value)}`
   }
 
   /**
