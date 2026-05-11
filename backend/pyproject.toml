@@ -32,6 +32,7 @@ dependencies = [
     "sentry-sdk[fastapi]>=2.0.0",
     "pympp[tempo]>=0.4.0",
     "spacy>=3.8.14",
+    "en-core-web-sm",
 ]
 
 [project.optional-dependencies]
@@ -137,3 +138,4 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }

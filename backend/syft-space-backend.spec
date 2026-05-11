@@ -15,6 +15,8 @@ LAZY_IMPORTS = [
     'docling_ibm_models',
     'docling_parse',
     'mpp',
+    'spacy',
+    'en_core_web_sm',
 ]
 
 # Packages that bundle data files (migrations, configs, etc.) needed at runtime.
@@ -25,6 +27,8 @@ PACKAGES_WITH_DATA = [
     'docling_ibm_models',
     'docling_parse',
     'rapidocr',
+    'spacy',
+    'en_core_web_sm',
 ]
 
 # Packages that use importlib.metadata at runtime (need their dist-info).
@@ -36,6 +40,10 @@ PACKAGES_WITH_METADATA = [
     'docling_core',
     'docling_ibm_models',
     'docling_parse',
+    'spacy',
+    'thinc',
+    'srsly',
+    'en_core_web_sm',
 ]
 
 # Packages with native extensions that PyInstaller may not auto-detect.
