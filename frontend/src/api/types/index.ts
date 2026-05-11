@@ -327,6 +327,23 @@ export interface ConnectMarketplaceRequest {
   url?: string
 }
 
+export interface VerifyMarketplaceOTPRequest {
+  url?: string
+  email: string
+  password: string
+  code: string
+}
+
+export interface ResendMarketplaceOTPRequest {
+  url?: string
+  email: string
+}
+
+export const MarketplaceErrorCode = {
+  EmailVerificationRequired: 'EMAIL_VERIFICATION_REQUIRED',
+  EmailNotVerified: 'EMAIL_NOT_VERIFIED',
+} as const
+
 export interface MarketplaceResponse {
   id: string
   name: string

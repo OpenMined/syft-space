@@ -1,6 +1,34 @@
 import { ref, type Ref } from 'vue'
+import axios from 'axios'
 import { marketplacesApi } from '@/api/endpoints/marketplaces'
 import { settingsApi } from '@/api/endpoints/settings'
+import { MarketplaceErrorCode } from '@/api/types'
+
+interface ErrorDetail {
+  code?: string
+  message?: string
+  field?: string
+}
+
+function extractDetail(error: unknown): ErrorDetail | null {
+  if (!axios.isAxiosError(error)) return null
+  const detail = error.response?.data?.detail
+  if (typeof detail === 'string') return { message: detail }
+  if (detail && typeof detail === 'object') return detail as ErrorDetail
+  return null
+}
+
+function extractDetailMessage(error: unknown, fallback: string): string {
+  return extractDetail(error)?.message || fallback
+}
+
+interface PendingVerification {
+  email: string
+  password: string
+  url?: string
+  // 'signin' triggers an auto-resend when the dialog opens; 'register' doesn't.
+  origin: 'register' | 'signin'
+}
 
 // Helper function to check if user is already onboarded
 export async function checkOnboardingStatus(): Promise<boolean> {
@@ -53,6 +81,12 @@ export function useOnboarding() {
   // Stored marketplace data after successful auth
   const marketplaceData: Ref<{ id: string; username: string } | null> = ref(null)
 
+  // OTP / email verification state
+  const pendingVerification: Ref<PendingVerification | null> = ref(null)
+  const verifyingOtp = ref(false)
+  const resendingOtp = ref(false)
+  const otpError = ref('')
+
   // Check username availability with debouncing
   const checkUsernameAvailability = async (username: string) => {
     // Clear previous timeout
@@ -83,46 +117,43 @@ export function useOnboarding() {
     }, 500) as unknown as number
   }
 
-  // Register new account
   const register = async (): Promise<boolean> => {
     registering.value = true
     authError.value = ''
 
     try {
-      const response = await marketplacesApi.register({
+      const result = await marketplacesApi.register({
         name: registerForm.value.name,
         username: registerForm.value.username,
         email: registerForm.value.email,
         password: registerForm.value.password,
-        // url will use backend default
       })
 
-      // Store marketplace data for later use
+      if (result.kind === 'verification_required') {
+        pendingVerification.value = {
+          email: result.email,
+          password: registerForm.value.password,
+          url: result.url,
+          origin: 'register',
+        }
+        return false
+      }
+
       marketplaceData.value = {
-        id: response.id,
+        id: result.marketplace.id,
         username: registerForm.value.username,
       }
 
       return true
     } catch (error) {
       console.error('Registration failed:', error)
-      if (error && typeof error === 'object' && 'response' in error) {
-        const axiosError = error as { response?: { data?: { detail?: string } } }
-        if (axiosError.response?.data?.detail) {
-          authError.value = axiosError.response.data.detail
-        } else {
-          authError.value = 'Failed to create account. Please try again.'
-        }
-      } else {
-        authError.value = 'Failed to create account. Please try again.'
-      }
+      authError.value = extractDetailMessage(error, 'Failed to create account. Please try again.')
       return false
     } finally {
       registering.value = false
     }
   }
 
-  // Sign in to existing account
   const signIn = async (): Promise<boolean> => {
     signingIn.value = true
     authError.value = ''
@@ -131,10 +162,8 @@ export function useOnboarding() {
       const response = await marketplacesApi.connect({
         username: signinForm.value.username,
         password: signinForm.value.password,
-        // url will use backend default
       })
 
-      // Store marketplace data for later use
       marketplaceData.value = {
         id: response.id,
         username: signinForm.value.username,
@@ -143,20 +172,93 @@ export function useOnboarding() {
       return true
     } catch (error) {
       console.error('Sign in failed:', error)
-      if (error && typeof error === 'object' && 'response' in error) {
-        const axiosError = error as { response?: { data?: { detail?: string } } }
-        if (axiosError.response?.data?.detail) {
-          authError.value = axiosError.response.data.detail
-        } else {
-          authError.value = 'Invalid username or password. Please try again.'
+      const detail = extractDetail(error)
+      // Only route into the OTP dialog when we have an email to address the
+      // resend to — SyftHub's login form also accepts username, in which case
+      // we can't drive the verification flow and fall back to the error toast.
+      if (
+        detail?.code === MarketplaceErrorCode.EmailNotVerified &&
+        signinForm.value.username.includes('@')
+      ) {
+        pendingVerification.value = {
+          email: signinForm.value.username,
+          password: signinForm.value.password,
+          origin: 'signin',
         }
-      } else {
-        authError.value = 'Invalid username or password. Please try again.'
+        return false
       }
+      authError.value = detail?.message || 'Invalid username or password. Please try again.'
       return false
     } finally {
       signingIn.value = false
     }
+  }
+
+  const verifyOtp = async (code: string): Promise<boolean> => {
+    if (!pendingVerification.value) {
+      otpError.value = 'No verification is in progress.'
+      return false
+    }
+
+    verifyingOtp.value = true
+    otpError.value = ''
+
+    try {
+      const response = await marketplacesApi.verifyOtp({
+        email: pendingVerification.value.email,
+        password: pendingVerification.value.password,
+        url: pendingVerification.value.url,
+        code,
+      })
+
+      marketplaceData.value = {
+        id: response.id,
+        username: response.name,
+      }
+      pendingVerification.value = null
+      return true
+    } catch (error) {
+      console.error('OTP verification failed:', error)
+      otpError.value = extractDetailMessage(
+        error,
+        'Could not verify that code. Try again or request a new one.',
+      )
+      return false
+    } finally {
+      verifyingOtp.value = false
+    }
+  }
+
+  const resendOtp = async (): Promise<boolean> => {
+    if (!pendingVerification.value) {
+      otpError.value = 'No verification is in progress.'
+      return false
+    }
+
+    resendingOtp.value = true
+    otpError.value = ''
+
+    try {
+      await marketplacesApi.resendOtp({
+        email: pendingVerification.value.email,
+        url: pendingVerification.value.url,
+      })
+      return true
+    } catch (error) {
+      console.error('OTP resend failed:', error)
+      otpError.value = extractDetailMessage(
+        error,
+        'Could not resend the code. Please try again in a minute.',
+      )
+      return false
+    } finally {
+      resendingOtp.value = false
+    }
+  }
+
+  const cancelVerification = () => {
+    pendingVerification.value = null
+    otpError.value = ''
   }
 
   // Complete setup (save network configuration)
@@ -237,6 +339,8 @@ export function useOnboarding() {
     authError.value = ''
     networkError.value = ''
     marketplaceData.value = null
+    pendingVerification.value = null
+    otpError.value = ''
   }
 
   return {
@@ -269,10 +373,19 @@ export function useOnboarding() {
     // Marketplace data (set after auth success)
     marketplaceData,
 
+    // OTP / email verification state
+    pendingVerification,
+    verifyingOtp,
+    resendingOtp,
+    otpError,
+
     // Methods
     checkUsernameAvailability,
     register,
     signIn,
+    verifyOtp,
+    resendOtp,
+    cancelVerification,
     completeSetup,
     loadExistingState,
     reset,
