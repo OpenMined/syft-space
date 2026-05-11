@@ -446,7 +446,7 @@ export interface UpdateDiagnosticsRequest {
 
 // Endpoint query API types
 export interface EndpointQueryMessage {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string
 }
 
@@ -464,6 +464,8 @@ export interface ChatDocumentResponse {
   content: string
   metadata: Record<string, unknown>
   similarity_score: number
+  source_endpoint_slug?: string
+  source_endpoint_name?: string
 }
 
 export interface ChatReferencesResponse {

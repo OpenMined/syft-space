@@ -39,7 +39,7 @@ import { useEndpointChat } from '@/composables/useEndpointChat'
 import { useNavigation } from '@/composables/useNavigation'
 import type { EndpointItem } from '@/stores/endpoints'
 
-const { turns, loading, error, sendMessage, clearChat } = useEndpointChat()
+const { turns, loading, error, warning, sendMessage, clearChat } = useEndpointChat()
 const { goToGoLive } = useNavigation()
 const endpointsStore = useEndpointsStore()
 
@@ -61,6 +61,13 @@ const hasNoModelEndpoints = computed(
 
 const selectedEndpoint = computed(
   () => modelEndpoints.value.find((e) => e.slug === endpointSlug.value) ?? null,
+)
+
+const selectedDataSources = computed(() =>
+  dataSourceSlugs.value
+    .map((slug) => dataEndpoints.value.find((e) => e.slug === slug))
+    .filter((e): e is EndpointItem => e != null)
+    .map((e) => ({ slug: e.slug, name: e.name })),
 )
 
 watch(modelEndpoints, (list) => {
@@ -107,7 +114,11 @@ async function handleSend() {
   const text = inputText.value.trim()
   inputText.value = ''
 
-  await sendMessage({ content: text, endpointSlug: endpointSlug.value })
+  await sendMessage({
+    content: text,
+    endpointSlug: endpointSlug.value,
+    dataSources: selectedDataSources.value,
+  })
 }
 
 function isDialogOpen(): boolean {
@@ -233,6 +244,13 @@ function handleClear() {
                           <span class="text-xs font-medium text-foreground truncate">
                             {{ doc.document_id }}
                           </span>
+                          <Badge
+                            v-if="doc.source_endpoint_name"
+                            variant="secondary"
+                            class="text-[10px] px-1.5 py-0 shrink-0"
+                          >
+                            {{ doc.source_endpoint_name }}
+                          </Badge>
                           <Badge variant="outline" class="text-[10px] px-1.5 py-0 shrink-0">
                             {{ (doc.similarity_score * 100).toFixed(0) }}%
                           </Badge>
@@ -258,6 +276,11 @@ function handleClear() {
         <!-- Error -->
         <Alert v-if="error" variant="destructive" class="mt-4">
           <AlertDescription>{{ error }}</AlertDescription>
+        </Alert>
+
+        <!-- Warning (non-fatal, e.g. partial data-source failure) -->
+        <Alert v-if="warning" class="mt-4">
+          <AlertDescription>{{ warning }}</AlertDescription>
         </Alert>
 
         <div ref="messagesEndRef" />
