@@ -33,7 +33,7 @@ if not config.get_main_option("sqlalchemy.url"):
 target_metadata = SQLModel.metadata
 
 # Only manage the query_events table in this alembic environment
-ANALYTICS_TABLES = {"query_events"}
+ANALYTICS_TABLES = {"query_events", "query_cost_lines"}
 
 
 def include_name(name: str, type_: str, parent_names: dict) -> bool:
