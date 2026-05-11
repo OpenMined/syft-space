@@ -75,6 +75,29 @@ class XenditAccountingPolicy(WalletPolicy):
             schema_generator=ConfigSchemaGenerator
         )
 
+    def _find_matching_price(
+        self, user_email: str, configs: list[dict[str, Any]]
+    ) -> float | None:
+        """Find the most specific matching price for a user.
+
+        More specific patterns (longer, non-wildcard) take priority.
+        Returns None if no config matches.
+        """
+        best_price: float | None = None
+        best_specificity = -1
+
+        for config in configs:
+            validated = XenditPolicyConfig(**config)
+            for pattern in validated.applied_to:
+                if not matches_any_pattern(user_email, [pattern]):
+                    continue
+                specificity = 0 if pattern == "*" else len(pattern.replace("*", ""))
+                if specificity > best_specificity:
+                    best_specificity = specificity
+                    best_price = validated.price_per_request
+
+        return best_price
+
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
@@ -83,7 +106,14 @@ class XenditAccountingPolicy(WalletPolicy):
             return context
 
         user_email = str(context.sender_email)
-        validated = [XenditPolicyConfig(**c) for c in configs]
+        price = self._find_matching_price(user_email, configs)
+
+        # If no price is found, deny the request
+        if price is None:
+            raise PolicyViolationError(
+                message="No pricing tier matches your account",
+                policy_type=self.NAME,
+            )
 
         balance_service = context.metadata.get("balance_service")
         if not balance_service:
@@ -104,40 +134,28 @@ class XenditAccountingPolicy(WalletPolicy):
                 details={"user": user_email},
             )
 
-        for config in validated:
-            if not config.applies_to_user(user_email):
-                continue
+        try:
+            transaction_id = await balance_service.reserve(
+                wallet_id=wallet_id,
+                tenant_id=tenant_id,
+                user_email=user_email,
+                endpoint_id=endpoint_id,
+                amount=price,
+                currency=currency,
+            )
+        except InsufficientBalanceError as exc:
+            raise PolicyViolationError(
+                message="Insufficient balance. Please purchase more credits.",
+                policy_type=self.NAME,
+                details={
+                    "user": user_email,
+                    "price_per_request": price,
+                    "currency": currency,
+                },
+            ) from exc
 
-            try:
-                transaction_id = await balance_service.reserve(
-                    wallet_id=wallet_id,
-                    tenant_id=tenant_id,
-                    user_email=user_email,
-                    endpoint_id=endpoint_id,
-                    amount=config.price_per_request,
-                    currency=currency,
-                )
-            except InsufficientBalanceError as exc:
-                raise PolicyViolationError(
-                    message="Insufficient balance. Please purchase more credits.",
-                    policy_type=self.NAME,
-                    details={
-                        "user": user_email,
-                        "price_per_request": config.price_per_request,
-                        "currency": currency,
-                    },
-                ) from exc
-
-            context.metadata["xendit_transaction_id"] = transaction_id
-            # Surface the recognized revenue on the response so the analytics
-            # adapter can read it without knowing about Xendit. Cleared in
-            # post_hook on the empty-response refund path.
-            context.response = context.response or {}
-            summary = context.response.setdefault("summary", {})
-            summary["cost"] = config.price_per_request
-            summary["currency"] = currency
-            # Only one applicable config per user — first match wins.
-            break
+        context.metadata["xendit_transaction_id"] = transaction_id
+        context.metadata["xendit_price_per_request"] = price
 
         return context
 
@@ -149,10 +167,15 @@ class XenditAccountingPolicy(WalletPolicy):
             return context
 
         transaction_id = context.metadata.get("xendit_transaction_id")
+        price = context.metadata.get("xendit_price_per_request")
+        currency = context.metadata.get("xendit_wallet_currency")
+
+        # No transaction ID means the request was not charged
         if not transaction_id:
             return context
 
         response = context.response or {}
+
         has_summary = bool(
             response.get("summary") and response["summary"].get("message")
         )
@@ -160,17 +183,21 @@ class XenditAccountingPolicy(WalletPolicy):
             response.get("references") and response["references"].get("documents")
         )
 
+        # Set the cost and currency on the response
+        if has_summary:
+            response["summary"]["cost"] = price
+            response["summary"]["currency"] = currency
+        if has_documents:
+            response["references"]["cost"] = price
+            response["references"]["currency"] = currency
+
         if has_summary or has_documents:
             return context
 
-        balance_service = context.metadata.get("balance_service")
-        if balance_service:
-            await balance_service.cancel(transaction_id)
-            # Refund issued — clear the cost/currency on the response so
-            # downstream consumers don't see a charge.
-            summary = (context.response or {}).get("summary") or {}
-            summary["cost"] = None
-            summary["currency"] = None
+        # Cancel the reservation if the response is empty (no useful content)
+        balance_service = context.metadata["balance_service"]
+
+        await balance_service.cancel(transaction_id)
 
         return context
 
