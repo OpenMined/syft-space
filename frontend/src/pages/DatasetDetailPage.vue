@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
     <!-- Breadcrumb Navigation -->
     <nav class="flex mb-12" aria-label="Breadcrumb">
       <ol class="flex items-center space-x-3">
@@ -105,164 +105,126 @@
     </div>
 
     <!-- Dataset Details -->
-    <div v-else-if="dataset" class="space-y-6">
+    <div v-else-if="dataset" class="space-y-8">
       <!-- Header -->
-      <div class="bg-card/60 backdrop-blur-sm border border-border rounded-3xl p-8 mb-8">
-        <div class="flex items-start justify-between">
-          <div class="flex items-start gap-6">
-            <div
-              :class="[
-                'p-4 rounded-2xl shadow-sm',
-                dataset.dtype === 'weaviate'
-                  ? 'bg-primary/10 border border-border'
-                  : dataset.dtype === 'qdrant'
-                    ? 'bg-primary/10 border border-border'
-                    : 'bg-primary/10 border border-border',
-              ]"
-            >
-              <IntegrationIcon :name="datasetTypeInfo?.icon || dataset.dtype" class="h-8 w-8" />
+      <div class="flex items-start justify-between gap-6 pb-6 border-b border-border/60">
+        <div class="flex items-start gap-4 flex-1 min-w-0">
+          <div class="p-3 rounded-xl bg-muted/60 border border-border/60 shrink-0">
+            <IntegrationIcon :name="datasetTypeInfo?.icon || dataset.dtype" class="h-7 w-7" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <h1 class="heading-2 mb-1.5">{{ dataset.name }}</h1>
+            <p class="body-base text-muted-foreground mb-3">{{ dataset.summary }}</p>
+
+            <!-- Inline metadata row -->
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">
+              <Badge
+                variant="outline"
+                :class="
+                  dataset.status === 'running'
+                    ? 'bg-primary/10 text-primary border-primary/20 px-2.5 py-0.5 rounded-md'
+                    : 'bg-muted text-muted-foreground border-border px-2.5 py-0.5 rounded-md'
+                "
+              >
+                <span
+                  :class="[
+                    'w-1.5 h-1.5 rounded-full mr-1.5',
+                    dataset.status === 'running' ? 'bg-primary' : 'bg-muted-foreground',
+                  ]"
+                ></span>
+                {{ dataset.status === 'running' ? 'Running' : 'Stopped' }}
+              </Badge>
+              <span class="text-xs text-muted-foreground">·</span>
+              <span class="body-sm text-muted-foreground font-mono">{{ dataset.dtype }}</span>
+              <template v-if="getDatasetManagement() === 'Self-managed'">
+                <span class="text-xs text-muted-foreground">·</span>
+                <span class="body-sm font-medium text-foreground"
+                  >{{ getIngestedFiles() }} files indexed</span
+                >
+              </template>
+              <span class="text-xs text-muted-foreground">·</span>
+              <span class="body-sm font-medium text-foreground"
+                >{{ dataset.endpointCount }} API{{ dataset.endpointCount !== 1 ? 's' : '' }}</span
+              >
             </div>
-            <div>
-              <h1 class="heading-2 mb-2">{{ dataset.name }}</h1>
-              <p class="body-lg text-muted-foreground mb-4">{{ dataset.summary }}</p>
-              <div class="flex flex-wrap items-center gap-3">
-                <Badge
-                  variant="outline"
-                  :class="
-                    dataset.status === 'running'
-                      ? 'bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-full'
-                      : 'bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full'
-                  "
-                >
-                  <div
-                    :class="
-                      dataset.status === 'running'
-                        ? 'w-2 h-2 bg-primary rounded-full mr-2'
-                        : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
-                    "
-                  ></div>
-                  {{ dataset.status === 'running' ? 'Running' : 'Stopped' }}
-                </Badge>
-                <Badge
-                  variant="outline"
-                  class="bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full"
-                >
-                  {{ dataset.dtype }}
-                </Badge>
-                <Badge
-                  v-for="tag in dataset.tags"
-                  :key="`tag-${tag}`"
-                  variant="outline"
-                  class="bg-muted text-muted-foreground border border-border px-3 py-1.5 rounded-full"
-                >
-                  {{ tag }}
-                </Badge>
-              </div>
+
+            <!-- Tag chips -->
+            <div v-if="dataset.tags.length > 0" class="flex flex-wrap gap-1.5">
+              <Badge
+                v-for="tag in dataset.tags"
+                :key="`tag-${tag}`"
+                variant="outline"
+                class="bg-background text-muted-foreground border-border/60 px-2 py-0.5 rounded-md text-[11px] font-normal"
+              >
+                {{ tag }}
+              </Badge>
             </div>
           </div>
-          <div class="flex items-center gap-3">
-            <Button variant="outline" @click="editDataset">
-              <Edit class="h-4 w-4 mr-2" />
-              Edit
-            </Button>
-            <Button
-              variant="outline"
-              class="text-destructive hover:text-destructive border-destructive/50 hover:border-destructive"
-              @click="deleteDataset"
-            >
-              <Trash2 class="h-4 w-4 mr-2" />
-              Delete
-            </Button>
-          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" @click="editDataset">
+            <Edit class="h-3.5 w-3.5 mr-2" />
+            Edit
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button variant="outline" size="sm" class="px-2">
+                <MoreVertical class="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="w-40">
+              <DropdownMenuItem
+                class="text-destructive focus:text-destructive"
+                @click="deleteDataset"
+              >
+                <Trash2 class="h-4 w-4 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
       <!-- Tabs Navigation -->
-      <Tabs default-value="overview" class="space-y-4">
+      <Tabs default-value="overview" class="space-y-6">
         <TabsList
-          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-2"
+          class="h-auto items-end justify-start gap-6 rounded-none bg-transparent p-0 border-b border-border w-full"
         >
-          <TabsTrigger value="overview" class="flex items-center gap-2">
+          <TabsTrigger
+            value="overview"
+            class="-mb-px flex-none justify-start inline-flex items-center gap-2 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-2 h-auto body-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent dark:data-[state=active]:text-primary"
+          >
             <Database class="h-4 w-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="analytics" class="flex items-center gap-2">
-            <BarChart3 class="h-4 w-4" />
-            Progress
+          <TabsTrigger
+            value="files"
+            class="-mb-px flex-none justify-start inline-flex items-center gap-2 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-2 h-auto body-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent dark:data-[state=active]:text-primary"
+          >
+            <FileText class="h-4 w-4" />
+            Files
+            <Badge
+              v-if="getDatasetManagement() === 'Self-managed'"
+              variant="secondary"
+              class="ml-1 h-[18px] min-w-[20px] justify-center px-1.5 text-[11px] font-semibold bg-primary/15 text-primary border-0 rounded-sm"
+            >
+              {{ ingestionStatus?.total_jobs ?? 0 }}
+            </Badge>
           </TabsTrigger>
         </TabsList>
 
         <!-- Overview Tab Content -->
-        <TabsContent value="overview" class="space-y-6">
-          <!-- Dataset Summary -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="grid grid-cols-2 md:grid-cols-6 gap-8">
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Type</p>
-                <p class="body-sm font-medium text-foreground">
-                  {{
-                    datasetTypeInfo?.name ||
-                    dataset.dtype.charAt(0).toUpperCase() + dataset.dtype.slice(1)
-                  }}
-                </p>
-              </div>
-
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Status</p>
-                <div class="flex items-center justify-center gap-2">
-                  <div :class="['w-2.5 h-2.5 rounded-full', getDatasetStatus().color]"></div>
-                  <p class="body-sm font-medium text-foreground">{{ getDatasetStatus().text }}</p>
-                </div>
-              </div>
-
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">APIs</p>
-                <p class="body-sm font-medium text-foreground">{{ dataset.endpointCount }}</p>
-              </div>
-
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Files</p>
-                <p class="body-sm font-medium text-primary">
-                  {{ getTotalFiles() }}
-                </p>
-              </div>
-
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Ingested</p>
-                <p class="body-sm font-medium text-primary">
-                  {{ getIngestedFiles() }}
-                </p>
-              </div>
-
-              <div class="text-center">
-                <p class="body-sm text-muted-foreground mb-1">Created</p>
-                <p class="body-sm font-medium text-foreground">
-                  {{ formatDate(dataset.created_at) }}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <!-- File Watching Status (only for self-managed) -->
+        <TabsContent value="overview" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Watched Paths (self-managed only) -->
           <div
             v-if="getDatasetManagement() === 'Self-managed'"
-            class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+            class="lg:col-span-2 bg-card border border-border rounded-xl p-6"
           >
-            <div class="flex items-center justify-between mb-8">
-              <div class="flex items-center gap-4">
-                <h2 class="heading-3">Watched Paths</h2>
-                <div class="flex items-center gap-2">
-                  <div
-                    :class="[
-                      'w-2 h-2 rounded-full',
-                      ingestionStatus?.is_watching ? 'bg-primary' : 'bg-muted',
-                    ]"
-                  ></div>
-                  <span class="body-sm text-muted-foreground">
-                    {{ ingestionStatus?.is_watching ? 'Watching' : 'Not watching' }}
-                  </span>
-                </div>
-              </div>
+            <div class="flex items-center justify-between mb-5">
+              <h2 class="heading-3 flex items-center gap-2">
+                <Database class="h-5 w-5 text-foreground/70" />
+                Watched Paths
+              </h2>
               <div class="flex items-center gap-3">
                 <Button
                   v-if="ingestionStatus?.failed && ingestionStatus.failed > 0"
@@ -271,99 +233,82 @@
                   @click="retryFailedJobs"
                   :disabled="isRetryingJobs"
                 >
-                  <RotateCcw class="h-4 w-4 mr-2" :class="{ 'animate-spin': isRetryingJobs }" />
+                  <RotateCcw class="h-3.5 w-3.5 mr-2" :class="{ 'animate-spin': isRetryingJobs }" />
                   Retry Failed ({{ ingestionStatus.failed }})
                 </Button>
-              </div>
-            </div>
-            <div v-if="getWatchedPaths().length > 0">
-              <!-- Watched Paths Overview -->
-              <div class="space-y-4 mb-8">
-                <div
-                  v-for="path in getWatchedPaths()"
-                  :key="path.id"
-                  class="flex items-center justify-between py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all"
-                >
-                  <div class="flex items-center gap-4">
-                    <div
-                      :class="[
-                        'w-3 h-3 rounded-full',
-                        path.status === 'watching' ? 'bg-primary' : 'bg-muted',
-                      ]"
-                    ></div>
-                    <div class="flex-1">
-                      <p class="body-sm font-medium text-foreground">{{ path.path }}</p>
-                      <p class="body-sm text-muted-foreground mt-1">
-                        {{ path.description }}
-                      </p>
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-4">
-                    <Badge
-                      :variant="path.status === 'watching' ? 'default' : 'outline'"
-                      class="capitalize px-3 py-1.5 rounded-full border-0"
-                    >
-                      {{ path.status === 'watching' ? 'Watching' : 'Not Watching' }}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- No Watched Paths Message -->
-            <div v-else class="text-center py-16">
-              <div
-                class="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center"
-              >
-                <Database class="h-6 w-6 text-muted-foreground" />
-              </div>
-              <p class="text-muted-foreground body-sm mb-4">No watched paths configured</p>
-              <p class="text-muted-foreground body-sm">
-                Configure file paths in dataset settings to enable file watching
-              </p>
-            </div>
-
-            <div class="mt-8">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-4 flex-wrap">
+                <div class="flex items-center gap-1.5">
                   <span
-                    v-for="status in ['completed', 'in_progress', 'pending', 'failed', 'cancelled']"
-                    :key="status"
-                    class="flex items-center gap-2.5 body-sm font-medium text-muted-foreground px-3 py-2 rounded-lg"
-                  >
-                    <div :class="getStatusDotClass(status)"></div>
-                    {{ getStatusLabel(status) }} ({{ getStatusCount(status) }})
+                    :class="[
+                      'w-1.5 h-1.5 rounded-full',
+                      ingestionStatus?.is_watching ? 'bg-primary' : 'bg-muted-foreground',
+                    ]"
+                  ></span>
+                  <span class="body-sm text-muted-foreground">
+                    {{ ingestionStatus?.is_watching ? 'Watching' : 'Not watching' }}
                   </span>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Configuration Settings -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="flex items-center justify-between mb-8">
-              <h2 class="heading-3">Configuration</h2>
+            <div v-if="getWatchedPaths().length > 0" class="space-y-2.5">
+              <div
+                v-for="path in getWatchedPaths()"
+                :key="path.id"
+                class="flex items-start justify-between gap-4 px-4 py-3 bg-muted/40 border border-border/60 rounded-lg"
+              >
+                <div class="min-w-0 flex-1">
+                  <p class="body-sm font-mono text-foreground truncate">{{ path.path }}</p>
+                  <p v-if="path.description" class="text-xs text-muted-foreground mt-1 truncate">
+                    {{ path.description }}
+                  </p>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0 mt-1">
+                  <span
+                    :class="[
+                      'w-1.5 h-1.5 rounded-full',
+                      path.status === 'watching' ? 'bg-primary' : 'bg-muted-foreground',
+                    ]"
+                  ></span>
+                  <span class="text-xs text-muted-foreground">
+                    {{ path.status === 'watching' ? 'Watching' : 'Not Watching' }}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <!-- Basic Settings -->
-            <div class="space-y-3">
-              <div class="flex justify-between items-center py-2 border-b border-border">
-                <span class="body-sm text-muted-foreground">Index Name</span>
-                <span class="body-sm font-medium text-foreground">{{
+            <div v-else class="text-center py-12">
+              <div
+                class="mx-auto mb-3 h-10 w-10 rounded-full bg-muted flex items-center justify-center"
+              >
+                <Database class="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p class="text-muted-foreground body-sm">No watched paths configured</p>
+            </div>
+          </div>
+
+          <!-- Configuration (right column on row 1) -->
+          <div class="lg:col-span-1 bg-card border border-border rounded-xl p-6">
+            <h2 class="heading-3 mb-5 flex items-center gap-2">
+              <Settings class="h-5 w-5 text-foreground/70" />
+              Configuration
+            </h2>
+
+            <div class="space-y-4">
+              <div class="flex justify-between items-center gap-4">
+                <span class="body-sm text-muted-foreground">Index name</span>
+                <span class="body-sm font-mono text-foreground truncate">{{
                   getConfigValue('indexName') || getConfigValue('collectionName') || dataset.name
                 }}</span>
               </div>
-              <div
-                class="flex justify-between items-center py-2 border-b border-border last:border-b-0"
-              >
-                <span class="body-sm text-muted-foreground">Connection Status</span>
-                <div class="flex items-center gap-3">
-                  <div
+              <div class="flex justify-between items-center gap-4">
+                <span class="body-sm text-muted-foreground">Connection</span>
+                <div class="flex items-center gap-1.5">
+                  <span
                     :class="[
-                      'w-2.5 h-2.5 rounded-full',
+                      'w-1.5 h-1.5 rounded-full',
                       healthStatus?.status === 'healthy' ? 'bg-primary' : 'bg-destructive',
                     ]"
-                  ></div>
+                  ></span>
                   <span
                     :class="[
                       'body-sm font-medium',
@@ -374,78 +319,74 @@
                   </span>
                 </div>
               </div>
-            </div>
-
-            <!-- Dynamic Configuration Display -->
-            <div v-if="showAdvancedConfig && dataset?.configuration" class="mt-6">
-              <div class="space-y-6">
-                <h3 class="body-sm font-semibold text-foreground mb-4">Advanced Settings</h3>
-                <div class="space-y-3">
-                  <!-- Dynamically render configuration properties -->
-                  <div
-                    v-for="(value, key) in getDisplayableConfig()"
-                    :key="key"
-                    class="flex justify-between items-center py-2 border-b border-border last:border-b-0"
-                  >
-                    <span class="body-sm text-muted-foreground">{{ formatConfigKey(key) }}</span>
-                    <span class="body-sm font-medium text-foreground">{{
-                      formatConfigValue(key, value)
-                    }}</span>
-                  </div>
-                </div>
+              <div
+                v-for="(value, key) in getDisplayableConfig()"
+                :key="key"
+                class="flex justify-between items-center gap-4"
+              >
+                <span class="body-sm text-muted-foreground shrink-0">{{
+                  formatConfigKey(key)
+                }}</span>
+                <span
+                  class="body-sm font-mono text-foreground truncate text-right"
+                  :title="String(formatConfigValue(key, value))"
+                >
+                  {{ formatConfigValue(key, value) }}
+                </span>
               </div>
-            </div>
-
-            <!-- Show Advanced Button (Bottom Right) -->
-            <div class="flex justify-end mt-6">
-              <Button variant="ghost" size="sm" @click="showAdvancedConfig = !showAdvancedConfig">
-                <ChevronDown
-                  class="h-4 w-4 mr-2 transition-transform"
-                  :class="{ 'rotate-180': showAdvancedConfig }"
-                />
-                {{ showAdvancedConfig ? 'Hide' : 'Show' }} Advanced
-              </Button>
             </div>
           </div>
 
-          <!-- Connected Endpoints -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <h2 class="heading-3 mb-4">Connected APIs ({{ connectedEndpoints.length }})</h2>
-            <div v-if="connectedEndpoints.length > 0" class="space-y-4">
+          <!-- Connected APIs (full width on row 2) -->
+          <div class="lg:col-span-3 bg-card border border-border rounded-xl p-6">
+            <h2 class="heading-3 mb-5 flex items-center gap-2">
+              <Globe class="h-5 w-5 text-foreground/70" />
+              Connected APIs
+              <Badge
+                variant="secondary"
+                class="ml-1 h-[18px] min-w-[20px] justify-center px-1.5 text-[11px] font-semibold bg-primary/15 text-primary border-0 rounded-sm"
+              >
+                {{ connectedEndpoints.length }}
+              </Badge>
+            </h2>
+
+            <div v-if="connectedEndpoints.length > 0" class="space-y-2.5">
               <div
                 v-for="endpoint in connectedEndpoints"
                 :key="endpoint.id"
-                class="flex items-center gap-4 py-6 px-6 bg-muted/50 border border-border rounded-2xl hover:bg-muted/80 transition-all cursor-pointer"
+                class="group flex items-center gap-4 px-4 py-3 bg-muted/40 border border-border/60 rounded-lg hover:bg-muted/70 transition-all cursor-pointer"
                 @click="navigateToEndpoint(endpoint.slug)"
               >
-                <div class="p-3 bg-primary/10 rounded-xl">
-                  <Globe class="h-5 w-5 text-primary" />
-                </div>
-                <div class="flex-1">
-                  <h3 class="body-sm font-medium text-foreground">{{ endpoint.name }}</h3>
-                  <p class="body-sm text-muted-foreground mt-1">
+                <Globe class="h-4 w-4 text-muted-foreground shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <h3 class="body-sm font-medium text-foreground truncate">{{ endpoint.name }}</h3>
+                  <p class="text-xs text-muted-foreground truncate mt-0.5">
                     {{ endpoint.slug || 'API' }}
                   </p>
                 </div>
+                <ChevronRight
+                  class="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0"
+                />
               </div>
             </div>
-            <div v-else class="text-center py-16">
-              <Globe class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+
+            <div v-else class="text-center py-12">
+              <Globe class="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <p class="text-muted-foreground body-sm mb-4">No APIs connected to this dataset</p>
               <Button size="sm" @click="$router.push({ name: 'create-data-endpoint' })">
-                <Plus class="h-4 w-4 mr-2" />
+                <Plus class="h-3.5 w-3.5 mr-2" />
                 Create API
               </Button>
             </div>
           </div>
         </TabsContent>
 
-        <!-- Analytics Tab Content -->
-        <TabsContent value="analytics" class="space-y-6">
+        <!-- Files Tab Content -->
+        <TabsContent value="files" class="space-y-6">
           <!-- Watched Files (only for self-managed) -->
           <div
             v-if="getDatasetManagement() === 'Self-managed' && getWatchedPaths().length > 0"
-            class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+            class="bg-card border border-border rounded-xl p-6"
           >
             <div class="flex items-center justify-between mb-6">
               <h2 class="heading-3">Watched Files</h2>
@@ -558,6 +499,12 @@
               </p>
             </div>
           </div>
+
+          <!-- Fallback when no watched paths / external datasets -->
+          <div v-else class="bg-card border border-border rounded-xl p-12 text-center">
+            <File class="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+            <p class="text-muted-foreground body-sm">No files to display for this data source</p>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
@@ -593,16 +540,23 @@ import {
   Trash2,
   Globe,
   Plus,
-  BarChart3,
   RefreshCw,
-  ChevronDown,
   RotateCcw,
   File,
+  FileText,
   Clock,
   ChevronLeft,
   ChevronRight as ChevronRightIcon,
+  MoreVertical,
+  Settings,
 } from 'lucide-vue-next'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -649,45 +603,11 @@ const isRetryingJobs = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const isLoadingFiles = ref(false)
-const showAdvancedConfig = ref(false)
 
 const connectedEndpoints = computed(() => {
   if (!dataset.value) return []
   return dataset.value.connected_endpoints
 })
-
-const formatDate = (dateString: string) => {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
-
-const getDatasetStatus = () => {
-  if (!healthStatus.value) {
-    return { text: 'Unknown', color: 'bg-muted' }
-  }
-
-  // Map health status to display format
-  switch (healthStatus.value.status) {
-    case 'healthy':
-      return { text: 'Healthy', color: 'bg-primary' }
-    case 'unhealthy':
-      return { text: 'Unhealthy', color: 'bg-destructive' }
-    case 'degraded':
-      return { text: 'Degraded', color: 'bg-yellow-500' }
-    default:
-      return { text: 'Unknown', color: 'bg-muted' }
-  }
-}
-
-const getTotalFiles = () => {
-  if (getDatasetManagement() === 'Self-managed') {
-    return ingestionStatus.value?.total_jobs?.toLocaleString() || '0'
-  }
-  return 'N/A' // External datasets don't track files
-}
 
 const getIngestedFiles = () => {
   if (getDatasetManagement() === 'Self-managed') {

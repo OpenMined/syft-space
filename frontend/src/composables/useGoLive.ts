@@ -6,7 +6,7 @@ import { policiesApi } from '@/api/policies/policies'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { usePolicyCreation } from './usePolicyCreation'
 import type { PolicyRulesRecord, PolicyTypeId } from '@/config/policyTypes'
-import type { CreateEndpointRequest, PolicyResponse } from '@/api/types'
+import type { CreateEndpointRequest, CreatePolicyRequest, PolicyResponse } from '@/api/types'
 
 export type ResourceType = 'data-source' | 'model'
 export type ResponseMode = 'raw' | 'summary' | 'both'
@@ -74,9 +74,7 @@ export function useGoLive() {
     }
   }
 
-  const createEndpoint = async (
-    data: GoLiveData,
-  ): Promise<{ id: string; slug: string }> => {
+  const createEndpoint = async (data: GoLiveData): Promise<{ id: string; slug: string }> => {
     creationStep.value = 'Setting up your resource...'
 
     const resolved = resolveEndpointResources(data)
@@ -102,7 +100,8 @@ export function useGoLive() {
   }
 
   const createPolicies = async (data: GoLiveData, endpointId: string): Promise<void> => {
-    const policyRequests = transformPolicyRules(data.policyRules, data.name).map((request) => ({
+    const transformed = await transformPolicyRules(data.policyRules, data.name)
+    const policyRequests: CreatePolicyRequest[] = transformed.map((request) => ({
       ...request,
       endpoint_id: endpointId,
     }))

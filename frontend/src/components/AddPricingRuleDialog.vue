@@ -13,32 +13,32 @@
           </DialogDescription>
         </DialogHeader>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
           <button
-            class="text-left p-4 rounded-xl border border-border hover:border-primary/40 hover:shadow-md transition-all flex flex-col gap-2"
+            class="text-left p-4 rounded-lg border border-border hover:border-primary/40 hover:shadow-xs transition-all flex flex-col gap-2"
             @click="pickProvider('mpp')"
           >
             <div
-              class="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center"
+              class="h-9 w-9 rounded-md bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center"
             >
               <Zap class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <h3 class="font-semibold text-foreground">MPP (Tempo)</h3>
-            <p class="text-sm text-muted-foreground">
+            <h3 class="font-medium text-foreground">MPP (Tempo)</h3>
+            <p class="text-xs text-muted-foreground">
               Per-request micro-payments via the Machine Payments Protocol.
             </p>
           </button>
           <button
-            class="text-left p-4 rounded-xl border border-border hover:border-primary/40 hover:shadow-md transition-all flex flex-col gap-2"
+            class="text-left p-4 rounded-lg border border-border hover:border-primary/40 hover:shadow-xs transition-all flex flex-col gap-2"
             @click="pickProvider('xendit')"
           >
             <div
-              class="h-9 w-9 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center"
+              class="h-9 w-9 rounded-md bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center"
             >
               <Package class="h-5 w-5 text-violet-600 dark:text-violet-400" />
             </div>
-            <h3 class="font-semibold text-foreground">Xendit</h3>
-            <p class="text-sm text-muted-foreground">
+            <h3 class="font-medium text-foreground">Xendit</h3>
+            <p class="text-xs text-muted-foreground">
               Prepaid bundles paid via Xendit checkout (SE Asia currencies).
             </p>
           </button>
@@ -102,11 +102,7 @@
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem
-                    v-for="r in XENDIT_REGIONS"
-                    :key="r.currency"
-                    :value="r.currency"
-                  >
+                  <SelectItem v-for="r in XENDIT_REGIONS" :key="r.currency" :value="r.currency">
                     {{ r.currency }}
                   </SelectItem>
                 </SelectContent>
@@ -119,11 +115,7 @@
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem
-                    v-for="r in XENDIT_REGIONS"
-                    :key="r.country"
-                    :value="r.country"
-                  >
+                  <SelectItem v-for="r in XENDIT_REGIONS" :key="r.country" :value="r.country">
                     {{ r.countryLabel }}
                   </SelectItem>
                 </SelectContent>

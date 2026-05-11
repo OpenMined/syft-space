@@ -11,7 +11,6 @@ import {
   FileText,
   Loader2,
   Sparkles,
-  Layers,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -24,39 +23,65 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import VueMarkdown from 'vue-markdown-render'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { useEndpointChat } from '@/composables/useEndpointChat'
 import { useNavigation } from '@/composables/useNavigation'
+import type { EndpointItem } from '@/stores/endpoints'
 
 const { turns, loading, error, sendMessage, clearChat } = useEndpointChat()
 const { goToGoLive } = useNavigation()
 const endpointsStore = useEndpointsStore()
 
 const endpointSlug = ref<string | null>(null)
+const dataSourceSlugs = ref<string[]>([])
 const inputText = ref('')
 const messagesEndRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
 
-const allEndpoints = computed(() => endpointsStore.endpoints)
-const hasNoEndpoints = computed(() => !endpointsStore.isLoading && allEndpoints.value.length === 0)
+const isModelEndpoint = (e: EndpointItem) => !!e.modelId && !e.datasetId
+const isDataEndpoint = (e: EndpointItem) => !!e.datasetId && !e.modelId
 
-const selectedEndpoint = computed(
-  () => allEndpoints.value.find((e) => e.slug === endpointSlug.value) ?? null,
+const modelEndpoints = computed(() => endpointsStore.endpoints.filter(isModelEndpoint))
+const dataEndpoints = computed(() => endpointsStore.endpoints.filter(isDataEndpoint))
+
+const hasNoModelEndpoints = computed(
+  () => !endpointsStore.isLoading && modelEndpoints.value.length === 0,
 )
 
-function endpointTypeLabel(endpoint: { modelId?: string; datasetId?: string }): string {
-  if (endpoint.modelId && endpoint.datasetId) return 'Model + Data'
-  if (endpoint.modelId) return 'Model'
-  return 'Data'
-}
+const selectedEndpoint = computed(
+  () => modelEndpoints.value.find((e) => e.slug === endpointSlug.value) ?? null,
+)
 
-function endpointTypeIcon(endpoint: { modelId?: string; datasetId?: string }) {
-  if (endpoint.modelId && endpoint.datasetId) return Layers
-  if (endpoint.modelId) return Brain
-  return Database
+watch(modelEndpoints, (list) => {
+  if (endpointSlug.value && !list.some((e) => e.slug === endpointSlug.value)) {
+    endpointSlug.value = null
+  }
+})
+
+watch(dataEndpoints, (list) => {
+  const available = new Set(list.map((e) => e.slug))
+  dataSourceSlugs.value = dataSourceSlugs.value.filter((slug) => available.has(slug))
+})
+
+function toggleDataSource(slug: string, checked: boolean) {
+  if (checked) {
+    if (!dataSourceSlugs.value.includes(slug)) {
+      dataSourceSlugs.value = [...dataSourceSlugs.value, slug]
+    }
+  } else {
+    dataSourceSlugs.value = dataSourceSlugs.value.filter((s) => s !== slug)
+  }
 }
 
 const canSubmit = computed(
@@ -115,18 +140,18 @@ function handleClear() {
     <!-- Messages Area -->
     <ScrollArea class="flex-1">
       <div class="max-w-3xl mx-auto px-6 py-6">
-        <!-- No Endpoints Available State -->
+        <!-- No Model Endpoints Available State -->
         <div
-          v-if="hasNoEndpoints && turns.length === 0"
+          v-if="hasNoModelEndpoints && turns.length === 0"
           class="flex flex-col items-center justify-center py-24"
         >
           <Alert class="max-w-md">
             <Sparkles class="h-4 w-4" />
-            <AlertTitle>No APIs published yet</AlertTitle>
+            <AlertTitle>No model APIs published yet</AlertTitle>
             <AlertDescription>
               <p class="mb-3">
-                Publish an API first — this chat tests it exactly as your users will experience it,
-                including all your access rules, usage limits, and filters.
+                Publish a model API first — this chat tests it exactly as your users will experience
+                it, including all your access rules, usage limits, and filters.
               </p>
               <Button size="sm" @click="goToGoLive"> Publish your first API </Button>
             </AlertDescription>
@@ -141,8 +166,8 @@ function handleClear() {
           <MessageSquare class="h-12 w-12 text-muted-foreground/40 mb-6" />
           <h2 class="text-xl font-semibold text-foreground mb-2">Test your APIs</h2>
           <p class="text-sm text-muted-foreground max-w-md">
-            Select an endpoint below and send a message. You'll get the exact same response your
-            users do — policies, filters, and all.
+            Select a model below, optionally attach data sources, and send a message. You'll get the
+            exact same response your users do — policies, filters, and all.
           </p>
         </div>
 
@@ -248,11 +273,11 @@ function handleClear() {
           <Textarea
             v-model="inputText"
             :placeholder="
-              hasNoEndpoints
-                ? 'Publish an API to start testing'
+              hasNoModelEndpoints
+                ? 'Publish a model API to start testing'
                 : selectedEndpoint
                   ? 'Ask a question...'
-                  : 'Select an endpoint to start testing'
+                  : 'Select a model to start testing'
             "
             :disabled="!selectedEndpoint"
             class="resize-none min-h-[76px] max-h-[192px] border-0 shadow-none bg-transparent dark:bg-transparent rounded-3xl px-5 pt-4 pb-2 focus-visible:ring-0 focus-visible:border-0"
@@ -261,8 +286,46 @@ function handleClear() {
           />
 
           <div class="flex items-center justify-between gap-2 px-3 pb-3">
-            <!-- Left: clear button -->
+            <!-- Left: data sources multi-select + clear -->
             <div class="flex items-center gap-2">
+              <DropdownMenu :modal="false">
+                <DropdownMenuTrigger as-child>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="h-8 gap-1.5 px-2.5 text-xs font-normal border-border/60 bg-muted/40 hover:bg-muted/70 rounded-full"
+                  >
+                    <Database class="h-3 w-3 text-muted-foreground" />
+                    <span>
+                      {{
+                        dataSourceSlugs.length === 0
+                          ? 'Data sources'
+                          : `Data sources · ${dataSourceSlugs.length}`
+                      }}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" class="min-w-[240px]">
+                  <DropdownMenuLabel>Attach data sources</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <div
+                    v-if="dataEndpoints.length === 0"
+                    class="px-2 py-1.5 text-xs text-muted-foreground"
+                  >
+                    No data endpoints published
+                  </div>
+                  <DropdownMenuCheckboxItem
+                    v-for="endpoint in dataEndpoints"
+                    :key="endpoint.id"
+                    :model-value="dataSourceSlugs.includes(endpoint.slug)"
+                    @update:model-value="(checked) => toggleDataSource(endpoint.slug, checked)"
+                    @select.prevent
+                  >
+                    <span class="truncate">{{ endpoint.name }}</span>
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               <TooltipProvider v-if="turns.length > 0" :delay-duration="0">
                 <Tooltip>
                   <TooltipTrigger as-child>
@@ -280,33 +343,30 @@ function handleClear() {
               </TooltipProvider>
             </div>
 
-            <!-- Right: endpoint selector + send -->
+            <!-- Right: model selector + send -->
             <div class="flex items-center gap-2">
               <Select v-model="endpointSlug">
                 <SelectTrigger
                   class="w-auto h-8 gap-1.5 px-2.5 text-xs border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors rounded-full"
                 >
-                  <component
-                    :is="selectedEndpoint ? endpointTypeIcon(selectedEndpoint) : Brain"
-                    class="h-3 w-3 text-muted-foreground shrink-0"
-                  />
-                  <SelectValue placeholder="Select endpoint" />
+                  <Brain class="h-3 w-3 text-muted-foreground shrink-0" />
+                  <SelectValue placeholder="Select model" />
                 </SelectTrigger>
                 <SelectContent>
+                  <div
+                    v-if="modelEndpoints.length === 0"
+                    class="px-2 py-1.5 text-xs text-muted-foreground"
+                  >
+                    No model endpoints published
+                  </div>
                   <SelectItem
-                    v-for="endpoint in allEndpoints"
+                    v-for="endpoint in modelEndpoints"
                     :key="endpoint.id"
                     :value="endpoint.slug"
                   >
                     <div class="flex items-center gap-2">
-                      <component
-                        :is="endpointTypeIcon(endpoint)"
-                        class="h-3 w-3 text-muted-foreground shrink-0"
-                      />
+                      <Brain class="h-3 w-3 text-muted-foreground shrink-0" />
                       <span>{{ endpoint.name }}</span>
-                      <Badge variant="secondary" class="text-[10px] px-1.5 py-0 ml-1">
-                        {{ endpointTypeLabel(endpoint) }}
-                      </Badge>
                     </div>
                   </SelectItem>
                 </SelectContent>

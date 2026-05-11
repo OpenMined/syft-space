@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
     <!-- Header -->
     <div class="mb-10">
       <div class="flex items-center gap-3 mb-3">
@@ -441,11 +441,7 @@
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem
-                          v-for="r in XENDIT_REGIONS"
-                          :key="r.country"
-                          :value="r.country"
-                        >
+                        <SelectItem v-for="r in XENDIT_REGIONS" :key="r.country" :value="r.country">
                           {{ r.countryLabel }}
                         </SelectItem>
                       </SelectContent>

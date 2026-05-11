@@ -170,7 +170,7 @@ When integrating a backend API endpoint into the frontend:
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **redesign_ux** (2083 symbols, 4913 relationships, 151 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **redesign_ux** (2333 symbols, 5605 relationships, 171 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

@@ -1,47 +1,92 @@
 <template>
-  <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-14">
     <!-- Header -->
-    <div class="mb-12">
-      <h1 class="text-2xl font-semibold tracking-tight text-foreground mb-3">APIs</h1>
-      <p class="body-lg text-muted-foreground md:max-w-[60%]">
-        Resources you've shared with the world. Each one has its own access rules, usage limits, and
-        pricing.
+    <div class="mb-8">
+      <div class="flex items-center gap-3 mb-2">
+        <h1 class="text-3xl font-bold tracking-tight text-foreground">APIs</h1>
+        <Badge
+          v-if="publishedCount > 0"
+          variant="secondary"
+          class="text-xs font-medium bg-muted text-muted-foreground border-0"
+        >
+          {{ publishedCount }} published
+        </Badge>
+      </div>
+      <p class="text-sm text-muted-foreground">
+        Resources you've shared with the world. Each one has its own access rules and pricing.
       </p>
     </div>
 
     <!-- Actions Bar -->
-    <div class="flex items-center justify-between mb-8">
-      <div class="relative w-full max-w-sm">
+    <div class="flex items-center gap-3 mb-4">
+      <div class="relative flex-1 max-w-sm">
         <Search
-          class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground"
+          class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
         />
-        <Input
-          v-model="searchQuery"
-          placeholder="Search APIs..."
-          class="pl-10 pr-4 py-2.5 w-full"
-        />
+        <Input v-model="searchQuery" placeholder="Search APIs..." class="pl-9" />
       </div>
+
+      <Select v-model="sortBy">
+        <SelectTrigger class="w-[140px]">
+          <ArrowUpDown class="h-4 w-4 text-muted-foreground mr-1" />
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="recent">Recent</SelectItem>
+          <SelectItem value="name">Name</SelectItem>
+          <SelectItem value="status">Status</SelectItem>
+        </SelectContent>
+      </Select>
+
       <Button @click="router.push({ name: 'go-live' })">
         <Plus class="h-4 w-4 mr-2" />
         Publish
       </Button>
     </div>
 
+    <!-- Filter Tabs -->
+    <div
+      v-if="
+        !endpointsStore.isLoading && !endpointsStore.error && endpointsStore.endpoints.length > 0
+      "
+      class="flex items-center justify-between mb-5"
+    >
+      <div class="flex items-center gap-1">
+        <button
+          v-for="filter in filterOptions"
+          :key="filter.value"
+          class="px-2.5 py-1 text-sm rounded-md transition-colors"
+          :class="
+            activeFilter === filter.value
+              ? 'text-foreground font-medium'
+              : 'text-muted-foreground hover:text-foreground'
+          "
+          @click="activeFilter = filter.value"
+        >
+          {{ filter.label }}
+          <span v-if="filter.value !== 'all'" class="ml-1 text-muted-foreground">
+            {{ filter.count }}
+          </span>
+        </button>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        Showing {{ filteredEndpoints.length }} of {{ endpointsStore.endpoints.length }}
+      </p>
+    </div>
+
     <!-- Loading state -->
-    <div v-if="endpointsStore.isLoading" class="space-y-5">
+    <div v-if="endpointsStore.isLoading" class="space-y-3">
       <div
         v-for="i in 3"
         :key="`skeleton-${i}`"
-        class="bg-card border border-border rounded-xl p-6 animate-pulse"
+        class="rounded-lg border border-border/50 bg-card px-5 py-4 animate-pulse"
       >
-        <div class="flex items-start justify-between">
-          <div class="flex-1 flex gap-4">
-            <div class="w-14 h-14 bg-muted rounded-xl"></div>
-            <div class="flex-1 space-y-2">
-              <div class="h-6 bg-muted rounded w-1/3"></div>
-              <div class="h-4 bg-muted rounded w-1/2"></div>
-              <div class="h-4 bg-muted rounded w-2/3"></div>
-            </div>
+        <div class="flex items-start gap-4">
+          <div class="h-10 w-10 bg-muted rounded-lg shrink-0"></div>
+          <div class="flex-1 space-y-2">
+            <div class="h-4 bg-muted rounded w-1/3"></div>
+            <div class="h-3 bg-muted rounded w-1/2"></div>
+            <div class="h-3 bg-muted rounded w-2/3"></div>
           </div>
         </div>
       </div>
@@ -65,8 +110,11 @@
     </div>
 
     <!-- No results state -->
-    <div v-else-if="!endpointsStore.isLoading && searchQuery" class="text-center py-12">
-      <p class="text-muted-foreground">No APIs found matching "{{ searchQuery }}"</p>
+    <div
+      v-else-if="!endpointsStore.isLoading && (searchQuery || activeFilter !== 'all')"
+      class="text-center py-12"
+    >
+      <p class="text-muted-foreground">No APIs match your filters</p>
     </div>
 
     <!-- Empty state -->
@@ -148,10 +196,18 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Search, Plus, Server } from 'lucide-vue-next'
+import { ArrowUpDown, Plus, Search, Server } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -171,12 +227,17 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 const endpointsStore = useEndpointsStore()
 
-// Fetch endpoints on mount
 onMounted(() => {
   endpointsStore.fetchEndpoints()
 })
 
+type FilterValue = 'all' | 'data' | 'model' | 'hybrid'
+type SortValue = 'recent' | 'name' | 'status'
+
 const searchQuery = ref('')
+const sortBy = ref<SortValue>('recent')
+const activeFilter = ref<FilterValue>('all')
+
 const showDeleteDialog = ref(false)
 const endpointToDelete = ref<EndpointItem | null>(null)
 const deleteNameConfirm = ref('')
@@ -185,21 +246,58 @@ const isDeleting = ref(false)
 const showEditDialog = ref(false)
 const endpointToEdit = ref<{ slug: string; name: string; summary: string } | null>(null)
 
-const filteredEndpoints = computed(() => {
-  return endpointsStore.endpoints.filter((endpoint: EndpointItem) => {
-    // Search query filter
-    if (searchQuery.value) {
-      const query = searchQuery.value.toLowerCase()
-      if (
-        !endpoint.name.toLowerCase().includes(query) &&
-        !endpoint.summary.toLowerCase().includes(query)
-      ) {
-        return false
-      }
-    }
+const classifyEndpoint = (e: EndpointItem): Exclude<FilterValue, 'all'> | 'unknown' => {
+  const hasDataset = !!e.datasetId
+  const hasModel = !!e.modelId
+  if (hasDataset && hasModel) return 'hybrid'
+  if (hasDataset) return 'data'
+  if (hasModel) return 'model'
+  return 'unknown'
+}
 
+const publishedCount = computed(() => endpointsStore.endpoints.filter((e) => e.published).length)
+
+const filterCounts = computed(() => {
+  const counts = { data: 0, model: 0, hybrid: 0 }
+  for (const e of endpointsStore.endpoints) {
+    const kind = classifyEndpoint(e)
+    if (kind === 'data') counts.data++
+    else if (kind === 'model') counts.model++
+    else if (kind === 'hybrid') counts.hybrid++
+  }
+  return counts
+})
+
+const filterOptions = computed<{ value: FilterValue; label: string; count: number }[]>(() => [
+  { value: 'all', label: 'All', count: endpointsStore.endpoints.length },
+  { value: 'data', label: 'Data', count: filterCounts.value.data },
+  { value: 'model', label: 'Model', count: filterCounts.value.model },
+  { value: 'hybrid', label: 'Hybrid', count: filterCounts.value.hybrid },
+])
+
+const filteredEndpoints = computed(() => {
+  const query = searchQuery.value.toLowerCase().trim()
+
+  const filtered = endpointsStore.endpoints.filter((endpoint) => {
+    if (activeFilter.value !== 'all' && classifyEndpoint(endpoint) !== activeFilter.value) {
+      return false
+    }
+    if (query) {
+      const haystack = `${endpoint.name} ${endpoint.summary}`.toLowerCase()
+      if (!haystack.includes(query)) return false
+    }
     return true
   })
+
+  const sorted = [...filtered]
+  if (sortBy.value === 'name') {
+    sorted.sort((a, b) => a.name.localeCompare(b.name))
+  } else if (sortBy.value === 'status') {
+    sorted.sort((a, b) => Number(b.published) - Number(a.published))
+  } else {
+    sorted.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
+  }
+  return sorted
 })
 
 const handleDeleteEndpoint = (endpoint: EndpointItem) => {
@@ -218,7 +316,6 @@ const handleEditEndpoint = (endpoint: EndpointItem) => {
 }
 
 const handleEditSaved = (data: { summary: string }) => {
-  // Update the store
   if (endpointToEdit.value) {
     const index = endpointsStore.endpoints.findIndex((e) => e.slug === endpointToEdit.value!.slug)
     if (index > -1 && endpointsStore.endpoints[index]) {
@@ -243,7 +340,6 @@ const confirmDeleteEndpoint = async () => {
         throw new Error('Endpoint slug is undefined')
       }
 
-      // Unpublish from SyftHub first if published
       if (endpointToDelete.value.published) {
         try {
           await endpointsApi.unpublish(endpointToDelete.value.slug)
@@ -255,10 +351,8 @@ const confirmDeleteEndpoint = async () => {
         }
       }
 
-      // Call the delete API
       await endpointsApi.delete(endpointToDelete.value.slug)
 
-      // Remove from store after successful deletion
       const index = endpointsStore.endpoints.findIndex((e) => e.id === endpointToDelete.value!.id)
       if (index > -1) {
         endpointsStore.endpoints.splice(index, 1)
@@ -266,7 +360,6 @@ const confirmDeleteEndpoint = async () => {
 
       toast.success('API deleted successfully')
 
-      // Reset dialog state
       showDeleteDialog.value = false
       endpointToDelete.value = null
       deleteNameConfirm.value = ''

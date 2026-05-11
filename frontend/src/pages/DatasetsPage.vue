@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
     <!-- Header -->
     <div class="mb-12">
       <h1 class="text-2xl font-semibold tracking-tight text-foreground mb-3">Your Data Sources</h1>
@@ -147,6 +147,25 @@
                   {{ dataSource.description }}
                 </p>
 
+                <div
+                  v-if="dataSource.watchedPaths && dataSource.watchedPaths.length > 0"
+                  class="mb-3 space-y-1.5"
+                >
+                  <div
+                    class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+                  >
+                    <FolderOpen class="h-3.5 w-3.5" />
+                    Paths
+                  </div>
+                  <div
+                    v-for="path in dataSource.watchedPaths"
+                    :key="path"
+                    class="rounded-md border border-border/50 bg-muted/40 px-3 py-2 font-mono text-xs text-foreground/80 truncate"
+                  >
+                    {{ path }}
+                  </div>
+                </div>
+
                 <div class="flex gap-1.5 flex-wrap">
                   <Badge
                     v-for="tag in dataSource.tags.slice(0, 3)"
@@ -211,7 +230,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Database, Plus, Edit, Trash2, Link, Search } from 'lucide-vue-next'
+import { Database, Plus, Edit, Trash2, Link, Search, FolderOpen } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'

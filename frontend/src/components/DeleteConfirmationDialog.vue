@@ -10,12 +10,14 @@
 
       <!-- Blocked: has active dependencies -->
       <div v-if="dependencies && dependencies.length > 0" class="py-2">
-        <div class="flex items-start gap-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3">
+        <div
+          class="flex items-start gap-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3"
+        >
           <AlertTriangle class="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
           <div>
             <p class="text-sm font-medium text-amber-900 dark:text-amber-300">
-              Cannot delete — in use by {{ dependencies.length }}
-              {{ dependencyType }}{{ dependencies.length !== 1 ? 's' : '' }}
+              Cannot delete — in use by {{ dependencies.length }} {{ dependencyType
+              }}{{ dependencies.length !== 1 ? 's' : '' }}
             </p>
             <p class="text-xs text-amber-700 dark:text-amber-400 mt-1">
               Remove this {{ itemType.toLowerCase() }} from the following

@@ -1,7 +1,7 @@
 """add system_prompt to endpoints
 
 Revision ID: e5f6a7b8c9d0
-Revises: d4e5f6a7b8c9
+Revises: cd1cf206c880
 Create Date: 2026-04-10 12:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "e5f6a7b8c9d0"
-down_revision: str | None = "d4e5f6a7b8c9"
+down_revision: str | None = "cd1cf206c880"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

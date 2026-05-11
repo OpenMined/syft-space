@@ -53,6 +53,7 @@ import ModelSelector from '@/components/ModelSelector.vue'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
 import CreateModelDialogSimple from '@/components/CreateModelDialogSimple.vue'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
+import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { useGoLive } from '@/composables/useGoLive'
@@ -64,7 +65,7 @@ import {
   generateRuleId,
   getRuleSummary,
 } from '@/config/policyTypes'
-import type { PolicyTypeId, PolicyRulesRecord } from '@/config/policyTypes'
+import type { PolicyTypeId, PolicyRulesRecord, PolicyConfig } from '@/config/policyTypes'
 import type { GoLiveData, ResourceType, ResponseMode } from '@/composables/useGoLive'
 import type { DatasetListItem, ModelListItem } from '@/api/types'
 
@@ -265,9 +266,7 @@ const handleAiModelUpdate = (modelId: string) => {
   aiModelId.value = modelId
 }
 
-const aiModelName = computed(
-  () => models.value.find((m) => m.id === aiModelId.value)?.name ?? '',
-)
+const aiModelName = computed(() => models.value.find((m) => m.id === aiModelId.value)?.name ?? '')
 
 const piiFilterEnabled = ref(false)
 watch(hasModel, (modelSelected) => {
@@ -335,9 +334,57 @@ const deletePolicy = (policyType: PolicyTypeId, ruleId: string) => {
   }
 }
 
+// All pricing rules on the same endpoint must share one wallet.
+// The first rule fixes the wallet; subsequent rules see it as locked.
+const showAddPricingRuleDialog = ref(false)
+const lockedWalletId = computed<string | null>(() => {
+  const firstRule = policyRules.value.pricing[0]
+  if (!firstRule) return null
+  return (firstRule.config.walletId as string) || null
+})
+
+const handlePricingRuleCreated = (payload: {
+  walletId: string
+  walletType: string
+  walletCurrency: string
+  policyType: 'mpp_accounting' | 'xendit'
+  name: string
+  config: Record<string, unknown>
+}) => {
+  const ruleId = generateRuleId()
+  const appliedTo = (payload.config.applied_to as string[]) ?? ['*']
+  const userType = appliedTo.length === 1 && appliedTo[0] === '*' ? 'all' : 'specific'
+  const users = userType === 'specific' ? appliedTo.join(', ') : ''
+
+  // MPP and Xendit use different price field names; normalize for display.
+  const rawPrice =
+    payload.walletType === 'mpp' ? payload.config.price : payload.config.price_per_request
+
+  const config: Record<string, unknown> = {
+    id: ruleId,
+    walletId: payload.walletId,
+    walletType: payload.walletType,
+    walletCurrency: payload.walletCurrency,
+    policyType: payload.policyType,
+    userType,
+    users,
+    note: payload.name,
+    price: String(rawPrice ?? '0'),
+  }
+
+  policyRules.value.pricing.push({
+    id: ruleId,
+    config: config as PolicyConfig,
+    isEditing: false,
+  })
+}
+
 const totalRuleCount = computed(() =>
   Object.values(policyRules.value).reduce((sum, rules) => sum + rules.length, 0),
 )
+
+const nonPricingPolicyTypes = computed(() => POLICY_TYPES.filter((p) => p.id !== 'pricing'))
+const pricingPolicyType = POLICY_TYPES.find((p) => p.id === 'pricing')!
 
 const name = ref('')
 const summary = ref('')
@@ -814,7 +861,9 @@ const handleOverwriteConfirm = async () => {
                       </div>
                       <p class="text-xs text-muted-foreground mt-1">{{ mode.description }}</p>
                       <div
-                        v-if="mode.showUsingBadge && responseMode === mode.id && (hasModel || aiModelId)"
+                        v-if="
+                          mode.showUsingBadge && responseMode === mode.id && (hasModel || aiModelId)
+                        "
                         class="mt-2 flex items-center gap-2 text-xs text-primary"
                       >
                         <Check class="h-3 w-3" />
@@ -894,8 +943,8 @@ const handleOverwriteConfirm = async () => {
                             <TooltipContent side="top" class="max-w-[300px]">
                               The AI model reviews its own response and replaces any personally
                               identifiable information (names, emails, phone numbers, addresses,
-                              IDs) with [REDACTED] before the response is returned. Only
-                              available for model endpoints.
+                              IDs) with [REDACTED] before the response is returned. Only available
+                              for model endpoints.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -918,8 +967,12 @@ const handleOverwriteConfirm = async () => {
                 <Separator class="mt-8" />
               </section>
 
-              <!-- Policy sections -->
-              <div v-for="policyType in POLICY_TYPES" :key="policyType.id" class="space-y-4">
+              <!-- Access + Rate-limit (dialog-driven, edit supported) -->
+              <div
+                v-for="policyType in nonPricingPolicyTypes"
+                :key="policyType.id"
+                class="space-y-4"
+              >
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
                     <component :is="policyType.icon" class="h-4 w-4 text-muted-foreground" />
@@ -947,10 +1000,7 @@ const handleOverwriteConfirm = async () => {
                     <template v-if="policyType.id === 'access'"
                       >No access rules — everyone can query this resource.</template
                     >
-                    <template v-else-if="policyType.id === 'rate_limit'"
-                      >No usage limits — unlimited usage.</template
-                    >
-                    <template v-else>No pricing rules — free for all users.</template>
+                    <template v-else>No usage limits — unlimited usage.</template>
                   </p>
                 </div>
 
@@ -984,7 +1034,67 @@ const handleOverwriteConfirm = async () => {
                   </div>
                 </div>
 
-                <Separator v-if="policyType.id !== 'pricing'" class="mt-4" />
+                <Separator class="mt-4" />
+              </div>
+
+              <!-- Pricing (wallet-aware dialog, delete-only) -->
+              <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <component
+                      :is="pricingPolicyType.icon"
+                      class="h-4 w-4 text-muted-foreground"
+                    />
+                    <div>
+                      <h3 class="text-sm font-semibold text-foreground">
+                        {{ pricingPolicyType.name }}
+                      </h3>
+                      <p class="text-xs text-muted-foreground">
+                        {{ pricingPolicyType.description }}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="gap-1.5"
+                    @click="showAddPricingRuleDialog = true"
+                  >
+                    <Plus class="h-3.5 w-3.5" />
+                    Add rule
+                  </Button>
+                </div>
+
+                <div
+                  v-if="policyRules.pricing.length === 0"
+                  class="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3"
+                >
+                  <p class="text-sm text-muted-foreground">
+                    No pricing rules — free for all users.
+                  </p>
+                </div>
+
+                <div v-if="policyRules.pricing.length > 0" class="space-y-2">
+                  <div
+                    v-for="rule in policyRules.pricing"
+                    :key="rule.id"
+                    class="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3"
+                  >
+                    <p class="text-sm text-foreground min-w-0 truncate">
+                      {{ getRuleSummary('pricing', rule.config) }}
+                    </p>
+                    <div class="flex items-center gap-1 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        class="h-7 w-7 text-destructive hover:text-destructive"
+                        @click="deletePolicy('pricing', rule.id)"
+                      >
+                        <Trash2 class="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1233,10 +1343,9 @@ const handleOverwriteConfirm = async () => {
                 <p class="text-xs font-medium text-muted-foreground mb-1">API Type</p>
                 <div class="flex items-center gap-2">
                   <span class="text-foreground font-medium">{{ apiTypeLabel }}</span>
-                  <span
-                    v-if="isDataOnlyRaw"
-                    class="text-xs text-blue-600 dark:text-blue-400"
-                  >— search-only, not available in Chat model selector</span>
+                  <span v-if="isDataOnlyRaw" class="text-xs text-blue-600 dark:text-blue-400"
+                    >— search-only, not available in Chat model selector</span
+                  >
                 </div>
               </div>
 
@@ -1434,12 +1543,19 @@ const handleOverwriteConfirm = async () => {
       </footer>
     </main>
 
-    <!-- Policy form dialog -->
+    <!-- Policy form dialog (access + rate_limit only) -->
     <PolicyFormDialog
       v-model:open="showPolicyDialog"
       :policy-type="dialogPolicyType"
       :initial-data="dialogInitialData"
       @save="handlePolicyDialogSave"
+    />
+
+    <!-- Pricing rule dialog (wallet-aware wizard) -->
+    <AddPricingRuleDialog
+      v-model:open="showAddPricingRuleDialog"
+      :locked-wallet-id="lockedWalletId"
+      @pricing-created="handlePricingRuleCreated"
     />
 
     <!-- AI Response Configuration dialog -->

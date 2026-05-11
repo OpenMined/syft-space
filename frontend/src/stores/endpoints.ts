@@ -22,6 +22,7 @@ export interface EndpointItem {
   tags: string[]
   published: boolean
   watchedPaths?: string[]
+  createdAt: string
 }
 
 const FRESHNESS_MS = 30_000
@@ -69,6 +70,7 @@ export const useEndpointsStore = defineStore('endpoints', () => {
       tags: tagList,
       published: item.published,
       watchedPaths,
+      createdAt: item.created_at,
     }
   }
 

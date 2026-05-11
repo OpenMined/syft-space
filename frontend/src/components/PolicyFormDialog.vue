@@ -164,8 +164,7 @@
             <p class="text-sm font-medium text-foreground">No configuration required</p>
             <p class="text-xs text-muted-foreground mt-1">
               The endpoint's AI model will evaluate its own response and replace any detected
-              personally identifiable information with [REDACTED] before returning it to the
-              caller.
+              personally identifiable information with [REDACTED] before returning it to the caller.
             </p>
           </div>
           <div class="space-y-1">

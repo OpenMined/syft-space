@@ -10,7 +10,7 @@
     <div class="min-h-screen">
       <!-- Header -->
       <div class="bg-card border-b border-border">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div class="flex items-center justify-between">
             <Button
               variant="ghost"
@@ -25,7 +25,7 @@
       </div>
 
       <!-- Two-column layout -->
-      <div class="flex gap-8 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+      <div class="flex gap-8 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
         <!-- Left sidebar with steps -->
         <div class="w-64 flex-shrink-0">
           <div class="sticky top-8">

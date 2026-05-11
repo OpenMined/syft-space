@@ -3,6 +3,7 @@ import { Menu } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import AppSidebar from '@/components/AppSidebar.vue'
+import AppTopbar from '@/components/AppTopbar.vue'
 import { useSidebar } from '@/composables/useSidebar'
 import SyftLogo from '@/assets/syftbox-logo.svg'
 
@@ -43,9 +44,12 @@ const { isMobileOpen, closeMobile, toggleMobile } = useSidebar()
       </SheetContent>
     </Sheet>
 
-    <!-- Main content area -->
-    <main class="flex-1 overflow-y-auto md:pt-0 pt-14">
-      <slot />
-    </main>
+    <!-- Right column: topbar (desktop) + main content -->
+    <div class="flex flex-col flex-1 min-w-0 md:pt-0 pt-14">
+      <AppTopbar class="hidden md:flex" />
+      <main class="flex-1 overflow-y-auto">
+        <slot />
+      </main>
+    </div>
   </div>
 </template>

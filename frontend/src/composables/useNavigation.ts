@@ -11,26 +11,27 @@ export function useNavigation() {
   const router = useRouter()
 
   const routes = {
+    home: { name: 'home' },
+    endpoints: { name: 'endpoints' },
+    endpointDetail: (slug: string) => ({ name: 'endpoint-detail', params: { slug } }),
     liveDetail: (slug: string) => ({ name: 'endpoint-detail', params: { slug } }),
     goLive: { name: 'go-live' },
     models: { name: 'models' },
     modelDetail: (slug: string) => ({ name: 'model-detail', params: { slug } }),
-
-    // Datasets
     datasets: { name: 'datasets' },
     datasetDetail: (slug: string) => ({ name: 'dataset-detail', params: { slug } }),
-
-    // Other pages
+    createDataEndpoint: { name: 'create-data-endpoint' },
     settings: { name: 'settings' },
     earnings: { name: 'earnings' },
-  }
+  } satisfies Record<string, NavigationRoute | ((slug: string) => NavigationRoute)>
 
-  // Helper methods for common navigation patterns
-  const goToGoLive = () => navigateTo(routes.goLive)
+  const navigateTo = (route: NavigationRoute) => router.push(route)
+
+  const goToHome = () => navigateTo(routes.home)
   const goToEndpoints = () => navigateTo(routes.endpoints)
+  const goToGoLive = () => navigateTo(routes.goLive)
   const goToModels = () => navigateTo(routes.models)
   const goToDatasets = () => navigateTo(routes.datasets)
-  const goToHome = () => navigateTo(routes.home)
   const goToSettings = () => navigateTo(routes.settings)
   const goToEarnings = () => navigateTo(routes.earnings)
 
@@ -38,24 +39,21 @@ export function useNavigation() {
   const goToModelDetail = (slug: string) => navigateTo(routes.modelDetail(slug))
   const goToDatasetDetail = (slug: string) => navigateTo(routes.datasetDetail(slug))
 
-  const goToCreateEndpoint = () => navigateTo(routes.createEndpoint)
   const goToCreateDataEndpoint = () => navigateTo(routes.createDataEndpoint)
-  const goToCreateModelEndpoint = () => navigateTo(routes.createModelEndpoint)
 
   return {
     routes,
-    goToGoLive,
+    navigateTo,
+    goToHome,
     goToEndpoints,
+    goToGoLive,
     goToModels,
     goToDatasets,
-    goToHome,
     goToSettings,
     goToEarnings,
     goToEndpointDetail,
     goToModelDetail,
     goToDatasetDetail,
-    goToCreateEndpoint,
     goToCreateDataEndpoint,
-    goToCreateModelEndpoint,
   }
 }
