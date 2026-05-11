@@ -253,21 +253,27 @@ class QueryEndpointHandler:
             raise
         finally:
             if self.event_reporter:
-                await self.event_reporter(
-                    QueryOutcomeEvent(
-                        tenant_id=tenant.id,
-                        user_email=str(request.sender_email),
-                        endpoint_slug=slug,
-                        endpoint=endpoint,
-                        outcome=outcome,
-                        messages=request.messages,
-                        response=(
-                            final_response
-                            if outcome == QueryOutcome.SUCCESS
-                            else None
-                        ),
+                # Extract IDs here so the adapter never touches a possibly-detached ORM instance.
+                try:
+                    await self.event_reporter(
+                        QueryOutcomeEvent(
+                            tenant_id=tenant.id,
+                            user_email=str(request.sender_email),
+                            endpoint_slug=slug,
+                            endpoint_id=endpoint.id if endpoint else None,
+                            dataset_id=endpoint.dataset_id if endpoint else None,
+                            outcome=outcome,
+                            messages=request.messages,
+                            response=(
+                                final_response
+                                if outcome == QueryOutcome.SUCCESS
+                                else None
+                            ),
+                        )
                     )
-                )
+                except Exception:
+                    # Reporter runs in `finally`; raising here would mask the user-facing exception.
+                    logger.exception("event_reporter failed; continuing")
 
     async def _search_dataset(
         self,

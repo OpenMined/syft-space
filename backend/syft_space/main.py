@@ -559,9 +559,9 @@ async def report_query_event(event: QueryOutcomeEvent) -> None:
         query_text = extract_user_query(event.messages)[:4000]
         await event_collector.capture(
             tenant_id=event.tenant_id,
-            endpoint_id=event.endpoint.id if event.endpoint else None,
+            endpoint_id=event.endpoint_id,
             endpoint_slug=event.endpoint_slug,
-            dataset_id=event.endpoint.dataset_id if event.endpoint else None,
+            dataset_id=event.dataset_id,
             user_email=event.user_email,
             status=_OUTCOME_TO_STATUS[event.outcome].value,
             query_text=query_text,

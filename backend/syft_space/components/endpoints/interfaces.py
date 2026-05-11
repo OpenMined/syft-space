@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from syft_space.components.endpoints.entities import Endpoint
     from syft_space.components.endpoints.schemas import (
         ChatMessageRequest,
         QueryEndpointResponse,
@@ -43,15 +42,17 @@ class QueryOutcome(str, Enum):
 class QueryOutcomeEvent:
     """Domain event describing the outcome of one query.
 
-    Carries only what `endpoints` inherently knows. Translation into an
-    analytics row (status mapping, query-text extraction, cost-line
-    derivation from response) is the adapter's job.
+    Self-describing: carries only the IDs the adapter needs, never a live
+    ORM instance. Translation into an analytics row (status mapping,
+    query-text extraction, cost-line derivation from response) is the
+    adapter's job.
     """
 
     tenant_id: UUID
     user_email: str
     endpoint_slug: str
-    endpoint: "Endpoint | None"
+    endpoint_id: UUID | None
+    dataset_id: UUID | None
     outcome: QueryOutcome
     messages: "str | list[ChatMessageRequest]"
     response: "QueryEndpointResponse | None"
