@@ -14,7 +14,6 @@ export function useNavigation() {
     home: { name: 'home' },
     endpoints: { name: 'endpoints' },
     endpointDetail: (slug: string) => ({ name: 'endpoint-detail', params: { slug } }),
-    liveDetail: (slug: string) => ({ name: 'endpoint-detail', params: { slug } }),
     goLive: { name: 'go-live' },
     models: { name: 'models' },
     modelDetail: (slug: string) => ({ name: 'model-detail', params: { slug } }),

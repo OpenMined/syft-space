@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { DATA_SOURCE_TYPES, MODEL_TYPES, type ValueOf } from '@/lib/constants'
+import { parseTags } from '@/lib/formatters'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import type { EndpointListItem } from '@/api/types'
 
@@ -15,10 +16,6 @@ export interface EndpointItem {
   modelId?: string
   datasetId?: string
   systemPrompt?: string | null
-  price: string
-  languages: string[]
-  domains: string[]
-  mcpCompatible: boolean
   tags: string[]
   published: boolean
   watchedPaths?: string[]
@@ -34,14 +31,7 @@ export const useEndpointsStore = defineStore('endpoints', () => {
   let lastLoadedAt = 0
   let inFlight: Promise<void> | null = null
 
-  // Transform API response to frontend model
   const transformEndpointListItem = (item: EndpointListItem): EndpointItem => {
-    // Extract domain from tags if present
-    const tagList = item.tags ? item.tags.split(',').map((t) => t.trim()) : []
-    const domainTag = tagList.find((tag) => tag.startsWith('domain:'))
-    const domain = domainTag ? domainTag.replace('domain:', '') : undefined
-
-    // Extract watched paths from dataset configuration
     let watchedPaths: string[] | undefined = undefined
     if (
       item.dataset?.configuration?.filePaths &&
@@ -63,11 +53,7 @@ export const useEndpointsStore = defineStore('endpoints', () => {
       modelId: item.model?.id,
       datasetId: item.dataset?.id,
       systemPrompt: item.system_prompt ?? null,
-      price: '$0.00 - $0.00 / request',
-      languages: [],
-      domains: domain ? [domain] : [],
-      mcpCompatible: false,
-      tags: tagList,
+      tags: parseTags(item.tags),
       published: item.published,
       watchedPaths,
       createdAt: item.created_at,

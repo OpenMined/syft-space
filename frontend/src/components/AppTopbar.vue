@@ -9,6 +9,7 @@ import { useNavigation } from '@/composables/useNavigation'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { modelsApi } from '@/api/endpoints/models'
+import { parseTags } from '@/lib/formatters'
 
 const router = useRouter()
 const { routes } = useNavigation()
@@ -27,15 +28,6 @@ interface SearchResult {
   type: 'data-source' | 'model' | 'api'
   icon: typeof Database
   route: RouteLocationRaw
-}
-
-function parseTags(raw: string | string[] | undefined): string[] {
-  if (!raw) return []
-  if (Array.isArray(raw)) return raw.map((t) => t.trim()).filter(Boolean)
-  return raw
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
 }
 
 const allResources = ref<SearchResult[]>([])
@@ -78,7 +70,7 @@ async function loadResources(force = false): Promise<void> {
           tags: parseTags(e.tags),
           type: 'api',
           icon: Globe,
-          route: routes.liveDetail(e.slug),
+          route: routes.endpointDetail(e.slug),
         })
       }
       allResources.value = results

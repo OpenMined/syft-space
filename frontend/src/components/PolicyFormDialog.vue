@@ -241,7 +241,6 @@ const { validatePolicyForm } = usePolicyCreation()
 
 const isEditing = computed(() => !!props.initialData)
 
-// Local form state
 const authorizationForm = ref<AuthorizationFormData>({
   ruleType: 'allow',
   users: '',
@@ -266,7 +265,6 @@ const piiFilterForm = ref<PiiFilterFormData>({
   note: '',
 })
 
-// Get current form data based on policy type
 const getCurrentFormData = () => {
   switch (props.policyType) {
     case 'access':
@@ -282,13 +280,11 @@ const getCurrentFormData = () => {
   }
 }
 
-// Validation
 const isFormValid = computed(() => {
   const formData = getCurrentFormData()
   return formData ? validatePolicyForm(props.policyType, formData) : false
 })
 
-// Reset form to defaults
 const resetForm = (policyType: PolicyTypeId) => {
   switch (policyType) {
     case 'access':
@@ -306,7 +302,6 @@ const resetForm = (policyType: PolicyTypeId) => {
   }
 }
 
-// Load initial data into form
 const loadInitialData = (policyType: PolicyTypeId, data: Record<string, unknown>) => {
   switch (policyType) {
     case 'access':
@@ -338,7 +333,6 @@ const loadInitialData = (policyType: PolicyTypeId, data: Record<string, unknown>
   }
 }
 
-// Initialize form when dialog opens
 watch(
   () => props.open,
   (isOpen) => {

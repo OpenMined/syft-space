@@ -211,10 +211,8 @@ const emit = defineEmits<{
   'model-updated': []
 }>()
 
-// Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'coding', 'creative', 'translation']
 
-// Form data
 const formData = ref({
   name: '',
   provider: '',
@@ -227,7 +225,6 @@ const formData = ref({
 
 const tagInput = ref('')
 
-// Provider models
 const providerRef = computed(() => formData.value.provider)
 const baseUrlRef = computed(() =>
   formData.value.provider === 'custom'
@@ -242,7 +239,6 @@ const {
   hasFetched: hasModelsFetched,
 } = useProviderModels(baseUrlRef, apiKeyRef)
 
-// Computed properties
 const isOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
@@ -250,10 +246,8 @@ const isOpen = computed({
 
 const isFormValid = computed(() => {
   if (props.model) {
-    // For editing, only name is required
     return formData.value.name.trim() !== ''
   }
-  // For creating, all fields are required
   const baseValid = formData.value.provider !== 'custom' || formData.value.baseUrl.trim() !== ''
   return (
     formData.value.name.trim() !== '' &&
@@ -264,7 +258,6 @@ const isFormValid = computed(() => {
   )
 })
 
-// Reset model selection when provider or API key changes
 watch(providerRef, () => {
   formData.value.model = ''
   if (formData.value.provider !== 'custom') {
@@ -275,7 +268,6 @@ watch(apiKeyRef, () => {
   formData.value.model = ''
 })
 
-// Methods
 const addTag = () => {
   const tag = tagInput.value.trim().toLowerCase()
   if (tag && !formData.value.tags.includes(tag)) {
@@ -306,7 +298,6 @@ const handleCreate = async () => {
 
   try {
     if (props.model) {
-      // Update existing model
       const updateRequest = {
         name: formData.value.name,
         summary: formData.value.summary || '',
@@ -317,7 +308,6 @@ const handleCreate = async () => {
       emit('model-updated')
       toast.success(`"${modelName}" updated`)
     } else {
-      // Create new model
       const createRequest: CreateModelRequest = {
         name: formData.value.name,
         dtype: 'openai',
@@ -325,7 +315,7 @@ const handleCreate = async () => {
           api_key: formData.value.apiKey,
           model: formData.value.model,
           base_url: formData.value.baseUrl || getProviderBaseUrl(formData.value.provider),
-          system_prompt: '', // Default empty system prompt
+          system_prompt: '',
         },
         summary: formData.value.summary || '',
         tags: formData.value.tags.join(', '),
@@ -358,7 +348,6 @@ const resetForm = () => {
   tagInput.value = ''
 }
 
-// Watch for model prop changes to populate edit form
 watch(
   () => props.model,
   (model) => {
@@ -374,7 +363,6 @@ watch(
           : Array.isArray(model.tags)
             ? model.tags
             : []
-      // For editing, we don't need to populate provider/model/apiKey as these are typically not editable
     } else {
       resetForm()
     }

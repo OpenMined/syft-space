@@ -221,10 +221,8 @@ const emit = defineEmits<{
   'dataset-updated': []
 }>()
 
-// Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
 
-// Form data
 const formData = ref({
   name: '',
   summary: '',
@@ -239,7 +237,6 @@ const fileExplorerRef = ref<InstanceType<typeof FileExplorer> | null>(null)
 const isCreating = ref(false)
 const isInitialized = ref(false)
 
-// Computed properties
 const isOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
@@ -247,17 +244,12 @@ const isOpen = computed({
 
 const isFormValid = computed(() => {
   if (isCreating.value) return false
-
-  // For editing mode, only name is required
   if (props.dataset) {
     return formData.value.name.trim() !== ''
   }
-
-  // For creation mode, both name and files are required
   return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
 })
 
-// Methods
 const getFileName = (path: string) => {
   return path.split('/').pop() || path
 }
@@ -265,7 +257,6 @@ const getFileName = (path: string) => {
 const removeFile = (index: number) => {
   const file = formData.value.selectedFiles[index]
   formData.value.selectedFiles.splice(index, 1)
-  // Also remove the description
   if (file && fileDescriptions.value[file]) {
     delete fileDescriptions.value[file]
   }
@@ -305,14 +296,12 @@ const handleCreate = async () => {
   isCreating.value = true
 
   try {
-    // Transform file paths to array of objects with path and description
     const filePathsWithDescriptions = formData.value.selectedFiles.map((filePath) => ({
       path: filePath,
       description: fileDescriptions.value[filePath] || '',
     }))
 
     if (props.dataset) {
-      // Update existing dataset (backend only supports name, summary, tags)
       const updateRequest: UpdateDatasetRequest = {
         name: formData.value.name.trim(),
         summary: formData.value.summary.trim() || '',
@@ -323,7 +312,6 @@ const handleCreate = async () => {
       emit('dataset-updated')
       toast.success(`"${props.dataset.name}" updated`)
     } else {
-      // Create new dataset
       const createRequest: CreateDatasetRequest = {
         dtype: 'local_file',
         name: formData.value.name.trim(),
@@ -362,7 +350,6 @@ const resetForm = () => {
   isInitialized.value = false
 }
 
-// Initialize form data when dialog opens with dataset (for editing)
 watch(
   () => [props.open, props.dataset] as const,
   async ([open, dataset]) => {

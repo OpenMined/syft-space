@@ -170,9 +170,12 @@ export function useEndpointChat() {
   }
 
   function clearChat() {
+    abortController?.abort()
+    abortController = null
     turns.value = []
     error.value = null
     warning.value = null
+    loading.value = false
   }
 
   onBeforeUnmount(() => {

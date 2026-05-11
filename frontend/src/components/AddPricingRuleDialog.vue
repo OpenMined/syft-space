@@ -405,7 +405,6 @@ const wallets = ref<WalletListItem[]>([])
 const loadingWallets = ref(false)
 const selectedWalletId = ref<string | null>(null)
 
-// ── Inline wallet setup state ──
 const selectedProviderType = ref<'mpp' | 'xendit' | null>(null)
 const creatingWallet = ref(false)
 const newWalletWebhookUrl = ref<string | null>(null)
@@ -427,7 +426,6 @@ watch(
   },
 )
 
-// ── Pricing form state ──
 const form = ref({
   price: '',
   name: '',

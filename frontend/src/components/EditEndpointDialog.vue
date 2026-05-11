@@ -132,7 +132,6 @@ const localDescription = ref('')
 const isSaving = ref(false)
 const isPreviewMode = ref(false)
 
-// Watch for endpoint changes to initialize form
 watch(
   () => props.endpoint,
   async (newEndpoint) => {
@@ -141,7 +140,6 @@ watch(
       localDescription.value = newEndpoint.description || ''
       isPreviewMode.value = false
 
-      // Fetch full endpoint details to get description if not provided
       if (!newEndpoint.description) {
         try {
           const fullEndpoint = await endpointsApi.get(newEndpoint.slug)
@@ -157,7 +155,6 @@ watch(
   { immediate: true },
 )
 
-// Reset when dialog closes
 watch(
   () => props.open,
   (isOpen) => {
@@ -177,18 +174,15 @@ const handleSave = async () => {
   isSaving.value = true
 
   try {
-    // Call the update API
     await endpointsApi.update(props.endpoint.slug, {
       summary: localSummary.value,
       description: localDescription.value || undefined,
     })
 
-    // Publish the endpoint to sync changes with SyftHub
     await endpointsApi.publish(props.endpoint.slug, {
       publish_to_all_marketplaces: true,
     })
 
-    // Emit saved event with the new data
     emit('saved', {
       summary: localSummary.value,
       description: localDescription.value,
