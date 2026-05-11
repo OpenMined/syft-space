@@ -32,6 +32,7 @@ PACKAGES_WITH_DATA = [
 # copy_metadata gets the .dist-info directory from site-packages.
 PACKAGES_WITH_METADATA = [
     'docling',
+    'docling_slim',
     'docling_core',
     'docling_ibm_models',
     'docling_parse',
