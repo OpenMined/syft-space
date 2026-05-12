@@ -42,8 +42,22 @@ class SyftHubError(Exception):
         super().__init__(message)
 
     def to_http_exception(self) -> HTTPException:
-        """Convert to FastAPI HTTPException."""
-        return HTTPException(status_code=self.status_code, detail=self.message)
+        """Convert to FastAPI HTTPException.
+
+        When the upstream error carries a structured ``code`` (e.g.
+        ``EMAIL_NOT_VERIFIED``), surface it as a dict so the frontend can
+        branch on it. Otherwise fall back to the historical string detail so
+        existing error toasts keep rendering unchanged.
+        """
+        if self.code is None and self.field is None:
+            return HTTPException(status_code=self.status_code, detail=self.message)
+
+        detail: dict[str, Any] = {"message": self.message}
+        if self.code is not None:
+            detail["code"] = self.code
+        if self.field is not None:
+            detail["field"] = self.field
+        return HTTPException(status_code=self.status_code, detail=detail)
 
 
 class AuthenticationError(SyftHubError):
@@ -125,7 +139,23 @@ class UserResponse(BaseModel):
 
 
 class RegisterResponse(BaseModel):
-    """Response from registration endpoint."""
+    """Response from registration endpoint.
+
+    When SyftHub has SMTP configured, registration becomes a two-step flow:
+    tokens come back null and ``requires_email_verification`` is True. The
+    client must then call ``/auth/register/verify-otp`` with the code emailed
+    to the user before tokens are issued.
+    """
+
+    user: UserResponse
+    access_token: str | None = None
+    refresh_token: str | None = None
+    token_type: str = "bearer"
+    requires_email_verification: bool = False
+
+
+class VerifyOTPResponse(BaseModel):
+    """Response from /auth/register/verify-otp on SyftHub."""
 
     user: UserResponse
     access_token: str
@@ -409,6 +439,32 @@ class SyftHubClient:
         response = await self._auth_client.post("/api/v1/auth/register", json=payload)
         return _handle_response(response, RegisterResponse)
 
+    async def verify_otp(self, email: str, code: str) -> VerifyOTPResponse:
+        """Verify a registration OTP and obtain tokens.
+
+        Raises:
+            ValidationError: Invalid/expired code or malformed input
+            NotFoundError: No pending verification for this email
+            ServerError: Server-side error
+        """
+        response = await self._auth_client.post(
+            "/api/v1/auth/register/verify-otp",
+            json={"email": email, "code": code},
+        )
+        return _handle_response(response, VerifyOTPResponse)
+
+    async def resend_otp(self, email: str) -> None:
+        """Request a fresh registration OTP for an unverified email.
+
+        SyftHub intentionally returns a generic success message regardless of
+        whether the email exists, so this method does not surface a model.
+        """
+        response = await self._auth_client.post(
+            "/api/v1/auth/register/resend-otp",
+            json={"email": email},
+        )
+        _handle_response_raw(response)
+
     async def _is_username_available(self, username: str) -> bool:
         """
         Check if a username is available.
@@ -419,6 +475,24 @@ class SyftHubClient:
             f"/api/v1/users/check-username/{username}"
         )
         return _handle_response_raw(response)["available"]
+
+    def authenticate_with_tokens(self, access_token: str, refresh_token: str) -> None:
+        """Seed the authenticated client from pre-fetched tokens.
+
+        Used when a sibling endpoint (e.g. /auth/register/verify-otp) already
+        issued tokens — skips the extra /auth/login round-trip.
+        """
+        self._tokens = TokenResponse(
+            access_token=access_token, refresh_token=refresh_token
+        )
+        auth = AsyncRefreshTokenAuth(
+            auth_client=self._auth_client,
+            access_token=access_token,
+            refresh_token=refresh_token,
+        )
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url, auth=auth, timeout=self._timeout
+        )
 
     async def login(self, username: str, password: str) -> TokenResponse:
         """
@@ -434,17 +508,7 @@ class SyftHubClient:
             data={"username": username, "password": password},
         )
         tokens = _handle_response(response, TokenResponse)
-        self._tokens = tokens
-
-        # Setup authenticated client with auto-refresh
-        auth = AsyncRefreshTokenAuth(
-            auth_client=self._auth_client,
-            access_token=tokens.access_token,
-            refresh_token=tokens.refresh_token,
-        )
-        self._client = httpx.AsyncClient(
-            base_url=self.base_url, auth=auth, timeout=self._timeout
-        )
+        self.authenticate_with_tokens(tokens.access_token, tokens.refresh_token)
         return tokens
 
     async def accounting_credentials(self) -> AccountingResponse:
