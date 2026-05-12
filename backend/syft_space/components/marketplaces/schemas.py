@@ -7,6 +7,8 @@ from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 from syft_space.config import app_settings
 
+EMAIL_VERIFICATION_REQUIRED_CODE = "EMAIL_VERIFICATION_REQUIRED"
+
 
 class RegisterMarketplaceRequest(BaseModel):
     """Request model for registering a new marketplace (new SyftHub account)."""
@@ -54,6 +56,43 @@ class ConnectMarketplaceRequest(BaseModel):
                 "url": "https://marketplace.example.com",
             }
         }
+
+
+class VerifyMarketplaceOTPRequest(BaseModel):
+    """Request to complete a pending marketplace registration via OTP."""
+
+    url: HttpUrl = Field(
+        description="Marketplace base URL",
+        default=app_settings.default_marketplace_url,
+    )
+    email: EmailStr = Field(..., description="Email that received the OTP")
+    password: str = Field(..., description="Password chosen during registration")
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit OTP code",
+    )
+
+
+class EmailVerificationRequiredResponse(BaseModel):
+    """202 response returned by /register when SyftHub requires OTP verification."""
+
+    code: str = Field(default=EMAIL_VERIFICATION_REQUIRED_CODE)
+    message: str
+    email: EmailStr
+    url: str
+
+
+class ResendMarketplaceOTPRequest(BaseModel):
+    """Request to resend a marketplace registration OTP."""
+
+    url: HttpUrl = Field(
+        description="Marketplace base URL",
+        default=app_settings.default_marketplace_url,
+    )
+    email: EmailStr = Field(..., description="Email to receive a fresh OTP")
 
 
 class MarketplaceResponse(BaseModel):
