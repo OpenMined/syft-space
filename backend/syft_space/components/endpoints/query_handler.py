@@ -192,7 +192,7 @@ class QueryEndpointHandler:
                     detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
                 ) from e
 
-        # Extract payment receipt header if present (set by MppAccountingPolicy post-hook)
+        # Extract payment receipt header if present (set by MppPerRequestPolicy post-hook)
         payment_receipt = policy_context.metadata.get("payment_receipt_header")
 
         return (

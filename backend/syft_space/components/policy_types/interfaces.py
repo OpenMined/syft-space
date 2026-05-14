@@ -176,7 +176,7 @@ class BasePolicyType(Protocol):
 class WalletPolicy(Protocol):
     """Policy types that require a wallet implement this.
 
-    Used to distinguish wallet-bound policies (e.g., mpp_accounting, xendit)
+    Used to distinguish wallet-bound policies (e.g., mpp_per_request, xendit_per_request)
     from non-wallet policies (e.g., rate_limit, access). The handler uses
     issubclass(policy_type_cls, WalletPolicy) to determine if wallet_id
     is required, eliminating hardcoded policy type sets.

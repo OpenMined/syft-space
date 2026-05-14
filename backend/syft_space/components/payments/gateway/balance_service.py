@@ -74,6 +74,8 @@ class BalanceService:
         endpoint_id: UUID,
         amount: float,
         currency: str,
+        charge_unit: str,
+        charge_quantity: int,
     ) -> UUID:
         """Atomically deduct `amount` from balance and write a debit entry.
 
@@ -103,6 +105,8 @@ class BalanceService:
                     endpoint_id=endpoint_id,
                     amount=amount,
                     currency=currency,
+                    charge_unit=charge_unit,
+                    charge_quantity=charge_quantity,
                 )
             )
 
@@ -134,6 +138,8 @@ class BalanceService:
                     endpoint_id=debit.endpoint_id,
                     amount=debit.amount,
                     currency=debit.currency,
+                    charge_unit=debit.charge_unit,
+                    charge_quantity=debit.charge_quantity,
                 )
             )
             await ledger.balances.atomic_restore(

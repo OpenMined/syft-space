@@ -2145,7 +2145,7 @@ const handlePricingRuleCreated = (payload: {
   walletId: string
   walletType: string
   walletCurrency: string
-  policyType: 'mpp_accounting' | 'xendit'
+  policyType: 'mpp_per_request' | 'xendit_per_request'
   name: string
   config: Record<string, unknown>
 }) => {
