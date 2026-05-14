@@ -2,7 +2,8 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
+from fastapi.responses import JSONResponse
 
 from syft_space.components.marketplaces.handlers import MarketplaceHandler
 from syft_space.components.marketplaces.schemas import (
@@ -51,7 +52,7 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         request: RegisterMarketplaceRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: MarketplaceHandler = Depends(get_handler),
-    ):
+    ) -> Response:
         """Register a new marketplace by creating a new SyftHub account.
 
         On success returns 201 with the persisted marketplace. When SyftHub
@@ -59,7 +60,10 @@ def build_marketplace_routes(handler: MarketplaceHandler) -> APIRouter:
         ``EmailVerificationRequiredResponse`` so the client can prompt for the
         emailed code and POST it to /marketplaces/verify-otp.
         """
-        return await handler.register_marketplace(request, tenant)
+        result = await handler.register_marketplace(request, tenant)
+        if isinstance(result, EmailVerificationRequiredResponse):
+            return JSONResponse(status_code=202, content=result.model_dump(mode="json"))
+        return JSONResponse(status_code=201, content=result.model_dump(mode="json"))
 
     @router.post(
         "/verify-otp",
