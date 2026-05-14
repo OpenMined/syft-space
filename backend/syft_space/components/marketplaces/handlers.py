@@ -3,13 +3,12 @@
 from uuid import UUID
 
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
 
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.marketplaces.schemas import (
-    EMAIL_VERIFICATION_REQUIRED_CODE,
     ConnectMarketplaceRequest,
+    EmailVerificationRequiredResponse,
     MarketplaceListItem,
     MarketplaceResponse,
     RegisterMarketplaceRequest,
@@ -38,13 +37,13 @@ class MarketplaceHandler:
 
     async def register_marketplace(
         self, request: RegisterMarketplaceRequest, tenant: Tenant
-    ) -> MarketplaceResponse | JSONResponse:
+    ) -> MarketplaceResponse | EmailVerificationRequiredResponse:
         """Register a new marketplace by creating a new SyftHub account.
 
-        Returns a 201 MarketplaceResponse on success. When SyftHub requires
-        email verification, returns a 202 JSON body with code
-        ``EMAIL_VERIFICATION_REQUIRED`` so the client can collect the OTP
-        and call ``/verify-otp`` to finish setup.
+        Returns a ``MarketplaceResponse`` on success. When SyftHub requires
+        email verification, returns an ``EmailVerificationRequiredResponse``
+        so the route layer can surface a 202 and the client can collect the
+        OTP and call ``/verify-otp`` to finish setup.
         """
         async with SyftHubClient(str(request.url)) as syfthub_client:
             try:
@@ -56,17 +55,13 @@ class MarketplaceHandler:
                 )
 
                 if register_response.requires_email_verification:
-                    return JSONResponse(
-                        status_code=202,
-                        content={
-                            "code": EMAIL_VERIFICATION_REQUIRED_CODE,
-                            "message": (
-                                "Account created. Enter the verification code "
-                                "sent to your email to finish setup."
-                            ),
-                            "email": request.email,
-                            "url": str(request.url),
-                        },
+                    return EmailVerificationRequiredResponse(
+                        message=(
+                            "Account created. Enter the verification code "
+                            "sent to your email to finish setup."
+                        ),
+                        email=request.email,
+                        url=str(request.url),
                     )
 
                 await syfthub_client.login(request.email, request.password)
