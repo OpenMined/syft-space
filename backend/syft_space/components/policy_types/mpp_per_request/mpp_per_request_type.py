@@ -11,10 +11,10 @@ from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
+    Capabilities,
     PaymentRequiredError,
     PolicyContext,
     PolicyViolationError,
-    WalletPolicy,
 )
 from syft_space.components.shared.utils import matches_any_pattern
 from syft_space.config import app_settings
@@ -40,14 +40,15 @@ class MppPerRequestConfig(BaseModel):
     )
 
 
-class MppPerRequestPolicy(BasePolicyType, WalletPolicy):
+class MppPerRequestPolicy(BasePolicyType):
     """MPP-based payment policy using Tempo blockchain."""
 
     NAME: ClassVar[str] = "mpp_per_request"
     _mpp_instances: ClassVar[dict[str, Mpp]] = {}
 
-    def required_wallet_type(self) -> str:
-        return "mpp"
+    @classmethod
+    def capabilities(cls) -> Capabilities:
+        return Capabilities(requires_wallet=True, required_wallet_type="mpp")
 
     @classmethod
     def name(cls) -> str:
