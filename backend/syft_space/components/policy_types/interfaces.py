@@ -1,8 +1,10 @@
 """Policy type interfaces and domain models."""
 
 from typing import Any, Protocol
+from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from mpp import Challenge, Credential, Receipt
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class PolicyViolationError(Exception):
@@ -66,6 +68,116 @@ class PolicyAttachConflictError(PolicyAttachError):
     per-document pricing on an LLM endpoint."""
 
 
+class BalanceShortfallError(Exception):
+    """Raised by XenditCharger.reserve when the user's balance is below
+    the required amount.
+
+    Policy-facing exception owned by this layer. The underlying
+    InsufficientBalanceError from the balance service stays internal to
+    payments/ — the adapter translates so policy_types never imports it.
+    """
+
+    def __init__(self, *, balance: float, required: float, currency: str) -> None:
+        self.balance = balance
+        self.required = required
+        self.currency = currency
+        super().__init__(
+            f"Balance {balance} {currency} below required {required} {currency}"
+        )
+
+
+class MppCharger(Protocol):
+    """MPP wallet-bound charger for a single request.
+
+    Constructed by the framework with the endpoint's MPP wallet config
+    (address, secret key, realm) and the request's X-Payment header bound.
+    Policies call .charge() without threading credentials through every call.
+    """
+
+    async def charge(
+        self, *, amount: float, description: str
+    ) -> Challenge | tuple[Credential, Receipt]:
+        """Attempt to charge `amount`.
+
+        Returns a Challenge if no credential is bound or the bound
+        credential is insufficient — the policy raises PaymentRequiredError
+        from it. Returns (credential, receipt) on successful settlement.
+        """
+        ...
+
+
+class XenditCharger(Protocol):
+    """Xendit wallet-bound charger for a single request.
+
+    Constructed by the framework with wallet_id, currency, tenant_id, and
+    endpoint_id bound. Policies pass only request-scoped data.
+    """
+
+    @property
+    def currency(self) -> str:
+        """Wallet currency code (e.g., 'IDR', 'USD'). Surfaced on responses."""
+        ...
+
+    async def get_balance(self, user_email: str) -> float:
+        """Return the user's current spendable balance in the wallet's currency."""
+        ...
+
+    async def reserve(
+        self,
+        *,
+        user_email: str,
+        amount: float,
+        charge_unit: str,
+        charge_quantity: int,
+    ) -> UUID:
+        """Reserve `amount` against the user's balance.
+
+        Raises:
+            BalanceShortfallError: balance is below `amount`.
+        """
+        ...
+
+    async def cancel(self, transaction_id: UUID) -> None:
+        """Cancel a previously reserved transaction (e.g., empty response)."""
+        ...
+
+
+class PaymentChargers:
+    """Per-request bag of payment chargers, accessed by mechanism.
+
+    Methods raise if the requested charger isn't built: by the time a
+    policy's hook runs, CapabilityChecker has already validated that any
+    declared required_wallet_type has a matching wallet attached. Missing
+    chargers therefore indicate a framework bug, not a user-input error.
+
+    Adding a new payment mechanism is one new method on this class plus a
+    new branch in build_payment_chargers (see endpoints/policy_charging.py).
+    """
+
+    def __init__(
+        self,
+        *,
+        mpp: MppCharger | None = None,
+        xendit: XenditCharger | None = None,
+    ) -> None:
+        self._mpp = mpp
+        self._xendit = xendit
+
+    def mpp(self) -> MppCharger:
+        if self._mpp is None:
+            raise RuntimeError(
+                "MPP charger requested but no MPP wallet is attached to this endpoint"
+            )
+        return self._mpp
+
+    def xendit(self) -> XenditCharger:
+        if self._xendit is None:
+            raise RuntimeError(
+                "Xendit charger requested but no Xendit wallet is attached to this endpoint"
+            )
+        return self._xendit
+
+
 class Capabilities(BaseModel):
     """Declarative facts a policy type declares about itself.
 
@@ -94,6 +206,8 @@ class PolicyContext(BaseModel):
     Passed to policy hooks with request/response information.
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     endpoint_slug: str = Field(..., description="Slug of the endpoint being accessed")
     sender_email: EmailStr = Field(..., description="Email of the request sender")
     request: dict[str, Any] = Field(..., description="Request payload")
@@ -102,6 +216,10 @@ class PolicyContext(BaseModel):
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata"
+    )
+    payment_chargers: PaymentChargers | None = Field(
+        default=None,
+        description="Per-request payment chargers, built from attached wallets",
     )
 
 
