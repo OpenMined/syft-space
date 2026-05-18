@@ -14,9 +14,10 @@ from syft_space.components.payments.gateway.balance_service import (
     InsufficientBalanceError,
 )
 from syft_space.components.policy_types.interfaces import (
+    BasePolicyType,
+    Capabilities,
     PolicyContext,
     PolicyViolationError,
-    WalletPolicy,
 )
 from syft_space.components.shared.utils import (
     ConfigSchemaGenerator,
@@ -44,7 +45,7 @@ class XenditPerRequestConfig(BaseModel):
         return matches_any_pattern(user_email, self.applied_to)
 
 
-class XenditPerRequestPolicy(WalletPolicy):
+class XenditPerRequestPolicy(BasePolicyType):
     """Xendit pricing policy.
 
     Admin sets price_per_request. End users buy money bundles via the linked
@@ -55,15 +56,16 @@ class XenditPerRequestPolicy(WalletPolicy):
     NAME = "xendit_per_request"
 
     @classmethod
+    def capabilities(cls) -> Capabilities:
+        return Capabilities(requires_wallet=True, required_wallet_type="xendit")
+
+    @classmethod
     def name(cls) -> str:
         return cls.NAME
 
     @classmethod
     def description(cls) -> str:
         return "Pay-per-request billed against a Xendit wallet's prepaid balance"
-
-    def required_wallet_type(self) -> str:
-        return "xendit"
 
     @classmethod
     def icon(cls) -> str:
