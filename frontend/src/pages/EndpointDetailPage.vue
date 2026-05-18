@@ -847,6 +847,7 @@
   <AddPricingRuleDialog
     v-model:open="showAddPricingRuleDialog"
     :locked-wallet-id="lockedWalletId"
+    :endpoint-has-dataset="endpoint?.dataset_id != null"
     @pricing-created="handlePricingCreated"
   />
 
@@ -1149,7 +1150,11 @@ const ensureWallets = (): Promise<void> => {
 const getPricingPolicies = () => {
   return (
     endpoint.value?.policies?.filter(
-      (p) => p.policy_type === 'mpp_per_request' || p.policy_type === 'xendit_per_request',
+      (p) =>
+        p.policy_type === 'mpp_per_request' ||
+        p.policy_type === 'xendit_per_request' ||
+        p.policy_type === 'mpp_per_document' ||
+        p.policy_type === 'xendit_per_document',
     ) || []
   )
 }
@@ -1200,6 +1205,15 @@ const getPricingPolicySummary = (policy: {
   // Xendit: price per request
   if (policy.policy_type === 'xendit_per_request' && config?.price_per_request !== undefined) {
     return `${config.price_per_request} ${currency} per request ${appliedLabel}`.trim()
+  }
+
+  // Per-document (MPP and Xendit share the field name).
+  if (
+    (policy.policy_type === 'mpp_per_document' ||
+      policy.policy_type === 'xendit_per_document') &&
+    config?.price_per_document !== undefined
+  ) {
+    return `${config.price_per_document} ${currency} per document ${appliedLabel}`.trim()
   }
 
   return 'Pricing rule configured'
@@ -1394,14 +1408,18 @@ const confirmDeletePolicy = async () => {
 const handlePricingCreated = async (payload: {
   walletId: string
   walletType: string
-  policyType: 'mpp_per_request' | 'xendit_per_request'
+  policyType:
+    | 'mpp_per_request'
+    | 'xendit_per_request'
+    | 'mpp_per_document'
+    | 'xendit_per_document'
   name: string
   config: Record<string, unknown>
 }) => {
   if (!endpoint.value?.id) return
 
   const ruleIndex = getPricingPolicies().length + 1
-  const policyLabel = payload.policyType === 'mpp_per_request' ? 'MPP' : 'Xendit'
+  const policyLabel = payload.policyType.startsWith('mpp_') ? 'MPP' : 'Xendit'
   const policyName = payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
 
   try {

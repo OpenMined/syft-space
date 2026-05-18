@@ -307,6 +307,8 @@ export function usePolicyCreation() {
           const explicitPolicyType = rule.config.policyType as
             | 'mpp_per_request'
             | 'xendit_per_request'
+            | 'mpp_per_document'
+            | 'xendit_per_document'
             | undefined
           backendPolicyType =
             explicitPolicyType ?? (walletType === 'mpp' ? 'mpp_per_request' : 'xendit_per_request')
@@ -325,6 +327,14 @@ export function usePolicyCreation() {
             // Currency lives on the wallet now; only price + applied_to here.
             configuration = createPricingConfiguration(rule.config.price as string, userType, users)
             configuration.applied_to = appliedTo
+          } else if (
+            backendPolicyType === 'mpp_per_document' ||
+            backendPolicyType === 'xendit_per_document'
+          ) {
+            configuration = {
+              price_per_document: parseFloat(rule.config.price as string) || 0,
+              applied_to: appliedTo,
+            }
           } else {
             configuration = {
               price_per_request: parseFloat(rule.config.price as string) || 0,

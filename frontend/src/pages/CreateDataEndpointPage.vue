@@ -1521,6 +1521,7 @@
   <AddPricingRuleDialog
     v-model:open="showAddPricingRuleDialog"
     :locked-wallet-id="lockedWalletId"
+    :endpoint-has-dataset="true"
     @pricing-created="handlePricingRuleCreated"
   />
 </template>
@@ -2145,7 +2146,11 @@ const handlePricingRuleCreated = (payload: {
   walletId: string
   walletType: string
   walletCurrency: string
-  policyType: 'mpp_per_request' | 'xendit_per_request'
+  policyType:
+    | 'mpp_per_request'
+    | 'xendit_per_request'
+    | 'mpp_per_document'
+    | 'xendit_per_document'
   name: string
   config: Record<string, unknown>
 }) => {
@@ -2154,9 +2159,12 @@ const handlePricingRuleCreated = (payload: {
   const userType = appliedTo.length === 1 && appliedTo[0] === '*' ? 'all' : 'specific'
   const users = userType === 'specific' ? appliedTo.join(', ') : ''
 
-  // Different field name per provider — normalize to a string `price` for display.
-  const rawPrice =
-    payload.walletType === 'mpp' ? payload.config.price : payload.config.price_per_request
+  // Per-doc uses price_per_document; per-request differs by provider — normalize.
+  const rawPrice = payload.policyType.endsWith('_per_document')
+    ? payload.config.price_per_document
+    : payload.walletType === 'mpp'
+      ? payload.config.price
+      : payload.config.price_per_request
 
   const config: Record<string, unknown> = {
     id: ruleId,
