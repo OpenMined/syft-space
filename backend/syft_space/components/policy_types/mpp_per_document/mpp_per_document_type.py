@@ -154,7 +154,6 @@ class MppPerDocumentPolicy(BasePolicyType):
             return context
 
         if price_per_document == 0:
-            context.metadata["mpp_total_amount"] = 0.0
             context.metadata["mpp_per_doc_price"] = 0.0
             return context
 
@@ -203,20 +202,21 @@ class MppPerDocumentPolicy(BasePolicyType):
     async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
-        """Charge count * price_per_document; 402 on credential shortfall."""
+        """Charge count * price_per_document; 402 on credential shortfall.
+
+        Cost is only written when a charge actually happened. Free-tier and
+        zero-document requests leave cost/currency as None — absence is
+        meaningful for downstream consumers.
+        """
         price_per_document = context.metadata.get("mpp_per_doc_price")
-        if price_per_document is None:
+        if price_per_document is None or price_per_document == 0:
             return context
 
         response = context.response or {}
         references = response.get("references") or {}
         documents = references.get("documents") or []
         count = len(documents)
-
-        if count == 0 or price_per_document == 0:
-            context.metadata["mpp_total_amount"] = 0.0
-            if context.response and context.response.get("references"):
-                context.response["references"]["cost"] = 0.0
+        if count == 0:
             return context
 
         total = count * price_per_document
@@ -250,11 +250,11 @@ class MppPerDocumentPolicy(BasePolicyType):
             "status": receipt.status,
             "external_id": receipt.external_id,
         }
-        context.metadata["mpp_total_amount"] = total
         context.metadata["payment_receipt_header"] = receipt.reference
 
         if context.response.get("references"):
             context.response["references"]["cost"] = total
+            context.response["references"]["currency"] = "USD"
 
         logger.info(
             f"MPP per-document payment verified: ${total} from "

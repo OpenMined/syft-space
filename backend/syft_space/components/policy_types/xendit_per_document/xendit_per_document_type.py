@@ -92,6 +92,29 @@ class XenditPerDocumentPolicy(BasePolicyType):
         except Exception as e:
             raise ValueError(f"Invalid xendit_per_document config: {e}") from e
 
+    def _find_matching_price(
+        self, user_email: str, configs: list[dict[str, Any]]
+    ) -> float | None:
+        """Find the most specific matching price for a user.
+
+        More specific patterns (longer, non-wildcard) take priority.
+        Returns None if no config matches.
+        """
+        best_price: float | None = None
+        best_specificity = -1
+
+        for config in configs:
+            validated = XenditPerDocumentConfig(**config)
+            for pattern in validated.applied_to:
+                if not matches_any_pattern(user_email, [pattern]):
+                    continue
+                specificity = 0 if pattern == "*" else len(pattern.replace("*", ""))
+                if specificity > best_specificity:
+                    best_specificity = specificity
+                    best_price = validated.price_per_document
+
+        return best_price
+
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
@@ -100,62 +123,67 @@ class XenditPerDocumentPolicy(BasePolicyType):
             return context
 
         user_email = str(context.sender_email)
-        validated = [XenditPerDocumentConfig(**c) for c in configs]
+        price = self._find_matching_price(user_email, configs)
+
+        # If no price is found, deny the request
+        if price is None:
+            raise PolicyViolationError(
+                message="No pricing tier matches your account",
+                policy_type=self.NAME,
+            )
 
         balance_service = context.metadata.get("balance_service")
-        wallet_id = context.metadata.get("xendit_wallet_id")
-        currency = context.metadata.get("xendit_wallet_currency")
-        endpoint_id = context.metadata.get("endpoint_id")
-        tenant_id = context.metadata.get("tenant_id")
-        if (
-            not balance_service
-            or not wallet_id
-            or not currency
-            or not endpoint_id
-            or not tenant_id
-        ):
+        if not balance_service:
             raise PolicyViolationError(
-                message="Missing wallet/endpoint context for per-document policy",
+                message="Balance service not available",
                 policy_type=self.NAME,
                 details={"user": user_email},
             )
 
-        for config in validated:
-            if not config.applies_to_user(user_email):
-                continue
-
-            balance = await balance_service.get_balance(
-                wallet_id=wallet_id, tenant_id=tenant_id, user_email=user_email
+        wallet_id = context.metadata.get("xendit_wallet_id")
+        currency = context.metadata.get("xendit_wallet_currency")
+        endpoint_id = context.metadata.get("endpoint_id")
+        tenant_id = context.metadata.get("tenant_id")
+        if not wallet_id or not currency or not endpoint_id or not tenant_id:
+            raise PolicyViolationError(
+                message="Missing wallet/endpoint context for bundle check",
+                policy_type=self.NAME,
+                details={"user": user_email},
             )
-            if balance < config.price_per_document:
-                raise PolicyViolationError(
-                    message="Insufficient balance to cover even one document.",
-                    policy_type=self.NAME,
-                    details={
-                        "user": user_email,
-                        "balance": balance,
-                        "price_per_document": config.price_per_document,
-                        "currency": currency,
-                    },
-                )
 
-            # Stash for post-hook settlement.
-            context.metadata["xendit_per_doc_price"] = config.price_per_document
-            context.metadata["xendit_per_doc_wallet_id"] = wallet_id
-            context.metadata["xendit_per_doc_tenant_id"] = tenant_id
-            context.metadata["xendit_per_doc_endpoint_id"] = endpoint_id
-            context.metadata["xendit_per_doc_currency"] = currency
-            # First matching config wins.
-            break
+        balance = await balance_service.get_balance(
+            wallet_id=wallet_id, tenant_id=tenant_id, user_email=user_email
+        )
+        if balance < price:
+            raise PolicyViolationError(
+                message="Insufficient balance. Please purchase more credits.",
+                policy_type=self.NAME,
+                details={
+                    "user": user_email,
+                    "balance": balance,
+                    "price_per_document": price,
+                    "currency": currency,
+                },
+            )
+
+        context.metadata["xendit_price_per_document"] = price
 
         return context
 
     async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
-        """Settle for actual document count; drop response on shortfall."""
-        price_per_document = context.metadata.get("xendit_per_doc_price")
-        if price_per_document is None:
+        """Settle for actual document count.
+
+        Reserve happens here (not pre_hook) because we don't know the
+        document count until the search returns. On insufficient balance
+        we raise; an empty response means no documents were charged.
+        """
+        if not configs:
+            return context
+
+        price = context.metadata.get("xendit_price_per_document")
+        if price is None:
             return context
 
         response = context.response or {}
@@ -166,15 +194,15 @@ class XenditPerDocumentPolicy(BasePolicyType):
             return context
 
         balance_service = context.metadata.get("balance_service")
-        if not balance_service:
+        wallet_id = context.metadata.get("xendit_wallet_id")
+        currency = context.metadata.get("xendit_wallet_currency")
+        endpoint_id = context.metadata.get("endpoint_id")
+        tenant_id = context.metadata.get("tenant_id")
+        if not balance_service or not wallet_id or not endpoint_id or not tenant_id:
             return context
 
-        total = count * price_per_document
+        total = count * price
         user_email = str(context.sender_email)
-        wallet_id = context.metadata["xendit_per_doc_wallet_id"]
-        tenant_id = context.metadata["xendit_per_doc_tenant_id"]
-        endpoint_id = context.metadata["xendit_per_doc_endpoint_id"]
-        currency = context.metadata["xendit_per_doc_currency"]
 
         try:
             await balance_service.reserve(
@@ -194,7 +222,7 @@ class XenditPerDocumentPolicy(BasePolicyType):
                 details={
                     "user": user_email,
                     "documents": count,
-                    "price_per_document": price_per_document,
+                    "price_per_document": price,
                     "total": total,
                     "currency": currency,
                 },
@@ -202,4 +230,6 @@ class XenditPerDocumentPolicy(BasePolicyType):
 
         if response.get("references"):
             response["references"]["cost"] = total
+            response["references"]["currency"] = currency
+
         return context
