@@ -1149,7 +1149,7 @@ const ensureWallets = (): Promise<void> => {
 const getPricingPolicies = () => {
   return (
     endpoint.value?.policies?.filter(
-      (p) => p.policy_type === 'mpp_accounting' || p.policy_type === 'xendit',
+      (p) => p.policy_type === 'mpp_per_request' || p.policy_type === 'xendit_per_request',
     ) || []
   )
 }
@@ -1193,12 +1193,12 @@ const getPricingPolicySummary = (policy: {
   const currency = wallet?.currency ?? 'USD'
 
   // MPP: price per query
-  if (policy.policy_type === 'mpp_accounting' && config?.price !== undefined) {
+  if (policy.policy_type === 'mpp_per_request' && config?.price !== undefined) {
     return `${config.price} ${currency} per query ${appliedLabel}`.trim()
   }
 
   // Xendit: price per request
-  if (policy.policy_type === 'xendit' && config?.price_per_request !== undefined) {
+  if (policy.policy_type === 'xendit_per_request' && config?.price_per_request !== undefined) {
     return `${config.price_per_request} ${currency} per request ${appliedLabel}`.trim()
   }
 
@@ -1394,14 +1394,14 @@ const confirmDeletePolicy = async () => {
 const handlePricingCreated = async (payload: {
   walletId: string
   walletType: string
-  policyType: 'mpp_accounting' | 'xendit'
+  policyType: 'mpp_per_request' | 'xendit_per_request'
   name: string
   config: Record<string, unknown>
 }) => {
   if (!endpoint.value?.id) return
 
   const ruleIndex = getPricingPolicies().length + 1
-  const policyLabel = payload.policyType === 'mpp_accounting' ? 'MPP' : 'Xendit'
+  const policyLabel = payload.policyType === 'mpp_per_request' ? 'MPP' : 'Xendit'
   const policyName = payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
 
   try {
@@ -1455,7 +1455,7 @@ const handleAddPolicy = async (payload: {
 
   // Calculate the correct rule index based on existing policies of this type
   // Map frontend policy type to backend policy type for counting
-  const backendPolicyType = policyType === 'pricing' ? 'mpp_accounting' : policyType
+  const backendPolicyType = policyType === 'pricing' ? 'mpp_per_request' : policyType
   const existingPoliciesOfType =
     endpoint.value.policies?.filter((p) => p.policy_type === backendPolicyType) || []
   const ruleIndex = existingPoliciesOfType.length + 1

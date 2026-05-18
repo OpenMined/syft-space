@@ -43,7 +43,7 @@ class XenditGateway:
     """
 
     PROVIDER_NAME = "xendit"
-    POLICY_TYPE = "xendit"
+    POLICY_TYPE = "xendit_per_request"
 
     # Map Xendit event types to our domain status
     _EVENT_STATUS_MAP = {

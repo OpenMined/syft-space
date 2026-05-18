@@ -14,9 +14,10 @@ from syft_space.components.payments.gateway.balance_service import (
     InsufficientBalanceError,
 )
 from syft_space.components.policy_types.interfaces import (
+    BasePolicyType,
+    Capabilities,
     PolicyContext,
     PolicyViolationError,
-    WalletPolicy,
 )
 from syft_space.components.shared.utils import (
     ConfigSchemaGenerator,
@@ -24,7 +25,7 @@ from syft_space.components.shared.utils import (
 )
 
 
-class XenditPolicyConfig(BaseModel):
+class XenditPerRequestConfig(BaseModel):
     """Configuration schema for xendit pricing policy.
 
     Currency, country, and bundles live on the linked Wallet — not here.
@@ -44,7 +45,7 @@ class XenditPolicyConfig(BaseModel):
         return matches_any_pattern(user_email, self.applied_to)
 
 
-class XenditAccountingPolicy(WalletPolicy):
+class XenditPerRequestPolicy(BasePolicyType):
     """Xendit pricing policy.
 
     Admin sets price_per_request. End users buy money bundles via the linked
@@ -52,7 +53,11 @@ class XenditAccountingPolicy(WalletPolicy):
     Balance is fungible across all endpoints sharing the wallet.
     """
 
-    NAME = "xendit"
+    NAME = "xendit_per_request"
+
+    @classmethod
+    def capabilities(cls) -> Capabilities:
+        return Capabilities(requires_wallet=True, required_wallet_type="xendit")
 
     @classmethod
     def name(cls) -> str:
@@ -62,16 +67,13 @@ class XenditAccountingPolicy(WalletPolicy):
     def description(cls) -> str:
         return "Pay-per-request billed against a Xendit wallet's prepaid balance"
 
-    def required_wallet_type(self) -> str:
-        return "xendit"
-
     @classmethod
     def icon(cls) -> str:
         return "💳"
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
-        return XenditPolicyConfig.model_json_schema(
+        return XenditPerRequestConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
 
@@ -87,7 +89,7 @@ class XenditAccountingPolicy(WalletPolicy):
         best_specificity = -1
 
         for config in configs:
-            validated = XenditPolicyConfig(**config)
+            validated = XenditPerRequestConfig(**config)
             for pattern in validated.applied_to:
                 if not matches_any_pattern(user_email, [pattern]):
                     continue
@@ -142,6 +144,8 @@ class XenditAccountingPolicy(WalletPolicy):
                 endpoint_id=endpoint_id,
                 amount=price,
                 currency=currency,
+                charge_unit="request",
+                charge_quantity=1,
             )
         except InsufficientBalanceError as exc:
             raise PolicyViolationError(
@@ -208,7 +212,7 @@ class XenditAccountingPolicy(WalletPolicy):
     @classmethod
     async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         try:
-            validated = XenditPolicyConfig(**config)
+            validated = XenditPerRequestConfig(**config)
             return validated.model_dump()
         except Exception as e:
             raise ValueError(f"Invalid xendit config: {e}") from e

@@ -205,4 +205,9 @@ class LedgerEntry(SQLModel, table=True):
     currency: str = Field(
         ..., description="Currency at time of write (denormalized from wallet)"
     )
+    charge_unit: str = Field(..., description="Charge unit: 'request' or 'document'")
+    charge_quantity: int = Field(
+        ...,
+        description="Units billed in this entry (1 for per-request; doc count for per-document)",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

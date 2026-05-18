@@ -174,7 +174,7 @@ export function usePolicyCreation() {
 
     const request: CreatePolicyRequest = {
       name: policyName,
-      policy_type: 'mpp_accounting',
+      policy_type: 'mpp_per_request',
       configuration: configuration,
       endpoint_id: endpointId,
       wallet_id: mppWallet.id,
@@ -305,11 +305,11 @@ export function usePolicyCreation() {
           walletId = rule.config.walletId as string | undefined
           const walletType = rule.config.walletType as string | undefined
           const explicitPolicyType = rule.config.policyType as
-            | 'mpp_accounting'
-            | 'xendit'
+            | 'mpp_per_request'
+            | 'xendit_per_request'
             | undefined
           backendPolicyType =
-            explicitPolicyType ?? (walletType === 'mpp' ? 'mpp_accounting' : 'xendit')
+            explicitPolicyType ?? (walletType === 'mpp' ? 'mpp_per_request' : 'xendit_per_request')
 
           const userType = rule.config.userType as 'all' | 'specific'
           const users = rule.config.users as string
@@ -321,7 +321,7 @@ export function usePolicyCreation() {
                   .map((u) => u.trim())
                   .filter((u) => u)
 
-          if (backendPolicyType === 'mpp_accounting') {
+          if (backendPolicyType === 'mpp_per_request') {
             // Currency lives on the wallet now; only price + applied_to here.
             configuration = createPricingConfiguration(rule.config.price as string, userType, users)
             configuration.applied_to = appliedTo

@@ -197,9 +197,7 @@ class QueryEndpointHandler:
                         ),
                         "",
                     )
-                references = await self._search_dataset(
-                    endpoint, request, search_query
-                )
+                references = await self._search_dataset(endpoint, request, search_query)
 
             # Chat with model if needed
             if (
