@@ -400,7 +400,7 @@ const emit = defineEmits<{
       walletId: string
       walletType: string
       walletCurrency: string
-      policyType: 'mpp_accounting' | 'xendit'
+      policyType: 'mpp_per_request' | 'xendit_per_request'
       name: string
       config: Record<string, unknown>
     },
@@ -480,9 +480,9 @@ const providerLabel = (walletType: string): string => {
   }
 }
 
-const policyTypeForWallet = (walletType: string): 'mpp_accounting' | 'xendit' => {
-  if (walletType === 'mpp') return 'mpp_accounting'
-  return 'xendit'
+const policyTypeForWallet = (walletType: string): 'mpp_per_request' | 'xendit_per_request' => {
+  if (walletType === 'mpp') return 'mpp_per_request'
+  return 'xendit_per_request'
 }
 
 const buildConfig = (walletType: string): Record<string, unknown> => {

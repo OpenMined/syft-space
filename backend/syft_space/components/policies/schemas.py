@@ -30,7 +30,7 @@ class CreatePolicyRequest(BaseModel):
     endpoint_id: UUID = Field(..., description="ID of the endpoint to attach to")
     wallet_id: UUID | None = Field(
         default=None,
-        description="Wallet ID for payment policies (required for mpp_accounting, xendit)",
+        description="Wallet ID for payment policies (required for mpp_per_request, xendit_per_request)",
     )
 
     class Config:

@@ -16,14 +16,14 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     """
     # Import and register built-in policy types here as they're implemented
     from .access.access_type import EndpointAccessPolicy
-    from .mpp_accounting.mpp_accounting_type import MppAccountingPolicy
+    from .mpp_per_request.mpp_per_request_type import MppPerRequestPolicy
     from .rate_limit.rate_limit_type import EndpointRateLimitPolicy
-    from .xendit.xendit_accounting_type import XenditAccountingPolicy
+    from .xendit_per_request.xendit_per_request_type import XenditPerRequestPolicy
 
     registry.register_policy_type(EndpointRateLimitPolicy)
     registry.register_policy_type(EndpointAccessPolicy)
-    registry.register_policy_type(MppAccountingPolicy)
-    registry.register_policy_type(XenditAccountingPolicy)
+    registry.register_policy_type(MppPerRequestPolicy)
+    registry.register_policy_type(XenditPerRequestPolicy)
 
 
 __all__ = ["register_builtin_types"]

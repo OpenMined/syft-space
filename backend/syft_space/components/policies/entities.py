@@ -45,7 +45,7 @@ class Policy(SQLModel, table=True):
     wallet_id: UUID | None = Field(
         default=None,
         sa_column=Column(ForeignKey("wallets.id", ondelete="SET NULL"), nullable=True),
-        description="Wallet ID for payment policies (mpp_accounting, xendit). NULL for non-payment policies.",
+        description="Wallet ID for payment policies (mpp_per_request, xendit_per_request). NULL for non-payment policies.",
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -1,6 +1,6 @@
 """Policy type interfaces and domain models."""
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -38,6 +38,54 @@ class PaymentRequiredError(Exception):
         self.www_authenticate = www_authenticate
         self.description = description
         super().__init__(description or "Payment required")
+
+
+class PolicyAttachError(Exception):
+    """Base for policy-attach failures.
+
+    Subclasses describe the *kind* of failure in domain terms; the handler
+    layer maps each subclass to an HTTP status. Domain code never references
+    HTTP — `raise PolicyAttachNotFoundError("Wallet not found")` is enough.
+    """
+
+
+class PolicyAttachInputError(PolicyAttachError):
+    """Invalid or missing input on the attach request (e.g., wallet_id
+    missing for a wallet-bound policy, or wallet_id supplied for a
+    non-wallet policy)."""
+
+
+class PolicyAttachNotFoundError(PolicyAttachError):
+    """A referenced entity (wallet, endpoint, ...) was not found for the
+    current tenant."""
+
+
+class PolicyAttachConflictError(PolicyAttachError):
+    """Semantic conflict between the policy and the surrounding system —
+    e.g., wallet type mismatch, sibling policies disagree on wallet,
+    per-document pricing on an LLM endpoint."""
+
+
+class Capabilities(BaseModel):
+    """Declarative facts a policy type declares about itself.
+
+    Read by CapabilityChecker at policy creation time to validate that the
+    system honors what the policy needs. New requirement kinds are added by
+    extending this model — policy classes don't import anything outside this
+    module to express their needs.
+
+    Defaults describe a policy with no special requirements (e.g., access
+    and rate_limit policies). Wallet-bound policies override requires_wallet
+    and required_wallet_type. Policies that count retrieved documents (e.g.,
+    per-document pricing) override requires_endpoint_dataset since they need
+    a data source attached to the endpoint — whether or not an LLM step is
+    also present is irrelevant.
+    """
+
+    requires_wallet: bool = False
+    required_wallet_type: str | None = None
+    wallet_shared_with_siblings: bool = True
+    requires_endpoint_dataset: bool = False
 
 
 class PolicyContext(BaseModel):
@@ -104,6 +152,16 @@ class BasePolicyType(Protocol):
         """
         ...
 
+    @classmethod
+    def capabilities(cls) -> Capabilities:
+        """Declare facts about this policy type for the CapabilityChecker.
+
+        Default: no special requirements (no wallet, no endpoint constraints).
+        Override on subclasses that need a wallet, forbid certain endpoint
+        kinds, etc. See `Capabilities` for the fields.
+        """
+        return Capabilities()
+
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
@@ -169,24 +227,4 @@ class BasePolicyType(Protocol):
         Raises:
             ValueError: If configuration is invalid
         """
-        ...
-
-
-@runtime_checkable
-class WalletPolicy(Protocol):
-    """Policy types that require a wallet implement this.
-
-    Used to distinguish wallet-bound policies (e.g., mpp_accounting, xendit)
-    from non-wallet policies (e.g., rate_limit, access). The handler uses
-    issubclass(policy_type_cls, WalletPolicy) to determine if wallet_id
-    is required, eliminating hardcoded policy type sets.
-
-    Mutual exclusivity is enforced implicitly: all wallet-bound policies
-    on an endpoint must share the same wallet_id (has_different_wallet check).
-    Different wallet types (MPP vs Xendit) have different wallet_ids, so
-    they can't coexist.
-    """
-
-    def required_wallet_type(self) -> str:
-        """Return the wallet type this policy requires (e.g., 'mpp', 'xendit')."""
         ...

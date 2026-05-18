@@ -86,6 +86,7 @@ from syft_space.components.payments.gateway.payment_ledger import PaymentLedger
 from syft_space.components.payments.gateway.xendit.gateway import XenditGateway
 from syft_space.components.payments.mpp.handlers import MppPaymentHandler
 from syft_space.components.payments.routes import build_payment_routes
+from syft_space.components.policies.capability_checker import CapabilityChecker
 from syft_space.components.policies.handlers import PolicyHandler
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policies.routes import build_policy_routes
@@ -398,8 +399,13 @@ dataset_handler = DatasetHandler(
     DATASET_TYPE_REGISTRY, dataset_repository, provisioner_state_repository
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
+capability_checker = CapabilityChecker(
+    wallet_lookup=wallet_repository,
+    endpoint_lookup=endpoint_repository,
+    endpoint_policy_query=policy_repository,
+)
 policy_handler = PolicyHandler(
-    POLICY_TYPE_REGISTRY, policy_repository, wallet_repository
+    POLICY_TYPE_REGISTRY, policy_repository, capability_checker
 )
 marketplace_handler = MarketplaceHandler(marketplace_repository)
 

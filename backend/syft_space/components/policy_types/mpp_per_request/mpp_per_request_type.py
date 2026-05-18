@@ -1,4 +1,4 @@
-"""MPP Accounting policy type for per-query payments via Machine Payments Protocol."""
+"""MPP per-request policy type for per-query payments via Machine Payments Protocol."""
 
 from enum import StrEnum
 from typing import Any, ClassVar
@@ -11,10 +11,10 @@ from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
+    Capabilities,
     PaymentRequiredError,
     PolicyContext,
     PolicyViolationError,
-    WalletPolicy,
 )
 from syft_space.components.shared.utils import matches_any_pattern
 from syft_space.config import app_settings
@@ -26,7 +26,7 @@ class UnitType(StrEnum):
     REQUESTS = "requests"
 
 
-class MppAccountingConfig(BaseModel):
+class MppPerRequestConfig(BaseModel):
     """Configuration for MPP accounting policy."""
 
     price: float = Field(ge=0, description="Price per query in USD")
@@ -40,14 +40,15 @@ class MppAccountingConfig(BaseModel):
     )
 
 
-class MppAccountingPolicy(BasePolicyType, WalletPolicy):
+class MppPerRequestPolicy(BasePolicyType):
     """MPP-based payment policy using Tempo blockchain."""
 
-    NAME: ClassVar[str] = "mpp_accounting"
+    NAME: ClassVar[str] = "mpp_per_request"
     _mpp_instances: ClassVar[dict[str, Mpp]] = {}
 
-    def required_wallet_type(self) -> str:
-        return "mpp"
+    @classmethod
+    def capabilities(cls) -> Capabilities:
+        return Capabilities(requires_wallet=True, required_wallet_type="mpp")
 
     @classmethod
     def name(cls) -> str:
@@ -67,12 +68,12 @@ class MppAccountingPolicy(BasePolicyType, WalletPolicy):
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
-        return MppAccountingConfig.model_json_schema()
+        return MppPerRequestConfig.model_json_schema()
 
     @classmethod
     async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Validate and normalize the configuration."""
-        validated = MppAccountingConfig(**config)
+        validated = MppPerRequestConfig(**config)
         return validated.model_dump()
 
     def __init__(self) -> None:
@@ -90,7 +91,7 @@ class MppAccountingPolicy(BasePolicyType, WalletPolicy):
         best_specificity = -1
 
         for config in configs:
-            validated = MppAccountingConfig(**config)
+            validated = MppPerRequestConfig(**config)
             for pattern in validated.applied_to:
                 if not matches_any_pattern(sender_email, [pattern]):
                     continue
@@ -111,7 +112,7 @@ class MppAccountingPolicy(BasePolicyType, WalletPolicy):
         402 challenge → pay → verify flow.
         """
         cache_key = f"{wallet_address}:{realm}"
-        if cache_key not in MppAccountingPolicy._mpp_instances:
+        if cache_key not in MppPerRequestPolicy._mpp_instances:
             chain_id = TESTNET_CHAIN_ID if app_settings.tempo_testnet else None
             method = tempo(
                 currency=PATH_USD,
@@ -119,12 +120,12 @@ class MppAccountingPolicy(BasePolicyType, WalletPolicy):
                 chain_id=chain_id,
                 intents={"charge": ChargeIntent(chain_id=chain_id)},
             )
-            MppAccountingPolicy._mpp_instances[cache_key] = Mpp.create(
+            MppPerRequestPolicy._mpp_instances[cache_key] = Mpp.create(
                 method=method,
                 secret_key=secret_key,
                 realm=realm,
             )
-        return MppAccountingPolicy._mpp_instances[cache_key]
+        return MppPerRequestPolicy._mpp_instances[cache_key]
 
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
