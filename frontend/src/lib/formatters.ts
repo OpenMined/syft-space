@@ -74,6 +74,60 @@ export const formatTimeAgo = (dateString: string): string => {
 }
 
 /**
+ * Format a number with compact suffix (k, M) for display.
+ */
+export const formatCompactNumber = (value: number): string => {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+  return value.toLocaleString()
+}
+
+/**
+ * Format a number as USD currency with 2 decimal places.
+ */
+export const formatCurrency = (value: number): string => {
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+// Currencies with no minor unit get whole numbers; everything else gets 2 decimals.
+// IDR is included by product convention even though it technically has sen.
+const ZERO_DECIMAL_CURRENCIES = new Set(['JPY', 'IDR', 'KRW', 'VND'])
+
+/**
+ * Format an amount in any ISO currency using Intl.NumberFormat.
+ * Falls back to "<amount> <CODE>" if the runtime can't format the currency code.
+ */
+export const formatCurrencyAmount = (amount: number, currency: string): string => {
+  const code = currency.toUpperCase()
+  const fractionDigits = ZERO_DECIMAL_CURRENCIES.has(code) ? 0 : 2
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    }).format(amount)
+  } catch {
+    return `${amount.toLocaleString('en-US', {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    })} ${code}`
+  }
+}
+
+/**
+ * Format a per-currency breakdown for display.
+ * Returns the placeholder when the list is empty.
+ */
+export const formatCurrencyBreakdown = (
+  entries: { currency: string; amount: number }[],
+  emptyPlaceholder: string = '$0.00',
+): string => {
+  if (!entries.length) return emptyPlaceholder
+  return entries.map((e) => formatCurrencyAmount(e.amount, e.currency)).join(' · ')
+}
+
+/**
  * Format a price with minimum 2 decimal places, keeping more if needed for microtransactions.
  * - No decimals → adds .00
  * - ≤2 decimals → formats to 2 decimals

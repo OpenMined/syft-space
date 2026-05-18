@@ -55,7 +55,6 @@ export function useNavigation() {
     // Other pages
     inbox: { name: 'inbox' },
     settings: { name: 'settings' },
-    earnings: { name: 'earnings' },
   }
 
   // Helper methods for common navigation patterns
@@ -65,7 +64,6 @@ export function useNavigation() {
   const goToHome = () => navigateTo(routes.home)
   const goToInbox = () => navigateTo(routes.inbox)
   const goToSettings = () => navigateTo(routes.settings)
-  const goToEarnings = () => navigateTo(routes.earnings)
 
   const goToEndpointDetail = (slug: string) => navigateTo(routes.endpointDetail(slug))
   const goToModelDetail = (slug: string) => navigateTo(routes.modelDetail(slug))
@@ -88,7 +86,6 @@ export function useNavigation() {
     goToHome,
     goToInbox,
     goToSettings,
-    goToEarnings,
     goToEndpointDetail,
     goToModelDetail,
     goToDatasetDetail,
