@@ -9,10 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from syft_space.components.payments.gateway.balance_service import (
-    InsufficientBalanceError,
-)
 from syft_space.components.policy_types.interfaces import (
+    BalanceShortfallError,
     BasePolicyType,
     Capabilities,
     PolicyContext,
@@ -132,28 +130,8 @@ class XenditPerDocumentPolicy(BasePolicyType):
                 policy_type=self.NAME,
             )
 
-        balance_service = context.metadata.get("balance_service")
-        if not balance_service:
-            raise PolicyViolationError(
-                message="Balance service not available",
-                policy_type=self.NAME,
-                details={"user": user_email},
-            )
-
-        wallet_id = context.metadata.get("xendit_wallet_id")
-        currency = context.metadata.get("xendit_wallet_currency")
-        endpoint_id = context.metadata.get("endpoint_id")
-        tenant_id = context.metadata.get("tenant_id")
-        if not wallet_id or not currency or not endpoint_id or not tenant_id:
-            raise PolicyViolationError(
-                message="Missing wallet/endpoint context for bundle check",
-                policy_type=self.NAME,
-                details={"user": user_email},
-            )
-
-        balance = await balance_service.get_balance(
-            wallet_id=wallet_id, tenant_id=tenant_id, user_email=user_email
-        )
+        charger = context.payment_chargers.xendit()
+        balance = await charger.get_balance(user_email)
         if balance < price:
             raise PolicyViolationError(
                 message="Insufficient balance. Please purchase more credits.",
@@ -162,7 +140,7 @@ class XenditPerDocumentPolicy(BasePolicyType):
                     "user": user_email,
                     "balance": balance,
                     "price_per_document": price,
-                    "currency": currency,
+                    "currency": charger.currency,
                 },
             )
 
@@ -193,29 +171,18 @@ class XenditPerDocumentPolicy(BasePolicyType):
         if count == 0:
             return context
 
-        balance_service = context.metadata.get("balance_service")
-        wallet_id = context.metadata.get("xendit_wallet_id")
-        currency = context.metadata.get("xendit_wallet_currency")
-        endpoint_id = context.metadata.get("endpoint_id")
-        tenant_id = context.metadata.get("tenant_id")
-        if not balance_service or not wallet_id or not endpoint_id or not tenant_id:
-            return context
-
         total = count * price
         user_email = str(context.sender_email)
+        charger = context.payment_chargers.xendit()
 
         try:
-            await balance_service.reserve(
-                wallet_id=wallet_id,
-                tenant_id=tenant_id,
+            await charger.reserve(
                 user_email=user_email,
-                endpoint_id=endpoint_id,
                 amount=total,
-                currency=currency,
                 charge_unit="document",
                 charge_quantity=count,
             )
-        except InsufficientBalanceError as exc:
+        except BalanceShortfallError as exc:
             raise PolicyViolationError(
                 message="Insufficient balance for the documents retrieved.",
                 policy_type=self.NAME,
@@ -224,12 +191,12 @@ class XenditPerDocumentPolicy(BasePolicyType):
                     "documents": count,
                     "price_per_document": price,
                     "total": total,
-                    "currency": currency,
+                    "currency": exc.currency,
                 },
             ) from exc
 
         if response.get("references"):
             response["references"]["cost"] = total
-            response["references"]["currency"] = currency
+            response["references"]["currency"] = charger.currency
 
         return context

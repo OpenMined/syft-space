@@ -508,11 +508,6 @@ async def check_endpoint_deletable(endpoint_id, tenant_id) -> str | None:
     return None
 
 
-# Metadata enricher (dependency inversion — query handler doesn't import payments)
-async def enrich_query_metadata(metadata: dict) -> None:
-    metadata["balance_service"] = balance_service
-
-
 # Analytics adapter (dependency inversion — endpoints doesn't import analytics).
 # Translates a domain QueryOutcomeEvent into an analytics row + cost lines and
 # fires the capture in the background. The set + done-callback holds task
@@ -594,7 +589,7 @@ query_endpoint_handler = QueryEndpointHandler(
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
-    metadata_enricher=enrich_query_metadata,
+    balance_service=balance_service,
     event_reporter=report_query_event,
 )
 publish_endpoint_handler = PublishEndpointHandler(

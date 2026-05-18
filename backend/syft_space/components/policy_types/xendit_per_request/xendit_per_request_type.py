@@ -10,10 +10,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from syft_space.components.payments.gateway.balance_service import (
-    InsufficientBalanceError,
-)
 from syft_space.components.policy_types.interfaces import (
+    BalanceShortfallError,
     BasePolicyType,
     Capabilities,
     PolicyContext,
@@ -117,44 +115,22 @@ class XenditPerRequestPolicy(BasePolicyType):
                 policy_type=self.NAME,
             )
 
-        balance_service = context.metadata.get("balance_service")
-        if not balance_service:
-            raise PolicyViolationError(
-                message="Balance service not available",
-                policy_type=self.NAME,
-                details={"user": user_email},
-            )
-
-        wallet_id = context.metadata.get("xendit_wallet_id")
-        currency = context.metadata.get("xendit_wallet_currency")
-        endpoint_id = context.metadata.get("endpoint_id")
-        tenant_id = context.metadata.get("tenant_id")
-        if not wallet_id or not currency or not endpoint_id or not tenant_id:
-            raise PolicyViolationError(
-                message="Missing wallet/endpoint context for bundle check",
-                policy_type=self.NAME,
-                details={"user": user_email},
-            )
-
+        charger = context.payment_chargers.xendit()
         try:
-            transaction_id = await balance_service.reserve(
-                wallet_id=wallet_id,
-                tenant_id=tenant_id,
+            transaction_id = await charger.reserve(
                 user_email=user_email,
-                endpoint_id=endpoint_id,
                 amount=price,
-                currency=currency,
                 charge_unit="request",
                 charge_quantity=1,
             )
-        except InsufficientBalanceError as exc:
+        except BalanceShortfallError as exc:
             raise PolicyViolationError(
                 message="Insufficient balance. Please purchase more credits.",
                 policy_type=self.NAME,
                 details={
                     "user": user_email,
                     "price_per_request": price,
-                    "currency": currency,
+                    "currency": exc.currency,
                 },
             ) from exc
 
@@ -172,12 +148,13 @@ class XenditPerRequestPolicy(BasePolicyType):
 
         transaction_id = context.metadata.get("xendit_transaction_id")
         price = context.metadata.get("xendit_price_per_request")
-        currency = context.metadata.get("xendit_wallet_currency")
 
         # No transaction ID means the request was not charged
         if not transaction_id:
             return context
 
+        charger = context.payment_chargers.xendit()
+        currency = charger.currency
         response = context.response or {}
 
         has_summary = bool(
@@ -199,9 +176,7 @@ class XenditPerRequestPolicy(BasePolicyType):
             return context
 
         # Cancel the reservation if the response is empty (no useful content)
-        balance_service = context.metadata["balance_service"]
-
-        await balance_service.cancel(transaction_id)
+        await charger.cancel(transaction_id)
 
         return context
 

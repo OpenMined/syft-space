@@ -5,8 +5,6 @@ from typing import Any, ClassVar
 
 from loguru import logger
 from mpp import Challenge
-from mpp.methods.tempo import PATH_USD, TESTNET_CHAIN_ID, ChargeIntent, tempo
-from mpp.server import Mpp
 from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
@@ -17,7 +15,6 @@ from syft_space.components.policy_types.interfaces import (
     PolicyViolationError,
 )
 from syft_space.components.shared.utils import matches_any_pattern
-from syft_space.config import app_settings
 
 
 class UnitType(StrEnum):
@@ -44,7 +41,6 @@ class MppPerRequestPolicy(BasePolicyType):
     """MPP-based payment policy using Tempo blockchain."""
 
     NAME: ClassVar[str] = "mpp_per_request"
-    _mpp_instances: ClassVar[dict[str, Mpp]] = {}
 
     @classmethod
     def capabilities(cls) -> Capabilities:
@@ -102,31 +98,6 @@ class MppPerRequestPolicy(BasePolicyType):
 
         return best_price
 
-    async def _get_mpp_instance(
-        self, wallet_address: str, realm: str, secret_key: str
-    ) -> Mpp:
-        """Get or create a cached Mpp server instance for charging.
-
-        Instances are cached per (wallet_address, realm) so the HMAC-based
-        challenge verification uses a consistent realm across the
-        402 challenge → pay → verify flow.
-        """
-        cache_key = f"{wallet_address}:{realm}"
-        if cache_key not in MppPerRequestPolicy._mpp_instances:
-            chain_id = TESTNET_CHAIN_ID if app_settings.tempo_testnet else None
-            method = tempo(
-                currency=PATH_USD,
-                recipient=wallet_address,
-                chain_id=chain_id,
-                intents={"charge": ChargeIntent(chain_id=chain_id)},
-            )
-            MppPerRequestPolicy._mpp_instances[cache_key] = Mpp.create(
-                method=method,
-                secret_key=secret_key,
-                realm=realm,
-            )
-        return MppPerRequestPolicy._mpp_instances[cache_key]
-
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
@@ -135,10 +106,9 @@ class MppPerRequestPolicy(BasePolicyType):
         Flow:
         1. Match sender_email against pricing tiers to determine price
         2. If price is 0, allow through (free tier)
-        3. Check for X-Payment credential in context.metadata
-        4. If no credential: raise PaymentRequiredError with 402 challenge
-        5. If credential present: verify payment via mpp.charge()
-        6. Store receipt in context.metadata
+        3. Call MppCharger.charge() — it wraps the bound X-Payment credential
+        4. If charge returns Challenge: raise PaymentRequiredError (→ HTTP 402)
+        5. Otherwise stash credential/receipt for the post-hook
         """
         sender_email = context.sender_email
 
@@ -157,27 +127,9 @@ class MppPerRequestPolicy(BasePolicyType):
         if price == 0:
             return context
 
-        # Get wallet configuration from context metadata
-        wallet_config = context.metadata.get("wallets", {}).get("mpp", {})
-        wallet_address = wallet_config.get("wallet_address")
-        if not wallet_address:
-            raise PolicyViolationError(
-                message="Payment is required but the endpoint owner has not configured a wallet address",
-                policy_type=self.NAME,
-            )
-
-        # Get X-Payment credential from metadata (injected by route handler)
-        x_payment = context.metadata.get("x_payment")
-
-        # Create MPP instance and attempt charge
-        secret_key = wallet_config.get("mpp_secret_key", "")
-        mpp = await self._get_mpp_instance(
-            wallet_address, realm=context.endpoint_slug, secret_key=secret_key
-        )
-
-        result = await mpp.charge(
-            authorization=x_payment,
-            amount=str(price),
+        charger = context.payment_chargers.mpp()
+        result = await charger.charge(
+            amount=price,
             description=f"Query endpoint: {context.endpoint_slug}",
         )
 

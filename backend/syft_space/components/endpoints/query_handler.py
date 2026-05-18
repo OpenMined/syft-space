@@ -11,11 +11,11 @@ from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint, ResponseType
 from syft_space.components.endpoints.interfaces import (
-    MetadataEnricher,
     QueryEventReporter,
     QueryOutcome,
     QueryOutcomeEvent,
 )
+from syft_space.components.endpoints.policy_charging import build_payment_chargers
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.schemas import (
     AuthenticatedQueryRequest,
@@ -34,6 +34,7 @@ from syft_space.components.model_types.interfaces import (
 )
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
+from syft_space.components.payments.gateway.balance_service import BalanceService
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policy_types.interfaces import (
     PaymentRequiredError,
@@ -58,7 +59,7 @@ class QueryEndpointHandler:
         model_registry: ModelTypeRegistry,
         policy_registry: PolicyTypeRegistry,
         wallet_repository: WalletRepository | None = None,
-        metadata_enricher: MetadataEnricher | None = None,
+        balance_service: BalanceService | None = None,
         event_reporter: QueryEventReporter | None = None,
     ):
         self.endpoint_repository = endpoint_repository
@@ -69,7 +70,7 @@ class QueryEndpointHandler:
         self.model_registry = model_registry
         self.policy_registry = policy_registry
         self.wallet_repository = wallet_repository
-        self.metadata_enricher = metadata_enricher
+        self.balance_service = balance_service
         self.event_reporter = event_reporter
 
     async def query_endpoint(
@@ -114,16 +115,6 @@ class QueryEndpointHandler:
                 for policy_type, policies in policies_by_type.items()
             }
 
-            # Build policy context metadata
-            metadata: dict = {
-                "endpoint_id": endpoint.id,
-                "tenant_id": tenant.id,
-            }
-
-            # Enrich metadata with cross-component services (e.g., balance_service)
-            if self.metadata_enricher:
-                await self.metadata_enricher(metadata)
-
             # Load wallets referenced by payment policies (single batch query)
             wallet_ids = list(
                 {
@@ -133,25 +124,27 @@ class QueryEndpointHandler:
                     if p.wallet_id
                 }
             )
+            wallets: list = []
             if wallet_ids and self.wallet_repository:
                 wallets = await self.wallet_repository.get_by_ids(wallet_ids, tenant.id)
-                metadata["wallets"] = {w.wallet_type: w.configuration for w in wallets}
-                # Surface wallet identity per type for prepaid policies (they need
-                # the wallet_id + currency to record balance movements).
-                for w in wallets:
-                    metadata[f"{w.wallet_type}_wallet_id"] = w.id
-                    metadata[f"{w.wallet_type}_wallet_currency"] = w.currency
 
-            # Inject X-Payment credential for MPP accounting policy
-            if x_payment:
-                metadata["x_payment"] = x_payment
+            # Build typed payment chargers bag from attached wallets; policies
+            # access chargers via context.payment_chargers.{mpp,xendit}().
+            payment_chargers = build_payment_chargers(
+                wallets=wallets,
+                balance_service=self.balance_service,
+                tenant_id=tenant.id,
+                endpoint_id=endpoint.id,
+                endpoint_slug=slug,
+                x_payment=x_payment,
+            )
 
             # Create policy context with verified sender email
             policy_context = PolicyContext(
                 endpoint_slug=slug,
                 sender_email=request.sender_email,
                 request=request.model_dump(),
-                metadata=metadata,
+                payment_chargers=payment_chargers,
             )
 
             # Apply pre-hooks per type (one instance per type, all configs passed)

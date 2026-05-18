@@ -10,8 +10,6 @@ from typing import Any, ClassVar
 
 from loguru import logger
 from mpp import Challenge
-from mpp.methods.tempo import PATH_USD, TESTNET_CHAIN_ID, ChargeIntent, tempo
-from mpp.server import Mpp
 from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
@@ -22,7 +20,6 @@ from syft_space.components.policy_types.interfaces import (
     PolicyViolationError,
 )
 from syft_space.components.shared.utils import matches_any_pattern
-from syft_space.config import app_settings
 
 
 class MppPerDocumentConfig(BaseModel):
@@ -51,7 +48,6 @@ class MppPerDocumentPolicy(BasePolicyType):
     """
 
     NAME: ClassVar[str] = "mpp_per_document"
-    _mpp_instances: ClassVar[dict[str, Mpp]] = {}
 
     @classmethod
     def capabilities(cls) -> Capabilities:
@@ -115,34 +111,18 @@ class MppPerDocumentPolicy(BasePolicyType):
 
         return best_price
 
-    async def _get_mpp_instance(
-        self, wallet_address: str, realm: str, secret_key: str
-    ) -> Mpp:
-        """Get or create a cached Mpp server instance.
-
-        Cached per (wallet_address, realm) so HMAC challenge verification
-        stays consistent across the 402 → pay → verify flow.
-        """
-        cache_key = f"{wallet_address}:{realm}"
-        if cache_key not in MppPerDocumentPolicy._mpp_instances:
-            chain_id = TESTNET_CHAIN_ID if app_settings.tempo_testnet else None
-            method = tempo(
-                currency=PATH_USD,
-                recipient=wallet_address,
-                chain_id=chain_id,
-                intents={"charge": ChargeIntent(chain_id=chain_id)},
-            )
-            MppPerDocumentPolicy._mpp_instances[cache_key] = Mpp.create(
-                method=method,
-                secret_key=secret_key,
-                realm=realm,
-            )
-        return MppPerDocumentPolicy._mpp_instances[cache_key]
-
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
-        """Gate on credential presence; defer real charging to post_hook."""
+        """Resolve the per-document price for this user and stash it.
+
+        Real charging happens in post_hook once the document count is known.
+        If the request lacks a valid X-Payment credential, post_hook's
+        charge call returns a Challenge → PaymentRequiredError → HTTP 402.
+        (We could 402 eagerly here, but search compute is cheap enough that
+        the savings don't justify exposing credential presence on the
+        charger Protocol. Revisit if search costs grow.)
+        """
         sender_email = context.sender_email
         price_per_document = self._find_matching_price(sender_email, configs)
         if price_per_document is None:
@@ -152,49 +132,6 @@ class MppPerDocumentPolicy(BasePolicyType):
                     policy_type=self.NAME,
                 )
             return context
-
-        if price_per_document == 0:
-            context.metadata["mpp_per_doc_price"] = 0.0
-            return context
-
-        wallet_config = context.metadata.get("wallets", {}).get("mpp", {})
-        wallet_address = wallet_config.get("wallet_address")
-        if not wallet_address:
-            raise PolicyViolationError(
-                message=(
-                    "Payment is required but the endpoint owner has not "
-                    "configured a wallet address"
-                ),
-                policy_type=self.NAME,
-            )
-
-        x_payment = context.metadata.get("x_payment")
-        if not x_payment:
-            secret_key = wallet_config.get("mpp_secret_key", "")
-            mpp = await self._get_mpp_instance(
-                wallet_address,
-                realm=context.endpoint_slug,
-                secret_key=secret_key,
-            )
-            # No credential → MPP returns a Challenge for the requested
-            # amount. Sizing for one document is a hint; the real total is
-            # computed post-search and re-charged via the supplied credential.
-            result = await mpp.charge(
-                authorization=None,
-                amount=str(price_per_document),
-                description=(f"Query endpoint: {context.endpoint_slug} (per-document)"),
-            )
-            if isinstance(result, Challenge):
-                www_authenticate = result.to_www_authenticate(
-                    realm=context.endpoint_slug
-                )
-                raise PaymentRequiredError(
-                    www_authenticate=www_authenticate,
-                    description=(
-                        f"Payment of at least ${price_per_document} per "
-                        "document required to query this endpoint"
-                    ),
-                )
 
         context.metadata["mpp_per_doc_price"] = price_per_document
         return context
@@ -220,20 +157,10 @@ class MppPerDocumentPolicy(BasePolicyType):
             return context
 
         total = count * price_per_document
-        wallet_config = context.metadata.get("wallets", {}).get("mpp", {})
-        wallet_address = wallet_config.get("wallet_address")
-        secret_key = wallet_config.get("mpp_secret_key", "")
-        x_payment = context.metadata.get("x_payment")
-
-        mpp = await self._get_mpp_instance(
-            wallet_address, realm=context.endpoint_slug, secret_key=secret_key
-        )
-        result = await mpp.charge(
-            authorization=x_payment,
-            amount=str(total),
-            description=(
-                f"Query endpoint: {context.endpoint_slug} ({count} documents)"
-            ),
+        charger = context.payment_chargers.mpp()
+        result = await charger.charge(
+            amount=total,
+            description=f"Query endpoint: {context.endpoint_slug} ({count} documents)",
         )
 
         if isinstance(result, Challenge):
