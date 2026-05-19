@@ -1825,13 +1825,6 @@ const handlePricingRuleCreated = (payload: {
   const userType = appliedTo.length === 1 && appliedTo[0] === '*' ? 'all' : 'specific'
   const users = userType === 'specific' ? appliedTo.join(', ') : ''
 
-  // Per-doc uses price_per_document; per-request differs by provider — normalize.
-  const rawPrice = payload.policyType.endsWith('_per_document')
-    ? payload.config.price_per_document
-    : payload.walletType === 'mpp'
-      ? payload.config.price
-      : payload.config.price_per_request
-
   const config: Record<string, unknown> = {
     id: ruleId,
     walletId: payload.walletId,
@@ -1841,7 +1834,7 @@ const handlePricingRuleCreated = (payload: {
     userType,
     users,
     note: payload.name,
-    price: String(rawPrice ?? '0'),
+    price: String(payload.config.price ?? '0'),
   }
 
   policyRules.value.pricing.push({

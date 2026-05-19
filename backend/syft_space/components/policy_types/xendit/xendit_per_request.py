@@ -1,14 +1,12 @@
-"""Xendit payment policy type implementation.
+"""Xendit per-request policy type implementation.
 
-Wallet-scoped money-balance model. The policy carries only price_per_request
-and applied_to. Currency, country, and bundles live on the Wallet (linked
-via Policy.wallet_id), so the same balance is fungible across all endpoints
+Wallet-scoped money-balance model. The policy carries only price and
+applied_to. Currency, country, and bundles live on the Wallet (linked via
+Policy.wallet_id), so the same balance is fungible across all endpoints
 that reference the same wallet.
 """
 
 from typing import Any
-
-from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
     BalanceShortfallError,
@@ -17,38 +15,21 @@ from syft_space.components.policy_types.interfaces import (
     PolicyContext,
     PolicyViolationError,
 )
+from syft_space.components.policy_types.xendit.policy_config import (
+    XenditPaymentConfig,
+)
 from syft_space.components.shared.utils import (
     ConfigSchemaGenerator,
     matches_any_pattern,
 )
 
 
-class XenditPerRequestConfig(BaseModel):
-    """Configuration schema for xendit pricing policy.
-
-    Currency, country, and bundles live on the linked Wallet — not here.
-    The wallet's currency must match across all xendit policies that share it.
-    """
-
-    price_per_request: float = Field(
-        ..., gt=0, description="Cost per request in the wallet's currency"
-    )
-    applied_to: list[str] = Field(
-        default_factory=lambda: ["*"],
-        description="List of user emails or glob patterns. Use '*' for all users.",
-    )
-
-    def applies_to_user(self, user_email: str) -> bool:
-        """Check if this policy applies to the given user email."""
-        return matches_any_pattern(user_email, self.applied_to)
-
-
 class XenditPerRequestPolicy(BasePolicyType):
-    """Xendit pricing policy.
+    """Xendit per-request pricing policy.
 
-    Admin sets price_per_request. End users buy money bundles via the linked
-    wallet, and balance is deducted by price_per_request on each query.
-    Balance is fungible across all endpoints sharing the wallet.
+    Admin sets price. End users buy money bundles via the linked wallet,
+    and balance is deducted by price on each query. Balance is fungible
+    across all endpoints sharing the wallet.
     """
 
     NAME = "xendit_per_request"
@@ -71,7 +52,7 @@ class XenditPerRequestPolicy(BasePolicyType):
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
-        return XenditPerRequestConfig.model_json_schema(
+        return XenditPaymentConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
 
@@ -87,21 +68,21 @@ class XenditPerRequestPolicy(BasePolicyType):
         best_specificity = -1
 
         for config in configs:
-            validated = XenditPerRequestConfig(**config)
+            validated = XenditPaymentConfig(**config)
             for pattern in validated.applied_to:
                 if not matches_any_pattern(user_email, [pattern]):
                     continue
                 specificity = 0 if pattern == "*" else len(pattern.replace("*", ""))
                 if specificity > best_specificity:
                     best_specificity = specificity
-                    best_price = validated.price_per_request
+                    best_price = validated.price
 
         return best_price
 
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
-        """Reserve price_per_request from the user's wallet balance."""
+        """Reserve price from the user's wallet balance."""
         if not configs:
             return context
 
@@ -129,13 +110,13 @@ class XenditPerRequestPolicy(BasePolicyType):
                 policy_type=self.NAME,
                 details={
                     "user": user_email,
-                    "price_per_request": price,
+                    "price": price,
                     "currency": exc.currency,
                 },
             ) from exc
 
         context.metadata["xendit_transaction_id"] = transaction_id
-        context.metadata["xendit_price_per_request"] = price
+        context.metadata["xendit_price"] = price
 
         return context
 
@@ -147,7 +128,7 @@ class XenditPerRequestPolicy(BasePolicyType):
             return context
 
         transaction_id = context.metadata.get("xendit_transaction_id")
-        price = context.metadata.get("xendit_price_per_request")
+        price = context.metadata.get("xendit_price")
 
         # No transaction ID means the request was not charged
         if not transaction_id:
@@ -187,7 +168,7 @@ class XenditPerRequestPolicy(BasePolicyType):
     @classmethod
     async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         try:
-            validated = XenditPerRequestConfig(**config)
+            validated = XenditPaymentConfig(**config)
             return validated.model_dump()
         except Exception as e:
             raise ValueError(f"Invalid xendit config: {e}") from e

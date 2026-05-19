@@ -16,13 +16,11 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     """
     # Import and register built-in policy types here as they're implemented
     from .access.access_type import EndpointAccessPolicy
-    from .mpp_per_document.mpp_per_document_type import MppPerDocumentPolicy
-    from .mpp_per_request.mpp_per_request_type import MppPerRequestPolicy
+    from .mpp.mpp_per_document import MppPerDocumentPolicy
+    from .mpp.mpp_per_request import MppPerRequestPolicy
     from .rate_limit.rate_limit_type import EndpointRateLimitPolicy
-    from .xendit_per_document.xendit_per_document_type import (
-        XenditPerDocumentPolicy,
-    )
-    from .xendit_per_request.xendit_per_request_type import XenditPerRequestPolicy
+    from .xendit.xendit_per_document import XenditPerDocumentPolicy
+    from .xendit.xendit_per_request import XenditPerRequestPolicy
 
     registry.register_policy_type(EndpointRateLimitPolicy)
     registry.register_policy_type(EndpointAccessPolicy)

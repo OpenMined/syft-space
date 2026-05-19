@@ -1,13 +1,11 @@
 """Xendit per-document policy type.
 
-Charges price_per_document per retrieved document, settled in post_hook
-once the search has returned. A cheap pre_hook floor check refuses the
-request when the user's balance can't cover even a single document.
+Charges price per retrieved document, settled in post_hook once the search
+has returned. A cheap pre_hook floor check refuses the request when the
+user's balance can't cover even a single document.
 """
 
 from typing import Any
-
-from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
     BalanceShortfallError,
@@ -16,38 +14,25 @@ from syft_space.components.policy_types.interfaces import (
     PolicyContext,
     PolicyViolationError,
 )
+from syft_space.components.policy_types.xendit.policy_config import (
+    XenditPaymentConfig,
+)
 from syft_space.components.shared.utils import (
     ConfigSchemaGenerator,
     matches_any_pattern,
 )
 
 
-class XenditPerDocumentConfig(BaseModel):
-    """Configuration schema for xendit per-document pricing policy."""
-
-    price_per_document: float = Field(
-        ..., gt=0, description="Cost per retrieved document in the wallet's currency"
-    )
-    applied_to: list[str] = Field(
-        default_factory=lambda: ["*"],
-        description="List of user emails or glob patterns. Use '*' for all users.",
-    )
-
-    def applies_to_user(self, user_email: str) -> bool:
-        """Check if this policy applies to the given user email."""
-        return matches_any_pattern(user_email, self.applied_to)
-
-
 class XenditPerDocumentPolicy(BasePolicyType):
     """Xendit per-document pricing policy.
 
-    Pre-hook: cheap floor check (balance >= price_per_document) so a user
-    with zero balance can't keep triggering search compute.
+    Pre-hook: cheap floor check (balance >= price) so a user with zero
+    balance can't keep triggering search compute.
 
     Post-hook: count the documents in the response, settle for
-    count * price_per_document via the same BalanceService.reserve path
-    used by per-request. On insufficient balance the response is dropped
-    (we don't ship documents we can't charge for).
+    count * price via the same BalanceService.reserve path used by
+    per-request. On insufficient balance the response is dropped (we don't
+    ship documents we can't charge for).
     """
 
     NAME = "xendit_per_document"
@@ -74,7 +59,7 @@ class XenditPerDocumentPolicy(BasePolicyType):
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
-        return XenditPerDocumentConfig.model_json_schema(
+        return XenditPaymentConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
 
@@ -85,7 +70,7 @@ class XenditPerDocumentPolicy(BasePolicyType):
     @classmethod
     async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         try:
-            validated = XenditPerDocumentConfig(**config)
+            validated = XenditPaymentConfig(**config)
             return validated.model_dump()
         except Exception as e:
             raise ValueError(f"Invalid xendit_per_document config: {e}") from e
@@ -102,14 +87,14 @@ class XenditPerDocumentPolicy(BasePolicyType):
         best_specificity = -1
 
         for config in configs:
-            validated = XenditPerDocumentConfig(**config)
+            validated = XenditPaymentConfig(**config)
             for pattern in validated.applied_to:
                 if not matches_any_pattern(user_email, [pattern]):
                     continue
                 specificity = 0 if pattern == "*" else len(pattern.replace("*", ""))
                 if specificity > best_specificity:
                     best_specificity = specificity
-                    best_price = validated.price_per_document
+                    best_price = validated.price
 
         return best_price
 
@@ -139,12 +124,12 @@ class XenditPerDocumentPolicy(BasePolicyType):
                 details={
                     "user": user_email,
                     "balance": balance,
-                    "price_per_document": price,
+                    "price": price,
                     "currency": charger.currency,
                 },
             )
 
-        context.metadata["xendit_price_per_document"] = price
+        context.metadata["xendit_per_doc_price"] = price
 
         return context
 
@@ -160,7 +145,7 @@ class XenditPerDocumentPolicy(BasePolicyType):
         if not configs:
             return context
 
-        price = context.metadata.get("xendit_price_per_document")
+        price = context.metadata.get("xendit_per_doc_price")
         if price is None:
             return context
 
@@ -189,7 +174,7 @@ class XenditPerDocumentPolicy(BasePolicyType):
                 details={
                     "user": user_email,
                     "documents": count,
-                    "price_per_document": price,
+                    "price": price,
                     "total": total,
                     "currency": exc.currency,
                 },

@@ -1,11 +1,9 @@
 """MPP per-request policy type for per-query payments via Machine Payments Protocol."""
 
-from enum import StrEnum
 from typing import Any, ClassVar
 
 from loguru import logger
 from mpp import Challenge
-from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
@@ -14,27 +12,8 @@ from syft_space.components.policy_types.interfaces import (
     PolicyContext,
     PolicyViolationError,
 )
+from syft_space.components.policy_types.mpp.policy_config import MppPaymentConfig
 from syft_space.components.shared.utils import matches_any_pattern
-
-
-class UnitType(StrEnum):
-    """Unit type for MPP accounting policy."""
-
-    REQUESTS = "requests"
-
-
-class MppPerRequestConfig(BaseModel):
-    """Configuration for MPP accounting policy."""
-
-    price: float = Field(ge=0, description="Price per query in USD")
-    unit_type: UnitType = Field(
-        default=UnitType.REQUESTS,
-        description="Unit type for this policy",
-    )
-    applied_to: list[str] = Field(
-        default_factory=lambda: ["*"],
-        description="List of user email patterns. Use '*' for all users.",
-    )
 
 
 class MppPerRequestPolicy(BasePolicyType):
@@ -64,12 +43,12 @@ class MppPerRequestPolicy(BasePolicyType):
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
-        return MppPerRequestConfig.model_json_schema()
+        return MppPaymentConfig.model_json_schema()
 
     @classmethod
     async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Validate and normalize the configuration."""
-        validated = MppPerRequestConfig(**config)
+        validated = MppPaymentConfig(**config)
         return validated.model_dump()
 
     def __init__(self) -> None:
@@ -87,7 +66,7 @@ class MppPerRequestPolicy(BasePolicyType):
         best_specificity = -1
 
         for config in configs:
-            validated = MppPerRequestConfig(**config)
+            validated = MppPaymentConfig(**config)
             for pattern in validated.applied_to:
                 if not matches_any_pattern(sender_email, [pattern]):
                     continue

@@ -1197,26 +1197,15 @@ const getPricingPolicySummary = (policy: {
   const wallet = policyWallet(policy)
   const currency = wallet?.currency ?? 'USD'
 
-  // MPP: price per query
-  if (policy.policy_type === 'mpp_per_request' && config?.price !== undefined) {
-    return `${config.price} ${currency} per query ${appliedLabel}`.trim()
+  if (config?.price === undefined) {
+    return 'Pricing rule configured'
   }
 
-  // Xendit: price per request
-  if (policy.policy_type === 'xendit_per_request' && config?.price_per_request !== undefined) {
-    return `${config.price_per_request} ${currency} per request ${appliedLabel}`.trim()
-  }
-
-  // Per-document (MPP and Xendit share the field name).
-  if (
-    (policy.policy_type === 'mpp_per_document' ||
-      policy.policy_type === 'xendit_per_document') &&
-    config?.price_per_document !== undefined
-  ) {
-    return `${config.price_per_document} ${currency} per document ${appliedLabel}`.trim()
-  }
-
-  return 'Pricing rule configured'
+  const isPerDocument =
+    policy.policy_type === 'mpp_per_document' ||
+    policy.policy_type === 'xendit_per_document'
+  const unit = isPerDocument ? 'document' : 'request'
+  return `${config.price} ${currency} per ${unit} ${appliedLabel}`.trim()
 }
 
 // ── Transactions state ──

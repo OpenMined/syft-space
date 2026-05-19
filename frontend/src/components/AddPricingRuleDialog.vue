@@ -526,10 +526,7 @@ const policyTypeForWallet = (
   return chargeMode === 'document' ? 'xendit_per_document' : 'xendit_per_request'
 }
 
-const buildConfig = (
-  walletType: string,
-  chargeMode: ChargeMode,
-): Record<string, unknown> => {
+const buildConfig = (): Record<string, unknown> => {
   const price = parseFloat(form.value.price) || 0
   const appliedTo =
     form.value.userType === 'all'
@@ -539,15 +536,7 @@ const buildConfig = (
           .map((e) => e.trim())
           .filter((e) => e)
 
-  // Per-document policies share one schema across providers: { price_per_document, applied_to }.
-  if (chargeMode === 'document') {
-    return { price_per_document: price, applied_to: appliedTo }
-  }
-  // Per-request: MPP and Xendit use different price field names.
-  if (walletType === 'mpp') {
-    return { price, unit_type: 'requests', applied_to: appliedTo }
-  }
-  return { price_per_request: price, applied_to: appliedTo }
+  return { price, applied_to: appliedTo }
 }
 
 const fetchWallets = async () => {
@@ -638,7 +627,7 @@ const submit = () => {
     walletCurrency: w.currency,
     policyType: policyTypeForWallet(w.wallet_type, form.value.chargeMode),
     name: form.value.name.trim(),
-    config: buildConfig(w.wallet_type, form.value.chargeMode),
+    config: buildConfig(),
   })
   emit('update:open', false)
 }

@@ -1,16 +1,15 @@
 """MPP per-document policy type.
 
-Charges price_per_document per retrieved document via the Machine Payments
-Protocol, settled in post_hook once the search has returned. MPP has no
-server-side balance, so pre_hook can only verify a credential is present
-(issuing a 402 challenge if missing) — the real charge happens post-search.
+Charges price per retrieved document via the Machine Payments Protocol,
+settled in post_hook once the search has returned. MPP has no server-side
+balance, so pre_hook can only verify a credential is present (issuing a
+402 challenge if missing) — the real charge happens post-search.
 """
 
 from typing import Any, ClassVar
 
 from loguru import logger
 from mpp import Challenge
-from pydantic import BaseModel, Field
 
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
@@ -19,19 +18,8 @@ from syft_space.components.policy_types.interfaces import (
     PolicyContext,
     PolicyViolationError,
 )
+from syft_space.components.policy_types.mpp.policy_config import MppPaymentConfig
 from syft_space.components.shared.utils import matches_any_pattern
-
-
-class MppPerDocumentConfig(BaseModel):
-    """Configuration for MPP per-document policy."""
-
-    price_per_document: float = Field(
-        ge=0, description="Price per retrieved document in USD"
-    )
-    applied_to: list[str] = Field(
-        default_factory=lambda: ["*"],
-        description="List of user email patterns. Use '*' for all users.",
-    )
 
 
 class MppPerDocumentPolicy(BasePolicyType):
@@ -41,10 +29,10 @@ class MppPerDocumentPolicy(BasePolicyType):
     sized for a single document so the client knows what to pay. No charge
     happens here; we just gate on credential presence.
 
-    Post-hook: count documents, call ``mpp.charge`` for
-    ``count * price_per_document``. If the credential can't cover the actual
-    total, MPP returns a Challenge → PaymentRequiredError; the route layer
-    surfaces it as 402 and the response body is never returned.
+    Post-hook: count documents, call ``mpp.charge`` for ``count * price``.
+    If the credential can't cover the actual total, MPP returns a Challenge
+    → PaymentRequiredError; the route layer surfaces it as 402 and the
+    response body is never returned.
     """
 
     NAME: ClassVar[str] = "mpp_per_document"
@@ -78,11 +66,11 @@ class MppPerDocumentPolicy(BasePolicyType):
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
-        return MppPerDocumentConfig.model_json_schema()
+        return MppPaymentConfig.model_json_schema()
 
     @classmethod
     async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
-        validated = MppPerDocumentConfig(**config)
+        validated = MppPaymentConfig(**config)
         return validated.model_dump()
 
     def __init__(self) -> None:
@@ -100,14 +88,14 @@ class MppPerDocumentPolicy(BasePolicyType):
         best_specificity = -1
 
         for config in configs:
-            validated = MppPerDocumentConfig(**config)
+            validated = MppPaymentConfig(**config)
             for pattern in validated.applied_to:
                 if not matches_any_pattern(sender_email, [pattern]):
                     continue
                 specificity = 0 if pattern == "*" else len(pattern.replace("*", ""))
                 if specificity > best_specificity:
                     best_specificity = specificity
-                    best_price = validated.price_per_document
+                    best_price = validated.price
 
         return best_price
 
@@ -124,8 +112,8 @@ class MppPerDocumentPolicy(BasePolicyType):
         charger Protocol. Revisit if search costs grow.)
         """
         sender_email = context.sender_email
-        price_per_document = self._find_matching_price(sender_email, configs)
-        if price_per_document is None:
+        price = self._find_matching_price(sender_email, configs)
+        if price is None:
             if configs:
                 raise PolicyViolationError(
                     message="No pricing tier matches your account",
@@ -133,20 +121,20 @@ class MppPerDocumentPolicy(BasePolicyType):
                 )
             return context
 
-        context.metadata["mpp_per_doc_price"] = price_per_document
+        context.metadata["mpp_per_doc_price"] = price
         return context
 
     async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
-        """Charge count * price_per_document; 402 on credential shortfall.
+        """Charge count * price; 402 on credential shortfall.
 
         Cost is only written when a charge actually happened. Free-tier and
         zero-document requests leave cost/currency as None — absence is
         meaningful for downstream consumers.
         """
-        price_per_document = context.metadata.get("mpp_per_doc_price")
-        if price_per_document is None or price_per_document == 0:
+        price = context.metadata.get("mpp_per_doc_price")
+        if price is None or price == 0:
             return context
 
         response = context.response or {}
@@ -156,7 +144,7 @@ class MppPerDocumentPolicy(BasePolicyType):
         if count == 0:
             return context
 
-        total = count * price_per_document
+        total = count * price
         charger = context.payment_chargers.mpp()
         result = await charger.charge(
             amount=total,
