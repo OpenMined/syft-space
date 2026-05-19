@@ -2,6 +2,11 @@
 
 Uses spaCy for robust NLP: normalization, stop word removal,
 lemmatization, and domain-specific filtering.
+
+spaCy itself and its English model are imported lazily inside the
+_get_nlp() / _get_stop_words() helpers. Both are slow on cold disk
+cache and are only needed by the wordcloud pipeline, not by callers
+that just want extract_user_query() — keep app startup fast.
 """
 
 from __future__ import annotations
@@ -9,10 +14,9 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-import spacy
-from spacy.lang.en.stop_words import STOP_WORDS
-
 if TYPE_CHECKING:
+    import spacy
+
     from syft_space.components.endpoints.schemas import ChatMessageRequest
 
 # SyftHub's aggregator wraps every forwarded query in a prompt-builder
@@ -36,7 +40,7 @@ def _strip_aggregator_wrapper(content: str) -> str:
     return content.strip()
 
 
-def extract_user_query(messages: "str | list[ChatMessageRequest]") -> str:
+def extract_user_query(messages: str | list[ChatMessageRequest]) -> str:
     """Extract the user's actual query from a request payload.
 
     Returns the last user-role message content (or the raw string if
@@ -53,6 +57,7 @@ def extract_user_query(messages: "str | list[ChatMessageRequest]") -> str:
                 return _strip_aggregator_wrapper(m.content)
     return ""
 
+
 # Compile patterns once at module level
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"\S+@\S+\.\S+")
@@ -60,8 +65,9 @@ _PUNCTUATION_RE = re.compile(r"[^\w\s]")
 _NUMBER_RE = re.compile(r"\b\d+\b")
 _WHITESPACE_RE = re.compile(r"\s+")
 
-# Lazy-loaded spaCy model
+# Lazy-loaded spaCy artifacts
 _nlp: spacy.language.Language | None = None
+_stop_words: set[str] | None = None
 
 
 def _get_nlp() -> spacy.language.Language:
@@ -72,11 +78,27 @@ def _get_nlp() -> spacy.language.Language:
     """
     global _nlp
     if _nlp is None:
+        import spacy  # heavy; defer until first wordcloud call
+
         try:
             _nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
         except OSError:
             _nlp = spacy.blank("en")
     return _nlp
+
+
+def _get_stop_words() -> set[str]:
+    """Get or lazily load spaCy's English stop word list.
+
+    Returned set is the cached canonical copy — callers that mutate
+    (e.g., to merge custom stop words) must copy first.
+    """
+    global _stop_words
+    if _stop_words is None:
+        from spacy.lang.en.stop_words import STOP_WORDS
+
+        _stop_words = set(STOP_WORDS)
+    return _stop_words
 
 
 def clean_text_for_wordcloud(
@@ -118,7 +140,7 @@ def clean_text_for_wordcloud(
         return ""
 
     # 2. Build combined stop word set
-    stop_words = set(STOP_WORDS)
+    stop_words = set(_get_stop_words())
     if custom_stop_words:
         stop_words.update(w.lower() for w in custom_stop_words)
 
@@ -164,7 +186,7 @@ def clean_texts_batch(
     if not texts:
         return []
 
-    stop_words = set(STOP_WORDS)
+    stop_words = set(_get_stop_words())
     if custom_stop_words:
         stop_words.update(w.lower() for w in custom_stop_words)
 

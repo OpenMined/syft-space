@@ -847,7 +847,7 @@
   <AddPricingRuleDialog
     v-model:open="showAddPricingRuleDialog"
     :locked-wallet-id="lockedWalletId"
-    :endpoint-has-dataset="endpoint?.dataset_id != null"
+    :endpoint-has-dataset="!!endpoint?.dataset"
     @pricing-created="handlePricingCreated"
   />
 
@@ -1526,7 +1526,7 @@ onMounted(async () => {
     endpoint.value = response
 
     // Fetch ingestion data if endpoint has a dataset
-    if (response.dataset?.id) {
+    if (response.dataset) {
       try {
         const [ingestionResponse, allJobs] = await Promise.all([
           ingestionApi.getStatus(response.dataset.id),
