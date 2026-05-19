@@ -12,17 +12,18 @@ from loguru import logger
 from mpp import Challenge
 
 from syft_space.components.policy_types.interfaces import (
-    BasePolicyType,
     Capabilities,
     PaymentRequiredError,
     PolicyContext,
     PolicyViolationError,
 )
-from syft_space.components.policy_types.mpp.policy_config import MppPaymentConfig
-from syft_space.components.shared.utils import matches_any_pattern
+from syft_space.components.policy_types.mpp.mpp_payment_policy import (
+    MppPaymentPolicy,
+)
+from syft_space.components.policy_types.mpp.policy_config import MppPerDocumentConfig
 
 
-class MppPerDocumentPolicy(BasePolicyType):
+class MppPerDocumentPolicy(MppPaymentPolicy):
     """MPP-based per-document payment policy using Tempo blockchain.
 
     Pre-hook: if no X-Payment credential is presented, issue a 402 challenge
@@ -36,6 +37,11 @@ class MppPerDocumentPolicy(BasePolicyType):
     """
 
     NAME: ClassVar[str] = "mpp_per_document"
+    DESCRIPTION: ClassVar[str] = (
+        "Charge per retrieved document using the Machine Payments "
+        "Protocol (MPP) on Tempo blockchain"
+    )
+    CONFIG_CLS = MppPerDocumentConfig
 
     @classmethod
     def capabilities(cls) -> Capabilities:
@@ -44,60 +50,6 @@ class MppPerDocumentPolicy(BasePolicyType):
             required_wallet_type="mpp",
             requires_endpoint_dataset=True,
         )
-
-    @classmethod
-    def name(cls) -> str:
-        return cls.NAME
-
-    @classmethod
-    def description(cls) -> str:
-        return (
-            "Charge per retrieved document using the Machine Payments "
-            "Protocol (MPP) on Tempo blockchain"
-        )
-
-    @classmethod
-    def icon(cls) -> str:
-        return "💳"
-
-    @classmethod
-    def enabled(cls) -> bool:
-        return True
-
-    @classmethod
-    def configuration_schema(cls) -> dict[str, Any]:
-        return MppPaymentConfig.model_json_schema()
-
-    @classmethod
-    async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
-        validated = MppPaymentConfig(**config)
-        return validated.model_dump()
-
-    def __init__(self) -> None:
-        pass
-
-    def _find_matching_price(
-        self, sender_email: str, configs: list[dict[str, Any]]
-    ) -> float | None:
-        """Find the most specific matching price for a user.
-
-        Mirrors MppPerRequestPolicy's tier-matching: more specific patterns
-        (longer, non-wildcard) win.
-        """
-        best_price: float | None = None
-        best_specificity = -1
-
-        for config in configs:
-            validated = MppPaymentConfig(**config)
-            for pattern in validated.applied_to:
-                if not matches_any_pattern(sender_email, [pattern]):
-                    continue
-                specificity = 0 if pattern == "*" else len(pattern.replace("*", ""))
-                if specificity > best_specificity:
-                    best_specificity = specificity
-                    best_price = validated.price
-
-        return best_price
 
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext

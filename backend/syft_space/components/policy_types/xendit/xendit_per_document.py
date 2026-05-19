@@ -5,25 +5,23 @@ has returned. A cheap pre_hook floor check refuses the request when the
 user's balance can't cover even a single document.
 """
 
-from typing import Any
+from typing import Any, ClassVar
 
 from syft_space.components.policy_types.interfaces import (
     BalanceShortfallError,
-    BasePolicyType,
     Capabilities,
     PolicyContext,
     PolicyViolationError,
 )
 from syft_space.components.policy_types.xendit.policy_config import (
-    XenditPaymentConfig,
+    XenditPerDocumentConfig,
 )
-from syft_space.components.shared.utils import (
-    ConfigSchemaGenerator,
-    matches_any_pattern,
+from syft_space.components.policy_types.xendit.xendit_payment_policy import (
+    XenditPaymentPolicy,
 )
 
 
-class XenditPerDocumentPolicy(BasePolicyType):
+class XenditPerDocumentPolicy(XenditPaymentPolicy):
     """Xendit per-document pricing policy.
 
     Pre-hook: cheap floor check (balance >= price) so a user with zero
@@ -35,7 +33,11 @@ class XenditPerDocumentPolicy(BasePolicyType):
     ship documents we can't charge for).
     """
 
-    NAME = "xendit_per_document"
+    NAME: ClassVar[str] = "xendit_per_document"
+    DESCRIPTION: ClassVar[str] = (
+        "Pay-per-document billed against a Xendit wallet's prepaid balance"
+    )
+    CONFIG_CLS = XenditPerDocumentConfig
 
     @classmethod
     def capabilities(cls) -> Capabilities:
@@ -44,59 +46,6 @@ class XenditPerDocumentPolicy(BasePolicyType):
             required_wallet_type="xendit",
             requires_endpoint_dataset=True,
         )
-
-    @classmethod
-    def name(cls) -> str:
-        return cls.NAME
-
-    @classmethod
-    def description(cls) -> str:
-        return "Pay-per-document billed against a Xendit wallet's prepaid balance"
-
-    @classmethod
-    def icon(cls) -> str:
-        return "💳"
-
-    @classmethod
-    def configuration_schema(cls) -> dict[str, Any]:
-        return XenditPaymentConfig.model_json_schema(
-            schema_generator=ConfigSchemaGenerator
-        )
-
-    @classmethod
-    def enabled(cls) -> bool:
-        return True
-
-    @classmethod
-    async def validate_config(cls, config: dict[str, Any]) -> dict[str, Any]:
-        try:
-            validated = XenditPaymentConfig(**config)
-            return validated.model_dump()
-        except Exception as e:
-            raise ValueError(f"Invalid xendit_per_document config: {e}") from e
-
-    def _find_matching_price(
-        self, user_email: str, configs: list[dict[str, Any]]
-    ) -> float | None:
-        """Find the most specific matching price for a user.
-
-        More specific patterns (longer, non-wildcard) take priority.
-        Returns None if no config matches.
-        """
-        best_price: float | None = None
-        best_specificity = -1
-
-        for config in configs:
-            validated = XenditPaymentConfig(**config)
-            for pattern in validated.applied_to:
-                if not matches_any_pattern(user_email, [pattern]):
-                    continue
-                specificity = 0 if pattern == "*" else len(pattern.replace("*", ""))
-                if specificity > best_specificity:
-                    best_specificity = specificity
-                    best_price = validated.price
-
-        return best_price
 
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
@@ -108,7 +57,6 @@ class XenditPerDocumentPolicy(BasePolicyType):
         user_email = str(context.sender_email)
         price = self._find_matching_price(user_email, configs)
 
-        # If no price is found, deny the request
         if price is None:
             raise PolicyViolationError(
                 message="No pricing tier matches your account",

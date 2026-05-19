@@ -1,15 +1,21 @@
-"""Shared config for MPP payment policies (per-request, per-document).
+"""Configs for MPP payment policies.
 
-The policy slug discriminates the unit; `price` is per-unit in USD.
-Older policy rows used `price_per_request` or `price_per_document` —
-both still validate via AliasChoices for graceful migration.
+`MppPaymentConfig` is the shared base — price + applied_to. Subclasses fix
+`unit_type` to a Literal const so the field is part of the schema (not
+runtime-injected) and surfaces naturally through `model_dump()` to be
+published to SyftHub.
+
+Older policy rows used `price_per_request` or `price_per_document` as the
+field name — both still validate via AliasChoices for graceful migration.
 """
+
+from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
 
 class MppPaymentConfig(BaseModel):
-    """Configuration shared by MPP per-request and per-document policies."""
+    """Shared base for all MPP payment configs."""
 
     price: float = Field(
         ge=0,
@@ -22,3 +28,15 @@ class MppPaymentConfig(BaseModel):
         default_factory=lambda: ["*"],
         description="List of user email patterns. Use '*' for all users.",
     )
+
+
+class MppPerRequestConfig(MppPaymentConfig):
+    """Config for MppPerRequestPolicy — charges price per query."""
+
+    unit_type: Literal["request"] = "request"
+
+
+class MppPerDocumentConfig(MppPaymentConfig):
+    """Config for MppPerDocumentPolicy — charges price per retrieved document."""
+
+    unit_type: Literal["document"] = "document"

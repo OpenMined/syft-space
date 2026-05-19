@@ -467,6 +467,10 @@ class PublishEndpointHandler:
             if policy.wallet_id:
                 wallet = wallets_by_id.get(str(policy.wallet_id))
                 if wallet:
+                    # Wire format: `type` is the provider (xendit/mpp);
+                    # `config.unit_type` is a typed field on the policy's
+                    # config class, so it's already in policy.configuration.
+                    policy_data["type"] = wallet.wallet_type
                     policy_data["config"]["currency"] = wallet.currency
                     if wallet.country:
                         policy_data["config"]["country"] = wallet.country
