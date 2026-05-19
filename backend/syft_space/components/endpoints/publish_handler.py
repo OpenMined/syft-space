@@ -467,7 +467,6 @@ class PublishEndpointHandler:
             if policy.wallet_id:
                 wallet = wallets_by_id.get(str(policy.wallet_id))
                 if wallet:
-                    policy_data["type"] = wallet.wallet_type
                     policy_data["config"]["currency"] = wallet.currency
                     if wallet.country:
                         policy_data["config"]["country"] = wallet.country
