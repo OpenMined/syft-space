@@ -503,6 +503,8 @@ export interface LedgerEntryResponse {
   type: string
   amount: number
   currency: string
+  charge_unit: string
+  charge_quantity: number
   user_email: string
   wallet_id: string | null
   endpoint_id: string | null

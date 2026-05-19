@@ -752,9 +752,21 @@
                 >
                   <div class="min-w-0 flex-1">
                     <p class="text-sm font-medium truncate">{{ entry.user_email }}</p>
-                    <p class="text-xs text-muted-foreground">
-                      {{ formatTimeAgo(entry.created_at) }}
-                      <span class="ml-1">&middot; {{ entry.type }}</span>
+                    <p class="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                      <span :title="formatLocalDateTime(entry.created_at)">{{
+                        formatTimeAgo(entry.created_at)
+                      }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <span>{{ entry.type }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <span>{{ formatChargeBreakdown(entry) }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <code
+                        class="font-mono text-[10px] bg-muted px-1 py-0.5 rounded"
+                        :title="`Transaction ID: ${entry.transaction_id}`"
+                      >
+                        {{ entry.transaction_id.slice(0, 8) }}
+                      </code>
                     </p>
                   </div>
                   <span
@@ -920,7 +932,7 @@ import { policiesApi } from '@/api/policies/policies'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { paymentsApi } from '@/api/endpoints/payments'
 import type { LedgerEntryResponse, TransactionResponse, WalletListItem } from '@/api/types'
-import { formatPrice, formatTimeAgo } from '@/lib/formatters'
+import { formatLocalDateTime, formatPrice, formatTimeAgo } from '@/lib/formatters'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
@@ -1225,6 +1237,11 @@ const filteredLedgerEntries = computed(() => {
   if (!filter) return ledgerEntries.value
   return ledgerEntries.value.filter((e) => e.user_email.toLowerCase().includes(filter))
 })
+
+const formatChargeBreakdown = (entry: LedgerEntryResponse): string => {
+  const unit = entry.charge_quantity === 1 ? entry.charge_unit : `${entry.charge_unit}s`
+  return `${entry.charge_quantity} ${unit}`
+}
 
 const fetchTransactions = async () => {
   if (!endpoint.value) return
