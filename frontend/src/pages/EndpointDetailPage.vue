@@ -157,8 +157,13 @@
                   ></div>
                   {{ endpoint.published ? 'Live' : 'Draft' }}
                 </Badge>
-                <Badge variant="outline" class="bg-primary/10 text-primary border-primary/20">
-                  {{ getPricingRange }}
+                <Badge
+                  v-for="entry in pricingBreakdown"
+                  :key="entry.unit"
+                  variant="outline"
+                  class="bg-primary/10 text-primary border-primary/20"
+                >
+                  {{ entry.label }}
                 </Badge>
               </div>
             </div>
@@ -932,7 +937,12 @@ import { policiesApi } from '@/api/policies/policies'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { paymentsApi } from '@/api/endpoints/payments'
 import type { LedgerEntryResponse, TransactionResponse, WalletListItem } from '@/api/types'
-import { formatLocalDateTime, formatPrice, formatTimeAgo } from '@/lib/formatters'
+import {
+  formatCurrencyAmount,
+  formatLocalDateTime,
+  formatPrice,
+  formatTimeAgo,
+} from '@/lib/formatters'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
@@ -1313,31 +1323,38 @@ const getResponseType = computed(() => {
   }
 })
 
-// Get pricing range from pricing policies
-const getPricingRange = computed(() => {
-  const pricingPolicies = getPricingPolicies()
-
-  if (pricingPolicies.length === 0) {
-    return '$0.00/request'
+// Group pricing policies by charge unit (request, document, future: token…)
+// and render one badge per unit. Currency comes from the linked wallet
+// (all payment policies on an endpoint share one wallet by construction).
+const pricingBreakdown = computed<Array<{ unit: string; label: string }>>(() => {
+  const policies = getPricingPolicies()
+  if (policies.length === 0) {
+    return [{ unit: 'request', label: '$0.00/request' }]
   }
 
-  const prices = pricingPolicies
-    .map((policy) => policy.configuration?.price)
-    .filter((price): price is number => typeof price === 'number')
-    .sort((a, b) => a - b)
-
-  if (prices.length === 0) {
-    return '$0.00/request'
+  const byUnit = new Map<string, number[]>()
+  for (const policy of policies) {
+    const unit =
+      ((policy.configuration as Record<string, unknown>)?.unit_type as string | undefined) ??
+      (policy.policy_type.endsWith('_per_document') ? 'document' : 'request')
+    const price = (policy.configuration as Record<string, unknown>)?.price
+    if (typeof price !== 'number') continue
+    if (!byUnit.has(unit)) byUnit.set(unit, [])
+    byUnit.get(unit)!.push(price)
   }
 
-  const minPrice = prices[0]!
-  const maxPrice = prices[prices.length - 1]!
+  const currency = lockedWallet.value?.currency ?? 'USD'
 
-  if (minPrice === maxPrice) {
-    return `$${formatPrice(minPrice)}/request`
-  }
-
-  return `$${formatPrice(minPrice)} - $${formatPrice(maxPrice)}/request`
+  return Array.from(byUnit.entries()).map(([unit, prices]) => {
+    prices.sort((a, b) => a - b)
+    const min = prices[0]!
+    const max = prices[prices.length - 1]!
+    const range =
+      min === max
+        ? formatCurrencyAmount(min, currency)
+        : `${formatCurrencyAmount(min, currency)} - ${formatCurrencyAmount(max, currency)}`
+    return { unit, label: `${range}/${unit}` }
+  })
 })
 
 const deleteEndpoint = async () => {
