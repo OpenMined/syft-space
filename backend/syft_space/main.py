@@ -508,11 +508,6 @@ async def check_endpoint_deletable(endpoint_id, tenant_id) -> str | None:
     return None
 
 
-# Metadata enricher (dependency inversion — query handler doesn't import payments)
-async def enrich_query_metadata(metadata: dict) -> None:
-    metadata["balance_service"] = balance_service
-
-
 # Analytics adapter (dependency inversion — endpoints doesn't import analytics).
 # Translates a domain QueryOutcomeEvent into an analytics row + cost lines and
 # fires the capture in the background. The set + done-callback holds task
@@ -531,21 +526,21 @@ _pending_event_tasks: set[asyncio.Task] = set()
 def _cost_lines_from_response(
     response: dict | None,
 ) -> list[tuple[str, float, str]]:
-    """Extract (component, amount, currency) tuples from a response dict.
+    """Extract a single (component, amount, currency) tuple from the
+    response's top-level cost/currency.
 
-    Reads only response-level cost+currency, never policy-specific
-    metadata sidecar keys.
+    Returns an empty list when no charge applied (free tier, failed
+    request, etc.). The "component" column is kept as "query" for the
+    analytics table even though we no longer break costs down by
+    response component — one row per query is the canonical record.
     """
     if not response:
         return []
-    lines: list[tuple[str, float, str]] = []
-    for component in ("summary", "references"):
-        sub = response.get(component) or {}
-        cost = sub.get("cost")
-        currency = sub.get("currency")
-        if cost is not None and currency is not None:
-            lines.append((component, float(cost), str(currency)))
-    return lines
+    cost = response.get("cost")
+    currency = response.get("currency")
+    if cost is None or currency is None:
+        return []
+    return [("query", float(cost), str(currency))]
 
 
 async def report_query_event(event: QueryOutcomeEvent) -> None:
@@ -594,7 +589,7 @@ query_endpoint_handler = QueryEndpointHandler(
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
-    metadata_enricher=enrich_query_metadata,
+    balance_service=balance_service,
     event_reporter=report_query_event,
 )
 publish_endpoint_handler = PublishEndpointHandler(

@@ -136,10 +136,44 @@
                     <component :is="stat.iconComponent" class="w-4 h-4" :class="stat.iconFg" />
                   </div>
                 </div>
-                <p class="text-3xl font-bold text-foreground tracking-tight tabular-nums">
+                <template v-if="'breakdown' in stat && stat.breakdown.length > 0">
+                  <div
+                    class="tabular-nums tracking-tight space-y-0.5"
+                    :class="
+                      stat.breakdown.length === 1 ? 'text-3xl font-bold' : 'text-xl font-bold'
+                    "
+                  >
+                    <p v-for="row in stat.breakdown" :key="row.currency" class="text-foreground">
+                      {{ formatCurrencyAmount(row.amount, row.currency) }}
+                    </p>
+                  </div>
+                  <TooltipProvider v-if="stat.overflowRows.length > 0" :delay-duration="100">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <p class="text-xs text-muted-foreground mt-0.5 cursor-default">
+                          +{{ stat.overflowRows.length }} more
+                        </p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p
+                          v-for="row in stat.overflowRows"
+                          :key="row.currency"
+                          class="tabular-nums"
+                        >
+                          {{ formatCurrencyAmount(row.amount, row.currency) }}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </template>
+                <p
+                  v-else
+                  class="text-3xl font-bold text-foreground tracking-tight tabular-nums"
+                >
                   {{ stat.formattedValue }}
                 </p>
                 <p
+                  v-if="stat.changeLabel"
                   class="text-xs mt-1.5"
                   :class="
                     stat.changePositive
@@ -786,11 +820,15 @@ const simpleStatCardMeta = [
 ] as const
 
 const revenueCardMeta = {
-  label: 'Total Revenue',
+  label: 'Revenue',
   iconComponent: icons.dollarSign,
   iconBg: 'bg-emerald-500/10 dark:bg-emerald-400/10',
   iconFg: 'text-emerald-600 dark:text-emerald-400',
 } as const
+
+// Stacking limit before we hide the tail behind a "+N more" indicator
+// — keeps the KPI card aligned with siblings even when many currencies exist.
+const REVENUE_ROW_LIMIT = 3
 
 const statCards = computed(() => {
   const s = store.summary
@@ -809,13 +847,16 @@ const statCards = computed(() => {
   }
 
   const revenueCard = s?.total_revenue
+  const breakdown = revenueCard?.breakdown ?? []
+  const visibleRows = breakdown.slice(0, REVENUE_ROW_LIMIT)
+  const overflowRows = breakdown.slice(REVENUE_ROW_LIMIT)
   const revenue = {
     label: revenueCardMeta.label,
-    formattedValue: formatCurrencyBreakdown(revenueCard?.breakdown ?? []),
-    changeLabel: revenueCard
-      ? `${formatCurrencyBreakdown(revenueCard.change_breakdown, '$0.00')} this month`
-      : '--',
-    changePositive: (revenueCard?.change_breakdown.length ?? 0) > 0,
+    breakdown: visibleRows,
+    overflowRows,
+    formattedValue: breakdown.length ? '' : '$0.00',
+    changeLabel: '',
+    changePositive: false,
     iconComponent: revenueCardMeta.iconComponent,
     iconBg: revenueCardMeta.iconBg,
     iconFg: revenueCardMeta.iconFg,
