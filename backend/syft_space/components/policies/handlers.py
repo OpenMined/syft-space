@@ -142,7 +142,7 @@ class PolicyHandler:
         # Create policy entity with validated config
         policy = Policy(
             name=request.name,
-            policy_type=request.policy_type,
+            policy_type=policy_type_cls.name(),
             configuration=validated_config,
             endpoint_id=request.endpoint_id,
             wallet_id=request.wallet_id,

@@ -56,10 +56,21 @@ export const truncateEmail = (email: string, maxLocal: number = 6): string => {
 }
 
 /**
- * Format a date string as a human-readable relative time.
+ * Backend timestamps are UTC, but SQLite-backed datetimes serialize naive
+ * (no `Z` / `+00:00`). The Date constructor reads naive ISO strings as
+ * *local* time, which shifts every "just now" event by the user's TZ
+ * offset. Normalize by appending `Z` when no explicit offset is present.
+ */
+const parseBackendDate = (dateString: string): Date => {
+  const hasTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(dateString)
+  return new Date(hasTimezone ? dateString : `${dateString}Z`)
+}
+
+/**
+ * Format a date string as a human-readable relative time (in user's local TZ).
  */
 export const formatTimeAgo = (dateString: string): string => {
-  const date = new Date(dateString)
+  const date = parseBackendDate(dateString)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
@@ -71,6 +82,26 @@ export const formatTimeAgo = (dateString: string): string => {
   if (diffHours < 24) return `${diffHours}h ago`
   if (diffDays < 7) return `${diffDays}d ago`
   return date.toLocaleDateString()
+}
+
+/**
+ * Format a backend UTC timestamp as a full local-TZ datetime, suitable for
+ * tooltips alongside relative times. Example: "May 19, 2026, 6:56:54 PM IST".
+ *
+ * Uses individual component options (not dateStyle/timeStyle shortcuts) so
+ * `timeZoneName` can be combined — Intl rejects mixing the two shortcut
+ * options with explicit fields.
+ */
+export const formatLocalDateTime = (dateString: string): string => {
+  return parseBackendDate(dateString).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  })
 }
 
 /**
