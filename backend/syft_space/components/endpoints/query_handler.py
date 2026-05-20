@@ -43,6 +43,7 @@ from syft_space.components.policy_types.interfaces import (
 )
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.tenants.entities import Tenant
+from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.repository import WalletRepository
 
 
@@ -115,23 +116,26 @@ class QueryEndpointHandler:
                 for policy_type, policies in policies_by_type.items()
             }
 
-            # Load wallets referenced by payment policies (single batch query)
-            wallet_ids = list(
-                {
+            # An endpoint has at most one wallet (CapabilityChecker rejects
+            # siblings pointing elsewhere), so grab the first wallet_id we
+            # find across policies and fetch it.
+            wallet_id = next(
+                (
                     p.wallet_id
                     for policies in policies_by_type.values()
                     for p in policies
                     if p.wallet_id
-                }
+                ),
+                None,
             )
-            wallets: list = []
-            if wallet_ids and self.wallet_repository:
-                wallets = await self.wallet_repository.get_by_ids(wallet_ids, tenant.id)
+            wallet: Wallet | None = None
+            if wallet_id and self.wallet_repository:
+                wallet = await self.wallet_repository.get_by_id(wallet_id, tenant.id)
 
-            # Build typed payment chargers bag from attached wallets; policies
-            # access chargers via context.payment_chargers.{mpp,xendit}().
+            # Build typed payment chargers bag from the attached wallet;
+            # policies access chargers via context.payment_chargers.{mpp,xendit}().
             payment_chargers = build_payment_chargers(
-                wallets=wallets,
+                wallet=wallet,
                 balance_service=self.balance_service,
                 tenant_id=tenant.id,
                 endpoint_id=endpoint.id,

@@ -222,7 +222,6 @@ class Capabilities(BaseModel):
 
     requires_wallet: bool = False
     required_wallet_type: str | None = None
-    wallet_shared_with_siblings: bool = True
     requires_endpoint_dataset: bool = False
 
 

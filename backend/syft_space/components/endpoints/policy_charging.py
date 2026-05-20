@@ -1,8 +1,10 @@
 """Per-request payment-charger factory used by the query handler.
 
-Builds one charger per payment mechanism referenced by the wallets attached
-to this endpoint's policies. The query handler exposes the resulting bag
-on PolicyContext; policies retrieve the charger they need by mechanism.
+An endpoint is constrained to a single wallet (enforced at policy-attach
+time by CapabilityChecker, which rejects sibling policies pointing at a
+different wallet), so this builds at most one charger per request. The
+query handler exposes the resulting bag on PolicyContext; policies
+retrieve the charger they need by mechanism.
 
 Adding a new payment mechanism (stripe, razorpay, ...) is two touches in
 this file (a new field on PaymentChargers + a new branch in the builder)
@@ -26,7 +28,7 @@ from syft_space.components.wallets.entities import Wallet
 
 def build_payment_chargers(
     *,
-    wallets: list[Wallet],
+    wallet: Wallet | None,
     balance_service: BalanceService | None,
     tenant_id: UUID,
     endpoint_id: UUID,
@@ -35,28 +37,23 @@ def build_payment_chargers(
 ) -> PaymentChargers:
     """Construct a PaymentChargers bag for the current request.
 
-    At most one charger per mechanism is built; wallet_shared_with_siblings
-    on the policy capabilities guarantees there's only one wallet per type
-    on any given endpoint. The Xendit charger is skipped if no
-    BalanceService is wired — downstream PaymentChargers.xendit() will then
-    raise, surfacing the missing dependency loudly.
+    `wallet=None` means no payment policy is attached; both chargers stay
+    absent and any downstream `.mpp()` / `.xendit()` call would (correctly)
+    raise. The Xendit charger is also skipped if no BalanceService is
+    wired — surfacing the missing dependency loudly.
     """
     mpp: MppCharger | None = None
     xendit: XenditCharger | None = None
 
-    for wallet in wallets:
-        if wallet.wallet_type == "mpp" and mpp is not None:
+    if wallet is not None:
+        if wallet.wallet_type == "mpp":
             mpp = MppChargingAdapter(
                 wallet_address=wallet.configuration.get("wallet_address", ""),
                 secret_key=wallet.configuration.get("mpp_secret_key", ""),
                 realm=endpoint_slug,
                 x_payment=x_payment,
             )
-        elif (
-            wallet.wallet_type == "xendit"
-            and xendit is None
-            and balance_service is not None
-        ):
+        elif wallet.wallet_type == "xendit" and balance_service is not None:
             xendit = XenditChargingAdapter(
                 balance_service=balance_service,
                 wallet_id=wallet.id,
