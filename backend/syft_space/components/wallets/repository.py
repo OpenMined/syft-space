@@ -31,19 +31,6 @@ class WalletRepository(AsyncBaseRepository[Wallet]):
             result = await session.exec(statement)
             return result.first()
 
-    async def get_by_ids(self, ids: list[UUID], tenant_id: UUID) -> list[Wallet]:
-        """Get multiple wallets by IDs within a tenant (single query)."""
-        if not ids:
-            return []
-        async with self.db.get_session() as session:
-            statement = (
-                select(Wallet)
-                .where(Wallet.id.in_(ids), Wallet.tenant_id == tenant_id)
-                .distinct()
-            )
-            result = await session.exec(statement)
-            return list(result.all())
-
     async def get_by_type(
         self, wallet_type: str, tenant_id: UUID, is_active: bool = True
     ) -> list[Wallet]:

@@ -157,8 +157,13 @@
                   ></div>
                   {{ endpoint.published ? 'Live' : 'Draft' }}
                 </Badge>
-                <Badge variant="outline" class="bg-primary/10 text-primary border-primary/20">
-                  {{ getPricingRange }}
+                <Badge
+                  v-for="entry in pricingBreakdown"
+                  :key="entry.unit"
+                  variant="outline"
+                  class="bg-primary/10 text-primary border-primary/20"
+                >
+                  {{ entry.label }}
                 </Badge>
               </div>
             </div>
@@ -752,9 +757,21 @@
                 >
                   <div class="min-w-0 flex-1">
                     <p class="text-sm font-medium truncate">{{ entry.user_email }}</p>
-                    <p class="text-xs text-muted-foreground">
-                      {{ formatTimeAgo(entry.created_at) }}
-                      <span class="ml-1">&middot; {{ entry.type }}</span>
+                    <p class="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                      <span :title="formatLocalDateTime(entry.created_at)">{{
+                        formatTimeAgo(entry.created_at)
+                      }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <span>{{ entry.type }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <span>{{ formatChargeBreakdown(entry) }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <code
+                        class="font-mono text-[10px] bg-muted px-1 py-0.5 rounded"
+                        :title="`Transaction ID: ${entry.transaction_id}`"
+                      >
+                        {{ entry.transaction_id.slice(0, 8) }}
+                      </code>
                     </p>
                   </div>
                   <span
@@ -847,6 +864,7 @@
   <AddPricingRuleDialog
     v-model:open="showAddPricingRuleDialog"
     :locked-wallet-id="lockedWalletId"
+    :endpoint-has-dataset="!!endpoint?.dataset"
     @pricing-created="handlePricingCreated"
   />
 
@@ -919,7 +937,12 @@ import { policiesApi } from '@/api/policies/policies'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { paymentsApi } from '@/api/endpoints/payments'
 import type { LedgerEntryResponse, TransactionResponse, WalletListItem } from '@/api/types'
-import { formatPrice, formatTimeAgo } from '@/lib/formatters'
+import {
+  formatCurrencyAmount,
+  formatLocalDateTime,
+  formatPrice,
+  formatTimeAgo,
+} from '@/lib/formatters'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
@@ -1149,7 +1172,11 @@ const ensureWallets = (): Promise<void> => {
 const getPricingPolicies = () => {
   return (
     endpoint.value?.policies?.filter(
-      (p) => p.policy_type === 'mpp_per_request' || p.policy_type === 'xendit_per_request',
+      (p) =>
+        p.policy_type === 'mpp_per_request' ||
+        p.policy_type === 'xendit_per_request' ||
+        p.policy_type === 'mpp_per_document' ||
+        p.policy_type === 'xendit_per_document',
     ) || []
   )
 }
@@ -1192,17 +1219,15 @@ const getPricingPolicySummary = (policy: {
   const wallet = policyWallet(policy)
   const currency = wallet?.currency ?? 'USD'
 
-  // MPP: price per query
-  if (policy.policy_type === 'mpp_per_request' && config?.price !== undefined) {
-    return `${config.price} ${currency} per query ${appliedLabel}`.trim()
+  if (config?.price === undefined) {
+    return 'Pricing rule configured'
   }
 
-  // Xendit: price per request
-  if (policy.policy_type === 'xendit_per_request' && config?.price_per_request !== undefined) {
-    return `${config.price_per_request} ${currency} per request ${appliedLabel}`.trim()
-  }
-
-  return 'Pricing rule configured'
+  const isPerDocument =
+    policy.policy_type === 'mpp_per_document' ||
+    policy.policy_type === 'xendit_per_document'
+  const unit = isPerDocument ? 'document' : 'request'
+  return `${config.price} ${currency} per ${unit} ${appliedLabel}`.trim()
 }
 
 // ── Transactions state ──
@@ -1222,6 +1247,11 @@ const filteredLedgerEntries = computed(() => {
   if (!filter) return ledgerEntries.value
   return ledgerEntries.value.filter((e) => e.user_email.toLowerCase().includes(filter))
 })
+
+const formatChargeBreakdown = (entry: LedgerEntryResponse): string => {
+  const unit = entry.charge_quantity === 1 ? entry.charge_unit : `${entry.charge_unit}s`
+  return `${entry.charge_quantity} ${unit}`
+}
 
 const fetchTransactions = async () => {
   if (!endpoint.value) return
@@ -1293,31 +1323,38 @@ const getResponseType = computed(() => {
   }
 })
 
-// Get pricing range from pricing policies
-const getPricingRange = computed(() => {
-  const pricingPolicies = getPricingPolicies()
-
-  if (pricingPolicies.length === 0) {
-    return '$0.00/request'
+// Group pricing policies by charge unit (request, document, future: token…)
+// and render one badge per unit. Currency comes from the linked wallet
+// (all payment policies on an endpoint share one wallet by construction).
+const pricingBreakdown = computed<Array<{ unit: string; label: string }>>(() => {
+  const policies = getPricingPolicies()
+  if (policies.length === 0) {
+    return [{ unit: 'request', label: '$0.00/request' }]
   }
 
-  const prices = pricingPolicies
-    .map((policy) => policy.configuration?.price)
-    .filter((price): price is number => typeof price === 'number')
-    .sort((a, b) => a - b)
-
-  if (prices.length === 0) {
-    return '$0.00/request'
+  const byUnit = new Map<string, number[]>()
+  for (const policy of policies) {
+    const unit =
+      ((policy.configuration as Record<string, unknown>)?.unit_type as string | undefined) ??
+      (policy.policy_type.endsWith('_per_document') ? 'document' : 'request')
+    const price = (policy.configuration as Record<string, unknown>)?.price
+    if (typeof price !== 'number') continue
+    if (!byUnit.has(unit)) byUnit.set(unit, [])
+    byUnit.get(unit)!.push(price)
   }
 
-  const minPrice = prices[0]!
-  const maxPrice = prices[prices.length - 1]!
+  const currency = lockedWallet.value?.currency ?? 'USD'
 
-  if (minPrice === maxPrice) {
-    return `$${formatPrice(minPrice)}/request`
-  }
-
-  return `$${formatPrice(minPrice)} - $${formatPrice(maxPrice)}/request`
+  return Array.from(byUnit.entries()).map(([unit, prices]) => {
+    prices.sort((a, b) => a - b)
+    const min = prices[0]!
+    const max = prices[prices.length - 1]!
+    const range =
+      min === max
+        ? formatCurrencyAmount(min, currency)
+        : `${formatCurrencyAmount(min, currency)} - ${formatCurrencyAmount(max, currency)}`
+    return { unit, label: `${range}/${unit}` }
+  })
 })
 
 const deleteEndpoint = async () => {
@@ -1394,14 +1431,18 @@ const confirmDeletePolicy = async () => {
 const handlePricingCreated = async (payload: {
   walletId: string
   walletType: string
-  policyType: 'mpp_per_request' | 'xendit_per_request'
+  policyType:
+    | 'mpp_per_request'
+    | 'xendit_per_request'
+    | 'mpp_per_document'
+    | 'xendit_per_document'
   name: string
   config: Record<string, unknown>
 }) => {
   if (!endpoint.value?.id) return
 
   const ruleIndex = getPricingPolicies().length + 1
-  const policyLabel = payload.policyType === 'mpp_per_request' ? 'MPP' : 'Xendit'
+  const policyLabel = payload.policyType.startsWith('mpp_') ? 'MPP' : 'Xendit'
   const policyName = payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
 
   try {
@@ -1508,7 +1549,7 @@ onMounted(async () => {
     endpoint.value = response
 
     // Fetch ingestion data if endpoint has a dataset
-    if (response.dataset?.id) {
+    if (response.dataset) {
       try {
         const [ingestionResponse, allJobs] = await Promise.all([
           ingestionApi.getStatus(response.dataset.id),

@@ -92,13 +92,12 @@ class CapabilityChecker:
                 f"got '{wallet.wallet_type}'."
             )
 
-        if caps.wallet_shared_with_siblings:
-            if await self._endpoint_policy_query.has_different_wallet(
-                request.endpoint_id, tenant.id, request.wallet_id
-            ):
-                raise PolicyAttachConflictError(
-                    "All payment policies on an endpoint must use the same wallet."
-                )
+        if await self._endpoint_policy_query.has_different_wallet(
+            request.endpoint_id, tenant.id, request.wallet_id
+        ):
+            raise PolicyAttachConflictError(
+                "All payment policies on an endpoint must use the same wallet."
+            )
 
     async def _check_endpoint_rules(
         self,
