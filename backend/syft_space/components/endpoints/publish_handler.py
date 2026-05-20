@@ -26,6 +26,7 @@ from syft_space.components.models.repository import ModelRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
+from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.gateway.xendit.config import XenditWalletConfig
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.config import app_settings
@@ -439,17 +440,18 @@ class PublishEndpointHandler:
             else "data_source"
         )
 
-        # Batch-fetch wallets for payment policies
-        wallets_by_id: dict[str, Any] = {}
+        # An endpoint has at most one wallet across its policies (enforced
+        # at attach time by CapabilityChecker). Fetch it once and reuse.
+        wallet: Wallet | None = None
         if self.wallet_repository:
-            wallet_ids = [
-                p.wallet_id for p in endpoint.policies if p.wallet_id is not None
-            ]
-            if wallet_ids:
-                wallets = await self.wallet_repository.get_by_ids(
-                    wallet_ids, endpoint.tenant_id
+            wallet_id = next(
+                (p.wallet_id for p in endpoint.policies if p.wallet_id is not None),
+                None,
+            )
+            if wallet_id:
+                wallet = await self.wallet_repository.get_by_id(
+                    wallet_id, endpoint.tenant_id
                 )
-                wallets_by_id = {str(w.id): w for w in wallets}
 
         policies = []
         for policy in endpoint.policies:
@@ -464,35 +466,33 @@ class PublishEndpointHandler:
             # Enrich payment policies with wallet info + wallet-scoped URLs.
             # URLs are identical across endpoints sharing the same wallet —
             # balance is fungible across them.
-            if policy.wallet_id:
-                wallet = wallets_by_id.get(str(policy.wallet_id))
-                if wallet:
-                    # Wire format: `type` is the provider (xendit/mpp);
-                    # `config.unit_type` is a typed field on the policy's
-                    # config class, so it's already in policy.configuration.
-                    policy_data["type"] = wallet.wallet_type
-                    policy_data["config"]["currency"] = wallet.currency
-                    if wallet.country:
-                        policy_data["config"]["country"] = wallet.country
-                    if wallet.wallet_type == "xendit":
-                        # Bundles drive the SyftHub purchase UI; without them
-                        # the marketplace has no plans to render.
-                        xendit_config = XenditWalletConfig(**wallet.configuration)
-                        policy_data["config"]["bundles"] = [
-                            {"name": b.name, "amount": b.amount}
-                            for b in xendit_config.prepaid_balance_bundles
-                        ]
-                        if app_settings.public_url:
-                            base = str(app_settings.public_url).rstrip("/")
-                            policy_data["config"]["payment_url"] = (
-                                f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices"
-                            )
-                            policy_data["config"]["invoices_url"] = (
-                                f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices/me"
-                            )
-                            policy_data["config"]["credits_url"] = (
-                                f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/balance"
-                            )
+            if policy.wallet_id and wallet is not None:
+                # Wire format: `type` is the provider (xendit/mpp);
+                # `config.unit_type` is a typed field on the policy's
+                # config class, so it's already in policy.configuration.
+                policy_data["type"] = wallet.wallet_type
+                policy_data["config"]["currency"] = wallet.currency
+                if wallet.country:
+                    policy_data["config"]["country"] = wallet.country
+                if wallet.wallet_type == "xendit":
+                    # Bundles drive the SyftHub purchase UI; without them
+                    # the marketplace has no plans to render.
+                    xendit_config = XenditWalletConfig(**wallet.configuration)
+                    policy_data["config"]["bundles"] = [
+                        {"name": b.name, "amount": b.amount}
+                        for b in xendit_config.prepaid_balance_bundles
+                    ]
+                    if app_settings.public_url:
+                        base = str(app_settings.public_url).rstrip("/")
+                        policy_data["config"]["payment_url"] = (
+                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices"
+                        )
+                        policy_data["config"]["invoices_url"] = (
+                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices/me"
+                        )
+                        policy_data["config"]["credits_url"] = (
+                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/balance"
+                        )
 
             policies.append(policy_data)
 
