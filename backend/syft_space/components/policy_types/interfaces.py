@@ -90,7 +90,10 @@ def add_response_cost(response: dict[str, Any], amount: float, currency: str) ->
     """
     if amount < 0:
         return
-    response["cost"] = response.get("cost", 0) + amount
+    # `cost` may already be present-but-None when the response dict was
+    # serialized from QueryEndpointResponse (Field default = None), so
+    # `.get("cost", 0)` would return None. Coalesce instead.
+    response["cost"] = (response.get("cost") or 0) + amount
     response["currency"] = currency
 
 
