@@ -68,6 +68,32 @@ class PolicyAttachConflictError(PolicyAttachError):
     per-document pricing on an LLM endpoint."""
 
 
+def add_response_cost(response: dict[str, Any], amount: float, currency: str) -> None:
+    """Accumulate a charge into the response's top-level `cost` + `currency`.
+
+    Payment policy post-hooks call this once per policy that applied, so
+    multiple policies on the same query (e.g. per-request + per-document)
+    sum cleanly. Currency is required to be homogeneous across policies on
+    one endpoint — enforced upstream by sharing a single wallet — so each
+    call just overwrites the currency field with the same value.
+
+    Zero is intentionally permitted (negative is rejected as a non-event):
+    a free-tier match, empty response, or zero-document search should
+    record `cost=0` so consumers can distinguish "this query was free
+    under our pricing" (cost=0, currency set) from "this endpoint has no
+    pricing configured" (cost=None).
+
+    Top-level `cost`/`currency` is the canonical answer to "what did this
+    query cost the user?" Per-component cost (on `summary` / `references`)
+    is intentionally not used: different policies bill against different
+    components, and summing per-component fields would lie about the total.
+    """
+    if amount < 0:
+        return
+    response["cost"] = response.get("cost", 0) + amount
+    response["currency"] = currency
+
+
 class BalanceShortfallError(Exception):
     """Raised by XenditCharger.reserve when the user's balance is below
     the required amount.

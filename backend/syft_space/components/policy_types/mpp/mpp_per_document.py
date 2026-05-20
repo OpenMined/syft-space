@@ -16,6 +16,7 @@ from syft_space.components.policy_types.interfaces import (
     PaymentRequiredError,
     PolicyContext,
     PolicyViolationError,
+    add_response_cost,
 )
 from syft_space.components.policy_types.mpp.mpp_payment_policy import (
     MppPaymentPolicy,
@@ -86,14 +87,19 @@ class MppPerDocumentPolicy(MppPaymentPolicy):
         meaningful for downstream consumers.
         """
         price = context.metadata.get("mpp_per_doc_price")
-        if price is None or price == 0:
+        if price is None or context.response is None:
             return context
 
-        response = context.response or {}
+        response = context.response
         references = response.get("references") or {}
         documents = references.get("documents") or []
         count = len(documents)
-        if count == 0:
+
+        # Free tier (price=0) or empty result (count=0): record zero so the
+        # response reflects "this policy applied with no cost", then exit
+        # before doing the (no-op) charge.
+        if price == 0 or count == 0:
+            add_response_cost(response, 0, "USD")
             return context
 
         total = count * price
@@ -119,9 +125,7 @@ class MppPerDocumentPolicy(MppPaymentPolicy):
         }
         context.metadata["payment_receipt_header"] = receipt.reference
 
-        if context.response.get("references"):
-            context.response["references"]["cost"] = total
-            context.response["references"]["currency"] = "USD"
+        add_response_cost(context.response, total, "USD")
 
         logger.info(
             f"MPP per-document payment verified: ${total} from "

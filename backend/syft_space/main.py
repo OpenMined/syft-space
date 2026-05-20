@@ -526,21 +526,21 @@ _pending_event_tasks: set[asyncio.Task] = set()
 def _cost_lines_from_response(
     response: dict | None,
 ) -> list[tuple[str, float, str]]:
-    """Extract (component, amount, currency) tuples from a response dict.
+    """Extract a single (component, amount, currency) tuple from the
+    response's top-level cost/currency.
 
-    Reads only response-level cost+currency, never policy-specific
-    metadata sidecar keys.
+    Returns an empty list when no charge applied (free tier, failed
+    request, etc.). The "component" column is kept as "query" for the
+    analytics table even though we no longer break costs down by
+    response component — one row per query is the canonical record.
     """
     if not response:
         return []
-    lines: list[tuple[str, float, str]] = []
-    for component in ("summary", "references"):
-        sub = response.get(component) or {}
-        cost = sub.get("cost")
-        currency = sub.get("currency")
-        if cost is not None and currency is not None:
-            lines.append((component, float(cost), str(currency)))
-    return lines
+    cost = response.get("cost")
+    currency = response.get("currency")
+    if cost is None or currency is None:
+        return []
+    return [("query", float(cost), str(currency))]
 
 
 async def report_query_event(event: QueryOutcomeEvent) -> None:

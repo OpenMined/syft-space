@@ -12,6 +12,7 @@ from syft_space.components.policy_types.interfaces import (
     Capabilities,
     PolicyContext,
     PolicyViolationError,
+    add_response_cost,
 )
 from syft_space.components.policy_types.xendit.policy_config import (
     XenditPerDocumentConfig,
@@ -101,12 +102,16 @@ class XenditPerDocumentPolicy(XenditPaymentPolicy):
         references = response.get("references") or {}
         documents = references.get("documents") or []
         count = len(documents)
+        charger = context.payment_chargers.xendit()
+
+        # No documents → no charge. Record zero so the response indicates
+        # this policy applied with no net cost.
         if count == 0:
+            add_response_cost(response, 0, charger.currency)
             return context
 
         total = count * price
         user_email = str(context.sender_email)
-        charger = context.payment_chargers.xendit()
 
         try:
             await charger.reserve(
@@ -128,8 +133,6 @@ class XenditPerDocumentPolicy(XenditPaymentPolicy):
                 },
             ) from exc
 
-        if response.get("references"):
-            response["references"]["cost"] = total
-            response["references"]["currency"] = charger.currency
+        add_response_cost(response, total, charger.currency)
 
         return context

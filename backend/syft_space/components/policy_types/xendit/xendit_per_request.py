@@ -12,6 +12,7 @@ from syft_space.components.policy_types.interfaces import (
     BalanceShortfallError,
     PolicyContext,
     PolicyViolationError,
+    add_response_cost,
 )
 from syft_space.components.policy_types.xendit.policy_config import (
     XenditPerRequestConfig,
@@ -89,7 +90,6 @@ class XenditPerRequestPolicy(XenditPaymentPolicy):
             return context
 
         charger = context.payment_chargers.xendit()
-        currency = charger.currency
         response = context.response or {}
 
         has_summary = bool(
@@ -99,17 +99,14 @@ class XenditPerRequestPolicy(XenditPaymentPolicy):
             response.get("references") and response["references"].get("documents")
         )
 
-        if has_summary:
-            response["summary"]["cost"] = price
-            response["summary"]["currency"] = currency
-        if has_documents:
-            response["references"]["cost"] = price
-            response["references"]["currency"] = currency
-
         if has_summary or has_documents:
+            add_response_cost(response, price, charger.currency)
             return context
 
-        # Cancel the reservation if the response is empty (no useful content)
+        # Cancel the reservation since the response is empty (no useful
+        # content). Record zero on the response so consumers see this
+        # policy applied with no net charge.
         await charger.cancel(transaction_id)
+        add_response_cost(response, 0, charger.currency)
 
         return context

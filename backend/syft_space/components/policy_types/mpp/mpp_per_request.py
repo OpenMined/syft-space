@@ -10,6 +10,7 @@ from syft_space.components.policy_types.interfaces import (
     PaymentRequiredError,
     PolicyContext,
     PolicyViolationError,
+    add_response_cost,
 )
 from syft_space.components.policy_types.mpp.mpp_payment_policy import (
     MppPaymentPolicy,
@@ -90,25 +91,22 @@ class MppPerRequestPolicy(MppPaymentPolicy):
     async def post_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
-        """Post-hook: surface cost+currency on the response and the receipt
-        reference for the Payment-Receipt header.
+        """Post-hook: add this policy's charge to the response total and
+        stash the receipt reference for the Payment-Receipt header.
 
-        Cost is only written when a charge actually happened (receipt
-        present). Free-tier requests leave cost/currency as None — absence
-        is meaningful for downstream consumers.
+        The price from the matched tier is always added (including 0 for
+        free tiers) so the response always reflects what *this policy*
+        contributed. If pre_hook raised, post_hook doesn't run — so
+        reaching here means the user matched a tier.
         """
+        if context.response is None:
+            return context
+
+        price = self._find_matching_price(context.sender_email, configs)
+        if price is not None:
+            add_response_cost(context.response, price, "USD")
+
         receipt_info = context.metadata.get("mpp_receipt")
-
-        if receipt_info and context.response:
-            price = self._find_matching_price(context.sender_email, configs)
-            if price is not None and price > 0:
-                if context.response.get("summary"):
-                    context.response["summary"]["cost"] = price
-                    context.response["summary"]["currency"] = "USD"
-                if context.response.get("references"):
-                    context.response["references"]["cost"] = price
-                    context.response["references"]["currency"] = "USD"
-
         if receipt_info:
             context.metadata["payment_receipt_header"] = receipt_info.get("reference")
 
