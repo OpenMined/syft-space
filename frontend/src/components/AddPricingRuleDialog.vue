@@ -684,13 +684,12 @@ const createMppWallet = async () => {
   }
 }
 
+// Frontend guard: backend enforces UNIQUE(tenant, type, currency) too.
+const walletExistsForCurrency = (walletType: string, currency: string): boolean =>
+  wallets.value.some((w) => w.wallet_type === walletType && w.currency === currency)
+
 const createXenditWallet = async () => {
-  // Frontend guard: backend enforces UNIQUE(tenant, type, currency) too.
-  if (
-    wallets.value.some(
-      (w) => w.wallet_type === 'xendit' && w.currency === xenditForm.value.currency,
-    )
-  ) {
+  if (walletExistsForCurrency('xendit', xenditForm.value.currency)) {
     toast.error(`A Xendit wallet for ${xenditForm.value.currency} already exists.`)
     return
   }
@@ -717,13 +716,7 @@ const createXenditWallet = async () => {
 }
 
 const createStripeWallet = async () => {
-  // Backend enforces UNIQUE(tenant, type, currency); show a friendly error
-  // here before the network roundtrip.
-  if (
-    wallets.value.some(
-      (w) => w.wallet_type === 'stripe' && w.currency === stripeForm.value.currency,
-    )
-  ) {
+  if (walletExistsForCurrency('stripe', stripeForm.value.currency)) {
     toast.error(`A Stripe wallet for ${stripeForm.value.currency} already exists.`)
     return
   }

@@ -21,9 +21,10 @@ audits. Adding currencies is one entry in ``StripeCurrencyCode`` plus one
 entry in ``PRE_PAID_BALANCE_BUNDLES``.
 
 Note on JPY: Stripe treats JPY as a zero-decimal currency (no fractional
-units). Bundle amounts must be whole numbers; the boundary converter
-handles the unit conversion. The validator below rejects bundles with
-non-integer JPY values to catch catalog drift early.
+units). Bundle amounts in the catalog below are kept as whole numbers;
+the boundary converter in ``payments/gateway/stripe/amounts.py`` handles
+the unit conversion (see ``STRIPE_ZERO_DECIMAL`` there for the canonical
+zero-decimal allowlist).
 """
 
 from enum import StrEnum
@@ -46,13 +47,7 @@ class StripeCurrencyCode(StrEnum):
     AUD = "AUD"
     CAD = "CAD"
     JPY = "JPY"
-
-
-# Stripe's zero-decimal currencies that appear in our launch set. Stripe
-# expects amounts in the smallest currency unit; for these, the smallest
-# unit IS the major unit (no cents). The full Stripe-side list is broader
-# (BIF, KRW, VND, THB, …) but we only need the ones we expose.
-STRIPE_ZERO_DECIMAL: frozenset[str] = frozenset({"JPY"})
+    BRL = "BRL"
 
 
 class MoneyBundle(BaseModel):
@@ -113,6 +108,12 @@ PRE_PAID_BALANCE_BUNDLES: dict[str, list[MoneyBundle]] = {
         MoneyBundle(name="Basic", amount=2_500),
         MoneyBundle(name="Pro", amount=10_000),
         MoneyBundle(name="Enterprise", amount=50_000),
+    ],
+    StripeCurrencyCode.BRL: [
+        MoneyBundle(name="Starter", amount=25),
+        MoneyBundle(name="Basic", amount=125),
+        MoneyBundle(name="Pro", amount=500),
+        MoneyBundle(name="Enterprise", amount=2_500),
     ],
 }
 
