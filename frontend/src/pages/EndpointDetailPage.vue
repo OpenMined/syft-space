@@ -1175,8 +1175,10 @@ const getPricingPolicies = () => {
       (p) =>
         p.policy_type === 'mpp_per_request' ||
         p.policy_type === 'xendit_per_request' ||
+        p.policy_type === 'stripe_per_request' ||
         p.policy_type === 'mpp_per_document' ||
-        p.policy_type === 'xendit_per_document',
+        p.policy_type === 'xendit_per_document' ||
+        p.policy_type === 'stripe_per_document',
     ) || []
   )
 }
@@ -1225,7 +1227,8 @@ const getPricingPolicySummary = (policy: {
 
   const isPerDocument =
     policy.policy_type === 'mpp_per_document' ||
-    policy.policy_type === 'xendit_per_document'
+    policy.policy_type === 'xendit_per_document' ||
+    policy.policy_type === 'stripe_per_document'
   const unit = isPerDocument ? 'document' : 'request'
   return `${config.price} ${currency} per ${unit} ${appliedLabel}`.trim()
 }
@@ -1277,7 +1280,9 @@ const fetchTransactions = async () => {
         mppTransactions.value = []
       }
       ledgerEntries.value = []
-    } else if (wallet.wallet_type === 'xendit') {
+    } else if (wallet.wallet_type === 'xendit' || wallet.wallet_type === 'stripe') {
+      // Both gateway providers share the same ledger transactions endpoint
+      // — balance moves through BalanceService regardless of the top-up rail.
       try {
         const page = await paymentsApi.listEndpointTransactions(endpoint.value.id)
         ledgerEntries.value = page.items
@@ -1434,15 +1439,21 @@ const handlePricingCreated = async (payload: {
   policyType:
     | 'mpp_per_request'
     | 'xendit_per_request'
+    | 'stripe_per_request'
     | 'mpp_per_document'
     | 'xendit_per_document'
+    | 'stripe_per_document'
   name: string
   config: Record<string, unknown>
 }) => {
   if (!endpoint.value?.id) return
 
   const ruleIndex = getPricingPolicies().length + 1
-  const policyLabel = payload.policyType.startsWith('mpp_') ? 'MPP' : 'Xendit'
+  const policyLabel = payload.policyType.startsWith('mpp_')
+    ? 'MPP'
+    : payload.policyType.startsWith('stripe_')
+      ? 'Stripe'
+      : 'Xendit'
   const policyName = payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
 
   try {

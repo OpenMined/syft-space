@@ -7,6 +7,7 @@ pympp) are isolated here — the WalletHandler never imports them.
 
 import secrets
 from typing import Any
+from uuid import UUID
 
 from eth_account import Account
 from mpp.methods.tempo import TempoAccount
@@ -54,8 +55,14 @@ class MppWalletProvider:
             display={"wallet_address": tempo_acct.address},
         )
 
-    def extract_display(self, configuration: dict[str, Any]) -> dict[str, Any]:
-        """Return wallet address — never expose private key or secret."""
+    def extract_display(
+        self, configuration: dict[str, Any], wallet_id: UUID
+    ) -> dict[str, Any]:
+        """Return wallet address — never expose private key or secret.
+
+        ``wallet_id`` is unused for MPP (the address is in configuration);
+        the parameter is kept to satisfy the Protocol.
+        """
         return {"wallet_address": configuration.get("wallet_address", "")}
 
     def update_credentials(

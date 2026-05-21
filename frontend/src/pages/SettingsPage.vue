@@ -441,11 +441,7 @@
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem
-                          v-for="r in XENDIT_REGIONS"
-                          :key="r.country"
-                          :value="r.country"
-                        >
+                        <SelectItem v-for="r in XENDIT_REGIONS" :key="r.country" :value="r.country">
                           {{ r.countryLabel }}
                         </SelectItem>
                       </SelectContent>

@@ -12,6 +12,7 @@ Following Clean Architecture:
 
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -67,11 +68,19 @@ class WalletProvider(Protocol):
         """
         ...
 
-    def extract_display(self, configuration: dict[str, Any]) -> dict[str, Any]:
+    def extract_display(
+        self, configuration: dict[str, Any], wallet_id: UUID
+    ) -> dict[str, Any]:
         """Extract safe display info from stored configuration.
 
-        Called on every get/list to build the response. Must never
-        expose secrets (private keys, API keys, tokens).
+        Called on every get/list to build the response. Must never expose
+        secrets (private keys, API keys, tokens).
+
+        ``wallet_id`` is provided so providers can compute wallet-scoped
+        URLs (e.g. Stripe's webhook URL includes the wallet id to look up
+        the signing secret before parsing the untrusted body). Providers
+        whose display info is wallet-id-independent (Xendit, MPP) may
+        ignore it.
         """
         ...
 

@@ -19,6 +19,8 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     from .mpp.mpp_per_document import MppPerDocumentPolicy
     from .mpp.mpp_per_request import MppPerRequestPolicy
     from .rate_limit.rate_limit_type import EndpointRateLimitPolicy
+    from .stripe.stripe_per_document import StripePerDocumentPolicy
+    from .stripe.stripe_per_request import StripePerRequestPolicy
     from .xendit.xendit_per_document import XenditPerDocumentPolicy
     from .xendit.xendit_per_request import XenditPerRequestPolicy
 
@@ -28,6 +30,8 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     registry.register_policy_type(MppPerDocumentPolicy)
     registry.register_policy_type(XenditPerRequestPolicy)
     registry.register_policy_type(XenditPerDocumentPolicy)
+    registry.register_policy_type(StripePerRequestPolicy)
+    registry.register_policy_type(StripePerDocumentPolicy)
 
 
 __all__ = ["register_builtin_types"]

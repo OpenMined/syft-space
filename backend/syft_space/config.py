@@ -86,6 +86,12 @@ class AppSettings(BaseSettings):
         description="Xendit API base URL",
     )
 
+    # Stripe settings
+    stripe_api_url: HttpUrl = Field(
+        default="https://api.stripe.com",
+        description="Stripe API base URL",
+    )
+
     # MPP / Tempo settings
     tempo_testnet: bool = Field(
         default=True,

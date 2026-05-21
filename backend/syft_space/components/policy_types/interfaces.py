@@ -171,6 +171,45 @@ class XenditCharger(Protocol):
         ...
 
 
+class StripeCharger(Protocol):
+    """Stripe wallet-bound charger for a single request.
+
+    Same shape as XenditCharger — both providers spend balance the same way
+    once it's been topped up. The two Protocols are kept separate so policy
+    types can declare which mechanism they need (and IDE go-to-definition
+    points at the right impl), but the concrete implementation is shared
+    via ``WalletBalanceCharger``.
+    """
+
+    @property
+    def currency(self) -> str:
+        """Wallet currency code (e.g., 'USD', 'EUR'). Surfaced on responses."""
+        ...
+
+    async def get_balance(self, user_email: str) -> float:
+        """Return the user's current spendable balance in the wallet's currency."""
+        ...
+
+    async def reserve(
+        self,
+        *,
+        user_email: str,
+        amount: float,
+        charge_unit: str,
+        charge_quantity: int,
+    ) -> UUID:
+        """Reserve `amount` against the user's balance.
+
+        Raises:
+            BalanceShortfallError: balance is below `amount`.
+        """
+        ...
+
+    async def cancel(self, transaction_id: UUID) -> None:
+        """Cancel a previously reserved transaction (e.g., empty response)."""
+        ...
+
+
 class PaymentChargers:
     """Per-request bag of payment chargers, accessed by mechanism.
 
@@ -188,9 +227,11 @@ class PaymentChargers:
         *,
         mpp: MppCharger | None = None,
         xendit: XenditCharger | None = None,
+        stripe: StripeCharger | None = None,
     ) -> None:
         self._mpp = mpp
         self._xendit = xendit
+        self._stripe = stripe
 
     def mpp(self) -> MppCharger:
         if self._mpp is None:
@@ -205,6 +246,13 @@ class PaymentChargers:
                 "Xendit charger requested but no Xendit wallet is attached to this endpoint"
             )
         return self._xendit
+
+    def stripe(self) -> StripeCharger:
+        if self._stripe is None:
+            raise RuntimeError(
+                "Stripe charger requested but no Stripe wallet is attached to this endpoint"
+            )
+        return self._stripe
 
 
 class Capabilities(BaseModel):

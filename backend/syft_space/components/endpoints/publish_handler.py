@@ -27,6 +27,7 @@ from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
+from syft_space.components.wallets.gateway.stripe.config import StripeWalletConfig
 from syft_space.components.wallets.gateway.xendit.config import XenditWalletConfig
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.config import app_settings
@@ -467,21 +468,32 @@ class PublishEndpointHandler:
             # URLs are identical across endpoints sharing the same wallet —
             # balance is fungible across them.
             if policy.wallet_id and wallet is not None:
-                # Wire format: `type` is the provider (xendit/mpp);
+                # Wire format: `type` is the provider (xendit/stripe/mpp);
                 # `config.unit_type` is a typed field on the policy's
                 # config class, so it's already in policy.configuration.
                 policy_data["type"] = wallet.wallet_type
                 policy_data["config"]["currency"] = wallet.currency
                 if wallet.country:
                     policy_data["config"]["country"] = wallet.country
+                # Prepaid-balance providers (xendit, stripe) all surface
+                # bundles + wallet-scoped URLs via the same fields so the
+                # SyftHub marketplace renders them uniformly. Each provider
+                # parses its own config class to extract its bundle list.
+                bundles: list[dict[str, Any]] | None = None
                 if wallet.wallet_type == "xendit":
-                    # Bundles drive the SyftHub purchase UI; without them
-                    # the marketplace has no plans to render.
                     xendit_config = XenditWalletConfig(**wallet.configuration)
-                    policy_data["config"]["bundles"] = [
+                    bundles = [
                         {"name": b.name, "amount": b.amount}
                         for b in xendit_config.prepaid_balance_bundles
                     ]
+                elif wallet.wallet_type == "stripe":
+                    stripe_config = StripeWalletConfig(**wallet.configuration)
+                    bundles = [
+                        {"name": b.name, "amount": b.amount}
+                        for b in stripe_config.prepaid_balance_bundles
+                    ]
+                if bundles is not None:
+                    policy_data["config"]["bundles"] = bundles
                     if app_settings.public_url:
                         base = str(app_settings.public_url).rstrip("/")
                         policy_data["config"]["payment_url"] = (
