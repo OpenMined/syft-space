@@ -19,4 +19,5 @@ export const STRIPE_CURRENCIES: readonly StripeCurrencyOption[] = [
   { currency: 'AUD', label: 'Australian Dollar' },
   { currency: 'CAD', label: 'Canadian Dollar' },
   { currency: 'JPY', label: 'Japanese Yen' },
+  { currency: 'BRL', label: 'Brazilian Real' },
 ] as const
