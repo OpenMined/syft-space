@@ -42,6 +42,7 @@ class InvoiceResponse(BaseModel):
     provider: str
     external_id: str
     checkout_url: str
+    provider_session_id: str | None = None
     bundle_name: str
     amount: float
     currency: str
