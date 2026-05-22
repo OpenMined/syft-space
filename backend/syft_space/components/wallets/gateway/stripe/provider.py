@@ -97,3 +97,11 @@ class StripeWalletProvider:
         config = StripeWalletConfig(**current_config)
         updated = config.model_copy(update=updates)
         return updated.model_dump()
+
+    def extract_bundles(
+        self, configuration: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        config = StripeWalletConfig(**configuration)
+        return [
+            {"name": b.name, "amount": b.amount} for b in config.prepaid_balance_bundles
+        ]

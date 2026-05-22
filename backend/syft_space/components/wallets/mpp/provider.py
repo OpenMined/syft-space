@@ -78,3 +78,9 @@ class MppWalletProvider:
             update={"wallet_address": updates["wallet_address"]}
         )
         return updated.model_dump()
+
+    def extract_bundles(
+        self, configuration: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        # MPP holds balance on-chain; no prepaid-bundle catalog applies.
+        return None

@@ -97,3 +97,16 @@ class WalletProvider(Protocol):
         Default: not supported (raises ValueError).
         """
         ...
+
+    def extract_bundles(
+        self, configuration: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        """Return the prepaid-balance bundle catalog for this wallet.
+
+        Returns a list of ``{"name": str, "amount": float}`` dicts for
+        prepaid-balance providers (Stripe, Xendit) so SyftHub can render
+        purchase options. Returns ``None`` for wallet types that don't use
+        prepaid bundles (e.g., MPP blockchain wallets where balance is
+        held on-chain).
+        """
+        ...
