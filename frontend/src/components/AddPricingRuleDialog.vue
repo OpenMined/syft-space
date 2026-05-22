@@ -239,11 +239,26 @@
 
           <!-- Form (visible once wallet picked) -->
           <template v-if="selectedWallet">
+            <div v-if="endpointHasDataset" class="space-y-2">
+              <Label class="text-sm font-medium">Charge per</Label>
+              <Select v-model="form.chargeMode">
+                <SelectTrigger class="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="request">Request</SelectItem>
+                  <SelectItem value="document">Document</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div class="space-y-2">
-              <Label for="price-per-request" class="text-sm font-medium"> Price per request </Label>
+              <Label for="price" class="text-sm font-medium">
+                Price per {{ form.chargeMode === 'document' ? 'document' : 'request' }}
+              </Label>
               <div class="flex gap-2 items-stretch">
                 <Input
-                  id="price-per-request"
+                  id="price"
                   v-model="form.price"
                   type="number"
                   step="any"
@@ -313,7 +328,8 @@
                 </span>
                 <span class="text-muted-foreground">Price</span>
                 <span class="text-right font-medium">
-                  {{ form.price || '0' }} {{ selectedWallet.currency }} / request
+                  {{ form.price || '0' }} {{ selectedWallet.currency }} /
+                  {{ form.chargeMode === 'document' ? 'document' : 'request' }}
                 </span>
                 <span class="text-muted-foreground">Applies to</span>
                 <span class="text-right font-medium">
@@ -375,15 +391,33 @@ import { XENDIT_REGIONS, countryForCurrency } from '@/lib/xenditRegions'
 
 type View = 'pricing-form' | 'pick-provider' | 'setup-form' | 'wallet-success'
 
-const props = defineProps<{
-  open: boolean
-  /**
-   * Pre-select and lock the wallet picker. Used when an endpoint already
-   * has a payment policy — all payment policies on the same endpoint must
-   * share one wallet.
-   */
-  lockedWalletId?: string | null
-}>()
+type PaymentPolicyType =
+  | 'mpp_per_request'
+  | 'xendit_per_request'
+  | 'mpp_per_document'
+  | 'xendit_per_document'
+
+type ChargeMode = 'request' | 'document'
+
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    /**
+     * Pre-select and lock the wallet picker. Used when an endpoint already
+     * has a payment policy — all payment policies on the same endpoint must
+     * share one wallet.
+     */
+    lockedWalletId?: string | null
+    /**
+     * Whether the target endpoint has a dataset attached. Per-document
+     * pricing counts retrieved documents, so it only makes sense when a
+     * dataset is present (the backend also enforces this with a 422 — we
+     * just keep the UI honest by hiding the option otherwise).
+     */
+    endpointHasDataset?: boolean
+  }>(),
+  { lockedWalletId: null, endpointHasDataset: false },
+)
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
@@ -392,7 +426,7 @@ const emit = defineEmits<{
       walletId: string
       walletType: string
       walletCurrency: string
-      policyType: 'mpp_accounting' | 'xendit'
+      policyType: PaymentPolicyType
       name: string
       config: Record<string, unknown>
     },
@@ -431,6 +465,7 @@ const form = ref({
   name: '',
   userType: 'all' as 'all' | 'specific',
   users: '',
+  chargeMode: 'request' as ChargeMode,
 })
 
 const selectedWallet = computed(
@@ -441,7 +476,8 @@ const priceHint = computed(() => {
   const price = parseFloat(form.value.price)
   if (isNaN(price) || price <= 0 || !selectedWallet.value) return ''
   const cost1k = (price * 1000).toLocaleString()
-  return `1,000 requests = ${cost1k} ${selectedWallet.value.currency}`
+  const unitPlural = form.value.chargeMode === 'document' ? 'documents' : 'requests'
+  return `1,000 ${unitPlural} = ${cost1k} ${selectedWallet.value.currency}`
 })
 
 const canSubmit = computed(() => {
@@ -470,12 +506,17 @@ const providerLabel = (walletType: string): string => {
   }
 }
 
-const policyTypeForWallet = (walletType: string): 'mpp_accounting' | 'xendit' => {
-  if (walletType === 'mpp') return 'mpp_accounting'
-  return 'xendit'
+const policyTypeForWallet = (
+  walletType: string,
+  chargeMode: ChargeMode,
+): PaymentPolicyType => {
+  if (walletType === 'mpp') {
+    return chargeMode === 'document' ? 'mpp_per_document' : 'mpp_per_request'
+  }
+  return chargeMode === 'document' ? 'xendit_per_document' : 'xendit_per_request'
 }
 
-const buildConfig = (walletType: string): Record<string, unknown> => {
+const buildConfig = (): Record<string, unknown> => {
   const price = parseFloat(form.value.price) || 0
   const appliedTo =
     form.value.userType === 'all'
@@ -485,11 +526,7 @@ const buildConfig = (walletType: string): Record<string, unknown> => {
           .map((e) => e.trim())
           .filter((e) => e)
 
-  // MPP and Xendit use different price field names.
-  if (walletType === 'mpp') {
-    return { price, unit_type: 'requests', applied_to: appliedTo }
-  }
-  return { price_per_request: price, applied_to: appliedTo }
+  return { price, applied_to: appliedTo }
 }
 
 const fetchWallets = async () => {
@@ -578,9 +615,9 @@ const submit = () => {
     walletId: w.id,
     walletType: w.wallet_type,
     walletCurrency: w.currency,
-    policyType: policyTypeForWallet(w.wallet_type),
+    policyType: policyTypeForWallet(w.wallet_type, form.value.chargeMode),
     name: form.value.name.trim(),
-    config: buildConfig(w.wallet_type),
+    config: buildConfig(),
   })
   emit('update:open', false)
 }
@@ -598,7 +635,7 @@ const resetState = () => {
     currency: 'IDR',
     country: 'ID',
   }
-  form.value = { price: '', name: '', userType: 'all', users: '' }
+  form.value = { price: '', name: '', userType: 'all', users: '', chargeMode: 'request' }
 }
 
 watch(

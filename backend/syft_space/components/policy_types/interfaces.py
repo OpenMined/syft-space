@@ -1,8 +1,10 @@
 """Policy type interfaces and domain models."""
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol
+from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from mpp import Challenge, Credential, Receipt
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class PolicyViolationError(Exception):
@@ -40,11 +42,199 @@ class PaymentRequiredError(Exception):
         super().__init__(description or "Payment required")
 
 
+class PolicyAttachError(Exception):
+    """Base for policy-attach failures.
+
+    Subclasses describe the *kind* of failure in domain terms; the handler
+    layer maps each subclass to an HTTP status. Domain code never references
+    HTTP — `raise PolicyAttachNotFoundError("Wallet not found")` is enough.
+    """
+
+
+class PolicyAttachInputError(PolicyAttachError):
+    """Invalid or missing input on the attach request (e.g., wallet_id
+    missing for a wallet-bound policy, or wallet_id supplied for a
+    non-wallet policy)."""
+
+
+class PolicyAttachNotFoundError(PolicyAttachError):
+    """A referenced entity (wallet, endpoint, ...) was not found for the
+    current tenant."""
+
+
+class PolicyAttachConflictError(PolicyAttachError):
+    """Semantic conflict between the policy and the surrounding system —
+    e.g., wallet type mismatch, sibling policies disagree on wallet,
+    per-document pricing on an LLM endpoint."""
+
+
+def add_response_cost(response: dict[str, Any], amount: float, currency: str) -> None:
+    """Accumulate a charge into the response's top-level `cost` + `currency`.
+
+    Payment policy post-hooks call this once per policy that applied, so
+    multiple policies on the same query (e.g. per-request + per-document)
+    sum cleanly. Currency is required to be homogeneous across policies on
+    one endpoint — enforced upstream by sharing a single wallet — so each
+    call just overwrites the currency field with the same value.
+
+    Zero is intentionally permitted (negative is rejected as a non-event):
+    a free-tier match, empty response, or zero-document search should
+    record `cost=0` so consumers can distinguish "this query was free
+    under our pricing" (cost=0, currency set) from "this endpoint has no
+    pricing configured" (cost=None).
+
+    Top-level `cost`/`currency` is the canonical answer to "what did this
+    query cost the user?" Per-component cost (on `summary` / `references`)
+    is intentionally not used: different policies bill against different
+    components, and summing per-component fields would lie about the total.
+    """
+    if amount < 0:
+        return
+    # `cost` may already be present-but-None when the response dict was
+    # serialized from QueryEndpointResponse (Field default = None), so
+    # `.get("cost", 0)` would return None. Coalesce instead.
+    response["cost"] = (response.get("cost") or 0) + amount
+    response["currency"] = currency
+
+
+class BalanceShortfallError(Exception):
+    """Raised by XenditCharger.reserve when the user's balance is below
+    the required amount.
+
+    Policy-facing exception owned by this layer. The underlying
+    InsufficientBalanceError from the balance service stays internal to
+    payments/ — the adapter translates so policy_types never imports it.
+    """
+
+    def __init__(self, *, balance: float, required: float, currency: str) -> None:
+        self.balance = balance
+        self.required = required
+        self.currency = currency
+        super().__init__(
+            f"Balance {balance} {currency} below required {required} {currency}"
+        )
+
+
+class MppCharger(Protocol):
+    """MPP wallet-bound charger for a single request.
+
+    Constructed by the framework with the endpoint's MPP wallet config
+    (address, secret key, realm) and the request's X-Payment header bound.
+    Policies call .charge() without threading credentials through every call.
+    """
+
+    async def charge(
+        self, *, amount: float, description: str
+    ) -> Challenge | tuple[Credential, Receipt]:
+        """Attempt to charge `amount`.
+
+        Returns a Challenge if no credential is bound or the bound
+        credential is insufficient — the policy raises PaymentRequiredError
+        from it. Returns (credential, receipt) on successful settlement.
+        """
+        ...
+
+
+class XenditCharger(Protocol):
+    """Xendit wallet-bound charger for a single request.
+
+    Constructed by the framework with wallet_id, currency, tenant_id, and
+    endpoint_id bound. Policies pass only request-scoped data.
+    """
+
+    @property
+    def currency(self) -> str:
+        """Wallet currency code (e.g., 'IDR', 'USD'). Surfaced on responses."""
+        ...
+
+    async def get_balance(self, user_email: str) -> float:
+        """Return the user's current spendable balance in the wallet's currency."""
+        ...
+
+    async def reserve(
+        self,
+        *,
+        user_email: str,
+        amount: float,
+        charge_unit: str,
+        charge_quantity: int,
+    ) -> UUID:
+        """Reserve `amount` against the user's balance.
+
+        Raises:
+            BalanceShortfallError: balance is below `amount`.
+        """
+        ...
+
+    async def cancel(self, transaction_id: UUID) -> None:
+        """Cancel a previously reserved transaction (e.g., empty response)."""
+        ...
+
+
+class PaymentChargers:
+    """Per-request bag of payment chargers, accessed by mechanism.
+
+    Methods raise if the requested charger isn't built: by the time a
+    policy's hook runs, CapabilityChecker has already validated that any
+    declared required_wallet_type has a matching wallet attached. Missing
+    chargers therefore indicate a framework bug, not a user-input error.
+
+    Adding a new payment mechanism is one new method on this class plus a
+    new branch in build_payment_chargers (see endpoints/policy_charging.py).
+    """
+
+    def __init__(
+        self,
+        *,
+        mpp: MppCharger | None = None,
+        xendit: XenditCharger | None = None,
+    ) -> None:
+        self._mpp = mpp
+        self._xendit = xendit
+
+    def mpp(self) -> MppCharger:
+        if self._mpp is None:
+            raise RuntimeError(
+                "MPP charger requested but no MPP wallet is attached to this endpoint"
+            )
+        return self._mpp
+
+    def xendit(self) -> XenditCharger:
+        if self._xendit is None:
+            raise RuntimeError(
+                "Xendit charger requested but no Xendit wallet is attached to this endpoint"
+            )
+        return self._xendit
+
+
+class Capabilities(BaseModel):
+    """Declarative facts a policy type declares about itself.
+
+    Read by CapabilityChecker at policy creation time to validate that the
+    system honors what the policy needs. New requirement kinds are added by
+    extending this model — policy classes don't import anything outside this
+    module to express their needs.
+
+    Defaults describe a policy with no special requirements (e.g., access
+    and rate_limit policies). Wallet-bound policies override requires_wallet
+    and required_wallet_type. Policies that count retrieved documents (e.g.,
+    per-document pricing) override requires_endpoint_dataset since they need
+    a data source attached to the endpoint — whether or not an LLM step is
+    also present is irrelevant.
+    """
+
+    requires_wallet: bool = False
+    required_wallet_type: str | None = None
+    requires_endpoint_dataset: bool = False
+
+
 class PolicyContext(BaseModel):
     """Domain context for policy execution.
 
     Passed to policy hooks with request/response information.
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     endpoint_slug: str = Field(..., description="Slug of the endpoint being accessed")
     sender_email: EmailStr = Field(..., description="Email of the request sender")
@@ -54,6 +244,10 @@ class PolicyContext(BaseModel):
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata"
+    )
+    payment_chargers: PaymentChargers | None = Field(
+        default=None,
+        description="Per-request payment chargers, built from attached wallets",
     )
 
 
@@ -103,6 +297,16 @@ class BasePolicyType(Protocol):
             Dictionary describing the configuration schema
         """
         ...
+
+    @classmethod
+    def capabilities(cls) -> Capabilities:
+        """Declare facts about this policy type for the CapabilityChecker.
+
+        Default: no special requirements (no wallet, no endpoint constraints).
+        Override on subclasses that need a wallet, forbid certain endpoint
+        kinds, etc. See `Capabilities` for the fields.
+        """
+        return Capabilities()
 
     async def pre_hook(
         self, configs: list[dict[str, Any]], context: PolicyContext
@@ -169,24 +373,4 @@ class BasePolicyType(Protocol):
         Raises:
             ValueError: If configuration is invalid
         """
-        ...
-
-
-@runtime_checkable
-class WalletPolicy(Protocol):
-    """Policy types that require a wallet implement this.
-
-    Used to distinguish wallet-bound policies (e.g., mpp_accounting, xendit)
-    from non-wallet policies (e.g., rate_limit, access). The handler uses
-    issubclass(policy_type_cls, WalletPolicy) to determine if wallet_id
-    is required, eliminating hardcoded policy type sets.
-
-    Mutual exclusivity is enforced implicitly: all wallet-bound policies
-    on an endpoint must share the same wallet_id (has_different_wallet check).
-    Different wallet types (MPP vs Xendit) have different wallet_ids, so
-    they can't coexist.
-    """
-
-    def required_wallet_type(self) -> str:
-        """Return the wallet type this policy requires (e.g., 'mpp', 'xendit')."""
         ...

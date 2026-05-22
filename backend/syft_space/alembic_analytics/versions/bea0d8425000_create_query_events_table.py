@@ -1,0 +1,104 @@
+"""create query_events and query_cost_lines tables
+
+Revision ID: bea0d8425000
+Revises:
+Create Date: 2026-04-01 12:25:36.699874
+
+"""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+import sqlmodel
+from alembic import op
+
+revision: str = "bea0d8425000"
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "query_events",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("timestamp", sa.DateTime(), nullable=False),
+        sa.Column("tenant_id", sa.Uuid(), nullable=False),
+        sa.Column("endpoint_id", sa.Uuid(), nullable=True),
+        sa.Column("endpoint_slug", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("dataset_id", sa.Uuid(), nullable=True),
+        sa.Column("user_email", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("query_text", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("status", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(
+        "idx_qe_tenant_dataset",
+        "query_events",
+        ["tenant_id", "dataset_id"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_qe_tenant_endpoint",
+        "query_events",
+        ["tenant_id", "endpoint_id"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_qe_tenant_timestamp",
+        "query_events",
+        ["tenant_id", "timestamp"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_qe_tenant_user", "query_events", ["tenant_id", "user_email"], unique=False
+    )
+    op.create_index(op.f("ix_query_events_id"), "query_events", ["id"], unique=False)
+
+    op.create_table(
+        "query_cost_lines",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("query_event_id", sa.Uuid(), nullable=False),
+        sa.Column("tenant_id", sa.Uuid(), nullable=False),
+        sa.Column("timestamp", sa.DateTime(), nullable=False),
+        sa.Column("user_email", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("endpoint_id", sa.Uuid(), nullable=True),
+        sa.Column("dataset_id", sa.Uuid(), nullable=True),
+        sa.Column("status", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("component", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("amount", sa.Float(), nullable=False),
+        sa.Column("currency", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(
+        "idx_qcl_tenant_ts_currency",
+        "query_cost_lines",
+        ["tenant_id", "timestamp", "currency"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_qcl_event",
+        "query_cost_lines",
+        ["query_event_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_query_cost_lines_id"),
+        "query_cost_lines",
+        ["id"],
+        unique=False,
+    )
+
+
+def downgrade() -> None:
+    op.drop_index(op.f("ix_query_cost_lines_id"), table_name="query_cost_lines")
+    op.drop_index("idx_qcl_event", table_name="query_cost_lines")
+    op.drop_index("idx_qcl_tenant_ts_currency", table_name="query_cost_lines")
+    op.drop_table("query_cost_lines")
+
+    op.drop_index(op.f("ix_query_events_id"), table_name="query_events")
+    op.drop_index("idx_qe_tenant_user", table_name="query_events")
+    op.drop_index("idx_qe_tenant_timestamp", table_name="query_events")
+    op.drop_index("idx_qe_tenant_endpoint", table_name="query_events")
+    op.drop_index("idx_qe_tenant_dataset", table_name="query_events")
+    op.drop_table("query_events")

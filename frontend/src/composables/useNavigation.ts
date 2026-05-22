@@ -21,7 +21,6 @@ export function useNavigation() {
     datasetDetail: (slug: string) => ({ name: 'dataset-detail', params: { slug } }),
     createDataEndpoint: { name: 'create-data-endpoint' },
     settings: { name: 'settings' },
-    earnings: { name: 'earnings' },
   } satisfies Record<string, NavigationRoute | ((slug: string) => NavigationRoute)>
 
   const navigateTo = (route: NavigationRoute) => router.push(route)
@@ -32,7 +31,6 @@ export function useNavigation() {
   const goToModels = () => navigateTo(routes.models)
   const goToDatasets = () => navigateTo(routes.datasets)
   const goToSettings = () => navigateTo(routes.settings)
-  const goToEarnings = () => navigateTo(routes.earnings)
 
   const goToEndpointDetail = (slug: string) => navigateTo(routes.endpointDetail(slug))
   const goToModelDetail = (slug: string) => navigateTo(routes.modelDetail(slug))
@@ -49,7 +47,6 @@ export function useNavigation() {
     goToModels,
     goToDatasets,
     goToSettings,
-    goToEarnings,
     goToEndpointDetail,
     goToModelDetail,
     goToDatasetDetail,

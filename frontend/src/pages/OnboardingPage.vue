@@ -293,6 +293,18 @@
         </CardContent>
       </Card>
     </div>
+
+    <EmailOtpDialog
+      v-model:open="otpDialogOpen"
+      :email="pendingVerification?.email ?? ''"
+      :verifying="verifyingOtp"
+      :resending="resendingOtp"
+      :error="otpError"
+      :auto-resend="pendingVerification?.origin === 'signin'"
+      @verify="handleVerifyOtp"
+      @resend="resendOtp"
+      @cancel="cancelVerification"
+    />
   </div>
 </template>
 
@@ -314,6 +326,7 @@ import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { loadGlobalData } from '@/lib/utils'
 import { checkOnboardingStatus, clearOnboardingCache } from '@/router'
+import EmailOtpDialog from '@/components/EmailOtpDialog.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -355,12 +368,56 @@ const {
   authError,
   networkError,
   marketplaceData,
+  pendingVerification,
+  verifyingOtp,
+  resendingOtp,
+  otpError,
   checkUsernameAvailability,
   register,
   signIn,
+  verifyOtp,
+  resendOtp,
+  cancelVerification,
   completeSetup,
   loadExistingState,
 } = useOnboarding()
+
+const otpDialogOpen = computed({
+  get: () => pendingVerification.value !== null,
+  set: (value) => {
+    if (!value) cancelVerification()
+  },
+})
+
+const handleVerifyOtp = async (code: string) => {
+  const ok = await verifyOtp(code)
+  if (!ok) return
+  await finalizeSetup()
+}
+
+const finalizeSetup = async () => {
+  isSubmitting.value = true
+  try {
+    const setupSuccess = await completeSetup()
+    if (!setupSuccess) return
+
+    await settingsApi.updateDiagnostics({ enabled: diagnosticsOptIn.value })
+    setDiagnosticsEnabled(diagnosticsOptIn.value)
+    setPosthogDiagnosticsEnabled(diagnosticsOptIn.value)
+
+    clearOnboardingCache()
+    await loadGlobalData()
+
+    const nextUrl = route.query.next as string | undefined
+    if (nextUrl) {
+      router.push(nextUrl)
+    } else {
+      router.push({ name: 'home' })
+    }
+  } finally {
+    isSubmitting.value = false
+  }
+}
 
 // Additional form state
 const confirmPassword = ref('')
@@ -422,41 +479,13 @@ const handleCompleteSetup = async () => {
   try {
     // Skip auth if already registered (retry after network failure)
     if (!isAlreadyRegistered.value) {
-      let authSuccess = false
-      if (authMode.value === 'register') {
-        authSuccess = await register()
-      } else {
-        authSuccess = await signIn()
-      }
-
-      if (!authSuccess) {
-        isSubmitting.value = false
-        return
-      }
+      const authSuccess = authMode.value === 'register' ? await register() : await signIn()
+      // authSuccess can be false either because auth failed outright or
+      // because the OTP dialog is now driving completion — either way, stop.
+      if (!authSuccess) return
     }
 
-    // Complete the setup
-    const setupSuccess = await completeSetup()
-    if (setupSuccess) {
-      // Save diagnostics preference and update Sentry
-      await settingsApi.updateDiagnostics({ enabled: diagnosticsOptIn.value })
-      setDiagnosticsEnabled(diagnosticsOptIn.value)
-      setPosthogDiagnosticsEnabled(diagnosticsOptIn.value)
-
-      // Clear cache so next check gets fresh status
-      clearOnboardingCache()
-
-      // Fetch global data now that onboarding is complete
-      await loadGlobalData()
-
-      // Redirect to the original destination or home
-      const nextUrl = route.query.next as string | undefined
-      if (nextUrl) {
-        router.push(nextUrl)
-      } else {
-        router.push({ name: 'home' })
-      }
-    }
+    await finalizeSetup()
   } finally {
     isSubmitting.value = false
   }

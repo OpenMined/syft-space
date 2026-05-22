@@ -368,7 +368,6 @@ class SummaryResponse(BaseModel):
     finish_reason: str = Field(..., description="Reason for completion")
     usage: TokenUsage = Field(..., description="Token usage information")
     logprobs: LogProbs | None = Field(default=None, description="Log probabilities")
-    cost: float = Field(..., description="Cost of the generation")
     provider_info: ProviderInfo = Field(
         ..., description="Provider-specific information"
     )
@@ -394,11 +393,16 @@ class ReferencesResponse(BaseModel):
         ..., description="List of reference documents"
     )
     provider_info: ProviderInfo = Field(..., description="Search provider information")
-    cost: float = Field(..., description="Cost of the search")
 
 
 class QueryEndpointResponse(BaseModel):
-    """Response model for endpoint query."""
+    """Response model for endpoint query.
+
+    `cost`/`currency` at the top level represent the *total* the user paid
+    for this query, summed across all payment policies that applied. They
+    are populated additively by policy post-hooks; absence means the query
+    was free.
+    """
 
     summary: SummaryResponse | None = Field(
         default=None, description="Generated response summary (if model enabled)"
@@ -407,6 +411,18 @@ class QueryEndpointResponse(BaseModel):
         default=None,
         description="Reference documents and search results (if dataset enabled)",
     )
+    cost: float | None = Field(
+        default=None, description="Total cost of this query across all policies"
+    )
+    currency: str | None = Field(
+        default=None, description="Currency of the cost (ISO code)"
+    )
+
+    @model_validator(mode="after")
+    def _cost_currency_paired(self) -> "QueryEndpointResponse":
+        if self.cost is not None and self.currency is None:
+            raise ValueError("currency is required when cost is set")
+        return self
 
     class Config:
         """Pydantic config."""
@@ -427,7 +443,6 @@ class QueryEndpointResponse(BaseModel):
                         "completion_tokens": 8,
                         "total_tokens": 18,
                     },
-                    "cost": 0.0025,
                     "provider_info": {"api_version": "v1", "response_time_ms": 150},
                 },
                 "references": {
@@ -443,8 +458,9 @@ class QueryEndpointResponse(BaseModel):
                         "search_engine": "weaviate",
                         "response_time_ms": 50,
                     },
-                    "cost": 0.001,
                 },
+                "cost": 0.0035,
+                "currency": "USD",
             }
         }
 

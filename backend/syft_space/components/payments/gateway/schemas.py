@@ -72,6 +72,8 @@ class LedgerEntryResponse(BaseModel):
     type: str
     amount: float
     currency: str
+    charge_unit: str
+    charge_quantity: int
     user_email: str
     wallet_id: UUID | None
     endpoint_id: UUID | None

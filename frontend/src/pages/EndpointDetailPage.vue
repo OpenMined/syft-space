@@ -166,9 +166,9 @@
                   </router-link>
                 </template>
 
-                <template v-if="getEndpointType === 'Data API'">
+                <template v-for="entry in pricingBreakdown" :key="entry.unit">
                   <span class="text-muted-foreground/60">·</span>
-                  <span class="text-muted-foreground">{{ getPricingRange }}</span>
+                  <span class="text-muted-foreground">{{ entry.label }}</span>
                 </template>
               </div>
 
@@ -801,9 +801,21 @@
                 >
                   <div class="min-w-0 flex-1">
                     <p class="text-sm font-medium truncate">{{ entry.user_email }}</p>
-                    <p class="text-xs text-muted-foreground">
-                      {{ formatTimeAgo(entry.created_at) }}
-                      <span class="ml-1">&middot; {{ capitalize(entry.type) }}</span>
+                    <p class="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                      <span :title="formatLocalDateTime(entry.created_at)">{{
+                        formatTimeAgo(entry.created_at)
+                      }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <span>{{ entry.type }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <span>{{ formatChargeBreakdown(entry) }}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <code
+                        class="font-mono text-[10px] bg-muted px-1 py-0.5 rounded"
+                        :title="`Transaction ID: ${entry.transaction_id}`"
+                      >
+                        {{ entry.transaction_id.slice(0, 8) }}
+                      </code>
                     </p>
                   </div>
                   <span
@@ -896,6 +908,7 @@
   <AddPricingRuleDialog
     v-model:open="showAddPricingRuleDialog"
     :locked-wallet-id="lockedWalletId"
+    :endpoint-has-dataset="!!endpoint?.dataset"
     @pricing-created="handlePricingCreated"
   />
 
@@ -985,7 +998,12 @@ import { policiesApi } from '@/api/policies/policies'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { paymentsApi } from '@/api/endpoints/payments'
 import type { LedgerEntryResponse, TransactionResponse, WalletListItem } from '@/api/types'
-import { formatPrice, formatTimeAgo } from '@/lib/formatters'
+import {
+  formatCurrencyAmount,
+  formatLocalDateTime,
+  formatPrice,
+  formatTimeAgo,
+} from '@/lib/formatters'
 import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
@@ -1187,7 +1205,11 @@ const ensureWallets = (): Promise<void> => {
 const getPricingPolicies = () => {
   return (
     endpoint.value?.policies?.filter(
-      (p) => p.policy_type === 'mpp_accounting' || p.policy_type === 'xendit',
+      (p) =>
+        p.policy_type === 'mpp_per_request' ||
+        p.policy_type === 'xendit_per_request' ||
+        p.policy_type === 'mpp_per_document' ||
+        p.policy_type === 'xendit_per_document',
     ) || []
   )
 }
@@ -1228,15 +1250,15 @@ const getPricingPolicySummary = (policy: {
   const wallet = policyWallet(policy)
   const currency = wallet?.currency ?? 'USD'
 
-  if (policy.policy_type === 'mpp_accounting' && config?.price !== undefined) {
-    return `${config.price} ${currency} per query ${appliedLabel}`.trim()
+  if (config?.price === undefined) {
+    return 'Pricing rule configured'
   }
 
-  if (policy.policy_type === 'xendit' && config?.price_per_request !== undefined) {
-    return `${config.price_per_request} ${currency} per request ${appliedLabel}`.trim()
-  }
-
-  return 'Pricing rule configured'
+  const isPerDocument =
+    policy.policy_type === 'mpp_per_document' ||
+    policy.policy_type === 'xendit_per_document'
+  const unit = isPerDocument ? 'document' : 'request'
+  return `${config.price} ${currency} per ${unit} ${appliedLabel}`.trim()
 }
 
 const txnLoading = ref(false)
@@ -1245,9 +1267,6 @@ const txnPeriod = ref<'7' | '30' | '90' | 'all'>('30')
 const txnStatusFilter = ref<'all' | 'debit' | 'cancelled'>('all')
 const mppTransactions = ref<TransactionResponse[]>([])
 const ledgerEntries = ref<LedgerEntryResponse[]>([])
-
-const capitalize = (s: string) =>
-  typeof s === 'string' && s.length ? s.charAt(0).toUpperCase() + s.slice(1) : s
 
 const periodCutoffMs = computed(() => {
   if (txnPeriod.value === 'all') return null
@@ -1321,6 +1340,11 @@ const totalTransactionsForBadge = computed(
   () => mppTransactions.value.length + ledgerEntries.value.length,
 )
 
+const formatChargeBreakdown = (entry: LedgerEntryResponse): string => {
+  const unit = entry.charge_quantity === 1 ? entry.charge_unit : `${entry.charge_unit}s`
+  return `${entry.charge_quantity} ${unit}`
+}
+
 const fetchTransactions = async () => {
   if (!endpoint.value) return
   txnLoading.value = true
@@ -1367,30 +1391,38 @@ const getEndpointType = computed(() => {
   return 'Unknown'
 })
 
-const getPricingRange = computed(() => {
-  const pricingPolicies = getPricingPolicies()
-
-  if (pricingPolicies.length === 0) {
-    return '$0.00/req'
+// Group pricing policies by charge unit (request, document, future: token…)
+// and render one badge per unit. Currency comes from the linked wallet
+// (all payment policies on an endpoint share one wallet by construction).
+const pricingBreakdown = computed<Array<{ unit: string; label: string }>>(() => {
+  const policies = getPricingPolicies()
+  if (policies.length === 0) {
+    return [{ unit: 'request', label: '$0.00/request' }]
   }
 
-  const prices = pricingPolicies
-    .map((policy) => policy.configuration?.price)
-    .filter((price): price is number => typeof price === 'number')
-    .sort((a, b) => a - b)
-
-  if (prices.length === 0) {
-    return '$0.00/req'
+  const byUnit = new Map<string, number[]>()
+  for (const policy of policies) {
+    const unit =
+      ((policy.configuration as Record<string, unknown>)?.unit_type as string | undefined) ??
+      (policy.policy_type.endsWith('_per_document') ? 'document' : 'request')
+    const price = (policy.configuration as Record<string, unknown>)?.price
+    if (typeof price !== 'number') continue
+    if (!byUnit.has(unit)) byUnit.set(unit, [])
+    byUnit.get(unit)!.push(price)
   }
 
-  const minPrice = prices[0]!
-  const maxPrice = prices[prices.length - 1]!
+  const currency = lockedWallet.value?.currency ?? 'USD'
 
-  if (minPrice === maxPrice) {
-    return `$${formatPrice(minPrice)}/req`
-  }
-
-  return `$${formatPrice(minPrice)} - $${formatPrice(maxPrice)}/req`
+  return Array.from(byUnit.entries()).map(([unit, prices]) => {
+    prices.sort((a, b) => a - b)
+    const min = prices[0]!
+    const max = prices[prices.length - 1]!
+    const range =
+      min === max
+        ? formatCurrencyAmount(min, currency)
+        : `${formatCurrencyAmount(min, currency)} - ${formatCurrencyAmount(max, currency)}`
+    return { unit, label: `${range}/${unit}` }
+  })
 })
 
 const deleteEndpoint = async () => {
@@ -1458,14 +1490,18 @@ const confirmDeletePolicy = async () => {
 const handlePricingCreated = async (payload: {
   walletId: string
   walletType: string
-  policyType: 'mpp_accounting' | 'xendit'
+  policyType:
+    | 'mpp_per_request'
+    | 'xendit_per_request'
+    | 'mpp_per_document'
+    | 'xendit_per_document'
   name: string
   config: Record<string, unknown>
 }) => {
   if (!endpoint.value?.id) return
 
   const ruleIndex = getPricingPolicies().length + 1
-  const policyLabel = payload.policyType === 'mpp_accounting' ? 'MPP' : 'Xendit'
+  const policyLabel = payload.policyType.startsWith('mpp_') ? 'MPP' : 'Xendit'
   const policyName = payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
 
   try {
@@ -1529,7 +1565,7 @@ const handleAddPolicy = async (payload: {
 
   const { policyType, formData } = payload
 
-  const backendPolicyType = policyType === 'pricing' ? 'mpp_accounting' : policyType
+  const backendPolicyType = policyType === 'pricing' ? 'mpp_per_request' : policyType
   const existingPoliciesOfType =
     endpoint.value.policies?.filter((p) => p.policy_type === backendPolicyType) || []
   const ruleIndex = existingPoliciesOfType.length + 1

@@ -132,7 +132,7 @@ const createPricingPolicy = async (
 
   return policiesApi.create({
     name: generatePolicyName('pricing', formData, endpointName, ruleIndex),
-    policy_type: 'mpp_accounting',
+    policy_type: 'mpp_per_request',
     configuration: createPricingConfiguration(formData.price, formData.userType, formData.users),
     endpoint_id: endpointId,
     wallet_id: mppWallet.id,
@@ -262,24 +262,21 @@ export function usePolicyCreation() {
           walletId = rule.config.walletId as string | undefined
           const walletType = rule.config.walletType as string | undefined
           const explicitPolicyType = rule.config.policyType as
-            | 'mpp_accounting'
-            | 'xendit'
+            | 'mpp_per_request'
+            | 'xendit_per_request'
+            | 'mpp_per_document'
+            | 'xendit_per_document'
             | undefined
           backendPolicyType =
-            explicitPolicyType ?? (walletType === 'mpp' ? 'mpp_accounting' : 'xendit')
+            explicitPolicyType ?? (walletType === 'mpp' ? 'mpp_per_request' : 'xendit_per_request')
 
           const userType = rule.config.userType as 'all' | 'specific'
           const users = rule.config.users as string
           const appliedTo = userType === 'all' ? ['*'] : processUserList(users)
 
-          if (backendPolicyType === 'mpp_accounting') {
-            configuration = createPricingConfiguration(rule.config.price as string, userType, users)
-            configuration.applied_to = appliedTo
-          } else {
-            configuration = {
-              price_per_request: parseFloat(rule.config.price as string) || 0,
-              applied_to: appliedTo,
-            }
+          configuration = {
+            price: parseFloat(rule.config.price as string) || 0,
+            applied_to: appliedTo,
           }
         } else if (policyType === 'pii_filter') {
           configuration = {}

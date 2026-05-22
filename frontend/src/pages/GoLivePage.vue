@@ -347,7 +347,7 @@ const handlePricingRuleCreated = (payload: {
   walletId: string
   walletType: string
   walletCurrency: string
-  policyType: 'mpp_accounting' | 'xendit'
+  policyType: 'mpp_per_request' | 'xendit_per_request' | 'mpp_per_document' | 'xendit_per_document'
   name: string
   config: Record<string, unknown>
 }) => {
@@ -356,9 +356,7 @@ const handlePricingRuleCreated = (payload: {
   const userType = appliedTo.length === 1 && appliedTo[0] === '*' ? 'all' : 'specific'
   const users = userType === 'specific' ? appliedTo.join(', ') : ''
 
-  // MPP and Xendit use different price field names; normalize for display.
-  const rawPrice =
-    payload.walletType === 'mpp' ? payload.config.price : payload.config.price_per_request
+  const rawPrice = payload.config.price
 
   const config: Record<string, unknown> = {
     id: ruleId,

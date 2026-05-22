@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from sqlmodel import or_, select
 
@@ -261,6 +262,53 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 await session.refresh(endpoint)
 
             return endpoint
+
+    async def count_published(self, tenant_id: UUID) -> int:
+        """Count endpoints where published=true for a tenant.
+
+        Args:
+            tenant_id: Tenant ID
+
+        Returns:
+            Count of published endpoints
+        """
+        async with self.db.get_session() as session:
+            statement = (
+                select(func.count())
+                .select_from(Endpoint)
+                .where(
+                    Endpoint.tenant_id == tenant_id,
+                    Endpoint.published.is_(True),
+                )
+            )
+            result = await session.exec(statement)
+            return result.first() or 0
+
+    async def count_created_in_range(
+        self, tenant_id: UUID, start: datetime, end: datetime
+    ) -> int:
+        """Count endpoints created within a time range for a tenant.
+
+        Args:
+            tenant_id: Tenant ID
+            start: Range start (inclusive)
+            end: Range end (inclusive)
+
+        Returns:
+            Count of endpoints created in the range
+        """
+        async with self.db.get_session() as session:
+            statement = (
+                select(func.count())
+                .select_from(Endpoint)
+                .where(
+                    Endpoint.tenant_id == tenant_id,
+                    Endpoint.created_at >= start,
+                    Endpoint.created_at <= end,
+                )
+            )
+            result = await session.exec(statement)
+            return result.first() or 0
 
     async def get_published_endpoints(self, tenant_id: UUID) -> list[Endpoint]:
         """Get all endpoints that are published to at least one marketplace.

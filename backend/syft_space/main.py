@@ -18,6 +18,15 @@ from loguru import logger
 
 import syft_space.components.shared.logging_config  # noqa: F401, I001
 
+# Import analytics components
+from syft_space.components.analytics.collector import QueryEventCollector
+from syft_space.components.analytics.entities import QueryEventStatus
+from syft_space.components.analytics.handlers import AnalyticsHandler
+from syft_space.components.analytics.migrations import run_analytics_migrations
+from syft_space.components.analytics.repository import QueryEventRepository
+from syft_space.components.analytics.routes import build_analytics_routes
+from syft_space.components.analytics.text_processing import extract_user_query
+
 # Import auth components
 from syft_space.components.auth.dependencies import bearer_scheme
 from syft_space.components.auth.middleware import AdminKeyMiddleware
@@ -51,6 +60,10 @@ from syft_space.components.endpoints.endpoint_heartbeat_manager import (
     EndpointHeartbeatManager,
 )
 from syft_space.components.endpoints.handlers import EndpointHandler
+from syft_space.components.endpoints.interfaces import (
+    QueryOutcome,
+    QueryOutcomeEvent,
+)
 from syft_space.components.endpoints.publish_handler import PublishEndpointHandler
 from syft_space.components.endpoints.query_handler import QueryEndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
@@ -86,6 +99,7 @@ from syft_space.components.payments.gateway.payment_ledger import PaymentLedger
 from syft_space.components.payments.gateway.xendit.gateway import XenditGateway
 from syft_space.components.payments.mpp.handlers import MppPaymentHandler
 from syft_space.components.payments.routes import build_payment_routes
+from syft_space.components.policies.capability_checker import CapabilityChecker
 from syft_space.components.policies.handlers import PolicyHandler
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policies.routes import build_policy_routes
@@ -258,6 +272,11 @@ async def lifespan(app: FastAPI):
     # 1. Run database migrations
     await database.run_migrations(reset=app_settings.reset_db)
 
+    # 1.1. Run analytics database migrations (separate SQLite file)
+    await run_analytics_migrations(
+        analytics_database.engine, reset=app_settings.reset_db
+    )
+
     # 2. Setup tenant and settings
     default_tenant = await _setup_tenant_and_settings(
         tenant_repository, settings_handler
@@ -351,8 +370,19 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.exception(f"Error shutting down {name}: {e}")
 
-    # 9. Dispose database engine (close all pooled connections)
+    # 8.1. Drain any in-flight analytics capture tasks. Bounded so a slow
+    # SQLite write doesn't hang shutdown; events past the timeout are dropped
+    # (logged by the collector if they raise).
+    if _pending_event_tasks:
+        await asyncio.wait(
+            _pending_event_tasks,
+            timeout=5.0,
+            return_when=asyncio.ALL_COMPLETED,
+        )
+
+    # 9. Dispose database engines (close all pooled connections)
     await database.dispose()
+    await analytics_database.dispose()
 
 
 # Initialize FastAPI app
@@ -370,6 +400,15 @@ app = FastAPI(
 db_path = app_settings.sqlite_db_path.resolve()
 db_config = SQLiteConfig(db_path)
 database = AsyncDatabase(db_config)
+
+# Initialize analytics database (separate SQLite file)
+analytics_db_path = app_settings.analytics_db_path.resolve()
+analytics_db_config = SQLiteConfig(analytics_db_path, enable_foreign_keys=False)
+analytics_database = AsyncDatabase(analytics_db_config)
+
+# Initialize analytics repository and collector
+event_repository = QueryEventRepository(analytics_database)
+event_collector = QueryEventCollector(event_repository)
 
 # Initialize repositories
 tenant_repository = TenantRepository(database)
@@ -402,8 +441,13 @@ dataset_handler = DatasetHandler(
     endpoint_repository=endpoint_repository,
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
+capability_checker = CapabilityChecker(
+    wallet_lookup=wallet_repository,
+    endpoint_lookup=endpoint_repository,
+    endpoint_policy_query=policy_repository,
+)
 policy_handler = PolicyHandler(
-    POLICY_TYPE_REGISTRY, policy_repository, wallet_repository
+    POLICY_TYPE_REGISTRY, policy_repository, capability_checker
 )
 marketplace_handler = MarketplaceHandler(marketplace_repository)
 
@@ -468,9 +512,70 @@ async def check_endpoint_deletable(endpoint_id, tenant_id) -> str | None:
     return None
 
 
-# Metadata enricher (dependency inversion — query handler doesn't import payments)
-async def enrich_query_metadata(metadata: dict) -> None:
-    metadata["balance_service"] = balance_service
+# Analytics adapter (dependency inversion — endpoints doesn't import analytics).
+# Translates a domain QueryOutcomeEvent into an analytics row + cost lines and
+# fires the capture in the background. The set + done-callback holds task
+# references against GC; the lifespan drains in-flight tasks on shutdown.
+_OUTCOME_TO_STATUS = {
+    QueryOutcome.SUCCESS: QueryEventStatus.SUCCESS,
+    QueryOutcome.NOT_FOUND: QueryEventStatus.NOT_FOUND,
+    QueryOutcome.NOT_PUBLISHED: QueryEventStatus.NOT_PUBLISHED,
+    QueryOutcome.PAYMENT_REQUIRED: QueryEventStatus.PAYMENT_REQUIRED,
+    QueryOutcome.POLICY_VIOLATION: QueryEventStatus.POLICY_VIOLATION,
+    QueryOutcome.INTERNAL_ERROR: QueryEventStatus.INTERNAL_ERROR,
+}
+_pending_event_tasks: set[asyncio.Task] = set()
+
+
+def _cost_lines_from_response(
+    response: dict | None,
+) -> list[tuple[str, float, str]]:
+    """Extract a single (component, amount, currency) tuple from the
+    response's top-level cost/currency.
+
+    Returns an empty list when no charge applied (free tier, failed
+    request, etc.). The "component" column is kept as "query" for the
+    analytics table even though we no longer break costs down by
+    response component — one row per query is the canonical record.
+    """
+    if not response:
+        return []
+    cost = response.get("cost")
+    currency = response.get("currency")
+    if cost is None or currency is None:
+        return []
+    return [("query", float(cost), str(currency))]
+
+
+async def report_query_event(event: QueryOutcomeEvent) -> None:
+    """Fire-and-forget the analytics capture.
+
+    All translation work runs inside the task body so the request handler's
+    awaited path does only task scheduling.
+    """
+
+    async def _capture() -> None:
+        response_dict = event.response.model_dump() if event.response else None
+        cost_lines = (
+            _cost_lines_from_response(response_dict)
+            if event.outcome == QueryOutcome.SUCCESS
+            else []
+        )
+        query_text = extract_user_query(event.messages)[:4000]
+        await event_collector.capture(
+            tenant_id=event.tenant_id,
+            endpoint_id=event.endpoint_id,
+            endpoint_slug=event.endpoint_slug,
+            dataset_id=event.dataset_id,
+            user_email=event.user_email,
+            status=_OUTCOME_TO_STATUS[event.outcome].value,
+            query_text=query_text,
+            cost_lines=cost_lines,
+        )
+
+    task = asyncio.create_task(_capture())
+    _pending_event_tasks.add(task)
+    task.add_done_callback(_pending_event_tasks.discard)
 
 
 endpoint_handler = EndpointHandler(
@@ -488,7 +593,8 @@ query_endpoint_handler = QueryEndpointHandler(
     model_registry=MODEL_TYPE_REGISTRY,
     policy_registry=POLICY_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
-    metadata_enricher=enrich_query_metadata,
+    balance_service=balance_service,
+    event_reporter=report_query_event,
 )
 publish_endpoint_handler = PublishEndpointHandler(
     endpoint_repository=endpoint_repository,
@@ -500,6 +606,12 @@ publish_endpoint_handler = PublishEndpointHandler(
     wallet_repository=wallet_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
+
+# Initialize analytics handler (cross-database: analytics DB + main DB)
+analytics_handler = AnalyticsHandler(
+    query_event_repository=event_repository,
+    endpoint_repository=endpoint_repository,
+)
 
 # Initialize settings handler with proxy service
 settings_handler = SettingsHandler(
@@ -563,6 +675,7 @@ router.include_router(
         get_verified_sender_email=get_verified_sender_email,
     )
 )
+router.include_router(build_analytics_routes(analytics_handler))
 
 
 @public_route
@@ -585,6 +698,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
         "http://localhost:8080",
         "https://syfthub.openmined.org",
         "tauri://localhost",

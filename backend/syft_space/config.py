@@ -29,6 +29,9 @@ class AppSettings(BaseSettings):
     sqlite_db_path: Path = Path(
         "~/.syft-space/app.db"
     ).expanduser()  # Default path for SQLite database
+    analytics_db_path: Path = Path(
+        "~/.syft-space/analytics.db"
+    ).expanduser()  # Separate DB for analytics event log
 
     # Application settings
     debug: bool = False

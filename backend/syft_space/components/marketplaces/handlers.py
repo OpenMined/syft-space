@@ -8,11 +8,18 @@ from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.marketplaces.schemas import (
     ConnectMarketplaceRequest,
+    EmailVerificationRequiredResponse,
     MarketplaceListItem,
     MarketplaceResponse,
     RegisterMarketplaceRequest,
+    ResendMarketplaceOTPRequest,
+    VerifyMarketplaceOTPRequest,
 )
-from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
+from syft_space.components.shared.syfthub_client import (
+    SyftHubClient,
+    SyftHubError,
+    UserResponse,
+)
 from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
 
@@ -30,57 +37,114 @@ class MarketplaceHandler:
 
     async def register_marketplace(
         self, request: RegisterMarketplaceRequest, tenant: Tenant
-    ) -> MarketplaceResponse:
+    ) -> MarketplaceResponse | EmailVerificationRequiredResponse:
         """Register a new marketplace by creating a new SyftHub account.
 
-        Args:
-            request: Marketplace registration request
-            tenant: Tenant context
-
-        Returns:
-            Created marketplace
+        Returns a ``MarketplaceResponse`` on success. When SyftHub requires
+        email verification, returns an ``EmailVerificationRequiredResponse``
+        so the route layer can surface a 202 and the client can collect the
+        OTP and call ``/verify-otp`` to finish setup.
         """
         async with SyftHubClient(str(request.url)) as syfthub_client:
             try:
-                user_profile = await syfthub_client.register(
+                register_response = await syfthub_client.register(
                     username=request.username,
                     email=request.email,
                     full_name=request.name,
                     password=request.password,
                 )
 
-                # Login to get authenticated client for subsequent calls
-                await syfthub_client.login(request.email, request.password)
-
-                # If public URL is set, update the domain
-                if app_settings.public_url:
-                    await syfthub_client.update_profile(
-                        domain=str(app_settings.public_url)
+                if register_response.requires_email_verification:
+                    return EmailVerificationRequiredResponse(
+                        message=(
+                            "Account created. Enter the verification code "
+                            "sent to your email to finish setup."
+                        ),
+                        email=request.email,
+                        url=str(request.url),
                     )
 
+                await syfthub_client.login(request.email, request.password)
+                await self._sync_public_url(syfthub_client)
             except SyftHubError as e:
                 raise e.to_http_exception() from e
 
-        # Check if the marketplace should be set as default
-        should_be_default = app_settings.default_marketplace_url == request.url
-
-        # Create marketplace entity
-        marketplace = Marketplace(
-            tenant_id=tenant.id,
-            name=user_profile.user.full_name,
-            username=user_profile.user.username,
+        return await self._persist_marketplace_after_signup(
+            tenant=tenant,
             url=str(request.url),
-            email=user_profile.user.email,
+            user=register_response.user,
             password=request.password,
-            is_default=False,
-            is_active=True,
         )
 
-        # Save to database
-        marketplace = await self.repository.create(marketplace)
+    async def verify_marketplace_otp(
+        self, request: VerifyMarketplaceOTPRequest, tenant: Tenant
+    ) -> MarketplaceResponse:
+        """Complete a pending registration by verifying the OTP, then persist."""
+        async with SyftHubClient(str(request.url)) as syfthub_client:
+            try:
+                verify_response = await syfthub_client.verify_otp(
+                    email=request.email,
+                    code=request.code,
+                )
+                # /verify-otp already issued tokens — skip the extra login round-trip.
+                syfthub_client.authenticate_with_tokens(
+                    verify_response.access_token, verify_response.refresh_token
+                )
+                await self._sync_public_url(syfthub_client)
+            except SyftHubError as e:
+                raise e.to_http_exception() from e
 
-        # Set as default if it matches the default marketplace URL
-        if should_be_default:
+        return await self._persist_marketplace_after_signup(
+            tenant=tenant,
+            url=str(request.url),
+            user=verify_response.user,
+            password=request.password,
+        )
+
+    async def resend_marketplace_otp(
+        self, request: ResendMarketplaceOTPRequest
+    ) -> dict:
+        """Trigger SyftHub to resend a registration OTP."""
+        async with SyftHubClient(str(request.url)) as syfthub_client:
+            try:
+                await syfthub_client.resend_otp(email=request.email)
+            except SyftHubError as e:
+                raise e.to_http_exception() from e
+
+        return {
+            "message": (
+                "If the email is registered and unverified, a new code was sent."
+            )
+        }
+
+    async def _sync_public_url(self, syfthub_client: SyftHubClient) -> None:
+        """Push the locally-configured public URL to SyftHub as the user's domain."""
+        if app_settings.public_url:
+            await syfthub_client.update_profile(domain=str(app_settings.public_url))
+
+    async def _persist_marketplace_after_signup(
+        self,
+        *,
+        tenant: Tenant,
+        url: str,
+        user: UserResponse,
+        password: str,
+    ) -> MarketplaceResponse:
+        """Shared persistence path for register + verify-OTP + connect-new flows."""
+        marketplace = await self.repository.create(
+            Marketplace(
+                tenant_id=tenant.id,
+                name=user.full_name,
+                username=user.username,
+                url=url,
+                email=user.email,
+                password=password,
+                is_default=False,
+                is_active=True,
+            )
+        )
+
+        if str(app_settings.default_marketplace_url) == url:
             marketplace = await self.repository.set_as_default(
                 marketplace.id, tenant.id
             )
@@ -101,56 +165,39 @@ class MarketplaceHandler:
         """
         async with SyftHubClient(str(request.url)) as syfthub_client:
             try:
-                # Login to existing account
                 await syfthub_client.login(request.username, request.password)
-
-                # Fetch user profile
                 user_profile = await syfthub_client.profile()
-
-                # Update domain if public URL is set
-                if app_settings.public_url:
-                    await syfthub_client.update_profile(
-                        domain=str(app_settings.public_url)
-                    )
-
+                await self._sync_public_url(syfthub_client)
             except SyftHubError as e:
                 raise e.to_http_exception() from e
 
-        # Check if the marketplace should be set as default
-        should_be_default = app_settings.default_marketplace_url == request.url
-
-        # Check if the marketplace already exists with the same URL
         existing_marketplace = await self.repository.get_by_url(
             str(request.url), tenant.id
         )
 
-        if existing_marketplace:
-            # Update the marketplace with the new credentials
-            marketplace = await self.repository.update(
-                existing_marketplace.id,
-                tenant.id,
-                name=user_profile.full_name,
-                username=user_profile.username,
-                email=user_profile.email,
-                password=request.password,
-                is_active=True,
-            )
-        else:
-            # Create marketplace entity with the new credentials
-            marketplace = Marketplace(
-                tenant_id=tenant.id,
-                name=user_profile.full_name,
-                username=user_profile.username,
+        if existing_marketplace is None:
+            return await self._persist_marketplace_after_signup(
+                tenant=tenant,
                 url=str(request.url),
-                email=user_profile.email,
+                user=UserResponse(
+                    username=user_profile.username,
+                    email=user_profile.email,
+                    full_name=user_profile.full_name,
+                ),
                 password=request.password,
-                is_default=False,
-                is_active=True,
             )
-            marketplace = await self.repository.create(marketplace)
 
-        # Set as default if it matches the default marketplace URL
-        if should_be_default:
+        marketplace = await self.repository.update(
+            existing_marketplace.id,
+            tenant.id,
+            name=user_profile.full_name,
+            username=user_profile.username,
+            email=user_profile.email,
+            password=request.password,
+            is_active=True,
+        )
+
+        if app_settings.default_marketplace_url == request.url:
             marketplace = await self.repository.set_as_default(
                 marketplace.id, tenant.id
             )

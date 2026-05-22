@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
+from syft_space.components.policies.capability_checker import CapabilityChecker
 from syft_space.components.policies.entities import Policy
 from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policies.schemas import (
@@ -14,10 +15,13 @@ from syft_space.components.policies.schemas import (
     PolicyTypeInfoResponse,
     UpdatePolicyRequest,
 )
-from syft_space.components.policy_types.interfaces import WalletPolicy
+from syft_space.components.policy_types.interfaces import (
+    PolicyAttachConflictError,
+    PolicyAttachInputError,
+    PolicyAttachNotFoundError,
+)
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.tenants.entities import Tenant
-from syft_space.components.wallets.repository import WalletRepository
 
 
 class PolicyHandler:
@@ -27,18 +31,19 @@ class PolicyHandler:
         self,
         registry: PolicyTypeRegistry,
         repository: PolicyRepository,
-        wallet_repository: WalletRepository,
+        capability_checker: CapabilityChecker,
     ):
         """Initialize the policy handler.
 
         Args:
             registry: Policy type registry
             repository: Policy repository
-            wallet_repository: Wallet repository for payment policy validation
+            capability_checker: Verifies a policy's declared capabilities
+                against system state at attach time (wallet, endpoint, etc.)
         """
         self.registry = registry
         self.repository = repository
-        self.wallet_repository = wallet_repository
+        self.capability_checker = capability_checker
 
     def list_policy_types(self) -> list[PolicyTypeInfoResponse]:
         """List all available policy types.
@@ -121,46 +126,23 @@ class PolicyHandler:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
-        # Wallet-bound policies require a wallet_id
-        if issubclass(policy_type_cls, WalletPolicy):
-            required_type = policy_type_cls().required_wallet_type()
-            if not request.wallet_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"wallet_id is required for {request.policy_type} policies. "
-                    "Please create a wallet first.",
-                )
-            # Verify wallet exists and belongs to tenant
-            wallet = await self.wallet_repository.get_by_id(
-                request.wallet_id, tenant.id
-            )
-            if not wallet:
-                raise HTTPException(status_code=404, detail="Wallet not found")
-            # Verify wallet type matches what the policy expects
-            if wallet.wallet_type != required_type:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"This policy requires a '{required_type}' wallet, "
-                    f"got '{wallet.wallet_type}'.",
-                )
-            # Enforce: all wallet policies on this endpoint must use the same wallet
-            if await self.repository.has_different_wallet(
-                request.endpoint_id, tenant.id, request.wallet_id
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail="All payment policies on an endpoint must use the same wallet.",
-                )
-        elif request.wallet_id:
-            raise HTTPException(
-                status_code=400,
-                detail=f"wallet_id is not applicable for {request.policy_type} policies.",
-            )
+        # Verify the policy's declared capabilities are satisfied by the
+        # surrounding system (wallet matches required type, endpoint has a
+        # dataset if required, etc.). All policy-type-specific logic lives
+        # in cls.capabilities() and the checker — handler stays agnostic.
+        try:
+            await self.capability_checker.check(policy_type_cls, request, tenant)
+        except PolicyAttachInputError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        except PolicyAttachNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from None
+        except PolicyAttachConflictError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from None
 
         # Create policy entity with validated config
         policy = Policy(
             name=request.name,
-            policy_type=request.policy_type,
+            policy_type=policy_type_cls.name(),
             configuration=validated_config,
             endpoint_id=request.endpoint_id,
             wallet_id=request.wallet_id,
