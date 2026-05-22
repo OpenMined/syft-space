@@ -72,15 +72,15 @@ class SettingsHandler:
         # Update database (source of truth)
         await self.settings_repository.update_public_url(url_str)
 
+        # Update app settings
+        app_settings.public_url = HttpUrl(url_str) if url_str else None
+
         # Get default marketplace
         marketplace = await self.marketplace_repository.get_default(tenant.id)
 
         if marketplace is not None:
             # Sync to marketplace
             await self.sync_public_url_to_marketplace(marketplace, url_str)
-
-        # Update app settings
-        app_settings.public_url = HttpUrl(url_str) if url_str else None
 
         # Return response
         return PublicUrlResponse(public_url=url_str)
