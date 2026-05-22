@@ -17,12 +17,12 @@ from syft_space.components.wallets.entities import Wallet
 class CreatePaymentResult:
     """Normalized result from a provider's create-payment API."""
 
-    external_id: str  # our reference echoed back (webhook join key)
+    client_reference: str  # our token echoed back (webhook join key)
     checkout_url: str  # hosted payment page URL
     provider_session_id: str | None = None
     """Provider-side session ID (e.g. Stripe cs_…). Persisted on the invoice
     so a future reconciliation sweep can poll the provider when a webhook
-    never arrives. Providers that echo our reference_id (Xendit) leave None.
+    never arrives. Providers that echo our client_reference (Xendit) leave None.
     """
 
 
@@ -30,7 +30,7 @@ class CreatePaymentResult:
 class WebhookResult:
     """Normalized result from parsing a provider's webhook payload."""
 
-    external_id: str  # maps to Invoice.external_id for lookup
+    client_reference: str  # maps to Invoice.client_reference for lookup
     status: InvoiceStatus  # provider status mapped to our domain enum
     paid_at: datetime | None
     raw_payload: dict  # original payload, stored for audit

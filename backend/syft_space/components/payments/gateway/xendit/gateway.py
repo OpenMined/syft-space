@@ -115,7 +115,7 @@ class XenditGateway:
             raise e.to_http_exception() from e
 
         return CreatePaymentResult(
-            external_id=session.reference_id,
+            client_reference=session.reference_id,
             checkout_url=session.payment_link_url,
         )
 
@@ -192,7 +192,7 @@ class XenditGateway:
                 paid_at = datetime.now(timezone.utc)
 
         return WebhookResult(
-            external_id=reference_id,
+            client_reference=reference_id,
             status=status,
             paid_at=paid_at,
             raw_payload=raw_payload,

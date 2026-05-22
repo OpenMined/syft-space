@@ -65,7 +65,7 @@ class Invoice(SQLModel, table=True):
 
     __tablename__ = "invoices"
     __table_args__ = (
-        Index("idx_invoice_external_id", "external_id", unique=True),
+        Index("idx_invoice_client_reference", "client_reference", unique=True),
         Index("idx_invoice_tenant_user", "tenant_id", "user_email"),
         Index("idx_invoice_status", "status"),
         Index("idx_invoice_wallet", "wallet_id"),
@@ -91,7 +91,14 @@ class Invoice(SQLModel, table=True):
     )
     user_email: str = Field(..., description="Email of the purchasing user")
     provider: str = Field(..., description="Payment provider (e.g., 'xendit')")
-    external_id: str = Field(..., description="Provider invoice ID (webhook join key)")
+    client_reference: str = Field(
+        ...,
+        description=(
+            "Our outbound token (syft-{uuid}) sent to the provider as "
+            "client_reference_id / reference_id and echoed back in webhooks. "
+            "Webhook→invoice join key. Not provider-assigned."
+        ),
+    )
     checkout_url: str = Field(..., description="Provider hosted checkout URL")
     provider_session_id: str | None = Field(
         default=None,

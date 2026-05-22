@@ -106,12 +106,12 @@ class PaymentHandler:
             if endpoint:
                 endpoint_id = endpoint.id
 
-        # 4. Persist Invoice as PENDING up front so a successful Xendit
+        # 4. Persist Invoice as PENDING up front so a successful provider
         # session can never outlive the local row. The reference_id (= our
-        # invoice id with a "syft-" prefix) is what Xendit echoes on every
-        # webhook, so we set external_id to it now and patch in the
-        # checkout_url after Xendit returns. checkout_url is "" until then;
-        # the frontend already gates the checkout link on a non-empty value.
+        # invoice id with a "syft-" prefix) is what the provider echoes on
+        # every webhook, so we set client_reference to it now and patch in
+        # the checkout_url after the provider returns. checkout_url is ""
+        # until then; the frontend gates the checkout link on non-empty.
         invoice_id = uuid4()
         reference_id = f"syft-{invoice_id}"
         invoice = Invoice(
@@ -121,7 +121,7 @@ class PaymentHandler:
             endpoint_id=endpoint_id,
             user_email=user_email,
             provider=gateway.PROVIDER_NAME,
-            external_id=reference_id,
+            client_reference=reference_id,
             checkout_url="",
             bundle_name=bundle.name,
             amount=bundle.amount,
@@ -146,11 +146,12 @@ class PaymentHandler:
         # because mark_paid/update_status guard on status='pending'.
         #
         # TODO: reconciliation. Stale PENDING rows (no webhook ever arrives —
-        # shared dev webhook URL, lost in transit, or Xendit didn't actually
-        # create the session) need a recovery path. Either lazy-poll Xendit's
-        # GET /payment_sessions/{id} on read for stale pendings, or run a
-        # background sweep. Both require storing payment_session_id alongside
-        # external_id; we currently only persist our own reference_id.
+        # shared dev webhook URL, lost in transit, or the provider didn't
+        # actually create the session) need a recovery path. Either
+        # lazy-poll the provider's GET session endpoint on read for stale
+        # pendings, or run a background sweep. Stripe rows now carry a
+        # provider_session_id for this; Xendit's API is addressable by our
+        # client_reference, so no separate id is needed there.
         try:
             result = await gateway.create_payment(
                 reference_id=reference_id,
@@ -209,12 +210,12 @@ class PaymentHandler:
             return {"status": "ignored", "reason": "unparseable or unhandled event"}
 
         async with self._ledger() as ledger:
-            invoice = await ledger.invoices.get_by_external_id(
-                webhook_result.external_id
+            invoice = await ledger.invoices.get_by_client_reference(
+                webhook_result.client_reference
             )
         if not invoice:
             logger.warning(
-                f"Webhook: invoice not found for external_id={webhook_result.external_id}"
+                f"Webhook: invoice not found for client_reference={webhook_result.client_reference}"
             )
             return {"status": "ignored", "reason": "invoice not found"}
 
@@ -261,12 +262,12 @@ class PaymentHandler:
             return {"status": "ignored", "reason": "unparseable or unhandled event"}
 
         async with self._ledger() as ledger:
-            invoice = await ledger.invoices.get_by_external_id(
-                webhook_result.external_id
+            invoice = await ledger.invoices.get_by_client_reference(
+                webhook_result.client_reference
             )
         if not invoice:
             logger.warning(
-                f"Webhook: invoice not found for external_id={webhook_result.external_id}"
+                f"Webhook: invoice not found for client_reference={webhook_result.client_reference}"
             )
             return {"status": "ignored", "reason": "invoice not found"}
 

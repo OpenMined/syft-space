@@ -7,7 +7,7 @@ export interface InvoiceResponse {
   endpoint_id: string | null
   user_email: string
   provider: string
-  external_id: string
+  client_reference: string
   checkout_url: string
   bundle_name: string
   amount: number

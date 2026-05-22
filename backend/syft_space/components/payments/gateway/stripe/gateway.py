@@ -127,7 +127,7 @@ class StripeGateway:
             )
 
         return CreatePaymentResult(
-            external_id=reference_id,
+            client_reference=reference_id,
             checkout_url=session.url,
             provider_session_id=session.id,
         )
@@ -226,7 +226,7 @@ class StripeGateway:
             payment_status = data_object.get("payment_status")
             if payment_status == "paid":
                 return WebhookResult(
-                    external_id=client_ref,
+                    client_reference=client_ref,
                     status=InvoiceStatus.PAID,
                     paid_at=self._extract_event_time(data_object, payload),
                     raw_payload=payload,
@@ -235,14 +235,14 @@ class StripeGateway:
             # the flow but the bank settlement is in flight. Hold balance
             # until async_payment_succeeded fires.
             return WebhookResult(
-                external_id=client_ref,
+                client_reference=client_ref,
                 status=InvoiceStatus.PROCESSING,
                 paid_at=None,
                 raw_payload=payload,
             )
         if event == "checkout.session.async_payment_succeeded":
             return WebhookResult(
-                external_id=client_ref,
+                client_reference=client_ref,
                 status=InvoiceStatus.PAID,
                 paid_at=self._extract_event_time(data_object, payload),
                 raw_payload=payload,
@@ -252,14 +252,14 @@ class StripeGateway:
             # Distinguish from genuine cancellations via webhook_payload.type
             # if analytics ever need to.
             return WebhookResult(
-                external_id=client_ref,
+                client_reference=client_ref,
                 status=InvoiceStatus.CANCELLED,
                 paid_at=None,
                 raw_payload=payload,
             )
         if event == "checkout.session.expired":
             return WebhookResult(
-                external_id=client_ref,
+                client_reference=client_ref,
                 status=InvoiceStatus.EXPIRED,
                 paid_at=None,
                 raw_payload=payload,

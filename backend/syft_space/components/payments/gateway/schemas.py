@@ -40,7 +40,7 @@ class InvoiceResponse(BaseModel):
     endpoint_id: UUID | None
     user_email: str
     provider: str
-    external_id: str
+    client_reference: str
     checkout_url: str
     provider_session_id: str | None = None
     bundle_name: str

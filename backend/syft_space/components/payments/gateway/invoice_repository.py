@@ -33,12 +33,14 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return result.first()
 
-    async def get_by_external_id(self, external_id: str) -> Invoice | None:
-        """Get an invoice by external provider ID.
+    async def get_by_client_reference(self, client_reference: str) -> Invoice | None:
+        """Look up an invoice by the ``syft-{uuid}`` reference we sent to
+        the provider (and which they echo back in webhooks).
 
-        No tenant filter — webhooks don't know the tenant.
+        No tenant filter — webhooks don't carry tenant context, and the
+        reference is globally unique so it identifies the row on its own.
         """
-        statement = select(Invoice).where(Invoice.external_id == external_id)
+        statement = select(Invoice).where(Invoice.client_reference == client_reference)
         result = await self.session.exec(statement)
         return result.first()
 
