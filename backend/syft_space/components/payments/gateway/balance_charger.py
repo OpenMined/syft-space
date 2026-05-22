@@ -1,14 +1,9 @@
 """Provider-agnostic charging adapter over BalanceService.
 
-Both Xendit and Stripe (and any future prepaid-balance gateway) charge a
-user's wallet balance the same way once funds are on it — only the top-up
-rail differs. This class binds a (wallet, request) pair to the underlying
-BalanceService so policy code never threads credentials or wallet ids
-through every call.
-
-Implements the single ``PrepaidBalanceCharger`` Protocol in
-``policy_types/interfaces.py``; provider-specific charger Protocols were
-collapsed once it became clear they shared a verbatim shape.
+Once funds are on a wallet, every prepaid-balance gateway spends them the
+same way — only the top-up rail differs. This class binds a (wallet,
+request) pair to the underlying BalanceService so policy code never
+threads credentials or wallet ids through every call.
 """
 
 from uuid import UUID

@@ -188,16 +188,12 @@ class PrepaidBalanceCharger(Protocol):
 class PaymentChargers:
     """Per-request bag of payment chargers, accessed by mechanism.
 
-    Methods raise if the requested charger isn't built: by the time a
-    policy's hook runs, CapabilityChecker has already validated that any
-    declared required_wallet_type has a matching wallet attached. Missing
-    chargers therefore indicate a framework bug, not a user-input error.
-
     An endpoint is constrained to a single wallet, so at most one of `mpp`
-    and `prepaid` is populated per request. Adding a new prepaid-balance
-    gateway is zero changes here — wire it into build_payment_chargers.
-    Adding a fundamentally new payment model (a sibling to MPP and prepaid)
-    is one new slot + accessor + Protocol.
+    and `prepaid` is populated per request. Methods raise if the requested
+    charger isn't built: by the time a policy's hook runs, CapabilityChecker
+    has already validated that any declared required_wallet_type has a
+    matching wallet attached, so a missing charger indicates a framework
+    bug rather than user input.
     """
 
     def __init__(

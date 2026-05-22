@@ -19,11 +19,11 @@ class CreatePaymentResult:
 
     client_reference: str  # our token echoed back (webhook join key)
     checkout_url: str  # hosted payment page URL
+    # Provider's native session id (e.g. Stripe cs_…). Persisted on the
+    # invoice for stale-PENDING reconciliation — a future sweep job can
+    # poll the provider when a webhook never arrives. Providers whose API
+    # is addressable by client_reference (Xendit) leave this None.
     provider_session_id: str | None = None
-    """Provider-side session ID (e.g. Stripe cs_…). Persisted on the invoice
-    so a future reconciliation sweep can poll the provider when a webhook
-    never arrives. Providers that echo our client_reference (Xendit) leave None.
-    """
 
 
 @dataclass

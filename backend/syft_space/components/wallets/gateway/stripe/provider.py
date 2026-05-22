@@ -4,24 +4,6 @@ Stripe wallets store the merchant's secret API key (``sk_…``) plus the
 webhook endpoint signing secret (``whsec_…``) the merchant retrieves from
 their Stripe Dashboard after registering a webhook endpoint pointed at our
 public URL.
-
-Setup UX (v1, manual):
-1. User creates a Stripe wallet via /wallets/gateway/stripe.
-2. Backend returns a wallet-id-stamped webhook URL in display.webhook_url.
-3. User pastes that URL into Stripe Dashboard → Developers → Webhooks →
-   Add endpoint, with events:
-     - checkout.session.completed
-     - checkout.session.expired
-     - checkout.session.async_payment_succeeded
-     - checkout.session.async_payment_failed
-4. User copies the revealed ``whsec_…`` and pastes it into our webhook
-   secret field (PATCH update credentials).
-
-This mirrors the Xendit "paste the callback token" flow. A future
-enhancement could programmatically register the webhook via Stripe's
-POST /v1/webhook_endpoints, but that requires the secret key at setup
-time to have ``webhook_endpoint:write`` and couples our lifecycle to
-theirs — defer until we see demand.
 """
 
 from typing import Any
@@ -74,11 +56,8 @@ class StripeWalletProvider:
         webhook_url = f"{base}/api/v1/payments/gateway/stripe/webhooks/{wallet_id}"
         return {"webhook_url": webhook_url}
 
-    # Fields editable post-creation. Currency is locked at the entity level
-    # (changing it would re-denominate existing UserBalance / LedgerEntry
-    # rows). secret_key + webhook_secret are rotatable since they don't
-    # affect ledger invariants. Bundles are also editable but stay static
-    # per currency in v1 — slot reserved for tenant-configurable bundles.
+    # Mutable post-creation. Currency is locked because changing it would
+    # re-denominate existing UserBalance / LedgerEntry rows.
     _UPDATABLE_FIELDS = frozenset({"secret_key", "webhook_secret", "bundles"})
 
     def update_credentials(

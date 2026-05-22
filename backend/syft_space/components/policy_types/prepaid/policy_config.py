@@ -12,11 +12,6 @@ by CapabilityChecker via the shared-wallet rule).
 The ``AliasChoices`` on ``price`` preserves backward-compat with older
 admin tooling that may have shipped the legacy ``price_per_request`` /
 ``price_per_document`` field names.
-
-Per-provider configs (StripePerRequestConfig, XenditPerRequestConfig, ...)
-were collapsed once it became clear they shared a verbatim shape. If a
-future provider needs a divergent field (e.g., per-tier min price),
-introduce a provider-specific subclass at that point.
 """
 
 from typing import Literal

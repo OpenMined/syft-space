@@ -12,9 +12,10 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from syft_space.components.payments.gateway.entities import Invoice, InvoiceStatus
+from syft_space.components.shared.database import AsyncBaseRepository
 
 
-class InvoiceRepository:
+class InvoiceRepository(AsyncBaseRepository[Invoice]):
     """Repository for Invoice CRUD."""
 
     def __init__(self, session: AsyncSession):

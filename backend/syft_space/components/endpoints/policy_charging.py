@@ -5,11 +5,6 @@ time by CapabilityChecker, which rejects sibling policies pointing at a
 different wallet), so this builds at most one charger per request. The
 query handler exposes the resulting bag on PolicyContext; policies
 retrieve the charger they need by mechanism.
-
-Adding a new prepaid-balance gateway is one line: add its wallet_type to
-``PREPAID_BALANCE_WALLET_TYPES``. Both Xendit and Stripe resolve to the
-same ``WalletBalanceCharger`` implementation — once funds are on the
-wallet, spending is identical regardless of how the top-up rail works.
 """
 
 from uuid import UUID
@@ -26,10 +21,7 @@ from syft_space.components.policy_types.interfaces import (
 )
 from syft_space.components.wallets.entities import Wallet
 
-# Wallet types that share the prepaid-balance payment model. Any wallet
-# in this set resolves to a WalletBalanceCharger; CapabilityChecker
-# enforces type-matching between policy and wallet, so the per-request
-# bag never carries a mismatched pair.
+# Wallet types that use the prepaid-balance charging model.
 PREPAID_BALANCE_WALLET_TYPES: frozenset[str] = frozenset({"xendit", "stripe"})
 
 

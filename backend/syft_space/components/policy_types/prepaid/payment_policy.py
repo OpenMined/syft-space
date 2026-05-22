@@ -1,13 +1,9 @@
 """Generic infrastructure for prepaid-balance payment policies.
 
-Replaces per-provider StripePaymentPolicy / XenditPaymentPolicy bases.
 Concrete subclasses declare ``PROVIDER_NAME``, ``NAME``, ``DESCRIPTION``,
 and ``CONFIG_CLS``. Every other concern — config validation, schema
 export, tier matching, identity boilerplate — is provider-agnostic and
 lives here.
-
-Adding a new prepaid gateway is two thin subclasses (per-request +
-per-document) plus a provider-specific config module.
 """
 
 from typing import Any, ClassVar

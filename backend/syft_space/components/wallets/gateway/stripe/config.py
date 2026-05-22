@@ -4,21 +4,10 @@ Houses the wallet-level config schema plus the money-bundle catalog. With
 wallet-scoped balances, currency lives here — not on the pricing policy.
 Bundles are a static per-currency catalog (see ``PRE_PAID_BALANCE_BUNDLES``).
 
-Key differences from Xendit:
-- No currency↔country lock. Stripe permits any of its 135+ currencies
-  regardless of merchant country; payment-method availability is configured
-  at the Stripe account level in the dashboard, not per-session.
-- Webhook secret (``whsec_…``) is stored alongside the API key. Unlike
-  Xendit's static x-callback-token, Stripe signs the body itself with this
-  secret (HMAC-SHA256 over ``"{timestamp}.{body}"``).
-- Amounts are stored here in major units (float) — the same way the rest
-  of the codebase represents money. Conversion to Stripe's minor-unit
-  integers happens at the API boundary in ``payments/gateway/stripe``.
-
-Launch currency set deliberately small: USD/EUR/GBP/SGD/AUD/CAD/JPY covers
-the bulk of merchant demand without requiring per-currency bundle catalog
-audits. Adding currencies is one entry in ``StripeCurrencyCode`` plus one
-entry in ``PRE_PAID_BALANCE_BUNDLES``.
+No country field: the merchant's country is set at the Stripe account
+level (implicit in the secret key), not per-wallet. Stripe Checkout
+routes payment-method availability based on the customer's location and
+the currency at session time, so we don't pre-declare it.
 
 Note on JPY: Stripe treats JPY as a zero-decimal currency (no fractional
 units). Bundle amounts in the catalog below are kept as whole numbers;
@@ -35,9 +24,8 @@ from pydantic import BaseModel, Field
 class StripeCurrencyCode(StrEnum):
     """Currency codes supported by Syft Space's Stripe integration.
 
-    Strictly a subset of Stripe's 135+ supported currencies — adding a new
-    one requires curating a bundle catalog below. USD-first because most
-    merchants demoing Syft Space transact in USD.
+    Strictly a subset of Stripe's full set — adding one requires a matching
+    bundle catalog entry below.
     """
 
     USD = "USD"
@@ -51,20 +39,13 @@ class StripeCurrencyCode(StrEnum):
 
 
 class MoneyBundle(BaseModel):
-    """A purchasable money bundle (display name + amount).
-
-    Shape mirrors Xendit's MoneyBundle deliberately so the SyftHub publish
-    payload stays uniform across providers (the consumer only sees ``name``
-    and ``amount``).
-    """
+    """A purchasable money bundle (display name + amount)."""
 
     name: str = Field(..., description="Display name (e.g., 'Starter', 'Pro')")
     amount: float = Field(..., gt=0, description="Bundle price in the wallet currency")
 
 
-# Pre-paid balance catalog per currency. Admins cannot override at v1 —
-# bundles are derived from the wallet's currency. Tenant-configurable
-# bundles is a follow-up that should apply to all providers uniformly.
+# Pre-paid balance catalog per currency.
 PRE_PAID_BALANCE_BUNDLES: dict[str, list[MoneyBundle]] = {
     StripeCurrencyCode.USD: [
         MoneyBundle(name="Starter", amount=5),

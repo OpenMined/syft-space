@@ -61,9 +61,7 @@ class PrepaidBalancePerRequestPolicy(PrepaidBalancePaymentPolicyBase):
                 },
             ) from exc
 
-        # Metadata is private to this policy invocation, so a generic key
-        # is collision-free (an endpoint has one wallet → at most one
-        # prepaid policy per request).
+        # Generic key — metadata is scoped to this policy invocation.
         context.metadata["prepaid_transaction_id"] = transaction_id
         context.metadata["prepaid_price"] = price
 
