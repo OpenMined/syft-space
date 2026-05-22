@@ -21,9 +21,17 @@ from sqlmodel import JSON, Column, Field, ForeignKey, SQLModel
 
 
 class InvoiceStatus(str, Enum):
-    """Invoice lifecycle status."""
+    """Invoice lifecycle status.
+
+    PROCESSING is an in-between state for providers (e.g. Stripe) that
+    support delayed payment methods: the checkout completed but settlement
+    is still in flight (bank transfer, ACH, voucher). Balance is NOT
+    credited until status transitions to PAID via a follow-up async event.
+    Providers without delayed methods (Xendit) never use PROCESSING.
+    """
 
     PENDING = "pending"
+    PROCESSING = "processing"  # checkout completed, async settlement in flight
     PAID = "paid"
     EXPIRED = "expired"  # provider session timed out
     CANCELLED = "cancelled"  # user or admin abandoned the session
@@ -57,7 +65,7 @@ class Invoice(SQLModel, table=True):
 
     __tablename__ = "invoices"
     __table_args__ = (
-        Index("idx_invoice_external_id", "external_id", unique=True),
+        Index("idx_invoice_client_reference", "client_reference", unique=True),
         Index("idx_invoice_tenant_user", "tenant_id", "user_email"),
         Index("idx_invoice_status", "status"),
         Index("idx_invoice_wallet", "wallet_id"),
@@ -83,8 +91,23 @@ class Invoice(SQLModel, table=True):
     )
     user_email: str = Field(..., description="Email of the purchasing user")
     provider: str = Field(..., description="Payment provider (e.g., 'xendit')")
-    external_id: str = Field(..., description="Provider invoice ID (webhook join key)")
+    client_reference: str = Field(
+        ...,
+        description=(
+            "Our outbound token (syft-{uuid}) sent to the provider as "
+            "client_reference_id / reference_id and echoed back in webhooks. "
+            "Webhook→invoice join key. Not provider-assigned."
+        ),
+    )
     checkout_url: str = Field(..., description="Provider hosted checkout URL")
+    provider_session_id: str | None = Field(
+        default=None,
+        description=(
+            "Provider-side session ID (e.g. Stripe cs_…). Stored so a future "
+            "reconciliation sweep can GET the session directly when a webhook "
+            "never arrives — see TODO in PaymentHandler.create_invoice."
+        ),
+    )
     bundle_name: str = Field(..., description="Bundle name at time of purchase")
     amount: float = Field(..., description="Bundle amount in currency")
     currency: str = Field(..., description="Currency code (e.g., 'USD')")

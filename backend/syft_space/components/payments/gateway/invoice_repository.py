@@ -12,9 +12,10 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from syft_space.components.payments.gateway.entities import Invoice, InvoiceStatus
+from syft_space.components.shared.database import AsyncBaseRepository
 
 
-class InvoiceRepository:
+class InvoiceRepository(AsyncBaseRepository[Invoice]):
     """Repository for Invoice CRUD."""
 
     def __init__(self, session: AsyncSession):
@@ -33,12 +34,14 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return result.first()
 
-    async def get_by_external_id(self, external_id: str) -> Invoice | None:
-        """Get an invoice by external provider ID.
+    async def get_by_client_reference(self, client_reference: str) -> Invoice | None:
+        """Look up an invoice by the ``syft-{uuid}`` reference we sent to
+        the provider (and which they echo back in webhooks).
 
-        No tenant filter — webhooks don't know the tenant.
+        No tenant filter — webhooks don't carry tenant context, and the
+        reference is globally unique so it identifies the row on its own.
         """
-        statement = select(Invoice).where(Invoice.external_id == external_id)
+        statement = select(Invoice).where(Invoice.client_reference == client_reference)
         result = await self.session.exec(statement)
         return result.first()
 
@@ -109,24 +112,40 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return result.first() is not None
 
-    async def set_checkout_url(self, id: UUID, checkout_url: str) -> bool:
-        """Set checkout_url on a still-pending invoice.
+    # Source statuses from which a webhook may transition. PROCESSING is
+    # exclusively for providers that support delayed payment methods (Stripe
+    # bank transfers): the session is `complete` but settlement is in flight,
+    # and a follow-up async event flips status to PAID. Allowing PROCESSING
+    # as a source for both mark_paid and update_status lets the same
+    # idempotency guard cover the second-hop transition.
+    _TRANSITIONABLE = (InvoiceStatus.PENDING.value, InvoiceStatus.PROCESSING.value)
 
-        Used to patch the URL in after the provider returns it, when the
-        invoice was inserted PENDING with an empty placeholder. Guarded by
-        WHERE status='pending' so a concurrent webhook can't be clobbered.
+    async def set_checkout_metadata(
+        self,
+        id: UUID,
+        *,
+        checkout_url: str,
+        provider_session_id: str | None = None,
+    ) -> bool:
+        """Patch checkout_url and provider_session_id on a still-pending invoice.
+
+        Both fields are written together after the provider returns. Guarded
+        by WHERE status='pending' so a concurrent webhook can't be clobbered.
         Returns False if no row was updated (already terminal).
         """
+        values: dict = {
+            "checkout_url": checkout_url,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if provider_session_id is not None:
+            values["provider_session_id"] = provider_session_id
         stmt = (
             update(Invoice)
             .where(
                 Invoice.id == id,
                 Invoice.status == InvoiceStatus.PENDING.value,
             )
-            .values(
-                checkout_url=checkout_url,
-                updated_at=datetime.now(timezone.utc),
-            )
+            .values(**values)
         )
         result = await self.session.exec(stmt)
         return result.rowcount > 0
@@ -137,16 +156,17 @@ class InvoiceRepository:
         paid_at: datetime,
         webhook_payload: dict,
     ) -> bool:
-        """Atomically transition PENDING → PAID. No-op (returns False) otherwise.
+        """Atomically transition PENDING|PROCESSING → PAID.
 
-        Idempotent via the WHERE status='pending' guard: replayed webhooks
-        find the invoice already paid and the row count is 0.
+        Idempotent via the source-status guard: replayed webhooks find the
+        invoice already PAID and the rowcount is 0. PROCESSING is included
+        for providers with delayed-settlement events (Stripe ACH).
         """
         stmt = (
             update(Invoice)
             .where(
                 Invoice.id == id,
-                Invoice.status == InvoiceStatus.PENDING.value,
+                Invoice.status.in_(self._TRANSITIONABLE),
             )
             .values(
                 status=InvoiceStatus.PAID.value,
@@ -165,14 +185,19 @@ class InvoiceRepository:
         paid_at: datetime | None = None,
         webhook_payload: dict | None = None,
     ) -> bool:
-        """Transition PENDING → terminal status (EXPIRED/FAILED).
+        """Transition PENDING|PROCESSING → non-PAID status.
 
-        For PAID, prefer mark_paid() — it carries the paid_at + payload contract
-        explicitly. This method handles non-PAID terminal states.
+        For PAID, prefer mark_paid() — it carries the paid_at + payload
+        contract explicitly. This method handles non-PAID transitions
+        (PROCESSING, EXPIRED, CANCELLED).
+
+        Allowing PROCESSING as a source covers the Stripe case where a
+        delayed payment ultimately fails (PROCESSING → CANCELLED) after
+        first having moved out of PENDING.
         """
         statement = select(Invoice).where(
             Invoice.id == id,
-            Invoice.status == InvoiceStatus.PENDING.value,
+            Invoice.status.in_(self._TRANSITIONABLE),
         )
         result = await self.session.exec(statement)
         invoice = result.first()

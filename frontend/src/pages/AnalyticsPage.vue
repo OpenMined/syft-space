@@ -166,10 +166,7 @@
                     </Tooltip>
                   </TooltipProvider>
                 </template>
-                <p
-                  v-else
-                  class="text-3xl font-bold text-foreground tracking-tight tabular-nums"
-                >
+                <p v-else class="text-3xl font-bold text-foreground tracking-tight tabular-nums">
                   {{ stat.formattedValue }}
                 </p>
                 <p
@@ -441,7 +438,9 @@
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center justify-between">
                       <p class="text-sm font-medium text-foreground truncate">{{ entry.word }}</p>
-                      <span class="text-sm font-semibold text-foreground tabular-nums shrink-0 ml-2">
+                      <span
+                        class="text-sm font-semibold text-foreground tabular-nums shrink-0 ml-2"
+                      >
                         {{ entry.count.toLocaleString() }}
                       </span>
                     </div>
@@ -622,9 +621,7 @@
                     <p class="text-sm font-medium truncate">{{ inv.user_email }}</p>
                     <p class="text-xs text-muted-foreground">
                       {{ inv.bundle_name }} · {{ formatTimeAgo(inv.created_at) }}
-                      <span v-if="inv.paid_at">
-                        · paid {{ formatTimeAgo(inv.paid_at) }}
-                      </span>
+                      <span v-if="inv.paid_at"> · paid {{ formatTimeAgo(inv.paid_at) }} </span>
                     </p>
                   </div>
                   <div class="flex items-center gap-3 ml-4">
@@ -1060,9 +1057,8 @@ const pendingCount = computed(
 )
 const expiredCount = computed(
   () =>
-    emailScopedInvoices.value.filter(
-      (i) => i.status === 'expired' || i.status === 'cancelled',
-    ).length,
+    emailScopedInvoices.value.filter((i) => i.status === 'expired' || i.status === 'cancelled')
+      .length,
 )
 
 const fetchWallets = async () => {

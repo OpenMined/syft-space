@@ -82,4 +82,27 @@ export const walletsApi = {
     const response = await apiClient.put(`/wallets/gateway/xendit/${walletId}`, updates)
     return response.data
   },
+
+  createStripe: async (params: {
+    secretKey: string
+    webhookSecret: string
+    currency: string
+    name?: string
+  }): Promise<WalletResponse> => {
+    const response = await apiClient.post('/wallets/gateway/stripe', {
+      secret_key: params.secretKey,
+      webhook_secret: params.webhookSecret,
+      currency: params.currency,
+      name: params.name,
+    })
+    return response.data
+  },
+
+  updateStripe: async (
+    walletId: string,
+    updates: { secret_key?: string; webhook_secret?: string },
+  ): Promise<WalletResponse> => {
+    const response = await apiClient.put(`/wallets/gateway/stripe/${walletId}`, updates)
+    return response.data
+  },
 }

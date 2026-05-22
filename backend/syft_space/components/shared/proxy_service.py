@@ -7,6 +7,7 @@ import os
 from collections.abc import Awaitable, Callable
 
 from loguru import logger
+from pydantic import HttpUrl
 
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.shared.lifecycle import LifecycleService
@@ -148,6 +149,9 @@ class ProxyService(LifecycleService):
 
         logger.info(f"Ngrok tunnel established: {public_url}")
 
+        # Update app settings
+        app_settings.public_url = HttpUrl(public_url)
+
         # Persist token, domain, and public URL to database
         if persist:
             await self._settings_repository.update_ngrok_token(token)
@@ -172,6 +176,7 @@ class ProxyService(LifecycleService):
         await self._close_listener()
         self._current_token = None
         self._current_domain = None
+        app_settings.public_url = None
 
         # Clear from database
         if clear_token:
@@ -380,6 +385,7 @@ class ProxyService(LifecycleService):
         public_url = self._listener.url()
 
         # Update public URL in database (it may have changed)
+        app_settings.public_url = HttpUrl(public_url)
         await self._settings_repository.update_public_url(public_url)
 
     async def _close_listener(self) -> None:

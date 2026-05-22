@@ -31,6 +31,19 @@ class WalletRepository(AsyncBaseRepository[Wallet]):
             result = await session.exec(statement)
             return result.first()
 
+    async def get_by_id_unscoped(self, id: UUID) -> Wallet | None:
+        """Get a wallet by ID without tenant scoping.
+
+        Reserved for tenant-less call sites (signature-verified webhooks
+        where the wallet_id is in the URL path). Callers must enforce their
+        own authorization — for webhooks, the gateway's signature check is
+        the authorization. Do not expose to user-facing routes.
+        """
+        async with self.db.get_session() as session:
+            statement = select(Wallet).where(Wallet.id == id)
+            result = await session.exec(statement)
+            return result.first()
+
     async def get_by_type(
         self, wallet_type: str, tenant_id: UUID, is_active: bool = True
     ) -> list[Wallet]:

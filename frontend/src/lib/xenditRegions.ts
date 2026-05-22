@@ -21,9 +21,7 @@ export const XENDIT_REGIONS: readonly XenditRegion[] = [
   { currency: 'THB', country: 'TH', countryLabel: 'Thailand' },
 ] as const
 
-export const XENDIT_CURRENCIES: readonly string[] = XENDIT_REGIONS.map(
-  (r) => r.currency,
-)
+export const XENDIT_CURRENCIES: readonly string[] = XENDIT_REGIONS.map((r) => r.currency)
 
 export function countryForCurrency(currency: string): string {
   return XENDIT_REGIONS.find((r) => r.currency === currency)?.country ?? ''

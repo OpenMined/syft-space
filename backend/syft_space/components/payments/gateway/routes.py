@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from syft_space.components.auth.public import public_route
 from syft_space.components.payments.gateway.dependencies import (
@@ -16,6 +16,7 @@ from syft_space.components.payments.gateway.schemas import (
     LedgerEntryPage,
     UserBalanceResponse,
 )
+from syft_space.components.payments.gateway.stripe.routes import build_stripe_routes
 from syft_space.components.payments.gateway.xendit.routes import build_xendit_routes
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -118,12 +119,18 @@ def build_gateway_routes(
         user_email: str = Depends(get_verified_sender_email),
         handler: PaymentHandler = Depends(get_handler),
     ) -> InvoiceResponse:
-        """Create an invoice against a wallet (PUBLIC, satellite token)."""
-        # Provider is derived from the wallet at the handler — we just dispatch
-        # to the matching gateway. Hardcoded to xendit while it's the only
-        # prepaid provider; generalize when a second one lands.
+        """Create an invoice against a wallet (PUBLIC, satellite token).
+
+        Provider is derived from the wallet's ``wallet_type`` so SyftHub can
+        invoice against any registered gateway (xendit, stripe, …) through
+        a single endpoint. The handler resolves the matching PaymentGateway
+        and the gateway validates wallet-type ↔ provider consistency.
+        """
+        wallet = await handler.wallet_repo.get_by_id(wallet_id, tenant.id)
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found")
         return await handler.create_invoice(
-            "xendit", wallet_id, request, tenant, user_email
+            wallet.wallet_type, wallet_id, request, tenant, user_email
         )
 
     @public_route
@@ -179,7 +186,8 @@ def build_gateway_routes(
             wallet_id, user_email, tenant, cursor=cursor, limit=limit
         )
 
-    # Provider-specific sub-router (currently just the webhook)
+    # Provider-specific sub-routers (webhook receivers)
     router.include_router(build_xendit_routes(handler, get_verified_sender_email))
+    router.include_router(build_stripe_routes(handler, get_verified_sender_email))
 
     return router

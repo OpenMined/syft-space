@@ -56,7 +56,7 @@ class WalletHandler:
         wallets = await self.repository.get_all(tenant.id)
         items = []
         for w in wallets:
-            display = self._extract_display(w.wallet_type, w.configuration)
+            display = self._extract_display(w.wallet_type, w.configuration, w.id)
             items.append(
                 WalletListItem(
                     id=w.id,
@@ -76,7 +76,9 @@ class WalletHandler:
         wallet = await self.repository.get_by_id(wallet_id, tenant.id)
         if not wallet:
             raise HTTPException(status_code=404, detail="Wallet not found")
-        display = self._extract_display(wallet.wallet_type, wallet.configuration)
+        display = self._extract_display(
+            wallet.wallet_type, wallet.configuration, wallet.id
+        )
         return WalletResponse(
             id=wallet.id,
             wallet_type=wallet.wallet_type,
@@ -164,6 +166,14 @@ class WalletHandler:
             configuration=validated.model_dump(),
         )
 
+        # SetupResult.display may be wallet-id-independent (Xendit, MPP) or
+        # empty for providers that need the wallet id to compute the URL
+        # (Stripe). Recompute via extract_display so the response is correct
+        # for all providers, falling back to the setup-time display.
+        display = provider.extract_display(wallet.configuration, wallet.id)
+        if not display:
+            display = result.display
+
         return WalletResponse(
             id=wallet.id,
             wallet_type=wallet.wallet_type,
@@ -171,7 +181,7 @@ class WalletHandler:
             currency=wallet.currency,
             country=wallet.country,
             is_active=wallet.is_active,
-            display=result.display,
+            display=display,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
@@ -205,7 +215,7 @@ class WalletHandler:
         wallet = await self.repository.update_configuration(
             wallet_id, tenant.id, updated_config
         )
-        display = provider.extract_display(updated_config)
+        display = provider.extract_display(updated_config, wallet.id)
         return WalletResponse(
             id=wallet.id,
             wallet_type=wallet.wallet_type,
@@ -220,9 +230,11 @@ class WalletHandler:
 
     # --- Helpers ---
 
-    def _extract_display(self, wallet_type: str, configuration: dict) -> dict[str, Any]:
+    def _extract_display(
+        self, wallet_type: str, configuration: dict, wallet_id: UUID
+    ) -> dict[str, Any]:
         """Extract safe display info by delegating to the provider."""
         provider = self.providers.get(wallet_type)
         if provider:
-            return provider.extract_display(configuration)
+            return provider.extract_display(configuration, wallet_id)
         return {}

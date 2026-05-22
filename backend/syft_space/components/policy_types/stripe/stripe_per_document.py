@@ -1,4 +1,4 @@
-"""Xendit per-document payment policy.
+"""Stripe per-document payment policy.
 
 All behavior is inherited from PrepaidBalancePerDocumentPolicy.
 """
@@ -13,10 +13,10 @@ from syft_space.components.policy_types.prepaid.policy_config import (
 )
 
 
-class XenditPerDocumentPolicy(PrepaidBalancePerDocumentPolicy):
-    PROVIDER_NAME: ClassVar[str] = "xendit"
-    NAME: ClassVar[str] = "xendit_per_document"
+class StripePerDocumentPolicy(PrepaidBalancePerDocumentPolicy):
+    PROVIDER_NAME: ClassVar[str] = "stripe"
+    NAME: ClassVar[str] = "stripe_per_document"
     DESCRIPTION: ClassVar[str] = (
-        "Pay-per-document billed against a Xendit wallet's prepaid balance"
+        "Pay-per-document billed against a Stripe wallet's prepaid balance"
     )
     CONFIG_CLS = PrepaidPerDocumentConfig

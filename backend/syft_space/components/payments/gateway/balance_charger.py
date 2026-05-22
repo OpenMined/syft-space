@@ -1,8 +1,9 @@
-"""Xendit charging adapter — concrete impl of policy_types.XenditCharger.
+"""Provider-agnostic charging adapter over BalanceService.
 
-Bound at request time to a specific Xendit wallet (wallet_id, currency)
-and the (tenant_id, endpoint_id) of the current query. Wraps the
-BalanceService; policy code never sees the underlying transport.
+Once funds are on a wallet, every prepaid-balance gateway spends them the
+same way — only the top-up rail differs. This class binds a (wallet,
+request) pair to the underlying BalanceService so policy code never
+threads credentials or wallet ids through every call.
 """
 
 from uuid import UUID
@@ -14,20 +15,26 @@ from syft_space.components.payments.gateway.balance_service import (
 from syft_space.components.policy_types.interfaces import BalanceShortfallError
 
 
-class XenditChargingAdapter:
-    """Per-request charger for one Xendit wallet."""
+class WalletBalanceCharger:
+    """Per-request charger bound to one wallet and the active endpoint.
+
+    Implements the PrepaidBalanceCharger Protocol — the same shape covers
+    every prepaid-balance provider.
+    """
 
     def __init__(
         self,
         *,
         balance_service: BalanceService,
         wallet_id: UUID,
+        wallet_type: str,
         currency: str,
         tenant_id: UUID,
         endpoint_id: UUID,
     ) -> None:
         self._balance_service = balance_service
         self._wallet_id = wallet_id
+        self._wallet_type = wallet_type
         self._currency = currency
         self._tenant_id = tenant_id
         self._endpoint_id = endpoint_id
@@ -35,6 +42,10 @@ class XenditChargingAdapter:
     @property
     def currency(self) -> str:
         return self._currency
+
+    @property
+    def wallet_type(self) -> str:
+        return self._wallet_type
 
     async def get_balance(self, user_email: str) -> float:
         return await self._balance_service.get_balance(

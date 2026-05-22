@@ -96,6 +96,7 @@ from syft_space.components.payments.gateway.dependencies import (
 )
 from syft_space.components.payments.gateway.handlers import PaymentHandler
 from syft_space.components.payments.gateway.payment_ledger import PaymentLedger
+from syft_space.components.payments.gateway.stripe.gateway import StripeGateway
 from syft_space.components.payments.gateway.xendit.gateway import XenditGateway
 from syft_space.components.payments.mpp.handlers import MppPaymentHandler
 from syft_space.components.payments.routes import build_payment_routes
@@ -141,6 +142,7 @@ from syft_space.components.tenants.repository import TenantRepository
 from syft_space.components.tenants.routes import build_tenant_routes
 
 # Import wallet components
+from syft_space.components.wallets.gateway.stripe.provider import StripeWalletProvider
 from syft_space.components.wallets.gateway.xendit.provider import XenditWalletProvider
 from syft_space.components.wallets.handlers import WalletHandler
 from syft_space.components.wallets.mpp.provider import MppWalletProvider
@@ -448,7 +450,11 @@ policy_handler = PolicyHandler(
 marketplace_handler = MarketplaceHandler(marketplace_repository)
 
 # Initialize wallet handler with providers (Clean Architecture: concrete adapters injected here)
-wallet_providers = {"mpp": MppWalletProvider(), "xendit": XenditWalletProvider()}
+wallet_providers = {
+    "mpp": MppWalletProvider(),
+    "xendit": XenditWalletProvider(),
+    "stripe": StripeWalletProvider(),
+}
 
 # Initialize payment handlers
 mpp_payment_handler = MppPaymentHandler(wallet_repository=wallet_repository)
@@ -467,7 +473,7 @@ gateway_payment_handler = PaymentHandler(
     payment_ledger_factory=payment_ledger_factory,
     wallet_repository=wallet_repository,
     endpoint_repository=endpoint_repository,
-    gateways={"xendit": XenditGateway()},
+    gateways={"xendit": XenditGateway(), "stripe": StripeGateway()},
 )
 get_verified_sender_email = make_verified_sender_email_dependency(
     marketplace_repository
@@ -600,6 +606,7 @@ publish_endpoint_handler = PublishEndpointHandler(
     dataset_registry=DATASET_TYPE_REGISTRY,
     model_registry=MODEL_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
+    wallet_providers=wallet_providers,
 )
 tenant_handler = TenantHandler(tenant_repository)
 
