@@ -64,7 +64,7 @@ class XenditPerDocumentPolicy(XenditPaymentPolicy):
                 policy_type=self.NAME,
             )
 
-        charger = context.payment_chargers.xendit()
+        charger = context.payment_chargers.prepaid()
         balance = await charger.get_balance(user_email)
         if balance < price:
             raise PolicyViolationError(
@@ -102,7 +102,7 @@ class XenditPerDocumentPolicy(XenditPaymentPolicy):
         references = response.get("references") or {}
         documents = references.get("documents") or []
         count = len(documents)
-        charger = context.payment_chargers.xendit()
+        charger = context.payment_chargers.prepaid()
 
         # No documents → no charge. Record zero so the response indicates
         # this policy applied with no net cost.

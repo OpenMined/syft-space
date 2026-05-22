@@ -56,7 +56,7 @@ class StripePerRequestPolicy(StripePaymentPolicy):
                 policy_type=self.NAME,
             )
 
-        charger = context.payment_chargers.stripe()
+        charger = context.payment_chargers.prepaid()
         try:
             transaction_id = await charger.reserve(
                 user_email=user_email,
@@ -93,7 +93,7 @@ class StripePerRequestPolicy(StripePaymentPolicy):
         if not transaction_id:
             return context
 
-        charger = context.payment_chargers.stripe()
+        charger = context.payment_chargers.prepaid()
         response = context.response or {}
 
         has_summary = bool(

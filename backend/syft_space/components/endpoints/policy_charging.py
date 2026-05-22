@@ -6,10 +6,10 @@ different wallet), so this builds at most one charger per request. The
 query handler exposes the resulting bag on PolicyContext; policies
 retrieve the charger they need by mechanism.
 
-Adding a new prepaid-balance gateway is one new ``elif`` here (and a new
-field on PaymentChargers). The Xendit and Stripe branches resolve to the
-same ``WalletBalanceCharger`` implementation — the only difference is
-which slot on PaymentChargers the policy will read.
+Adding a new prepaid-balance gateway is one line: add its wallet_type to
+``PREPAID_BALANCE_WALLET_TYPES``. Both Xendit and Stripe resolve to the
+same ``WalletBalanceCharger`` implementation — once funds are on the
+wallet, spending is identical regardless of how the top-up rail works.
 """
 
 from uuid import UUID
@@ -22,10 +22,15 @@ from syft_space.components.payments.mpp.charger import MppChargingAdapter
 from syft_space.components.policy_types.interfaces import (
     MppCharger,
     PaymentChargers,
-    StripeCharger,
-    XenditCharger,
+    PrepaidBalanceCharger,
 )
 from syft_space.components.wallets.entities import Wallet
+
+# Wallet types that share the prepaid-balance payment model. Any wallet
+# in this set resolves to a WalletBalanceCharger; CapabilityChecker
+# enforces type-matching between policy and wallet, so the per-request
+# bag never carries a mismatched pair.
+PREPAID_BALANCE_WALLET_TYPES: frozenset[str] = frozenset({"xendit", "stripe"})
 
 
 def build_payment_chargers(
@@ -39,15 +44,13 @@ def build_payment_chargers(
 ) -> PaymentChargers:
     """Construct a PaymentChargers bag for the current request.
 
-    ``wallet=None`` means no payment policy is attached; all chargers stay
-    absent and any downstream ``.mpp()`` / ``.xendit()`` / ``.stripe()`` call
-    would (correctly) raise. Prepaid chargers (Xendit, Stripe) are also
-    skipped when no BalanceService is wired — surfacing the missing
-    dependency loudly.
+    ``wallet=None`` means no payment policy is attached; both chargers stay
+    absent and any downstream ``.mpp()`` / ``.prepaid()`` call would
+    (correctly) raise. The prepaid charger is also skipped when no
+    BalanceService is wired — surfacing the missing dependency loudly.
     """
     mpp: MppCharger | None = None
-    xendit: XenditCharger | None = None
-    stripe: StripeCharger | None = None
+    prepaid: PrepaidBalanceCharger | None = None
 
     if wallet is not None:
         if wallet.wallet_type == "mpp":
@@ -57,21 +60,17 @@ def build_payment_chargers(
                 realm=endpoint_slug,
                 x_payment=x_payment,
             )
-        elif wallet.wallet_type == "xendit" and balance_service is not None:
-            xendit = WalletBalanceCharger(
+        elif (
+            wallet.wallet_type in PREPAID_BALANCE_WALLET_TYPES
+            and balance_service is not None
+        ):
+            prepaid = WalletBalanceCharger(
                 balance_service=balance_service,
                 wallet_id=wallet.id,
-                currency=wallet.currency,
-                tenant_id=tenant_id,
-                endpoint_id=endpoint_id,
-            )
-        elif wallet.wallet_type == "stripe" and balance_service is not None:
-            stripe = WalletBalanceCharger(
-                balance_service=balance_service,
-                wallet_id=wallet.id,
+                wallet_type=wallet.wallet_type,
                 currency=wallet.currency,
                 tenant_id=tenant_id,
                 endpoint_id=endpoint_id,
             )
 
-    return PaymentChargers(mpp=mpp, xendit=xendit, stripe=stripe)
+    return PaymentChargers(mpp=mpp, prepaid=prepaid)

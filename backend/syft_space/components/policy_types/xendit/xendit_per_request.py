@@ -52,7 +52,7 @@ class XenditPerRequestPolicy(XenditPaymentPolicy):
                 policy_type=self.NAME,
             )
 
-        charger = context.payment_chargers.xendit()
+        charger = context.payment_chargers.prepaid()
         try:
             transaction_id = await charger.reserve(
                 user_email=user_email,
@@ -89,7 +89,7 @@ class XenditPerRequestPolicy(XenditPaymentPolicy):
         if not transaction_id:
             return context
 
-        charger = context.payment_chargers.xendit()
+        charger = context.payment_chargers.prepaid()
         response = context.response or {}
 
         has_summary = bool(

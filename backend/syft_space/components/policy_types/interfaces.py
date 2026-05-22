@@ -98,8 +98,8 @@ def add_response_cost(response: dict[str, Any], amount: float, currency: str) ->
 
 
 class BalanceShortfallError(Exception):
-    """Raised by XenditCharger.reserve when the user's balance is below
-    the required amount.
+    """Raised by PrepaidBalanceCharger.reserve when the user's balance is
+    below the required amount.
 
     Policy-facing exception owned by this layer. The underlying
     InsufficientBalanceError from the balance service stays internal to
@@ -135,11 +135,15 @@ class MppCharger(Protocol):
         ...
 
 
-class XenditCharger(Protocol):
-    """Xendit wallet-bound charger for a single request.
+class PrepaidBalanceCharger(Protocol):
+    """Wallet-bound charger for prepaid-balance gateways (Xendit, Stripe, …).
 
     Constructed by the framework with wallet_id, currency, tenant_id, and
-    endpoint_id bound. Policies pass only request-scoped data.
+    endpoint_id bound. Policies pass only request-scoped data. All
+    prepaid-balance providers spend balance the same way once it's been
+    topped up — only the top-up rail differs — so a single Protocol covers
+    them all. The concrete implementation lives in
+    ``payments.gateway.balance_charger.WalletBalanceCharger``.
     """
 
     @property
@@ -147,43 +151,14 @@ class XenditCharger(Protocol):
         """Wallet currency code (e.g., 'IDR', 'USD'). Surfaced on responses."""
         ...
 
-    async def get_balance(self, user_email: str) -> float:
-        """Return the user's current spendable balance in the wallet's currency."""
-        ...
-
-    async def reserve(
-        self,
-        *,
-        user_email: str,
-        amount: float,
-        charge_unit: str,
-        charge_quantity: int,
-    ) -> UUID:
-        """Reserve `amount` against the user's balance.
-
-        Raises:
-            BalanceShortfallError: balance is below `amount`.
-        """
-        ...
-
-    async def cancel(self, transaction_id: UUID) -> None:
-        """Cancel a previously reserved transaction (e.g., empty response)."""
-        ...
-
-
-class StripeCharger(Protocol):
-    """Stripe wallet-bound charger for a single request.
-
-    Same shape as XenditCharger — both providers spend balance the same way
-    once it's been topped up. The two Protocols are kept separate so policy
-    types can declare which mechanism they need (and IDE go-to-definition
-    points at the right impl), but the concrete implementation is shared
-    via ``WalletBalanceCharger``.
-    """
-
     @property
-    def currency(self) -> str:
-        """Wallet currency code (e.g., 'USD', 'EUR'). Surfaced on responses."""
+    def wallet_type(self) -> str:
+        """Underlying prepaid provider (e.g., 'xendit', 'stripe').
+
+        Exposed for observability — log lines, audit metadata, response
+        annotations. Policies should not branch on this value; behavioral
+        differences between prepaid rails are absorbed by the implementation.
+        """
         ...
 
     async def get_balance(self, user_email: str) -> float:
@@ -218,20 +193,21 @@ class PaymentChargers:
     declared required_wallet_type has a matching wallet attached. Missing
     chargers therefore indicate a framework bug, not a user-input error.
 
-    Adding a new payment mechanism is one new method on this class plus a
-    new branch in build_payment_chargers (see endpoints/policy_charging.py).
+    An endpoint is constrained to a single wallet, so at most one of `mpp`
+    and `prepaid` is populated per request. Adding a new prepaid-balance
+    gateway is zero changes here — wire it into build_payment_chargers.
+    Adding a fundamentally new payment model (a sibling to MPP and prepaid)
+    is one new slot + accessor + Protocol.
     """
 
     def __init__(
         self,
         *,
         mpp: MppCharger | None = None,
-        xendit: XenditCharger | None = None,
-        stripe: StripeCharger | None = None,
+        prepaid: PrepaidBalanceCharger | None = None,
     ) -> None:
         self._mpp = mpp
-        self._xendit = xendit
-        self._stripe = stripe
+        self._prepaid = prepaid
 
     def mpp(self) -> MppCharger:
         if self._mpp is None:
@@ -240,19 +216,13 @@ class PaymentChargers:
             )
         return self._mpp
 
-    def xendit(self) -> XenditCharger:
-        if self._xendit is None:
+    def prepaid(self) -> PrepaidBalanceCharger:
+        if self._prepaid is None:
             raise RuntimeError(
-                "Xendit charger requested but no Xendit wallet is attached to this endpoint"
+                "Prepaid-balance charger requested but no prepaid wallet "
+                "(Xendit, Stripe, …) is attached to this endpoint"
             )
-        return self._xendit
-
-    def stripe(self) -> StripeCharger:
-        if self._stripe is None:
-            raise RuntimeError(
-                "Stripe charger requested but no Stripe wallet is attached to this endpoint"
-            )
-        return self._stripe
+        return self._prepaid
 
 
 class Capabilities(BaseModel):

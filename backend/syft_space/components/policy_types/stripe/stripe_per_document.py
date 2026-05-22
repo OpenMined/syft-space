@@ -67,7 +67,7 @@ class StripePerDocumentPolicy(StripePaymentPolicy):
                 policy_type=self.NAME,
             )
 
-        charger = context.payment_chargers.stripe()
+        charger = context.payment_chargers.prepaid()
         balance = await charger.get_balance(user_email)
         if balance < price:
             raise PolicyViolationError(
@@ -105,7 +105,7 @@ class StripePerDocumentPolicy(StripePaymentPolicy):
         references = response.get("references") or {}
         documents = references.get("documents") or []
         count = len(documents)
-        charger = context.payment_chargers.stripe()
+        charger = context.payment_chargers.prepaid()
 
         # No documents → no charge. Record zero so the response indicates
         # this policy applied with no net cost.
