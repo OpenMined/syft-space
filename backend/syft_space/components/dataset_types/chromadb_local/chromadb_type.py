@@ -33,7 +33,10 @@ from syft_space.components.shared.domain_types import (
     HealthcheckStatus,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
-
+from syft_space.components.sources.local_file.local_file_source import (
+    FilePathItem,
+    LocalFileSource,
+)
 
 try:
     from chromadb.errors import NotFoundError as _ChromaNotFoundError
@@ -84,13 +87,6 @@ DEFAULT_INGEST_FILE_TYPE_OPTIONS = [
 
 # Embedding model - same as Weaviate (all-MiniLM-L6-v2)
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-
-
-class FilePathItem(BaseModel):
-    """A file path item with path and description."""
-
-    path: str = Field(..., description="The file or directory path to watch")
-    description: str = Field(..., description="Description of the data at this path")
 
 
 class ChromaDBLocalConfiguration(BaseModel):
@@ -150,6 +146,12 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         """
         self.raw_config = config
         self.config = ChromaDBLocalConfiguration.model_validate(config)
+        self._source = LocalFileSource(
+            {
+                "file_paths": [fp.model_dump() for fp in self.config.file_paths],
+                "allowed_extensions": list(self.config.ingest_file_type_options),
+            }
+        )
 
         # Lazy initialization (instance-level)
         self._embedding_fn = None
@@ -240,7 +242,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         for file_path_item in config.file_paths:
             path = AsyncPath(file_path_item.path)
             if not await path.exists():
-                raise ValueError(f"filePaths does not exist: {file_path_item['path']}")
+                raise ValueError(f"filePaths does not exist: {file_path_item.path}")
 
     def watched_paths(self) -> list[str]:
         """Get the paths to watch for new files.
@@ -248,7 +250,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Returns:
             List of absolute directory/file paths to monitor.
         """
-        return [item.path for item in self.config.file_paths]
+        return self._source.watched_paths()
 
     def allowed_extensions(self) -> set[str]:
         """Get the allowed file extensions for ingestion.
@@ -256,7 +258,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Returns:
             Set of extensions including the dot (e.g., {".pdf", ".txt"}).
         """
-        return set(self.config.ingest_file_type_options)
+        return self._source.allowed_extensions()
 
     @property
     def collection_name(self) -> str:

@@ -133,6 +133,7 @@ from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.components.shared.proxy_service import ProxyService
 from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
 from syft_space.components.shared.syfthub_client import SyftHubClient
+from syft_space.components.sources import register_builtin_sources
 
 # Import tenant components
 from syft_space.components.tenants.entities import Tenant
@@ -423,6 +424,8 @@ marketplace_repository = MarketplaceRepository(database)
 wallet_repository = WalletRepository(database)
 
 # Explicit type registration - no import side effects
+logger.info("Registering sources ...")
+register_builtin_sources()
 logger.info("Registering dataset types ...")
 register_dataset_types(DATASET_TYPE_REGISTRY)
 logger.info("Registering model types ...")

@@ -98,4 +98,8 @@ def register_builtin_sources() -> None:
 
     Called explicitly from ``main.py`` — no import side effects.
     """
-    pass
+    SOURCE_REGISTRY.register(
+        "local_file",
+        "syft_space.components.sources.local_file.local_file_source",
+        "LocalFileSource",
+    )
