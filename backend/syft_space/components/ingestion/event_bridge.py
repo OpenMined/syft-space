@@ -1,54 +1,37 @@
-"""Event bridge for sync-to-async file event communication.
+"""Generic sync→async event bridge backed by ``janus``.
 
-This module provides a clean abstraction over janus queue for bridging
-synchronous watchdog callbacks to asynchronous event processing.
+Wraps a single janus queue with an explicit lifecycle (``initialize`` /
+``close``). Producers may be sync (e.g. watchdog callbacks) or async; the
+consumer is async. The bridge is event-type-agnostic — anything yieldable
+as a Python object can flow through it. Today it carries
+``SourceChangeEvent`` instances; nothing in the bridge itself depends on
+that.
 """
 
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path as SyncPath
-from typing import TYPE_CHECKING
-from uuid import UUID
 
 import janus
 from loguru import logger
 
-from syft_space.components.ingestion.events import FileEvent, FileEventType
-
-if TYPE_CHECKING:
-    from anyio import Path as AsyncPath
+from syft_space.components.sources.interfaces import SourceChangeEvent
 
 
 class EventBridge:
-    """Bridge for sync-to-async file event communication.
+    """Single-queue sync↔async bridge for source change events."""
 
-    Encapsulates janus queue and provides clean interfaces for:
-    - Sync producer (watchdog callbacks)
-    - Async consumer (event processor)
-
-    All FileEvent creation flows through this class, ensuring
-    consistent validation and metadata.
-    """
-
-    def __init__(self, maxsize: int = 0):
-        """Initialize the event bridge.
-
-        Args:
-            maxsize: Max queue size (0 = unbounded). Consider setting
-                     a limit in production for backpressure.
-        """
-        self._queue: janus.Queue[FileEvent] | None = None
+    def __init__(self, maxsize: int = 0) -> None:
+        self._queue: janus.Queue[SourceChangeEvent] | None = None
         self._maxsize = maxsize
         self._closed = False
 
     @property
     def is_initialized(self) -> bool:
-        """Check if bridge has been initialized."""
         return self._queue is not None
 
     async def initialize(self) -> None:
-        """Initialize the janus queue (call from async context)."""
+        """Create the janus queue (must be called from an async context)."""
         if self._queue is not None:
             return
         self._queue = janus.Queue(maxsize=self._maxsize)
@@ -63,143 +46,28 @@ class EventBridge:
         self._queue = None
         self._closed = True
 
-    # -------------------------------------------------------------------------
-    # Sync Producer Interface (for watchdog callbacks)
-    # -------------------------------------------------------------------------
-
-    def push_created(
-        self,
-        dataset_id: UUID,
-        tenant_id: UUID,
-        file_path: SyncPath,
-        file_size: int,
-        file_mtime_ns: int,
-    ) -> bool:
-        """Push a file created event (sync, non-blocking).
-
-        Args:
-            dataset_id: Dataset UUID
-            tenant_id: Tenant UUID
-            file_path: Path to the created file
-            file_size: File size in bytes
-            file_mtime_ns: File modification time in nanoseconds
-
-        Returns:
-            True if event was queued, False if queue is full/closed
-        """
+    def push(self, event: SourceChangeEvent) -> bool:
+        """Sync-producer entrypoint. Returns False on full or closed queue."""
         if self._queue is None or self._closed:
             return False
-
-        event = self.create_event(
-            event_type=FileEventType.CREATED,
-            dataset_id=dataset_id,
-            tenant_id=tenant_id,
-            file_path=file_path,
-            file_size=file_size,
-            file_mtime_ns=file_mtime_ns,
-        )
-
         try:
             self._queue.sync_q.put_nowait(event)
-            logger.debug(f"Queued file created: {file_path}")
             return True
         except janus.SyncQueueFull:
-            logger.warning(f"Event queue full, dropping: {file_path}")
+            logger.warning(f"Event queue full, dropping: {event}")
             return False
 
-    def push_deleted(
-        self,
-        dataset_id: UUID,
-        tenant_id: UUID,
-        file_path: SyncPath,
-    ) -> bool:
-        """Push a file deleted event (sync, non-blocking).
-
-        Args:
-            dataset_id: Dataset UUID
-            tenant_id: Tenant UUID
-            file_path: Path to the deleted file
-
-        Returns:
-            True if event was queued, False if queue is full/closed
-        """
-        if self._queue is None or self._closed:
-            return False
-
-        event = self.create_event(
-            event_type=FileEventType.DELETED,
-            dataset_id=dataset_id,
-            tenant_id=tenant_id,
-            file_path=file_path,
-        )
-
-        try:
-            self._queue.sync_q.put_nowait(event)
-            logger.debug(f"Queued file deleted: {file_path}")
-            return True
-        except janus.SyncQueueFull:
-            logger.warning(f"Event queue full, dropping delete: {file_path}")
-            return False
-
-    # -------------------------------------------------------------------------
-    # Async Consumer Interface (for event processor)
-    # -------------------------------------------------------------------------
-
-    async def pop(self, timeout: float = 1.0) -> FileEvent | None:
-        """Pop next event from queue (async, with timeout).
-
-        Args:
-            timeout: Seconds to wait for an event
-
-        Returns:
-            FileEvent or None if timeout/closed
-
-        Raises:
-            janus.AsyncQueueShutDown: If queue was closed
-        """
-        if self._queue is None:
-            return None
-
-        try:
-            return await asyncio.wait_for(
-                self._queue.async_q.get(),
-                timeout=timeout,
-            )
-        except asyncio.TimeoutError:
-            return None
-
-    async def push_async(self, event: FileEvent) -> None:
-        """Push event from async context (for file scanning).
-
-        Args:
-            event: FileEvent to push
-        """
+    async def push_async(self, event: SourceChangeEvent) -> None:
+        """Async-producer entrypoint."""
         if self._queue is None:
             raise RuntimeError("EventBridge not initialized")
         await self._queue.async_q.put(event)
 
-    # -------------------------------------------------------------------------
-    # Factory Methods (centralize FileEvent creation)
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def create_event(
-        event_type: FileEventType,
-        dataset_id: UUID,
-        tenant_id: UUID,
-        file_path: SyncPath | AsyncPath,
-        file_size: int | None = None,
-        file_mtime_ns: int | None = None,
-    ) -> FileEvent:
-        """Create a FileEvent with validation.
-
-        Centralizes event creation for consistency.
-        """
-        return FileEvent(
-            event_type=event_type,
-            dataset_id=dataset_id,
-            tenant_id=tenant_id,
-            file_path=file_path,
-            file_size=file_size,
-            file_mtime_ns=file_mtime_ns,
-        )
+    async def pop(self, timeout: float = 1.0) -> SourceChangeEvent | None:
+        """Async-consumer entrypoint. Returns None on timeout or shutdown."""
+        if self._queue is None:
+            return None
+        try:
+            return await asyncio.wait_for(self._queue.async_q.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None

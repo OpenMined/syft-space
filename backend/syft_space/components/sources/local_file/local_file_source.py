@@ -18,6 +18,9 @@ from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,
 )
+from syft_space.components.sources.local_file.local_file_watcher import (
+    get_local_file_watcher,
+)
 
 DEFAULT_ALLOWED_EXTENSIONS = [
     ".pdf",
@@ -163,10 +166,31 @@ class LocalFileSource:
         return json.dumps({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
 
     def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Async iterator of change events. Wired in a follow-up PR."""
-        raise NotImplementedError(
-            "change_stream is wired when the ingestion manager is generalized"
+        """Async iterator of filesystem change events.
+
+        Order: the underlying watchdog subscription is opened first (so any
+        events occurring during the initial scan are buffered), then the
+        initial scan yields ``created`` events for files already on disk,
+        then the watchdog event stream takes over.
+        """
+        return self._change_stream_impl()
+
+    async def _change_stream_impl(self) -> AsyncIterator[SourceChangeEvent]:
+        watcher = get_local_file_watcher()
+        sub_iter = await watcher.subscribe(
+            self.watched_paths(), self._allowed_extensions
         )
+        try:
+            for item in await self.list_items():
+                yield SourceChangeEvent(
+                    event_type="created",
+                    external_id=item.external_id,
+                    fingerprint=self.fingerprint(item.external_id),
+                )
+            async for event in sub_iter:
+                yield event
+        finally:
+            await sub_iter.aclose()
 
     async def _to_source_item(self, path: AsyncPath) -> SourceItem:
         stat = await path.stat()
