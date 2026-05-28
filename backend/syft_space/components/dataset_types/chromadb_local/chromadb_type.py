@@ -146,7 +146,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         """
         self.raw_config = config
         self.config = ChromaDBLocalConfiguration.model_validate(config)
-        self._source = LocalFileSource(
+        self.source = LocalFileSource(
             {
                 "file_paths": [fp.model_dump() for fp in self.config.file_paths],
                 "allowed_extensions": list(self.config.ingest_file_type_options),
@@ -250,7 +250,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Returns:
             List of absolute directory/file paths to monitor.
         """
-        return self._source.watched_paths()
+        return self.source.watched_paths()
 
     def allowed_extensions(self) -> set[str]:
         """Get the allowed file extensions for ingestion.
@@ -258,7 +258,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         Returns:
             Set of extensions including the dot (e.g., {".pdf", ".txt"}).
         """
-        return self._source.allowed_extensions()
+        return self.source.allowed_extensions()
 
     @property
     def collection_name(self) -> str:
