@@ -1,172 +1,41 @@
-"""Ingestion manager for watch-based file ingestion.
+"""Source-agnostic ingestion orchestrator.
 
-Architecture:
-- Uses EventBridge for sync→async bridging between watchdog and async processing
-- DatasetFileEventHandler (sync) pushes events via EventBridge.push_created/push_deleted
-- Event processor task (async) consumes via EventBridge.pop()
-- Job processor task (async) processes pending ingestion jobs
+For each dataset whose dataset_type exposes a ``source`` attribute, spawn
+a long-running task that iterates ``source.change_stream()`` and writes
+``IngestionJob`` rows. A separate job processor task picks up pending
+jobs, fetches their content via the source, and delegates to the
+dataset_type's ``ingest()`` method.
+
+Filesystem watching, sync→async bridging, and observer ownership all
+live inside the source (and the shared ``LocalFileWatcher``); the
+manager treats every source uniformly.
 """
 
 import asyncio
-from io import BytesIO
+import json
 from pathlib import Path as SyncPath
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-import aiofiles
-import janus
-from anyio import Path as AsyncPath
 from loguru import logger
-from watchdog.events import FileSystemEvent, FileSystemEventHandler
-from watchdog.observers import Observer
 
 from syft_space.components.dataset_types.interfaces import (
     IngestContext,
-    IngestFile,
     IngestRequest,
 )
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import Dataset
 from syft_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
-from syft_space.components.ingestion.event_bridge import EventBridge
-from syft_space.components.ingestion.events import FileEvent, FileEventType
 from syft_space.components.ingestion.repository import IngestionJobRepository
-from syft_space.components.ingestion.utils import rglob_visible
 from syft_space.components.shared.lifecycle import LifecycleService
+from syft_space.components.sources.interfaces import BaseSource, SourceChangeEvent
 
 if TYPE_CHECKING:
     from syft_space.components.datasets.repository import DatasetRepository
 
 
-class WatchedPathFilter:
-    """Filters file paths based on watched directories and specific files.
-
-    Performance:
-    - File lookup: O(1) via set membership
-    - Directory check: O(d) where d = number of watched directories (typically small)
-
-    Note: Sets are NOT cleaned up on delete - user intent to watch persists
-    until watcher is stopped.
-    """
-
-    def __init__(self, watched_dirs: set[SyncPath], watched_files: set[SyncPath]):
-        """Initialize the filter.
-
-        Args:
-            watched_dirs: Directories to watch (accept all files under these)
-            watched_files: Specific files to watch (exact match only)
-        """
-        self._watched_dirs = watched_dirs
-        self._watched_files = watched_files
-
-    def is_watched(self, file_path: SyncPath) -> bool:
-        """Check if a file path should be processed.
-
-        Args:
-            file_path: Path to check
-
-        Returns:
-            True if file matches a watched file or is under a watched directory
-        """
-        # Exact file match (O(1))
-        if file_path in self._watched_files:
-            return True
-
-        # Under a watched directory (O(d), typically small)
-        for watched_dir in self._watched_dirs:
-            try:
-                file_path.relative_to(watched_dir)
-                return True
-            except ValueError:
-                continue
-
-        return False
-
-
-class DatasetFileEventHandler(FileSystemEventHandler):
-    """Watchdog event handler that pushes events via EventBridge.
-
-    Decoupled from IngestionManager:
-    - Only knows about EventBridge (producer interface)
-    - Uses WatchedPathFilter to filter events
-    - No callbacks, no manager reference, no async knowledge
-    """
-
-    def __init__(
-        self,
-        dataset_id: UUID,
-        tenant_id: UUID,
-        event_bridge: EventBridge,
-        path_filter: WatchedPathFilter,
-    ):
-        """Initialize the event handler.
-
-        Args:
-            dataset_id: Dataset UUID
-            tenant_id: Tenant UUID
-            event_bridge: EventBridge for pushing events
-            path_filter: Filter to determine which paths to process
-        """
-        super().__init__()
-        self.dataset_id = dataset_id
-        self.tenant_id = tenant_id
-        self._bridge = event_bridge
-        self._path_filter = path_filter
-
-    def on_created(self, event: FileSystemEvent) -> None:
-        """Handle file created event."""
-        if event.is_directory:
-            return
-
-        file_path = SyncPath(event.src_path)
-
-        # Filter unwatched files
-        if not self._path_filter.is_watched(file_path):
-            return
-
-        try:
-            # Stat is sync - that's fine, we're in watchdog's thread
-            stat = file_path.stat()
-            self._bridge.push_created(
-                dataset_id=self.dataset_id,
-                tenant_id=self.tenant_id,
-                file_path=file_path,
-                file_size=stat.st_size,
-                file_mtime_ns=stat.st_mtime_ns,
-            )
-        except OSError as e:
-            logger.warning(f"Failed to stat file {file_path}: {e}")
-
-    def on_deleted(self, event: FileSystemEvent) -> None:
-        """Handle file deleted event."""
-        if event.is_directory:
-            return
-
-        file_path = SyncPath(event.src_path)
-
-        # Filter unwatched files
-        if not self._path_filter.is_watched(file_path):
-            return
-
-        self._bridge.push_deleted(
-            dataset_id=self.dataset_id,
-            tenant_id=self.tenant_id,
-            file_path=file_path,
-        )
-
-
 class IngestionManager(LifecycleService):
-    """Manages file watchers and ingestion job processing.
-
-    Architecture:
-    - EventBridge bridges sync watchdog callbacks to async processing
-    - Event processor task consumes file events and creates DB records
-    - Job processor task processes pending ingestion jobs
-
-    Lifecycle:
-    - startup(): Initialize EventBridge, start tasks, start watchers
-    - shutdown(): Stop watchers, cancel tasks, close EventBridge
-    """
+    """Manages per-dataset source consumer tasks and the shared job processor."""
 
     def __init__(
         self,
@@ -174,160 +43,104 @@ class IngestionManager(LifecycleService):
         ingestion_repository: IngestionJobRepository,
         registry: DatasetTypeRegistry,
     ):
-        """Initialize the ingestion manager.
-
-        Args:
-            dataset_repository: Dataset repository (read-only access)
-            ingestion_repository: Ingestion job repository
-            registry: Dataset type registry
-        """
         self._dataset_repository = dataset_repository
         self._ingestion_repository = ingestion_repository
         self._registry = registry
 
-        # Watchdog observer (single observer manages all watches)
-        self._observer: Observer | None = None
+        # Per-dataset state
+        self._sources: dict[UUID, BaseSource] = {}
+        self._source_tasks: dict[UUID, asyncio.Task] = {}
 
-        # Track watches per dataset: dataset_id -> list of watch objects
-        self._watches: dict[UUID, list] = {}
-
-        # Track event handlers per dataset
-        self._handlers: dict[UUID, DatasetFileEventHandler] = {}
-
-        # EventBridge for sync→async communication - initialized in startup()
-        self._event_bridge: EventBridge | None = None
-
-        # Async primitives - initialized in startup()
+        # Async primitives — initialized in startup()
         self._shutdown_event: asyncio.Event | None = None
         self._job_signal: asyncio.Event | None = None
-        self._event_processor_task: asyncio.Task | None = None
         self._job_processor_task: asyncio.Task | None = None
         self._startup_init_task: asyncio.Task | None = None
-        self._provisioner_ready_event: asyncio.Event | None = None  # Set by main.py
+        self._provisioner_ready_event: asyncio.Event | None = None
 
     def set_provisioner_ready_event(self, event: asyncio.Event) -> None:
-        """Set the event to wait on before starting dataset watchers.
-
-        Args:
-            event: Event to wait for before starting ingestion
-        """
         self._provisioner_ready_event = event
 
-    def _is_file_ingestable_dataset_type(self, dtype: str) -> bool:
-        """Check if dataset type implements FileIngestableDatasetType."""
+    # -------------------------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------------------------
+
+    def _build_dataset_type(self, dataset: Dataset):
+        dataset_type_cls = self._registry.get_dataset_type(dataset.dtype)
+        return dataset_type_cls(dataset.configuration)
+
+    def _has_source(self, dataset: Dataset) -> bool:
+        """Whether this dataset's binding exposes a ``BaseSource`` instance."""
         try:
-            dataset_type_cls = self._registry.get_dataset_type(dtype)
-            return (
-                hasattr(dataset_type_cls, "ingest")
-                and callable(getattr(dataset_type_cls, "ingest", None))
-                and hasattr(dataset_type_cls, "watched_paths")
-                and callable(getattr(dataset_type_cls, "watched_paths", None))
-            )
-        except KeyError:
+            dataset_type = self._build_dataset_type(dataset)
+        except Exception as e:
+            logger.warning(f"Cannot build dataset_type for {dataset.id}: {e}")
             return False
+        return getattr(dataset_type, "source", None) is not None
 
     # -------------------------------------------------------------------------
-    # Lifecycle Methods
+    # Lifecycle
     # -------------------------------------------------------------------------
 
     async def startup(self) -> None:
-        """Start the ingestion manager (fully async)."""
         logger.info("Starting ingestion manager...")
-
-        # Initialize EventBridge for sync→async bridging
-        self._event_bridge = EventBridge()
-        await self._event_bridge.initialize()
-
-        # Initialize async primitives
         self._shutdown_event = asyncio.Event()
         self._job_signal = asyncio.Event()
 
-        # Start watchdog observer
-        self._observer = Observer()
-        self._observer.start()
-
-        # Start event processor task (consumes from queue)
-        self._event_processor_task = asyncio.create_task(
-            self._event_processor_loop(), name="IngestionEventProcessor"
-        )
-
-        # Start job processor task (processes DB jobs)
         self._job_processor_task = asyncio.create_task(
             self._job_processor_loop(), name="IngestionJobProcessor"
         )
-
-        # Start watchers for existing datasets in background (non-blocking)
-        # This allows the server to start serving requests immediately
         self._startup_init_task = asyncio.create_task(
-            self._start_existing_dataset_watchers(),
+            self._start_existing_dataset_tasks(),
             name="IngestionStartupInit",
         )
-
         logger.info("Ingestion manager started")
 
-    async def _start_existing_dataset_watchers(self) -> None:
-        """Start watchers for existing datasets (runs in background).
-
-        This runs as a fire-and-forget task so startup() completes immediately,
-        allowing the FastAPI lifespan to yield and the server to start serving.
-        """
-        # Wait for provisioner startup to complete before starting watchers
+    async def _start_existing_dataset_tasks(self) -> None:
+        """Spawn source consumer tasks for every dataset that has a source."""
         if self._provisioner_ready_event:
             logger.info("Waiting for provisioner startup to complete...")
             await self._provisioner_ready_event.wait()
-            logger.info("Provisioner startup complete, starting dataset watchers")
+            logger.info("Provisioner startup complete, starting dataset source tasks")
 
         try:
-            all_datasets = (
+            datasets = (
                 await self._dataset_repository.get_all_with_provisioner_state_id()
             )
-            for dataset in all_datasets:
-                if self._is_file_ingestable_dataset_type(dataset.dtype):
-                    try:
-                        await self.start_dataset_ingestion(dataset)
-                    except Exception as e:
-                        logger.exception(
-                            f"Failed to start ingestion for '{dataset.name}': {e}"
-                        )
-            logger.info(
-                f"Background: Started ingestion for {len(all_datasets)} datasets"
-            )
+            started = 0
+            for dataset in datasets:
+                if not self._has_source(dataset):
+                    continue
+                try:
+                    await self.start_dataset_ingestion(dataset)
+                    started += 1
+                except Exception as e:
+                    logger.exception(
+                        f"Failed to start source task for '{dataset.name}': {e}"
+                    )
+            logger.info(f"Background: started source tasks for {started} datasets")
         except Exception as e:
-            logger.exception(f"Failed to start existing dataset watchers: {e}")
+            logger.exception(f"Failed to start existing dataset source tasks: {e}")
 
     async def shutdown(self) -> None:
-        """Shutdown the ingestion manager."""
         logger.info("Shutting down ingestion manager...")
 
-        # Signal shutdown first
         if self._shutdown_event:
             self._shutdown_event.set()
         if self._job_signal:
-            self._job_signal.set()  # Wake up job processor
+            self._job_signal.set()
 
-        # Stop all watchers (stops producing events)
-        for dataset_id in list(self._watches.keys()):
-            self.stop_watcher(dataset_id)
+        # Cancel and await every per-dataset source consumer
+        source_tasks = list(self._source_tasks.values())
+        for task in source_tasks:
+            task.cancel()
+        if source_tasks:
+            await asyncio.gather(*source_tasks, return_exceptions=True)
+        self._source_tasks.clear()
+        self._sources.clear()
 
-        # Stop observer
-        if self._observer:
-            self._observer.stop()
-            self._observer.join(timeout=5.0)
-            self._observer = None
-
-        # Close EventBridge BEFORE cancelling tasks
-        # This unblocks any tasks waiting on pop() cleanly
-        if self._event_bridge:
-            await self._event_bridge.close()
-            self._event_bridge = None
-
-        # Cancel and await all async tasks
-        all_tasks = [
-            self._event_processor_task,
-            self._job_processor_task,
-            self._startup_init_task,
-        ]
-        for task in all_tasks:
+        # Cancel job + startup tasks
+        for task in (self._job_processor_task, self._startup_init_task):
             if task and not task.done():
                 task.cancel()
                 try:
@@ -335,441 +148,84 @@ class IngestionManager(LifecycleService):
                 except asyncio.CancelledError:
                     pass
 
-        self._watches.clear()
-        self._handlers.clear()
-
         logger.info("Ingestion manager shutdown complete")
 
     # -------------------------------------------------------------------------
-    # Event Processing (Async Tasks)
-    # -------------------------------------------------------------------------
-
-    async def _event_processor_loop(self) -> None:
-        """Process file events from the EventBridge."""
-        logger.info("Event processor started")
-
-        while not self._shutdown_event.is_set():
-            try:
-                # Get event from EventBridge
-                event = await self._event_bridge.pop(timeout=1.0)
-                if event:
-                    await self._process_file_event(event)
-
-            except asyncio.CancelledError:
-                break
-            except janus.AsyncQueueShutDown:
-                # Queue was closed during shutdown
-                break
-            except Exception as e:
-                logger.exception(f"Error processing file event: {e}")
-
-        logger.info("Event processor stopped")
-
-    async def _process_file_event(self, event: FileEvent) -> None:
-        """Process a single file event."""
-        if event.event_type == FileEventType.CREATED:
-            await self._ingestion_repository.upsert_by_path(
-                tenant_id=event.tenant_id,
-                dataset_id=event.dataset_id,
-                file_path=str(event.file_path),
-                file_name=event.file_path.name,
-                file_size=event.file_size,
-                file_mtime_ns=event.file_mtime_ns,
-            )
-            # Signal job processor that new work is available
-            self._job_signal.set()
-
-        elif event.event_type == FileEventType.DELETED:
-            await self._ingestion_repository.delete_by_path(
-                event.dataset_id, str(event.file_path)
-            )
-
-    async def _job_processor_loop(self) -> None:
-        """Process pending ingestion jobs (native async)."""
-        logger.info("Job processor started")
-
-        while not self._shutdown_event.is_set():
-            try:
-                # Wait for signal or periodic check
-                await asyncio.wait_for(self._job_signal.wait(), timeout=5.0)
-                self._job_signal.clear()
-            except asyncio.TimeoutError:
-                pass  # Periodic check for pending jobs
-
-            if self._shutdown_event.is_set():
-                break
-
-            await self._process_pending_jobs()
-
-        logger.info("Job processor stopped")
-
-    async def _process_pending_jobs(self) -> None:
-        """Process batch of pending jobs."""
-        pending_jobs = await self._ingestion_repository.get_pending_jobs(limit=50)
-
-        if not pending_jobs:
-            return
-
-        logger.debug(f"Processing {len(pending_jobs)} pending ingestion jobs")
-
-        for job in pending_jobs:
-            if self._shutdown_event.is_set():
-                break
-            await self._process_single_job(job)
-
-    async def _process_single_job(self, job: IngestionJob) -> None:
-        """Process a single ingestion job (fully async)."""
-        file_path = AsyncPath(job.file_path)
-
-        # Check file exists
-        exists = await file_path.exists()
-        if not exists:
-            logger.warning(f"File does not exist: {file_path}")
-            await self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.CANCELLED, "File does not exist"
-            )
-            return
-
-        # Check is file
-        is_file = await file_path.is_file()
-        if not is_file:
-            logger.warning(f"Path is not a file: {file_path}")
-            await self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.CANCELLED, "Path is not a file"
-            )
-            return
-
-        logger.debug(f"Processing ingestion job {job.id}: {file_path}")
-        await self._ingestion_repository.update_status(
-            job.id, IngestionJobStatus.IN_PROGRESS
-        )
-
-        try:
-            # Get dataset
-            dataset = await self._dataset_repository.get_by_id(
-                job.dataset_id, job.tenant_id
-            )
-            if not dataset:
-                logger.warning(f"Dataset not found for job {job.id}")
-                await self._ingestion_repository.update_status(
-                    job.id, IngestionJobStatus.CANCELLED, "Dataset not found"
-                )
-                return
-
-            # Verify fingerprint (file may have changed while queued)
-            try:
-                stat = await file_path.stat()
-                current_size, current_mtime = stat.st_size, stat.st_mtime_ns
-            except OSError as e:
-                logger.warning(f"Cannot stat file {file_path}: {e}")
-                await self._ingestion_repository.update_status(
-                    job.id, IngestionJobStatus.FAILED, f"Cannot read file: {e}"
-                )
-                return
-
-            if current_size != job.file_size or current_mtime != job.file_mtime_ns:
-                # File changed, create new job with updated fingerprint
-                logger.info(f"File changed during processing: {file_path}")
-                await self._ingestion_repository.upsert_by_path(
-                    tenant_id=job.tenant_id,
-                    dataset_id=job.dataset_id,
-                    file_path=str(file_path),
-                    file_name=job.file_name,
-                    file_size=current_size,
-                    file_mtime_ns=current_mtime,
-                )
-                await self._ingestion_repository.update_status(
-                    job.id,
-                    IngestionJobStatus.CANCELLED,
-                    "File changed during processing",
-                )
-                return
-
-            # Read file
-            async with aiofiles.open(file_path, "rb") as file:
-                file_handle = BytesIO(await file.read())
-
-            # Get dataset type and call ingest
-            dataset_type_cls = self._registry.get_dataset_type(dataset.dtype)
-            dataset_type = dataset_type_cls(dataset.configuration)
-
-            # Create IngestFile and IngestRequest
-            ext = file_path.suffix.lower()
-
-            ingest_file = IngestFile(
-                file_handle=file_handle,
-                filename=job.file_name,
-                content_type=ext,
-                file_size=job.file_size,
-                metadata={
-                    "dataset_id": dataset.id,
-                    "file_path": str(file_path),
-                },
-            )
-
-            ingest_request = IngestRequest(files=[ingest_file])
-
-            # Create context (use system context for background ingestion)
-            ctx = IngestContext(sender="system@openmined.org", dataset_id=dataset.id)
-
-            # Re-check dataset exists right before ingest to close TOCTOU
-            # window (dataset could have been deleted during file I/O above)
-            dataset = await self._dataset_repository.get_by_id(
-                job.dataset_id, job.tenant_id
-            )
-            if not dataset:
-                logger.info(f"Dataset deleted during ingestion prep for job {job.id}")
-                await self._ingestion_repository.update_status(
-                    job.id,
-                    IngestionJobStatus.CANCELLED,
-                    "Dataset deleted during processing",
-                )
-                return
-
-            # Call ingest (native async)
-            try:
-                await dataset_type.ingest(ctx, ingest_request)
-            except Exception as ingest_err:
-                raise RuntimeError(
-                    f"[{dataset.dtype}] Ingestion error: {ingest_err}"
-                ) from ingest_err
-
-            # Success
-            await self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.COMPLETED
-            )
-            logger.info(f"Successfully ingested: {job.file_path}")
-
-        except Exception as e:
-            logger.exception(f"Failed to ingest {job.file_path}: {str(e)}")
-            await self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.FAILED, str(e)
-            )
-
-    # -------------------------------------------------------------------------
-    # Watcher Management
-    # -------------------------------------------------------------------------
-
-    async def _start_watcher(self, dataset: Dataset) -> bool:
-        """Start file watcher for a dataset.
-
-        Args:
-            dataset: Dataset entity
-
-        Returns:
-            True if watcher started, False otherwise
-        """
-        if not self._is_file_ingestable_dataset_type(dataset.dtype):
-            logger.debug(
-                f"Dataset '{dataset.name}' type '{dataset.dtype}' does not support "
-                "file ingestion, skipping watcher"
-            )
-            return False
-
-        # Skip if already watching
-        if dataset.id in self._watches:
-            logger.debug(f"Watcher already running for dataset '{dataset.name}'")
-            return True
-
-        # Ensure observer is running
-        if self._observer is None:
-            self._observer = Observer()
-            self._observer.start()
-
-        # Instantiate dataset type to access interface methods
-        dataset_type_cls = self._registry.get_dataset_type(dataset.dtype)
-        dataset_type = dataset_type_cls(dataset.configuration)
-        raw_paths = dataset_type.watched_paths()
-
-        # Categorize paths and compute watch targets (deduplicated)
-        watched_dirs: set[SyncPath] = set()
-        watched_files: set[SyncPath] = set()
-        watch_schedule: dict[str, bool] = {}  # path_str -> recursive
-
-        for path_str in raw_paths:
-            path = AsyncPath(path_str)
-            if not await path.exists():
-                logger.warning(f"Cannot watch non-existent path: {path_str}")
-                continue
-
-            if await path.is_dir():
-                watched_dirs.add(SyncPath(path_str))
-                watch_schedule[path_str] = True  # recursive
-            else:
-                watched_files.add(SyncPath(path_str))
-                parent = str(path.parent)
-                # Only add parent if not already scheduled (deduplication)
-                if parent not in watch_schedule:
-                    watch_schedule[parent] = False  # not recursive
-
-        # Create path filter and handler
-        path_filter = WatchedPathFilter(watched_dirs, watched_files)
-        handler = DatasetFileEventHandler(
-            dataset_id=dataset.id,
-            tenant_id=dataset.tenant_id,
-            event_bridge=self._event_bridge,
-            path_filter=path_filter,
-        )
-        self._handlers[dataset.id] = handler
-
-        # Schedule watches (deduplicated)
-        watches = []
-        for watch_path, recursive in watch_schedule.items():
-            try:
-                watch = self._observer.schedule(
-                    handler,
-                    watch_path,
-                    recursive=recursive,
-                )
-                watches.append(watch)
-                logger.info(
-                    f"Watching '{watch_path}' for dataset '{dataset.name}' "
-                    f"(recursive={recursive})"
-                )
-            except Exception as e:
-                logger.exception(f"Failed to watch path {watch_path}: {e}")
-
-        self._watches[dataset.id] = watches
-        return len(watches) > 0
-
-    def stop_watcher(self, dataset_id: UUID) -> None:
-        """Stop file watcher for a dataset.
-
-        Args:
-            dataset_id: Dataset UUID
-        """
-        watches = self._watches.pop(dataset_id, [])
-        self._handlers.pop(dataset_id, None)
-
-        if self._observer and watches:
-            for watch in watches:
-                try:
-                    self._observer.unschedule(watch)
-                except Exception as e:
-                    logger.warning(f"Error unscheduling watch: {e}")
-
-    def is_watching(self, dataset_id: UUID) -> bool:
-        """Check if a dataset is being watched.
-
-        Args:
-            dataset_id: Dataset UUID
-
-        Returns:
-            True if watching, False otherwise
-        """
-        return dataset_id in self._watches
-
-    # -------------------------------------------------------------------------
-    # Public API Methods
+    # Public API
     # -------------------------------------------------------------------------
 
     async def start_dataset_ingestion(self, dataset: Dataset) -> int:
-        """Start ingestion for a dataset (fully async).
+        """Spawn a per-dataset source consumer task.
 
-        Args:
-            dataset: Dataset entity
-
-        Returns:
-            Number of files queued for ingestion
+        Returns 1 once the task is spawned (or already running), 0 only
+        when the dataset has no source. Note: this no longer pre-counts
+        files — discovery happens asynchronously inside the source.
         """
-        if not self._is_file_ingestable_dataset_type(dataset.dtype):
+        if dataset.id in self._source_tasks:
+            logger.debug(f"Source task already running for '{dataset.name}'")
+            return 1
+
+        try:
+            dataset_type = self._build_dataset_type(dataset)
+        except KeyError as e:
+            raise ValueError(f"Unknown dataset_type '{dataset.dtype}'") from e
+
+        source = getattr(dataset_type, "source", None)
+        if source is None:
             raise ValueError(
-                f"Dataset type '{dataset.dtype}' does not support file-based ingestion"
+                f"Dataset type '{dataset.dtype}' does not support "
+                "source-based ingestion"
             )
 
-        # Scan files
-        events = await self._scan_files(dataset)
-
-        # Push events via EventBridge
-        for event in events:
-            await self._event_bridge.push_async(event)
-
-        # Start watcher
-        await self._start_watcher(dataset)
-
-        logger.info(f"Queued {len(events)} files for dataset '{dataset.name}'")
-        return len(events)
-
-    async def _scan_files(self, dataset: Dataset) -> list[FileEvent]:
-        """Scan files.
-
-        Args:
-            dataset: Dataset entity
-
-        Returns:
-            List of FileEvent objects for found files
-        """
-        events = []
-        dataset_type_cls = self._registry.get_dataset_type(dataset.dtype)
-        dataset_type = dataset_type_cls(dataset.configuration)
-
-        for path_str in dataset_type.watched_paths():
-            path = AsyncPath(path_str)
-            if not await path.exists():
-                logger.warning(f"Path does not exist: {path_str}")
-                continue
-
-            is_file = await path.is_file()
-            files = (
-                [path]
-                if is_file
-                else [file_path async for file_path in rglob_visible(path)]
-            )
-
-            for file_path in files:
-                if not await file_path.is_file():
-                    continue
-                try:
-                    stat = await file_path.stat()
-                    events.append(
-                        EventBridge.create_event(
-                            event_type=FileEventType.CREATED,
-                            dataset_id=dataset.id,
-                            tenant_id=dataset.tenant_id,
-                            file_path=file_path,
-                            file_size=stat.st_size,
-                            file_mtime_ns=stat.st_mtime_ns,
-                        )
-                    )
-                except OSError:
-                    pass
-
-        return events
+        self._sources[dataset.id] = source
+        task = asyncio.create_task(
+            self._run_source(dataset.id, dataset.tenant_id, source),
+            name=f"IngestionSource[{dataset.id}]",
+        )
+        self._source_tasks[dataset.id] = task
+        logger.info(f"Started source task for dataset '{dataset.name}'")
+        return 1
 
     async def stop_dataset_ingestion(self, dataset_id: UUID) -> int:
-        """Stop ingestion for a dataset.
+        task = self._source_tasks.pop(dataset_id, None)
+        self._sources.pop(dataset_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
-        Args:
-            dataset_id: Dataset UUID
-
-        Returns:
-            Number of jobs cancelled
-        """
-        # Stop watcher
-        self.stop_watcher(dataset_id)
-
-        # Cancel pending jobs
-        cancelled_count = await self._ingestion_repository.cancel_pending_by_dataset(
+        cancelled = await self._ingestion_repository.cancel_pending_by_dataset(
             dataset_id
         )
-        logger.info(
-            f"Cancelled {cancelled_count} pending jobs for dataset {dataset_id}"
-        )
+        logger.info(f"Cancelled {cancelled} pending jobs for dataset {dataset_id}")
+        return cancelled
 
-        return cancelled_count
+    async def start_ingestion_by_id(self, dataset_id: UUID, tenant_id: UUID) -> int:
+        """Convenience for auto-start after dataset creation. Silent on miss."""
+        dataset = await self._dataset_repository.get_by_id(dataset_id, tenant_id)
+        if not dataset:
+            logger.warning(f"Dataset not found for ingestion: {dataset_id}")
+            return 0
+        if not self._has_source(dataset):
+            return 0
+        return await self.start_dataset_ingestion(dataset)
+
+    def is_watching(self, dataset_id: UUID) -> bool:
+        return dataset_id in self._source_tasks
+
+    async def retry_failed_jobs(self, dataset_id: UUID, tenant_id: UUID) -> int:
+        jobs_reset = await self._ingestion_repository.reset_failed_jobs(
+            dataset_id, tenant_id
+        )
+        if jobs_reset > 0 and self._job_signal is not None:
+            self._job_signal.set()
+        return jobs_reset
 
     async def get_ingestion_stats(
         self, dataset_id: UUID, tenant_id: UUID
     ) -> dict[str, int]:
-        """Get aggregated job statistics for a dataset.
-
-        Args:
-            dataset_id: Dataset UUID
-            tenant_id: Tenant UUID (for security)
-
-        Returns:
-            Dict with counts per status and total
-        """
         return await self._ingestion_repository.get_stats_by_dataset(
             dataset_id, tenant_id
         )
@@ -782,62 +238,205 @@ class IngestionManager(LifecycleService):
         limit: int = 100,
         offset: int = 0,
     ) -> list[IngestionJob]:
-        """Get ingestion jobs for a dataset.
-
-        Args:
-            dataset_id: Dataset UUID
-            tenant_id: Tenant UUID (for security)
-            status_filter: Optional list of IngestionJobStatus enums to filter by
-            limit: Maximum jobs to return
-            offset: Pagination offset
-
-        Returns:
-            List of IngestionJob entities
-        """
         return await self._ingestion_repository.get_by_dataset(
             dataset_id, tenant_id, status_filter, limit, offset
         )
 
-    async def retry_failed_jobs(self, dataset_id: UUID, tenant_id: UUID) -> int:
-        """Reset all failed jobs to pending for retry.
+    # -------------------------------------------------------------------------
+    # Source consumption (per-dataset task body)
+    # -------------------------------------------------------------------------
 
-        Args:
-            dataset_id: Dataset UUID
-            tenant_id: Tenant UUID (for security)
+    async def _run_source(
+        self, dataset_id: UUID, tenant_id: UUID, source: BaseSource
+    ) -> None:
+        try:
+            async for event in source.change_stream():
+                if self._shutdown_event and self._shutdown_event.is_set():
+                    break
+                await self._handle_source_event(dataset_id, tenant_id, event)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.exception(f"Source task crashed for {dataset_id}: {e}")
+        finally:
+            logger.info(f"Source task ended for {dataset_id}")
 
-        Returns:
-            Number of jobs reset
-        """
-        jobs_reset = await self._ingestion_repository.reset_failed_jobs(
-            dataset_id, tenant_id
+    async def _handle_source_event(
+        self, dataset_id: UUID, tenant_id: UUID, event: SourceChangeEvent
+    ) -> None:
+        if event.event_type == "deleted":
+            await self._ingestion_repository.delete_by_path(
+                dataset_id, event.external_id
+            )
+            return
+
+        # PR 4 generalizes IngestionJob to carry external_id + opaque
+        # fingerprint instead of file_size/file_mtime_ns columns. Until
+        # then, decode the local-file fingerprint shape here so existing
+        # columns stay populated.
+        try:
+            fp_data = json.loads(event.fingerprint) if event.fingerprint else {}
+        except (json.JSONDecodeError, TypeError):
+            fp_data = {}
+
+        await self._ingestion_repository.upsert_by_path(
+            tenant_id=tenant_id,
+            dataset_id=dataset_id,
+            file_path=event.external_id,
+            file_name=SyncPath(event.external_id).name,
+            file_size=int(fp_data.get("size", 0)),
+            file_mtime_ns=int(fp_data.get("mtime_ns", 0)),
         )
-
-        # Signal job processor if jobs were reset
-        if jobs_reset > 0:
+        if self._job_signal is not None:
             self._job_signal.set()
 
-        return jobs_reset
+    # -------------------------------------------------------------------------
+    # Job processing
+    # -------------------------------------------------------------------------
 
-    async def start_ingestion_by_id(self, dataset_id: UUID, tenant_id: UUID) -> int:
-        """Start ingestion for a dataset by ID.
+    async def _job_processor_loop(self) -> None:
+        logger.info("Job processor started")
+        while not self._shutdown_event.is_set():
+            try:
+                await asyncio.wait_for(self._job_signal.wait(), timeout=5.0)
+                self._job_signal.clear()
+            except asyncio.TimeoutError:
+                pass
 
-        Convenience method for auto-starting ingestion after dataset creation.
-        Silently returns 0 if dataset not found or not a FileIngestableDatasetType.
+            if self._shutdown_event.is_set():
+                break
 
-        Args:
-            dataset_id: Dataset UUID
-            tenant_id: Tenant UUID
+            await self._process_pending_jobs()
+        logger.info("Job processor stopped")
 
-        Returns:
-            Number of jobs created, or 0 if not applicable
+    async def _process_pending_jobs(self) -> None:
+        pending_jobs = await self._ingestion_repository.get_pending_jobs(limit=50)
+        if not pending_jobs:
+            return
+        logger.debug(f"Processing {len(pending_jobs)} pending ingestion jobs")
+        for job in pending_jobs:
+            if self._shutdown_event.is_set():
+                break
+            await self._process_single_job(job)
+
+    async def _resolve_source_for_job(
+        self, job: IngestionJob
+    ) -> tuple[BaseSource, object] | None:
+        """Return ``(source, dataset_type_instance)`` for a job.
+
+        Falls back to constructing fresh from the dataset row when the
+        source task isn't currently cached (e.g. cold restart).
         """
-        dataset = await self._dataset_repository.get_by_id(dataset_id, tenant_id)
+        dataset = await self._dataset_repository.get_by_id(
+            job.dataset_id, job.tenant_id
+        )
         if not dataset:
-            logger.warning(f"Dataset not found for ingestion: {dataset_id}")
-            return 0
+            return None
 
-        if not self._is_file_ingestable_dataset_type(dataset.dtype):
-            # Not a file-ingestable type, silently skip
-            return 0
+        try:
+            dataset_type = self._build_dataset_type(dataset)
+        except KeyError:
+            return None
 
-        return await self.start_dataset_ingestion(dataset)
+        source = self._sources.get(job.dataset_id) or getattr(
+            dataset_type, "source", None
+        )
+        if source is None:
+            return None
+        return source, dataset_type
+
+    async def _process_single_job(self, job: IngestionJob) -> None:
+        resolved = await self._resolve_source_for_job(job)
+        if resolved is None:
+            await self._ingestion_repository.update_status(
+                job.id,
+                IngestionJobStatus.CANCELLED,
+                "Dataset or source unavailable",
+            )
+            return
+        source, dataset_type = resolved
+
+        try:
+            # Fingerprint-drift check via the source. If the file changed
+            # since the job was queued, re-upsert with the new fingerprint
+            # and cancel this one — the upsert produces a new pending job.
+            try:
+                current_fp = source.fingerprint(job.file_path)
+                current_data = json.loads(current_fp)
+                if (
+                    current_data.get("size") != job.file_size
+                    or current_data.get("mtime_ns") != job.file_mtime_ns
+                ):
+                    logger.info(f"File changed during processing: {job.file_path}")
+                    await self._ingestion_repository.upsert_by_path(
+                        tenant_id=job.tenant_id,
+                        dataset_id=job.dataset_id,
+                        file_path=job.file_path,
+                        file_name=job.file_name,
+                        file_size=int(current_data["size"]),
+                        file_mtime_ns=int(current_data["mtime_ns"]),
+                    )
+                    await self._ingestion_repository.update_status(
+                        job.id,
+                        IngestionJobStatus.CANCELLED,
+                        "File changed during processing",
+                    )
+                    return
+            except FileNotFoundError:
+                await self._ingestion_repository.update_status(
+                    job.id,
+                    IngestionJobStatus.CANCELLED,
+                    "File no longer exists",
+                )
+                return
+            except (json.JSONDecodeError, OSError) as e:
+                # Best-effort: if we can't re-fingerprint, proceed with ingestion.
+                logger.debug(f"Fingerprint recheck failed for {job.file_path}: {e}")
+
+            await self._ingestion_repository.update_status(
+                job.id, IngestionJobStatus.IN_PROGRESS
+            )
+
+            try:
+                ingest_file = await source.fetch(job.file_path)
+            except FileNotFoundError:
+                await self._ingestion_repository.update_status(
+                    job.id,
+                    IngestionJobStatus.CANCELLED,
+                    "File no longer exists",
+                )
+                return
+
+            # TOCTOU re-check on the dataset row (could have been deleted
+            # mid-fetch).
+            dataset = await self._dataset_repository.get_by_id(
+                job.dataset_id, job.tenant_id
+            )
+            if not dataset:
+                await self._ingestion_repository.update_status(
+                    job.id,
+                    IngestionJobStatus.CANCELLED,
+                    "Dataset deleted during processing",
+                )
+                return
+
+            ctx = IngestContext(sender="system@openmined.org", dataset_id=dataset.id)
+            try:
+                await dataset_type.ingest(  # type: ignore[attr-defined]
+                    ctx, IngestRequest(files=[ingest_file])
+                )
+            except Exception as ingest_err:
+                raise RuntimeError(
+                    f"[{dataset.dtype}] Ingestion error: {ingest_err}"
+                ) from ingest_err
+
+            await self._ingestion_repository.update_status(
+                job.id, IngestionJobStatus.COMPLETED
+            )
+            logger.info(f"Successfully ingested: {job.file_path}")
+
+        except Exception as e:
+            logger.exception(f"Failed to ingest {job.file_path}: {e}")
+            await self._ingestion_repository.update_status(
+                job.id, IngestionJobStatus.FAILED, str(e)
+            )
