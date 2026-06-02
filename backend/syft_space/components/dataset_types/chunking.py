@@ -117,6 +117,10 @@ def _worker_convert_pages() -> None:
     *result_path*.  Using a file avoids stdout corruption from stray
     prints by docling / PIL / ONNX.
     """
+    from docling.datamodel.accelerator_options import (
+        AcceleratorDevice,
+        AcceleratorOptions,
+    )
     from docling.datamodel.base_models import (
         ConversionStatus,
         InputFormat,
@@ -135,9 +139,14 @@ def _worker_convert_pages() -> None:
     file_size = int(args[6])
     result_path = Path(args[7])
 
+    # Force CPU: transformers' RT-DETRv2 (loaded by docling for layout
+    # detection) creates float64 tensors directly on the configured device,
+    # which MPS rejects. PYTORCH_ENABLE_MPS_FALLBACK doesn't catch direct
+    # dtype creation, so the only reliable fix is to keep this off MPS.
     pipeline_options = PdfPipelineOptions(
         generate_picture_images=True,
         do_table_structure=True,
+        accelerator_options=AcceleratorOptions(device=AcceleratorDevice.CPU),
     )
     converter = DocumentConverter(
         format_options={
@@ -381,16 +390,31 @@ class DocumentChunker:
 
             try:
                 data = json.loads(result_path.read_text())
-                return data.get("chunks", []), data.get("failed_pages", [])
             except (json.JSONDecodeError, ValueError, OSError) as exc:
                 logger.warning(
-                    "No valid result file for pages %d-%d of %s: %s",
+                    "No valid result file for pages %d-%d of %s: %s (stderr: %s)",
                     page_start,
                     page_end,
                     file.filename,
                     exc,
+                    proc.stderr[-500:] if proc.stderr else "(no stderr)",
                 )
                 return [], page_nums
+
+            chunks = data.get("chunks", [])
+            failed_pages = data.get("failed_pages", [])
+            # rc=0 doesn't imply success — the worker writes a valid result
+            # file even when every page failed. Surface stderr in that case
+            # so the cause isn't silently dropped.
+            if not chunks and failed_pages and proc.stderr:
+                logger.warning(
+                    "Worker reported all pages failed for pages %d-%d of %s — stderr: %s",
+                    page_start,
+                    page_end,
+                    file.filename,
+                    proc.stderr[-1000:],
+                )
+            return chunks, failed_pages
         finally:
             result_path.unlink(missing_ok=True)
 
