@@ -70,6 +70,9 @@ repos:
           - style
           - revert
 
+# Install both git-hook stages on `pre-commit install` (no `--hook-type` needed).
+default_install_hook_types: [pre-commit, commit-msg]
+
 # Configuration for pre-commit
 default_language_version:
   python: python3.12
