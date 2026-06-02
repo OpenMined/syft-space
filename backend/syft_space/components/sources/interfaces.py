@@ -7,6 +7,7 @@ the two live in ``dataset_types/``.
 """
 
 from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -128,11 +129,12 @@ class BaseSource(Protocol):
         """
         ...
 
-    async def fetch(self, external_id: str) -> IngestFile:
+    def fetch(self, external_id: str) -> AbstractAsyncContextManager[IngestFile]:
         """Produce an ``IngestFile`` for the given item.
 
-        Opens the underlying resource and wraps it in the framework-agnostic
-        file shape consumed by vector stores.
+        Returns an async context manager so each source can own any
+        materialization/cleanup its fetch needs (no-op for sources whose
+        items already live on disk).
 
         Args:
             external_id: Source-unique identifier of the item to fetch.

@@ -398,7 +398,31 @@ class IngestionManager(LifecycleService):
             )
 
             try:
-                ingest_file = await source.fetch(job.file_path)
+                async with source.fetch(job.file_path) as ingest_file:
+                    # TOCTOU re-check on the dataset row (could have been
+                    # deleted mid-fetch).
+                    dataset = await self._dataset_repository.get_by_id(
+                        job.dataset_id, job.tenant_id
+                    )
+                    if not dataset:
+                        await self._ingestion_repository.update_status(
+                            job.id,
+                            IngestionJobStatus.CANCELLED,
+                            "Dataset deleted during processing",
+                        )
+                        return
+
+                    ctx = IngestContext(
+                        sender="system@openmined.org", dataset_id=dataset.id
+                    )
+                    try:
+                        await dataset_type.ingest(  # type: ignore[attr-defined]
+                            ctx, IngestRequest(files=[ingest_file])
+                        )
+                    except Exception as ingest_err:
+                        raise RuntimeError(
+                            f"[{dataset.dtype}] Ingestion error: {ingest_err}"
+                        ) from ingest_err
             except FileNotFoundError:
                 await self._ingestion_repository.update_status(
                     job.id,
@@ -406,29 +430,6 @@ class IngestionManager(LifecycleService):
                     "File no longer exists",
                 )
                 return
-
-            # TOCTOU re-check on the dataset row (could have been deleted
-            # mid-fetch).
-            dataset = await self._dataset_repository.get_by_id(
-                job.dataset_id, job.tenant_id
-            )
-            if not dataset:
-                await self._ingestion_repository.update_status(
-                    job.id,
-                    IngestionJobStatus.CANCELLED,
-                    "Dataset deleted during processing",
-                )
-                return
-
-            ctx = IngestContext(sender="system@openmined.org", dataset_id=dataset.id)
-            try:
-                await dataset_type.ingest(  # type: ignore[attr-defined]
-                    ctx, IngestRequest(files=[ingest_file])
-                )
-            except Exception as ingest_err:
-                raise RuntimeError(
-                    f"[{dataset.dtype}] Ingestion error: {ingest_err}"
-                ) from ingest_err
 
             await self._ingestion_repository.update_status(
                 job.id, IngestionJobStatus.COMPLETED

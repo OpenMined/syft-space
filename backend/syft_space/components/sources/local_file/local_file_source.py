@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from io import BytesIO
+from contextlib import asynccontextmanager
 from pathlib import Path as SyncPath
 from typing import Any
 
@@ -148,15 +148,15 @@ class LocalFileSource:
                         items.append(await self._to_source_item(path))
         return items
 
-    async def fetch(self, external_id: str) -> IngestFile:
-        """Open a local file and wrap it as an ``IngestFile``."""
-        path = AsyncPath(external_id)
-        data = await path.read_bytes()
-        return IngestFile(
-            file_handle=BytesIO(data),
+    @asynccontextmanager
+    async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:
+        """Yield an ``IngestFile`` pointing at the on-disk path."""
+        path = SyncPath(external_id)
+        stat = path.stat()
+        yield IngestFile(
+            path=path,
             filename=path.name,
-            content_type=None,
-            file_size=len(data),
+            file_size=stat.st_size,
             metadata={"source": self.NAME, "absolute_path": str(path)},
         )
 
