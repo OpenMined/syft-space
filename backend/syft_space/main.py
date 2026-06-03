@@ -144,6 +144,7 @@ from syft_space.components.tenants.handlers import TenantHandler
 from syft_space.components.tenants.middleware import TenantMiddleware
 from syft_space.components.tenants.repository import TenantRepository
 from syft_space.components.tenants.routes import build_tenant_routes
+from syft_space.components.vector_stores import register_builtin_vector_stores
 
 # Import wallet components
 from syft_space.components.wallets.gateway.stripe.provider import StripeWalletProvider
@@ -434,6 +435,8 @@ wallet_repository = WalletRepository(database)
 # Explicit type registration - no import side effects
 logger.info("Registering sources ...")
 register_builtin_sources()
+logger.info("Registering vector stores ...")
+register_builtin_vector_stores()
 logger.info("Registering dataset types ...")
 register_dataset_types(DATASET_TYPE_REGISTRY)
 logger.info("Registering model types ...")
