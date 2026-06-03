@@ -1,0 +1,67 @@
+name: commit-lint
+
+# Advisory check: walks the commits introduced by a PR and verifies each
+# subject line follows Conventional Commits.
+#
+# Intentionally NOT a required check — do not add this to branch protection
+# yet. It surfaces non-conforming commits in the PR's checks tab and step
+# summary so we can shake out commit-discipline gaps before flipping it on.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit subjects
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+
+          pattern='^(feat|fix|chore|refactor|perf|docs|test|ci|build|style|revert)(\([a-z0-9._/-]+\))?!?: .+'
+
+          total=0
+          bad=0
+          rows=""
+          while IFS=$'\t' read -r sha subject; do
+            total=$((total+1))
+            safe_subject=${subject//|/\\|}
+            if printf '%s' "$subject" | grep -Eq "$pattern"; then
+              rows+="| \`${sha:0:7}\` | pass | ${safe_subject} |"$'\n'
+            else
+              rows+="| \`${sha:0:7}\` | fail | ${safe_subject} |"$'\n'
+              bad=$((bad+1))
+            fi
+          done < <(git log --reverse --format='%H%x09%s' "$BASE_SHA..$HEAD_SHA")
+
+          {
+            echo "## Conventional Commits check"
+            echo ""
+            if [ "$total" -eq 0 ]; then
+              echo "_No commits to check._"
+            else
+              echo "**$((total - bad)) / $total** commit(s) follow Conventional Commits."
+              echo ""
+              echo "| Commit | Status | Subject |"
+              echo "| --- | --- | --- |"
+              printf '%s' "$rows"
+            fi
+            echo ""
+            echo "_Advisory check — does not block merge. See <https://www.conventionalcommits.org/>._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$bad" -gt 0 ]; then
+            echo "::warning::${bad} commit(s) do not follow Conventional Commits — see job summary."
+            exit 1
+          fi
