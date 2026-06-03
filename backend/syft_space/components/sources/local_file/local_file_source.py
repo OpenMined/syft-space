@@ -161,9 +161,17 @@ class LocalFileSource:
         )
 
     def fingerprint(self, external_id: str) -> str:
-        """JSON-encoded ``{size, mtime_ns}`` token for change detection."""
+        """Compact JSON ``{size, mtime_ns}`` token for change detection.
+
+        Compact (no separator whitespace) so the string round-trips
+        byte-equal through SQLite's ``json_object()`` backfill used to
+        seed ``fingerprint`` for existing rows.
+        """
         stat = SyncPath(external_id).stat()
-        return json.dumps({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+        return json.dumps(
+            {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns},
+            separators=(",", ":"),
+        )
 
     def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
         """Async iterator of filesystem change events.
