@@ -1,8 +1,7 @@
 """Dataset type interfaces and domain models."""
 
-from io import BytesIO
-from tempfile import SpooledTemporaryFile
-from typing import Any, BinaryIO, Protocol
+from pathlib import Path
+from typing import Any, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -66,20 +65,12 @@ class SearchResult(BaseModel):
 class IngestFile(BaseModel):
     """Framework-agnostic file wrapper for ingestion."""
 
-    file_handle: BinaryIO | SpooledTemporaryFile | BytesIO = Field(
-        ..., description="File-like object (SpooledTemporaryFile, BytesIO, etc.)"
-    )
-    filename: str = Field(..., description="Original filename")
-    content_type: str | None = Field(default=None, description="MIME type")
+    path: Path = Field(..., description="Local readable path")
+    filename: str = Field(..., description="Display filename")
     file_size: int | None = Field(default=None, description="Size in bytes")
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Custom metadata"
     )
-
-    class Config:
-        """Pydantic config."""
-
-        arbitrary_types_allowed = True
 
 
 class IngestRequest(BaseModel):

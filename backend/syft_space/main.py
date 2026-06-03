@@ -133,6 +133,10 @@ from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.components.shared.proxy_service import ProxyService
 from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
 from syft_space.components.shared.syfthub_client import SyftHubClient
+from syft_space.components.sources import register_builtin_sources
+from syft_space.components.sources.local_file.local_file_watcher import (
+    get_local_file_watcher,
+)
 
 # Import tenant components
 from syft_space.components.tenants.entities import Tenant
@@ -291,10 +295,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to load diagnostics preference: {e}")
 
-    # 3. Define lifecycle services (startup order: proxy → provisioner → ingestion → endpoint_heartbeat)
+    # 3. Define lifecycle services (startup order: proxy → provisioner →
+    # local_file_watcher → ingestion → endpoint_heartbeat). Watcher must
+    # come before ingestion so the shared Observer is owned by a service
+    # whose shutdown ordering guarantees it joins after all source tasks.
+    local_file_watcher = get_local_file_watcher()
     services: list[tuple[str, LifecycleService]] = [
         ("proxy", proxy_service),
         ("provisioner", provisioner_manager),
+        ("local_file_watcher", local_file_watcher),
         ("ingestion", ingestion_manager),
         ("endpoint_heartbeat", endpoint_heartbeat_manager),
     ]
@@ -423,6 +432,8 @@ marketplace_repository = MarketplaceRepository(database)
 wallet_repository = WalletRepository(database)
 
 # Explicit type registration - no import side effects
+logger.info("Registering sources ...")
+register_builtin_sources()
 logger.info("Registering dataset types ...")
 register_dataset_types(DATASET_TYPE_REGISTRY)
 logger.info("Registering model types ...")

@@ -51,7 +51,6 @@ def _extract_pictures_and_chunks(
     images_dir: Path,
     doc_id: str,
     filename: str,
-    content_type: str,
     file_size: int,
 ) -> list[dict[str, Any]]:
     """Extract pictures and chunk a docling Document.
@@ -96,7 +95,7 @@ def _extract_pictures_and_chunks(
                 "headings": chunk.meta.headings or [],
                 "picture_ids": chunk_picture_ids,
                 "file_name": filename,
-                "file_type": content_type,
+                "file_type": Path(filename).suffix.lower(),
                 "file_size": file_size,
             }
         )
@@ -112,12 +111,16 @@ def _worker_convert_pages() -> None:
 
     CLI args (via sys.argv[2:]):
         pdf_path, page_start, page_end, images_dir, doc_id,
-        filename, content_type, file_size, result_path
+        filename, file_size, result_path
 
     Writes a JSON object with keys ``chunks`` and ``failed_pages`` to
     *result_path*.  Using a file avoids stdout corruption from stray
     prints by docling / PIL / ONNX.
     """
+    from docling.datamodel.accelerator_options import (
+        AcceleratorDevice,
+        AcceleratorOptions,
+    )
     from docling.datamodel.base_models import (
         ConversionStatus,
         InputFormat,
@@ -133,13 +136,17 @@ def _worker_convert_pages() -> None:
     images_dir = Path(args[3])
     doc_id = args[4]
     filename = args[5]
-    content_type = args[6]
-    file_size = int(args[7])
-    result_path = Path(args[8])
+    file_size = int(args[6])
+    result_path = Path(args[7])
 
+    # Force CPU: transformers' RT-DETRv2 (loaded by docling for layout
+    # detection) creates float64 tensors directly on the configured device,
+    # which MPS rejects. PYTORCH_ENABLE_MPS_FALLBACK doesn't catch direct
+    # dtype creation, so the only reliable fix is to keep this off MPS.
     pipeline_options = PdfPipelineOptions(
         generate_picture_images=True,
         do_table_structure=True,
+        accelerator_options=AcceleratorOptions(device=AcceleratorDevice.CPU),
     )
     converter = DocumentConverter(
         format_options={
@@ -188,7 +195,7 @@ def _worker_convert_pages() -> None:
     chunker = HybridChunker()
     try:
         chunks = _extract_pictures_and_chunks(
-            doc, chunker, images_dir, doc_id, filename, content_type, file_size
+            doc, chunker, images_dir, doc_id, filename, file_size
         )
     except Exception as exc:
         print(
@@ -311,7 +318,6 @@ class DocumentChunker:
             images_dir,
             doc_id,
             file.filename,
-            file.content_type,
             file.file_size or 0,
         )
 
@@ -348,7 +354,6 @@ class DocumentChunker:
                 str(images_dir),
                 doc_id,
                 file.filename,
-                file.content_type,
                 str(file.file_size or 0),
                 str(result_path),
             ]
@@ -385,16 +390,31 @@ class DocumentChunker:
 
             try:
                 data = json.loads(result_path.read_text())
-                return data.get("chunks", []), data.get("failed_pages", [])
             except (json.JSONDecodeError, ValueError, OSError) as exc:
                 logger.warning(
-                    "No valid result file for pages %d-%d of %s: %s",
+                    "No valid result file for pages %d-%d of %s: %s (stderr: %s)",
                     page_start,
                     page_end,
                     file.filename,
                     exc,
+                    proc.stderr[-500:] if proc.stderr else "(no stderr)",
                 )
                 return [], page_nums
+
+            chunks = data.get("chunks", [])
+            failed_pages = data.get("failed_pages", [])
+            # rc=0 doesn't imply success — the worker writes a valid result
+            # file even when every page failed. Surface stderr in that case
+            # so the cause isn't silently dropped.
+            if not chunks and failed_pages and proc.stderr:
+                logger.warning(
+                    "Worker reported all pages failed for pages %d-%d of %s — stderr: %s",
+                    page_start,
+                    page_end,
+                    file.filename,
+                    proc.stderr[-1000:],
+                )
+            return chunks, failed_pages
         finally:
             result_path.unlink(missing_ok=True)
 
@@ -495,13 +515,12 @@ class DocumentChunker:
                 file_type: MIME type
                 file_size: size in bytes
         """
-        raw_data = file.file_handle.read()
         ext = Path(file.filename).suffix.lower()
         doc_id = uuid4().hex[:16]
 
         # Simple text files - no Docling overhead needed
         if ext in [".json", ".txt"]:
-            content = raw_data.decode("utf-8")
+            content = file.path.read_text(encoding="utf-8")
             return [
                 {
                     "text": content,
@@ -511,7 +530,7 @@ class DocumentChunker:
                     "headings": [],
                     "picture_ids": [],
                     "file_name": file.filename,
-                    "file_type": file.content_type,
+                    "file_type": ext,
                     "file_size": file.file_size or 0,
                 }
             ]
@@ -524,29 +543,22 @@ class DocumentChunker:
 
         # Non-PDF rich formats (DOCX, HTML, etc.) — single in-process convert
         if ext != ".pdf":
-            source = DocumentStream(name=file.filename, stream=BytesIO(raw_data))
+            source = DocumentStream(
+                name=file.filename, stream=BytesIO(file.path.read_bytes())
+            )
             result = self.converter.convert(source)
             return self._extract_from_result(result, images_dir, doc_id, file)
 
         # PDF path: always use subprocess isolation.  Docling's layout
         # model can trigger C-level std::bad_alloc that kills the process
         # outright — running in-process would crash the server.
-        tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".pdf")
-        tmp_path = Path(tmp_path_str)
-        try:
-            os.close(tmp_fd)
-            tmp_path.write_bytes(raw_data)
-            del raw_data  # free memory; subprocess reads from temp file
+        total_pages = self._get_pdf_page_count(file.path)
+        if total_pages == 0:
+            raise ConversionError(f"PDF has 0 pages: {file.filename}")
 
-            total_pages = self._get_pdf_page_count(tmp_path)
-            if total_pages == 0:
-                raise ValueError(f"PDF has 0 pages: {file.filename}")
-
-            chunks = self._convert_batched_pages(
-                tmp_path, file, total_pages, images_dir, doc_id
-            )
-        finally:
-            tmp_path.unlink(missing_ok=True)
+        chunks = self._convert_batched_pages(
+            file.path, file, total_pages, images_dir, doc_id
+        )
 
         # Sort by page number to preserve document order
         chunks.sort(key=lambda c: min(c["page_numbers"]) if c["page_numbers"] else 0)
