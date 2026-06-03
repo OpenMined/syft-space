@@ -265,30 +265,42 @@ class IngestionManager(LifecycleService):
         self, dataset_id: UUID, tenant_id: UUID, event: SourceChangeEvent
     ) -> None:
         if event.event_type == "deleted":
-            await self._ingestion_repository.delete_by_path(
+            await self._ingestion_repository.delete_by_external_id(
                 dataset_id, event.external_id
             )
             return
 
-        # PR 4 generalizes IngestionJob to carry external_id + opaque
-        # fingerprint instead of file_size/file_mtime_ns columns. Until
-        # then, decode the local-file fingerprint shape here so existing
-        # columns stay populated.
-        try:
-            fp_data = json.loads(event.fingerprint) if event.fingerprint else {}
-        except (json.JSONDecodeError, TypeError):
-            fp_data = {}
-
-        await self._ingestion_repository.upsert_by_path(
+        file_size, file_mtime_ns = self._derive_legacy_file_fields(event.fingerprint)
+        await self._ingestion_repository.upsert_by_external_id(
             tenant_id=tenant_id,
             dataset_id=dataset_id,
+            external_id=event.external_id,
+            fingerprint=event.fingerprint,
+            # Deprecated dual-write — will be removed with the legacy columns.
             file_path=event.external_id,
             file_name=SyncPath(event.external_id).name,
-            file_size=int(fp_data.get("size", 0)),
-            file_mtime_ns=int(fp_data.get("mtime_ns", 0)),
+            file_size=file_size,
+            file_mtime_ns=file_mtime_ns,
         )
         if self._job_signal is not None:
             self._job_signal.set()
+
+    @staticmethod
+    def _derive_legacy_file_fields(fingerprint: str | None) -> tuple[int, int]:
+        """Decode the LocalFileSource fingerprint into ``(size, mtime_ns)``.
+
+        Transitional dual-write helper. ``fingerprint`` is the canonical
+        change-detection token; the deprecated ``file_size`` /
+        ``file_mtime_ns`` columns still need values until they're
+        dropped. Non-decodable fingerprints (non-filesystem sources)
+        get zeros — those rows never reach chunking, since their
+        dataset_type is the consumer.
+        """
+        try:
+            data = json.loads(fingerprint) if fingerprint else {}
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        return int(data.get("size", 0)), int(data.get("mtime_ns", 0))
 
     # -------------------------------------------------------------------------
     # Job processing
@@ -356,49 +368,53 @@ class IngestionManager(LifecycleService):
             return
         source, dataset_type = resolved
 
+        external_id = job.external_id or job.file_path
         try:
-            # Fingerprint-drift check via the source. If the file changed
-            # since the job was queued, re-upsert with the new fingerprint
-            # and cancel this one — the upsert produces a new pending job.
+            # Fingerprint-drift check via the source. Opaque string compare —
+            # if the item changed since the job was queued, re-upsert with
+            # the new fingerprint and cancel this one (the upsert produces
+            # a new pending job).
             try:
-                current_fp = source.fingerprint(job.file_path)
-                current_data = json.loads(current_fp)
-                if (
-                    current_data.get("size") != job.file_size
-                    or current_data.get("mtime_ns") != job.file_mtime_ns
-                ):
-                    logger.info(f"File changed during processing: {job.file_path}")
-                    await self._ingestion_repository.upsert_by_path(
+                current_fp = source.fingerprint(external_id)
+                if current_fp != job.fingerprint:
+                    logger.info(f"Item changed during processing: {external_id}")
+                    file_size, file_mtime_ns = self._derive_legacy_file_fields(
+                        current_fp
+                    )
+                    await self._ingestion_repository.upsert_by_external_id(
                         tenant_id=job.tenant_id,
                         dataset_id=job.dataset_id,
-                        file_path=job.file_path,
+                        external_id=external_id,
+                        fingerprint=current_fp,
+                        # Deprecated dual-write — will be removed with the legacy columns.
+                        file_path=external_id,
                         file_name=job.file_name,
-                        file_size=int(current_data["size"]),
-                        file_mtime_ns=int(current_data["mtime_ns"]),
+                        file_size=file_size,
+                        file_mtime_ns=file_mtime_ns,
                     )
                     await self._ingestion_repository.update_status(
                         job.id,
                         IngestionJobStatus.CANCELLED,
-                        "File changed during processing",
+                        "Item changed during processing",
                     )
                     return
             except FileNotFoundError:
                 await self._ingestion_repository.update_status(
                     job.id,
                     IngestionJobStatus.CANCELLED,
-                    "File no longer exists",
+                    "Item no longer exists",
                 )
                 return
-            except (json.JSONDecodeError, OSError) as e:
+            except OSError as e:
                 # Best-effort: if we can't re-fingerprint, proceed with ingestion.
-                logger.debug(f"Fingerprint recheck failed for {job.file_path}: {e}")
+                logger.debug(f"Fingerprint recheck failed for {external_id}: {e}")
 
             await self._ingestion_repository.update_status(
                 job.id, IngestionJobStatus.IN_PROGRESS
             )
 
             try:
-                async with source.fetch(job.file_path) as ingest_file:
+                async with source.fetch(external_id) as ingest_file:
                     # TOCTOU re-check on the dataset row (could have been
                     # deleted mid-fetch).
                     dataset = await self._dataset_repository.get_by_id(
@@ -434,10 +450,10 @@ class IngestionManager(LifecycleService):
             await self._ingestion_repository.update_status(
                 job.id, IngestionJobStatus.COMPLETED
             )
-            logger.info(f"Successfully ingested: {job.file_path}")
+            logger.info(f"Successfully ingested: {external_id}")
 
         except Exception as e:
-            logger.exception(f"Failed to ingest {job.file_path}: {e}")
+            logger.exception(f"Failed to ingest {external_id}: {e}")
             await self._ingestion_repository.update_status(
                 job.id, IngestionJobStatus.FAILED, str(e)
             )
