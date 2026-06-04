@@ -1136,7 +1136,7 @@ wheels = [
 
 [[package]]
 name = "docling-core"
-version = "2.71.0"
+version = "2.74.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "defusedxml" },
@@ -1146,14 +1146,15 @@ dependencies = [
     { name = "pandas" },
     { name = "pillow" },
     { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "pyyaml" },
     { name = "tabulate" },
     { name = "typer" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/5e/0e5463bcbb2de3ae8f35f76a1e98b201b373b71783120f57daa4d5bc4683/docling_core-2.71.0.tar.gz", hash = "sha256:4caa9f50c68b9dd332584ae16170b36db05d773532b14d7078b580d89d8bd2a4", size = 302901, upload-time = "2026-03-30T15:48:20.997Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/94/4856d01de4afd565d0ea12198f157f634cf65dc373a4ee97cb0d789f8554/docling_core-2.74.1.tar.gz", hash = "sha256:46bf298686f2c51ddd69b6935a27dff1cc80838f2f5f1a8823492d99cf1a357b", size = 319269, upload-time = "2026-04-22T14:33:45.241Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/5d/604cd8d076cacea11018e20c461bad6df1b769e1aa901b70d06bca33b0f6/docling_core-2.71.0-py3-none-any.whl", hash = "sha256:4761857816853b2b35263b5b4518e1ea6214e0565db0bbf1d929fb976665d1a0", size = 268049, upload-time = "2026-03-30T15:48:18.998Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/c3/5f8c9a9b0cad437cb7e6ffcd48ccc309b2290cea6aac067569bf61b84743/docling_core-2.74.1-py3-none-any.whl", hash = "sha256:e6464078012b3d45f4e0accd101fcb277063903f355eabbb9aee8de00527a789", size = 276973, upload-time = "2026-04-22T14:33:43.366Z" },
 ]
 
 [package.optional-dependencies]
@@ -3538,16 +3539,16 @@ wheels = [
 
 [[package]]
 name = "pydantic-settings"
-version = "2.13.1"
+version = "2.14.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/52/6d/fffca34caecc4a3f97bda81b2098da5e8ab7efc9a66e819074a11955d87e/pydantic_settings-2.13.1.tar.gz", hash = "sha256:b4c11847b15237fb0171e1462bf540e294affb9b86db4d9aa5c01730bdbe4025", size = 223826, upload-time = "2026-02-19T13:45:08.055Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/60/1d1e59c9c90d54591469ada7d268251f71c24bdb765f1a8a832cee8c6653/pydantic_settings-2.14.1.tar.gz", hash = "sha256:e874d3bec7e787b0c9958277956ed9b4dd5de6a80e162188fdaff7c5e26fd5fa", size = 235551, upload-time = "2026-05-08T13:40:06.542Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/4b/ccc026168948fec4f7555b9164c724cf4125eac006e176541483d2c959be/pydantic_settings-2.13.1-py3-none-any.whl", hash = "sha256:d56fd801823dbeae7f0975e1f8c8e25c258eb75d278ea7abb5d9cebb01b56237", size = 58929, upload-time = "2026-02-19T13:45:06.034Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/8d/f1af3832f5e6eb13ba94ee809e72b8ecb5eef226d27ee0bef7d963d943c7/pydantic_settings-2.14.1-py3-none-any.whl", hash = "sha256:6e3c7edfd8277687cdc598f56e5cff0e9bfff0910a3749deaa8d4401c3a2b9de", size = 60964, upload-time = "2026-05-08T13:40:04.958Z" },
 ]
 
 [[package]]
@@ -4784,7 +4785,7 @@ requires-dist = [
     { name = "bandit", extras = ["toml"], marker = "extra == 'lint'", specifier = ">=1.7.0" },
     { name = "chromadb", marker = "extra == 'libs'", specifier = ">=0.5.0" },
     { name = "docling", marker = "extra == 'libs'", specifier = ">=2.75.0" },
-    { name = "docling-core", marker = "extra == 'libs'", specifier = ">=2.65.2" },
+    { name = "docling-core", marker = "extra == 'libs'", specifier = ">=2.74.1" },
     { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = "==0.116.2" },
     { name = "httpx", specifier = ">=0.24.0" },
