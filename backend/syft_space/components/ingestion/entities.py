@@ -19,18 +19,21 @@ class IngestionJobStatus(str, Enum):
 
 
 class IngestionJob(SQLModel, table=True):
-    """Tracks individual file ingestion status for a dataset.
+    """Tracks individual item ingestion status for a dataset.
 
-    Each job represents one file's ingestion state. Jobs are created when:
-    - Dataset ingestion is started (initial scan of existing files)
-    - File watcher detects new/modified files
+    Each job represents one source item's ingestion state. Jobs are created when:
+    - Dataset ingestion is started (initial scan of existing items)
+    - Source change_stream emits a created/updated event
 
-    Fingerprint (size, mtime_ns) determines if re-ingestion is needed.
+    The opaque ``fingerprint`` string (source-defined) is compared for
+    equality to decide whether re-ingestion is needed.
     """
 
     __tablename__ = "ingestion_jobs"
     __table_args__ = (
-        # Unique constraint: one job per file path per dataset
+        # Deprecated uniqueness on (dataset_id, file_path). Will be
+        # replaced by (dataset_id, external_id) once the legacy file_*
+        # columns are dropped.
         UniqueConstraint(
             "dataset_id", "file_path", name="uq_ingestion_job_dataset_file"
         ),
@@ -38,6 +41,9 @@ class IngestionJob(SQLModel, table=True):
         Index("idx_ingestion_job_tenant_status", "tenant_id", "status"),
         # Index for dataset lookups
         Index("idx_ingestion_job_dataset_id", "dataset_id"),
+        # Source-agnostic lookup path. Non-unique during the dual-write
+        # transition; promoted to UNIQUE once file_path is dropped.
+        Index("idx_ingestion_job_dataset_external", "dataset_id", "external_id"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
@@ -56,11 +62,26 @@ class IngestionJob(SQLModel, table=True):
         description="Dataset this job belongs to",
     )
 
-    # File identification
+    # Source-agnostic identifiers.
+    # ``external_id`` is the source-unique opaque key (filesystem path,
+    # WP post id, RSS guid, S3 key, ...). ``fingerprint`` is the
+    # source-controlled change-detection token compared as an opaque
+    # string. Both are nullable during the dual-write transition; they
+    # will become NOT NULL once the legacy file_* columns are dropped.
+    external_id: str | None = Field(
+        default=None,
+        index=True,
+        description="Source-unique identifier (path, post id, guid, ...)",
+    )
+    fingerprint: str | None = Field(
+        default=None,
+        description="Source-defined change-detection token (opaque)",
+    )
+
+    # Deprecated file_*-specific columns. Populated by dual-write
+    # alongside external_id/fingerprint until they're dropped.
     file_path: str = Field(..., description="Absolute path to the file")
     file_name: str = Field(..., description="File name (basename)")
-
-    # Fingerprint for change detection (fast, no content hashing)
     file_size: int = Field(..., description="File size in bytes")
     file_mtime_ns: int = Field(..., description="File modification time in nanoseconds")
 

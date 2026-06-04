@@ -49,9 +49,33 @@ repos:
         additional_dependencies: ["bandit[toml]"]
         files: ^backend/
 
+  # Conventional Commits — validates commit subject lines.
+  # Requires opt-in: `pre-commit install --hook-type commit-msg`
+  # (the default `pre-commit install` only wires the pre-commit stage).
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.6.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args:
+          - feat
+          - fix
+          - chore
+          - refactor
+          - perf
+          - docs
+          - test
+          - ci
+          - build
+          - style
+          - revert
+
+# Install both git-hook stages on `pre-commit install` (no `--hook-type` needed).
+default_install_hook_types: [pre-commit, commit-msg]
+
 # Configuration for pre-commit
 default_language_version:
-  python: python3.9
+  python: python3.12
 
 # Run pre-commit on all files or just staged files
 ci:
