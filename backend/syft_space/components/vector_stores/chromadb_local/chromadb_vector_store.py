@@ -1,7 +1,7 @@
 """ChromaDB local vector store implementation.
 
 Owns chunking, embedding, and chroma I/O for a single collection.
-Composed by ``LocalFSChromaDBDatasetType`` in ``dataset_types/``,
+Composed by ``LocalFileChromaDBDatasetType`` in ``dataset_types/``,
 which provides the source half of the binding.
 """
 
