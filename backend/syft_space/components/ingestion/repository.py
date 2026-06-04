@@ -15,7 +15,9 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
     """Repository for IngestionJob CRUD operations.
 
     Key operations:
-    - upsert_by_path(): Create or update job by file path (for watcher events)
+    - upsert_by_external_id(): Create or update job by source-unique id
+      (for source change-stream events)
+    - get_by_external_id(): Lookup by source-unique id
     - get_pending_jobs(): Get jobs ready for processing
     - get_by_dataset(): Get all jobs for a dataset
     - update_status(): Update job status with timestamps
@@ -31,38 +33,39 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
         """
         super().__init__(db, IngestionJob)
 
-    async def upsert_by_path(
+    async def upsert_by_external_id(
         self,
+        *,
         tenant_id: UUID,
         dataset_id: UUID,
+        external_id: str,
+        fingerprint: str | None,
         file_path: str,
         file_name: str,
         file_size: int,
         file_mtime_ns: int,
     ) -> IngestionJob:
-        """Create or update an ingestion job by file path.
+        """Create or update an ingestion job by source-unique id.
 
         Logic:
-        - If job exists with same fingerprint AND status == COMPLETED → no change (skip)
-        - If job exists with different fingerprint OR status != COMPLETED → reset to PENDING
-        - If job doesn't exist → create PENDING job
+        - Existing row with matching ``fingerprint`` AND status == COMPLETED → skip.
+        - Existing row with different fingerprint OR not completed → reset to PENDING.
+        - No existing row → create PENDING.
 
-        Args:
-            tenant_id: Tenant UUID
-            dataset_id: Dataset UUID
-            file_path: Absolute file path
-            file_name: File basename
-            file_size: Size in bytes
-            file_mtime_ns: Modification time in nanoseconds
+        The fingerprint comparison is an opaque string equality check —
+        sources define the format (see ``BaseSource.fingerprint``); the
+        repository treats it as a blob.
 
-        Returns:
-            Created or updated IngestionJob
+        ``file_path`` / ``file_name`` / ``file_size`` / ``file_mtime_ns`` are
+        deprecated columns dual-written alongside ``external_id`` /
+        ``fingerprint`` and derived by the caller from the source event.
+        They will be dropped once nothing reads from them.
         """
         async with self.db.get_session() as session:
             result = await session.exec(
                 select(IngestionJob).where(
                     IngestionJob.dataset_id == dataset_id,
-                    IngestionJob.file_path == file_path,
+                    IngestionJob.external_id == external_id,
                 )
             )
             existing = result.first()
@@ -70,22 +73,17 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
             now = datetime.now(timezone.utc)
 
             if existing:
-                # Check if fingerprint unchanged AND already completed
-                fingerprint_unchanged = (
-                    existing.file_size == file_size
-                    and existing.file_mtime_ns == file_mtime_ns
-                )
                 if (
-                    fingerprint_unchanged
+                    existing.fingerprint == fingerprint
                     and existing.status == IngestionJobStatus.COMPLETED.value
                 ):
-                    # No change needed, file already ingested with same fingerprint
                     logger.info(
-                        f"File {file_path} already ingested with same fingerprint"
+                        f"Item {external_id} already ingested with same fingerprint"
                     )
                     return existing
 
-                # Fingerprint changed or not completed - reset to pending
+                existing.fingerprint = fingerprint
+                # Deprecated dual-write — will be removed with the legacy columns.
                 existing.file_size = file_size
                 existing.file_mtime_ns = file_mtime_ns
                 existing.status = IngestionJobStatus.PENDING.value
@@ -100,10 +98,12 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                 await session.refresh(existing)
                 return existing
             else:
-                # Create new job
                 job = IngestionJob(
                     tenant_id=tenant_id,
                     dataset_id=dataset_id,
+                    external_id=external_id,
+                    fingerprint=fingerprint,
+                    # Deprecated dual-write — will be removed with the legacy columns.
                     file_path=file_path,
                     file_name=file_name,
                     file_size=file_size,
@@ -116,6 +116,19 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                 await session.commit()
                 await session.refresh(job)
                 return job
+
+    async def get_by_external_id(
+        self, dataset_id: UUID, external_id: str
+    ) -> IngestionJob | None:
+        """Return the job for ``(dataset_id, external_id)`` if any."""
+        async with self.db.get_session() as session:
+            result = await session.exec(
+                select(IngestionJob).where(
+                    IngestionJob.dataset_id == dataset_id,
+                    IngestionJob.external_id == external_id,
+                )
+            )
+            return result.first()
 
     async def get_pending_jobs(
         self,
@@ -291,21 +304,16 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
             await session.commit()
             return count
 
-    async def delete_by_path(self, dataset_id: UUID, file_path: str) -> bool:
-        """Delete a job by file path (for file deletion events).
+    async def delete_by_external_id(self, dataset_id: UUID, external_id: str) -> bool:
+        """Delete a job by source-unique id (for source ``deleted`` events).
 
-        Args:
-            dataset_id: Dataset UUID
-            file_path: File path to delete
-
-        Returns:
-            True if deleted, False if not found
+        Returns True if a row was deleted, False if no match.
         """
         async with self.db.get_session() as session:
             result = await session.exec(
                 select(IngestionJob).where(
                     IngestionJob.dataset_id == dataset_id,
-                    IngestionJob.file_path == file_path,
+                    IngestionJob.external_id == external_id,
                 )
             )
             job = result.first()
