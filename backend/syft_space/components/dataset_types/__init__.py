@@ -27,11 +27,6 @@ def register_builtin_types(registry: "DatasetTypeRegistry") -> None:
         "syft_space.components.dataset_types.local_file_chromadb.dataset_type",
         "LocalFileChromaDBDatasetType",
     )
-    registry.register_lazy_provisioner(
-        "local_file",
-        "syft_space.components.dataset_types.local_file_chromadb.chromadb_provisioner",
-        "LocalChromaDBProvisioner",
-    )
 
 
 __all__ = ["register_builtin_types"]

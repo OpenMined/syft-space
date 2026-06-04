@@ -40,6 +40,7 @@ from syft_space.components.datasets.schemas import (
 )
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.tenants.entities import Tenant
+from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
 
 
 class DatasetHandler:
@@ -64,6 +65,29 @@ class DatasetHandler:
 
     # ============== Private Provisioner Lifecycle Methods ==============
 
+    def _get_provisioner_cls(
+        self, dtype: str
+    ) -> type[BaseVectorStoreProvisioner] | None:
+        """Resolve the provisioner class for ``dtype`` via its vector store.
+
+        Provisioners are owned by ``BaseVectorStore`` (one provisioner
+        per vector store type, shared across every dataset whose binding
+        uses that vector store). Returns ``None`` when the binding's
+        vector store needs no infrastructure (read-only bindings) or
+        when the dtype is unknown — callers treat both as "skip the
+        provisioner step".
+
+        Concrete vector stores MUST declare ``PROVISIONER_CLS`` (set to
+        ``None`` when no provisioner is needed). An ``AttributeError``
+        here means a new vector store skipped the declaration; fail
+        loudly rather than silently skip the provisioner.
+        """
+        try:
+            dataset_type_cls = self.registry.get_dataset_type(dtype)
+        except KeyError:
+            return None
+        return dataset_type_cls.VECTOR_STORE_CLS.PROVISIONER_CLS
+
     async def _ensure_provisioner_running(
         self, dtype: str, config: dict[str, Any]
     ) -> ProvisionerState | None:
@@ -86,7 +110,7 @@ class DatasetHandler:
             HTTPException 409: If provisioner is busy (STARTING/STOPPING) or invalid transition
             HTTPException 500: If provisioner fails to start
         """
-        provisioner_cls = self.registry.get_provisioner(dtype)
+        provisioner_cls = self._get_provisioner_cls(dtype)
         if provisioner_cls is None:
             # Remote type - no provisioner needed
             return None
@@ -182,7 +206,7 @@ class DatasetHandler:
         Raises:
             HTTPException 409: If provisioner is busy (STARTING/STOPPING) or invalid transition
         """
-        provisioner_cls = self.registry.get_provisioner(dtype)
+        provisioner_cls = self._get_provisioner_cls(dtype)
         if provisioner_cls is None:
             return  # Remote type - nothing to stop
 
@@ -275,7 +299,7 @@ class DatasetHandler:
 
             # Skip if already running
             if state.status == ProvisionerStatus.RUNNING.value:
-                provisioner_cls = self.registry.get_provisioner(state.dtype)
+                provisioner_cls = self._get_provisioner_cls(state.dtype)
                 if provisioner_cls:
                     is_running = await provisioner_cls.is_running(state.state)
                     if is_running:
@@ -598,7 +622,7 @@ class DatasetHandler:
             ) from None
 
         dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
-        provisioner_cls = self.registry.get_provisioner(dataset.dtype)
+        provisioner_cls = self._get_provisioner_cls(dataset.dtype)
 
         dataset_type = dataset_type_cls(dataset.configuration)
 
@@ -660,7 +684,7 @@ class DatasetHandler:
         Returns:
             Live status string or None/unknown on error
         """
-        provisioner_cls = self.registry.get_provisioner(state.dtype)
+        provisioner_cls = self._get_provisioner_cls(state.dtype)
         if not provisioner_cls or not state.state:
             return None
         try:
@@ -704,7 +728,7 @@ class DatasetHandler:
         Returns:
             Action response with message and status
         """
-        provisioner_cls = self.registry.get_provisioner(dtype)
+        provisioner_cls = self._get_provisioner_cls(dtype)
         if not provisioner_cls:
             raise HTTPException(
                 status_code=400,
@@ -736,7 +760,7 @@ class DatasetHandler:
         Returns:
             Action response with message and status
         """
-        provisioner_cls = self.registry.get_provisioner(dtype)
+        provisioner_cls = self._get_provisioner_cls(dtype)
         if not provisioner_cls:
             raise HTTPException(
                 status_code=400,
@@ -785,7 +809,7 @@ class DatasetHandler:
         Raises:
             HTTPException: If datasets are still attached (409 Conflict)
         """
-        provisioner_cls = self.registry.get_provisioner(dtype)
+        provisioner_cls = self._get_provisioner_cls(dtype)
         if not provisioner_cls:
             raise HTTPException(
                 status_code=400,

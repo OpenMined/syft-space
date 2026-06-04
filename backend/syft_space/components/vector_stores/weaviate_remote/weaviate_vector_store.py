@@ -42,9 +42,15 @@ except ImportError:
 
 
 class WeaviateVectorStore:
-    """Remote Weaviate vector store — search and healthcheck only."""
+    """Remote Weaviate vector store — search and healthcheck only.
+
+    The cluster is provisioned outside this process, so there is no
+    ``PROVISIONER_CLS``; the binding's provisioner step is skipped at
+    dataset creation time.
+    """
 
     NAME = "weaviate_remote"
+    PROVISIONER_CLS = None
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate remote vector store.

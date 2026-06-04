@@ -33,6 +33,9 @@ from syft_space.components.shared.domain_types import (
     HealthcheckStatus,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.vector_stores.chromadb_local.provisioner import (
+    LocalChromaDBProvisioner,
+)
 from syft_space.components.vector_stores.chromadb_local.schemas import (
     ChromaDBLocalVectorStoreConfiguration,
 )
@@ -84,6 +87,7 @@ class ChromaDBLocalVectorStore:
     """
 
     NAME = "chromadb_local"
+    PROVISIONER_CLS = LocalChromaDBProvisioner
 
     # Class-level lock for thread-safe lazy embedding-model init.
     _embedding_fn_lock = threading.Lock()
