@@ -1,26 +1,26 @@
-"""ChromaDB local dataset type implementation."""
+"""ChromaDB local vector store implementation.
+
+Owns chunking, embedding, and chroma I/O for a single collection.
+Composed by ``LocalFileChromaDBDatasetType`` in ``dataset_types/``,
+which provides the source half of the binding.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import re
 import threading
-import uuid
 from functools import lru_cache
-from pathlib import Path as SyncPath
 from types import ModuleType
 from typing import Any
 
-from anyio import Path as AsyncPath
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import ValidationError
 
 from syft_space.components.dataset_types.chunking import (
     DocumentChunker,
     build_image_urls,
 )
 from syft_space.components.dataset_types.interfaces import (
-    FileIngestableDatasetType,
     IngestContext,
     IngestRequest,
     SearchContext,
@@ -33,9 +33,8 @@ from syft_space.components.shared.domain_types import (
     HealthcheckStatus,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
-from syft_space.components.sources.local_file.local_file_source import (
-    FilePathItem,
-    LocalFileSource,
+from syft_space.components.vector_stores.chromadb_local.schemas import (
+    ChromaDBLocalVectorStoreConfiguration,
 )
 
 try:
@@ -71,102 +70,101 @@ def _chromadb_available() -> bool:
         return False
 
 
-DEFAULT_HTTP_PORT = 8100
 DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
-DEFAULT_INGEST_FILE_TYPE_OPTIONS = [
-    ".pdf",
-    ".txt",
-    ".html",
-    ".xlsx",
-    ".docx",
-    ".md",
-    ".csv",
-    ".json",
-]
-
-# Embedding model - same as Weaviate (all-MiniLM-L6-v2)
+# Embedding model — same as Weaviate (all-MiniLM-L6-v2).
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
 
-class ChromaDBLocalConfiguration(BaseModel):
-    """Configuration for ChromaDB local dataset type."""
+class ChromaDBLocalVectorStore:
+    """Local ChromaDB vector store.
 
-    collection_name: str = Field(
-        ...,
-        alias="collectionName",
-        description="Name of the ChromaDB collection (alphanumeric and underscores only)",
-    )
-    http_port: int = Field(
-        default=DEFAULT_HTTP_PORT,
-        alias="httpPort",
-        description="ChromaDB server HTTP port",
-    )
-    ingest_file_type_options: list[str] = Field(
-        default=DEFAULT_INGEST_FILE_TYPE_OPTIONS,
-        alias="ingestFileTypeOptions",
-        description="Allowed file extensions for ingestion",
-    )
-    file_paths: list[FilePathItem] = Field(
-        default_factory=list,
-        alias="filePaths",
-        description="List of file paths with descriptions to watch for ingestion",
-    )
-
-    model_config = {"populate_by_name": True}
-
-    @field_validator("collection_name")
-    @classmethod
-    def validate_collection_name(cls, v: str) -> str:
-        """Validate collection name contains only allowed characters."""
-        if not re.match(r"^[a-zA-Z0-9_]+$", v):
-            raise ValueError(
-                "collection_name can only contain letters, numbers, and underscores"
-            )
-        return v
-
-
-class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
-    """Local ChromaDB dataset type for storing and querying vectorized data.
-
-    Uses ChromaDB vector database in server mode with persistent storage.
-    Implements FileIngestableDatasetType for watch-based file ingestion.
+    Connects to a process-local ``chroma run`` server (provisioned by
+    ``LocalChromaDBProvisioner``) and owns one collection per dataset.
     """
 
-    NAME = "local_file"
+    NAME = "chromadb_local"
 
-    # Class-level lock for thread-safe lazy initialization
+    # Class-level lock for thread-safe lazy embedding-model init.
     _embedding_fn_lock = threading.Lock()
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize ChromaDB local dataset type.
+        """Initialize ChromaDB local vector store.
 
         Args:
-            config: Configuration dictionary with connection settings
+            config: Vector store configuration (``collection_name``,
+                ``http_port``).
         """
         self.raw_config = config
-        self.config = ChromaDBLocalConfiguration.model_validate(config)
-        self.source = LocalFileSource(
-            {
-                "file_paths": [fp.model_dump() for fp in self.config.file_paths],
-                "allowed_extensions": list(self.config.ingest_file_type_options),
-            }
-        )
+        self.config = ChromaDBLocalVectorStoreConfiguration.model_validate(config)
 
         # Lazy initialization (instance-level)
         self._embedding_fn = None
         self._client: chromadb.AsyncClientAPI | None = None  # noqa: F821
-        self._client_lock = asyncio.Lock()  # Instance-level lock for client
-
-        # Shared chunking pipeline
+        self._client_lock = asyncio.Lock()
         self._document_chunker = DocumentChunker()
 
-    async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
-        """Get or create the ChromaDB async client.
+    @classmethod
+    def name(cls) -> str:
+        """Get the name of the vector store."""
+        return cls.NAME
 
-        Uses a cached client instance to avoid connection accumulation.
-        Thread-safe via async lock.
+    @classmethod
+    def type(cls) -> str:
+        """Get the type identifier of the vector store."""
+        return cls.NAME.lower()
+
+    @classmethod
+    def description(cls) -> str:
+        """Get the description of the vector store."""
+        return cls.__doc__ or ""
+
+    @classmethod
+    def icon(cls) -> str:
+        """Get the icon for the vector store."""
+        return "🎨"
+
+    @classmethod
+    def host(cls) -> str:
+        """Get the host of the ChromaDB server."""
+        return "localhost"
+
+    @classmethod
+    def configuration_schema(cls) -> dict[str, Any]:
+        """Return the vector store's narrow configuration schema."""
+        return ChromaDBLocalVectorStoreConfiguration.model_json_schema(
+            schema_generator=ConfigSchemaGenerator
+        )
+
+    @classmethod
+    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+        """Validate the vector store configuration.
+
+        Raises:
+            ValueError: If configuration is invalid.
         """
+        try:
+            ChromaDBLocalVectorStoreConfiguration.model_validate(configuration)
+        except ValidationError as e:
+            raise ValueError(f"Invalid configuration: {e}") from e
+
+    @classmethod
+    def enabled(cls) -> bool:
+        """Whether chromadb is importable."""
+        return _chromadb_available()
+
+    @classmethod
+    def connection_fields(cls) -> list[str]:
+        """Configuration fields shared across all collections."""
+        return ["httpPort"]
+
+    @property
+    def collection_name(self) -> str:
+        """Get the (prefixed) name of the ChromaDB collection."""
+        return f"Collection_{self.config.collection_name}"
+
+    async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
+        """Get or create the cached ChromaDB async client."""
         chromadb = _import_chromadb()
 
         if self._client is None:
@@ -179,97 +177,11 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                     )
         return self._client
 
-    @classmethod
-    def name(cls) -> str:
-        """Get the name of the dataset type."""
-        return cls.NAME
-
-    @classmethod
-    def type(cls) -> str:
-        """Get the type identifier of the dataset type."""
-        return cls.NAME.lower()
-
-    @classmethod
-    def description(cls) -> str:
-        """Get the description of the dataset type."""
-        return cls.__doc__ or ""
-
-    @classmethod
-    def icon(cls) -> str:
-        """Get the icon for the dataset type."""
-        return "🎨"
-
-    @classmethod
-    def host(cls) -> str:
-        """Get the host of the dataset type."""
-
-        return "localhost"
-
-    @classmethod
-    def configuration_schema(cls) -> dict[str, Any]:
-        """Return configuration schema required by this dataset type.
-
-        Returns:
-            JSON schema describing configuration requirements
-        """
-        return ChromaDBLocalConfiguration.model_json_schema(
-            schema_generator=ConfigSchemaGenerator
-        )
-
-    @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        """Validate the configuration for the dataset type.
-
-        Args:
-            configuration: Configuration dictionary to validate
-
-        Raises:
-            ValueError: If configuration is invalid
-        """
-        # Generate collectionName if not provided
-        collection_name = configuration.get("collectionName") or configuration.get(
-            "collection_name"
-        )
-        if collection_name is None:
-            configuration["collectionName"] = uuid.uuid4().hex
-
-        try:
-            config = ChromaDBLocalConfiguration.model_validate(configuration)
-        except ValidationError as e:
-            raise ValueError(f"Invalid configuration: {e}") from e
-
-        # Validate file paths exist
-        for file_path_item in config.file_paths:
-            path = AsyncPath(file_path_item.path)
-            if not await path.exists():
-                raise ValueError(f"filePaths does not exist: {file_path_item.path}")
-
-    def watched_paths(self) -> list[str]:
-        """Get the paths to watch for new files.
-
-        Returns:
-            List of absolute directory/file paths to monitor.
-        """
-        return self.source.watched_paths()
-
-    def allowed_extensions(self) -> set[str]:
-        """Get the allowed file extensions for ingestion.
-
-        Returns:
-            Set of extensions including the dot (e.g., {".pdf", ".txt"}).
-        """
-        return self.source.allowed_extensions()
-
-    @property
-    def collection_name(self) -> str:
-        """Get the name of the collection."""
-        return f"Collection_{self.config.collection_name}"
-
     def _generate_embeddings(self, texts: list[str]) -> list:
         """Generate embeddings for texts (runs in thread pool).
 
-        Thread-safe lazy initialization ensures model loading
-        happens in the thread pool, not blocking the event loop.
+        Thread-safe lazy initialization keeps model loading off the
+        event loop.
         """
         ONNXMiniLM_L6_V2 = _import_embedding_fn()
 
@@ -280,46 +192,35 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         return self._embedding_fn(texts)
 
     async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
-        """Ingest files into ChromaDB collection as chunks.
+        """Ingest files into the collection as embedded chunks.
 
-        Each file is parsed into multiple chunks via the shared DocumentChunker.
-        Each chunk is stored as a separate vector with metadata linking back
-        to the source document and page numbers.
-
-        Args:
-            ctx: Ingest context with dataset identifier
-            request: Ingest request with files to process
+        Each file is parsed into multiple chunks via the shared
+        ``DocumentChunker``; each chunk is stored as a separate vector
+        with metadata linking back to the source document and page
+        numbers.
         """
         if not _chromadb_available():
             raise ImportError("ChromaDB is required for ingestion")
 
         client = await self.get_client()
-
-        # Get or create collection with cosine similarity
         collection = await client.get_or_create_collection(
             name=self.collection_name,
             metadata={"hnsw:space": "cosine"},
         )
 
         for file in request.files:
-            ext = SyncPath(file.filename).suffix.lower()
-            if ext not in self.allowed_extensions():
-                raise ValueError(f"Unsupported file type: {ext}")
-
-            # Run CPU-bound parsing in executor to avoid blocking event loop
             chunks = await asyncio.to_thread(
                 self._document_chunker.parse_document,
                 file,
                 self.collection_name,
             )
-
             await self._store_chunks(collection, chunks)
 
     async def _store_chunks(self, collection, chunks: list[dict]) -> None:
         """Embed and store chunks with neighbor references in ChromaDB.
 
-        Each chunk gets prev/next pointers so the search method can fetch
-        surrounding context in a single batch call.
+        Each chunk gets prev/next pointers so the search method can
+        fetch surrounding context in a single batch call.
         """
         if not chunks:
             return
@@ -376,8 +277,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
 
         for i, doc_id in enumerate(results["ids"][0]):
             distance = results["distances"][0][i] if results["distances"] else 0.0
-
-            # ChromaDB cosine distance: 0 = identical, 2 = opposite
+            # ChromaDB cosine distance: 0 = identical, 2 = opposite.
             similarity_score = 1.0 - (distance / 2.0)
 
             if similarity_score <= similarity_threshold:
@@ -387,7 +287,6 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
             content = results["documents"][0][i] if results["documents"] else ""
             metadata = results["metadatas"][0][i] if results["metadatas"] else {}
 
-            # Add image URLs to metadata
             metadata["image_urls"] = build_image_urls(
                 dataset_id,
                 metadata.get("doc_id", ""),
@@ -413,8 +312,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
     ) -> None:
         """Fetch prev/next chunk text and attach to each matched document.
 
-        Skips neighbors that are themselves already in the matched set
-        to avoid redundant content.
+        Skips neighbors already in the matched set.
         """
         neighbor_ids: set[str] = set()
         for doc in documents:
@@ -446,20 +344,7 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
     async def search(
         self, ctx: SearchContext, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
-        """Search the ChromaDB collection for matching chunks.
-
-        Returns top-k matching chunks enriched with neighboring chunk text
-        for better RAG context. Image URLs use dataset_id to avoid leaking
-        internal collection names.
-
-        Args:
-            ctx: Search context with dataset identifier
-            query: Search query string
-            params: Optional search parameters
-
-        Returns:
-            SearchResult with matching document chunks
-        """
+        """Search the collection for matching chunks."""
         if not _chromadb_available():
             raise ImportError("ChromaDB is required for search")
 
@@ -510,35 +395,8 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
                 metadata={"count": 0, "error": str(e)},
             )
 
-    @classmethod
-    def enabled(cls) -> bool:
-        """Check if this dataset type is enabled.
-
-        Returns:
-            True if chromadb is installed
-        """
-        return _chromadb_available()
-
-    @classmethod
-    def connection_fields(cls) -> list[str]:
-        """Return list of connection-related configuration fields.
-
-        These fields are shared across all datasets of this type.
-        - httpPort: Server connection port
-
-        Dataset-specific fields (not included):
-        - collectionName: Each dataset has its own collection
-        - ingestFileTypeOptions: Per-dataset ingestion settings
-        - filePaths: Per-dataset file paths
-        """
-        return ["httpPort"]
-
     async def healthcheck(self) -> HealthcheckResponse:
-        """Check if the ChromaDB server is healthy.
-
-        Returns:
-            HealthcheckResponse indicating health status
-        """
+        """Check if the ChromaDB server is reachable."""
         heartbeat = None
 
         if not _chromadb_available():
@@ -568,13 +426,10 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         )
 
     async def delete(self, ctx: IngestContext) -> None:
-        """Delete the entire ChromaDB collection and its page images.
+        """Delete the entire collection and its page images.
 
         Since each dataset owns its own collection, deletion drops the
-        entire collection rather than filtering by dataset_id.
-
-        Args:
-            ctx: Ingest context with dataset identifier
+        full collection rather than filtering by dataset_id.
         """
         if not _chromadb_available():
             raise ImportError("ChromaDB is required for deletion")
@@ -584,7 +439,6 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
         try:
             await client.delete_collection(name=self.collection_name)
         except Exception as e:
-            # Collection may not exist if no documents were ever ingested
             if _ChromaNotFoundError and isinstance(e, _ChromaNotFoundError):
                 logger.info(
                     f"Collection '{self.collection_name}' does not exist, "
@@ -593,7 +447,6 @@ class LocalFSChromaDBDatasetType(FileIngestableDatasetType):
             else:
                 raise ValueError(f"Error deleting collection: {str(e)}") from e
 
-        # Remove all page images for this collection
         await asyncio.to_thread(
             self._document_chunker.purge_page_images,
             self.collection_name,

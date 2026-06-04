@@ -103,3 +103,8 @@ def register_builtin_sources() -> None:
         "syft_space.components.sources.local_file.local_file_source",
         "LocalFileSource",
     )
+    SOURCE_REGISTRY.register(
+        "noop",
+        "syft_space.components.sources.noop.noop_source",
+        "NoOpSource",
+    )
