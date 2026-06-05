@@ -111,21 +111,34 @@ class Dataset(SQLModel, table=True):
 
 
 class ProvisionerState(SQLModel, table=True):
-    """Provisioner state tracking for shared dataset provisioners.
+    """Provisioner state tracking for shared vector-store provisioners.
 
-    One provisioner state per dtype - multiple datasets can share the same provisioner.
+    One provisioner state per ``vector_store_type``; every binding that
+    composes that vector store shares the row (so e.g. a future
+    ``wordpress_chromadb`` binding shares the running chroma subprocess
+    with the existing ``local_file`` binding).
+
+    The legacy ``dtype`` column is dual-written during the transition
+    and dropped in a follow-up migration.
     """
 
     __tablename__ = "provisioner_states"
     __table_args__ = (
-        # Unique constraint on dtype ensures one provisioner per dataset type
+        UniqueConstraint("vector_store_type", name="uq_provisioner_vector_store_type"),
+        # Deprecated dual-write guards — dropped with the dtype column.
         UniqueConstraint("dtype", name="uq_provisioner_dtype"),
         Index("idx_provisioner_dtype", "dtype"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
 
-    # Dtype-based identification (one provisioner per dtype)
+    # Primary lookup key — name of the vector store this provisioner serves.
+    vector_store_type: str | None = Field(
+        default=None,
+        description="Vector store this provisioner serves (e.g. 'chromadb_local')",
+    )
+
+    # Deprecated dual-write of the binding name; dropped in a follow-up.
     dtype: str = Field(..., description="Dataset type this provisioner serves")
 
     # Provisioner state including connection config and runtime state

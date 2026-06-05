@@ -40,66 +40,60 @@ ALLOWED_TRANSITIONS: dict[str | None, list[ProvisionerStatus]] = {
 class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
     """Repository for ProvisionerState CRUD operations.
 
-    Provisioner states are dtype-based (one per dataset type). Multiple datasets
-    can share the same provisioner state.
+    Provisioner states are keyed by ``vector_store_type`` — one running
+    provisioner per vector store; every binding that composes that
+    vector store shares the row.
 
     Key methods:
-    - get_by_dtype(): Primary lookup (one provisioner per dtype)
-    - get_running_by_dtype(): Find running/starting provisioner
-    - get_all(): Get all provisioner states
-    - upsert_status(): Create or update with status transition guards
-    - count_datasets_by_provisioner(): Count attached datasets
-    - delete_by_dtype(): Delete provisioner state
+    - ``get_by_vector_store_type`` — primary lookup
+    - ``get_running_by_vector_store_type`` — running / starting state
+    - ``upsert_status`` — create or update with transition guards
+    - ``count_datasets_by_provisioner`` — attached-dataset count
+    - ``delete_by_vector_store_type`` — delete state
+
+    During the dual-write transition the row also carries a legacy
+    ``dtype`` column that callers pass through ``upsert_status``;
+    that column drops in a follow-up migration.
     """
 
     def __init__(self, db: AsyncDatabase):
         """Initialize the provisioner state repository.
 
         Args:
-            db: Database instance
+            db: Database instance.
         """
         super().__init__(db, ProvisionerState)
 
-    async def get_by_dtype(self, dtype: str) -> ProvisionerState | None:
-        """Get provisioner state by dtype.
-
-        Primary lookup method - there's at most one provisioner per dtype.
+    async def get_by_vector_store_type(
+        self, vector_store_type: str
+    ) -> ProvisionerState | None:
+        """Get provisioner state by vector store type.
 
         Args:
-            dtype: Dataset type name
+            vector_store_type: Vector store name (e.g. ``"chromadb_local"``).
 
         Returns:
-            ProvisionerState if found, None otherwise
+            ProvisionerState if found, None otherwise.
         """
         async with self.db.get_session() as session:
-            statement = select(ProvisionerState).where(ProvisionerState.dtype == dtype)
+            statement = select(ProvisionerState).where(
+                ProvisionerState.vector_store_type == vector_store_type
+            )
             result = await session.exec(statement)
             return result.first()
 
     async def get_by_id(self, id: UUID) -> ProvisionerState | None:
-        """Get provisioner state by ID.
-
-        Args:
-            id: ProvisionerState UUID
-
-        Returns:
-            ProvisionerState if found, None otherwise
-        """
+        """Get provisioner state by ID."""
         async with self.db.get_session() as session:
             return await session.get(ProvisionerState, id)
 
-    async def get_running_by_dtype(self, dtype: str) -> ProvisionerState | None:
-        """Get running provisioner state by dtype.
-
-        Args:
-            dtype: Dataset type name
-
-        Returns:
-            Running or starting ProvisionerState if found, None otherwise
-        """
+    async def get_running_by_vector_store_type(
+        self, vector_store_type: str
+    ) -> ProvisionerState | None:
+        """Get running / starting provisioner state by vector store type."""
         async with self.db.get_session() as session:
             statement = select(ProvisionerState).where(
-                ProvisionerState.dtype == dtype,
+                ProvisionerState.vector_store_type == vector_store_type,
                 or_(
                     ProvisionerState.status == ProvisionerStatus.RUNNING.value,
                     ProvisionerState.status == ProvisionerStatus.STARTING.value,
@@ -109,11 +103,7 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
             return result.first()
 
     async def get_all(self) -> list[ProvisionerState]:
-        """Get all provisioner states.
-
-        Returns:
-            List of all ProvisionerState records
-        """
+        """Get all provisioner states."""
         async with self.db.get_session() as session:
             statement = select(ProvisionerState)
             result = await session.exec(statement)
@@ -121,6 +111,7 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
 
     async def upsert_status(
         self,
+        vector_store_type: str,
         dtype: str,
         status: ProvisionerStatus,
         state: dict[str, Any] | None = None,
@@ -128,8 +119,8 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
     ) -> ProvisionerState:
         """Create or update provisioner state with status transition guards.
 
-        This is the single method for all provisioner state changes. It enforces
-        valid status transitions to prevent race conditions.
+        Keyed by ``vector_store_type``; ``dtype`` is dual-written to the
+        legacy column for safe rollback and dropped in a follow-up.
 
         Valid transitions:
             None     -> STARTING (create new)
@@ -140,51 +131,53 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
             ERROR    -> STARTING (retry), STOPPED (cleanup)
 
         Args:
-            dtype: Dataset type name
-            status: Target status
-            state: Optional state dict (typically set when transitioning to RUNNING)
-            error: Optional error message (typically set when transitioning to ERROR)
+            vector_store_type: Vector store name (lookup key).
+            dtype: Binding name (legacy column write-through).
+            status: Target status.
+            state: Optional state dict (typically set when transitioning to RUNNING).
+            error: Optional error message (typically set when transitioning to ERROR).
 
         Returns:
-            Created or updated ProvisionerState
+            Created or updated ProvisionerState.
 
         Raises:
-            ProvisionerBusyError: If provisioner is busy (STARTING/STOPPING)
-            InvalidProvisionerTransitionError: If transition is not allowed
+            ProvisionerBusyError: If provisioner is busy (STARTING/STOPPING).
+            InvalidProvisionerTransitionError: If transition is not allowed.
         """
         async with self.db.get_session() as session:
-            # Check for existing record
             result = await session.exec(
-                select(ProvisionerState).where(ProvisionerState.dtype == dtype)
+                select(ProvisionerState).where(
+                    ProvisionerState.vector_store_type == vector_store_type
+                )
             )
             existing = result.first()
 
             current_status = existing.status if existing else None
 
-            # Validate transition
             allowed = ALLOWED_TRANSITIONS.get(current_status, [])
             if status not in allowed:
                 if current_status in (
                     ProvisionerStatus.STARTING.value,
                     ProvisionerStatus.STOPPING.value,
                 ):
-                    raise ProvisionerBusyError(dtype, current_status)
+                    raise ProvisionerBusyError(vector_store_type, current_status)
                 raise InvalidProvisionerTransitionError(
-                    dtype, current_status, status.value
+                    vector_store_type, current_status, status.value
                 )
 
             now = datetime.now(timezone.utc)
 
             if existing:
-                # Update existing record
                 existing.status = status.value
                 existing.updated_at = now
                 existing.error = error if status == ProvisionerStatus.ERROR else None
+                # Dual-write the legacy column in case the row was written
+                # before backfill (defensive — backfill should have populated it).
+                existing.dtype = dtype
 
                 if state is not None:
                     existing.state = state
 
-                # Update timestamps based on status
                 if status == ProvisionerStatus.STARTING:
                     existing.started_at = now
                     existing.stopped_at = None
@@ -196,9 +189,9 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
                 await session.refresh(existing)
                 return existing
             else:
-                # Create new record
                 provisioner_state = ProvisionerState(
                     id=uuid4(),
+                    vector_store_type=vector_store_type,
                     dtype=dtype,
                     state=state or {},
                     status=status.value,
@@ -216,7 +209,7 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
 
     async def force_status_update(
         self,
-        dtype: str,
+        vector_store_type: str,
         status: ProvisionerStatus,
         error: str | None = None,
     ) -> ProvisionerState | None:
@@ -224,18 +217,12 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
 
         WARNING: Only use for recovery scenarios during startup.
         Bypasses all state transition validation.
-
-        Args:
-            dtype: Dataset type name
-            status: Target status (typically ERROR for recovery)
-            error: Optional error message
-
-        Returns:
-            Updated ProvisionerState or None if not found
         """
         async with self.db.get_session() as session:
             result = await session.exec(
-                select(ProvisionerState).where(ProvisionerState.dtype == dtype)
+                select(ProvisionerState).where(
+                    ProvisionerState.vector_store_type == vector_store_type
+                )
             )
             existing = result.first()
             if not existing:
@@ -253,14 +240,7 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
             return existing
 
     async def count_datasets_by_provisioner(self, state_id: UUID) -> int:
-        """Count datasets using a specific provisioner state.
-
-        Args:
-            state_id: ProvisionerState ID
-
-        Returns:
-            Number of datasets attached to this provisioner
-        """
+        """Count datasets using a specific provisioner state."""
         async with self.db.get_session() as session:
             statement = (
                 select(func.count())
@@ -270,21 +250,20 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
             result = await session.exec(statement)
             return result.first() or 0
 
-    async def delete_by_dtype(self, dtype: str) -> bool:
-        """Delete provisioner state by dtype.
+    async def delete_by_vector_store_type(self, vector_store_type: str) -> bool:
+        """Delete provisioner state by vector store type.
 
         Warning: This does not check for attached datasets. Use
-        count_datasets_by_provisioner() first to verify it's safe to delete.
-
-        Args:
-            dtype: Dataset type name
+        ``count_datasets_by_provisioner()`` first to verify it's safe to delete.
 
         Returns:
-            True if deleted, False if not found
+            True if deleted, False if not found.
         """
         async with self.db.get_session() as session:
             result = await session.exec(
-                select(ProvisionerState).where(ProvisionerState.dtype == dtype)
+                select(ProvisionerState).where(
+                    ProvisionerState.vector_store_type == vector_store_type
+                )
             )
             provisioner_state = result.first()
 
