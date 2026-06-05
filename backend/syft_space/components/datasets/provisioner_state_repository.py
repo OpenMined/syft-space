@@ -50,10 +50,6 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
     - ``upsert_status`` — create or update with transition guards
     - ``count_datasets_by_provisioner`` — attached-dataset count
     - ``delete_by_vector_store_type`` — delete state
-
-    During the dual-write transition the row also carries a legacy
-    ``dtype`` column that callers pass through ``upsert_status``;
-    that column drops in a follow-up migration.
     """
 
     def __init__(self, db: AsyncDatabase):
@@ -112,15 +108,11 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
     async def upsert_status(
         self,
         vector_store_type: str,
-        dtype: str,
         status: ProvisionerStatus,
         state: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> ProvisionerState:
         """Create or update provisioner state with status transition guards.
-
-        Keyed by ``vector_store_type``; ``dtype`` is dual-written to the
-        legacy column for safe rollback and dropped in a follow-up.
 
         Valid transitions:
             None     -> STARTING (create new)
@@ -132,7 +124,6 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
 
         Args:
             vector_store_type: Vector store name (lookup key).
-            dtype: Binding name (legacy column write-through).
             status: Target status.
             state: Optional state dict (typically set when transitioning to RUNNING).
             error: Optional error message (typically set when transitioning to ERROR).
@@ -160,9 +151,13 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
                     ProvisionerStatus.STARTING.value,
                     ProvisionerStatus.STOPPING.value,
                 ):
-                    raise ProvisionerBusyError(vector_store_type, current_status)
+                    raise ProvisionerBusyError(
+                        f"Provisioner for '{vector_store_type}' is busy "
+                        f"({current_status})"
+                    )
                 raise InvalidProvisionerTransitionError(
-                    vector_store_type, current_status, status.value
+                    f"Cannot transition provisioner for '{vector_store_type}' "
+                    f"from {current_status} to {status.value}"
                 )
 
             now = datetime.now(timezone.utc)
@@ -171,9 +166,6 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
                 existing.status = status.value
                 existing.updated_at = now
                 existing.error = error if status == ProvisionerStatus.ERROR else None
-                # Dual-write the legacy column in case the row was written
-                # before backfill (defensive — backfill should have populated it).
-                existing.dtype = dtype
 
                 if state is not None:
                     existing.state = state
@@ -192,7 +184,6 @@ class ProvisionerStateRepository(AsyncBaseRepository[ProvisionerState]):
                 provisioner_state = ProvisionerState(
                     id=uuid4(),
                     vector_store_type=vector_store_type,
-                    dtype=dtype,
                     state=state or {},
                     status=status.value,
                     error=error,

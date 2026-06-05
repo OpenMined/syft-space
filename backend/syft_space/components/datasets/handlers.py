@@ -41,6 +41,7 @@ from syft_space.components.datasets.schemas import (
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
+from syft_space.components.vector_stores.registry import VECTOR_STORE_REGISTRY
 
 
 class DatasetHandler:
@@ -66,27 +67,26 @@ class DatasetHandler:
     # ============== Private Provisioner Lifecycle Methods ==============
 
     def _get_provisioner_cls(
-        self, dtype: str
+        self, vector_store_type: str
     ) -> type[BaseVectorStoreProvisioner] | None:
-        """Resolve the provisioner class for ``dtype`` via its vector store.
+        """Resolve the provisioner class for a vector store.
 
         Provisioners are owned by ``BaseVectorStore`` (one provisioner
-        per vector store type, shared across every dataset whose binding
-        uses that vector store). Returns ``None`` when the binding's
-        vector store needs no infrastructure (read-only bindings) or
-        when the dtype is unknown — callers treat both as "skip the
-        provisioner step".
+        per vector store type, shared across every binding that
+        composes that vector store). Returns ``None`` for unknown or
+        read-only (provisioner-less) vector stores — callers treat
+        both as "skip the provisioner step".
 
         Concrete vector stores MUST declare ``PROVISIONER_CLS`` (set to
-        ``None`` when no provisioner is needed). An ``AttributeError``
-        here means a new vector store skipped the declaration; fail
-        loudly rather than silently skip the provisioner.
+        ``None`` when no provisioner is needed); a missing declaration
+        surfaces here as ``AttributeError`` so the misconfiguration
+        fails loudly rather than silently skipping the provisioner.
         """
         try:
-            dataset_type_cls = self.registry.get_dataset_type(dtype)
+            vector_store_cls = VECTOR_STORE_REGISTRY.get(vector_store_type)
         except KeyError:
             return None
-        return dataset_type_cls.VECTOR_STORE_CLS.PROVISIONER_CLS
+        return vector_store_cls.PROVISIONER_CLS
 
     def _get_vector_store_type(self, dtype: str) -> str | None:
         """Resolve the vector store name for ``dtype``.
@@ -103,9 +103,9 @@ class DatasetHandler:
         return dataset_type_cls.VECTOR_STORE_CLS.NAME
 
     async def _ensure_provisioner_running(
-        self, dtype: str, config: dict[str, Any]
+        self, vector_store_type: str, config: dict[str, Any]
     ) -> ProvisionerState | None:
-        """Ensure a provisioner is running for the given dtype.
+        """Ensure a provisioner is running for the given vector store.
 
         This is the single source of truth for starting provisioners. It:
         1. Checks if already running -> returns existing state
@@ -114,22 +114,21 @@ class DatasetHandler:
         4. Transitions state to RUNNING with actual state dict
 
         Args:
-            dtype: Dataset type name
+            vector_store_type: Vector store name (e.g. ``"chromadb_local"``)
             config: Configuration for the provisioner
 
         Returns:
-            ProvisionerState if provisioner exists for dtype, None for remote types
+            ProvisionerState if the vector store has a provisioner, ``None``
+            for read-only / unknown vector stores.
 
         Raises:
             HTTPException 409: If provisioner is busy (STARTING/STOPPING) or invalid transition
             HTTPException 500: If provisioner fails to start
         """
-        provisioner_cls = self._get_provisioner_cls(dtype)
+        provisioner_cls = self._get_provisioner_cls(vector_store_type)
         if provisioner_cls is None:
-            # Remote type - no provisioner needed
+            # Read-only vector store - no provisioner needed
             return None
-        vector_store_type = self._get_vector_store_type(dtype)
-        assert vector_store_type is not None  # provisioner_cls implies known dtype
 
         # Check if already running (verify actual process, not just DB state)
         existing = (
@@ -183,7 +182,6 @@ class DatasetHandler:
         try:
             await self.provisioner_state_repository.upsert_status(
                 vector_store_type=vector_store_type,
-                dtype=dtype,
                 status=ProvisionerStatus.STARTING,
             )
         except ProvisionerBusyError as e:
@@ -201,7 +199,6 @@ class DatasetHandler:
             # Transition to RUNNING with actual state
             return await self.provisioner_state_repository.upsert_status(
                 vector_store_type=vector_store_type,
-                dtype=dtype,
                 status=ProvisionerStatus.RUNNING,
                 state=new_state_dict,
             )
@@ -211,7 +208,6 @@ class DatasetHandler:
             )
             await self.provisioner_state_repository.upsert_status(
                 vector_store_type=vector_store_type,
-                dtype=dtype,
                 status=ProvisionerStatus.ERROR,
                 error=str(e),
             )
@@ -220,8 +216,8 @@ class DatasetHandler:
                 detail=f"Failed to start provisioner for '{vector_store_type}': {str(e)}",
             ) from e
 
-    async def _stop_provisioner(self, dtype: str) -> None:
-        """Stop a provisioner for the given dtype.
+    async def _stop_provisioner(self, vector_store_type: str) -> None:
+        """Stop a provisioner for the given vector store.
 
         This is the single source of truth for stopping provisioners. It:
         1. Gets current state
@@ -230,16 +226,14 @@ class DatasetHandler:
         4. Transitions to STOPPED
 
         Args:
-            dtype: Dataset type name
+            vector_store_type: Vector store name (e.g. ``"chromadb_local"``)
 
         Raises:
             HTTPException 409: If provisioner is busy (STARTING/STOPPING) or invalid transition
         """
-        provisioner_cls = self._get_provisioner_cls(dtype)
+        provisioner_cls = self._get_provisioner_cls(vector_store_type)
         if provisioner_cls is None:
-            return  # Remote type - nothing to stop
-        vector_store_type = self._get_vector_store_type(dtype)
-        assert vector_store_type is not None
+            return  # Read-only vector store - nothing to stop
 
         state = await self.provisioner_state_repository.get_by_vector_store_type(
             vector_store_type
@@ -255,7 +249,6 @@ class DatasetHandler:
         try:
             await self.provisioner_state_repository.upsert_status(
                 vector_store_type=vector_store_type,
-                dtype=dtype,
                 status=ProvisionerStatus.STOPPING,
             )
         except ProvisionerBusyError as e:
@@ -271,7 +264,6 @@ class DatasetHandler:
             # Transition to STOPPED
             await self.provisioner_state_repository.upsert_status(
                 vector_store_type=vector_store_type,
-                dtype=dtype,
                 status=ProvisionerStatus.STOPPED,
             )
         except Exception as e:
@@ -280,7 +272,6 @@ class DatasetHandler:
             )
             await self.provisioner_state_repository.upsert_status(
                 vector_store_type=vector_store_type,
-                dtype=dtype,
                 status=ProvisionerStatus.ERROR,
                 error=str(e),
             )
@@ -337,7 +328,7 @@ class DatasetHandler:
 
             # Skip if already running
             if state.status == ProvisionerStatus.RUNNING.value:
-                provisioner_cls = self._get_provisioner_cls(state.dtype)
+                provisioner_cls = self._get_provisioner_cls(state.vector_store_type)
                 if provisioner_cls:
                     is_running = await provisioner_cls.is_running(state.state)
                     if is_running:
@@ -349,7 +340,7 @@ class DatasetHandler:
             try:
                 # Use state.state as config (contains connection fields from last run)
                 config = state.state.copy() if state.state else {}
-                await self._ensure_provisioner_running(state.dtype, config)
+                await self._ensure_provisioner_running(state.vector_store_type, config)
             except Exception as e:
                 logger.exception(
                     f"Failed to start provisioner '{state.vector_store_type}' "
@@ -373,7 +364,7 @@ class DatasetHandler:
                 continue
 
             try:
-                await self._stop_provisioner(state.dtype)
+                await self._stop_provisioner(state.vector_store_type)
             except Exception as e:
                 logger.exception(
                     f"Failed to stop provisioner '{state.vector_store_type}': {e}"
@@ -477,9 +468,14 @@ class DatasetHandler:
                 status_code=409, detail=f"Dataset '{request.name}' already exists"
             )
 
-        # Ensure provisioner is running (for local types)
+        # Ensure provisioner is running (for local types).
+        # ``vector_store_type`` is guaranteed known: dtype was just resolved
+        # via ``registry.get_dataset_type`` above, which would have raised
+        # for unknown bindings.
+        vector_store_type = self._get_vector_store_type(request.dtype)
+        assert vector_store_type is not None
         provisioner_state = await self._ensure_provisioner_running(
-            request.dtype, request.configuration
+            vector_store_type, request.configuration
         )
 
         # Build final config, overriding connection fields from provisioner state
@@ -665,8 +661,6 @@ class DatasetHandler:
             ) from None
 
         dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
-        provisioner_cls = self._get_provisioner_cls(dataset.dtype)
-
         dataset_type = dataset_type_cls(dataset.configuration)
 
         # Check if dataset type connection is healthy
@@ -689,6 +683,11 @@ class DatasetHandler:
                 dataset.provisioner_state_id
             )
             if dataset.provisioner_state_id
+            else None
+        )
+        provisioner_cls = (
+            self._get_provisioner_cls(provisioner_state.vector_store_type)
+            if provisioner_state is not None
             else None
         )
 
@@ -729,7 +728,7 @@ class DatasetHandler:
         Returns:
             Live status string or None/unknown on error
         """
-        provisioner_cls = self._get_provisioner_cls(state.dtype)
+        provisioner_cls = self._get_provisioner_cls(state.vector_store_type)
         if not provisioner_cls or not state.state:
             return None
         try:
@@ -773,14 +772,12 @@ class DatasetHandler:
         Returns:
             Action response with message and status
         """
-        provisioner_cls = self._get_provisioner_cls(dtype)
-        if not provisioner_cls:
+        vector_store_type = self._get_vector_store_type(dtype)
+        if not vector_store_type or not self._get_provisioner_cls(vector_store_type):
             raise HTTPException(
                 status_code=400,
                 detail=f"No provisioner registered for dtype '{dtype}'",
             )
-        vector_store_type = self._get_vector_store_type(dtype)
-        assert vector_store_type is not None
 
         # Check if already running
         existing = (
@@ -795,7 +792,7 @@ class DatasetHandler:
             )
 
         # Use the shared method
-        await self._ensure_provisioner_running(dtype, config)
+        await self._ensure_provisioner_running(vector_store_type, config)
 
         return ProvisionerActionResponse(
             message=f"Provisioner for '{vector_store_type}' started",
@@ -811,14 +808,12 @@ class DatasetHandler:
         Returns:
             Action response with message and status
         """
-        provisioner_cls = self._get_provisioner_cls(dtype)
-        if not provisioner_cls:
+        vector_store_type = self._get_vector_store_type(dtype)
+        if not vector_store_type or not self._get_provisioner_cls(vector_store_type):
             raise HTTPException(
                 status_code=400,
                 detail=f"No provisioner registered for dtype '{dtype}'",
             )
-        vector_store_type = self._get_vector_store_type(dtype)
-        assert vector_store_type is not None
 
         state = await self.provisioner_state_repository.get_by_vector_store_type(
             vector_store_type
@@ -836,7 +831,7 @@ class DatasetHandler:
             )
 
         try:
-            await self._stop_provisioner(dtype)
+            await self._stop_provisioner(vector_store_type)
             return ProvisionerActionResponse(
                 message=f"Provisioner for '{vector_store_type}' stopped",
                 status="stopped",
@@ -864,14 +859,12 @@ class DatasetHandler:
         Raises:
             HTTPException: If datasets are still attached (409 Conflict)
         """
-        provisioner_cls = self._get_provisioner_cls(dtype)
-        if not provisioner_cls:
+        vector_store_type = self._get_vector_store_type(dtype)
+        if not vector_store_type or not self._get_provisioner_cls(vector_store_type):
             raise HTTPException(
                 status_code=400,
                 detail=f"No provisioner registered for dtype '{dtype}'",
             )
-        vector_store_type = self._get_vector_store_type(dtype)
-        assert vector_store_type is not None
 
         existing = await self.provisioner_state_repository.get_by_vector_store_type(
             vector_store_type
@@ -903,7 +896,7 @@ class DatasetHandler:
             ProvisionerStatus.STARTING.value,
         ):
             try:
-                await self._stop_provisioner(dtype)
+                await self._stop_provisioner(vector_store_type)
             except Exception as e:
                 logger.warning(f"Error stopping provisioner during delete: {e}")
 

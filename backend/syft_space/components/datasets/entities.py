@@ -26,22 +26,9 @@ class ProvisionerStatus(str, Enum):
 class ProvisionerBusyError(Exception):
     """Raised when provisioner is busy (STARTING/STOPPING) and cannot accept new operations."""
 
-    def __init__(self, dtype: str, current_status: str):
-        self.dtype = dtype
-        self.current_status = current_status
-        super().__init__(f"Provisioner for '{dtype}' is busy ({current_status})")
-
 
 class InvalidProvisionerTransitionError(Exception):
     """Raised when an invalid status transition is attempted."""
-
-    def __init__(self, dtype: str, from_status: str | None, to_status: str):
-        self.dtype = dtype
-        self.from_status = from_status
-        self.to_status = to_status
-        super().__init__(
-            f"Cannot transition provisioner for '{dtype}' from {from_status} to {to_status}"
-        )
 
 
 class Dataset(SQLModel, table=True):
@@ -117,29 +104,20 @@ class ProvisionerState(SQLModel, table=True):
     composes that vector store shares the row (so e.g. a future
     ``wordpress_chromadb`` binding shares the running chroma subprocess
     with the existing ``local_file`` binding).
-
-    The legacy ``dtype`` column is dual-written during the transition
-    and dropped in a follow-up migration.
     """
 
     __tablename__ = "provisioner_states"
     __table_args__ = (
         UniqueConstraint("vector_store_type", name="uq_provisioner_vector_store_type"),
-        # Deprecated dual-write guards — dropped with the dtype column.
-        UniqueConstraint("dtype", name="uq_provisioner_dtype"),
-        Index("idx_provisioner_dtype", "dtype"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
 
     # Primary lookup key — name of the vector store this provisioner serves.
-    vector_store_type: str | None = Field(
-        default=None,
+    vector_store_type: str = Field(
+        ...,
         description="Vector store this provisioner serves (e.g. 'chromadb_local')",
     )
-
-    # Deprecated dual-write of the binding name; dropped in a follow-up.
-    dtype: str = Field(..., description="Dataset type this provisioner serves")
 
     # Provisioner state including connection config and runtime state
     # Connection fields (httpPort, grpcPort, etc.) are included with keys matching configuration_schema
