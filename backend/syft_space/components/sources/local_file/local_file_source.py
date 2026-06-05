@@ -11,8 +11,8 @@ from typing import Any
 from anyio import Path as AsyncPath
 from pydantic import BaseModel, Field, ValidationError
 
-from syft_space.components.dataset_types.interfaces import IngestFile
 from syft_space.components.ingestion.utils import rglob_visible
+from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,

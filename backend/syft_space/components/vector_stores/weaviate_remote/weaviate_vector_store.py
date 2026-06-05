@@ -12,15 +12,15 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from syft_space.components.dataset_types.interfaces import (
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse,
+    HealthcheckStatus,
+)
+from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
     SearchParameters,
     SearchResult,
-)
-from syft_space.components.shared.domain_types import (
-    HealthcheckResponse,
-    HealthcheckStatus,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.vector_stores.weaviate_remote.filters import (

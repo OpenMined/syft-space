@@ -16,11 +16,8 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from syft_space.components.dataset_types.interfaces import (
-    IngestableDatasetType,
-    IngestContext,
-    IngestRequest,
-)
+from syft_space.components.dataset_types.interfaces import IngestableDatasetType
+from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.local_file.local_file_source import (
     FilePathItem,

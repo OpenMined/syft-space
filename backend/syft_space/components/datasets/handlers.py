@@ -10,10 +10,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from syft_space.components.dataset_types.chunking import PAGE_IMAGES_BASE_DIR
-from syft_space.components.dataset_types.interfaces import (
-    IngestableDatasetType,
-    IngestContext,
-)
+from syft_space.components.dataset_types.interfaces import IngestableDatasetType
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import (
     Dataset,
@@ -39,6 +36,7 @@ from syft_space.components.datasets.schemas import (
     UpdateDatasetRequest,
 )
 from syft_space.components.shared.domain_types import HealthcheckStatus
+from syft_space.components.shared.ingest_types import IngestContext
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
 from syft_space.components.vector_stores.registry import VECTOR_STORE_REGISTRY

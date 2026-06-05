@@ -1,4 +1,4 @@
-"""Vector store interfaces.
+"""Vector store protocols.
 
 A ``BaseVectorStore`` is responsible for vector storage and search of a
 dataset's content. It is orthogonal to ``BaseSource`` (data origin):
@@ -13,34 +13,22 @@ have to implement ingest/delete:
 
 - ``BaseVectorStore``: search + healthcheck + lifecycle.
 - ``IngestableVectorStore``: adds ``ingest`` and ``delete`` on top.
-
-Shared domain models (``IngestFile``, ``IngestRequest``, ``IngestContext``,
-``SearchContext``, ``SearchParameters``, ``SearchResult``) continue to
-live in ``dataset_types/interfaces.py`` for now and are re-exported here
-so vector store implementations can depend on a single module.
 """
 
 from typing import Any, ClassVar, Protocol
 
-from syft_space.components.dataset_types.interfaces import (
-    IngestContext,
-    IngestRequest,
+from syft_space.components.shared.domain_types import HealthcheckResponse
+from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.search_types import (
     SearchContext,
     SearchParameters,
     SearchResult,
 )
-from syft_space.components.shared.domain_types import HealthcheckResponse
 
 __all__ = [
     "BaseVectorStore",
     "BaseVectorStoreProvisioner",
     "IngestableVectorStore",
-    # re-exports
-    "IngestContext",
-    "IngestRequest",
-    "SearchContext",
-    "SearchParameters",
-    "SearchResult",
 ]
 
 
@@ -185,11 +173,7 @@ class BaseVectorStore(Protocol):
 
 
 class IngestableVectorStore(BaseVectorStore, Protocol):
-    """Vector store that accepts ingest / delete from this process.
-
-    Extends ``BaseVectorStore`` with the write path. Implementations
-    chunk and embed ``IngestFile`` payloads internally.
-    """
+    """Vector store that accepts ingest / delete from this process."""
 
     async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
         """Ingest the files in ``request`` into the underlying store."""

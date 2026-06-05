@@ -20,17 +20,16 @@ from syft_space.components.dataset_types.chunking import (
     DocumentChunker,
     build_image_urls,
 )
-from syft_space.components.dataset_types.interfaces import (
-    IngestContext,
-    IngestRequest,
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse,
+    HealthcheckStatus,
+)
+from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
     SearchParameters,
     SearchResult,
-)
-from syft_space.components.shared.domain_types import (
-    HealthcheckResponse,
-    HealthcheckStatus,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.vector_stores.chromadb_local.provisioner import (

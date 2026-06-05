@@ -19,14 +19,11 @@ from uuid import UUID
 
 from loguru import logger
 
-from syft_space.components.dataset_types.interfaces import (
-    IngestContext,
-    IngestRequest,
-)
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import Dataset
 from syft_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
 from syft_space.components.ingestion.repository import IngestionJobRepository
+from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
 from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.components.sources.interfaces import BaseSource, SourceChangeEvent
 

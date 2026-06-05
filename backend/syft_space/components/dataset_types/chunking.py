@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from syft_space.components.dataset_types.interfaces import IngestFile
+from syft_space.components.shared.ingest_types import IngestFile
 
 logger = logging.getLogger(__name__)
 
