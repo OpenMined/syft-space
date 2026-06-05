@@ -494,11 +494,10 @@
                 <div class="flex items-center gap-3 flex-1 min-w-0">
                   <File class="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   <div class="flex-1 min-w-0">
-                    <p class="body-sm font-medium text-foreground truncate">{{ job.file_name }}</p>
+                    <p class="body-sm font-medium text-foreground truncate">
+                      {{ job.external_id.split('/').pop() || job.external_id }}
+                    </p>
                     <div class="flex items-center gap-4 mt-1">
-                      <p class="body-sm text-muted-foreground">
-                        {{ formatFileSize(job.file_size) }}
-                      </p>
                       <div class="flex items-center gap-1">
                         <Clock class="h-3 w-3 text-muted-foreground" />
                         <p class="body-sm text-muted-foreground">
@@ -965,14 +964,6 @@ const retryFailedJobs = async () => {
   } finally {
     isRetryingJobs.value = false
   }
-}
-
-const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
 const getJobStatusBadgeVariant = (status: string) => {

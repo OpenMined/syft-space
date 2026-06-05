@@ -1067,7 +1067,9 @@ const getStatsForPath = (watchedPath: string) => {
   }
 
   // Filter jobs that start with the watched path
-  const pathJobs = ingestionJobs.value.jobs.filter((job) => job.file_path.startsWith(watchedPath))
+  const pathJobs = ingestionJobs.value.jobs.filter((job) =>
+    job.external_id.startsWith(watchedPath),
+  )
 
   if (pathJobs.length === 0) {
     return { fileCount: 0, status: 'unknown' }
