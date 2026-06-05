@@ -105,6 +105,6 @@ def register_builtin_sources() -> None:
     )
     SOURCE_REGISTRY.register(
         "noop",
-        "syft_space.components.sources.noop.noop_source",
+        "syft_space.components.sources.noop_source",
         "NoOpSource",
     )

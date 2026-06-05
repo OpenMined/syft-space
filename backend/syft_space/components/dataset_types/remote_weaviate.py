@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 
 from syft_space.components.dataset_types.interfaces import BaseDatasetType
 from syft_space.components.shared.utils import ConfigSchemaGenerator
-from syft_space.components.sources.noop.noop_source import NoOpSource
+from syft_space.components.sources.noop_source import NoOpSource
 from syft_space.components.vector_stores.weaviate_remote.schemas import (
     RemoteWeaviateVectorStoreConfiguration,
 )
