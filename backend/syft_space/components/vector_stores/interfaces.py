@@ -1,4 +1,4 @@
-"""Vector store interfaces.
+"""Vector store protocols.
 
 A ``BaseVectorStore`` is responsible for vector storage and search of a
 dataset's content. It is orthogonal to ``BaseSource`` (data origin):
@@ -13,34 +13,84 @@ have to implement ingest/delete:
 
 - ``BaseVectorStore``: search + healthcheck + lifecycle.
 - ``IngestableVectorStore``: adds ``ingest`` and ``delete`` on top.
-
-Shared domain models (``IngestFile``, ``IngestRequest``, ``IngestContext``,
-``SearchContext``, ``SearchParameters``, ``SearchResult``) continue to
-live in ``dataset_types/interfaces.py`` for now and are re-exported here
-so vector store implementations can depend on a single module.
 """
 
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
-from syft_space.components.dataset_types.interfaces import (
-    IngestContext,
-    IngestRequest,
+from syft_space.components.shared.domain_types import HealthcheckResponse
+from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.search_types import (
     SearchContext,
     SearchParameters,
     SearchResult,
 )
-from syft_space.components.shared.domain_types import HealthcheckResponse
 
 __all__ = [
     "BaseVectorStore",
+    "BaseVectorStoreProvisioner",
     "IngestableVectorStore",
-    # re-exports
-    "IngestContext",
-    "IngestRequest",
-    "SearchContext",
-    "SearchParameters",
-    "SearchResult",
 ]
+
+
+class BaseVectorStoreProvisioner(Protocol):
+    """Lifecycle manager for the infrastructure a vector store depends on.
+
+    Provisioners are stateless: all methods are classmethods, all state is
+    passed in as a dict and persisted in the ``provisioner_state`` row.
+    Concrete provisioners cover things like "start a chroma subprocess",
+    "create a Weaviate collection", etc.
+
+    A vector store class points at its provisioner via
+    ``PROVISIONER_CLS``; vector stores that need no infrastructure leave
+    that attribute as ``None``.
+    """
+
+    NAME: ClassVar[str]
+
+    @classmethod
+    def name(cls) -> str:
+        """Get the name of the provisioner."""
+        ...
+
+    @classmethod
+    async def start(cls, config: dict[str, Any]) -> dict[str, Any]:
+        """Start/provision the resource.
+
+        Args:
+            config: Configuration for the resource.
+
+        Returns:
+            State dictionary with persistent identifiers needed to
+            re-discover and manage the resource after restart.
+        """
+        ...
+
+    @classmethod
+    async def stop(cls, state: dict[str, Any]) -> None:
+        """Stop the provisioned resource."""
+        ...
+
+    @classmethod
+    async def is_running(cls, state: dict[str, Any]) -> bool:
+        """Check if the resource is currently running.
+
+        Uses ``state`` to re-discover the resource (important after restart).
+        """
+        ...
+
+    @classmethod
+    async def wait_until_ready(cls, state: dict[str, Any]) -> None:
+        """Wait until the provisioned resource is ready to accept connections.
+
+        Default is a no-op in concrete subclasses that don't need a
+        startup health check.
+        """
+        ...
+
+    @classmethod
+    async def status(cls, state: dict[str, Any]) -> str:
+        """Get the detailed status of the resource."""
+        ...
 
 
 class BaseVectorStore(Protocol):
@@ -49,9 +99,15 @@ class BaseVectorStore(Protocol):
     Covers the read path and lifecycle. Read-only or externally-managed
     vector stores implement this directly; vector stores that also
     accept ingest from this process implement ``IngestableVectorStore``.
+
+    ``PROVISIONER_CLS`` points at the infrastructure manager that the
+    vector store needs (e.g. a chroma subprocess provisioner). Leave
+    it as ``None`` for vector stores that need no provisioning
+    (externally-managed clusters).
     """
 
-    NAME: str
+    NAME: ClassVar[str]
+    PROVISIONER_CLS: ClassVar[type[BaseVectorStoreProvisioner] | None] = None
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize the vector store with configuration."""
@@ -117,11 +173,7 @@ class BaseVectorStore(Protocol):
 
 
 class IngestableVectorStore(BaseVectorStore, Protocol):
-    """Vector store that accepts ingest / delete from this process.
-
-    Extends ``BaseVectorStore`` with the write path. Implementations
-    chunk and embed ``IngestFile`` payloads internally.
-    """
+    """Vector store that accepts ingest / delete from this process."""
 
     async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
         """Ingest the files in ``request`` into the underlying store."""

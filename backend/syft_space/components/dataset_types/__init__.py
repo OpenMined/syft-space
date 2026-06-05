@@ -18,19 +18,14 @@ def register_builtin_types(registry: "DatasetTypeRegistry") -> None:
     # Classes are imported on first use.
     registry.register_lazy_dataset_type(
         "remote_weaviate",
-        "syft_space.components.dataset_types.weaviate_remote.dataset_type",
+        "syft_space.components.dataset_types.remote_weaviate",
         "RemoteWeaviateDatasetType",
     )
 
     registry.register_lazy_dataset_type(
         "local_file",
-        "syft_space.components.dataset_types.local_file_chromadb.dataset_type",
+        "syft_space.components.dataset_types.local_file_chromadb",
         "LocalFileChromaDBDatasetType",
-    )
-    registry.register_lazy_provisioner(
-        "local_file",
-        "syft_space.components.dataset_types.local_file_chromadb.chromadb_provisioner",
-        "LocalChromaDBProvisioner",
     )
 
 

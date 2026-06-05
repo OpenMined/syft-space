@@ -1,12 +1,12 @@
-"""Dataset type interfaces and domain models.
+"""Dataset type interfaces.
 
 A ``BaseDatasetType`` is the binding of a ``BaseSource`` (data origin)
 and a ``BaseVectorStore`` (vector storage). Concrete bindings declare
 ``SOURCE_CLS`` and ``VECTOR_STORE_CLS`` as class attributes plus a
 ``split_config()`` classmethod that translates the flat user-facing
 configuration into the two per-axis configs; the default ``__init__``
-takes care of constructing each collaborator and exposing them as
-``self.source`` and ``self.vector_store``.
+constructs each collaborator and exposes them as ``self.source`` and
+``self.vector_store``.
 
 Lifecycle methods (``search``, ``healthcheck``, ``ingest``, ``delete``)
 delegate to the collaborators by default; bindings only override when
@@ -14,94 +14,20 @@ they need cross-axis policy (e.g. a source-defined allow-list applied
 at ingest time).
 """
 
-from __future__ import annotations
+from typing import Any, ClassVar
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
-from uuid import UUID
-
-from pydantic import BaseModel, Field
-
-from syft_space.components.shared.domain_types import Context, HealthcheckResponse
-
-if TYPE_CHECKING:
-    from syft_space.components.sources.interfaces import BaseSource
-    from syft_space.components.vector_stores.interfaces import (
-        BaseVectorStore,
-        IngestableVectorStore,
-    )
-
-
-class SearchContext(Context):
-    """Context for search requests."""
-
-    dataset_id: UUID = Field(..., description="Unique identifier for the dataset")
-
-
-class IngestContext(Context):
-    """Context for ingestion requests."""
-
-    dataset_id: UUID = Field(..., description="Unique identifier for the dataset")
-
-
-class SearchParameters(BaseModel):
-    """Domain contract for search parameters."""
-
-    similarity_threshold: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Similarity threshold for matching"
-    )
-    limit: int = Field(
-        default=5, ge=1, description="Maximum number of results to return"
-    )
-    include_metadata: bool = Field(
-        default=True, description="Whether to include metadata in response"
-    )
-    extra_options: dict[str, Any] = Field(
-        default_factory=dict, description="Extra options for the search"
-    )
-
-
-class SearchedDocument(BaseModel):
-    """A single document from search results."""
-
-    document_id: str = Field(..., description="Unique identifier for the document")
-    content: str = Field(..., description="Content of the document")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Document metadata"
-    )
-    similarity_score: float = Field(
-        ..., ge=0.0, le=1.0, description="Similarity score for the document"
-    )
-
-
-class SearchResult(BaseModel):
-    """Domain contract for search results."""
-
-    documents: list[SearchedDocument] = Field(
-        default_factory=list, description="List of searched documents"
-    )
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Additional search metadata"
-    )
-
-
-class IngestFile(BaseModel):
-    """Framework-agnostic file wrapper for ingestion."""
-
-    path: Path = Field(..., description="Local readable path")
-    filename: str = Field(..., description="Display filename")
-    file_size: int | None = Field(default=None, description="Size in bytes")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Custom metadata"
-    )
-
-
-class IngestRequest(BaseModel):
-    """Domain contract for data ingestion."""
-
-    files: list[IngestFile] = Field(
-        default_factory=list, description="List of files to ingest"
-    )
+from syft_space.components.shared.domain_types import HealthcheckResponse
+from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.search_types import (
+    SearchContext,
+    SearchParameters,
+    SearchResult,
+)
+from syft_space.components.sources.interfaces import BaseSource
+from syft_space.components.vector_stores.interfaces import (
+    BaseVectorStore,
+    IngestableVectorStore,
+)
 
 
 class BaseDatasetType:
@@ -238,64 +164,3 @@ class IngestableDatasetType(BaseDatasetType):
     async def delete(self, ctx: IngestContext) -> None:
         """Delegate delete to the vector store."""
         await self.vector_store.delete(ctx)
-
-
-class BaseDatasetTypeProvisioner:
-    """Base dataset type provisioner interface.
-
-    Provisioners handle lifecycle management of dataset infrastructure.
-    All methods are classmethods - provisioners are stateless.
-    State is passed as parameters and stored in the ProvisionerState row.
-
-    Provisioning is a vector-store concern; the registry currently keys
-    provisioners by dataset-type name only because bindings are 1:1 with
-    their vector store today. A follow-up moves provisioners under
-    ``vector_stores/`` and re-keys ``provisioner_state`` accordingly.
-    """
-
-    NAME: ClassVar[str]
-
-    @classmethod
-    def name(cls) -> str:
-        """Get the name of the provisioner."""
-        return cls.NAME
-
-    @classmethod
-    async def start(cls, config: dict[str, Any]) -> dict[str, Any]:
-        """Start/provision the resource.
-
-        Args:
-            config: Configuration for the resource.
-
-        Returns:
-            State dictionary with persistent identifiers needed to
-            re-discover and manage the resource after restart.
-        """
-        raise NotImplementedError
-
-    @classmethod
-    async def stop(cls, state: dict[str, Any]) -> None:
-        """Stop the provisioned resource."""
-        raise NotImplementedError
-
-    @classmethod
-    async def is_running(cls, state: dict[str, Any]) -> bool:
-        """Check if resource is currently running.
-
-        Uses state to re-discover the resource (important after restart).
-        """
-        raise NotImplementedError
-
-    @classmethod
-    async def wait_until_ready(cls, state: dict[str, Any]) -> None:
-        """Wait until the provisioned resource is ready to accept connections.
-
-        Default is a no-op. Override in subclasses that need startup
-        health checks (e.g., HTTP server readiness).
-        """
-        return None
-
-    @classmethod
-    async def status(cls, state: dict[str, Any]) -> str:
-        """Get detailed status of the resource."""
-        raise NotImplementedError

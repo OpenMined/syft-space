@@ -3,10 +3,6 @@
 from fastapi import HTTPException
 from loguru import logger
 
-from syft_space.components.dataset_types.interfaces import (
-    SearchContext,
-    SearchParameters,
-)
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint, ResponseType
@@ -42,6 +38,7 @@ from syft_space.components.policy_types.interfaces import (
     PolicyViolationError,
 )
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
+from syft_space.components.shared.search_types import SearchContext, SearchParameters
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.repository import WalletRepository

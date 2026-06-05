@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 
-from syft_space.components.dataset_types.interfaces import IngestFile
+from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,

@@ -170,16 +170,17 @@ class AnalyticsHandler:
         granularity, bucket_format = _BUCKET_CONFIG[time_range]
 
         # Query aggregated data from analytics DB
-        counts_data, revenue_data = (
-            await self.query_event_repository.get_time_series_data(
-                tenant.id,
-                current_start,
-                current_end,
-                bucket_format,
-                endpoint_id,
-                dataset_id,
-                QueryEventStatus.SUCCESS.value,
-            )
+        (
+            counts_data,
+            revenue_data,
+        ) = await self.query_event_repository.get_time_series_data(
+            tenant.id,
+            current_start,
+            current_end,
+            bucket_format,
+            endpoint_id,
+            dataset_id,
+            QueryEventStatus.SUCCESS.value,
         )
 
         # Build lookups

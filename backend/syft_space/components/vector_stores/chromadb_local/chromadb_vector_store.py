@@ -16,25 +16,27 @@ from typing import Any
 from loguru import logger
 from pydantic import ValidationError
 
-from syft_space.components.dataset_types.chunking import (
-    DocumentChunker,
-    build_image_urls,
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse,
+    HealthcheckStatus,
 )
-from syft_space.components.dataset_types.interfaces import (
-    IngestContext,
-    IngestRequest,
+from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
     SearchParameters,
     SearchResult,
 )
-from syft_space.components.shared.domain_types import (
-    HealthcheckResponse,
-    HealthcheckStatus,
-)
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.vector_stores.chromadb_local.provisioner import (
+    LocalChromaDBProvisioner,
+)
 from syft_space.components.vector_stores.chromadb_local.schemas import (
     ChromaDBLocalVectorStoreConfiguration,
+)
+from syft_space.components.vector_stores.chunking import (
+    DocumentChunker,
+    build_image_urls,
 )
 
 try:
@@ -84,6 +86,7 @@ class ChromaDBLocalVectorStore:
     """
 
     NAME = "chromadb_local"
+    PROVISIONER_CLS = LocalChromaDBProvisioner
 
     # Class-level lock for thread-safe lazy embedding-model init.
     _embedding_fn_lock = threading.Lock()
