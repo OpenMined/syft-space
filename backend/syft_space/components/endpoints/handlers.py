@@ -81,6 +81,7 @@ class EndpointHandler:
             response_type=request.response_type,
             published=request.published,
             tags=request.tags,
+            system_prompt=request.system_prompt,
             tenant_id=tenant.id,
         )
 

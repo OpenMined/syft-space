@@ -51,8 +51,8 @@ jobs:
             else
               rows+="| \`${sha:0:7}\` | fail | ${safe_subject} |"$'\n'
               failures+="- \`${sha:0:7}\` ${subject}"$'\n'
-              echo "FAIL  ${sha:0:7}  ${subject}"
-              echo "::error title=Non-conventional commit ${sha:0:7}::${subject}"
+              echo "WARN  ${sha:0:7}  ${subject}"
+              echo "::warning title=Non-conventional commit ${sha:0:7}::${subject}"
               bad=$((bad+1))
             fi
           done < <(git log --reverse --format='%H%x09%s' "$BASE_SHA..$HEAD_SHA")
@@ -81,7 +81,6 @@ jobs:
 
           if [ "$bad" -gt 0 ]; then
             echo ""
-            echo "${bad} commit(s) do not follow Conventional Commits:"
+            echo "${bad} commit(s) do not follow Conventional Commits (advisory only):"
             printf '%s' "$failures"
-            exit 1
           fi

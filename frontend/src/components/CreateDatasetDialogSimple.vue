@@ -3,23 +3,22 @@
     <DialogContent class="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle class="heading-3">{{
-          props.dataset ? 'Edit Dataset' : 'Create Dataset'
+          props.dataset ? 'Edit Data Source' : 'Add Data Source'
         }}</DialogTitle>
       </DialogHeader>
 
       <div class="space-y-6 mt-6">
-        <!-- Dataset Name -->
+        <!-- Name -->
         <div class="space-y-2">
           <Label for="dataset-name" class="text-sm font-medium">
-            Dataset Name <span class="text-red-500">*</span>
+            Name <span class="text-red-500">*</span>
           </Label>
           <Input
             id="dataset-name"
             v-model="formData.name"
-            placeholder="e.g., Legal Documents Store"
+            placeholder="e.g., legal-documents"
             class="w-full"
           />
-          <p class="text-sm text-muted-foreground">Give your dataset a descriptive name</p>
         </div>
 
         <!-- File Explorer -->
@@ -102,35 +101,31 @@
 
         <!-- Summary -->
         <div class="space-y-2">
-          <Label for="summary" class="text-sm font-medium"> Summary (Optional) </Label>
+          <Label for="summary" class="text-sm font-medium"> Summary </Label>
           <Input
             id="summary"
             v-model="formData.summary"
-            placeholder="Describe what this dataset contains and how it can be used..."
+            placeholder="What does this data source contain?"
             class="w-full"
           />
-          <p class="text-sm text-muted-foreground">
-            A brief description of your dataset's contents
-          </p>
         </div>
 
         <!-- Tags -->
         <div class="space-y-2">
-          <Label for="topics" class="text-sm font-medium"> Tags (Optional) </Label>
+          <Label for="topics" class="text-sm font-medium"> Tags </Label>
           <div class="space-y-2">
             <div class="flex gap-2">
               <Input
                 id="topics"
                 v-model="tagInput"
                 @keydown.enter.prevent="addTag"
-                placeholder="Add keywords like: legal, medical, research, finance"
+                placeholder="e.g., legal, medical, research"
                 class="flex-1"
               />
               <Button @click="addTag" variant="outline" :disabled="!tagInput.trim()">
                 <Plus class="h-4 w-4" />
               </Button>
             </div>
-            <p class="text-sm text-muted-foreground">Tags help others discover your dataset</p>
 
             <!-- Popular Tags Suggestions -->
             <div class="flex items-center gap-2 flex-wrap">
@@ -175,11 +170,11 @@
           {{
             isCreating
               ? props.dataset
-                ? 'Updating...'
-                : 'Creating...'
+                ? 'Saving...'
+                : 'Adding...'
               : props.dataset
-                ? 'Update Dataset'
-                : 'Create Dataset'
+                ? 'Save Changes'
+                : 'Add Data Source'
           }}
         </Button>
       </DialogFooter>
@@ -226,10 +221,8 @@ const emit = defineEmits<{
   'dataset-updated': []
 }>()
 
-// Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
 
-// Form data
 const formData = ref({
   name: '',
   summary: '',
@@ -244,7 +237,6 @@ const fileExplorerRef = ref<InstanceType<typeof FileExplorer> | null>(null)
 const isCreating = ref(false)
 const isInitialized = ref(false)
 
-// Computed properties
 const isOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
@@ -252,17 +244,12 @@ const isOpen = computed({
 
 const isFormValid = computed(() => {
   if (isCreating.value) return false
-
-  // For editing mode, only name is required
   if (props.dataset) {
     return formData.value.name.trim() !== ''
   }
-
-  // For creation mode, both name and files are required
   return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
 })
 
-// Methods
 const getFileName = (path: string) => {
   return path.split('/').pop() || path
 }
@@ -270,7 +257,6 @@ const getFileName = (path: string) => {
 const removeFile = (index: number) => {
   const file = formData.value.selectedFiles[index]
   formData.value.selectedFiles.splice(index, 1)
-  // Also remove the description
   if (file && fileDescriptions.value[file]) {
     delete fileDescriptions.value[file]
   }
@@ -310,14 +296,12 @@ const handleCreate = async () => {
   isCreating.value = true
 
   try {
-    // Transform file paths to array of objects with path and description
     const filePathsWithDescriptions = formData.value.selectedFiles.map((filePath) => ({
       path: filePath,
       description: fileDescriptions.value[filePath] || '',
     }))
 
     if (props.dataset) {
-      // Update existing dataset (backend only supports name, summary, tags)
       const updateRequest: UpdateDatasetRequest = {
         name: formData.value.name.trim(),
         summary: formData.value.summary.trim() || '',
@@ -326,9 +310,8 @@ const handleCreate = async () => {
 
       await datasetsApi.update(props.dataset.name, updateRequest)
       emit('dataset-updated')
-      toast.success(`Dataset "${props.dataset.name}" updated successfully`)
+      toast.success(`"${props.dataset.name}" updated`)
     } else {
-      // Create new dataset
       const createRequest: CreateDatasetRequest = {
         dtype: 'local_file',
         name: formData.value.name.trim(),
@@ -341,15 +324,15 @@ const handleCreate = async () => {
 
       await datasetsApi.create(createRequest)
       emit('dataset-created')
-      toast.success(`Dataset "${createRequest.name}" created successfully`)
+      toast.success(`"${createRequest.name}" added`)
     }
 
     resetForm()
     isOpen.value = false
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-    const action = props.dataset ? 'update' : 'create'
-    toast.error(`Failed to ${action} dataset: ${errorMessage}`)
+    const action = props.dataset ? 'save' : 'add'
+    toast.error(`Failed to ${action} data source: ${errorMessage}`)
   } finally {
     isCreating.value = false
   }
@@ -367,7 +350,6 @@ const resetForm = () => {
   isInitialized.value = false
 }
 
-// Initialize form data when dialog opens with dataset (for editing)
 watch(
   () => [props.open, props.dataset] as const,
   async ([open, dataset]) => {
