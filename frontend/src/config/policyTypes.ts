@@ -3,6 +3,14 @@ import type { Component } from 'vue'
 
 export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing' | 'pii_filter'
 
+export type PaymentPolicyType =
+  | 'mpp_per_request'
+  | 'xendit_per_request'
+  | 'stripe_per_request'
+  | 'mpp_per_document'
+  | 'xendit_per_document'
+  | 'stripe_per_document'
+
 export interface PolicyConfig {
   id: string
   [key: string]: unknown

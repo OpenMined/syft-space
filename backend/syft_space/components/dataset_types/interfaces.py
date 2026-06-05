@@ -1,13 +1,35 @@
-"""Dataset type interfaces and domain models."""
+"""Dataset type interfaces and domain models.
 
-from io import BytesIO
-from tempfile import SpooledTemporaryFile
-from typing import Any, BinaryIO, Protocol
+A ``BaseDatasetType`` is the binding of a ``BaseSource`` (data origin)
+and a ``BaseVectorStore`` (vector storage). Concrete bindings declare
+``SOURCE_CLS`` and ``VECTOR_STORE_CLS`` as class attributes plus a
+``split_config()`` classmethod that translates the flat user-facing
+configuration into the two per-axis configs; the default ``__init__``
+takes care of constructing each collaborator and exposing them as
+``self.source`` and ``self.vector_store``.
+
+Lifecycle methods (``search``, ``healthcheck``, ``ingest``, ``delete``)
+delegate to the collaborators by default; bindings only override when
+they need cross-axis policy (e.g. a source-defined allow-list applied
+at ingest time).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from syft_space.components.shared.domain_types import Context, HealthcheckResponse
+
+if TYPE_CHECKING:
+    from syft_space.components.sources.interfaces import BaseSource
+    from syft_space.components.vector_stores.interfaces import (
+        BaseVectorStore,
+        IngestableVectorStore,
+    )
 
 
 class SearchContext(Context):
@@ -66,20 +88,12 @@ class SearchResult(BaseModel):
 class IngestFile(BaseModel):
     """Framework-agnostic file wrapper for ingestion."""
 
-    file_handle: BinaryIO | SpooledTemporaryFile | BytesIO = Field(
-        ..., description="File-like object (SpooledTemporaryFile, BytesIO, etc.)"
-    )
-    filename: str = Field(..., description="Original filename")
-    content_type: str | None = Field(default=None, description="MIME type")
+    path: Path = Field(..., description="Local readable path")
+    filename: str = Field(..., description="Display filename")
     file_size: int | None = Field(default=None, description="Size in bytes")
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Custom metadata"
     )
-
-    class Config:
-        """Pydantic config."""
-
-        arbitrary_types_allowed = True
 
 
 class IngestRequest(BaseModel):
@@ -90,257 +104,198 @@ class IngestRequest(BaseModel):
     )
 
 
-class BaseDatasetType(Protocol):
-    """Base dataset type interface.
+class BaseDatasetType:
+    """Binding of a ``BaseSource`` with a ``BaseVectorStore``.
 
-    All concrete dataset types must implement this protocol.
+    Subclasses declare ``SOURCE_CLS`` / ``VECTOR_STORE_CLS`` class
+    attributes plus a ``split_config()`` classmethod that produces the
+    per-axis configs. The default ``__init__`` instantiates each
+    collaborator; lifecycle methods delegate to them.
     """
 
-    NAME: str
+    NAME: ClassVar[str]
+    SOURCE_CLS: ClassVar[type[BaseSource]]
+    VECTOR_STORE_CLS: ClassVar[type[BaseVectorStore]]
 
-    def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize the dataset type with configuration.
+    source: BaseSource
+    vector_store: BaseVectorStore
+
+    def __init__(self, configuration: dict[str, Any]) -> None:
+        """Construct the source + vector store from the flat user config.
 
         Args:
-            config: Configuration dictionary for this dataset type
+            configuration: User-facing configuration dictionary.
         """
-        ...
+        cls = type(self)
+        source_cfg, vector_store_cfg = cls.split_config(configuration)
+        self.source = cls.SOURCE_CLS(source_cfg)
+        self.vector_store = cls.VECTOR_STORE_CLS(vector_store_cfg)
+
+    # ── Required per-binding ─────────────────────────────────────────
 
     @classmethod
-    def name(cls) -> str:
-        """Get the name of the dataset type."""
-        ...
+    def split_config(
+        cls, configuration: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Translate flat user configuration into per-axis configs.
 
-    @classmethod
-    def type(cls) -> str:
-        """Get the type identifier of the dataset type."""
-        ...
+        Returns:
+            ``(source_config, vector_store_config)`` — each in the shape
+            its constructor expects.
+        """
+        raise NotImplementedError
 
     @classmethod
     def description(cls) -> str:
-        """Get the description of the dataset type."""
-        ...
+        """Human-readable description of the binding."""
+        raise NotImplementedError
 
     @classmethod
     def icon(cls) -> str:
-        """Get the icon for the dataset type."""
-        ...
+        """Icon for the binding (display only)."""
+        raise NotImplementedError
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
-        """Return configuration schema required by this dataset type.
+        """Return the combined source + vector store configuration schema.
 
-        This will be displayed in the frontend/SDK as configurable values
-        when creating a dataset.
-
-        Returns:
-            Dictionary describing the configuration schema
+        Bindings own the user-facing schema because the public API is
+        flat — the schema describes what the user types in, before
+        ``split_config`` translates it.
         """
-        ...
+        raise NotImplementedError
+
+    # ── Default classmethods (overridable) ───────────────────────────
+
+    @classmethod
+    def name(cls) -> str:
+        """Get the name of the binding."""
+        return cls.NAME
+
+    @classmethod
+    def type(cls) -> str:
+        """Get the type identifier of the binding."""
+        return cls.NAME.lower()
+
+    @classmethod
+    def enabled(cls) -> bool:
+        """A binding is enabled only if both collaborators are enabled."""
+        return cls.SOURCE_CLS.enabled() and cls.VECTOR_STORE_CLS.enabled()
+
+    @classmethod
+    def connection_fields(cls) -> list[str]:
+        """Connection fields are shared across datasets of this type.
+
+        Owned by the vector store — the provisioner records connection
+        values once and overlays them onto every dataset created under
+        this binding.
+        """
+        return cls.VECTOR_STORE_CLS.connection_fields()
 
     @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        """Validate the configuration for the dataset type.
+        """Validate by splitting and delegating to each collaborator.
 
-        Made async to support future connection testing during validation.
-
-        Args:
-            configuration: Configuration dictionary to validate
+        Bindings override when they need cross-axis or pre-split logic
+        (e.g. defaulting a generated identifier before validation).
 
         Raises:
-            ValidationError: If configuration is invalid
+            ValueError: If configuration is invalid.
         """
-        ...
+        source_cfg, vector_store_cfg = cls.split_config(configuration)
+        await cls.SOURCE_CLS.validate_configuration(source_cfg)
+        await cls.VECTOR_STORE_CLS.validate_configuration(vector_store_cfg)
+
+    # ── Default lifecycle (overridable) ──────────────────────────────
 
     async def search(
         self, ctx: SearchContext, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
-        """Search the dataset for the given query.
-
-        Args:
-            ctx: Search context with dataset identifier
-            query: Search query string
-            params: Optional search parameters
-
-        Returns:
-            SearchResult with matching documents
-        """
-        ...
+        """Delegate search to the vector store."""
+        return await self.vector_store.search(ctx, query, params)
 
     async def healthcheck(self) -> HealthcheckResponse:
-        """Check if the dataset type is healthy.
-
-        Returns:
-            HealthcheckResponse indicating health status
-        """
-        ...
-
-    @classmethod
-    def enabled(cls) -> bool:
-        """Check if this dataset type is enabled.
-
-        Returns:
-            True if enabled, False otherwise
-        """
-        ...
-
-    @classmethod
-    def connection_fields(cls) -> list[str]:
-        """Return list of configuration field names that are connection-related.
-
-        Connection fields are shared across all datasets of this type when using
-        a shared provisioner. When a new dataset is created and a provisioner
-        is already running, these fields are overridden from the ProvisionerState.
-
-        Non-connection fields (dataset-specific) remain unique per dataset.
-
-        Returns:
-            List of field names from configuration_schema() that are connection-related.
-
-        Example for Weaviate:
-            ["httpPort", "grpcPort"]
-        """
-        ...
+        """Delegate healthcheck to the vector store."""
+        return await self.vector_store.healthcheck()
 
 
 class IngestableDatasetType(BaseDatasetType):
-    """Dataset type interface with ingestion capabilities.
+    """Binding whose vector store accepts ingest from this process.
 
-    Extends BaseDatasetType to add generic ingestion functionality.
-    Dataset types that support any form of ingestion should implement this protocol.
-
-    For file-based ingestion with watching, see FileIngestableDatasetType.
+    Read-only bindings (e.g. a Weaviate cluster fed externally) extend
+    ``BaseDatasetType`` directly; bindings that ingest from this process
+    extend ``IngestableDatasetType`` so the write-path defaults are
+    available.
     """
+
+    VECTOR_STORE_CLS: ClassVar[type[IngestableVectorStore]]
+    vector_store: IngestableVectorStore
 
     async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
-        """Ingest data into the dataset.
-
-        Args:
-            ctx: Ingest context with dataset identifier
-            request: Ingest request with files to add
-        """
-        ...
+        """Delegate ingest to the vector store."""
+        await self.vector_store.ingest(ctx, request)
 
     async def delete(self, ctx: IngestContext) -> None:
-        """Delete data from the dataset.
-
-        Args:
-            ctx: Ingest context with dataset identifier
-        """
-        ...
+        """Delegate delete to the vector store."""
+        await self.vector_store.delete(ctx)
 
 
-class FileIngestableDatasetType(IngestableDatasetType):
-    """Dataset type interface for file-based ingestion with watching.
-
-    Extends IngestableDatasetType with file-specific methods for:
-    - Discovering paths to watch for new files
-    - Filtering files by allowed extensions
-
-    Use this interface for dataset types that:
-    - Monitor local directories for new files
-    - Need file extension filtering
-    - Support the watch-based ingestion system
-    """
-
-    def watched_paths(self) -> list[str]:
-        """Get the paths to watch for new files.
-
-        Returns:
-            List of absolute directory/file paths to monitor.
-            Directories will be watched recursively.
-        """
-        ...
-
-    def allowed_extensions(self) -> set[str]:
-        """Get the allowed file extensions for ingestion.
-
-        Returns:
-            Set of extensions including the dot (e.g., {".pdf", ".txt", ".md"}).
-            Only files with these extensions will be ingested.
-        """
-        ...
-
-
-class BaseDatasetTypeProvisioner(Protocol):
+class BaseDatasetTypeProvisioner:
     """Base dataset type provisioner interface.
 
     Provisioners handle lifecycle management of dataset infrastructure.
     All methods are classmethods - provisioners are stateless.
-    State is passed as parameters and stored in Dataset entity.
+    State is passed as parameters and stored in the ProvisionerState row.
+
+    Provisioning is a vector-store concern; the registry currently keys
+    provisioners by dataset-type name only because bindings are 1:1 with
+    their vector store today. A follow-up moves provisioners under
+    ``vector_stores/`` and re-keys ``provisioner_state`` accordingly.
     """
 
-    NAME: str
+    NAME: ClassVar[str]
 
     @classmethod
     def name(cls) -> str:
         """Get the name of the provisioner."""
-        ...
+        return cls.NAME
 
     @classmethod
     async def start(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Start/provision the resource.
 
         Args:
-            config: Configuration for the resource
+            config: Configuration for the resource.
 
         Returns:
             State dictionary with persistent identifiers needed to
             re-discover and manage the resource after restart.
-
-            Examples:
-            - Docker: {"container_name": "...", "container_id": "...", "port": 8080}
-            - Subprocess: {"port": 8080, "pid_file": "/path/to.pid"}
-            - Systemd: {"unit_name": "service-name.service"}
         """
-        ...
+        raise NotImplementedError
 
     @classmethod
     async def stop(cls, state: dict[str, Any]) -> None:
-        """Stop the provisioned resource.
-
-        Args:
-            state: State dictionary returned from start()
-        """
-        ...
+        """Stop the provisioned resource."""
+        raise NotImplementedError
 
     @classmethod
     async def is_running(cls, state: dict[str, Any]) -> bool:
         """Check if resource is currently running.
 
         Uses state to re-discover the resource (important after restart).
-
-        Args:
-            state: State dictionary returned from start()
-
-        Returns:
-            True if resource is running, False otherwise
         """
-        ...
+        raise NotImplementedError
 
     @classmethod
     async def wait_until_ready(cls, state: dict[str, Any]) -> None:
         """Wait until the provisioned resource is ready to accept connections.
 
-        Default is a no-op. Override in subclasses that need startup health
-        checks (e.g., HTTP server readiness).
-
-        Args:
-            state: State dictionary returned from start()
-
-        Raises:
-            TimeoutError: If not ready within implementation-defined timeout
+        Default is a no-op. Override in subclasses that need startup
+        health checks (e.g., HTTP server readiness).
         """
         return None
 
     @classmethod
     async def status(cls, state: dict[str, Any]) -> str:
-        """Get detailed status of the resource.
-
-        Args:
-            state: State dictionary returned from start()
-
-        Returns:
-            Status string: "running", "stopped", "starting", "error", etc.
-        """
-        ...
+        """Get detailed status of the resource."""
+        raise NotImplementedError

@@ -1,138 +1,22 @@
-"""Xendit per-document policy type.
+"""Xendit per-document payment policy.
 
-Charges price per retrieved document, settled in post_hook once the search
-has returned. A cheap pre_hook floor check refuses the request when the
-user's balance can't cover even a single document.
+All behavior is inherited from PrepaidBalancePerDocumentPolicy.
 """
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
-from syft_space.components.policy_types.interfaces import (
-    BalanceShortfallError,
-    Capabilities,
-    PolicyContext,
-    PolicyViolationError,
-    add_response_cost,
+from syft_space.components.policy_types.prepaid.per_document import (
+    PrepaidBalancePerDocumentPolicy,
 )
-from syft_space.components.policy_types.xendit.policy_config import (
-    XenditPerDocumentConfig,
-)
-from syft_space.components.policy_types.xendit.xendit_payment_policy import (
-    XenditPaymentPolicy,
+from syft_space.components.policy_types.prepaid.policy_config import (
+    PrepaidPerDocumentConfig,
 )
 
 
-class XenditPerDocumentPolicy(XenditPaymentPolicy):
-    """Xendit per-document pricing policy.
-
-    Pre-hook: cheap floor check (balance >= price) so a user with zero
-    balance can't keep triggering search compute.
-
-    Post-hook: count the documents in the response, settle for
-    count * price via the same BalanceService.reserve path used by
-    per-request. On insufficient balance the response is dropped (we don't
-    ship documents we can't charge for).
-    """
-
+class XenditPerDocumentPolicy(PrepaidBalancePerDocumentPolicy):
+    PROVIDER_NAME: ClassVar[str] = "xendit"
     NAME: ClassVar[str] = "xendit_per_document"
     DESCRIPTION: ClassVar[str] = (
         "Pay-per-document billed against a Xendit wallet's prepaid balance"
     )
-    CONFIG_CLS = XenditPerDocumentConfig
-
-    @classmethod
-    def capabilities(cls) -> Capabilities:
-        return Capabilities(
-            requires_wallet=True,
-            required_wallet_type="xendit",
-            requires_endpoint_dataset=True,
-        )
-
-    async def pre_hook(
-        self, configs: list[dict[str, Any]], context: PolicyContext
-    ) -> PolicyContext:
-        """Floor check: balance must cover at least one document."""
-        if not configs:
-            return context
-
-        user_email = str(context.sender_email)
-        price = self._find_matching_price(user_email, configs)
-
-        if price is None:
-            raise PolicyViolationError(
-                message="No pricing tier matches your account",
-                policy_type=self.NAME,
-            )
-
-        charger = context.payment_chargers.xendit()
-        balance = await charger.get_balance(user_email)
-        if balance < price:
-            raise PolicyViolationError(
-                message="Insufficient balance. Please purchase more credits.",
-                policy_type=self.NAME,
-                details={
-                    "user": user_email,
-                    "balance": balance,
-                    "price": price,
-                    "currency": charger.currency,
-                },
-            )
-
-        context.metadata["xendit_per_doc_price"] = price
-
-        return context
-
-    async def post_hook(
-        self, configs: list[dict[str, Any]], context: PolicyContext
-    ) -> PolicyContext:
-        """Settle for actual document count.
-
-        Reserve happens here (not pre_hook) because we don't know the
-        document count until the search returns. On insufficient balance
-        we raise; an empty response means no documents were charged.
-        """
-        if not configs:
-            return context
-
-        price = context.metadata.get("xendit_per_doc_price")
-        if price is None:
-            return context
-
-        response = context.response or {}
-        references = response.get("references") or {}
-        documents = references.get("documents") or []
-        count = len(documents)
-        charger = context.payment_chargers.xendit()
-
-        # No documents → no charge. Record zero so the response indicates
-        # this policy applied with no net cost.
-        if count == 0:
-            add_response_cost(response, 0, charger.currency)
-            return context
-
-        total = count * price
-        user_email = str(context.sender_email)
-
-        try:
-            await charger.reserve(
-                user_email=user_email,
-                amount=total,
-                charge_unit="document",
-                charge_quantity=count,
-            )
-        except BalanceShortfallError as exc:
-            raise PolicyViolationError(
-                message="Insufficient balance for the documents retrieved.",
-                policy_type=self.NAME,
-                details={
-                    "user": user_email,
-                    "documents": count,
-                    "price": price,
-                    "total": total,
-                    "currency": exc.currency,
-                },
-            ) from exc
-
-        add_response_cost(response, total, charger.currency)
-
-        return context
+    CONFIG_CLS = PrepaidPerDocumentConfig

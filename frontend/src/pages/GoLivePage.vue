@@ -65,7 +65,12 @@ import {
   generateRuleId,
   getRuleSummary,
 } from '@/config/policyTypes'
-import type { PolicyTypeId, PolicyRulesRecord, PolicyConfig } from '@/config/policyTypes'
+import type {
+  PolicyTypeId,
+  PolicyRulesRecord,
+  PolicyConfig,
+  PaymentPolicyType,
+} from '@/config/policyTypes'
 import type { GoLiveData, ResourceType, ResponseMode } from '@/composables/useGoLive'
 import type { DatasetListItem, ModelListItem } from '@/api/types'
 
@@ -347,7 +352,7 @@ const handlePricingRuleCreated = (payload: {
   walletId: string
   walletType: string
   walletCurrency: string
-  policyType: 'mpp_per_request' | 'xendit_per_request' | 'mpp_per_document' | 'xendit_per_document'
+  policyType: PaymentPolicyType
   name: string
   config: Record<string, unknown>
 }) => {

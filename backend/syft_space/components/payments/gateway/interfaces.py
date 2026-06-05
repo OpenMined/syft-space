@@ -4,6 +4,7 @@ Defines the adapter boundary between the PaymentHandler (use case layer)
 and provider-specific implementations (adapter layer).
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -16,15 +17,20 @@ from syft_space.components.wallets.entities import Wallet
 class CreatePaymentResult:
     """Normalized result from a provider's create-payment API."""
 
-    external_id: str  # our reference echoed back (webhook join key)
+    client_reference: str  # our token echoed back (webhook join key)
     checkout_url: str  # hosted payment page URL
+    # Provider's native session id (e.g. Stripe cs_…). Persisted on the
+    # invoice for stale-PENDING reconciliation — a future sweep job can
+    # poll the provider when a webhook never arrives. Providers whose API
+    # is addressable by client_reference (Xendit) leave this None.
+    provider_session_id: str | None = None
 
 
 @dataclass
 class WebhookResult:
     """Normalized result from parsing a provider's webhook payload."""
 
-    external_id: str  # maps to Invoice.external_id for lookup
+    client_reference: str  # maps to Invoice.client_reference for lookup
     status: InvoiceStatus  # provider status mapped to our domain enum
     paid_at: datetime | None
     raw_payload: dict  # original payload, stored for audit
@@ -41,6 +47,25 @@ class ResolvedBundle:
     name: str
     amount: float  # money amount in policy currency
     currency: str
+
+
+@dataclass(frozen=True)
+class WebhookEnvelope:
+    """Everything a gateway might need to authenticate and parse a webhook.
+
+    Carries the raw bytes (some providers — Stripe, GitHub, Slack — sign the
+    body and any reformatting invalidates the signature), the already-decoded
+    JSON for convenience, and a case-insensitive view of the request headers.
+
+    Providers read whatever they need:
+    - Xendit: headers["x-callback-token"] + parsed (static token, parsed body)
+    - Stripe: headers["stripe-signature"] + raw_body (HMAC-SHA256 over t.body)
+    """
+
+    raw_body: bytes
+    parsed: dict
+    headers: Mapping[str, str]
+    """Lower-cased keys. Route layer is responsible for normalizing."""
 
 
 class PaymentGateway(Protocol):
@@ -81,15 +106,20 @@ class PaymentGateway(Protocol):
 
     def verify_webhook(
         self,
-        callback_token: str,
+        envelope: WebhookEnvelope,
         wallet: Wallet,
     ) -> None:
-        """Verify webhook authenticity. Raises HTTPException on failure."""
+        """Verify webhook authenticity. Raises HTTPException on failure.
+
+        The envelope carries raw_body + headers, so providers that sign the
+        body (Stripe HMAC) can re-hash and compare, while providers that use
+        a static header token (Xendit) can read it directly.
+        """
         ...
 
     def normalize_webhook(
         self,
-        raw_payload: dict,
+        envelope: WebhookEnvelope,
     ) -> WebhookResult | None:
         """Parse provider-specific webhook payload into domain types.
 

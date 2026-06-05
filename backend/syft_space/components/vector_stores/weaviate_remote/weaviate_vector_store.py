@@ -1,26 +1,35 @@
-"""RemoteWeaviate dataset type implementation."""
+"""Remote Weaviate vector store implementation.
+
+Read-only client over a remote Weaviate cluster. Implements
+``BaseVectorStore`` (search + healthcheck) but not the ingestable
+variant — Weaviate is fed externally; this process only queries.
+"""
+
+from __future__ import annotations
 
 import json
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl, ValidationError
+from pydantic import ValidationError
 
 from syft_space.components.dataset_types.interfaces import (
-    BaseDatasetType,
     SearchContext,
     SearchedDocument,
     SearchParameters,
     SearchResult,
-)
-from syft_space.components.dataset_types.weaviate_remote.filters import (
-    WeaviateFilter,
-    build_filter_node,
 )
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.vector_stores.weaviate_remote.filters import (
+    build_filter_node,
+)
+from syft_space.components.vector_stores.weaviate_remote.schemas import (
+    DEFAULT_SIMILARITY_THRESHOLD,
+    RemoteWeaviateVectorStoreConfiguration,
+)
 
 try:
     import weaviate
@@ -31,96 +40,58 @@ try:
 except ImportError:
     enabled = False
 
-DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
+class WeaviateVectorStore:
+    """Remote Weaviate vector store — search and healthcheck only."""
 
-class RemoteWeaviateConfiguration(BaseModel):
-    """Configuration for Weaviate remote dataset type."""
-
-    http_url: HttpUrl = Field(..., description="The HTTP URL of the Weaviate server")
-    grpc_url: HttpUrl = Field(..., description="The gRPC URL of the Weaviate server.")
-    api_key: str = Field(..., description="The API key for the Weaviate server")
-    collection_name: str = Field(..., description="The name of the Weaviate collection")
-    headers: dict[str, str] | None = Field(
-        default=None,
-        description="Additional HTTP headers for third-party API keys (e.g., {'X-Cohere-Api-Key': 'key', 'X-OpenAI-Api-Key': 'key'})",
-        json_schema_extra={"secret": True},
-    )
-    default_similarity_threshold: float = Field(
-        default=DEFAULT_SIMILARITY_THRESHOLD,
-        description="The default similarity threshold for the Weaviate collection",
-    )
-    content_property: str | None = Field(
-        default=None,
-        description="Property name to use as main content (e.g., 'body', 'description'). If not specified, all properties are JSON-serialized as content.",
-    )
-    metadata_properties: list[str] | None = Field(
-        default=None,
-        description="Properties to include in metadata (e.g., ['title', 'author']). If not specified, all properties are included.",
-    )
-    filters: WeaviateFilter | None = Field(
-        default=None,
-        description="Filter applied when searching. Single condition or group with and/or/not.",
-    )
-
-
-class RemoteWeaviateDatasetType(BaseDatasetType):
-    """Remote Weaviate dataset type that allows you to query your data
-    from a remote Weaviate server.
-
-    It uses the Weaviate vector database to query your data from a remote server.
-    """
-
-    NAME = "remote_weaviate"
+    NAME = "weaviate_remote"
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize Weaviate remote dataset type.
+        """Initialize Weaviate remote vector store.
 
         Args:
-            config: Configuration dictionary with connection settings
+            config: Connection + content/metadata mapping + filters.
         """
-        self.config = RemoteWeaviateConfiguration.model_validate(config)
+        self.config = RemoteWeaviateVectorStoreConfiguration.model_validate(config)
 
     @classmethod
     def name(cls) -> str:
-        """Get the name of the dataset type."""
+        """Get the name of the vector store."""
         return cls.NAME
 
     @classmethod
     def type(cls) -> str:
-        """Get the type identifier of the dataset type."""
+        """Get the type identifier of the vector store."""
         return cls.NAME.lower()
 
     @classmethod
     def description(cls) -> str:
-        """Get the description of the dataset type."""
+        """Get the description of the vector store."""
         return cls.__doc__ or ""
 
     @classmethod
     def icon(cls) -> str:
-        """Get the icon for the dataset type."""
+        """Get the icon for the vector store."""
         return "🌐"
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
-        """Return configuration schema required by this dataset type.
-
-        Returns:
-            JSON schema describing configuration requirements
-        """
-        return RemoteWeaviateConfiguration.model_json_schema(
+        """Return configuration schema required by this vector store."""
+        return RemoteWeaviateVectorStoreConfiguration.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
 
     @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        """Validate the configuration for the dataset type.
+        """Validate the vector store configuration.
 
-        Args:
-            configuration: Configuration dictionary to validate
+        Raises:
+            ValueError: If configuration is invalid.
         """
         try:
-            config = RemoteWeaviateConfiguration.model_validate(configuration)
+            config = RemoteWeaviateVectorStoreConfiguration.model_validate(
+                configuration
+            )
         except ValidationError as e:
             raise ValueError(f"Invalid configuration: {e}") from e
 
@@ -132,35 +103,31 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             except Exception as e:
                 raise ValueError(f"Invalid filter configuration: {e}") from e
 
+    @classmethod
+    def enabled(cls) -> bool:
+        """Whether weaviate is importable."""
+        return enabled
+
+    @classmethod
+    def connection_fields(cls) -> list[str]:
+        """Configuration fields shared across datasets of this type."""
+        return ["http_url", "grpc_url", "api_key", "collection_name"]
+
     @property
     def collection_name(self) -> str:
         """Get the name of the collection."""
         return self.config.collection_name
 
     def _build_weaviate_filters(self) -> Any:
-        """Build Weaviate Filter objects from configured filter conditions.
-
-        Returns:
-            A Weaviate _Filters object, or None if no filters are configured.
-        """
+        """Build Weaviate Filter objects from configured filter conditions."""
         if not self.config.filters:
             return None
-
         return build_filter_node(self.config.filters, Filter)
 
     async def search(
         self, ctx: SearchContext, query: str, params: SearchParameters | None = None
     ) -> SearchResult:
-        """Search the dataset for the given query.
-
-        Args:
-            ctx: Search context with dataset identifier
-            query: Search query string
-            params: Optional search parameters
-
-        Returns:
-            SearchResult with matching documents
-        """
+        """Search the Weaviate collection for matching items."""
         if not enabled:
             raise ImportError("Weaviate is required for search")
 
@@ -185,9 +152,7 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
             auth_credentials=Auth.api_key(self.config.api_key),
             headers=self.config.headers,
         ) as client:
-            # Get the collection
             collection = client.collections.get(self.collection_name)
-
             weaviate_filters = self._build_weaviate_filters()
 
             results = await collection.query.near_text(
@@ -200,7 +165,6 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
                 ),
             )
             for result in results.objects:
-                # Content: use specified property OR JSON dump all properties
                 if self.config.content_property:
                     content = str(
                         result.properties.get(self.config.content_property, "")
@@ -208,7 +172,6 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
                 else:
                     content = json.dumps(result.properties, default=str)
 
-                # Metadata: use specified properties OR include all properties
                 if self.config.metadata_properties is not None:
                     custom_metadata = {
                         k: v
@@ -218,7 +181,6 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
                 else:
                     custom_metadata = dict(result.properties)
 
-                # Include Weaviate system metadata
                 metadata = {
                     "creation_time": (
                         str(result.metadata.creation_time)
@@ -240,32 +202,8 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
 
         return SearchResult(documents=documents, metadata={"count": len(documents)})
 
-    @classmethod
-    def enabled(cls) -> bool:
-        """Check if this dataset type is enabled.
-
-        Returns:
-            True if weaviate is installed
-        """
-        return enabled
-
-    @classmethod
-    def connection_fields(cls) -> list[str]:
-        """Return list of connection-related configuration fields.
-
-        These fields are shared across all datasets of this type.
-        - http_url, grpc_url: Server connection settings
-        - api_key: API key for the Weaviate server
-        - collection_name: Name of the Weaviate collection
-        """
-        return ["http_url", "grpc_url", "api_key", "collection_name"]
-
     async def healthcheck(self) -> HealthcheckResponse:
-        """Check if the dataset type is healthy.
-
-        Returns:
-            HealthcheckResponse indicating health status
-        """
+        """Check if the Weaviate server is reachable."""
         if not enabled:
             return HealthcheckResponse(
                 status=HealthcheckStatus.UNHEALTHY,

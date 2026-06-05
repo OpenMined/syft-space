@@ -1815,8 +1815,10 @@ const handlePricingRuleCreated = (payload: {
   policyType:
     | 'mpp_per_request'
     | 'xendit_per_request'
+    | 'stripe_per_request'
     | 'mpp_per_document'
     | 'xendit_per_document'
+    | 'stripe_per_document'
   name: string
   config: Record<string, unknown>
 }) => {

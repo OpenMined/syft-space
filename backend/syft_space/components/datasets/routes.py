@@ -147,8 +147,9 @@ def build_dataset_routes(
     ) -> DatasetResponse:
         """Create a new dataset.
 
-        For FileIngestableDatasetType, automatically starts ingestion
-        (scans existing files and starts watcher).
+        Automatically kicks off ingestion for bindings whose source
+        emits a change stream (scans existing items, starts the
+        watcher / poller).
 
         Args:
             request: Dataset creation request with configuration
@@ -159,7 +160,7 @@ def build_dataset_routes(
         """
         response = await handler.create_dataset(request, tenant)
 
-        # Auto-start ingestion for FileIngestableDatasetType
+        # Auto-start ingestion for bindings whose source emits a change stream
         if ingestion_manager:
             await ingestion_manager.start_ingestion_by_id(response.id, tenant.id)
 

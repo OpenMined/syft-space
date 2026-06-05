@@ -9,6 +9,7 @@ the handler, not here. The provider only transforms/enriches.
 """
 
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -46,8 +47,14 @@ class XenditWalletProvider:
             display={"webhook_url": webhook_url},
         )
 
-    def extract_display(self, configuration: dict[str, Any]) -> dict[str, Any]:
-        """Return webhook URL — never expose api_key or callback_token."""
+    def extract_display(
+        self, configuration: dict[str, Any], wallet_id: UUID
+    ) -> dict[str, Any]:
+        """Return webhook URL — never expose api_key or callback_token.
+
+        Xendit's webhook is tenant-scoped via the callback_token rather
+        than path-scoped, so ``wallet_id`` is unused here.
+        """
         base = str(app_settings.public_url).rstrip("/")
         webhook_url = f"{base}/api/v1/payments/gateway/xendit/webhooks"
         return {"webhook_url": webhook_url}
@@ -75,3 +82,11 @@ class XenditWalletProvider:
         config = XenditWalletConfig(**current_config)
         updated = config.model_copy(update=updates)
         return updated.model_dump()
+
+    def extract_bundles(
+        self, configuration: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        config = XenditWalletConfig(**configuration)
+        return [
+            {"name": b.name, "amount": b.amount} for b in config.prepaid_balance_bundles
+        ]

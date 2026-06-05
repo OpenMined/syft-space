@@ -42,6 +42,20 @@
               Prepaid bundles paid via Xendit checkout (SE Asia currencies).
             </p>
           </button>
+          <button
+            class="text-left p-4 rounded-xl border border-border hover:border-primary/40 hover:shadow-md transition-all flex flex-col gap-2"
+            @click="pickProvider('stripe')"
+          >
+            <div
+              class="h-9 w-9 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center"
+            >
+              <CreditCard class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <h3 class="font-semibold text-foreground">Stripe</h3>
+            <p class="text-sm text-muted-foreground">
+              Prepaid bundles paid via Stripe Checkout (USD, EUR, GBP, …).
+            </p>
+          </button>
         </div>
 
         <DialogFooter v-if="wallets.length > 0">
@@ -62,19 +76,16 @@
             >
               <ArrowLeft class="h-4 w-4" />
             </button>
-            <component
-              :is="selectedProviderType === 'mpp' ? Zap : Package"
-              class="h-5 w-5"
-              :class="
-                selectedProviderType === 'mpp'
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-violet-600 dark:text-violet-400'
-              "
-            />
-            {{ selectedProviderType === 'mpp' ? 'MPP Wallet' : 'Xendit Wallet' }}
+            <component :is="providerIcon" class="h-5 w-5" :class="providerIconColorClass" />
+            {{ providerHeading }}
           </DialogTitle>
           <DialogDescription v-if="selectedProviderType === 'mpp'">
             Create a fresh MPP wallet for this server.
+          </DialogDescription>
+          <DialogDescription v-else-if="selectedProviderType === 'stripe'">
+            Enter your Stripe credentials and pick the wallet currency. The webhook signing secret
+            comes from Stripe Dashboard → Developers → Webhooks (you'll register the URL we show you
+            after setup).
           </DialogDescription>
           <DialogDescription v-else>
             Enter your Xendit credentials and pick the wallet currency.
@@ -93,7 +104,7 @@
         </div>
 
         <!-- Xendit setup -->
-        <div v-else class="space-y-3 py-2">
+        <div v-else-if="selectedProviderType === 'xendit'" class="space-y-3 py-2">
           <div class="grid grid-cols-2 gap-3">
             <div class="space-y-2">
               <Label>Currency</Label>
@@ -151,6 +162,56 @@
           >
             <Loader2 v-if="creatingWallet" class="h-4 w-4 mr-2 animate-spin" />
             Connect Xendit
+          </Button>
+        </div>
+
+        <!-- Stripe setup -->
+        <div v-if="selectedProviderType === 'stripe'" class="space-y-3 py-2">
+          <div class="space-y-2">
+            <Label>Currency</Label>
+            <Select v-model="stripeForm.currency">
+              <SelectTrigger class="h-10">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="c in STRIPE_CURRENCIES" :key="c.currency" :value="c.currency">
+                  {{ c.currency }} — {{ c.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-2">
+            <Label for="stripe-secret-key">Secret API Key</Label>
+            <Input
+              id="stripe-secret-key"
+              v-model="stripeForm.secretKey"
+              type="password"
+              autocomplete="off"
+              placeholder="sk_test_… or sk_live_…"
+              class="font-mono placeholder:text-muted-foreground/50"
+            />
+          </div>
+          <div class="space-y-2">
+            <Label for="stripe-webhook-secret">Webhook Signing Secret</Label>
+            <Input
+              id="stripe-webhook-secret"
+              v-model="stripeForm.webhookSecret"
+              type="password"
+              autocomplete="off"
+              placeholder="whsec_…"
+              class="font-mono placeholder:text-muted-foreground/50"
+            />
+            <p class="text-xs text-muted-foreground">
+              Found under your webhook endpoint in the Stripe Dashboard.
+            </p>
+          </div>
+          <Button
+            class="w-full"
+            :disabled="!canCreateStripe || creatingWallet"
+            @click="createStripeWallet"
+          >
+            <Loader2 v-if="creatingWallet" class="h-4 w-4 mr-2 animate-spin" />
+            Connect Stripe
           </Button>
         </div>
       </template>
@@ -361,6 +422,7 @@ import {
   ArrowLeft,
   ChevronRight,
   Copy,
+  CreditCard,
   Loader2,
   Zap,
   Package,
@@ -388,14 +450,10 @@ import { walletsApi } from '@/api/endpoints/wallets'
 import { toast } from 'vue-sonner'
 import type { WalletListItem } from '@/api/types'
 import { XENDIT_REGIONS, countryForCurrency } from '@/lib/xenditRegions'
+import { STRIPE_CURRENCIES } from '@/lib/stripeCurrencies'
+import type { PaymentPolicyType } from '@/config/policyTypes'
 
 type View = 'pricing-form' | 'pick-provider' | 'setup-form' | 'wallet-success'
-
-type PaymentPolicyType =
-  | 'mpp_per_request'
-  | 'xendit_per_request'
-  | 'mpp_per_document'
-  | 'xendit_per_document'
 
 type ChargeMode = 'request' | 'document'
 
@@ -439,7 +497,8 @@ const wallets = ref<WalletListItem[]>([])
 const loadingWallets = ref(false)
 const selectedWalletId = ref<string | null>(null)
 
-const selectedProviderType = ref<'mpp' | 'xendit' | null>(null)
+// ── Inline wallet setup state ──
+const selectedProviderType = ref<'mpp' | 'xendit' | 'stripe' | null>(null)
 const creatingWallet = ref(false)
 const newWalletWebhookUrl = ref<string | null>(null)
 const newWalletId = ref<string | null>(null)
@@ -448,6 +507,11 @@ const xenditForm = ref({
   callbackToken: '',
   currency: 'IDR',
   country: 'ID',
+})
+const stripeForm = ref({
+  secretKey: '',
+  webhookSecret: '',
+  currency: 'USD',
 })
 
 // Currency drives country (1:1 within Xendit's per-country channel
@@ -495,23 +559,63 @@ const canCreateXendit = computed(
     xenditForm.value.apiKey.trim().length > 0 && xenditForm.value.callbackToken.trim().length > 0,
 )
 
+const canCreateStripe = computed(
+  () =>
+    stripeForm.value.secretKey.trim().length > 0 &&
+    stripeForm.value.webhookSecret.trim().length > 0,
+)
+
 const providerLabel = (walletType: string): string => {
   switch (walletType) {
     case 'mpp':
       return 'MPP (Tempo)'
     case 'xendit':
       return 'Xendit'
+    case 'stripe':
+      return 'Stripe'
     default:
       return walletType
   }
 }
 
-const policyTypeForWallet = (
-  walletType: string,
-  chargeMode: ChargeMode,
-): PaymentPolicyType => {
+// Icon + colour for the setup-form header — keyed off selectedProviderType.
+const providerIcon = computed(() => {
+  switch (selectedProviderType.value) {
+    case 'mpp':
+      return Zap
+    case 'stripe':
+      return CreditCard
+    default:
+      return Package
+  }
+})
+const providerIconColorClass = computed(() => {
+  switch (selectedProviderType.value) {
+    case 'mpp':
+      return 'text-emerald-600 dark:text-emerald-400'
+    case 'stripe':
+      return 'text-indigo-600 dark:text-indigo-400'
+    default:
+      return 'text-violet-600 dark:text-violet-400'
+  }
+})
+const providerHeading = computed(() => {
+  switch (selectedProviderType.value) {
+    case 'mpp':
+      return 'MPP Wallet'
+    case 'stripe':
+      return 'Stripe Wallet'
+    default:
+      return 'Xendit Wallet'
+  }
+})
+
+const policyTypeForWallet = (walletType: string, chargeMode: ChargeMode): PaymentPolicyType => {
   if (walletType === 'mpp') {
     return chargeMode === 'document' ? 'mpp_per_document' : 'mpp_per_request'
+  }
+  if (walletType === 'stripe') {
+    return chargeMode === 'document' ? 'stripe_per_document' : 'stripe_per_request'
   }
   return chargeMode === 'document' ? 'xendit_per_document' : 'xendit_per_request'
 }
@@ -551,7 +655,7 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
-const pickProvider = (providerType: 'mpp' | 'xendit') => {
+const pickProvider = (providerType: 'mpp' | 'xendit' | 'stripe') => {
   selectedProviderType.value = providerType
   view.value = 'setup-form'
 }
@@ -572,13 +676,12 @@ const createMppWallet = async () => {
   }
 }
 
+// Frontend guard: backend enforces UNIQUE(tenant, type, currency) too.
+const walletExistsForCurrency = (walletType: string, currency: string): boolean =>
+  wallets.value.some((w) => w.wallet_type === walletType && w.currency === currency)
+
 const createXenditWallet = async () => {
-  // Frontend guard: backend enforces UNIQUE(tenant, type, currency) too.
-  if (
-    wallets.value.some(
-      (w) => w.wallet_type === 'xendit' && w.currency === xenditForm.value.currency,
-    )
-  ) {
+  if (walletExistsForCurrency('xendit', xenditForm.value.currency)) {
     toast.error(`A Xendit wallet for ${xenditForm.value.currency} already exists.`)
     return
   }
@@ -599,6 +702,32 @@ const createXenditWallet = async () => {
     view.value = 'wallet-success'
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Failed to connect Xendit')
+  } finally {
+    creatingWallet.value = false
+  }
+}
+
+const createStripeWallet = async () => {
+  if (walletExistsForCurrency('stripe', stripeForm.value.currency)) {
+    toast.error(`A Stripe wallet for ${stripeForm.value.currency} already exists.`)
+    return
+  }
+
+  creatingWallet.value = true
+  try {
+    const wallet = await walletsApi.createStripe({
+      secretKey: stripeForm.value.secretKey,
+      webhookSecret: stripeForm.value.webhookSecret,
+      currency: stripeForm.value.currency,
+    })
+    newWalletId.value = wallet.id
+    newWalletWebhookUrl.value = wallet.display.webhook_url ?? null
+    await fetchWallets()
+    toast.success('Stripe wallet connected')
+    selectedWalletId.value = wallet.id
+    view.value = 'wallet-success'
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to connect Stripe')
   } finally {
     creatingWallet.value = false
   }
@@ -634,6 +763,11 @@ const resetState = () => {
     callbackToken: '',
     currency: 'IDR',
     country: 'ID',
+  }
+  stripeForm.value = {
+    secretKey: '',
+    webhookSecret: '',
+    currency: 'USD',
   }
   form.value = { price: '', name: '', userType: 'all', users: '', chargeMode: 'request' }
 }

@@ -9,6 +9,7 @@ from syft_space.components.payments.gateway.entities import InvoiceStatus
 from syft_space.components.payments.gateway.interfaces import (
     CreatePaymentResult,
     ResolvedBundle,
+    WebhookEnvelope,
     WebhookResult,
 )
 from syft_space.components.payments.gateway.xendit.client import (
@@ -114,24 +115,29 @@ class XenditGateway:
             raise e.to_http_exception() from e
 
         return CreatePaymentResult(
-            external_id=session.reference_id,
+            client_reference=session.reference_id,
             checkout_url=session.payment_link_url,
         )
 
     def verify_webhook(
         self,
-        callback_token: str,
+        envelope: WebhookEnvelope,
         wallet: Wallet,
     ) -> None:
-        """Verify Xendit webhook via x-callback-token header."""
+        """Verify Xendit webhook via x-callback-token header.
+
+        The envelope provides case-insensitive header access; the body is not
+        needed for Xendit's static-token scheme.
+        """
+        callback_token = envelope.headers.get("x-callback-token")
         expected_token = wallet.configuration.get("callback_token")
-        if callback_token != expected_token:
+        if not callback_token or callback_token != expected_token:
             logger.warning("Webhook: invalid callback token")
             raise HTTPException(status_code=403, detail="Invalid callback token")
 
     def normalize_webhook(
         self,
-        raw_payload: dict,
+        envelope: WebhookEnvelope,
     ) -> WebhookResult | None:
         """Parse Xendit webhook into domain types.
 
@@ -144,6 +150,7 @@ class XenditGateway:
         200-ack — Xendit retries on any non-2xx, and we don't want event types
         we don't care about (e.g. payment.capture) to drive a retry storm.
         """
+        raw_payload = envelope.parsed
         event = raw_payload.get("event", "")
         data = raw_payload.get("data", {})
 
@@ -185,7 +192,7 @@ class XenditGateway:
                 paid_at = datetime.now(timezone.utc)
 
         return WebhookResult(
-            external_id=reference_id,
+            client_reference=reference_id,
             status=status,
             paid_at=paid_at,
             raw_payload=raw_payload,

@@ -215,15 +215,15 @@
             <div class="flex items-center gap-3 min-w-0">
               <div
                 class="h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                :class="
-                  wallet.wallet_type === 'mpp'
-                    ? 'bg-emerald-100 dark:bg-emerald-900/30'
-                    : 'bg-violet-100 dark:bg-violet-900/30'
-                "
+                :class="walletIconBgClass(wallet.wallet_type)"
               >
                 <Zap
                   v-if="wallet.wallet_type === 'mpp'"
                   class="h-4 w-4 text-emerald-600 dark:text-emerald-400"
+                />
+                <CreditCard
+                  v-else-if="wallet.wallet_type === 'stripe'"
+                  class="h-4 w-4 text-indigo-600 dark:text-indigo-400"
                 />
                 <Package v-else class="h-4 w-4 text-violet-600 dark:text-violet-400" />
               </div>
@@ -247,7 +247,7 @@
                   <template v-if="wallet.wallet_type === 'mpp'">
                     {{ wallet.display.wallet_address || 'No address' }}
                   </template>
-                  <template v-else-if="wallet.wallet_type === 'xendit'">
+                  <template v-else-if="wallet.wallet_type === 'xendit' || wallet.wallet_type === 'stripe'">
                     Webhook: {{ wallet.display.webhook_url || 'N/A' }}
                   </template>
                 </p>
@@ -295,7 +295,7 @@
               <DialogTitle>Add Wallet</DialogTitle>
               <DialogDescription> Choose a wallet type to set up. </DialogDescription>
             </DialogHeader>
-            <div class="grid grid-cols-2 gap-3 py-2">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 py-2">
               <button
                 class="group text-left p-4 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-md transition-all"
                 @click="addWalletType = 'mpp'"
@@ -322,7 +322,23 @@
                   </div>
                   <h4 class="font-medium text-foreground text-sm">Xendit</h4>
                 </div>
-                <p class="text-xs text-muted-foreground">Payment gateway for bundle purchases</p>
+                <p class="text-xs text-muted-foreground">Bundle purchases (SE Asia currencies)</p>
+              </button>
+              <button
+                class="group text-left p-4 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-md transition-all"
+                @click="addWalletType = 'stripe'"
+              >
+                <div class="flex items-center gap-2 mb-2">
+                  <div
+                    class="h-8 w-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center"
+                  >
+                    <CreditCard class="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <h4 class="font-medium text-foreground text-sm">Stripe</h4>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  Bundle purchases via Stripe Checkout (USD, EUR, GBP, …)
+                </p>
               </button>
             </div>
           </template>
@@ -483,6 +499,110 @@
               </template>
             </div>
           </template>
+
+          <!-- Step 2: Stripe setup -->
+          <template v-else-if="addWalletType === 'stripe'">
+            <DialogHeader>
+              <DialogTitle class="flex items-center gap-2">
+                <button
+                  class="p-1 -ml-1 rounded hover:bg-muted transition-colors"
+                  @click="addWalletType = null"
+                >
+                  <ArrowLeft class="h-4 w-4" />
+                </button>
+                <CreditCard class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                Stripe Wallet
+              </DialogTitle>
+              <DialogDescription>
+                Enter your Stripe API credentials. The webhook signing secret comes from
+                Stripe Dashboard → Developers → Webhooks (you'll register the URL we show
+                you after setup).
+              </DialogDescription>
+            </DialogHeader>
+            <div class="space-y-4 py-2">
+              <!-- After creation, the wallet-id-stamped webhook URL we need
+                   the merchant to paste into their Stripe Dashboard. -->
+              <div v-if="addWalletWebhookUrl" class="space-y-1">
+                <Label class="text-sm font-medium">Webhook URL</Label>
+                <p class="text-xs text-muted-foreground">
+                  Paste this URL into Stripe Dashboard → Developers → Webhooks → Add
+                  endpoint, and enable the four
+                  <code class="font-mono">checkout.session.*</code> events.
+                </p>
+                <div class="flex gap-2">
+                  <Input
+                    :model-value="addWalletWebhookUrl"
+                    readonly
+                    class="h-9 font-mono text-xs flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="h-9 px-3"
+                    @click="copyToClipboard(addWalletWebhookUrl!)"
+                  >
+                    <Copy class="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+              <template v-else>
+                <div class="space-y-2">
+                  <Label>Currency</Label>
+                  <Select v-model="addStripeForm.currency">
+                    <SelectTrigger class="h-10">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        v-for="c in STRIPE_CURRENCIES"
+                        :key="c.currency"
+                        :value="c.currency"
+                      >
+                        {{ c.currency }} — {{ c.label }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div class="space-y-2">
+                  <Label for="add-stripe-secret-key">Secret API Key</Label>
+                  <Input
+                    id="add-stripe-secret-key"
+                    v-model="addStripeForm.secretKey"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="sk_test_… or sk_live_…"
+                    class="font-mono"
+                  />
+                </div>
+                <div class="space-y-2">
+                  <Label for="add-stripe-webhook-secret">Webhook Signing Secret</Label>
+                  <Input
+                    id="add-stripe-webhook-secret"
+                    v-model="addStripeForm.webhookSecret"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="whsec_…"
+                    class="font-mono"
+                  />
+                  <p class="text-xs text-muted-foreground">
+                    Found under your webhook endpoint in the Stripe Dashboard.
+                  </p>
+                </div>
+                <Button
+                  class="w-full"
+                  @click="handleCreateStripe"
+                  :disabled="
+                    addWalletSaving ||
+                    !addStripeForm.secretKey ||
+                    !addStripeForm.webhookSecret
+                  "
+                >
+                  <Loader2 v-if="addWalletSaving" class="h-4 w-4 mr-2 animate-spin" />
+                  Connect Stripe
+                </Button>
+              </template>
+            </div>
+          </template>
         </DialogContent>
       </Dialog>
 
@@ -584,6 +704,7 @@ import {
   Wallet,
   Zap,
   Package,
+  CreditCard,
   Trash2,
   Copy,
   Plus,
@@ -619,6 +740,7 @@ import {
 import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
 import type { WalletListItem } from '@/api/types'
 import { XENDIT_REGIONS, countryForCurrency } from '@/lib/xenditRegions'
+import { STRIPE_CURRENCIES } from '@/lib/stripeCurrencies'
 
 const userStore = useUserStore()
 
@@ -753,7 +875,7 @@ const handleDeleteWallet = async (walletId: string, walletName: string) => {
 
 // Add wallet dialog state
 const addWalletDialogOpen = ref(false)
-const addWalletType = ref<'mpp' | 'xendit' | null>(null)
+const addWalletType = ref<'mpp' | 'xendit' | 'stripe' | null>(null)
 const addWalletSaving = ref(false)
 const showMppImport = ref(false)
 const mppImportKey = ref('')
@@ -762,6 +884,11 @@ const addXenditForm = ref({
   callbackToken: '',
   currency: 'IDR',
   country: 'ID',
+})
+const addStripeForm = ref({
+  secretKey: '',
+  webhookSecret: '',
+  currency: 'USD',
 })
 const addWalletWebhookUrl = ref<string | null>(null)
 
@@ -788,10 +915,30 @@ watch(
         currency: 'IDR',
         country: 'ID',
       }
+      addStripeForm.value = {
+        secretKey: '',
+        webhookSecret: '',
+        currency: 'USD',
+      }
       addWalletWebhookUrl.value = null
     }
   },
 )
+
+// Per-provider icon background. MPP → emerald; Xendit → violet; Stripe →
+// indigo (mirrors the inline picker in AddPricingRuleDialog and the SyftHub
+// credits-panel chip colours).
+const walletIconBgClass = (walletType: string): string => {
+  switch (walletType) {
+    case 'mpp':
+      return 'bg-emerald-100 dark:bg-emerald-900/30'
+    case 'stripe':
+      return 'bg-indigo-100 dark:bg-indigo-900/30'
+    case 'xendit':
+    default:
+      return 'bg-violet-100 dark:bg-violet-900/30'
+  }
+}
 
 const handleCreateMpp = async () => {
   addWalletSaving.value = true
@@ -821,12 +968,12 @@ const handleImportMpp = async () => {
   }
 }
 
+// One wallet per (type, currency); backend enforces UNIQUE too.
+const walletExistsForCurrency = (walletType: string, currency: string): boolean =>
+  allWallets.value.some((w) => w.wallet_type === walletType && w.currency === currency)
+
 const handleCreateXendit = async () => {
-  if (
-    allWallets.value.some(
-      (w) => w.wallet_type === 'xendit' && w.currency === addXenditForm.value.currency,
-    )
-  ) {
+  if (walletExistsForCurrency('xendit', addXenditForm.value.currency)) {
     toast.error(
       `A Xendit wallet for ${addXenditForm.value.currency} already exists. Only one wallet per currency is allowed.`,
     )
@@ -846,6 +993,31 @@ const handleCreateXendit = async () => {
     await fetchWallets()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Failed to connect Xendit')
+  } finally {
+    addWalletSaving.value = false
+  }
+}
+
+const handleCreateStripe = async () => {
+  if (walletExistsForCurrency('stripe', addStripeForm.value.currency)) {
+    toast.error(
+      `A Stripe wallet for ${addStripeForm.value.currency} already exists. Only one wallet per currency is allowed.`,
+    )
+    return
+  }
+
+  addWalletSaving.value = true
+  try {
+    const wallet = await walletsApi.createStripe({
+      secretKey: addStripeForm.value.secretKey,
+      webhookSecret: addStripeForm.value.webhookSecret,
+      currency: addStripeForm.value.currency,
+    })
+    addWalletWebhookUrl.value = wallet.display.webhook_url ?? null
+    toast.success('Stripe wallet connected')
+    await fetchWallets()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to connect Stripe')
   } finally {
     addWalletSaving.value = false
   }

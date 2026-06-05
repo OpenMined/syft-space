@@ -14,7 +14,11 @@ from loguru import logger
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.payments.gateway.balance_service import BalanceService
 from syft_space.components.payments.gateway.entities import Invoice, InvoiceStatus
-from syft_space.components.payments.gateway.interfaces import PaymentGateway
+from syft_space.components.payments.gateway.interfaces import (
+    PaymentGateway,
+    WebhookEnvelope,
+    WebhookResult,
+)
 from syft_space.components.payments.gateway.payment_ledger import PaymentLedger
 from syft_space.components.payments.gateway.schemas import (
     CreateInvoiceRequest,
@@ -102,12 +106,12 @@ class PaymentHandler:
             if endpoint:
                 endpoint_id = endpoint.id
 
-        # 4. Persist Invoice as PENDING up front so a successful Xendit
+        # 4. Persist Invoice as PENDING up front so a successful provider
         # session can never outlive the local row. The reference_id (= our
-        # invoice id with a "syft-" prefix) is what Xendit echoes on every
-        # webhook, so we set external_id to it now and patch in the
-        # checkout_url after Xendit returns. checkout_url is "" until then;
-        # the frontend already gates the checkout link on a non-empty value.
+        # invoice id with a "syft-" prefix) is what the provider echoes on
+        # every webhook, so we set client_reference to it now and patch in
+        # the checkout_url after the provider returns. checkout_url is ""
+        # until then; the frontend gates the checkout link on non-empty.
         invoice_id = uuid4()
         reference_id = f"syft-{invoice_id}"
         invoice = Invoice(
@@ -117,7 +121,7 @@ class PaymentHandler:
             endpoint_id=endpoint_id,
             user_email=user_email,
             provider=gateway.PROVIDER_NAME,
-            external_id=reference_id,
+            client_reference=reference_id,
             checkout_url="",
             bundle_name=bundle.name,
             amount=bundle.amount,
@@ -142,11 +146,12 @@ class PaymentHandler:
         # because mark_paid/update_status guard on status='pending'.
         #
         # TODO: reconciliation. Stale PENDING rows (no webhook ever arrives —
-        # shared dev webhook URL, lost in transit, or Xendit didn't actually
-        # create the session) need a recovery path. Either lazy-poll Xendit's
-        # GET /payment_sessions/{id} on read for stale pendings, or run a
-        # background sweep. Both require storing payment_session_id alongside
-        # external_id; we currently only persist our own reference_id.
+        # shared dev webhook URL, lost in transit, or the provider didn't
+        # actually create the session) need a recovery path. Either
+        # lazy-poll the provider's GET session endpoint on read for stale
+        # pendings, or run a background sweep. Stripe rows now carry a
+        # provider_session_id for this; Xendit's API is addressable by our
+        # client_reference, so no separate id is needed there.
         try:
             result = await gateway.create_payment(
                 reference_id=reference_id,
@@ -168,46 +173,52 @@ class PaymentHandler:
             )
             raise
 
-        # 6. Patch in the checkout URL Xendit returned. set_checkout_url is
-        # guarded on status='pending', so if a webhook somehow flipped status
-        # in the meantime, the no-op is the right outcome.
+        # 6. Patch in the checkout URL the provider returned, plus the
+        # provider's session id when available (Stripe cs_…). Both writes are
+        # guarded on status='pending', so if a webhook flipped status before
+        # we got here the no-op is the right outcome.
         async with self._ledger() as ledger:
-            await ledger.invoices.set_checkout_url(invoice_id, result.checkout_url)
+            await ledger.invoices.set_checkout_metadata(
+                invoice_id,
+                checkout_url=result.checkout_url,
+                provider_session_id=result.provider_session_id,
+            )
             await ledger.commit()
 
         response_data["checkout_url"] = result.checkout_url
+        response_data["provider_session_id"] = result.provider_session_id
         return InvoiceResponse.model_validate(response_data)
 
     # ── Provider-scoped: webhook handling ──────────────────────────
 
-    async def handle_webhook(
-        self, provider: str, raw_payload: dict, callback_token: str
-    ) -> dict:
-        """Handle a provider webhook callback.
+    async def handle_webhook(self, provider: str, envelope: WebhookEnvelope) -> dict:
+        """Handle a webhook where the wallet is discovered via the invoice.
+
+        Used by providers whose signature can be verified independently of the
+        wallet lookup (Xendit's static x-callback-token, compared after
+        invoice → wallet resolution). For providers that sign the body itself
+        (Stripe HMAC), use `handle_webhook_for_wallet` so the wallet — and
+        thus the signing secret — is known before any body parsing happens.
 
         Idempotent: invoice status only transitions from PENDING; PAID credits
         are de-duped via the same status guard inside BalanceService.credit_invoice.
         """
         gateway = self._get_gateway(provider)
 
-        webhook_result = gateway.normalize_webhook(raw_payload)
+        webhook_result = gateway.normalize_webhook(envelope)
         if webhook_result is None:
-            # Provider sent a payload we can't / don't act on (unknown event,
-            # missing reference_id). Already logged inside normalize_webhook.
-            # Ack so the provider doesn't retry indefinitely.
             return {"status": "ignored", "reason": "unparseable or unhandled event"}
 
         async with self._ledger() as ledger:
-            invoice = await ledger.invoices.get_by_external_id(
-                webhook_result.external_id
+            invoice = await ledger.invoices.get_by_client_reference(
+                webhook_result.client_reference
             )
         if not invoice:
             logger.warning(
-                f"Webhook: invoice not found for external_id={webhook_result.external_id}"
+                f"Webhook: invoice not found for client_reference={webhook_result.client_reference}"
             )
             return {"status": "ignored", "reason": "invoice not found"}
 
-        # Verify webhook authenticity using the invoice's wallet
         if not invoice.wallet_id:
             logger.error(f"Webhook: invoice {invoice.id} has no wallet_id")
             raise HTTPException(status_code=500, detail="Invoice missing wallet")
@@ -217,11 +228,72 @@ class PaymentHandler:
                 f"Webhook: wallet {invoice.wallet_id} not found for invoice {invoice.id}"
             )
             raise HTTPException(status_code=500, detail="Wallet not found")
-        gateway.verify_webhook(callback_token, wallet)
+        gateway.verify_webhook(envelope, wallet)
 
-        # PAID is the only status that touches balance; status transition and
-        # balance increment must be atomic. Other terminal statuses (EXPIRED,
-        # FAILED) just flip status with no balance side-effect.
+        return await self._apply_webhook_result(invoice, webhook_result)
+
+    async def handle_webhook_for_wallet(
+        self,
+        provider: str,
+        wallet_id: UUID,
+        envelope: WebhookEnvelope,
+    ) -> dict:
+        """Handle a webhook scoped to a specific wallet via URL path.
+
+        For providers that sign the body itself (Stripe HMAC-SHA256), we
+        cannot trust any field of the body until the signature is verified,
+        so we cannot use the body to look up the wallet. The wallet_id is
+        carried in the URL path instead; the gateway verifies first, then
+        we look up the invoice for the state transition.
+
+        Returns a generic 403 on wallet-not-found / type-mismatch so that
+        invalid URLs don't double as a wallet-id enumeration oracle.
+        """
+        gateway = self._get_gateway(provider)
+
+        wallet = await self.wallet_repo.get_by_id_unscoped(wallet_id)
+        if not wallet or wallet.wallet_type != provider:
+            raise HTTPException(status_code=403, detail="Invalid webhook target")
+
+        gateway.verify_webhook(envelope, wallet)
+
+        webhook_result = gateway.normalize_webhook(envelope)
+        if webhook_result is None:
+            return {"status": "ignored", "reason": "unparseable or unhandled event"}
+
+        async with self._ledger() as ledger:
+            invoice = await ledger.invoices.get_by_client_reference(
+                webhook_result.client_reference
+            )
+        if not invoice:
+            logger.warning(
+                f"Webhook: invoice not found for client_reference={webhook_result.client_reference}"
+            )
+            return {"status": "ignored", "reason": "invoice not found"}
+
+        # Defense-in-depth: the URL-stamped wallet must own this invoice.
+        # Prevents a tenant from forging a webhook against another tenant's
+        # invoice using their own (valid) signing secret.
+        if invoice.wallet_id != wallet.id:
+            logger.error(
+                f"Webhook wallet/invoice mismatch: "
+                f"url_wallet={wallet.id} invoice_wallet={invoice.wallet_id}"
+            )
+            raise HTTPException(status_code=403, detail="Wallet mismatch")
+
+        return await self._apply_webhook_result(invoice, webhook_result)
+
+    async def _apply_webhook_result(
+        self,
+        invoice: Invoice,
+        webhook_result: WebhookResult,
+    ) -> dict:
+        """Atomic state transition shared by both webhook entry points.
+
+        PAID touches balance via BalanceService.credit_invoice; non-PAID
+        transitions just flip status. Both paths are idempotent through
+        invoice_repository status guards.
+        """
         if webhook_result.status == InvoiceStatus.PAID:
             applied = await self.balance_service.credit_invoice(
                 invoice=invoice,

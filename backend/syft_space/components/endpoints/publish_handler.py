@@ -27,7 +27,7 @@ from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
-from syft_space.components.wallets.gateway.xendit.config import XenditWalletConfig
+from syft_space.components.wallets.interfaces import WalletProvider
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.config import app_settings
 
@@ -44,6 +44,7 @@ class PublishEndpointHandler:
         dataset_registry: DatasetTypeRegistry,
         model_registry: ModelTypeRegistry,
         wallet_repository: WalletRepository | None = None,
+        wallet_providers: dict[str, WalletProvider] | None = None,
     ):
         self.endpoint_repository = endpoint_repository
         self.marketplace_repository = marketplace_repository
@@ -52,6 +53,7 @@ class PublishEndpointHandler:
         self.dataset_registry = dataset_registry
         self.model_registry = model_registry
         self.wallet_repository = wallet_repository
+        self.wallet_providers = wallet_providers or {}
 
     async def publish_endpoint(
         self,
@@ -467,21 +469,25 @@ class PublishEndpointHandler:
             # URLs are identical across endpoints sharing the same wallet —
             # balance is fungible across them.
             if policy.wallet_id and wallet is not None:
-                # Wire format: `type` is the provider (xendit/mpp);
+                # Wire format: `type` is the provider (xendit/stripe/mpp);
                 # `config.unit_type` is a typed field on the policy's
                 # config class, so it's already in policy.configuration.
                 policy_data["type"] = wallet.wallet_type
                 policy_data["config"]["currency"] = wallet.currency
                 if wallet.country:
                     policy_data["config"]["country"] = wallet.country
-                if wallet.wallet_type == "xendit":
-                    # Bundles drive the SyftHub purchase UI; without them
-                    # the marketplace has no plans to render.
-                    xendit_config = XenditWalletConfig(**wallet.configuration)
-                    policy_data["config"]["bundles"] = [
-                        {"name": b.name, "amount": b.amount}
-                        for b in xendit_config.prepaid_balance_bundles
-                    ]
+                # Prepaid-balance providers surface bundles + wallet-scoped
+                # URLs via the same fields so the SyftHub marketplace renders
+                # them uniformly. Each provider knows how to parse its own
+                # config; non-prepaid providers (MPP) return None.
+                provider = self.wallet_providers.get(wallet.wallet_type)
+                bundles = (
+                    provider.extract_bundles(wallet.configuration)
+                    if provider is not None
+                    else None
+                )
+                if bundles is not None:
+                    policy_data["config"]["bundles"] = bundles
                     if app_settings.public_url:
                         base = str(app_settings.public_url).rstrip("/")
                         policy_data["config"]["payment_url"] = (
