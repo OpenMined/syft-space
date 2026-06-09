@@ -1,7 +1,7 @@
 """drop legacy file_* columns from ingestion_jobs
 
 Revision ID: 758674b03ba7
-Revises: e95f227b8167
+Revises: f0a1b2c3d4e5
 Create Date: 2026-06-05 17:05:10.229827
 
 Completes the source-agnostic ``ingestion_jobs`` re-key. The file-shaped
@@ -23,7 +23,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "758674b03ba7"
-down_revision: str | None = "e95f227b8167"
+down_revision: str | None = "f0a1b2c3d4e5"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
