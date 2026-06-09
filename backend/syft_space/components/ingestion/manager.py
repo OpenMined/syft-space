@@ -12,8 +12,6 @@ manager treats every source uniformly.
 """
 
 import asyncio
-import json
-from pathlib import Path as SyncPath
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -67,13 +65,21 @@ class IngestionManager(LifecycleService):
         return dataset_type_cls(dataset.configuration)
 
     def _has_source(self, dataset: Dataset) -> bool:
-        """Whether this dataset's binding exposes a ``BaseSource`` instance."""
+        """Whether this dataset's binding exposes an active ``BaseSource``.
+
+        ``NoOpSource`` instances (used by externally-fed bindings like
+        remote Weaviate) are skipped — spawning a per-dataset task to
+        iterate an empty change stream is wasted bookkeeping.
+        """
         try:
             dataset_type = self._build_dataset_type(dataset)
         except Exception as e:
             logger.warning(f"Cannot build dataset_type for {dataset.id}: {e}")
             return False
-        return getattr(dataset_type, "source", None) is not None
+        source = getattr(dataset_type, "source", None)
+        if source is None:
+            return False
+        return not getattr(source, "IS_NOOP", False)
 
     # -------------------------------------------------------------------------
     # Lifecycle
@@ -267,37 +273,14 @@ class IngestionManager(LifecycleService):
             )
             return
 
-        file_size, file_mtime_ns = self._derive_legacy_file_fields(event.fingerprint)
         await self._ingestion_repository.upsert_by_external_id(
             tenant_id=tenant_id,
             dataset_id=dataset_id,
             external_id=event.external_id,
             fingerprint=event.fingerprint,
-            # Deprecated dual-write — will be removed with the legacy columns.
-            file_path=event.external_id,
-            file_name=SyncPath(event.external_id).name,
-            file_size=file_size,
-            file_mtime_ns=file_mtime_ns,
         )
         if self._job_signal is not None:
             self._job_signal.set()
-
-    @staticmethod
-    def _derive_legacy_file_fields(fingerprint: str | None) -> tuple[int, int]:
-        """Decode the LocalFileSource fingerprint into ``(size, mtime_ns)``.
-
-        Transitional dual-write helper. ``fingerprint`` is the canonical
-        change-detection token; the deprecated ``file_size`` /
-        ``file_mtime_ns`` columns still need values until they're
-        dropped. Non-decodable fingerprints (non-filesystem sources)
-        get zeros — those rows never reach chunking, since their
-        dataset_type is the consumer.
-        """
-        try:
-            data = json.loads(fingerprint) if fingerprint else {}
-        except (json.JSONDecodeError, TypeError):
-            data = {}
-        return int(data.get("size", 0)), int(data.get("mtime_ns", 0))
 
     # -------------------------------------------------------------------------
     # Job processing
@@ -365,7 +348,7 @@ class IngestionManager(LifecycleService):
             return
         source, dataset_type = resolved
 
-        external_id = job.external_id or job.file_path
+        external_id = job.external_id
         try:
             # Fingerprint-drift check via the source. Opaque string compare —
             # if the item changed since the job was queued, re-upsert with
@@ -375,19 +358,11 @@ class IngestionManager(LifecycleService):
                 current_fp = source.fingerprint(external_id)
                 if current_fp != job.fingerprint:
                     logger.info(f"Item changed during processing: {external_id}")
-                    file_size, file_mtime_ns = self._derive_legacy_file_fields(
-                        current_fp
-                    )
                     await self._ingestion_repository.upsert_by_external_id(
                         tenant_id=job.tenant_id,
                         dataset_id=job.dataset_id,
                         external_id=external_id,
                         fingerprint=current_fp,
-                        # Deprecated dual-write — will be removed with the legacy columns.
-                        file_path=external_id,
-                        file_name=job.file_name,
-                        file_size=file_size,
-                        file_mtime_ns=file_mtime_ns,
                     )
                     await self._ingestion_repository.update_status(
                         job.id,

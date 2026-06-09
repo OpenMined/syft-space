@@ -20,9 +20,15 @@ from syft_space.components.sources.interfaces import (
 
 
 class NoOpSource:
-    """No-op source. Lists nothing, fetches nothing, emits no events."""
+    """No-op source. Lists nothing, fetches nothing, emits no events.
+
+    ``IS_NOOP`` is read by the ingestion manager to skip spawning an
+    empty per-dataset task — bindings whose vector store is fed
+    externally don't need an ingest pipeline at all.
+    """
 
     NAME = "noop"
+    IS_NOOP = True
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.raw_config = config

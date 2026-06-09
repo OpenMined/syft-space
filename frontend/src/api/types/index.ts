@@ -109,9 +109,8 @@ export interface DatasetTypeInfoResponse {
 // Ingestion API types
 export interface IngestionJobResponse {
   id: string
-  file_path: string
-  file_name: string
-  file_size: number
+  external_id: string
+  fingerprint: string
   status: string
   error_message?: string
   retry_count: number
