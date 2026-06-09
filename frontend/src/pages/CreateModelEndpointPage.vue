@@ -10,7 +10,7 @@
     <div class="min-h-screen">
       <!-- Header -->
       <div class="bg-card border-b border-border">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div class="flex items-center justify-between">
             <Button
               variant="ghost"
@@ -25,7 +25,7 @@
       </div>
 
       <!-- Two-column layout -->
-      <div class="flex gap-12 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+      <div class="flex gap-12 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
         <!-- Left sidebar with steps -->
         <div class="w-80 flex-shrink-0">
           <div class="sticky top-8">
@@ -201,7 +201,7 @@
                   >
                     Review & Publish
                   </h3>
-                  <p class="body-sm text-muted-foreground mt-1">Final check and go live</p>
+                  <p class="body-sm text-muted-foreground mt-1">Final check and publish</p>
                   <div
                     v-if="currentSubStep > 4"
                     class="mt-2 body-sm text-primary bg-primary/10 px-2 py-1 rounded"
@@ -1497,10 +1497,10 @@ const checkNameAvailability = async (name: string) => {
       check_all_marketplaces: true,
     })
 
-    // Must be available locally and on all marketplaces
+    // Must be available locally; marketplaces with unknown status (null) don't block
     const localAvailable = response.local_available
     const marketplacesAvailable =
-      !response.marketplaces || response.marketplaces.every((m) => m.available)
+      !response.marketplaces || response.marketplaces.every((m) => m.available !== false)
 
     nameAvailabilityResult.value = localAvailable && marketplacesAvailable ? 'available' : 'taken'
   } catch (error) {
@@ -1611,7 +1611,7 @@ const nextStep = async () => {
       })
 
       const marketplacesAvailable =
-        !response.marketplaces || response.marketplaces.every((m) => m.available)
+        !response.marketplaces || response.marketplaces.every((m) => m.available !== false)
 
       if (!marketplacesAvailable) {
         // Show warning dialog if name is taken on any marketplace

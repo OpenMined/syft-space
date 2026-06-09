@@ -18,6 +18,7 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     from .access.access_type import EndpointAccessPolicy
     from .mpp.mpp_per_document import MppPerDocumentPolicy
     from .mpp.mpp_per_request import MppPerRequestPolicy
+    from .pii_filter.pii_filter_type import PiiFilterType
     from .rate_limit.rate_limit_type import EndpointRateLimitPolicy
     from .stripe.stripe_per_document import StripePerDocumentPolicy
     from .stripe.stripe_per_request import StripePerRequestPolicy
@@ -28,6 +29,7 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     registry.register_policy_type(EndpointAccessPolicy)
     registry.register_policy_type(MppPerRequestPolicy)
     registry.register_policy_type(MppPerDocumentPolicy)
+    registry.register_policy_type(PiiFilterType)
     registry.register_policy_type(XenditPerRequestPolicy)
     registry.register_policy_type(XenditPerDocumentPolicy)
     registry.register_policy_type(StripePerRequestPolicy)

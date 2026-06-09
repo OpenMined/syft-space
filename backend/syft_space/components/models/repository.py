@@ -40,7 +40,7 @@ class ModelRepository(AsyncBaseRepository[Model]):
             result = await session.exec(statement)
             return list(result.all())
 
-    async def get_by_id(self, id: int, tenant_id: UUID) -> Model | None:
+    async def get_by_id(self, id: UUID, tenant_id: UUID) -> Model | None:
         """Get a model by ID within a tenant.
 
         Args:

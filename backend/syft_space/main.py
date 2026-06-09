@@ -153,6 +153,7 @@ from syft_space.components.wallets.handlers import WalletHandler
 from syft_space.components.wallets.mpp.provider import MppWalletProvider
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.routes import build_wallet_routes
+
 from syft_space.config import app_settings
 
 
@@ -450,7 +451,10 @@ set_rate_limit_storage(InMemoryRateLimitStorage())
 
 # Initialize handlers
 dataset_handler = DatasetHandler(
-    DATASET_TYPE_REGISTRY, dataset_repository, provisioner_state_repository
+    DATASET_TYPE_REGISTRY,
+    dataset_repository,
+    provisioner_state_repository,
+    endpoint_repository=endpoint_repository,
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 capability_checker = CapabilityChecker(

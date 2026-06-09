@@ -2,7 +2,7 @@
   <div class="min-h-screen">
     <!-- Header (like GitHub's new repo flow) -->
     <div class="border-b border-border">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div class="flex items-center">
           <button
             @click="router.push({ name: 'endpoints' })"
@@ -15,7 +15,7 @@
       </div>
     </div>
 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
       <!-- Heading with context -->
       <div class="mb-8">
         <div class="flex items-start justify-between">
@@ -201,7 +201,7 @@ const selectEndpointType = (type: 'data' | 'model') => {
   if (type === 'data') {
     router.push({ name: 'create-data-endpoint' })
   } else if (type === 'model') {
-    router.push({ name: 'create-model-endpoint' })
+    router.push({ name: 'go-live' })
   }
 }
 </script>

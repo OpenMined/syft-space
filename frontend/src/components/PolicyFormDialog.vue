@@ -9,10 +9,12 @@
           {{ isEditing ? 'Update this' : 'Create a new' }}
           {{
             policyType === 'access'
-              ? 'authorization'
+              ? 'access control'
               : policyType === 'rate_limit'
-                ? 'rate limiting'
-                : 'pricing'
+                ? 'usage limit'
+                : policyType === 'pricing'
+                  ? 'pricing'
+                  : 'PII filter'
           }}
           policy for this endpoint.
         </DialogDescription>
@@ -90,8 +92,8 @@
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="per user">For Each User</SelectItem>
-                  <SelectItem value="global">For This Endpoint</SelectItem>
+                  <SelectItem value="per user">Per User</SelectItem>
+                  <SelectItem value="global">Per Full API</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -155,6 +157,25 @@
             </div>
           </div>
         </div>
+
+        <!-- PII Filter Policy Form -->
+        <div v-if="policyType === 'pii_filter'" class="space-y-4">
+          <div class="rounded-lg border border-border bg-muted/40 px-4 py-3">
+            <p class="text-sm font-medium text-foreground">No configuration required</p>
+            <p class="text-xs text-muted-foreground mt-1">
+              The endpoint's AI model will evaluate its own response and replace any detected
+              personally identifiable information with [REDACTED] before returning it to the caller.
+            </p>
+          </div>
+          <div class="space-y-1">
+            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
+            <Input
+              v-model="piiFilterForm.note"
+              placeholder="Optional description"
+              class="h-9 rounded-lg border-border bg-card body-sm"
+            />
+          </div>
+        </div>
       </div>
 
       <DialogFooter>
@@ -201,6 +222,7 @@ import type {
   AuthorizationFormData,
   RateLimitFormData,
   PricingFormData,
+  PiiFilterFormData,
 } from '@/composables/usePolicyCreation'
 
 const props = defineProps<{
@@ -219,7 +241,6 @@ const { validatePolicyForm } = usePolicyCreation()
 
 const isEditing = computed(() => !!props.initialData)
 
-// Local form state
 const authorizationForm = ref<AuthorizationFormData>({
   ruleType: 'allow',
   users: '',
@@ -240,7 +261,10 @@ const pricingForm = ref<PricingFormData>({
   note: '',
 })
 
-// Get current form data based on policy type
+const piiFilterForm = ref<PiiFilterFormData>({
+  note: '',
+})
+
 const getCurrentFormData = () => {
   switch (props.policyType) {
     case 'access':
@@ -249,18 +273,18 @@ const getCurrentFormData = () => {
       return rateLimiterForm.value
     case 'pricing':
       return pricingForm.value
+    case 'pii_filter':
+      return piiFilterForm.value
     default:
       return null
   }
 }
 
-// Validation
 const isFormValid = computed(() => {
   const formData = getCurrentFormData()
   return formData ? validatePolicyForm(props.policyType, formData) : false
 })
 
-// Reset form to defaults
 const resetForm = (policyType: PolicyTypeId) => {
   switch (policyType) {
     case 'access':
@@ -272,10 +296,12 @@ const resetForm = (policyType: PolicyTypeId) => {
     case 'pricing':
       pricingForm.value = { price: '', userType: 'all', users: '', note: '' }
       break
+    case 'pii_filter':
+      piiFilterForm.value = { note: '' }
+      break
   }
 }
 
-// Load initial data into form
 const loadInitialData = (policyType: PolicyTypeId, data: Record<string, unknown>) => {
   switch (policyType) {
     case 'access':
@@ -301,10 +327,12 @@ const loadInitialData = (policyType: PolicyTypeId, data: Record<string, unknown>
         note: (data.note as string) || '',
       }
       break
+    case 'pii_filter':
+      piiFilterForm.value = { note: (data.note as string) || '' }
+      break
   }
 }
 
-// Initialize form when dialog opens
 watch(
   () => props.open,
   (isOpen) => {

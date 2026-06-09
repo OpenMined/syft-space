@@ -179,3 +179,12 @@ export const formatPrice = (price: number): string => {
 
   return priceStr
 }
+
+export const parseTags = (raw: string | string[] | undefined | null): string[] => {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.map((t) => t.trim()).filter(Boolean)
+  return raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+}

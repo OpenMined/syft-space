@@ -27,11 +27,6 @@
           <p class="text-sm text-destructive">{{ error }}</p>
         </div>
 
-        <!-- Empty State -->
-        <div v-else-if="models.length === 0" class="text-center py-6">
-          <p class="text-sm text-muted-foreground">No models available</p>
-        </div>
-
         <!-- Existing Models -->
         <div
           v-else
@@ -74,25 +69,14 @@
           </Label>
         </div>
 
-        <!-- Create New Model Option (outside radio group) -->
-        <div
-          class="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer border-border hover:bg-primary/5 dark:hover:bg-primary/10"
+        <!-- Create New Model Option -->
+        <button
+          class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mt-1 ml-1"
           @click="handleCreateModel"
         >
-          <!-- Spacer to maintain alignment with radio button items -->
-          <div class="w-4 h-4"></div>
-          <div class="flex items-center gap-3 cursor-pointer flex-1">
-            <div class="p-2 rounded bg-primary/10">
-              <Plus class="h-5 w-5 text-primary" />
-            </div>
-            <div class="flex-1">
-              <span class="font-medium">Create New Model</span>
-              <p class="text-sm text-muted-foreground mt-1">
-                Set up a new AI model for your endpoint
-              </p>
-            </div>
-          </div>
-        </div>
+          <Plus class="h-3.5 w-3.5" />
+          Add a new model
+        </button>
       </div>
     </RadioGroup>
   </div>

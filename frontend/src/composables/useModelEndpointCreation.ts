@@ -5,6 +5,7 @@ import { modelsApi } from '@/api/endpoints/models'
 import { getProviderBaseUrl } from '@/config/providers'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
+import { useEndpointsStore } from '@/stores/endpoints'
 import { usePolicyCreation } from './usePolicyCreation'
 import type { CreateModelRequest, CreateEndpointRequest, PolicyResponse } from '@/api/types'
 
@@ -39,10 +40,14 @@ export interface ModelEndpointCreationData {
   summary: string
   description: string
   tags: string[]
+  // Optional endpoint-level system prompt. Persisted on the endpoint so it
+  // wins over the underlying model's stored system prompt at query time.
+  systemPrompt?: string
 }
 
 export function useModelEndpointCreation() {
   const router = useRouter()
+  const endpointsStore = useEndpointsStore()
   const { transformPolicyRules } = usePolicyCreation()
 
   // State
@@ -112,6 +117,7 @@ export function useModelEndpointCreation() {
       model_id:
         modelId || (data.selectedModelSourceType === 'existing' ? data.selectedModelId : undefined),
       published: true,
+      system_prompt: data.systemPrompt || undefined,
     }
 
     const response = await endpointsApi.create(createRequest)
@@ -246,11 +252,10 @@ export function useModelEndpointCreation() {
       // Step 4: Publish endpoint to all marketplaces
       await publishEndpoint(data.endpointName)
 
-      // Success!
       creationStep.value = 'Complete!'
+      endpointsStore.invalidate()
       toast.success(`Model endpoint "${data.endpointName}" published successfully to SyftHub`)
 
-      // Navigate to the endpoint details page
       router.push({ name: 'endpoints' })
 
       return true

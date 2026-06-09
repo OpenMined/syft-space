@@ -63,6 +63,14 @@ class Endpoint(SQLModel, table=True):
         description="Whether endpoint is archived (no new purchases, still queryable)",
     )
     tags: str = Field(default="", description="Comma-separated tags")
+    system_prompt: str | None = Field(
+        default=None,
+        description=(
+            "Custom system prompt to override the model's default at request time. "
+            "When set, it is prepended (or replaces the first system message) on "
+            "every chat invocation."
+        ),
+    )
     published_to: list[str] = Field(
         default_factory=list,
         sa_column=Column(JSON),

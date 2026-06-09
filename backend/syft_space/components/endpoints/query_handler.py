@@ -1,5 +1,7 @@
 """Query endpoint handler — RAG pipeline with policy enforcement."""
 
+from typing import Any
+
 from fastapi import HTTPException
 from loguru import logger
 
@@ -198,7 +200,12 @@ class QueryEndpointHandler:
                 response_type in [ResponseType.SUMMARY, ResponseType.BOTH]
                 and endpoint.model_id
             ):
-                summary = await self._chat_with_model(endpoint, request, references)
+                summary, _model_instance, _model_id = await self._chat_with_model(
+                    endpoint, request, references
+                )
+                if "pii_filter" in configs_by_type:
+                    policy_context.metadata["model_instance"] = _model_instance
+                    policy_context.metadata["model_id"] = _model_id
 
             # Create response
             query_response = QueryEndpointResponse(
@@ -225,7 +232,7 @@ class QueryEndpointHandler:
                         detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
                     ) from e
 
-            # Extract payment receipt header if present (set by MppAccountingPolicy post-hook)
+            # Extract payment receipt header if present (set by MPP payment policy post-hook)
             payment_receipt = policy_context.metadata.get("payment_receipt_header")
 
             final_response = QueryEndpointResponse.model_validate(
@@ -324,7 +331,7 @@ class QueryEndpointHandler:
         endpoint: Endpoint,
         request: AuthenticatedQueryRequest,
         references: ReferencesResponse | None,
-    ) -> SummaryResponse:
+    ) -> tuple[SummaryResponse, Any, str]:
         """Chat with the model linked to this endpoint."""
         model = await self.model_repository.get_by_id(
             endpoint.model_id, endpoint.tenant_id
@@ -392,7 +399,7 @@ class QueryEndpointHandler:
             )
             raise HTTPException(status_code=500, detail="Model returned no messages")
 
-        return SummaryResponse(
+        summary = SummaryResponse(
             id=chat_result.id,
             model=chat_result.model,
             message=MessageResponse(
@@ -408,3 +415,4 @@ class QueryEndpointHandler:
             ),
             provider_info=ProviderInfo(api_version="v1"),
         )
+        return summary, model_instance, str(model.id)

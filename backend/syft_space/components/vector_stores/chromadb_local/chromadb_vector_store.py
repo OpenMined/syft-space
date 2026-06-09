@@ -356,7 +356,7 @@ class ChromaDBLocalVectorStore:
 
         similarity_threshold = (
             params.similarity_threshold
-            if params.similarity_threshold
+            if params.similarity_threshold is not None
             else DEFAULT_SIMILARITY_THRESHOLD
         )
 

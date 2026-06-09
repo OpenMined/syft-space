@@ -1,7 +1,15 @@
 import { Shield, Gauge, DollarSign } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
-export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing'
+export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing' | 'pii_filter'
+
+export type PaymentPolicyType =
+  | 'mpp_per_request'
+  | 'xendit_per_request'
+  | 'stripe_per_request'
+  | 'mpp_per_document'
+  | 'xendit_per_document'
+  | 'stripe_per_document'
 
 export interface PolicyConfig {
   id: string
@@ -28,7 +36,7 @@ export type PolicyRulesRecord = Record<PolicyTypeId, PolicyRule[]>
 export const POLICY_TYPES: PolicyType[] = [
   {
     id: 'access',
-    name: 'Authorization',
+    name: 'Access Control',
     label: 'Who can access?',
     description: 'Control who can use your content - everyone, specific users, or by invitation',
     icon: Shield,
@@ -36,7 +44,7 @@ export const POLICY_TYPES: PolicyType[] = [
   },
   {
     id: 'rate_limit',
-    name: 'Rate Limiter',
+    name: 'Usage Limits',
     label: 'Prevent overuse',
     description: 'Limit how many queries each user can make per day or hour',
     icon: Gauge,
@@ -55,11 +63,13 @@ export const POLICY_TYPES: PolicyType[] = [
 export const getPolicyTypeLabel = (type: string): string => {
   switch (type) {
     case 'access':
-      return 'Authorization'
+      return 'Access Control'
     case 'rate_limit':
-      return 'Rate Limiting'
+      return 'Usage Limits'
     case 'pricing':
       return 'Pricing'
+    case 'pii_filter':
+      return 'PII Filter'
     default:
       return 'Policy'
   }
@@ -69,10 +79,11 @@ export const createEmptyPolicyRules = (): PolicyRulesRecord => ({
   access: [],
   rate_limit: [],
   pricing: [],
+  pii_filter: [],
 })
 
 export const generateRuleId = (): string => {
-  return 'rule_' + Math.random().toString(36).substr(2, 9)
+  return 'rule_' + Math.random().toString(36).slice(2, 11)
 }
 
 export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): string => {
@@ -94,7 +105,7 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
     case 'rate_limit':
       if (!config.limit) return 'No limit configured'
       {
-        const scope = config.scope === 'global' ? 'for this endpoint' : 'per user'
+        const scope = config.scope === 'global' ? 'for full API' : 'per user'
         return `${config.limit} requests per ${config.windowUnit} ${scope}`
       }
 
@@ -140,6 +151,9 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
           return `${formattedPrice} ${currency} per query for ${userList.join(', ')}`
         }
       }
+
+    case 'pii_filter':
+      return 'AI-powered PII redaction enabled'
 
     default:
       return 'Rule configured'

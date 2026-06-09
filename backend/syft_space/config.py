@@ -108,6 +108,12 @@ class AppSettings(BaseSettings):
         description="Interval in seconds between endpoint health checks",
     )
 
+    # Local chat settings
+    chat_timeout_seconds: float = Field(
+        default=60.0,
+        description="Timeout in seconds for local chat model/dataset calls",
+    )
+
     @field_validator("public_url", mode="before")
     @classmethod
     def validate_public_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
