@@ -1,0 +1,31 @@
+name: Publish Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  sync-latest-json:
+    name: Sync latest.json release notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download generated latest.json
+        run: gh release download "$RELEASE_TAG" --pattern latest.json --dir release-assets --clobber
+
+      - name: Sync published release notes
+        run: |
+          python .github/scripts/sync_latest_json_release_notes.py \
+            "$RELEASE_TAG" \
+            --latest-json release-assets/latest.json \
+            --output latest.json
+
+      - name: Upload latest.json
+        run: gh release upload "$RELEASE_TAG" latest.json --clobber
