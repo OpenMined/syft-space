@@ -68,13 +68,15 @@ end user.
 | `GET /api/v1/health` | none | Liveness |
 | `POST /api/v1/endpoints/{slug}/query` | SyftHub token | Query a published endpoint |
 | `GET /api/v1/datasets/{name}/health` | none | Dataset health |
+| `GET /api/v1/datasets/{id}/images/{doc_id}/{filename}` | none | Serve a document image (page render / extracted picture) |
 | `GET /api/v1/models/{name}/health` | none | Model health |
-| `POST /api/v1/feedback/` | none | Submit feedback |
+| `POST /api/v1/feedback` | none | Submit feedback |
 | `POST /api/v1/payments/gateway/wallets/{id}/invoices` | SyftHub token | Buy credits (create invoice) |
 | `GET /api/v1/payments/gateway/wallets/{id}/balance` | SyftHub token | A user's own prepaid balance |
 | `GET /api/v1/payments/gateway/wallets/{id}/invoices/me` | SyftHub token | A user's own invoices |
 | `GET /api/v1/payments/gateway/wallets/{id}/transactions/me` | SyftHub token | A user's own transactions |
-| `POST /api/v1/payments/gateway/{provider}/webhooks` | provider signature | Stripe/Xendit callbacks |
+| `POST /api/v1/payments/gateway/stripe/webhooks/{wallet_id}` | provider signature | Stripe payment callbacks |
+| `POST /api/v1/payments/gateway/xendit/webhooks` | provider signature | Xendit payment callbacks |
 
 ## The query endpoint
 
