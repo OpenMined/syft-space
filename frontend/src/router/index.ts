@@ -3,17 +3,17 @@ import HomePage from '../pages/HomePage.vue'
 import EndpointsPage from '../pages/EndpointsPage.vue'
 import DatasetsPage from '../pages/DatasetsPage.vue'
 import ModelsPage from '../pages/ModelsPage.vue'
-import InboxPage from '../pages/InboxPage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
 import AnalyticsPage from '../pages/AnalyticsPage.vue'
 import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
 import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
 import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
-import CreateModelEndpointPage from '../pages/CreateModelEndpointPage.vue'
 import UpdatesPage from '../pages/UpdatesPage.vue'
 import AboutPage from '../pages/AboutPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
+import GoLivePage from '../pages/GoLivePage.vue'
+import ChatPage from '../pages/ChatPage.vue'
 import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 import { settingsApi } from '../api/endpoints/settings'
@@ -89,9 +89,9 @@ const router = createRouter({
       component: ModelDetailPage,
     },
     {
-      path: '/inbox',
-      name: 'inbox',
-      component: InboxPage,
+      path: '/chat',
+      name: 'chat',
+      component: ChatPage,
     },
     {
       path: '/analytics',
@@ -104,14 +104,14 @@ const router = createRouter({
       component: SettingsPage,
     },
     {
+      path: '/go-live',
+      name: 'go-live',
+      component: GoLivePage,
+    },
+    {
       path: '/create/data-endpoint',
       name: 'create-data-endpoint',
       component: CreateDataEndpointPage,
-    },
-    {
-      path: '/create/model-endpoint',
-      name: 'create-model-endpoint',
-      component: CreateModelEndpointPage,
     },
     {
       path: '/updates',

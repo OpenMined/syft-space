@@ -39,11 +39,7 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
         tenant_id: UUID,
         dataset_id: UUID,
         external_id: str,
-        fingerprint: str | None,
-        file_path: str,
-        file_name: str,
-        file_size: int,
-        file_mtime_ns: int,
+        fingerprint: str,
     ) -> IngestionJob:
         """Create or update an ingestion job by source-unique id.
 
@@ -55,11 +51,6 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
         The fingerprint comparison is an opaque string equality check —
         sources define the format (see ``BaseSource.fingerprint``); the
         repository treats it as a blob.
-
-        ``file_path`` / ``file_name`` / ``file_size`` / ``file_mtime_ns`` are
-        deprecated columns dual-written alongside ``external_id`` /
-        ``fingerprint`` and derived by the caller from the source event.
-        They will be dropped once nothing reads from them.
         """
         async with self.db.get_session() as session:
             result = await session.exec(
@@ -83,9 +74,6 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                     return existing
 
                 existing.fingerprint = fingerprint
-                # Deprecated dual-write — will be removed with the legacy columns.
-                existing.file_size = file_size
-                existing.file_mtime_ns = file_mtime_ns
                 existing.status = IngestionJobStatus.PENDING.value
                 existing.error_message = None
                 existing.updated_at = now
@@ -103,11 +91,6 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                     dataset_id=dataset_id,
                     external_id=external_id,
                     fingerprint=fingerprint,
-                    # Deprecated dual-write — will be removed with the legacy columns.
-                    file_path=file_path,
-                    file_name=file_name,
-                    file_size=file_size,
-                    file_mtime_ns=file_mtime_ns,
                     status=IngestionJobStatus.PENDING.value,
                     created_at=now,
                     updated_at=now,

@@ -149,6 +149,44 @@ def build_endpoint_routes(
 
         return response
 
+    @router.post("/{slug}/preview", response_model=QueryEndpointResponse)
+    async def preview_endpoint(
+        slug: str,
+        request: QueryEndpointRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PublishEndpointHandler = Depends(get_publish_handler),
+        qhandler: QueryEndpointHandler = Depends(get_query_handler),
+    ) -> QueryEndpointResponse | JSONResponse:
+        """Preview an endpoint as the space owner (admin auth, full policy pipeline).
+
+        Identical to /query but uses admin auth so the owner can test exactly
+        what external users experience — policies, filters, and all.
+        """
+        marketplace = await handler.marketplace_repository.get_default(tenant.id)
+        sender_email = marketplace.email if marketplace else "owner@localhost.local"
+
+        auth_request = AuthenticatedQueryRequest.from_request(request, sender_email)
+
+        try:
+            response, payment_receipt = await qhandler.query_endpoint(
+                slug, auth_request, tenant, x_payment=None
+            )
+        except PaymentRequiredError as e:
+            return JSONResponse(
+                status_code=402,
+                content={"detail": e.description or "Payment required"},
+                headers={"WWW-Authenticate": e.www_authenticate},
+            )
+
+        if payment_receipt:
+            return JSONResponse(
+                status_code=200,
+                content=response.model_dump(),
+                headers={"Payment-Receipt": payment_receipt},
+            )
+
+        return response
+
     # ── Publish routes (PublishEndpointHandler) ──────────────────
 
     @router.post("/validate-slug", response_model=SlugAvailabilityResponse)

@@ -64,6 +64,7 @@ export interface EndpointListItem {
   response_type: string
   published: boolean
   tags: string
+  system_prompt?: string | null
   created_at: string
   model?: {
     id: string
@@ -108,9 +109,8 @@ export interface DatasetTypeInfoResponse {
 // Ingestion API types
 export interface IngestionJobResponse {
   id: string
-  file_path: string
-  file_name: string
-  file_size: number
+  external_id: string
+  fingerprint: string
   status: string
   error_message?: string
   retry_count: number
@@ -245,6 +245,7 @@ export interface CreateEndpointRequest {
   response_type?: string
   published?: boolean
   tags?: string
+  system_prompt?: string | null
 }
 
 export interface AttachedPolicy {
@@ -266,6 +267,7 @@ export interface EndpointResponse {
   response_type: string
   published: boolean
   tags: string
+  system_prompt?: string | null
   created_at: string
   updated_at: string
   // Fields included in detail response
@@ -389,7 +391,7 @@ export interface SlugAvailabilityResponse {
   marketplaces?: Array<{
     marketplace_id: string
     marketplace_name: string
-    available: boolean
+    available: boolean | null
     error?: string
   }> | null
 }
@@ -425,6 +427,7 @@ export interface UpdateEndpointRequest {
   name?: string
   summary?: string
   description?: string
+  system_prompt?: string | null
 }
 
 // Feedback API types
@@ -455,6 +458,60 @@ export interface DiagnosticsResponse {
 
 export interface UpdateDiagnosticsRequest {
   enabled: boolean
+}
+
+// Endpoint query API types
+export interface EndpointQueryMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+export interface EndpointQueryRequest {
+  messages: EndpointQueryMessage[]
+  max_tokens?: number
+  temperature?: number
+  similarity_threshold?: number
+  limit?: number
+  stop_sequences?: string[]
+}
+
+export interface ChatDocumentResponse {
+  document_id: string
+  content: string
+  metadata: Record<string, unknown>
+  similarity_score: number
+  source_endpoint_slug?: string
+  source_endpoint_name?: string
+}
+
+export interface ChatReferencesResponse {
+  documents: ChatDocumentResponse[]
+  search_engine: string | null
+}
+
+export interface ChatMessageResponse {
+  role: string
+  content: string
+  tokens: number
+}
+
+export interface ChatTokenUsage {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
+export interface ChatSummaryResponse {
+  id: string
+  model: string
+  message: ChatMessageResponse
+  finish_reason: string
+  usage: ChatTokenUsage
+}
+
+export interface EndpointQueryResponse {
+  summary: ChatSummaryResponse | null
+  references: ChatReferencesResponse | null
 }
 
 // Wallet API types

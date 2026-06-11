@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import AppNavbar from './components/AppNavbar.vue'
+import AppLayout from './components/AppLayout.vue'
 import FeedbackButton from './components/FeedbackButton.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import { useTheme } from './composables/useTheme'
@@ -12,8 +12,6 @@ import 'vue-sonner/style.css'
 
 const route = useRoute()
 
-// In Tauri, intercept external link clicks and open them in the system browser.
-// Uses capture phase so it fires before any @click.stop handlers on individual elements.
 const handleExternalLinkClick = (e: MouseEvent) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tauri = (window as any).__TAURI__ as
@@ -41,25 +39,25 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', handleExternalLinkClick, true)
 })
+
 const serverStore = useServerAvailabilityStore()
 
 const isUpdatesPage = computed(() => route.name === 'updates')
 const isAboutPage = computed(() => route.name === 'about')
+const isStandalonePage = computed(() => isUpdatesPage.value || isAboutPage.value)
 
-const showNavbar = computed(
+const showSidebar = computed(
   () =>
     route.name !== 'create' &&
     !route.path.startsWith('/create/') &&
+    !route.path.startsWith('/go-live') &&
     !route.path.startsWith('/experimental') &&
-    !isUpdatesPage.value &&
-    !isAboutPage.value &&
+    !isStandalonePage.value &&
     route.name !== 'onboarding',
 )
 
-// Initialize theme support
 useTheme()
 
-// Fetch global data once the server is ready
 watch(
   () => serverStore.isReady,
   (ready) => {
@@ -72,20 +70,19 @@ watch(
 </script>
 
 <template>
-  <SplashScreen
-    v-if="!serverStore.isReady && !isUpdatesPage && !isAboutPage"
-    :is-slow="serverStore.isSlow"
-  />
-  <div v-else class="min-h-screen bg-background text-foreground">
-    <AppNavbar v-if="showNavbar" />
-
-    <main>
+  <SplashScreen v-if="!serverStore.isReady && !isStandalonePage" :is-slow="serverStore.isSlow" />
+  <template v-else>
+    <!-- Sidebar layout for main app -->
+    <AppLayout v-if="showSidebar">
       <router-view />
-    </main>
+    </AppLayout>
 
-    <FeedbackButton v-if="!isUpdatesPage && !isAboutPage" />
+    <!-- Full-screen layout for standalone/create/onboarding pages -->
+    <div v-else class="min-h-screen bg-background text-foreground">
+      <router-view />
+    </div>
+
+    <FeedbackButton v-if="!isStandalonePage" />
     <Toaster position="top-center" />
-  </div>
+  </template>
 </template>
-
-<style scoped></style>

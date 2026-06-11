@@ -12,15 +12,15 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from syft_space.components.dataset_types.interfaces import (
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse,
+    HealthcheckStatus,
+)
+from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
     SearchParameters,
     SearchResult,
-)
-from syft_space.components.shared.domain_types import (
-    HealthcheckResponse,
-    HealthcheckStatus,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.vector_stores.weaviate_remote.filters import (
@@ -42,9 +42,15 @@ except ImportError:
 
 
 class WeaviateVectorStore:
-    """Remote Weaviate vector store — search and healthcheck only."""
+    """Remote Weaviate vector store — search and healthcheck only.
+
+    The cluster is provisioned outside this process, so there is no
+    ``PROVISIONER_CLS``; the binding's provisioner step is skipped at
+    dataset creation time.
+    """
 
     NAME = "weaviate_remote"
+    PROVISIONER_CLS = None
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate remote vector store.
@@ -138,7 +144,7 @@ class WeaviateVectorStore:
 
         similarity_threshold = (
             params.similarity_threshold
-            if params.similarity_threshold
+            if params.similarity_threshold is not None
             else DEFAULT_SIMILARITY_THRESHOLD
         )
 

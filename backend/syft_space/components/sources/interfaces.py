@@ -12,7 +12,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from syft_space.components.dataset_types.interfaces import IngestFile
+from syft_space.components.shared.ingest_types import IngestFile
 
 
 class SourceItem(BaseModel):

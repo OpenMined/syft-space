@@ -2,24 +2,21 @@
   <Dialog v-model:open="isOpen">
     <DialogContent class="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle class="heading-3">{{
-          props.model ? 'Edit Model' : 'Create Model'
-        }}</DialogTitle>
+        <DialogTitle class="heading-3">{{ props.model ? 'Edit Model' : 'Add Model' }}</DialogTitle>
       </DialogHeader>
 
       <div class="space-y-6 mt-6">
-        <!-- Model Name -->
+        <!-- Name -->
         <div class="space-y-2">
           <Label for="model-name" class="text-sm font-medium">
-            Model Name <span class="text-red-500">*</span>
+            Name <span class="text-red-500">*</span>
           </Label>
           <Input
             id="model-name"
             v-model="formData.name"
-            placeholder="e.g., Legal AI Assistant"
+            placeholder="e.g., legal-ai-assistant"
             class="w-full"
           />
-          <p class="text-sm text-muted-foreground">Give your model a descriptive name</p>
         </div>
 
         <!-- Provider (only show when creating) -->
@@ -37,7 +34,6 @@
               </SelectItem>
             </SelectContent>
           </Select>
-          <p class="text-sm text-muted-foreground">Choose your AI model provider</p>
         </div>
 
         <!-- Base URL (shown when custom provider is selected) -->
@@ -51,27 +47,22 @@
             placeholder="https://your-api.example.com/v1"
             class="w-full"
           />
-          <p class="text-sm text-muted-foreground">
-            The OpenAI-compatible API base URL for your provider
-          </p>
+          <p class="text-xs text-muted-foreground">OpenAI-compatible API endpoint</p>
         </div>
 
         <!-- API Key (shown after provider is selected) -->
         <div v-if="!props.model && formData.provider" class="space-y-2">
           <Label for="api-key" class="text-sm font-medium">
-            {{ getProviderLabel(formData.provider) }} API Key
+            API Key
             <span class="text-red-500">*</span>
           </Label>
           <Input
             id="api-key"
             v-model="formData.apiKey"
             type="password"
-            :placeholder="`Enter your ${getProviderLabel(formData.provider)} API key`"
+            :placeholder="`Your ${getProviderLabel(formData.provider)} API key`"
             class="w-full"
           />
-          <p class="text-sm text-muted-foreground">
-            Models will be fetched automatically after entering your key
-          </p>
         </div>
 
         <!-- Model (shown after API key is entered) -->
@@ -87,45 +78,39 @@
             :disabled="isLoadingModels"
             placeholder="Select a model"
           />
-          <p v-if="isLoadingModels" class="text-sm text-muted-foreground">
-            Fetching available models...
-          </p>
-          <p v-else-if="hasModelsFetched" class="text-sm text-muted-foreground">
-            {{ providerModels.length }} models available
+          <p v-if="isLoadingModels" class="text-xs text-muted-foreground">Fetching models...</p>
+          <p v-else-if="hasModelsFetched" class="text-xs text-muted-foreground">
+            {{ providerModels.length }} available
           </p>
         </div>
 
         <!-- Summary -->
         <div class="space-y-2">
-          <Label for="summary" class="text-sm font-medium"> Summary (Optional) </Label>
+          <Label for="summary" class="text-sm font-medium"> Summary </Label>
           <Input
             id="summary"
             v-model="formData.summary"
-            placeholder="Describe what this model does and how it can be used..."
+            placeholder="What does this model do?"
             class="w-full"
           />
-          <p class="text-sm text-muted-foreground">
-            A brief description of your model's capabilities
-          </p>
         </div>
 
         <!-- Tags -->
         <div class="space-y-2">
-          <Label for="topics" class="text-sm font-medium"> Tags (Optional) </Label>
+          <Label for="topics" class="text-sm font-medium"> Tags </Label>
           <div class="space-y-2">
             <div class="flex gap-2">
               <Input
                 id="topics"
                 v-model="tagInput"
                 @keydown.enter.prevent="addTag"
-                placeholder="Add keywords like: legal, medical, research, finance"
+                placeholder="e.g., legal, medical, coding"
                 class="flex-1"
               />
               <Button @click="addTag" variant="outline" :disabled="!tagInput.trim()">
                 <Plus class="h-4 w-4" />
               </Button>
             </div>
-            <p class="text-sm text-muted-foreground">Tags help others discover your model</p>
 
             <!-- Popular Tags Suggestions -->
             <div class="flex items-center gap-2 flex-wrap">
@@ -167,7 +152,7 @@
       <DialogFooter class="mt-8">
         <Button variant="outline" @click="handleCancel"> Cancel </Button>
         <Button @click="handleCreate" :disabled="!isFormValid">
-          {{ props.model ? 'Update Model' : 'Create Model' }}
+          {{ props.model ? 'Save Changes' : 'Add Model' }}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -226,10 +211,8 @@ const emit = defineEmits<{
   'model-updated': []
 }>()
 
-// Popular tag suggestions
 const popularTags = ['legal', 'medical', 'research', 'finance', 'coding', 'creative', 'translation']
 
-// Form data
 const formData = ref({
   name: '',
   provider: '',
@@ -242,7 +225,6 @@ const formData = ref({
 
 const tagInput = ref('')
 
-// Provider models
 const providerRef = computed(() => formData.value.provider)
 const baseUrlRef = computed(() =>
   formData.value.provider === 'custom'
@@ -257,7 +239,6 @@ const {
   hasFetched: hasModelsFetched,
 } = useProviderModels(baseUrlRef, apiKeyRef)
 
-// Computed properties
 const isOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
@@ -265,10 +246,8 @@ const isOpen = computed({
 
 const isFormValid = computed(() => {
   if (props.model) {
-    // For editing, only name is required
     return formData.value.name.trim() !== ''
   }
-  // For creating, all fields are required
   const baseValid = formData.value.provider !== 'custom' || formData.value.baseUrl.trim() !== ''
   return (
     formData.value.name.trim() !== '' &&
@@ -279,7 +258,6 @@ const isFormValid = computed(() => {
   )
 })
 
-// Reset model selection when provider or API key changes
 watch(providerRef, () => {
   formData.value.model = ''
   if (formData.value.provider !== 'custom') {
@@ -290,7 +268,6 @@ watch(apiKeyRef, () => {
   formData.value.model = ''
 })
 
-// Methods
 const addTag = () => {
   const tag = tagInput.value.trim().toLowerCase()
   if (tag && !formData.value.tags.includes(tag)) {
@@ -321,7 +298,6 @@ const handleCreate = async () => {
 
   try {
     if (props.model) {
-      // Update existing model
       const updateRequest = {
         name: formData.value.name,
         summary: formData.value.summary || '',
@@ -330,9 +306,8 @@ const handleCreate = async () => {
 
       await modelsApi.update(props.model.name, updateRequest)
       emit('model-updated')
-      toast.success(`Model "${modelName}" updated successfully`)
+      toast.success(`"${modelName}" updated`)
     } else {
-      // Create new model
       const createRequest: CreateModelRequest = {
         name: formData.value.name,
         dtype: 'openai',
@@ -340,7 +315,7 @@ const handleCreate = async () => {
           api_key: formData.value.apiKey,
           model: formData.value.model,
           base_url: formData.value.baseUrl || getProviderBaseUrl(formData.value.provider),
-          system_prompt: '', // Default empty system prompt
+          system_prompt: '',
         },
         summary: formData.value.summary || '',
         tags: formData.value.tags.join(', '),
@@ -348,14 +323,14 @@ const handleCreate = async () => {
 
       await modelsApi.create(createRequest)
       emit('model-created')
-      toast.success(`Model "${modelName}" created successfully`)
+      toast.success(`"${modelName}" added`)
     }
 
     resetForm()
     isOpen.value = false
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-    const action = props.model ? 'update' : 'create'
+    const action = props.model ? 'save' : 'add'
     toast.error(`Failed to ${action} model: ${errorMessage}`)
   }
 }
@@ -373,7 +348,6 @@ const resetForm = () => {
   tagInput.value = ''
 }
 
-// Watch for model prop changes to populate edit form
 watch(
   () => props.model,
   (model) => {
@@ -389,7 +363,6 @@ watch(
           : Array.isArray(model.tags)
             ? model.tags
             : []
-      // For editing, we don't need to populate provider/model/apiKey as these are typically not editable
     } else {
       resetForm()
     }

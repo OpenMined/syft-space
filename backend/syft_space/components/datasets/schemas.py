@@ -261,7 +261,9 @@ class ProvisionerInfoResponse(BaseModel):
     """
 
     id: UUID = Field(..., description="Provisioner state ID")
-    dtype: str = Field(..., description="Dataset type this provisioner serves")
+    vector_store_type: str = Field(
+        ..., description="Vector store this provisioner serves"
+    )
     status: str = Field(
         ..., description="Database status (starting/running/stopped/error)"
     )
@@ -307,7 +309,7 @@ class ProvisionerInfoResponse(BaseModel):
         """
         return cls(
             id=state.id,
-            dtype=state.dtype,
+            vector_store_type=state.vector_store_type,
             status=state.status,
             actual_status=actual_status,
             dataset_count=dataset_count,

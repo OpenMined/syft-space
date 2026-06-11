@@ -2,8 +2,8 @@
   <Dialog :open="open" @update:open="$emit('update:open', $event)">
     <DialogContent class="sm:max-w-[600px] max-h-[90vh] flex flex-col">
       <DialogHeader>
-        <DialogTitle>Edit endpoint</DialogTitle>
-        <DialogDescription> Update the endpoint summary and description. </DialogDescription>
+        <DialogTitle>Edit API</DialogTitle>
+        <DialogDescription> Update the API summary and description. </DialogDescription>
       </DialogHeader>
       <div class="space-y-4 py-4 overflow-y-auto flex-1 -mr-6 pr-6">
         <div class="space-y-2">
@@ -132,7 +132,6 @@ const localDescription = ref('')
 const isSaving = ref(false)
 const isPreviewMode = ref(false)
 
-// Watch for endpoint changes to initialize form
 watch(
   () => props.endpoint,
   async (newEndpoint) => {
@@ -141,7 +140,6 @@ watch(
       localDescription.value = newEndpoint.description || ''
       isPreviewMode.value = false
 
-      // Fetch full endpoint details to get description if not provided
       if (!newEndpoint.description) {
         try {
           const fullEndpoint = await endpointsApi.get(newEndpoint.slug)
@@ -157,7 +155,6 @@ watch(
   { immediate: true },
 )
 
-// Reset when dialog closes
 watch(
   () => props.open,
   (isOpen) => {
@@ -177,18 +174,15 @@ const handleSave = async () => {
   isSaving.value = true
 
   try {
-    // Call the update API
     await endpointsApi.update(props.endpoint.slug, {
       summary: localSummary.value,
       description: localDescription.value || undefined,
     })
 
-    // Publish the endpoint to sync changes with SyftHub
     await endpointsApi.publish(props.endpoint.slug, {
       publish_to_all_marketplaces: true,
     })
 
-    // Emit saved event with the new data
     emit('saved', {
       summary: localSummary.value,
       description: localDescription.value,

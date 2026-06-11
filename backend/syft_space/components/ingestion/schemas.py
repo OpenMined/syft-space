@@ -10,15 +10,12 @@ class IngestionJobResponse(BaseModel):
     """Response model for a single ingestion job."""
 
     id: UUID = Field(..., description="Job UUID")
-    external_id: str | None = Field(
-        None, description="Source-unique identifier (path, post id, guid, ...)"
+    external_id: str = Field(
+        ..., description="Source-unique identifier (path, post id, guid, ...)"
     )
-    fingerprint: str | None = Field(
-        None, description="Source-defined change-detection token (opaque)"
+    fingerprint: str = Field(
+        ..., description="Source-defined change-detection token (opaque)"
     )
-    file_path: str = Field(..., description="Absolute file path")
-    file_name: str = Field(..., description="File name")
-    file_size: int = Field(..., description="File size in bytes")
     status: str = Field(..., description="Job status")
     error_message: str | None = Field(None, description="Error message if failed")
     retry_count: int = Field(..., description="Number of retry attempts")

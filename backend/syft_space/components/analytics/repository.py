@@ -132,9 +132,7 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
             )
             revenue_stmt = revenue_stmt.group_by(QueryCostLine.currency)
             revenue_result = await session.exec(revenue_stmt)
-            breakdown = [
-                (str(row[0]), float(row[1])) for row in revenue_result.all()
-            ]
+            breakdown = [(str(row[0]), float(row[1])) for row in revenue_result.all()]
 
             return (event_count, breakdown, distinct_users)
 
@@ -171,8 +169,7 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
             counts_stmt = counts_stmt.group_by(text("bucket")).order_by(text("bucket"))
             counts_result = await session.exec(counts_stmt)
             counts = [
-                (str(row[0]), int(row[1]), int(row[2]))
-                for row in counts_result.all()
+                (str(row[0]), int(row[1]), int(row[2])) for row in counts_result.all()
             ]
 
             revenue_stmt = select(
@@ -275,8 +272,7 @@ class QueryEventRepository(AsyncBaseRepository[QueryEvent]):
                 )
 
             return [
-                (email, count, revenue_by_user.get(email, []))
-                for email, count in top
+                (email, count, revenue_by_user.get(email, [])) for email, count in top
             ]
 
 

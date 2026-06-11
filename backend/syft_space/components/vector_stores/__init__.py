@@ -7,6 +7,7 @@ live in ``dataset_types/``.
 
 from syft_space.components.vector_stores.interfaces import (
     BaseVectorStore,
+    BaseVectorStoreProvisioner,
     IngestableVectorStore,
 )
 from syft_space.components.vector_stores.registry import (
@@ -18,6 +19,7 @@ from syft_space.components.vector_stores.registry import (
 __all__ = [
     "VECTOR_STORE_REGISTRY",
     "BaseVectorStore",
+    "BaseVectorStoreProvisioner",
     "IngestableVectorStore",
     "VectorStoreRegistry",
     "register_builtin_vector_stores",

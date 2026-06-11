@@ -26,22 +26,9 @@ class ProvisionerStatus(str, Enum):
 class ProvisionerBusyError(Exception):
     """Raised when provisioner is busy (STARTING/STOPPING) and cannot accept new operations."""
 
-    def __init__(self, dtype: str, current_status: str):
-        self.dtype = dtype
-        self.current_status = current_status
-        super().__init__(f"Provisioner for '{dtype}' is busy ({current_status})")
-
 
 class InvalidProvisionerTransitionError(Exception):
     """Raised when an invalid status transition is attempted."""
-
-    def __init__(self, dtype: str, from_status: str | None, to_status: str):
-        self.dtype = dtype
-        self.from_status = from_status
-        self.to_status = to_status
-        super().__init__(
-            f"Cannot transition provisioner for '{dtype}' from {from_status} to {to_status}"
-        )
 
 
 class Dataset(SQLModel, table=True):
@@ -111,22 +98,26 @@ class Dataset(SQLModel, table=True):
 
 
 class ProvisionerState(SQLModel, table=True):
-    """Provisioner state tracking for shared dataset provisioners.
+    """Provisioner state tracking for shared vector-store provisioners.
 
-    One provisioner state per dtype - multiple datasets can share the same provisioner.
+    One provisioner state per ``vector_store_type``; every binding that
+    composes that vector store shares the row (so e.g. a future
+    ``wordpress_chromadb`` binding shares the running chroma subprocess
+    with the existing ``local_file`` binding).
     """
 
     __tablename__ = "provisioner_states"
     __table_args__ = (
-        # Unique constraint on dtype ensures one provisioner per dataset type
-        UniqueConstraint("dtype", name="uq_provisioner_dtype"),
-        Index("idx_provisioner_dtype", "dtype"),
+        UniqueConstraint("vector_store_type", name="uq_provisioner_vector_store_type"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
 
-    # Dtype-based identification (one provisioner per dtype)
-    dtype: str = Field(..., description="Dataset type this provisioner serves")
+    # Primary lookup key — name of the vector store this provisioner serves.
+    vector_store_type: str = Field(
+        ...,
+        description="Vector store this provisioner serves (e.g. 'chromadb_local')",
+    )
 
     # Provisioner state including connection config and runtime state
     # Connection fields (httpPort, grpcPort, etc.) are included with keys matching configuration_schema

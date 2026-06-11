@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-12">
     <!-- Breadcrumb Navigation -->
     <nav class="flex mb-6" aria-label="Breadcrumb">
       <ol class="flex items-center space-x-2">
@@ -9,7 +9,7 @@
             class="text-muted-foreground hover:text-foreground body-sm font-medium flex items-center transition-colors"
           >
             <Server class="h-4 w-4 mr-2" />
-            Endpoints
+            APIs
           </router-link>
         </li>
         <li class="flex items-center">
@@ -17,6 +17,16 @@
           <span class="text-foreground body-sm font-medium">{{
             endpoint?.name || 'Loading...'
           }}</span>
+          <button
+            v-if="endpoint?.slug"
+            type="button"
+            class="ml-2 inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            :aria-label="slugCopied ? 'Copied' : 'Copy slug'"
+            @click="copySlug"
+          >
+            <Check v-if="slugCopied" class="h-3.5 w-3.5 text-success" />
+            <Copy v-else class="h-3.5 w-3.5" />
+          </button>
         </li>
       </ol>
     </nav>
@@ -24,89 +34,61 @@
     <!-- Loading State -->
     <div v-if="loading" class="space-y-6 animate-pulse">
       <!-- Header Skeleton -->
-      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-        <div class="flex items-start justify-between">
-          <div class="flex items-start gap-4">
+      <div class="border-b border-border/50 pb-8 mb-2">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex items-start gap-4 flex-1">
             <div class="w-14 h-14 bg-muted rounded-lg"></div>
-            <div class="space-y-3">
+            <div class="space-y-3 flex-1">
               <div class="h-8 bg-muted rounded w-56"></div>
               <div class="h-5 bg-muted rounded w-80"></div>
+              <div class="h-5 bg-muted rounded w-96"></div>
               <div class="flex gap-2">
-                <div class="h-7 bg-muted rounded-full w-16"></div>
-                <div class="h-7 bg-muted rounded-full w-28"></div>
+                <div class="h-6 bg-muted rounded w-16"></div>
+                <div class="h-6 bg-muted rounded w-20"></div>
+                <div class="h-6 bg-muted rounded w-14"></div>
               </div>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <div class="h-10 bg-muted rounded w-24"></div>
-            <div class="h-10 bg-muted rounded w-36"></div>
-            <div class="h-10 bg-muted rounded w-24"></div>
+            <div class="h-10 bg-muted rounded w-32"></div>
+            <div class="h-10 bg-muted rounded w-20"></div>
+            <div class="h-10 bg-muted rounded w-10"></div>
           </div>
         </div>
       </div>
 
       <!-- Tabs Skeleton -->
-      <div class="h-10 bg-muted rounded-md w-full"></div>
+      <div class="h-10 border-b border-border/50 flex items-center gap-6 px-2">
+        <div class="h-4 bg-muted rounded w-20"></div>
+        <div class="h-4 bg-muted rounded w-20"></div>
+        <div class="h-4 bg-muted rounded w-24"></div>
+      </div>
 
-      <!-- Content Grid Skeleton -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Left Column (2/3) -->
-        <div class="lg:col-span-2 space-y-6">
-          <!-- Description Card Skeleton -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="h-6 bg-muted rounded w-32 mb-4"></div>
-            <div class="space-y-2">
-              <div class="h-4 bg-muted rounded w-full"></div>
-              <div class="h-4 bg-muted rounded w-5/6"></div>
-              <div class="h-4 bg-muted rounded w-4/6"></div>
-            </div>
-          </div>
-
-          <!-- Watched Paths Card Skeleton -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="h-6 bg-muted rounded w-36 mb-4"></div>
-            <div class="space-y-3">
-              <div
-                v-for="i in 2"
-                :key="`path-${i}`"
-                class="p-3 bg-muted/50 border border-border rounded-lg"
-              >
-                <div class="flex items-start gap-3">
-                  <div class="w-2 h-2 bg-muted rounded-full mt-1.5"></div>
-                  <div class="flex-1 space-y-2">
-                    <div class="h-4 bg-muted rounded w-64"></div>
-                    <div class="h-3 bg-muted rounded w-20"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
+      <!-- Content Skeleton -->
+      <div class="space-y-6 pt-4">
+        <div class="border border-border/50 rounded-lg p-5">
+          <div class="h-6 bg-muted rounded w-32 mb-4"></div>
+          <div class="space-y-2">
+            <div class="h-4 bg-muted rounded w-full"></div>
+            <div class="h-4 bg-muted rounded w-5/6"></div>
+            <div class="h-4 bg-muted rounded w-4/6"></div>
           </div>
         </div>
-
-        <!-- Right Column (1/3) -->
-        <div class="space-y-4">
-          <!-- Details Card Skeleton -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="h-5 bg-muted rounded w-20 mb-4"></div>
-            <div class="space-y-3">
-              <div
-                v-for="i in 3"
-                :key="`detail-${i}`"
-                class="flex justify-between items-center py-1"
-              >
-                <div class="h-4 bg-muted rounded w-20"></div>
-                <div class="h-4 bg-muted rounded w-28"></div>
+        <div class="border border-border/50 rounded-lg p-5">
+          <div class="h-6 bg-muted rounded w-36 mb-4"></div>
+          <div class="space-y-3">
+            <div
+              v-for="i in 2"
+              :key="`path-${i}`"
+              class="p-3 bg-muted/50 border border-border rounded-lg"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex-1 space-y-2">
+                  <div class="h-4 bg-muted rounded w-64"></div>
+                  <div class="h-3 bg-muted rounded w-40"></div>
+                </div>
+                <div class="h-5 bg-muted rounded w-20"></div>
               </div>
-            </div>
-          </div>
-
-          <!-- Tags Card Skeleton -->
-          <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-            <div class="h-5 bg-muted rounded w-12 mb-3"></div>
-            <div class="flex flex-wrap gap-2">
-              <div class="h-6 bg-muted rounded w-16"></div>
-              <div class="h-6 bg-muted rounded w-20"></div>
-              <div class="h-6 bg-muted rounded w-14"></div>
             </div>
           </div>
         </div>
@@ -118,94 +100,96 @@
       v-else-if="error"
       class="bg-destructive/10 border border-destructive/20 rounded-2xl p-8 text-center"
     >
-      <h3 class="heading-3 text-destructive mb-2">Endpoint not found</h3>
+      <h3 class="heading-3 text-destructive mb-2">Resource not found</h3>
       <p class="text-destructive mb-4">
-        The endpoint you're looking for doesn't exist or has been deleted.
+        The resource you're looking for doesn't exist or has been deleted.
       </p>
-      <Button @click="$router.push('/endpoints')" variant="outline"> Back to Endpoints </Button>
+      <Button @click="$router.push('/endpoints')" variant="outline"> Back to APIs </Button>
     </div>
 
     <!-- Main Content -->
     <div v-else-if="endpoint" class="space-y-6">
       <!-- Header Section -->
-      <div class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6">
-        <div class="flex items-start justify-between">
-          <div class="flex items-start gap-4">
-            <div
-              class="p-3 rounded-lg bg-gradient-to-br from-purple-100 dark:from-purple-950 to-blue-100 dark:to-blue-950"
-            >
-              <Server class="h-8 w-8 text-purple-600 dark:text-purple-400" />
+      <header class="border-b border-border/50 pb-6">
+        <div class="flex items-start justify-between gap-4">
+          <!-- Identity block -->
+          <div class="flex items-start gap-4 min-w-0 flex-1">
+            <div class="p-3 rounded-lg bg-primary/10 shrink-0">
+              <Server class="h-6 w-6 text-primary" />
             </div>
-            <div>
-              <h1 class="heading-2 mb-2">{{ endpoint.name }}</h1>
-              <p class="body-lg text-muted-foreground mb-4">{{ endpoint.summary }}</p>
-              <div class="flex flex-wrap items-center gap-2">
-                <Badge
-                  :variant="endpoint.published ? 'default' : 'outline'"
-                  :class="
-                    endpoint.published
-                      ? 'bg-primary/10 text-primary border border-primary/20'
-                      : 'bg-muted text-muted-foreground border border-border'
-                  "
-                >
-                  <div
-                    :class="
+            <div class="min-w-0 flex-1 space-y-2">
+              <h1 class="heading-2 text-foreground">{{ endpoint.name }}</h1>
+              <p v-if="endpoint.summary" class="body-base text-muted-foreground">
+                {{ endpoint.summary }}
+              </p>
+
+              <!-- Meta row -->
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm pt-1">
+                <span class="inline-flex items-center gap-1.5">
+                  <span
+                    :class="[
+                      'inline-block w-2 h-2 rounded-full',
                       endpoint.published
-                        ? 'w-2 h-2 bg-primary rounded-full mr-2 animate-pulse'
-                        : 'w-2 h-2 bg-muted-foreground rounded-full mr-2'
+                        ? 'bg-success animate-pulse'
+                        : 'bg-muted-foreground/60',
+                    ]"
+                  ></span>
+                  <span
+                    :class="
+                      endpoint.published ? 'text-success font-medium' : 'text-muted-foreground'
                     "
-                  ></div>
-                  {{ endpoint.published ? 'Live' : 'Draft' }}
-                </Badge>
+                  >
+                    {{ endpoint.published ? 'Published' : 'Offline' }}
+                  </span>
+                </span>
+
+                <span class="text-muted-foreground/60">·</span>
+                <span class="text-muted-foreground">{{ getEndpointType }}</span>
+
+                <template v-if="endpoint.dataset">
+                  <span class="text-muted-foreground/60">·</span>
+                  <router-link
+                    :to="{ name: 'dataset-detail', params: { slug: endpoint.dataset.name } }"
+                    class="text-primary hover:text-primary/80 hover:underline font-medium"
+                  >
+                    {{ endpoint.dataset.name }}
+                  </router-link>
+                </template>
+
+                <template v-if="endpoint.model">
+                  <span class="text-muted-foreground/60">·</span>
+                  <router-link
+                    :to="{ name: 'model-detail', params: { slug: endpoint.model.name } }"
+                    class="text-primary hover:text-primary/80 hover:underline font-medium"
+                  >
+                    {{ endpoint.model.name }}
+                  </router-link>
+                </template>
+
+                <template v-for="entry in pricingBreakdown" :key="entry.unit">
+                  <span class="text-muted-foreground/60">·</span>
+                  <span class="text-muted-foreground">{{ entry.label }}</span>
+                </template>
+              </div>
+
+              <!-- Tags row -->
+              <div v-if="allTags.length" class="flex flex-wrap gap-1.5 pt-1">
                 <Badge
-                  v-for="entry in pricingBreakdown"
-                  :key="entry.unit"
+                  v-for="tag in allTags"
+                  :key="tag"
                   variant="outline"
-                  class="bg-primary/10 text-primary border-primary/20"
+                  class="font-normal text-muted-foreground"
                 >
-                  {{ entry.label }}
+                  {{ tag }}
                 </Badge>
               </div>
             </div>
           </div>
-          <!-- Quick Actions -->
-          <div class="flex flex-col gap-2">
-            <div class="flex items-center gap-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <Button v-if="!endpoint.published" variant="default">
-                      <Send class="h-4 w-4 mr-2" />
-                      Publish
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Make this endpoint publicly available</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <Button variant="outline" @click="openEditDialog">
-                <Pencil class="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                class="text-destructive hover:text-destructive"
-                @click="
-                  () => {
-                    deleteNameConfirm = ''
-                    showDeleteDialog = true
-                  }
-                "
-              >
-                <Trash2 class="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-            </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-2 shrink-0">
             <Button
               v-if="syftHubUrl"
-              variant="outline"
-              class="w-full"
               as="a"
               :href="syftHubUrl"
               target="_blank"
@@ -214,201 +198,185 @@
               <ExternalLink class="h-4 w-4 mr-2" />
               View on SyftHub
             </Button>
+            <Button variant="outline" @click="openEditDialog">
+              <Pencil class="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button variant="ghost" size="icon" aria-label="More actions">
+                  <MoreVertical class="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-44">
+                <DropdownMenuItem v-if="!endpoint.published" @select="publishEndpoint">
+                  <Send class="h-4 w-4 mr-2" />
+                  Publish
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  class="text-destructive focus:text-destructive focus:bg-destructive/10"
+                  @select="openDeleteDialog"
+                >
+                  <Trash2 class="h-4 w-4 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
-      </div>
+      </header>
 
       <!-- Tabs Section -->
-      <Tabs v-model="activeTab" class="space-y-4">
+      <Tabs v-model="activeTab" class="space-y-0">
         <TabsList
-          class="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3"
+          class="h-auto bg-transparent rounded-none p-0 w-full justify-start gap-2 border-b border-border/50"
         >
-          <TabsTrigger value="overview" class="flex items-center gap-2">
+          <TabsTrigger
+            value="overview"
+            class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
+          >
             <Layout class="h-4 w-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="access" class="flex items-center gap-2">
+          <TabsTrigger
+            value="access"
+            class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
+          >
             <Shield class="h-4 w-4" />
-            Access Control
+            Policies
+            <Badge
+              v-if="totalPoliciesCount > 0"
+              variant="secondary"
+              class="ml-1 h-5 min-w-[1.25rem] px-1.5 text-xs font-medium bg-primary/15 text-primary border-0"
+            >
+              {{ totalPoliciesCount }}
+            </Badge>
           </TabsTrigger>
-          <TabsTrigger value="transactions" class="flex items-center gap-2">
+          <TabsTrigger
+            value="transactions"
+            class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
+          >
             <Receipt class="h-4 w-4" />
             Transactions
+            <Badge
+              v-if="totalTransactionsForBadge > 0"
+              variant="secondary"
+              class="ml-1 h-5 min-w-[1.25rem] px-1.5 text-xs font-medium bg-primary/15 text-primary border-0"
+            >
+              {{ totalTransactionsForBadge }}
+            </Badge>
           </TabsTrigger>
         </TabsList>
 
         <!-- Overview Tab -->
-        <TabsContent value="overview" class="space-y-6">
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Description and Data Sources -->
-            <div class="lg:col-span-2 space-y-6">
-              <!-- Description -->
-              <div
-                v-if="endpoint.description && endpoint.description.trim()"
-                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-              >
-                <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
-                  <FileText class="h-5 w-5 text-muted-foreground" />
-                  Description
-                </h2>
-                <div class="prose prose-sm max-w-none text-muted-foreground">
-                  <div class="markdown-content">
-                    <MdPreview
-                      :model-value="endpoint.description"
-                      :theme="isDark ? 'dark' : 'light'"
-                      :show-code-row-number="false"
-                    />
-                  </div>
-                </div>
-              </div>
+        <TabsContent value="overview" class="space-y-6 pt-6 mt-0">
+          <!-- Description -->
+          <section class="border border-border/50 rounded-lg p-5">
+            <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
+              <FileText class="h-5 w-5 text-muted-foreground" />
+              {{ hasDescription ? 'Description' : 'No description yet' }}
+            </h2>
 
-              <!-- Data Sources -->
-              <div
-                v-if="endpoint.dataset && getWatchedPaths.length > 0"
-                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-              >
-                <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
-                  <Database class="h-5 w-5 text-muted-foreground" />
-                  Watched Paths
-                </h2>
-                <div class="space-y-3">
-                  <div
-                    v-for="path in getWatchedPaths"
-                    :key="path.id"
-                    class="p-3 bg-muted/50 border border-border rounded-lg"
-                  >
-                    <div class="flex items-start gap-3">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger as-child>
-                            <div
-                              :class="[
-                                'w-2 h-2 rounded-full mt-1.5 cursor-help',
-                                path.status === 'indexed'
-                                  ? 'bg-success'
-                                  : path.status === 'processing'
-                                    ? 'bg-primary'
-                                    : path.status === 'queued'
-                                      ? 'bg-warning'
-                                      : path.status === 'errored'
-                                        ? 'bg-destructive'
-                                        : 'bg-muted',
-                              ]"
-                            ></div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{{ getStatusLabel(path.status) }}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <div class="flex-1">
-                        <p class="body-sm font-medium text-foreground">{{ path.path }}</p>
-                        <p class="body-sm text-muted-foreground mt-1">{{ path.fileCount }} files</p>
-                        <p class="body-sm text-muted-foreground mt-1 italic">
-                          {{ path.description }}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+            <div v-if="hasDescription" class="prose prose-sm max-w-none text-muted-foreground">
+              <div class="markdown-content">
+                <MdPreview
+                  :model-value="endpoint.description"
+                  :theme="isDark ? 'dark' : 'light'"
+                  :show-code-row-number="false"
+                />
               </div>
             </div>
+            <div v-else class="space-y-4">
+              <p class="body-sm text-muted-foreground">
+                Help consumers understand what this API does, what data it covers, and how to use
+                it.
+              </p>
+              <Button variant="outline" size="sm" @click="openEditDialog">
+                <Pencil class="h-4 w-4 mr-2" />
+                Add description
+              </Button>
+            </div>
+          </section>
 
-            <!-- Quick Stats -->
-            <div class="space-y-4">
-              <!-- Endpoint Details Card -->
+          <!-- Watched Paths (Data APIs only) -->
+          <section
+            v-if="endpoint.dataset && getWatchedPaths.length > 0"
+            class="border border-border/50 rounded-lg p-5"
+          >
+            <h2 class="heading-3 text-foreground mb-4 flex items-center gap-2">
+              <Database class="h-5 w-5 text-muted-foreground" />
+              Watched Paths
+            </h2>
+            <div class="space-y-3">
               <div
-                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
+                v-for="path in getWatchedPaths"
+                :key="path.id"
+                class="p-3 bg-muted/50 border border-border rounded-lg"
               >
-                <h3 class="body-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-                  <Info class="h-4 w-4 text-muted-foreground" />
-                  Details
-                </h3>
-                <div class="space-y-3">
-                  <div class="flex justify-between items-center py-1">
-                    <span class="body-sm text-muted-foreground">Type</span>
-                    <span class="body-sm font-medium text-foreground">{{ getEndpointType }}</span>
-                  </div>
-                  <!-- Only show Response type for Data endpoints, not AI Model endpoints -->
-                  <template v-if="getEndpointType !== 'AI Model Endpoint'">
-                    <Separator />
-                    <div class="flex justify-between items-center py-1">
-                      <span class="body-sm text-muted-foreground">Response</span>
-                      <span class="body-sm font-medium text-foreground">{{ getResponseType }}</span>
-                    </div>
-                    <Separator />
-                  </template>
-                  <div v-if="endpoint.dataset" class="flex justify-between items-center py-1">
-                    <span class="body-sm text-muted-foreground">Data Source</span>
-                    <router-link
-                      :to="{
-                        name: 'dataset-detail',
-                        params: { slug: endpoint.dataset.name },
-                      }"
-                      class="body-sm font-medium text-primary hover:text-primary/80 hover:underline"
-                    >
-                      {{ endpoint.dataset.name }}
-                    </router-link>
-                  </div>
-                  <template v-if="endpoint.model">
-                    <Separator />
-                    <div class="flex justify-between items-center py-1">
-                      <span class="body-sm text-muted-foreground">Model</span>
-                      <router-link
-                        :to="{
-                          name: 'model-detail',
-                          params: { slug: endpoint.model.name },
-                        }"
-                        class="body-sm font-medium text-primary hover:text-primary/80 hover:underline"
+                <div class="flex items-start justify-between gap-4">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline flex-wrap gap-x-2">
+                      <code class="body-sm font-medium text-foreground font-mono break-all">
+                        {{ path.path }}
+                      </code>
+                      <span class="body-sm text-muted-foreground"
+                        >{{ path.fileCount }} files</span
                       >
-                        {{ endpoint.model.name }}
-                      </router-link>
                     </div>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Tags -->
-              <div
-                class="bg-card/80 backdrop-blur-sm border border-border rounded-xl shadow-sm p-6"
-              >
-                <h3 class="body-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <Tags class="h-4 w-4 text-muted-foreground" />
-                  Tags
-                </h3>
-                <div class="flex flex-wrap gap-2">
-                  <Badge
-                    v-for="language in parsedTags.languages"
-                    :key="`lang-${language}`"
-                    variant="outline"
-                    class="body-sm"
-                  >
-                    {{ language }}
-                  </Badge>
-                  <Badge
-                    v-for="domain in parsedTags.domains"
-                    :key="`domain-${domain}`"
-                    variant="outline"
-                    class="body-sm"
-                  >
-                    {{ domain }}
-                  </Badge>
-                  <Badge
-                    v-for="tag in parsedTags.others"
-                    :key="tag"
-                    variant="outline"
-                    class="body-sm"
-                  >
-                    {{ tag }}
-                  </Badge>
+                    <p v-if="path.description" class="body-sm text-muted-foreground mt-1">
+                      {{ path.description }}
+                    </p>
+                  </div>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <span
+                          class="inline-flex items-center gap-1.5 text-xs font-medium shrink-0 cursor-help"
+                        >
+                          <span
+                            :class="[
+                              'inline-block w-2 h-2 rounded-full',
+                              path.status === 'indexed'
+                                ? 'bg-success'
+                                : path.status === 'processing'
+                                  ? 'bg-primary'
+                                  : path.status === 'queued'
+                                    ? 'bg-warning'
+                                    : path.status === 'errored'
+                                      ? 'bg-destructive'
+                                      : 'bg-muted-foreground/50',
+                            ]"
+                          ></span>
+                          <span
+                            :class="
+                              path.status === 'indexed'
+                                ? 'text-success'
+                                : path.status === 'processing'
+                                  ? 'text-primary'
+                                  : path.status === 'queued'
+                                    ? 'text-warning'
+                                    : path.status === 'errored'
+                                      ? 'text-destructive'
+                                      : 'text-muted-foreground'
+                            "
+                          >
+                            {{ getStatusShortLabel(path.status) }}
+                          </span>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{{ getStatusLabel(path.status) }}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </div>
             </div>
-          </div>
+          </section>
         </TabsContent>
 
         <!-- Access Control Tab -->
-        <TabsContent value="access" class="space-y-6">
+        <TabsContent value="access" class="space-y-6 pt-6 mt-0">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
             <!-- Authorization Policies -->
             <Card class="bg-card/80 backdrop-blur-sm border border-border shadow-sm flex flex-col">
@@ -638,7 +606,7 @@
                 <div class="flex justify-between items-center py-1">
                   <span class="body-sm text-muted-foreground">Total Policies</span>
                   <span class="body-sm font-medium text-foreground">{{
-                    getTotalPoliciesCount()
+                    totalPoliciesCount
                   }}</span>
                 </div>
                 <Separator />
@@ -668,31 +636,97 @@
         </TabsContent>
 
         <!-- Transactions Tab -->
-        <TabsContent value="transactions" class="space-y-4">
-          <!-- Filter bar -->
-          <div class="flex items-center gap-3">
-            <div class="flex-1">
-              <Input
-                v-model="txnEmailFilter"
-                placeholder="Filter by email..."
-                class="h-9 max-w-sm"
-              />
+        <TabsContent value="transactions" class="space-y-4 pt-6 mt-0">
+          <!-- Stats summary -->
+          <div
+            class="border border-border rounded-lg grid grid-cols-1 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-border bg-card/40"
+          >
+            <div class="p-4">
+              <p class="text-xs text-muted-foreground mb-1.5">Total received</p>
+              <p class="text-xl font-semibold text-foreground">{{ statTotalReceived }}</p>
             </div>
+            <div class="p-4">
+              <p class="text-xs text-muted-foreground mb-1.5">Transactions</p>
+              <p class="text-xl font-semibold text-foreground">{{ statTransactionCount }}</p>
+            </div>
+            <div class="p-4">
+              <p class="text-xs text-muted-foreground mb-1.5">Unique users</p>
+              <p class="text-xl font-semibold text-foreground">{{ statUniqueUsers }}</p>
+            </div>
+            <div class="p-4">
+              <p class="text-xs text-muted-foreground mb-1.5">Period</p>
+              <Select v-model="txnPeriod">
+                <SelectTrigger class="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7">Last 7 days</SelectItem>
+                  <SelectItem value="30">Last 30 days</SelectItem>
+                  <SelectItem value="90">Last 90 days</SelectItem>
+                  <SelectItem value="all">All time</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <!-- Filter bar -->
+          <div class="flex flex-wrap items-center gap-3">
+            <Input
+              v-model="txnEmailFilter"
+              placeholder="Filter by email..."
+              class="h-9 max-w-sm flex-1 min-w-[200px]"
+            />
+            <Select
+              v-if="lockedWallet?.wallet_type === 'xendit'"
+              v-model="txnStatusFilter"
+            >
+              <SelectTrigger class="h-9 w-40">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="debit">Debit</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
             <Button variant="outline" size="sm" @click="fetchTransactions" :disabled="txnLoading">
               <Loader2 v-if="txnLoading" class="h-4 w-4 mr-2 animate-spin" />
+              <RotateCw v-else class="h-4 w-4 mr-2" />
               Refresh
             </Button>
           </div>
 
-          <!-- MPP Transactions -->
+          <!-- No-wallet empty state -->
           <Card
-            v-if="!lockedWallet || lockedWallet.wallet_type === 'mpp'"
+            v-if="!txnLoading && !lockedWallet"
+            class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
+          >
+            <CardContent class="py-10 text-center">
+              <p class="text-sm text-muted-foreground">
+                No pricing configured — no transactions recorded for this endpoint.
+              </p>
+            </CardContent>
+          </Card>
+
+          <!-- MPP payments -->
+          <Card
+            v-else-if="lockedWallet?.wallet_type === 'mpp'"
             class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
           >
             <CardHeader class="pb-3">
               <CardTitle class="text-base flex items-center gap-2">
                 <Zap class="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                MPP Transactions
+                MPP payments
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Info class="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Marketplace token transactions for this endpoint</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -728,15 +762,25 @@
             </CardContent>
           </Card>
 
-          <!-- Gateway (Xendit) Ledger Entries -->
+          <!-- Gateway (Xendit) payments -->
           <Card
-            v-if="!lockedWallet || lockedWallet.wallet_type === 'xendit'"
+            v-else-if="lockedWallet?.wallet_type === 'xendit'"
             class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
           >
             <CardHeader class="pb-3">
               <CardTitle class="text-base flex items-center gap-2">
-                <Package class="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                Transactions
+                <CreditCard class="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                Gateway payments
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Info class="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Real-money transactions processed via payment gateway</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -797,9 +841,9 @@
   <Dialog v-model:open="showDeleteDialog">
     <DialogContent class="sm:max-w-[425px]">
       <DialogHeader>
-        <DialogTitle class="text-destructive">Delete endpoint</DialogTitle>
+        <DialogTitle class="text-destructive">Delete resource</DialogTitle>
         <DialogDescription>
-          This will permanently delete this endpoint and remove it from SyftHub. This action cannot
+          This will permanently delete this resource and remove it from SyftHub. This action cannot
           be undone.
         </DialogDescription>
       </DialogHeader>
@@ -807,7 +851,7 @@
         <Label class="gap-1">
           Type <span class="font-semibold text-foreground">{{ endpoint?.name }}</span> to confirm
         </Label>
-        <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'endpoint-name'" />
+        <Input v-model="deleteNameConfirm" :placeholder="endpoint?.name || 'api-name'" />
         <p
           v-if="deleteNameConfirm"
           class="text-sm"
@@ -829,7 +873,7 @@
             <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
             Deleting...
           </div>
-          <span v-else>Delete Endpoint</span>
+          <span v-else>Delete</span>
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -891,16 +935,19 @@ import {
   Layout,
   Shield,
   FileText,
-  Info,
-  Tags,
   Database,
   Plus,
   ExternalLink,
   Pencil,
   Receipt,
   Zap,
-  Package,
+  CreditCard,
   Loader2,
+  MoreVertical,
+  Copy,
+  Check,
+  Info,
+  RotateCw,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -917,7 +964,20 @@ import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Dialog,
   DialogContent,
@@ -931,6 +991,7 @@ import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 
 import type { PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
+import { useEndpointsStore } from '@/stores/endpoints'
 import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import { policiesApi } from '@/api/policies/policies'
@@ -954,6 +1015,7 @@ import 'md-editor-v3/lib/style.css'
 
 const route = useRoute()
 const router = useRouter()
+const endpointsStore = useEndpointsStore()
 const userStore = useUserStore()
 const { isDark } = useTheme()
 const error = ref(false)
@@ -979,16 +1041,14 @@ const showEditDialog = ref(false)
 const selectedPolicyType = ref<PolicyTypeId>('access')
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
+const slugCopied = ref(false)
 
-// Policy creation composable
 const { createPolicy, isCreating: policyCreating } = usePolicyCreation()
 
-// Computed URL to view endpoint on SyftHub
 const syftHubUrl = computed(() =>
   endpoint.value?.slug ? userStore.getEndpointUrlInMarketplace(endpoint.value.slug) : null,
 )
 
-// Computed endpoint data for edit dialog
 const endpointForEdit = computed(() => {
   if (!endpoint.value) return null
   return {
@@ -999,63 +1059,88 @@ const endpointForEdit = computed(() => {
   }
 })
 
-// Edit dialog handlers
+const hasDescription = computed(
+  () => !!(endpoint.value?.description && endpoint.value.description.trim()),
+)
+
 const openEditDialog = () => {
   showEditDialog.value = true
 }
 
+const openDeleteDialog = () => {
+  deleteNameConfirm.value = ''
+  showDeleteDialog.value = true
+}
+
 const handleEditSaved = (data: { summary: string; description: string }) => {
-  // Update local endpoint data
   if (endpoint.value) {
     endpoint.value.summary = data.summary
     endpoint.value.description = data.description
   }
 }
 
-// Parse tags into languages, domains, and other tags
-const parsedTags = computed(() => {
-  if (!endpoint.value?.tags) {
-    return { languages: [], domains: [], others: [] }
+const copySlug = async () => {
+  if (!endpoint.value?.slug) return
+  try {
+    await navigator.clipboard.writeText(endpoint.value.slug)
+    slugCopied.value = true
+    setTimeout(() => {
+      slugCopied.value = false
+    }, 1500)
+  } catch {
+    toast.error('Failed to copy')
   }
+}
 
-  const tagsArray = endpoint.value.tags
+const allTags = computed(() => {
+  if (!endpoint.value?.tags) return []
+  return endpoint.value.tags
     .split(',')
     .map((t) => t.trim())
-    .filter((t) => t)
-  const languages: string[] = []
-  const domains: string[] = []
-  const others: string[] = []
-
-  tagsArray.forEach((tag) => {
-    if (tag.startsWith('language:')) {
-      languages.push(tag.replace('language:', ''))
-    } else if (tag.startsWith('domain:')) {
-      domains.push(tag.replace('domain:', ''))
-    } else {
-      others.push(tag)
-    }
-  })
-
-  return { languages, domains, others }
+    .filter(Boolean)
+    .map((t) => t.replace(/^(language|domain):/, ''))
 })
 
-// Get watched paths from dataset configuration
-const getWatchedPaths = computed(() => {
-  if (!endpoint.value?.dataset) {
-    return []
+const watchedPathStats = computed(() => {
+  const stats = new Map<string, { fileCount: number; counts: Record<string, number> }>()
+  const config = endpoint.value?.dataset?.configuration as Record<string, unknown> | undefined
+  const filePaths = (config?.filePaths as Array<{ path: string }> | undefined) || []
+  for (const { path } of filePaths) {
+    stats.set(path, { fileCount: 0, counts: {} })
   }
+  for (const job of ingestionJobs.value?.jobs ?? []) {
+    for (const [path, entry] of stats) {
+      if (job.external_id.startsWith(path)) {
+        entry.fileCount += 1
+        entry.counts[job.status] = (entry.counts[job.status] || 0) + 1
+      }
+    }
+  }
+  return stats
+})
+
+const statusFromCounts = (counts: Record<string, number>): string => {
+  if ((counts['in_progress'] ?? 0) > 0) return 'processing'
+  if ((counts['pending'] ?? 0) > 0) return 'queued'
+  if ((counts['failed'] ?? 0) > 0) return 'errored'
+  if ((counts['completed'] ?? 0) > 0) return 'indexed'
+  return 'unknown'
+}
+
+const getWatchedPaths = computed(() => {
+  if (!endpoint.value?.dataset) return []
 
   const config = endpoint.value.dataset.configuration as Record<string, unknown>
   const filePaths = (config?.filePaths as Array<{ path: string; description?: string }>) || []
 
   return filePaths.map((pathItem) => {
-    const pathStats = getStatsForPath(pathItem.path)
+    const entry = watchedPathStats.value.get(pathItem.path)
     return {
       id: pathItem.path,
       path: pathItem.path,
       description: pathItem.description || 'Selected folder for ingestion',
-      fileCount: pathStats.fileCount,
-      status: pathStats.status,
+      fileCount: entry?.fileCount ?? 0,
+      status: entry && entry.fileCount > 0 ? statusFromCounts(entry.counts) : 'unknown',
     }
   })
 })
@@ -1067,7 +1152,9 @@ const getStatsForPath = (watchedPath: string) => {
   }
 
   // Filter jobs that start with the watched path
-  const pathJobs = ingestionJobs.value.jobs.filter((job) => job.file_path.startsWith(watchedPath))
+  const pathJobs = ingestionJobs.value.jobs.filter((job) =>
+    job.external_id.startsWith(watchedPath),
+  )
 
   if (pathJobs.length === 0) {
     return { fileCount: 0, status: 'unknown' }
@@ -1104,13 +1191,12 @@ const getStatsForPath = (watchedPath: string) => {
 const fetchAllIngestionJobs = async (datasetId: string) => {
   const allJobs = []
   let offset = 0
-  const limit = 100 // Use smaller pages for better performance
+  const limit = 100
 
   while (true) {
     const response = await ingestionApi.listJobs(datasetId, undefined, limit, offset)
     allJobs.push(...response.jobs)
 
-    // If we got fewer jobs than the limit, we've reached the end
     if (response.jobs.length < limit) {
       break
     }
@@ -1121,24 +1207,18 @@ const fetchAllIngestionJobs = async (datasetId: string) => {
   return allJobs
 }
 
-// Get human-readable status label for tooltip
-const getStatusLabel = (status: string) => {
-  switch (status) {
-    case 'indexed':
-      return 'All files processed successfully'
-    case 'processing':
-      return 'Files are currently being processed'
-    case 'queued':
-      return 'Files are queued for processing'
-    case 'errored':
-      return 'Some files failed to process'
-    case 'unknown':
-    default:
-      return 'Status unknown'
-  }
+const STATUS_LABELS: Record<string, { short: string; long: string }> = {
+  indexed: { short: 'Indexed', long: 'All files processed successfully' },
+  processing: { short: 'Processing', long: 'Files are currently being processed' },
+  queued: { short: 'Queued', long: 'Files are queued for processing' },
+  errored: { short: 'Errored', long: 'Some files failed to process' },
+  unknown: { short: 'Unknown', long: 'Status unknown' },
 }
 
-// Get policies by type
+const getStatusEntry = (status: string) => STATUS_LABELS[status] ?? STATUS_LABELS['unknown']!
+const getStatusLabel = (status: string) => getStatusEntry(status).long
+const getStatusShortLabel = (status: string) => getStatusEntry(status).short
+
 const getAuthorizationPolicies = () => {
   return endpoint.value?.policies?.filter((p) => p.policy_type === 'access') || []
 }
@@ -1149,10 +1229,6 @@ const getRateLimitPolicies = () => {
 
 const walletsById = ref<Record<string, WalletListItem>>({})
 
-// Cached promise so callers can await the initial fetch even if it's already
-// in-flight, without triggering a duplicate network request. Anything that
-// reads walletsById (e.g. lockedWallet) should call ensureWallets() first
-// rather than racing the initial onMounted fetch.
 let walletsPromise: Promise<void> | null = null
 
 const fetchWallets = async () => {
@@ -1183,8 +1259,6 @@ const getPricingPolicies = () => {
   )
 }
 
-// All payment policies on an endpoint share one wallet (frontend-enforced).
-// The first pricing policy decides which wallet future ones must use.
 const lockedWallet = computed<WalletListItem | null>(() => {
   const first = getPricingPolicies()[0] as
     | { wallet_id?: string; configuration?: Record<string, unknown> }
@@ -1233,23 +1307,84 @@ const getPricingPolicySummary = (policy: {
   return `${config.price} ${currency} per ${unit} ${appliedLabel}`.trim()
 }
 
-// ── Transactions state ──
 const txnLoading = ref(false)
 const txnEmailFilter = ref('')
+const txnPeriod = ref<'7' | '30' | '90' | 'all'>('30')
+const txnStatusFilter = ref<'all' | 'debit' | 'cancelled'>('all')
 const mppTransactions = ref<TransactionResponse[]>([])
 const ledgerEntries = ref<LedgerEntryResponse[]>([])
 
+const periodCutoffMs = computed(() => {
+  if (txnPeriod.value === 'all') return null
+  const days = parseInt(txnPeriod.value, 10)
+  return Date.now() - days * 24 * 60 * 60 * 1000
+})
+
+const withinPeriod = (createdAt: string) => {
+  const cutoff = periodCutoffMs.value
+  if (cutoff === null) return true
+  const ts = new Date(createdAt).getTime()
+  if (Number.isNaN(ts)) return true
+  return ts >= cutoff
+}
+
 const filteredMppTransactions = computed(() => {
-  const filter = txnEmailFilter.value.toLowerCase().trim()
-  if (!filter) return mppTransactions.value
-  return mppTransactions.value.filter((t) => t.sender_email.toLowerCase().includes(filter))
+  const emailFilter = txnEmailFilter.value.toLowerCase().trim()
+  return mppTransactions.value.filter((t) => {
+    if (!withinPeriod(t.created_at)) return false
+    if (emailFilter && !t.sender_email.toLowerCase().includes(emailFilter)) return false
+    return true
+  })
 })
 
 const filteredLedgerEntries = computed(() => {
-  const filter = txnEmailFilter.value.toLowerCase().trim()
-  if (!filter) return ledgerEntries.value
-  return ledgerEntries.value.filter((e) => e.user_email.toLowerCase().includes(filter))
+  const emailFilter = txnEmailFilter.value.toLowerCase().trim()
+  return ledgerEntries.value.filter((e) => {
+    if (!withinPeriod(e.created_at)) return false
+    if (emailFilter && !e.user_email.toLowerCase().includes(emailFilter)) return false
+    if (txnStatusFilter.value !== 'all' && e.type !== txnStatusFilter.value) return false
+    return true
+  })
 })
+
+const statTransactionCount = computed(() => {
+  if (lockedWallet.value?.wallet_type === 'mpp') return filteredMppTransactions.value.length
+  if (lockedWallet.value?.wallet_type === 'xendit') return filteredLedgerEntries.value.length
+  return 0
+})
+
+const statUniqueUsers = computed(() => {
+  if (lockedWallet.value?.wallet_type === 'mpp') {
+    return new Set(filteredMppTransactions.value.map((t) => t.sender_email)).size
+  }
+  if (lockedWallet.value?.wallet_type === 'xendit') {
+    return new Set(filteredLedgerEntries.value.map((e) => e.user_email)).size
+  }
+  return 0
+})
+
+const statTotalReceived = computed(() => {
+  if (lockedWallet.value?.wallet_type === 'mpp') {
+    const total = filteredMppTransactions.value.reduce(
+      (sum, t) => sum + Number(t.amount || 0),
+      0,
+    )
+    const currency = lockedWallet.value.currency ?? 'USD'
+    return `$${formatPrice(total)} ${currency}`
+  }
+  if (lockedWallet.value?.wallet_type === 'xendit') {
+    const debits = filteredLedgerEntries.value.filter((e) => e.type === 'debit')
+    const total = debits.reduce((sum, e) => sum + Number(e.amount || 0), 0)
+    const currency =
+      debits[0]?.currency ?? filteredLedgerEntries.value[0]?.currency ?? lockedWallet.value.currency ?? 'USD'
+    return `$${formatPrice(total)} ${currency}`
+  }
+  return '$0.00'
+})
+
+const totalTransactionsForBadge = computed(
+  () => mppTransactions.value.length + ledgerEntries.value.length,
+)
 
 const formatChargeBreakdown = (entry: LedgerEntryResponse): string => {
   const unit = entry.charge_quantity === 1 ? entry.charge_unit : `${entry.charge_unit}s`
@@ -1260,14 +1395,9 @@ const fetchTransactions = async () => {
   if (!endpoint.value) return
   txnLoading.value = true
   try {
-    // lockedWallet derives from walletsById, which is populated asynchronously
-    // in onMounted. Without this await, clicking the Transactions tab before
-    // the wallet list lands would see lockedWallet=null and short-circuit to
-    // an empty state until the user hit Refresh.
     await ensureWallets()
     const wallet = lockedWallet.value
     if (!wallet) {
-      // No payment policy on this endpoint — nothing to fetch.
       mppTransactions.value = []
       ledgerEntries.value = []
       return
@@ -1296,36 +1426,17 @@ const fetchTransactions = async () => {
   }
 }
 
-const getTotalPoliciesCount = () => {
-  return endpoint.value?.policies?.length || 0
-}
+const totalPoliciesCount = computed(() => endpoint.value?.policies?.length || 0)
 
-// Get endpoint type based on what resources it has
 const getEndpointType = computed(() => {
   if (!endpoint.value) return 'Unknown'
 
   const hasDataset = !!endpoint.value.dataset
   const hasModel = !!endpoint.value.model
 
-  if (hasDataset) return 'Data Endpoint'
-  if (hasModel) return 'AI Model Endpoint'
+  if (hasDataset) return 'Data API'
+  if (hasModel) return 'AI Model API'
   return 'Unknown'
-})
-
-// Get response type from API data
-const getResponseType = computed(() => {
-  if (!endpoint.value?.response_type) return 'Unknown'
-
-  switch (endpoint.value.response_type) {
-    case 'raw':
-      return 'Search & Quote'
-    case 'summary':
-      return 'AI Assistant'
-    case 'both':
-      return 'Search + AI'
-    default:
-      return endpoint.value.response_type
-  }
 })
 
 // Group pricing policies by charge unit (request, document, future: token…)
@@ -1367,35 +1478,32 @@ const deleteEndpoint = async () => {
 
   isDeleting.value = true
   try {
-    // Unpublish from SyftHub first if published
     if (endpoint.value.published) {
       try {
         await endpointsApi.unpublish(endpoint.value.slug)
       } catch (unpublishError) {
         console.error('Failed to unpublish endpoint:', unpublishError)
-        toast.error('Failed to remove endpoint from SyftHub. Please try again.')
+        toast.error('Failed to remove from SyftHub. Please try again.')
         isDeleting.value = false
         return
       }
     }
 
-    // Call the delete API
     await endpointsApi.delete(endpoint.value.slug)
+    endpointsStore.invalidate()
 
-    toast.success('Endpoint deleted successfully')
+    toast.success('Resource deleted')
 
-    // Close dialog and navigate away
     showDeleteDialog.value = false
     router.push('/endpoints')
   } catch (error) {
     console.error('Failed to delete endpoint:', error)
-    toast.error('Failed to delete endpoint. Please try again.')
+    toast.error('Failed to delete. Please try again.')
   } finally {
     isDeleting.value = false
   }
 }
 
-// Policy deletion functions
 const handleDeletePolicy = (policyId: string, policyName: string) => {
   policyToDelete.value = { id: policyId, name: policyName }
   showDeletePolicyDialog.value = true
@@ -1410,10 +1518,8 @@ const confirmDeletePolicy = async () => {
   if (!policyToDelete.value || !endpoint.value) return
 
   try {
-    // Call the delete policy API
     await policiesApi.delete(policyToDelete.value.id)
 
-    // Remove from local state immediately for better UX
     if (endpoint.value.policies) {
       endpoint.value.policies = endpoint.value.policies.filter(
         (p) => p.id !== policyToDelete.value!.id,
@@ -1423,16 +1529,12 @@ const confirmDeletePolicy = async () => {
     showDeletePolicyDialog.value = false
     policyToDelete.value = null
 
-    // Publish changes to marketplace
     await publishToMarketplace()
   } catch (error) {
     console.error('Failed to delete policy:', error)
-    // TODO: Show error toast/notification
   }
 }
 
-// Handle pricing rule created from AddPricingRuleDialog.
-// Dialog already resolved the wallet; we just create the policy and refresh.
 const handlePricingCreated = async (payload: {
   walletId: string
   walletType: string
@@ -1483,7 +1585,6 @@ const handlePricingCreated = async (payload: {
   }
 }
 
-// Publish endpoint changes to marketplace
 const publishToMarketplace = async () => {
   if (!endpoint.value?.slug) return
 
@@ -1496,7 +1597,20 @@ const publishToMarketplace = async () => {
   }
 }
 
-// Add policy handler
+const publishEndpoint = async () => {
+  if (!endpoint.value?.slug || endpoint.value.published) return
+  try {
+    await endpointsApi.publish(endpoint.value.slug, {
+      publish_to_all_marketplaces: true,
+    })
+    endpoint.value.published = true
+    toast.success('Endpoint published')
+  } catch (err) {
+    console.error('Failed to publish endpoint:', err)
+    toast.error('Failed to publish. Please try again.')
+  }
+}
+
 const handleAddPolicy = async (payload: {
   policyType: PolicyTypeId
   formData: Record<string, unknown>
@@ -1505,15 +1619,12 @@ const handleAddPolicy = async (payload: {
 
   const { policyType, formData } = payload
 
-  // Calculate the correct rule index based on existing policies of this type
-  // Map frontend policy type to backend policy type for counting
   const backendPolicyType = policyType === 'pricing' ? 'mpp_per_request' : policyType
   const existingPoliciesOfType =
     endpoint.value.policies?.filter((p) => p.policy_type === backendPolicyType) || []
   const ruleIndex = existingPoliciesOfType.length + 1
 
   try {
-    // Create the policy using the composable
     const newPolicy = await createPolicy(
       policyType,
       formData as unknown as PolicyFormData,
@@ -1522,7 +1633,6 @@ const handleAddPolicy = async (payload: {
       ruleIndex,
     )
 
-    // Add the new policy to the local state immediately for better UX
     if (endpoint.value.policies) {
       endpoint.value.policies.push({
         id: newPolicy.id,
@@ -1532,10 +1642,8 @@ const handleAddPolicy = async (payload: {
       })
     }
 
-    // Close the dialog
     showAddPolicyDialog.value = false
 
-    // Publish changes to marketplace
     await publishToMarketplace()
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create policy'
@@ -1549,18 +1657,13 @@ onMounted(async () => {
   loading.value = true
   error.value = false
 
-  // Wallet lookup table — populated in parallel with endpoint fetch.
-  // Used by pricing-policy display and the add-pricing dialog lock logic.
-  // The cached promise lets fetchTransactions() await this on tab activation.
   ensureWallets()
 
   try {
-    // Fetch the endpoint details directly from the API
     const response = await endpointsApi.get(endpointSlug)
     endpoint.value = response
 
-    // Fetch ingestion data if endpoint has a dataset
-    if (response.dataset) {
+    if (response.dataset?.id) {
       try {
         const [ingestionResponse, allJobs] = await Promise.all([
           ingestionApi.getStatus(response.dataset.id),

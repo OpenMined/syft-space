@@ -25,6 +25,13 @@ class CreateEndpointRequest(BaseModel):
     )
     published: bool = Field(default=False, description="Whether endpoint is published")
     tags: str = Field(default="", description="Comma-separated tags")
+    system_prompt: str | None = Field(
+        default=None,
+        description=(
+            "Optional custom system prompt. When set, overrides the model's "
+            "default system prompt on every query to this endpoint."
+        ),
+    )
 
     @field_validator("slug", mode="before")
     @classmethod
@@ -72,13 +79,26 @@ class UpdateEndpointRequest(BaseModel):
     name: str | None = Field(None, description="New endpoint name")
     summary: str | None = Field(None, description="Updated summary")
     description: str | None = Field(None, description="Updated markdown description")
+    system_prompt: str | None = Field(
+        None,
+        description=(
+            "Updated custom system prompt. Pass an empty string to clear the "
+            "override and fall back to the model's default system prompt."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_at_least_one_field(self) -> "UpdateEndpointRequest":
         """Ensure at least one field is provided for update."""
-        if self.name is None and self.summary is None and self.description is None:
+        if (
+            self.name is None
+            and self.summary is None
+            and self.description is None
+            and self.system_prompt is None
+        ):
             raise ValueError(
-                "At least one field (name, summary, or description) must be provided"
+                "At least one field (name, summary, description, or "
+                "system_prompt) must be provided"
             )
         return self
 
@@ -134,6 +154,10 @@ class EndpointResponse(BaseModel):
     response_type: str = Field(..., description="Type of response")
     published: bool = Field(..., description="Whether published")
     tags: str = Field(..., description="Comma-separated tags")
+    system_prompt: str | None = Field(
+        default=None,
+        description="Custom system prompt override (null if using model default)",
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
@@ -189,6 +213,9 @@ class EndpointListItem(BaseModel):
     response_type: str = Field(..., description="Type of response")
     published: bool = Field(..., description="Whether published")
     tags: str = Field(..., description="Comma-separated tags")
+    system_prompt: str | None = Field(
+        default=None, description="Custom system prompt override"
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
 
     model: AttachedModel | None = Field(default=None, description="Attached model")
@@ -236,7 +263,7 @@ class QueryEndpointRequest(BaseModel):
         default=0.7, ge=0.0, le=2.0, description="Temperature for generation"
     )
     stop_sequences: list[str] = Field(
-        default_factory=lambda: ["\n"], description="Stop sequences"
+        default_factory=list, description="Stop sequences"
     )
     stream: bool = Field(default=False, description="Whether to stream the response")
     presence_penalty: float = Field(

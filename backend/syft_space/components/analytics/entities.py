@@ -94,7 +94,9 @@ class QueryCostLine(SQLModel, table=True):
     timestamp: datetime = Field(
         ..., description="Parent event timestamp (denormalized for time-bucket queries)"
     )
-    user_email: str = Field(..., description="Querying user (denormalized for top-users)")
+    user_email: str = Field(
+        ..., description="Querying user (denormalized for top-users)"
+    )
     endpoint_id: UUID | None = Field(
         default=None,
         description="Endpoint ID (denormalized for filter)",
@@ -107,7 +109,8 @@ class QueryCostLine(SQLModel, table=True):
         ..., description="Parent event status (denormalized for filter)"
     )
     component: str = Field(
-        ..., description='Which response component was charged: "summary" or "references"'
+        ...,
+        description='Which response component was charged: "summary" or "references"',
     )
     amount: float = Field(..., description="Charged amount in `currency`")
     currency: str = Field(..., description="ISO currency code (e.g., 'USD', 'IDR')")

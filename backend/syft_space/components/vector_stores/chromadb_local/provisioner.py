@@ -10,7 +10,7 @@ from typing import Any
 from anyio import Path as AsyncPath
 from loguru import logger
 
-from syft_space.components.dataset_types.interfaces import BaseDatasetTypeProvisioner
+from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
 
 DEFAULT_HTTP_PORT = 8100
 
@@ -31,14 +31,16 @@ def _chroma_command() -> list[str]:
     return ["chroma"]
 
 
-class LocalChromaDBProvisioner(BaseDatasetTypeProvisioner):
+class LocalChromaDBProvisioner(BaseVectorStoreProvisioner):
     """Provisioner for ChromaDB - manages subprocess lifecycle.
 
     All methods are classmethods. State is tracked via PID file.
-    Uses `chroma run` command to start the server (no Docker dependency).
+    Uses ``chroma run`` to start the server (no Docker dependency).
+    One provisioner instance is shared across every dataset whose
+    vector store is ``chromadb_local``.
     """
 
-    NAME = "local_file"
+    NAME = "chromadb_local"
 
     @classmethod
     def name(cls) -> str:

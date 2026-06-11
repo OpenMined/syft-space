@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { policiesApi } from '@/api/policies/policies'
+import { useEndpointsStore } from '@/stores/endpoints'
 import { usePolicyCreation } from './usePolicyCreation'
 import type { CreateDatasetRequest, CreateEndpointRequest, PolicyResponse } from '@/api/types'
 
@@ -42,6 +43,7 @@ export interface DataEndpointCreationData {
 
 export function useDataEndpointCreation() {
   const router = useRouter()
+  const endpointsStore = useEndpointsStore()
   const { transformPolicyRules } = usePolicyCreation()
 
   // State
@@ -246,11 +248,10 @@ export function useDataEndpointCreation() {
       // Step 4: Publish endpoint to all marketplaces
       await publishEndpoint(data.endpointName)
 
-      // Success!
       creationStep.value = 'Complete!'
+      endpointsStore.invalidate()
       toast.success(`Endpoint "${data.endpointName}" published successfully to SyftHub`)
 
-      // Navigate to the endpoint details page
       router.push({ name: 'endpoints' })
 
       return true

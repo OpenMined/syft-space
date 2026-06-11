@@ -1,8 +1,8 @@
 """Shared document chunking pipeline using Docling.
 
-Provides a unified parse → chunk → save images pipeline used by all
-dataset types (ChromaDB, Weaviate, etc.). Each dataset type handles
-its own DB-specific storage and retrieval.
+Parses an ``IngestFile`` into a sequence of text chunks plus
+per-page images, then leaves storage and retrieval to whichever
+``IngestableVectorStore`` invoked it.
 """
 
 import json
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from syft_space.components.dataset_types.interfaces import IngestFile
+from syft_space.components.shared.ingest_types import IngestFile
 
 logger = logging.getLogger(__name__)
 
