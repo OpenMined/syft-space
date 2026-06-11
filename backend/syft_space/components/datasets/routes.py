@@ -8,7 +8,6 @@ from fastapi.responses import FileResponse
 from syft_space.components.auth.public import public_route
 from syft_space.components.datasets.handlers import DatasetHandler
 from syft_space.components.datasets.schemas import (
-    BrowseResponse,
     CreateDatasetRequest,
     DatasetListItem,
     DatasetResponse,
@@ -16,6 +15,8 @@ from syft_space.components.datasets.schemas import (
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
+    SourceBrowseRequest,
+    SourceBrowseResponse,
     UpdateDatasetRequest,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
@@ -86,27 +87,20 @@ def build_dataset_routes(
         type_info = handler.get_dataset_type(name)
         return type_info.config_schema
 
-    # ============== File Browser Endpoint ==============
+    # ============== Source Browser Endpoint ==============
 
-    @router.get("/browse", response_model=BrowseResponse)
-    async def browse_directory(
-        path: str = "~",
-        show_hidden: bool = False,
+    @router.post("/browse", response_model=SourceBrowseResponse)
+    async def browse_source(
+        req: SourceBrowseRequest,
         handler: DatasetHandler = Depends(get_handler),
-    ) -> BrowseResponse:
-        """Browse directories on the filesystem.
+    ) -> SourceBrowseResponse:
+        """Browse a source by dtype.
 
-        Used for selecting files/folders when creating datasets.
-        Restricted to user's home directory for security.
-
-        Args:
-            path: Directory path to browse (defaults to home directory)
-            show_hidden: Whether to include hidden files (dotfiles)
-
-        Returns:
-            Directory contents with file metadata
+        Generic picker endpoint: caller supplies the source type and its
+        configuration; the handler dispatches to that source's
+        ``list_items`` for one level of containers/leaves.
         """
-        return handler.browse_directory(path, show_hidden)
+        return await handler.browse_source(req.dtype, req.configuration, req.parent_id)
 
     # ============== Image Serving Endpoint ==============
 

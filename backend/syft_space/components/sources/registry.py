@@ -1,36 +1,30 @@
-"""Registry for data sources."""
+"""Registry for data source providers."""
 
 from __future__ import annotations
 
-from syft_space.components.sources.interfaces import BaseSource
+from syft_space.components.sources.interfaces import BaseSourceProvider
 
 
 class SourceRegistry:
-    """Registry class for data sources.
+    """Lookup table mapping ``dtype`` names to source providers.
 
-    Sources are registered lazily by module path; classes are imported on
-    first use to keep startup fast and avoid pulling optional dependencies
-    until actually needed. Raises ``ValueError`` on duplicate registration
-    and ``KeyError`` on unknown lookup.
+    Providers are registered lazily by module path and imported on
+    first use, so optional dependencies aren't pulled in at startup.
+    Raises ``ValueError`` on duplicate registration and ``KeyError``
+    on unknown lookup.
     """
 
-    _sources: dict[str, type[BaseSource]] = {}
+    _sources: dict[str, type[BaseSourceProvider]] = {}
     _lazy_sources: dict[str, tuple[str, str]] = {}
 
-    def get(self, name: str) -> type[BaseSource]:
-        """Get source class by name.
+    def get(self, name: str) -> type[BaseSourceProvider]:
+        """Return the provider class for ``name``, importing it on first use.
 
-        Resolves a lazy entry by importing the target module on first call;
-        the imported class is cached for subsequent lookups.
-
-        Args:
-            name: Name of the source.
-
-        Returns:
-            Source class.
+        The resolved class is cached, so subsequent lookups are direct.
 
         Raises:
-            KeyError: If no source found for name, or if lazy import fails.
+            KeyError: If no source is registered under ``name`` or the
+                lazy import fails.
         """
         if name in self._sources:
             return self._sources[name]
@@ -71,19 +65,15 @@ class SourceRegistry:
         return name in self._sources or name in self._lazy_sources
 
     def register(self, name: str, module_path: str, class_name: str) -> None:
-        """Register a source by import path.
-
-        The target class is imported on first ``get()`` call, not at
-        registration time.
+        """Register a provider by import path; imported on first ``get()``.
 
         Args:
-            name: Name of the source (matches ``BaseSource.NAME`` of the
-                target class).
-            module_path: Dotted module path containing the source class.
-            class_name: Name of the source class within the module.
+            name: Source name, matching the provider's ``NAME`` attribute.
+            module_path: Dotted module path containing the provider class.
+            class_name: Provider class name within the module.
 
         Raises:
-            ValueError: If a source with this name is already registered.
+            ValueError: If a source is already registered under ``name``.
         """
         if name in self._sources or name in self._lazy_sources:
             raise ValueError(f"Source already registered for name '{name}'")
@@ -94,17 +84,18 @@ SOURCE_REGISTRY = SourceRegistry()
 
 
 def register_builtin_sources() -> None:
-    """Register all built-in sources.
+    """Register the source providers shipped with the application.
 
-    Called explicitly from ``main.py`` — no import side effects.
+    Called explicitly from ``main.py``; importing this module does not
+    register anything by itself.
     """
     SOURCE_REGISTRY.register(
         "local_file",
         "syft_space.components.sources.local_file.local_file_source",
-        "LocalFileSource",
+        "LocalFileProvider",
     )
     SOURCE_REGISTRY.register(
         "noop",
         "syft_space.components.sources.noop_source",
-        "NoOpSource",
+        "NoOpProvider",
     )

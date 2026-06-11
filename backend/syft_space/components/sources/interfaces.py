@@ -1,9 +1,16 @@
 """Source interfaces and domain models.
 
-A ``BaseSource`` represents a data origin (local files, WordPress, RSS, S3, ...).
-Sources are orthogonal to vector stores: a single source can feed any vector
-store, and a single vector store can be fed by any source. Bindings between
-the two live in ``dataset_types/``.
+A source type contributes three classes:
+
+* ``BaseBrowser`` — picker-time capability to list one level of items.
+* ``BaseSource`` — ingest-time capability: list, fetch, fingerprint, watch.
+* ``BaseSourceProvider`` — describes the source type for the registry:
+  name, icon, schemas, validators, and the two factories that build
+  ``BaseBrowser`` / ``BaseSource`` instances from a configuration dict.
+
+Sources are orthogonal to vector stores: a single source can feed any
+vector store, and a single vector store can be fed by any source.
+Bindings between the two live in ``dataset_types/``.
 """
 
 from collections.abc import AsyncIterator
@@ -53,23 +60,79 @@ class SourceChangeEvent(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class BaseSource(Protocol):
-    """Base source interface.
+class BaseBrowser(Protocol):
+    """Picker-time view of a source: list items one level at a time.
 
-    All concrete data sources must implement this protocol. Sources own
-    discovery, change detection, and fetching of their items; they do not
-    know about vector stores or persistence.
+    Built by ``BaseSourceProvider.for_browse``. Knows only how to
+    discover items (typically using connection / credential fields);
+    cannot fetch, fingerprint, or watch.
+    """
+
+    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+        """Discover items at the given level.
+
+        Args:
+            parent_id: For hierarchical sources, descend into the given parent.
+                ``None`` returns the top-level items.
+        """
+        ...
+
+
+class BaseSource(Protocol):
+    """Ingest-time view of a source: discover, fetch, and watch for changes.
+
+    Built by ``BaseSourceProvider.for_ingest`` from the full dataset
+    configuration. Owns discovery, change detection, and fetching;
+    does not know about vector stores or persistence.
+    """
+
+    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+        """Discover items at the given level."""
+        ...
+
+    def fetch(self, external_id: str) -> AbstractAsyncContextManager[IngestFile]:
+        """Produce an ``IngestFile`` for the given item.
+
+        Returns an async context manager so each source can own any
+        materialization/cleanup its fetch needs (no-op for sources whose
+        items already live on disk).
+
+        Args:
+            external_id: Source-unique identifier of the item to fetch.
+        """
+        ...
+
+    def fingerprint(self, external_id: str) -> str:
+        """Opaque change-detection token for the given item.
+
+        Sources control the format (JSON blob, hash, etag, ...). The
+        manager treats this as an opaque string and compares for equality.
+
+        Args:
+            external_id: Item identifier.
+        """
+        ...
+
+    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
+        """Async iterator of change events for this source.
+
+        Sources own their own watching/polling strategy. The ingestion
+        manager consumes this stream to keep the dataset in sync.
+        """
+        ...
+
+
+class BaseSourceProvider(Protocol):
+    """Description of a source type for the registry.
+
+    One Provider per source type. Holds presentational metadata, the
+    browse / dataset configuration schemas and their validators, and
+    the two factories that build a ``BaseBrowser`` or a ``BaseSource``
+    from a configuration dict. The picker calls ``for_browse``;
+    ingestion calls ``for_ingest``.
     """
 
     NAME: str
-
-    def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize the source with configuration.
-
-        Args:
-            config: Configuration dictionary for this source.
-        """
-        ...
 
     @classmethod
     def name(cls) -> str:
@@ -92,70 +155,63 @@ class BaseSource(Protocol):
         ...
 
     @classmethod
-    def configuration_schema(cls) -> dict[str, Any]:
-        """Return configuration schema required by this source.
+    def enabled(cls) -> bool:
+        """Check if this source is enabled."""
+        ...
 
-        Returns:
-            Dictionary describing the configuration schema.
+    @classmethod
+    def browse_schema(cls) -> dict[str, Any]:
+        """JSON schema for the browse-time configuration.
+
+        The browse config is the subset of fields needed to connect or
+        discover items (credentials, connection knobs).
+        """
+        ...
+
+    @classmethod
+    def configuration_schema(cls) -> dict[str, Any]:
+        """JSON schema for the full dataset configuration.
+
+        Must extend ``browse_schema``: every browse field is also a
+        dataset field, plus the ingestion-time additions.
+        """
+        ...
+
+    @classmethod
+    async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
+        """Validate a browse-time configuration payload.
+
+        Raises:
+            ValueError: If the payload doesn't match ``browse_schema``.
         """
         ...
 
     @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        """Validate the configuration for the source.
+        """Validate the full dataset configuration for the source.
 
         Args:
-            configuration: Configuration dictionary to validate.
+            configuration: Dataset-shaped payload (browse fields + ingestion fields).
 
         Raises:
-            ValidationError: If configuration is invalid.
+            ValueError: If the payload doesn't match ``configuration_schema``.
         """
         ...
 
     @classmethod
-    def enabled(cls) -> bool:
-        """Check if this source is enabled."""
-        ...
-
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
-        """Discover items in this source.
+    def for_browse(cls, configuration: dict[str, Any]) -> BaseBrowser:
+        """Build a browser for the picker from the browse configuration.
 
         Args:
-            parent_id: For hierarchical sources, descend into the given parent.
-                ``None`` returns the top-level items.
-
-        Returns:
-            List of items at the requested level.
+            configuration: Browse-shaped payload (connection / credentials).
         """
         ...
 
-    def fetch(self, external_id: str) -> AbstractAsyncContextManager[IngestFile]:
-        """Produce an ``IngestFile`` for the given item.
-
-        Returns an async context manager so each source can own any
-        materialization/cleanup its fetch needs (no-op for sources whose
-        items already live on disk).
+    @classmethod
+    def for_ingest(cls, configuration: dict[str, Any]) -> BaseSource:
+        """Build a source for ingestion from the full dataset configuration.
 
         Args:
-            external_id: Source-unique identifier of the item to fetch.
-        """
-        ...
-
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Async iterator of change events for this source.
-
-        Sources own their own watching/polling strategy. The ingestion
-        manager consumes this stream to keep the dataset in sync.
-        """
-        ...
-
-    def fingerprint(self, external_id: str) -> str:
-        """Opaque change-detection token for the given item.
-
-        Sources control the format (JSON blob, hash, etag, ...). The
-        manager treats this as an opaque string and compares for equality.
-
-        Args:
-            external_id: Item identifier.
+            configuration: Dataset-shaped payload (browse fields + ingest fields).
         """
         ...

@@ -1,7 +1,9 @@
 import { ref, computed } from 'vue'
 import axios from 'axios'
 import { datasetsApi } from '@/api/endpoints/datasets'
-import type { FileItem } from '@/api/types'
+import type { SourceItem } from '@/api/types'
+
+const LOCAL_FILE_DTYPE = 'local_file'
 
 export interface FileNode {
   name: string
@@ -42,34 +44,38 @@ export function useDatasetBrowser() {
   const rootPermissionDenied = ref(false)
 
   const loadDirectory = async (
-    path = '~',
+    parentId: string | null,
     isInitial = false,
   ): Promise<{ nodes: FileNode[]; permissionDenied: boolean }> => {
+    const loadingKey = parentId ?? '__root__'
     try {
       if (isInitial) {
         isInitialLoading.value = true
         error.value = null
       } else {
-        loadingPaths.value.add(path)
+        loadingPaths.value.add(loadingKey)
       }
 
-      const response = await datasetsApi.browse(path, false)
+      const response = await datasetsApi.browse(LOCAL_FILE_DTYPE, parentId)
 
       if (!response || !Array.isArray(response.items)) {
         throw new Error('Invalid response from server')
       }
 
-      const nodes: FileNode[] = response.items.map((item: FileItem) => ({
-        name: item.name,
-        path: item.path,
-        type: item.is_dir ? 'directory' : 'file',
-        size: item.size,
-        modifiedTime: item.modified ? new Date(item.modified) : undefined,
-        children: item.is_dir ? [] : undefined,
-        hasLoaded: false,
-      }))
+      const nodes: FileNode[] = response.items.map((item: SourceItem) => {
+        const modified = (item.metadata?.modified as string | undefined) ?? undefined
+        return {
+          name: item.display_name,
+          path: item.external_id,
+          type: item.is_container ? 'directory' : 'file',
+          size: item.size_bytes ?? undefined,
+          modifiedTime: modified ? new Date(modified) : undefined,
+          children: item.is_container ? [] : undefined,
+          hasLoaded: false,
+        }
+      })
 
-      loadedPaths.value.add(path)
+      loadedPaths.value.add(loadingKey)
       return { nodes, permissionDenied: false }
     } catch (err) {
       const is403 = axios.isAxiosError(err) && err.response?.status === 403
@@ -85,14 +91,14 @@ export function useDatasetBrowser() {
       if (isInitial) {
         isInitialLoading.value = false
       } else {
-        loadingPaths.value.delete(path)
+        loadingPaths.value.delete(loadingKey)
       }
     }
   }
 
   const loadRootDirectory = async () => {
     rootPermissionDenied.value = false
-    const result = await loadDirectory('~', true)
+    const result = await loadDirectory(null, true)
     rootNodes.value = result.nodes
     rootPermissionDenied.value = result.permissionDenied
   }

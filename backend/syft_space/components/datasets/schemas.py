@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from syft_space.components.datasets.entities import ProvisionerStatus
 from syft_space.components.shared.domain_types import HealthcheckStatus
+from syft_space.components.sources.interfaces import SourceItem
 
 if TYPE_CHECKING:
     from syft_space.components.datasets.entities import Dataset, ProvisionerState
@@ -334,31 +335,39 @@ class ProvisionerActionResponse(BaseModel):
     )
 
 
-# ============== File Browser Schemas ==============
+# ============== Source Browser Schemas ==============
 
 
-class FileItem(BaseModel):
-    """Response model for a single file or directory item."""
+class SourceBrowseRequest(BaseModel):
+    """Request model for source-typed browsing.
 
-    name: str = Field(..., description="File or folder name")
-    path: str = Field(..., description="Full absolute path")
-    is_dir: bool = Field(..., description="True if this is a directory")
-    size: int | None = Field(
-        None, description="File size in bytes (None for directories)"
+    Drives the picker pre-create: caller picks a source type, supplies the
+    same configuration shape the source uses at ingestion time, and walks
+    its containers by passing back ``parent_id`` from prior responses.
+    """
+
+    dtype: str = Field(..., description="Source type registered in SOURCE_REGISTRY")
+    configuration: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Source-specific configuration (credentials, options)",
     )
-    modified: datetime = Field(..., description="Last modified timestamp")
-    extension: str | None = Field(
-        None, description="File extension without dot (None for directories)"
+    parent_id: str | None = Field(
+        default=None,
+        description="Container id to list. Null lists the source's top level.",
     )
 
 
-class BrowseResponse(BaseModel):
-    """Response model for directory browsing."""
+class SourceBrowseResponse(BaseModel):
+    """Response model for source-typed browsing."""
 
-    path: str = Field(..., description="Current directory path")
-    parent: str | None = Field(
-        None, description="Parent directory path (None if at home directory root)"
+    parent_id: str | None = Field(
+        default=None, description="Echoes the requested parent_id"
     )
-    items: list[FileItem] = Field(
-        default_factory=list, description="List of files and directories"
+    items: list[SourceItem] = Field(
+        default_factory=list,
+        description="Containers and leaves at the requested level",
+    )
+    next_cursor: str | None = Field(
+        default=None,
+        description="Opaque cursor for sources that page. Null when exhausted.",
     )

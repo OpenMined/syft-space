@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path as SyncPath
 from typing import Any
 
@@ -41,36 +42,243 @@ class FilePathItem(BaseModel):
     description: str = Field(..., description="Description of the data at this path")
 
 
-class LocalFileSourceConfiguration(BaseModel):
-    """Configuration for the local filesystem source."""
+class LocalFileBrowseConfig(BaseModel):
+    """Picker-time configuration for the local filesystem source.
+
+    Holds only the fields needed to enumerate the user's home
+    directory. Ingest-time fields are added by
+    ``LocalFileDatasetConfig`` below.
+    """
+
+    show_hidden: bool = Field(
+        default=False,
+        alias="showHidden",
+        description="Whether the picker includes dotfiles. Ingestion ignores hidden paths regardless.",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class LocalFileDatasetConfig(LocalFileBrowseConfig):
+    """Full dataset configuration for the local filesystem source.
+
+    Extends the browse configuration with the paths to watch and the
+    file extensions to admit. The dataset row stores this shape.
+    """
 
     file_paths: list[FilePathItem] = Field(
-        default_factory=list,
+        ...,
         alias="filePaths",
         description="File or directory paths to watch for ingestion",
     )
     allowed_extensions: list[str] = Field(
         default_factory=lambda: list(DEFAULT_ALLOWED_EXTENSIONS),
         alias="allowedExtensions",
-        description="Allowed file extensions for ingestion (including the leading dot)",
+        description="File extensions to ingest, including the leading dot",
     )
 
-    model_config = {"populate_by_name": True}
+
+class LocalFileBrowser:
+    """Picker-time access to the local filesystem.
+
+    Built by ``LocalFileProvider.for_browse``. Exposes a single
+    ``list_items`` that returns one level of directory contents under
+    the user's home directory.
+    """
+
+    def __init__(self, config: LocalFileBrowseConfig) -> None:
+        self.config = config
+
+    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+        """List one level of directory contents under the user's home.
+
+        ``parent_id=None`` lists the home directory; otherwise
+        ``parent_id`` is a directory path that must resolve under the
+        home directory. Dotfiles are included only when ``show_hidden``
+        is set. Folders come first, then files, each group sorted
+        alphabetically.
+        """
+        home = SyncPath.home()
+        try:
+            resolved = (
+                home
+                if parent_id is None
+                else SyncPath(parent_id).expanduser().resolve()
+            )
+        except OSError as e:
+            raise ValueError(f"Invalid path: {parent_id!r}") from e
+
+        try:
+            resolved.relative_to(home)
+        except ValueError as e:
+            raise ValueError("Path must be within home directory") from e
+
+        target = AsyncPath(resolved)
+        if not await target.exists():
+            raise FileNotFoundError(str(target))
+        if not await target.is_dir():
+            raise NotADirectoryError(str(target))
+
+        items: list[SourceItem] = []
+        async for entry in target.iterdir():
+            if not self.config.show_hidden and entry.name.startswith("."):
+                continue
+            try:
+                stat = await entry.stat()
+                is_dir = await entry.is_dir()
+            except (PermissionError, OSError):
+                continue
+            extension = (
+                entry.suffix.lstrip(".") if (not is_dir and entry.suffix) else None
+            )
+            items.append(
+                SourceItem(
+                    external_id=str(entry),
+                    display_name=entry.name,
+                    parent_id=str(target),
+                    is_container=is_dir,
+                    is_leaf=not is_dir,
+                    size_bytes=None if is_dir else stat.st_size,
+                    metadata={
+                        "modified": datetime.fromtimestamp(
+                            stat.st_mtime, tz=timezone.utc
+                        ).isoformat(),
+                        "extension": extension,
+                    },
+                )
+            )
+
+        items.sort(key=lambda i: (not i.is_container, i.display_name.lower()))
+        return items
 
 
 class LocalFileSource:
-    """File-system source: enumerates files under watched paths.
+    """Ingest-time access to the local filesystem.
 
-    Change-stream wiring (``watchdog`` observer + event bridge) is deferred to
-    the manager-generalization PR; ``change_stream`` raises until then.
+    Built by ``LocalFileProvider.for_ingest`` from a validated dataset
+    configuration. Provides discovery, fetching, fingerprinting, and a
+    change stream backed by the shared filesystem watcher.
+    """
+
+    def __init__(self, config: LocalFileDatasetConfig) -> None:
+        self.config = config
+        self._allowed_extensions: set[str] = set(config.allowed_extensions)
+
+    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+        """List directory contents using the picker's home-rooted walk.
+
+        Delegates to a transient ``LocalFileBrowser`` so the directory
+        listing rules stay defined in one place. The browse config is
+        derived from this source's ``show_hidden``.
+        """
+        browser = LocalFileBrowser(
+            LocalFileBrowseConfig.model_validate(
+                {"show_hidden": self.config.show_hidden}
+            )
+        )
+        return await browser.list_items(parent_id)
+
+    def watched_paths(self) -> list[str]:
+        """Absolute directory/file paths to monitor."""
+        return [item.path for item in self.config.file_paths]
+
+    def allowed_extensions(self) -> set[str]:
+        """Allowed file extensions (including the leading dot)."""
+        return self._allowed_extensions
+
+    async def _enumerate_configured_files(self) -> list[SourceItem]:
+        """Walk every ingestable file under the configured paths.
+
+        Used by ``change_stream`` to seed the ingestion manager with
+        ``created`` events for files already on disk.
+        """
+        items: list[SourceItem] = []
+        for fp in self.config.file_paths:
+            root = AsyncPath(fp.path)
+            if await root.is_file():
+                if root.suffix in self._allowed_extensions:
+                    items.append(await self._to_source_item(root))
+                continue
+            if await root.is_dir():
+                async for path in rglob_visible(root):
+                    if await path.is_file() and path.suffix in self._allowed_extensions:
+                        items.append(await self._to_source_item(path))
+        return items
+
+    @asynccontextmanager
+    async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:
+        """Yield an ``IngestFile`` pointing at the on-disk path."""
+        path = SyncPath(external_id)
+        stat = path.stat()
+        yield IngestFile(
+            path=path,
+            filename=path.name,
+            file_size=stat.st_size,
+            metadata={"source": LocalFileProvider.NAME, "absolute_path": str(path)},
+        )
+
+    def fingerprint(self, external_id: str) -> str:
+        """Return a ``{size, mtime_ns}`` token used for change detection.
+
+        Serialized without separator whitespace so it round-trips
+        byte-equal through SQLite's ``json_object()``, which the
+        fingerprint backfill migration relies on.
+        """
+        stat = SyncPath(external_id).stat()
+        return json.dumps(
+            {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns},
+            separators=(",", ":"),
+        )
+
+    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
+        """Yield filesystem change events for the configured paths.
+
+        The watchdog subscription is opened before the initial scan so
+        events that fire during the scan are buffered. The scan then
+        emits ``created`` events for files already on disk, and the
+        watchdog stream takes over after that.
+        """
+        return self._change_stream_impl()
+
+    async def _change_stream_impl(self) -> AsyncIterator[SourceChangeEvent]:
+        watcher = get_local_file_watcher()
+        sub_iter = await watcher.subscribe(
+            self.watched_paths(), self._allowed_extensions
+        )
+        try:
+            for item in await self._enumerate_configured_files():
+                yield SourceChangeEvent(
+                    event_type="created",
+                    external_id=item.external_id,
+                    fingerprint=self.fingerprint(item.external_id),
+                )
+            async for event in sub_iter:
+                yield event
+        finally:
+            await sub_iter.aclose()
+
+    async def _to_source_item(self, path: AsyncPath) -> SourceItem:
+        stat = await path.stat()
+        return SourceItem(
+            external_id=str(path),
+            display_name=path.name,
+            parent_id=str(path.parent) if str(path.parent) != str(path) else None,
+            is_container=False,
+            is_leaf=True,
+            size_bytes=stat.st_size,
+            metadata={},
+        )
+
+
+class LocalFileProvider:
+    """Description of the local filesystem source for the registry.
+
+    Holds metadata, the browse and dataset configuration schemas, and
+    the factories that build a ``LocalFileBrowser`` or
+    ``LocalFileSource`` from a raw configuration dict.
     """
 
     NAME = "local_file"
-
-    def __init__(self, config: dict[str, Any]) -> None:
-        self.raw_config = config
-        self.config = LocalFileSourceConfiguration.model_validate(config)
-        self._allowed_extensions: set[str] = set(self.config.allowed_extensions)
 
     @classmethod
     def name(cls) -> str:
@@ -98,21 +306,41 @@ class LocalFileSource:
         return True
 
     @classmethod
-    def configuration_schema(cls) -> dict[str, Any]:
-        """Return JSON schema for this source's configuration."""
-        return LocalFileSourceConfiguration.model_json_schema(
+    def browse_schema(cls) -> dict[str, Any]:
+        """Return JSON schema for the browse-time configuration."""
+        return LocalFileBrowseConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        """Validate the configuration for the source.
+    def configuration_schema(cls) -> dict[str, Any]:
+        """Return JSON schema for the full dataset configuration."""
+        return LocalFileDatasetConfig.model_json_schema(
+            schema_generator=ConfigSchemaGenerator
+        )
+
+    @classmethod
+    async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
+        """Validate a picker-time payload against ``LocalFileBrowseConfig``.
 
         Raises:
-            ValueError: If configuration is malformed or references a missing path.
+            ValueError: If the payload is malformed.
         """
         try:
-            config = LocalFileSourceConfiguration.model_validate(configuration)
+            LocalFileBrowseConfig.model_validate(configuration)
+        except ValidationError as e:
+            raise ValueError(f"Invalid browse configuration: {e}") from e
+
+    @classmethod
+    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+        """Validate a full dataset configuration and the paths it points to.
+
+        Raises:
+            ValueError: If the payload is malformed or any configured
+                ``file_paths`` entry does not exist on disk.
+        """
+        try:
+            config = LocalFileDatasetConfig.model_validate(configuration)
         except ValidationError as e:
             raise ValueError(f"Invalid configuration: {e}") from e
 
@@ -121,93 +349,12 @@ class LocalFileSource:
             if not await path.exists():
                 raise ValueError(f"file_paths does not exist: {file_path_item.path}")
 
-    def watched_paths(self) -> list[str]:
-        """Absolute directory/file paths to monitor."""
-        return [item.path for item in self.config.file_paths]
+    @classmethod
+    def for_browse(cls, configuration: dict[str, Any]) -> LocalFileBrowser:
+        """Build a browser from a raw browse configuration dict."""
+        return LocalFileBrowser(LocalFileBrowseConfig.model_validate(configuration))
 
-    def allowed_extensions(self) -> set[str]:
-        """Allowed file extensions (including the leading dot)."""
-        return self._allowed_extensions
-
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
-        """Enumerate matching files under watched paths.
-
-        ``parent_id`` is ignored — this source returns the flat set of
-        ingestable files rather than a hierarchical browse view.
-        """
-        items: list[SourceItem] = []
-        for fp in self.config.file_paths:
-            root = AsyncPath(fp.path)
-            if await root.is_file():
-                if root.suffix in self._allowed_extensions:
-                    items.append(await self._to_source_item(root))
-                continue
-            if await root.is_dir():
-                async for path in rglob_visible(root):
-                    if await path.is_file() and path.suffix in self._allowed_extensions:
-                        items.append(await self._to_source_item(path))
-        return items
-
-    @asynccontextmanager
-    async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:
-        """Yield an ``IngestFile`` pointing at the on-disk path."""
-        path = SyncPath(external_id)
-        stat = path.stat()
-        yield IngestFile(
-            path=path,
-            filename=path.name,
-            file_size=stat.st_size,
-            metadata={"source": self.NAME, "absolute_path": str(path)},
-        )
-
-    def fingerprint(self, external_id: str) -> str:
-        """Compact JSON ``{size, mtime_ns}`` token for change detection.
-
-        Compact (no separator whitespace) so the string round-trips
-        byte-equal through SQLite's ``json_object()`` backfill used to
-        seed ``fingerprint`` for existing rows.
-        """
-        stat = SyncPath(external_id).stat()
-        return json.dumps(
-            {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns},
-            separators=(",", ":"),
-        )
-
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Async iterator of filesystem change events.
-
-        Order: the underlying watchdog subscription is opened first (so any
-        events occurring during the initial scan are buffered), then the
-        initial scan yields ``created`` events for files already on disk,
-        then the watchdog event stream takes over.
-        """
-        return self._change_stream_impl()
-
-    async def _change_stream_impl(self) -> AsyncIterator[SourceChangeEvent]:
-        watcher = get_local_file_watcher()
-        sub_iter = await watcher.subscribe(
-            self.watched_paths(), self._allowed_extensions
-        )
-        try:
-            for item in await self.list_items():
-                yield SourceChangeEvent(
-                    event_type="created",
-                    external_id=item.external_id,
-                    fingerprint=self.fingerprint(item.external_id),
-                )
-            async for event in sub_iter:
-                yield event
-        finally:
-            await sub_iter.aclose()
-
-    async def _to_source_item(self, path: AsyncPath) -> SourceItem:
-        stat = await path.stat()
-        return SourceItem(
-            external_id=str(path),
-            display_name=path.name,
-            parent_id=str(path.parent) if str(path.parent) != str(path) else None,
-            is_container=False,
-            is_leaf=True,
-            size_bytes=stat.st_size,
-            metadata={},
-        )
+    @classmethod
+    def for_ingest(cls, configuration: dict[str, Any]) -> LocalFileSource:
+        """Build a source from a raw dataset configuration dict."""
+        return LocalFileSource(LocalFileDatasetConfig.model_validate(configuration))

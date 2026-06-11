@@ -1,22 +1,27 @@
 import { apiClient } from '../client'
 import type {
-  BrowseResponse,
   CreateDatasetRequest,
   DatasetResponse,
   DatasetListItem,
+  SourceBrowseRequest,
+  SourceBrowseResponse,
   UpdateDatasetRequest,
   HealthcheckResponse,
   DatasetTypeInfoResponse,
 } from '../types'
 
 export const datasetsApi = {
-  browse: async (path = '~', showHidden = false): Promise<BrowseResponse> => {
-    const response = await apiClient.get<BrowseResponse>('/datasets/browse', {
-      params: {
-        path,
-        show_hidden: showHidden,
-      },
-    })
+  browse: async (
+    dtype: string,
+    parentId: string | null = null,
+    configuration: Record<string, unknown> = {},
+  ): Promise<SourceBrowseResponse> => {
+    const body: SourceBrowseRequest = {
+      dtype,
+      configuration,
+      parent_id: parentId,
+    }
+    const response = await apiClient.post<SourceBrowseResponse>('/datasets/browse', body)
     return response.data
   },
 

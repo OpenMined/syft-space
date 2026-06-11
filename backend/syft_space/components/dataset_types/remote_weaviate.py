@@ -1,8 +1,9 @@
 """Remote Weaviate dataset type binding.
 
-Composes a ``NoOpSource`` (no data origin — the Weaviate cluster is
-fed externally) with a ``WeaviateVectorStore`` (search over a remote
-cluster). Read-only: no ingest / delete.
+Search-only binding over a remote Weaviate cluster. The cluster is
+populated outside this process, so the source is a no-op; this
+binding provides search and healthcheck and intentionally has no
+ingest or delete path.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from typing import Any, ClassVar
 
 from syft_space.components.dataset_types.interfaces import BaseDatasetType
 from syft_space.components.shared.utils import ConfigSchemaGenerator
-from syft_space.components.sources.noop_source import NoOpSource
+from syft_space.components.sources.noop_source import NoOpProvider
 from syft_space.components.vector_stores.weaviate_remote.schemas import (
     RemoteWeaviateVectorStoreConfiguration,
 )
@@ -32,14 +33,14 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
     """
 
     NAME: ClassVar[str] = "remote_weaviate"
-    SOURCE_CLS: ClassVar[type[NoOpSource]] = NoOpSource
+    SOURCE_PROVIDER_CLS: ClassVar[type[NoOpProvider]] = NoOpProvider
     VECTOR_STORE_CLS: ClassVar[type[WeaviateVectorStore]] = WeaviateVectorStore
 
     @classmethod
     def split_config(
         cls, configuration: dict[str, Any]
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """NoOpSource takes no config; Weaviate takes the whole thing."""
+        """Send the whole configuration to the vector store; the source needs none."""
         return {}, dict(configuration)
 
     @classmethod

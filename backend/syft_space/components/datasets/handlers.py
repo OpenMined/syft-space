@@ -1,7 +1,6 @@
 """Dataset handlers for business logic."""
 
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -22,21 +21,21 @@ from syft_space.components.datasets.provisioner_state_repository import (
     ProvisionerStateRepository,
 )
 from syft_space.components.datasets.repository import DatasetRepository
-from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.datasets.schemas import (
-    BrowseResponse,
     CreateDatasetRequest,
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
-    FileItem,
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
+    SourceBrowseResponse,
     UpdateDatasetRequest,
 )
+from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.ingest_types import IngestContext
+from syft_space.components.sources.registry import SOURCE_REGISTRY
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.vector_stores.chunking import PAGE_IMAGES_BASE_DIR
 from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
@@ -961,110 +960,48 @@ class DatasetHandler:
 
         return ProvisionerInfoResponse.from_state(state, actual_status, dataset_count)
 
-    # ============== File Browser Methods ==============
+    # ============== Source Browser Methods ==============
 
-    def browse_directory(
-        self, path: str = "~", show_hidden: bool = False
-    ) -> BrowseResponse:
-        """Browse a directory on the filesystem.
+    async def browse_source(
+        self,
+        dtype: str,
+        configuration: dict[str, Any],
+        parent_id: str | None,
+    ) -> SourceBrowseResponse:
+        """List one level of items from any registered source.
 
-        Used for selecting files/folders during dataset creation.
-        Restricted to user's home directory for security.
-
-        Args:
-            path: Directory path to browse (defaults to home directory)
-            show_hidden: Whether to include hidden files (dotfiles)
-
-        Returns:
-            BrowseResponse with directory contents
-
-        Raises:
-            HTTPException 400: If path is outside home directory
-            HTTPException 404: If path does not exist
-            HTTPException 403: If permission denied
+        Looks up the provider for ``dtype``, validates the browse
+        configuration so bad credentials surface as 400 rather than a
+        deeper 500, builds a browser, and returns one level of items
+        starting at ``parent_id``.
         """
-        home = Path.home()
-
-        # Expand ~ and resolve to absolute path
         try:
-            requested = Path(path).expanduser().resolve()
-        except Exception as e:
+            provider = SOURCE_REGISTRY.get(dtype)
+        except KeyError as e:
             raise HTTPException(
-                status_code=400, detail=f"Invalid path format: {str(e)}"
+                status_code=404, detail=f"Unknown source type: {dtype}"
             ) from e
 
-        # Security check: ensure path is under home directory
         try:
-            requested.relative_to(home)
-        except ValueError:
+            await provider.validate_browse_config(configuration)
+        except ValueError as e:
             raise HTTPException(
-                status_code=400,
-                detail="Path must be within home directory",
-            ) from None
+                status_code=400, detail=f"Invalid browse configuration: {e}"
+            ) from e
 
-        # Check path exists
-        if not requested.exists():
-            raise HTTPException(
-                status_code=404, detail=f"Path does not exist: {requested}"
-            )
-
-        # Check it's a directory
-        if not requested.is_dir():
-            raise HTTPException(
-                status_code=400, detail=f"Path is not a directory: {requested}"
-            )
-
-        # List directory contents
-        items: list[FileItem] = []
         try:
-            for entry in requested.iterdir():
-                # Skip hidden files if not requested
-                if not show_hidden and entry.name.startswith("."):
-                    continue
-
-                try:
-                    stat = entry.stat()
-                    is_dir = entry.is_dir()
-
-                    # Get extension for files (not directories)
-                    extension = None
-                    if not is_dir and entry.suffix:
-                        extension = entry.suffix.lstrip(".")
-
-                    items.append(
-                        FileItem(
-                            name=entry.name,
-                            path=str(entry),
-                            is_dir=is_dir,
-                            size=None if is_dir else stat.st_size,
-                            modified=datetime.fromtimestamp(
-                                stat.st_mtime, tz=timezone.utc
-                            ),
-                            extension=extension,
-                        )
-                    )
-                except (PermissionError, OSError):
-                    # Skip entries we can't stat
-                    continue
-
+            browser = provider.for_browse(configuration)
+            items = await browser.list_items(parent_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        except NotADirectoryError as e:
+            raise HTTPException(status_code=400, detail=f"Not a container: {e}") from e
         except PermissionError as e:
-            raise HTTPException(
-                status_code=403, detail=f"Permission denied: {requested}"
-            ) from e
+            raise HTTPException(status_code=403, detail=str(e)) from e
 
-        # Sort: directories first, then alphabetical
-        items.sort(key=lambda x: (not x.is_dir, x.name.lower()))
-
-        # Calculate parent path (None if at home directory)
-        parent = None
-        if requested != home:
-            parent = str(requested.parent)
-
-        return BrowseResponse(
-            path=str(requested),
-            parent=parent,
-            items=items,
-        )
+        return SourceBrowseResponse(parent_id=parent_id, items=items)
 
     async def serve_image(
         self, dataset_id: str, doc_id: str, filename: str, tenant: Tenant

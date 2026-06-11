@@ -1,12 +1,16 @@
 """Data source abstractions.
 
-A ``BaseSource`` represents a data origin (local files, WordPress, RSS, S3, ...)
-and is orthogonal to the vector store used to index its content. Bindings
-between sources and vector stores live in ``dataset_types/``.
+A source type contributes three classes: ``BaseBrowser`` for the
+picker, ``BaseSource`` for ingestion, and ``BaseSourceProvider`` to
+describe the source for the registry and build the other two. Sources
+are orthogonal to the vector store used to index their content;
+bindings between sources and vector stores live in ``dataset_types/``.
 """
 
 from syft_space.components.sources.interfaces import (
+    BaseBrowser,
     BaseSource,
+    BaseSourceProvider,
     SourceChangeEvent,
     SourceItem,
 )
@@ -18,7 +22,9 @@ from syft_space.components.sources.registry import (
 
 __all__ = [
     "SOURCE_REGISTRY",
+    "BaseBrowser",
     "BaseSource",
+    "BaseSourceProvider",
     "SourceChangeEvent",
     "SourceItem",
     "SourceRegistry",
