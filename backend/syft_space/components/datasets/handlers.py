@@ -1,7 +1,6 @@
 """Dataset handlers for business logic."""
 
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -23,12 +22,10 @@ from syft_space.components.datasets.provisioner_state_repository import (
 )
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.datasets.schemas import (
-    BrowseResponse,
     CreateDatasetRequest,
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
-    FileItem,
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
@@ -963,110 +960,7 @@ class DatasetHandler:
 
         return ProvisionerInfoResponse.from_state(state, actual_status, dataset_count)
 
-    # ============== File Browser Methods ==============
-
-    def browse_directory(
-        self, path: str = "~", show_hidden: bool = False
-    ) -> BrowseResponse:
-        """Browse a directory on the filesystem.
-
-        Used for selecting files/folders during dataset creation.
-        Restricted to user's home directory for security.
-
-        Args:
-            path: Directory path to browse (defaults to home directory)
-            show_hidden: Whether to include hidden files (dotfiles)
-
-        Returns:
-            BrowseResponse with directory contents
-
-        Raises:
-            HTTPException 400: If path is outside home directory
-            HTTPException 404: If path does not exist
-            HTTPException 403: If permission denied
-        """
-        home = Path.home()
-
-        # Expand ~ and resolve to absolute path
-        try:
-            requested = Path(path).expanduser().resolve()
-        except Exception as e:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid path format: {str(e)}"
-            ) from e
-
-        # Security check: ensure path is under home directory
-        try:
-            requested.relative_to(home)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Path must be within home directory",
-            ) from None
-
-        # Check path exists
-        if not requested.exists():
-            raise HTTPException(
-                status_code=404, detail=f"Path does not exist: {requested}"
-            )
-
-        # Check it's a directory
-        if not requested.is_dir():
-            raise HTTPException(
-                status_code=400, detail=f"Path is not a directory: {requested}"
-            )
-
-        # List directory contents
-        items: list[FileItem] = []
-        try:
-            for entry in requested.iterdir():
-                # Skip hidden files if not requested
-                if not show_hidden and entry.name.startswith("."):
-                    continue
-
-                try:
-                    stat = entry.stat()
-                    is_dir = entry.is_dir()
-
-                    # Get extension for files (not directories)
-                    extension = None
-                    if not is_dir and entry.suffix:
-                        extension = entry.suffix.lstrip(".")
-
-                    items.append(
-                        FileItem(
-                            name=entry.name,
-                            path=str(entry),
-                            is_dir=is_dir,
-                            size=None if is_dir else stat.st_size,
-                            modified=datetime.fromtimestamp(
-                                stat.st_mtime, tz=timezone.utc
-                            ),
-                            extension=extension,
-                        )
-                    )
-                except (PermissionError, OSError):
-                    # Skip entries we can't stat
-                    continue
-
-        except PermissionError as e:
-            raise HTTPException(
-                status_code=403, detail=f"Permission denied: {requested}"
-            ) from e
-
-        # Sort: directories first, then alphabetical
-        items.sort(key=lambda x: (not x.is_dir, x.name.lower()))
-
-        # Calculate parent path (None if at home directory)
-        parent = None
-        if requested != home:
-            parent = str(requested.parent)
-
-        return BrowseResponse(
-            path=str(requested),
-            parent=parent,
-            items=items,
-        )
+    # ============== Source Browser Methods ==============
 
     async def browse_source(
         self,

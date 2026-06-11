@@ -335,34 +335,7 @@ class ProvisionerActionResponse(BaseModel):
     )
 
 
-# ============== File Browser Schemas ==============
-
-
-class FileItem(BaseModel):
-    """Response model for a single file or directory item."""
-
-    name: str = Field(..., description="File or folder name")
-    path: str = Field(..., description="Full absolute path")
-    is_dir: bool = Field(..., description="True if this is a directory")
-    size: int | None = Field(
-        None, description="File size in bytes (None for directories)"
-    )
-    modified: datetime = Field(..., description="Last modified timestamp")
-    extension: str | None = Field(
-        None, description="File extension without dot (None for directories)"
-    )
-
-
-class BrowseResponse(BaseModel):
-    """Response model for directory browsing."""
-
-    path: str = Field(..., description="Current directory path")
-    parent: str | None = Field(
-        None, description="Parent directory path (None if at home directory root)"
-    )
-    items: list[FileItem] = Field(
-        default_factory=list, description="List of files and directories"
-    )
+# ============== Source Browser Schemas ==============
 
 
 class SourceBrowseRequest(BaseModel):
