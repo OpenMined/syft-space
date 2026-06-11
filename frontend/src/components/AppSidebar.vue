@@ -10,6 +10,7 @@ import {
   User,
   Plus,
   MessageSquare,
+  BarChart3,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -74,6 +75,7 @@ const liveNav: NavItem[] = [
     badge: () => (liveCount.value > 0 ? liveCount.value : undefined),
     badgeVariant: 'secondary',
   },
+  { id: 'analytics', route: 'analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
 const bottomNav: NavItem[] = []

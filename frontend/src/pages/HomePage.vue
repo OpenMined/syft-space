@@ -192,7 +192,7 @@
           </div>
         </div>
 
-        <!-- Metrics (mocked) -->
+        <!-- Metrics -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
           <div
             v-for="m in metrics"
@@ -203,17 +203,12 @@
               <span class="text-xs font-medium text-muted-foreground">{{ m.label }}</span>
               <component :is="m.icon" class="w-4 h-4" :class="m.iconColor" />
             </div>
-            <div class="text-3xl font-semibold tabular-nums text-foreground leading-none">
+            <Skeleton v-if="m.loading" class="h-8 w-16" />
+            <div v-else class="text-3xl font-semibold tabular-nums text-foreground leading-none">
               {{ m.value }}
             </div>
-            <div v-if="m.hint" class="flex items-center gap-1 mt-2.5 text-xs">
-              <component
-                v-if="m.trendIcon"
-                :is="m.trendIcon"
-                class="w-3 h-3"
-                :class="m.trendColor"
-              />
-              <span :class="m.trendColor || 'text-muted-foreground'">{{ m.hint }}</span>
+            <div v-if="m.hint && !m.loading" class="mt-2.5 text-xs text-muted-foreground">
+              {{ m.hint }}
             </div>
           </div>
         </div>
@@ -393,7 +388,6 @@ import {
   Radio,
   Shield,
   Sparkles,
-  TrendingUp,
   Zap,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -403,7 +397,13 @@ import { useEndpointsStore, type EndpointItem } from '@/stores/endpoints'
 import { useUserStore } from '@/stores/user'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { modelsApi } from '@/api/endpoints/models'
-import { formatPrice, formatTimestamp } from '@/lib/formatters'
+import {
+  formatCompactNumber,
+  formatCurrencyBreakdown,
+  formatPrice,
+  formatTimestamp,
+} from '@/lib/formatters'
+import { useDashboardSummary } from '@/composables/useDashboardSummary'
 
 const router = useRouter()
 const endpointsStore = useEndpointsStore()
@@ -413,12 +413,16 @@ const datasetCount = ref(0)
 const modelCount = ref(0)
 const resourcesLoaded = ref(false)
 
+const { summary, loaded: summaryLoaded, load: loadSummary } = useDashboardSummary()
+
 const isInitialLoading = computed(
   () =>
     (endpointsStore.isLoading && endpointsStore.endpoints.length === 0) || !resourcesLoaded.value,
 )
 
 const totalApis = computed(() => endpointsStore.endpoints.length)
+const liveCount = computed(() => endpointsStore.endpoints.filter((e) => e.published).length)
+const draftCount = computed(() => endpointsStore.endpoints.filter((e) => !e.published).length)
 
 const isFirstTimeUser = computed(
   () => totalApis.value === 0 && datasetCount.value === 0 && modelCount.value === 0,
@@ -436,39 +440,35 @@ const recentTransactions = computed(() => userStore.transactions.slice(0, 4))
 const metrics = computed(() => [
   {
     label: 'APIs',
-    value: '3',
+    value: formatCompactNumber(totalApis.value),
     icon: Radio,
     iconColor: 'text-primary',
-    hint: '3 live · 0 draft',
-    trendIcon: null,
-    trendColor: null,
+    hint: `${liveCount.value} live · ${draftCount.value} draft`,
+    loading: isInitialLoading.value,
   },
   {
     label: 'Queries (7d)',
-    value: '1,284',
+    value: summary.value ? formatCompactNumber(summary.value.total_queries.value) : '—',
     icon: BarChart3,
     iconColor: 'text-blue-500 dark:text-blue-400',
     hint: '',
-    trendIcon: null,
-    trendColor: null,
+    loading: !summaryLoaded.value,
   },
   {
-    label: 'Earnings',
-    value: '$24.10',
+    label: 'Earnings (7d)',
+    value: summary.value ? formatCurrencyBreakdown(summary.value.total_revenue.breakdown) : '—',
     icon: DollarSign,
     iconColor: 'text-green-500 dark:text-green-400',
-    hint: '+$3.20 this week',
-    trendIcon: TrendingUp,
-    trendColor: 'text-green-600 dark:text-green-500',
+    hint: '',
+    loading: !summaryLoaded.value,
   },
   {
     label: 'Resources',
-    value: '3',
+    value: formatCompactNumber(datasetCount.value + modelCount.value),
     icon: Database,
     iconColor: 'text-purple-500 dark:text-purple-400',
-    hint: '2 sources · 1 model',
-    trendIcon: null,
-    trendColor: null,
+    hint: `${datasetCount.value} source${datasetCount.value === 1 ? '' : 's'} · ${modelCount.value} model${modelCount.value === 1 ? '' : 's'}`,
+    loading: isInitialLoading.value,
   },
 ])
 
@@ -652,10 +652,12 @@ const loadResourceCounts = async () => {
 const refreshDashboard = () => {
   endpointsStore.fetchEndpoints({ force: true })
   loadResourceCounts()
+  loadSummary()
 }
 
 onMounted(() => {
   endpointsStore.fetchEndpoints()
   loadResourceCounts()
+  loadSummary()
 })
 </script>
