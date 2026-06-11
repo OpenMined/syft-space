@@ -21,7 +21,7 @@
           class="pl-10 pr-4 py-2.5 w-full"
         />
       </div>
-      <Button @click="showCreateDataSourceDialog = true">
+      <Button @click="openSourcePicker">
         <Plus class="h-4 w-4 mr-2" />
         Add
       </Button>
@@ -58,7 +58,7 @@
       <Database class="h-10 w-10 text-muted-foreground mx-auto mb-4" />
       <h3 class="heading-3 text-foreground mb-2">No data sources yet</h3>
       <p class="body-sm text-muted-foreground mb-4">Add your first data source to get started</p>
-      <Button @click="showCreateDataSourceDialog = true">
+      <Button @click="openSourcePicker">
         <Plus class="h-4 w-4 mr-2" />
         Add Data Source
       </Button>
@@ -205,10 +205,18 @@
     </div>
   </div>
 
+  <!-- Pick Source Dialog -->
+  <PickSourceDialog
+    v-model:open="showPickSourceDialog"
+    @continue="handleSourcePicked"
+  />
+
   <!-- Create Dataset Dialog -->
   <CreateDatasetDialogSimple
     v-model:open="showCreateDataSourceDialog"
     :dataset="editingDataset"
+    :source-type="pickedSourceType"
+    :credentials="pickedCredentials"
     @dataset-created="handleDatasetCreated"
     @dataset-updated="handleDatasetUpdated"
     @update:open="!$event && handleDialogClose()"
@@ -236,6 +244,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import PickSourceDialog from '@/components/PickSourceDialog.vue'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { useDatasets } from '@/composables/useDatasets'
 import { toast } from 'vue-sonner'
@@ -274,6 +283,9 @@ const dataSources = computed(() => {
 })
 
 const showCreateDataSourceDialog = ref(false)
+const showPickSourceDialog = ref(false)
+const pickedSourceType = ref<string>('local_file')
+const pickedCredentials = ref<Record<string, string>>({})
 const searchQuery = ref('')
 const editingDataset = ref<{
   id: string
@@ -317,9 +329,25 @@ const filteredDataSources = computed(() => {
   })
 })
 
+const openSourcePicker = () => {
+  editingDataset.value = null
+  pickedSourceType.value = 'local_file'
+  pickedCredentials.value = {}
+  showPickSourceDialog.value = true
+}
+
+const handleSourcePicked = (payload: {
+  sourceType: string
+  credentials: Record<string, string>
+}) => {
+  pickedSourceType.value = payload.sourceType
+  pickedCredentials.value = payload.credentials
+  showCreateDataSourceDialog.value = true
+}
+
 const handleDatasetCreated = () => {
-  // Refresh the dataset list after creation
   refreshDatasets()
+  pickedCredentials.value = {}
 }
 
 const handleEditDataset = async (dataset: DataSource) => {
@@ -356,6 +384,7 @@ const handleDatasetUpdated = () => {
 // Reset editing state when dialog closes
 const handleDialogClose = () => {
   editingDataset.value = null
+  pickedCredentials.value = {}
 }
 
 const handleDeleteDataset = (dataset: DataSource) => {

@@ -3,8 +3,6 @@ import axios from 'axios'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import type { SourceItem } from '@/api/types'
 
-const LOCAL_FILE_DTYPE = 'local_file'
-
 export interface FileNode {
   name: string
   path: string
@@ -35,7 +33,10 @@ function getTccService(path: string): string | null {
   return null
 }
 
-export function useDatasetBrowser() {
+export function useSourceBrowser(
+  dtype: string,
+  configuration: Record<string, unknown> = {},
+) {
   const rootNodes = ref<FileNode[]>([])
   const loadingPaths = ref<Set<string>>(new Set())
   const loadedPaths = ref<Set<string>>(new Set())
@@ -56,7 +57,7 @@ export function useDatasetBrowser() {
         loadingPaths.value.add(loadingKey)
       }
 
-      const response = await datasetsApi.browse(LOCAL_FILE_DTYPE, parentId)
+      const response = await datasetsApi.browse(dtype, parentId, configuration)
 
       if (!response || !Array.isArray(response.items)) {
         throw new Error('Invalid response from server')

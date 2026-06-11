@@ -215,9 +215,9 @@
 
         <!-- Overview Tab Content -->
         <TabsContent value="overview" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- Watched Paths (self-managed only) -->
+          <!-- Watched Paths (local_file only; "paths" is a filesystem concept) -->
           <div
-            v-if="getDatasetManagement() === 'Self-managed'"
+            v-if="dataset.dtype === 'local_file'"
             class="lg:col-span-2 bg-card border border-border rounded-xl p-6"
           >
             <div class="flex items-center justify-between mb-5">
@@ -383,13 +383,13 @@
 
         <!-- Files Tab Content -->
         <TabsContent value="files" class="space-y-6">
-          <!-- Watched Files (only for self-managed) -->
+          <!-- Ingestion jobs (shown for any source that ingests, regardless of shape) -->
           <div
-            v-if="getDatasetManagement() === 'Self-managed' && getWatchedPaths().length > 0"
+            v-if="getDatasetManagement() === 'Self-managed'"
             class="bg-card border border-border rounded-xl p-6"
           >
             <div class="flex items-center justify-between mb-6">
-              <h2 class="heading-3">Watched Files</h2>
+              <h2 class="heading-3">Ingested Items</h2>
               <Button variant="outline" size="sm" @click="refreshWatchedPaths">
                 <RefreshCw class="h-4 w-4 mr-2" :class="{ 'animate-spin': isRefreshingPaths }" />
                 Refresh
@@ -411,7 +411,7 @@
               </div>
               <div class="body-sm text-muted-foreground">
                 {{ getPageInfo().start }}-{{ getPageInfo().end }} of
-                {{ getStatusCount(selectedJobStatus) }} files
+                {{ getStatusCount(selectedJobStatus) }} items
               </div>
             </div>
 
@@ -419,11 +419,11 @@
             <div v-if="isLoadingFiles" class="flex items-center justify-center py-8">
               <div class="flex items-center gap-2 text-muted-foreground">
                 <RefreshCw class="h-4 w-4 animate-spin" />
-                <span class="body-sm">Loading files...</span>
+                <span class="body-sm">Loading items...</span>
               </div>
             </div>
 
-            <!-- Files List -->
+            <!-- Items List -->
             <div v-else-if="getFilteredJobs().length > 0" class="space-y-2">
               <div
                 v-for="job in getFilteredJobs()"
@@ -494,15 +494,17 @@
             <div v-else class="text-center py-8">
               <File class="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p class="text-muted-foreground body-sm">
-                No {{ getStatusLabel(selectedJobStatus).toLowerCase() }} files found
+                No {{ getStatusLabel(selectedJobStatus).toLowerCase() }} items found
               </p>
             </div>
           </div>
 
-          <!-- Fallback when no watched paths / external datasets -->
+          <!-- Fallback for external (read-only) datasets that don't ingest locally -->
           <div v-else class="bg-card border border-border rounded-xl p-12 text-center">
             <File class="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p class="text-muted-foreground body-sm">No files to display for this data source</p>
+            <p class="text-muted-foreground body-sm">
+              This data source is read-only — its content is managed externally.
+            </p>
           </div>
         </TabsContent>
       </Tabs>
@@ -739,12 +741,12 @@ const navigateToEndpoint = (endpointSlug: string) => {
   router.push({ name: 'endpoint-detail', params: { slug: endpointSlug } })
 }
 
-// Dataset management type - check if dataset has file ingestion paths
+// Dataset management type - 'External' for read-only bindings (remote_weaviate)
+// whose data lives outside this process; 'Self-managed' for everything else,
+// where the dataset's source emits ingestion jobs that we track locally.
 const getDatasetManagement = () => {
   if (!dataset.value) return 'External'
-  const config = dataset.value.configuration as Record<string, unknown>
-  // If dataset has filePaths or ingestionPath in config, it's self-managed
-  return config?.filePaths || config?.ingestionPath ? 'Self-managed' : 'External'
+  return dataset.value.dtype === 'remote_weaviate' ? 'External' : 'Self-managed'
 }
 
 // Get watched paths from dataset configuration
