@@ -1,7 +1,9 @@
 # Syft Space Backend — Documentation
 
-The Syft Space backend is a **FastAPI RAG platform**. You connect **datasets**
-(documents indexed in a vector store) and **models** (OpenAI-compatible LLMs),
+The Syft Space backend is a **FastAPI RAG platform** (retrieval-augmented
+generation — search your documents, then let an LLM answer from what it found).
+You connect **datasets** (documents indexed in a vector store) and **models**
+(OpenAI-compatible LLMs),
 combine them into **endpoints**, protect those endpoints with **policies**
 (access, rate limits, payments), and **publish** them to the SyftHub
 marketplace where others can query them — without ever handing over your raw data.

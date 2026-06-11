@@ -1,9 +1,11 @@
 # Extending the Platform
 
 Datasets (via sources + vector stores), models, and policies are all **pluggable
-registries**. Built-ins are registered explicitly at startup in
-[`main.py`](../syft_space/main.py) — there are no import side effects, so adding a
-type means implementing an interface and adding one registration call.
+registries**. Built-ins are registered by explicit function calls at startup in
+[`main.py`](../syft_space/main.py) — never as a side effect of importing a module.
+So adding a type is two steps: implement an interface, then add one registration
+call. (Lazy registration also means a type's heavy dependencies — chromadb,
+weaviate, torch — only load the first time that type is actually used.)
 
 ```mermaid
 flowchart LR

@@ -91,6 +91,10 @@ Track progress with the ingestion routes:
 curl http://localhost:8080/api/v1/ingestion/datasets/<dataset-id>/status
 ```
 
+The status reports per-job counts; ingestion is done once there are no
+`pending`/`running` jobs left (each file typically takes a few seconds, more for
+large PDFs). You can start querying as soon as the first documents land.
+
 ### 3. Create a model
 
 Any OpenAI-compatible API works (OpenAI, vLLM, Ollama, …) by setting `base_url`.

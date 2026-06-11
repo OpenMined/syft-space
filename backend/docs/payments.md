@@ -70,7 +70,9 @@ Attach one of these to an endpoint (it must reference a compatible wallet):
 All support **tiered pricing** (match `sender_email` against `applied_to` globs;
 most-specific pattern wins). The `CapabilityChecker` enforces that the endpoint's
 wallet matches the policy's required type, and that all payment policies on one
-endpoint use the **same** wallet.
+endpoint use the **same** wallet — so every charge for that endpoint settles
+against one provider account and one ledger, rather than splitting a user's
+payment across rails.
 
 ## MPP flow (pay at request time)
 

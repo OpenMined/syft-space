@@ -25,9 +25,9 @@ Three concepts, deliberately separated:
   configuration schema to the user. The two shipped bindings:
   - `local_file` → local files (the `local_file` source) indexed in a local
     ChromaDB subprocess.
-  - `remote_weaviate` → a remote Weaviate cluster you already populate
-    externally, so it pairs the search-only store with the `noop` source
-    (search-only, no ingestion through Syft Space).
+  - `remote_weaviate` → a remote Weaviate cluster you populate externally, so it
+    pairs the Weaviate store with the `noop` source — search-only, with no
+    ingestion through Syft Space.
 
 Because the axes are orthogonal, adding *S3 → Weaviate* or *local files →
 Qdrant* is just a new binding. See [Extending the Platform](./extending.md).
@@ -53,6 +53,9 @@ flowchart TB
     SPLIT -->|vector_store_cfg| VS
     SRC -.->|documents via IngestRequest| VS
 ```
+
+*Solid arrows = construction at startup; the dashed arrow = documents flowing
+from source to store at ingest time.*
 
 1. **Declaration.** A binding sets two class attributes — `SOURCE_PROVIDER_CLS`
    and `VECTOR_STORE_CLS` — naming exactly one source and one vector store.
@@ -84,7 +87,8 @@ flowchart TB
 
 ## Datasets
 
-A **Dataset** is a configured instance of a dataset type.
+A **Dataset** is a configured instance of a dataset type — for example, a
+`local_file` dataset that indexes `/home/me/docs` into a ChromaDB collection.
 
 - `name` (unique per tenant), `dtype` (the binding name), `configuration` (the
   filled-in schema), `summary`, `tags`.

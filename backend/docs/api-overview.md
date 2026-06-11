@@ -35,7 +35,12 @@ Authentication](./configuration.md#authentication).
 - **Errors:** standard FastAPI error responses — `4xx`/`5xx` with a JSON
   `detail`. Common codes: `401` (bad/missing token), `403` (policy denied /
   unpublished), `402` (payment required, MPP), `404` (not found), `409`
-  (conflict, e.g. duplicate slug).
+  (conflict — e.g. a duplicate endpoint `slug` or dataset `name` within the
+  tenant).
+
+How a query request is actually authenticated (admin key vs. SyftHub token) is
+detailed in [Query Flow › Authenticate the
+sender](./query-flow.md#2-authenticate-the-sender).
 
 ## Resource map
 
