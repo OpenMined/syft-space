@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from syft_space.components.datasets.entities import ProvisionerStatus
 from syft_space.components.shared.domain_types import HealthcheckStatus
+from syft_space.components.sources.interfaces import SourceItem
 
 if TYPE_CHECKING:
     from syft_space.components.datasets.entities import Dataset, ProvisionerState
@@ -361,4 +362,39 @@ class BrowseResponse(BaseModel):
     )
     items: list[FileItem] = Field(
         default_factory=list, description="List of files and directories"
+    )
+
+
+class SourceBrowseRequest(BaseModel):
+    """Request model for source-typed browsing.
+
+    Drives the picker pre-create: caller picks a source type, supplies the
+    same configuration shape the source uses at ingestion time, and walks
+    its containers by passing back ``parent_id`` from prior responses.
+    """
+
+    dtype: str = Field(..., description="Source type registered in SOURCE_REGISTRY")
+    configuration: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Source-specific configuration (credentials, options)",
+    )
+    parent_id: str | None = Field(
+        default=None,
+        description="Container id to list. Null lists the source's top level.",
+    )
+
+
+class SourceBrowseResponse(BaseModel):
+    """Response model for source-typed browsing."""
+
+    parent_id: str | None = Field(
+        default=None, description="Echoes the requested parent_id"
+    )
+    items: list[SourceItem] = Field(
+        default_factory=list,
+        description="Containers and leaves at the requested level",
+    )
+    next_cursor: str | None = Field(
+        default=None,
+        description="Opaque cursor for sources that page. Null when exhausted.",
     )

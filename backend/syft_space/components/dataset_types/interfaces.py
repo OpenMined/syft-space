@@ -1,17 +1,17 @@
 """Dataset type interfaces.
 
-A ``BaseDatasetType`` is the binding of a ``BaseSource`` (data origin)
-and a ``BaseVectorStore`` (vector storage). Concrete bindings declare
-``SOURCE_CLS`` and ``VECTOR_STORE_CLS`` as class attributes plus a
-``split_config()`` classmethod that translates the flat user-facing
-configuration into the two per-axis configs; the default ``__init__``
-constructs each collaborator and exposes them as ``self.source`` and
-``self.vector_store``.
+A ``BaseDatasetType`` binds a source (data origin) to a vector store.
+Concrete bindings declare a source provider and a vector store class,
+plus a ``split_config`` classmethod that splits the flat user
+configuration into the two per-axis configs. The default ``__init__``
+builds the source via the provider's ``for_ingest`` factory and the
+vector store via direct construction, exposing both as
+``self.source`` and ``self.vector_store``.
 
-Lifecycle methods (``search``, ``healthcheck``, ``ingest``, ``delete``)
-delegate to the collaborators by default; bindings only override when
-they need cross-axis policy (e.g. a source-defined allow-list applied
-at ingest time).
+The lifecycle methods (``search``, ``healthcheck``, ``ingest``,
+``delete``) delegate to the collaborators by default. Bindings
+override them only when cross-axis policy is needed — for example, to
+apply a source-defined allow-list at ingest time.
 """
 
 from typing import Any, ClassVar
@@ -23,7 +23,7 @@ from syft_space.components.shared.search_types import (
     SearchParameters,
     SearchResult,
 )
-from syft_space.components.sources.interfaces import BaseSource
+from syft_space.components.sources.interfaces import BaseSource, BaseSourceProvider
 from syft_space.components.vector_stores.interfaces import (
     BaseVectorStore,
     IngestableVectorStore,
@@ -31,16 +31,16 @@ from syft_space.components.vector_stores.interfaces import (
 
 
 class BaseDatasetType:
-    """Binding of a ``BaseSource`` with a ``BaseVectorStore``.
+    """Binding of a source with a vector store.
 
-    Subclasses declare ``SOURCE_CLS`` / ``VECTOR_STORE_CLS`` class
-    attributes plus a ``split_config()`` classmethod that produces the
-    per-axis configs. The default ``__init__`` instantiates each
-    collaborator; lifecycle methods delegate to them.
+    Subclasses set ``SOURCE_PROVIDER_CLS`` and ``VECTOR_STORE_CLS``
+    class attributes and implement ``split_config`` to produce the
+    per-axis configs. The default ``__init__`` builds each collaborator
+    and the lifecycle methods delegate to them.
     """
 
     NAME: ClassVar[str]
-    SOURCE_CLS: ClassVar[type[BaseSource]]
+    SOURCE_PROVIDER_CLS: ClassVar[type[BaseSourceProvider]]
     VECTOR_STORE_CLS: ClassVar[type[BaseVectorStore]]
 
     source: BaseSource
@@ -54,7 +54,7 @@ class BaseDatasetType:
         """
         cls = type(self)
         source_cfg, vector_store_cfg = cls.split_config(configuration)
-        self.source = cls.SOURCE_CLS(source_cfg)
+        self.source = cls.SOURCE_PROVIDER_CLS.for_ingest(source_cfg)
         self.vector_store = cls.VECTOR_STORE_CLS(vector_store_cfg)
 
     # ── Required per-binding ─────────────────────────────────────────
@@ -106,7 +106,7 @@ class BaseDatasetType:
     @classmethod
     def enabled(cls) -> bool:
         """A binding is enabled only if both collaborators are enabled."""
-        return cls.SOURCE_CLS.enabled() and cls.VECTOR_STORE_CLS.enabled()
+        return cls.SOURCE_PROVIDER_CLS.enabled() and cls.VECTOR_STORE_CLS.enabled()
 
     @classmethod
     def connection_fields(cls) -> list[str]:
@@ -129,7 +129,7 @@ class BaseDatasetType:
             ValueError: If configuration is invalid.
         """
         source_cfg, vector_store_cfg = cls.split_config(configuration)
-        await cls.SOURCE_CLS.validate_configuration(source_cfg)
+        await cls.SOURCE_PROVIDER_CLS.validate_configuration(source_cfg)
         await cls.VECTOR_STORE_CLS.validate_configuration(vector_store_cfg)
 
     # ── Default lifecycle (overridable) ──────────────────────────────

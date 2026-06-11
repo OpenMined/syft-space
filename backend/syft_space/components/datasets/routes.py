@@ -16,6 +16,8 @@ from syft_space.components.datasets.schemas import (
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
+    SourceBrowseRequest,
+    SourceBrowseResponse,
     UpdateDatasetRequest,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
@@ -107,6 +109,19 @@ def build_dataset_routes(
             Directory contents with file metadata
         """
         return handler.browse_directory(path, show_hidden)
+
+    @router.post("/browse", response_model=SourceBrowseResponse)
+    async def browse_source(
+        req: SourceBrowseRequest,
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SourceBrowseResponse:
+        """Browse a source by dtype.
+
+        Generic picker endpoint: caller supplies the source type and its
+        configuration; the handler dispatches to that source's
+        ``list_items`` for one level of containers/leaves.
+        """
+        return await handler.browse_source(req.dtype, req.configuration, req.parent_id)
 
     # ============== Image Serving Endpoint ==============
 

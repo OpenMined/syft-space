@@ -1,10 +1,8 @@
 """LocalFile + ChromaDB dataset type binding.
 
-Composes a ``LocalFileSource`` (data origin) with a
-``ChromaDBLocalVectorStore`` (vector storage). The class declares the
-two collaborators via ``SOURCE_CLS`` / ``VECTOR_STORE_CLS`` and a
-``split_config()`` classmethod that maps the flat user configuration to
-each axis; ``BaseDatasetType.__init__`` handles instantiation and
+Pairs the local filesystem source with an embedded ChromaDB vector
+store. ``split_config`` maps the flat user configuration into the
+per-axis configs; ``BaseDatasetType`` handles instantiation and the
 default lifecycle delegation.
 """
 
@@ -21,7 +19,7 @@ from syft_space.components.shared.ingest_types import IngestContext, IngestReque
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.local_file.local_file_source import (
     FilePathItem,
-    LocalFileSource,
+    LocalFileProvider,
 )
 from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store import (
     ChromaDBLocalVectorStore,
@@ -43,10 +41,10 @@ DEFAULT_INGEST_FILE_TYPE_OPTIONS = [
 
 
 class ChromaDBLocalConfiguration(BaseModel):
-    """Flat user-facing configuration for the local_file binding.
+    """User-facing configuration for the local_file binding.
 
-    ``split_config`` translates this into the per-axis configs at
-    construction time.
+    A single flat shape that ``split_config`` divides into the source
+    config and the vector store config at construction time.
     """
 
     collection_name: str = Field(
@@ -87,7 +85,7 @@ class LocalFileChromaDBDatasetType(IngestableDatasetType):
     """Local files indexed in an embedded ChromaDB instance."""
 
     NAME: ClassVar[str] = "local_file"
-    SOURCE_CLS: ClassVar[type[LocalFileSource]] = LocalFileSource
+    SOURCE_PROVIDER_CLS: ClassVar[type[LocalFileProvider]] = LocalFileProvider
     VECTOR_STORE_CLS: ClassVar[type[ChromaDBLocalVectorStore]] = (
         ChromaDBLocalVectorStore
     )
@@ -129,9 +127,9 @@ class LocalFileChromaDBDatasetType(IngestableDatasetType):
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
         """Validate the combined configuration.
 
-        Generates a ``collectionName`` if missing, then runs the combined
-        Pydantic schema (covers cross-axis constraints) and per-axis
-        validators (which check file paths exist, etc.).
+        Generates a ``collectionName`` if one wasn't supplied, runs the
+        flat Pydantic schema, and then delegates to the per-axis
+        validators (which check that the configured file paths exist).
 
         Raises:
             ValueError: If configuration is invalid.
@@ -154,11 +152,11 @@ class LocalFileChromaDBDatasetType(IngestableDatasetType):
         return self.vector_store.collection_name
 
     async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
-        """Enforce the source's extension allow-list, then delegate.
+        """Enforce the source's extension allow-list, then ingest.
 
-        The source filters its own change stream by extension; this
-        guard covers manual ingest paths where the file list is supplied
-        by a caller rather than emitted by the source.
+        The source already filters its own change stream by extension;
+        this guard covers manual ingest paths where the caller supplies
+        the file list directly.
         """
         allowed = self.source.allowed_extensions()
         for file in request.files:
