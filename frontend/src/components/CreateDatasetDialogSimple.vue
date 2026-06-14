@@ -21,9 +21,79 @@
           />
         </div>
 
-        <!-- File Explorer -->
+        <!-- Source type + data entry (new datasets only) -->
         <div v-if="!props.dataset" class="space-y-4">
+          <div class="space-y-2">
+            <Label for="source-type" class="text-sm font-medium">Source</Label>
+            <Select v-model="sourceType">
+              <SelectTrigger id="source-type" class="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">Local files & folders</SelectItem>
+                <SelectItem value="wordpress">Data connector — WordPress</SelectItem>
+                <SelectItem value="rss">Data connector — RSS</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <!-- WordPress connector -->
+          <div v-if="sourceType === 'wordpress'" class="space-y-4">
+            <div class="space-y-2">
+              <Label for="wp-url" class="text-sm font-medium">
+                Site URL <span class="text-red-500">*</span>
+              </Label>
+              <Input id="wp-url" v-model="wordpress.siteUrl" placeholder="https://blog.example.com" />
+            </div>
+            <div class="space-y-2">
+              <Label for="wp-key" class="text-sm font-medium">
+                API key <span class="text-red-500">*</span>
+              </Label>
+              <Input
+                id="wp-key"
+                v-model="wordpress.apiKey"
+                type="password"
+                placeholder="wp_xxxxxxxxxxxxxxxx"
+              />
+            </div>
+            <p class="text-xs text-muted-foreground">
+              Posts and pages are synced through the WordPress REST API. Demo UI only.
+            </p>
+          </div>
+
+          <!-- RSS connector -->
+          <div v-else-if="sourceType === 'rss'" class="space-y-3">
+            <Label class="text-sm font-medium">
+              Feed URLs <span class="text-red-500">*</span>
+            </Label>
+            <div v-for="(_, index) in rssFeeds" :key="index" class="flex gap-2">
+              <Input
+                v-model="rssFeeds[index]"
+                placeholder="https://example.com/feed.xml"
+                class="flex-1"
+              />
+              <Button
+                v-if="rssFeeds.length > 1"
+                @click="removeRssFeed(index)"
+                variant="ghost"
+                size="sm"
+                class="h-9 w-9 p-0 text-muted-foreground hover:text-destructive"
+              >
+                <X class="h-4 w-4" />
+              </Button>
+            </div>
+            <Button @click="addRssFeed" variant="outline" size="sm">
+              <Plus class="h-4 w-4 mr-1" />
+              Add feed
+            </Button>
+            <p class="text-xs text-muted-foreground">
+              Each feed is polled and new items are ingested as documents. Demo UI only.
+            </p>
+          </div>
+
+          <!-- Local files & folders -->
           <FileExplorer
+            v-else
             ref="fileExplorerRef"
             v-model="formData.selectedFiles"
             :show-hidden="false"
@@ -195,6 +265,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Plus, X } from 'lucide-vue-next'
 import FileExplorer from '@/components/FileExplorer.vue'
 import { useFileIcon } from '@/composables/useFileIcon'
@@ -232,6 +309,23 @@ const formData = ref({
   tags: [] as string[],
 })
 
+// Data source type. Connectors (wordpress/rss) are illustrative — UI only.
+type SourceType = 'local' | 'wordpress' | 'rss'
+const sourceType = ref<SourceType>('local')
+const wordpress = ref({ siteUrl: '', apiKey: '' })
+const rssFeeds = ref<string[]>([''])
+
+const normalizeUrl = (url: string): string =>
+  /^https?:\/\//i.test(url) ? url : `https://${url}`
+
+const addRssFeed = () => {
+  rssFeeds.value.push('')
+}
+
+const removeRssFeed = (index: number) => {
+  rssFeeds.value.splice(index, 1)
+}
+
 const tagInput = ref('')
 const fileDescriptions = ref<Record<string, string>>({})
 const { getFileIcon, getFileIconColor } = useFileIcon()
@@ -253,8 +347,18 @@ const isFormValid = computed(() => {
     return formData.value.name.trim() !== ''
   }
 
-  // For creation mode, both name and files are required
-  return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
+  // For creation mode, name plus the fields relevant to the chosen source type
+  if (formData.value.name.trim() === '') return false
+
+  if (sourceType.value === 'wordpress') {
+    return wordpress.value.siteUrl.trim() !== '' && wordpress.value.apiKey.trim() !== ''
+  }
+
+  if (sourceType.value === 'rss') {
+    return rssFeeds.value.some((feed) => feed.trim() !== '')
+  }
+
+  return formData.value.selectedFiles.length > 0
 })
 
 // Methods
@@ -302,6 +406,15 @@ const handleCancel = () => {
 const handleCreate = async () => {
   if (!isFormValid.value) return
 
+  // RSS connector is illustrative (UI only) — no backend call.
+  if (!props.dataset && sourceType.value === 'rss') {
+    toast.success(`RSS connector "${formData.value.name.trim()}" added`)
+    emit('dataset-created')
+    resetForm()
+    isOpen.value = false
+    return
+  }
+
   isCreating.value = true
 
   try {
@@ -322,8 +435,32 @@ const handleCreate = async () => {
       await datasetsApi.update(props.dataset.name, updateRequest)
       emit('dataset-updated')
       toast.success(`"${props.dataset.name}" updated`)
+    } else if (sourceType.value === 'wordpress') {
+      // WordPress connectors persist as a real dataset entry so they show up
+      // alongside local sources. Registered as a remote type (no local
+      // provisioner to spin up) with the site as a stub connection.
+      const siteUrl = normalizeUrl(wordpress.value.siteUrl.trim())
+      const tags = [...formData.value.tags]
+      if (!tags.includes('wordpress')) tags.push('wordpress')
+
+      const createRequest: CreateDatasetRequest = {
+        dtype: 'remote_weaviate',
+        name: formData.value.name.trim(),
+        summary: formData.value.summary.trim() || `WordPress connector — ${siteUrl}`,
+        tags: tags.join(','),
+        configuration: {
+          http_url: siteUrl,
+          grpc_url: siteUrl,
+          api_key: wordpress.value.apiKey.trim(),
+          collection_name: formData.value.name.trim(),
+        },
+      }
+
+      await datasetsApi.create(createRequest)
+      emit('dataset-created')
+      toast.success(`"${createRequest.name}" added`)
     } else {
-      // Create new dataset
+      // Create new local dataset
       const createRequest: CreateDatasetRequest = {
         dtype: 'local_file',
         name: formData.value.name.trim(),
@@ -357,6 +494,9 @@ const resetForm = () => {
     selectedFiles: [],
     tags: [],
   }
+  sourceType.value = 'local'
+  wordpress.value = { siteUrl: '', apiKey: '' }
+  rssFeeds.value = ['']
   tagInput.value = ''
   fileDescriptions.value = {}
   isInitialized.value = false

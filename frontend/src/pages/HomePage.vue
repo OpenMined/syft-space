@@ -6,7 +6,8 @@
     custom-message="There was a problem loading the dashboard. Please try again."
     @retry="refreshDashboard"
   >
-    <div class="min-h-screen">
+    <CollectiveHomePanel v-if="isCollectiveViewActive" />
+    <div v-else class="min-h-screen">
       <!-- Hero with gradient glow -->
       <div class="relative overflow-hidden">
         <div class="absolute inset-0 -z-10 opacity-30 dark:opacity-20 blur-3xl" aria-hidden="true">
@@ -338,8 +339,11 @@ import {
 } from '@/lib/inboxFormatters'
 import { formatTimestamp } from '@/lib/formatters'
 import { markdownToHtml } from '@/lib/markdown'
+import CollectiveHomePanel from '@/components/CollectiveHomePanel.vue'
+import { useCollectiveMode } from '@/composables/useCollectiveMode'
 
 const router = useRouter()
+const { isCollectiveViewActive } = useCollectiveMode()
 const inboxStore = useInboxStore()
 const endpointsStore = useEndpointsStore()
 

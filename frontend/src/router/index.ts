@@ -6,6 +6,8 @@ import ModelsPage from '../pages/ModelsPage.vue'
 import InboxPage from '../pages/InboxPage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
 import AnalyticsPage from '../pages/AnalyticsPage.vue'
+import MembersPage from '../pages/MembersPage.vue'
+import CollectiveApisPage from '../pages/CollectiveApisPage.vue'
 import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
 import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
@@ -19,6 +21,7 @@ import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWe
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 import { settingsApi } from '../api/endpoints/settings'
 import { useServerAvailabilityStore } from '../stores/serverAvailability'
+import { initializeCollectiveMode, useCollectiveMode } from '../composables/useCollectiveMode'
 
 let onboardingStatusCache: boolean | null = null
 
@@ -105,6 +108,16 @@ const router = createRouter({
       component: AnalyticsPage,
     },
     {
+      path: '/members',
+      name: 'members',
+      component: MembersPage,
+    },
+    {
+      path: '/collective-apis',
+      name: 'collective-apis',
+      component: CollectiveApisPage,
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: SettingsPage,
@@ -144,7 +157,7 @@ const router = createRouter({
 
 router.beforeEach(async (to, _from, next) => {
   // Extract connection params from URL query and save to sessionStorage
-  const { authToken, host, port, ...remainingQuery } = to.query
+  const { authToken, host, port, collective, ...remainingQuery } = to.query
   let paramsExtracted = false
 
   if (authToken) {
@@ -157,6 +170,10 @@ router.beforeEach(async (to, _from, next) => {
   }
   if (port) {
     sessionStorage.setItem('port', port as string)
+    paramsExtracted = true
+  }
+  if (collective) {
+    initializeCollectiveMode(collective)
     paramsExtracted = true
   }
 
@@ -178,6 +195,15 @@ router.beforeEach(async (to, _from, next) => {
 
   // Skip onboarding check for the onboarding page itself
   if (to.name === 'onboarding') {
+    next()
+    return
+  }
+
+  // Collective members join an existing host's space — they don't run the
+  // host onboarding (network setup / sign-in). Entry is handled by the
+  // in-app member login gate instead.
+  const { isCollectiveMember } = useCollectiveMode()
+  if (isCollectiveMember.value) {
     next()
     return
   }

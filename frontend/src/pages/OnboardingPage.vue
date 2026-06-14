@@ -188,23 +188,41 @@
             <!-- Network setup section -->
             <div class="space-y-4">
               <h3 class="heading-4 text-foreground">How should others access your space?</h3>
+              <div
+                v-if="isCollectiveAdmin"
+                class="rounded-lg border border-border bg-muted/50 p-4 text-sm text-muted-foreground"
+              >
+                Collective admin mode requires your own public URL. SyftHub-provided URLs are
+                disabled for this setup.
+              </div>
 
               <!-- Radio options -->
               <div class="space-y-4">
                 <!-- Subdomain option -->
                 <div class="space-y-3">
-                  <div class="flex items-start space-x-3">
+                  <div
+                    class="flex items-start space-x-3"
+                    :class="{ 'opacity-50': isCollectiveAdmin }"
+                  >
                     <input
                       type="radio"
                       id="subdomain"
                       value="subdomain"
                       v-model="networkMode"
+                      :disabled="isCollectiveAdmin"
                       class="mt-1 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
                     />
                     <div class="flex-1">
-                      <Label for="subdomain" class="font-medium cursor-pointer">
+                      <Label
+                        for="subdomain"
+                        class="font-medium"
+                        :class="isCollectiveAdmin ? 'cursor-not-allowed' : 'cursor-pointer'"
+                      >
                         Use a URL provided by SyftHub
-                        <Badge variant="secondary" class="ml-2">Recommended</Badge>
+                        <Badge v-if="isCollectiveAdmin" variant="outline" class="ml-2">
+                          Unavailable for collectives
+                        </Badge>
+                        <Badge v-else variant="secondary" class="ml-2">Recommended</Badge>
                       </Label>
                     </div>
                   </div>
@@ -222,11 +240,17 @@
                     />
                     <div class="space-y-1 flex-1">
                       <Label for="custom" class="font-medium cursor-pointer">
-                        I have my own URL
-                        <Badge variant="outline" class="ml-2">Advanced</Badge>
+                        {{ isCollectiveAdmin ? 'Use my collective URL' : 'I have my own URL' }}
+                        <Badge :variant="isCollectiveAdmin ? 'secondary' : 'outline'" class="ml-2">
+                          {{ isCollectiveAdmin ? 'Required' : 'Advanced' }}
+                        </Badge>
                       </Label>
                       <p class="body-sm text-muted-foreground">
-                        If you've already set up port forwarding or have a public URL
+                        {{
+                          isCollectiveAdmin
+                            ? 'Members will use this URL to access the collective space'
+                            : "If you've already set up port forwarding or have a public URL"
+                        }}
                       </p>
                     </div>
                   </div>
@@ -298,6 +322,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { CheckCircle, XCircle, Loader2, ExternalLink, Info } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -312,11 +337,13 @@ import { settingsApi } from '@/api/endpoints/settings'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
 import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 import { useOnboarding } from '@/composables/useOnboarding'
+import { useCollectiveMode } from '@/composables/useCollectiveMode'
 import { loadGlobalData } from '@/lib/utils'
 import { checkOnboardingStatus, clearOnboardingCache } from '@/router'
 
 const router = useRouter()
 const route = useRoute()
+const { isCollectiveAdmin } = useCollectiveMode()
 
 // Check if already onboarded and redirect, or load partial state
 onMounted(async () => {
@@ -415,6 +442,16 @@ const handleUsernameInput = () => {
 }
 
 const isAlreadyRegistered = computed(() => marketplaceData.value !== null)
+
+watch(
+  isCollectiveAdmin,
+  (enabled) => {
+    if (enabled) {
+      networkMode.value = 'custom'
+    }
+  },
+  { immediate: true },
+)
 
 const handleCompleteSetup = async () => {
   isSubmitting.value = true

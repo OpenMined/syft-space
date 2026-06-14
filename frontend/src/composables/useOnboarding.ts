@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { marketplacesApi } from '@/api/endpoints/marketplaces'
 import { settingsApi } from '@/api/endpoints/settings'
+import { useCollectiveMode } from '@/composables/useCollectiveMode'
 
 // Helper function to check if user is already onboarded
 export async function checkOnboardingStatus(): Promise<boolean> {
@@ -15,6 +16,8 @@ export async function checkOnboardingStatus(): Promise<boolean> {
 }
 
 export function useOnboarding() {
+  const { isCollectiveAdmin } = useCollectiveMode()
+
   // Current step tracking
   const currentStep = ref(1)
   const completedSteps = ref(new Set<number>())
@@ -33,7 +36,7 @@ export function useOnboarding() {
   })
 
   // Network setup state
-  const networkMode: Ref<'subdomain' | 'custom' | ''> = ref('')
+  const networkMode: Ref<'subdomain' | 'custom' | ''> = ref(isCollectiveAdmin.value ? 'custom' : '')
   const publicUrl = ref(window.location.origin)
 
   // Username availability checking
@@ -165,6 +168,11 @@ export function useOnboarding() {
     networkError.value = ''
 
     try {
+      if (isCollectiveAdmin.value && networkMode.value !== 'custom') {
+        networkError.value = 'Collective spaces require your own public URL'
+        return false
+      }
+
       // Determine the final URL based on network mode
       let finalUrl: string
       if (networkMode.value === 'subdomain') {
@@ -177,6 +185,10 @@ export function useOnboarding() {
 
         finalUrl = proxyResponse.public_url
       } else if (networkMode.value === 'custom') {
+        if (!publicUrl.value.trim().startsWith('http')) {
+          networkError.value = 'Please enter a valid public URL'
+          return false
+        }
         finalUrl = publicUrl.value
       } else {
         networkError.value = 'Please select a networking option'
@@ -231,7 +243,7 @@ export function useOnboarding() {
       username: '',
       password: '',
     }
-    networkMode.value = ''
+    networkMode.value = isCollectiveAdmin.value ? 'custom' : ''
     publicUrl.value = window.location.origin
     usernameAvailable.value = null
     authError.value = ''

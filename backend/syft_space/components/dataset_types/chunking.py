@@ -140,6 +140,7 @@ def _worker_convert_pages() -> None:
     pipeline_options = PdfPipelineOptions(
         generate_picture_images=True,
         do_table_structure=True,
+        do_picture_description_vlm=False,  # Explicitly disable VLM
     )
     converter = DocumentConverter(
         format_options={
@@ -257,12 +258,22 @@ class DocumentChunker:
 
         Thread-safe via double-checked locking.
         """
-        from docling.document_converter import DocumentConverter
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
 
         if DocumentChunker._converter is None:
             with self._converter_lock:
                 if DocumentChunker._converter is None:
-                    DocumentChunker._converter = DocumentConverter()
+                    DocumentChunker._converter = DocumentConverter(
+                        format_options={
+                            InputFormat.PDF: PdfFormatOption(
+                                pipeline_options=PdfPipelineOptions(
+                                    do_picture_description_vlm=False  # Explicitly disable VLM
+                                )
+                            )
+                        }
+                    )
         return DocumentChunker._converter
 
     @property

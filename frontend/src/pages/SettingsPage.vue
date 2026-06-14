@@ -1,12 +1,12 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
     <!-- Header -->
-    <div class="mb-10">
+    <div class="mb-12">
       <div class="flex items-center gap-3 mb-3">
         <Settings class="h-6 w-6 text-primary" />
-        <h1 class="heading-3">Settings</h1>
+        <h1 class="text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
       </div>
-      <p class="text-lg text-muted-foreground">Configure your workspace preferences</p>
+      <p class="body-lg text-muted-foreground">Configure your workspace preferences</p>
     </div>
 
     <!-- Content -->
@@ -78,7 +78,13 @@
           </div>
           <div>
             <h3 class="text-lg font-medium text-foreground">Network Configuration</h3>
-            <p class="text-sm text-muted-foreground">Configure how others can access your space</p>
+            <p class="text-sm text-muted-foreground">
+              {{
+                isCollectiveAdmin
+                  ? 'Collectives require a public URL you control'
+                  : 'Configure how others can access your space'
+              }}
+            </p>
           </div>
         </div>
 
@@ -95,20 +101,36 @@
 
         <!-- Radio options -->
         <div v-else class="space-y-4">
+          <div
+            v-if="isCollectiveAdmin"
+            class="rounded-lg border border-border bg-muted/50 p-4 text-sm text-muted-foreground"
+          >
+            Collective admin mode cannot use a SyftHub-provided URL. Add your own URL before
+            continuing so members can reach this space reliably.
+          </div>
+
           <!-- Subdomain option -->
           <div class="space-y-3">
-            <div class="flex items-start space-x-3">
+            <div class="flex items-start space-x-3" :class="{ 'opacity-50': isCollectiveAdmin }">
               <input
                 type="radio"
                 id="subdomain"
                 value="subdomain"
                 v-model="networkMode"
+                :disabled="isCollectiveAdmin"
                 class="mt-1 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
               />
               <div class="flex-1">
-                <Label for="subdomain" class="font-medium cursor-pointer">
+                <Label
+                  for="subdomain"
+                  class="font-medium"
+                  :class="isCollectiveAdmin ? 'cursor-not-allowed' : 'cursor-pointer'"
+                >
                   Use a URL provided by SyftHub
-                  <Badge variant="secondary" class="ml-2">Recommended</Badge>
+                  <Badge v-if="isCollectiveAdmin" variant="outline" class="ml-2"
+                    >Unavailable for collectives</Badge
+                  >
+                  <Badge v-else variant="secondary" class="ml-2">Recommended</Badge>
                 </Label>
               </div>
             </div>
@@ -148,11 +170,17 @@
               />
               <div class="space-y-1 flex-1">
                 <Label for="custom" class="font-medium cursor-pointer">
-                  I have my own URL
-                  <Badge variant="outline" class="ml-2">Advanced</Badge>
+                  {{ isCollectiveAdmin ? 'Use my collective URL' : 'I have my own URL' }}
+                  <Badge :variant="isCollectiveAdmin ? 'secondary' : 'outline'" class="ml-2">
+                    {{ isCollectiveAdmin ? 'Required' : 'Advanced' }}
+                  </Badge>
                 </Label>
                 <p class="text-sm text-muted-foreground">
-                  Use this if you've already set up port forwarding or have a public URL
+                  {{
+                    isCollectiveAdmin
+                      ? 'This must be a URL your collective members can use'
+                      : "Use this if you've already set up port forwarding or have a public URL"
+                  }}
                 </p>
               </div>
             </div>
@@ -169,6 +197,9 @@
               <p class="text-sm text-muted-foreground">
                 Enter the complete web address where your Syft Space can be reached
               </p>
+              <p v-if="isCollectiveAdmin && !isCustomUrlValid" class="text-sm text-destructive">
+                Collective mode requires a URL beginning with http.
+              </p>
             </div>
           </div>
         </div>
@@ -183,35 +214,78 @@
           <div>
             <h3 class="text-lg font-medium text-foreground">Payments</h3>
             <p class="text-sm text-muted-foreground">
-              Configure your payment wallet for receiving MPP payments
+              {{
+                isCollectiveMember
+                  ? 'Choose where revenue from your APIs is paid out'
+                  : 'Configure your payment wallet for receiving MPP payments'
+              }}
             </p>
           </div>
         </div>
 
-        <!-- Loading skeleton -->
-        <div v-if="loadingWallet" class="space-y-2">
-          <Skeleton class="h-4 w-16" />
-          <Skeleton class="h-5 w-64" />
+        <!-- Member: the collective wallet is mandatory -->
+        <div
+          v-if="isCollectiveMember"
+          class="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4"
+        >
+          <div class="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 shrink-0">
+            <Wallet class="h-4 w-4 text-primary" />
+          </div>
+          <div class="space-y-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-medium text-foreground">Collective wallet</span>
+              <Badge variant="secondary" class="text-[10px]">Provided by {{ collectiveName }}</Badge>
+            </div>
+            <p class="text-sm font-mono text-muted-foreground break-all">
+              {{ collectiveWalletAddress }}
+            </p>
+            <p class="text-sm text-muted-foreground">
+              As a member of {{ collectiveName }}, revenue from your APIs is collected into the
+              collective wallet. This is required — you can't use your own wallet here.
+            </p>
+          </div>
         </div>
 
-        <!-- Wallet exists -->
-        <div v-else-if="walletAddress" class="space-y-3">
+        <template v-else>
+          <!-- Loading skeleton -->
+          <div v-if="loadingWallet" class="space-y-2">
+            <Skeleton class="h-4 w-16" />
+            <Skeleton class="h-5 w-64" />
+          </div>
+
+          <!-- Wallet exists -->
+          <div v-else-if="walletAddress" class="space-y-3">
           <div class="space-y-1">
             <p class="text-sm text-muted-foreground">Wallet Address</p>
             <p class="text-sm font-mono font-medium text-foreground">{{ walletAddress }}</p>
+          </div>
+          <div
+            v-if="isCollectiveAdmin"
+            class="flex items-start space-x-3 rounded-lg border border-border bg-muted/40 p-4"
+          >
+            <Checkbox id="share-wallet" v-model="collectiveWalletShareable" class="mt-0.5" />
+            <div>
+              <Label for="share-wallet" class="text-sm font-medium cursor-pointer">
+                Shareable with collective
+              </Label>
+              <p class="text-sm text-muted-foreground mt-1">
+                Members can spend from this wallet when they use approved collective APIs.
+              </p>
+            </div>
           </div>
           <Button variant="outline" size="sm" @click="walletDialogOpen = true">
             Manage Wallet
           </Button>
         </div>
 
-        <!-- No wallet -->
-        <div v-else class="space-y-3">
-          <p class="text-sm text-muted-foreground">
-            No wallet configured. Create one to start receiving payments.
-          </p>
-          <Button @click="walletDialogOpen = true"> Set Up Wallet </Button>
-        </div>
+          <!-- No wallet -->
+          <div v-else class="space-y-3">
+            <p class="text-sm text-muted-foreground">
+              No wallet configured. Create one to start receiving payments.
+            </p>
+            <Button @click="walletDialogOpen = true"> Set Up Wallet </Button>
+          </div>
+        </template>
       </div>
 
       <!-- Wallet Setup Dialog -->
@@ -239,7 +313,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { Settings, Globe, User, ExternalLink, Loader2, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -254,8 +328,12 @@ import { walletsApi } from '@/api/endpoints/wallets'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
 import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 import WalletSetupDialog from '@/components/WalletSetupDialog.vue'
+import { useCollectiveMode } from '@/composables/useCollectiveMode'
+import { collectiveStatsSummary, collectiveWalletAddress } from '@/stores/mockCollective'
 
 const userStore = useUserStore()
+const { isCollectiveAdmin, isCollectiveMember } = useCollectiveMode()
+const collectiveName = collectiveStatsSummary.name
 
 const loadingAccount = ref(true)
 const loadingNetwork = ref(true)
@@ -268,6 +346,9 @@ const diagnosticsEnabled = ref(false)
 const loadingWallet = ref(true)
 const walletAddress = ref<string | null>(null)
 const walletDialogOpen = ref(false)
+const collectiveWalletShareable = ref(true)
+
+const isCustomUrlValid = computed(() => customUrl.value.trim().startsWith('http'))
 
 const proxyStatus = reactive({
   connected: false,
@@ -314,6 +395,9 @@ const fetchNetworkConfig = async () => {
   } catch {
     // If API fails, keep default subdomain mode
   } finally {
+    if (isCollectiveAdmin.value) {
+      networkMode.value = 'custom'
+    }
     loadingNetwork.value = false
   }
 }
@@ -337,8 +421,12 @@ const onWalletUpdated = (address: string) => {
 }
 
 const saveChanges = async () => {
-  if (networkMode.value === 'custom' && !customUrl.value) {
-    toast.error('Please enter your public URL')
+  if (isCollectiveAdmin.value) {
+    networkMode.value = 'custom'
+  }
+
+  if (networkMode.value === 'custom' && !isCustomUrlValid.value) {
+    toast.error('Please enter a valid public URL')
     return
   }
 
@@ -380,4 +468,14 @@ onMounted(() => {
   fetchDiagnostics()
   fetchWallet()
 })
+
+watch(
+  isCollectiveAdmin,
+  (enabled) => {
+    if (enabled) {
+      networkMode.value = 'custom'
+    }
+  },
+  { immediate: true },
+)
 </script>

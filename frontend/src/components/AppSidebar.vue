@@ -15,14 +15,18 @@ import {
   Plus,
   Search,
   MessageSquare,
+  UsersRound,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Separator } from '@/components/ui/separator'
 import { useSidebar } from '@/composables/useSidebar'
 import { useNavigation } from '@/composables/useNavigation'
+import { useCollectiveMode } from '@/composables/useCollectiveMode'
+import { collectiveStatsSummary } from '@/stores/mockCollective'
 import { useInboxStore } from '@/stores/inbox'
 import { useUserStore } from '@/stores/user'
 import { useEndpointsStore } from '@/stores/endpoints'
@@ -36,6 +40,16 @@ const router = useRouter()
 const route = useRoute()
 const { isCollapsed, toggle } = useSidebar()
 const { routes } = useNavigation()
+const {
+  isCollectiveAdmin,
+  isCollectiveMember,
+  collectiveMode,
+  isCollectiveViewActive,
+  isPersonalViewActive,
+  toggleCollectiveView,
+  collectiveBadgeLabel,
+} = useCollectiveMode()
+const collectiveName = collectiveStatsSummary.name
 const inboxStore = useInboxStore()
 const userStore = useUserStore()
 const endpointsStore = useEndpointsStore()
@@ -205,6 +219,8 @@ const routeMapping: Record<string, string[]> = {
   chat: ['chat'],
   endpoints: ['endpoints', 'endpoint-detail'],
   inbox: ['inbox'],
+  members: ['members'],
+  'collective-apis': ['collective-apis'],
   analytics: ['analytics'],
   settings: ['settings'],
 }
@@ -246,16 +262,25 @@ const liveNav: NavItem[] = [
   },
 ]
 
-const bottomNav: NavItem[] = [
-  {
-    id: 'inbox',
-    route: 'inbox',
-    label: 'Inbox',
-    icon: Inbox,
-    badge: () => (inboxStore.unreadCount > 0 ? inboxStore.unreadCount : undefined),
-    badgeVariant: 'destructive',
-  },
+const collectiveNav: NavItem[] = [
+  { id: 'members', route: 'members', label: 'Members', icon: UsersRound },
+  { id: 'collective-apis', route: 'collective-apis', label: 'APIs', icon: Globe },
+  { id: 'analytics', route: 'analytics', label: 'Stats', icon: LayoutDashboard },
 ]
+
+const bottomNav = computed<NavItem[]>(() => {
+  if (collectiveMode.value && isCollectiveViewActive.value) return []
+  return [
+    {
+      id: 'inbox',
+      route: 'inbox',
+      label: 'Inbox',
+      icon: Inbox,
+      badge: () => (inboxStore.unreadCount > 0 ? inboxStore.unreadCount : undefined),
+      badgeVariant: 'destructive',
+    },
+  ]
+})
 
 interface ResolvedNavItem extends NavItem {
   active: boolean
@@ -272,7 +297,20 @@ const resolveNav = (items: NavItem[]): ResolvedNavItem[] =>
 const mainNavResolved = computed(() => resolveNav(mainNav))
 const resourceNavResolved = computed(() => resolveNav(resourceNav))
 const liveNavResolved = computed(() => resolveNav(liveNav))
-const bottomNavResolved = computed(() => resolveNav(bottomNav))
+const collectiveNavResolved = computed(() =>
+  isCollectiveViewActive.value ? resolveNav(collectiveNav) : [],
+)
+const bottomNavResolved = computed(() => resolveNav(bottomNav.value))
+
+const collectiveOnlyRoutes = ['members', 'collective-apis', 'analytics']
+
+const handleViewToggle = () => {
+  const wasCollective = isCollectiveViewActive.value
+  toggleCollectiveView()
+  if (wasCollective && collectiveOnlyRoutes.includes(route.name as string)) {
+    router.push({ name: 'home' })
+  }
+}
 </script>
 
 <template>
@@ -282,15 +320,32 @@ const bottomNavResolved = computed(() => resolveNav(bottomNav))
   >
     <!-- Logo -->
     <div class="flex items-center justify-between h-16 px-4 border-b border-border shrink-0">
-      <button class="flex items-center gap-3 min-w-0" @click="navigateTo('home')">
-        <img :src="SyftLogo" alt="Syft Space" class="h-7 w-7 shrink-0" />
-        <span
-          v-if="!isCollapsed"
-          class="text-sm font-semibold text-foreground tracking-tight truncate"
-        >
-          Syft Space
-        </span>
-      </button>
+      <div class="flex items-center gap-3 min-w-0">
+        <button class="shrink-0" @click="navigateTo('home')">
+          <img :src="SyftLogo" alt="Syft Space" class="h-7 w-7" />
+        </button>
+        <div v-if="!isCollapsed" class="flex flex-col items-start gap-0.5 min-w-0">
+          <button
+            class="text-sm font-semibold text-foreground tracking-tight truncate hover:text-primary transition-colors text-left"
+            @click="navigateTo('home')"
+          >
+            Syft Space
+          </button>
+          <button
+            v-if="isCollectiveAdmin"
+            type="button"
+            class="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            @click="handleViewToggle"
+          >
+            <Badge
+              :variant="isCollectiveViewActive ? 'default' : 'outline'"
+              class="text-[10px] cursor-pointer hover:opacity-90"
+            >
+              {{ collectiveBadgeLabel }}
+            </Badge>
+          </button>
+        </div>
+      </div>
       <div class="flex items-center gap-0.5">
         <ThemeToggle v-if="!isCollapsed" />
         <TooltipProvider :delay-duration="0">
@@ -309,8 +364,15 @@ const bottomNavResolved = computed(() => resolveNav(bottomNav))
       </div>
     </div>
 
+    <!-- Collective membership (member mode) -->
+    <div v-if="!isCollapsed && isCollectiveMember" class="px-4 py-2 border-b border-border/40">
+      <Badge variant="secondary" class="text-[10px] w-full justify-center">
+        {{ collectiveName }}
+      </Badge>
+    </div>
+
     <!-- Search -->
-    <div v-if="!isCollapsed" class="px-3 pt-3 pb-1 relative">
+    <div v-if="!isCollapsed && isPersonalViewActive" class="px-3 pt-3 pb-1 relative">
       <div class="relative">
         <Search
           class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
@@ -357,7 +419,7 @@ const bottomNavResolved = computed(() => resolveNav(bottomNav))
         </button>
       </div>
     </div>
-    <TooltipProvider v-else :delay-duration="0">
+    <TooltipProvider v-else-if="isCollapsed && isPersonalViewActive" :delay-duration="0">
       <Tooltip>
         <TooltipTrigger as-child>
           <div class="px-2 pt-3 pb-1">
@@ -381,7 +443,7 @@ const bottomNavResolved = computed(() => resolveNav(bottomNav))
       />
 
       <!-- Resources Section -->
-      <div class="pt-4">
+      <div v-if="isPersonalViewActive" class="pt-4">
         <p
           v-if="!isCollapsed"
           class="px-3 pb-2 text-xs font-semibold text-muted-foreground tracking-wider uppercase"
@@ -401,7 +463,7 @@ const bottomNavResolved = computed(() => resolveNav(bottomNav))
       </div>
 
       <!-- APIs Section -->
-      <div class="pt-4">
+      <div v-if="isPersonalViewActive" class="pt-4">
         <div class="flex items-center justify-between" :class="isCollapsed ? '' : 'px-3 pb-2'">
           <p
             v-if="!isCollapsed"
@@ -436,25 +498,44 @@ const bottomNavResolved = computed(() => resolveNav(bottomNav))
           />
         </div>
       </div>
+
+      <!-- Collective Section -->
+      <div v-if="isCollectiveViewActive" class="pt-4">
+        <p
+          v-if="!isCollapsed"
+          class="px-3 pb-2 text-xs font-semibold text-muted-foreground tracking-wider uppercase"
+        >
+          Collective
+        </p>
+        <Separator v-else class="mb-2" />
+        <div class="space-y-0.5">
+          <SidebarNavItem
+            v-for="item in collectiveNavResolved"
+            :key="item.id"
+            :item="item"
+            :collapsed="isCollapsed"
+            @click="navigateTo(item.route)"
+          />
+        </div>
+      </div>
     </nav>
 
     <!-- Bottom Section -->
     <div class="mt-auto border-t border-border px-2 py-3 space-y-0.5">
-      <SidebarNavItem
-        v-for="item in bottomNavResolved"
-        :key="item.id"
-        :item="item"
-        :collapsed="isCollapsed"
-        @click="navigateTo(item.route)"
-      />
+      <template v-if="bottomNavResolved.length > 0">
+        <SidebarNavItem
+          v-for="item in bottomNavResolved"
+          :key="item.id"
+          :item="item"
+          :collapsed="isCollapsed"
+          @click="navigateTo(item.route)"
+        />
 
-      <Separator class="my-2" />
+        <Separator class="my-2" />
+      </template>
 
       <!-- User card + Settings -->
-      <div
-        class="flex items-center gap-2 rounded-lg p-2"
-        :class="isCollapsed ? 'flex-col' : ''"
-      >
+      <div class="flex items-center gap-2 rounded-lg p-2" :class="isCollapsed ? 'flex-col' : ''">
         <Avatar class="h-8 w-8 shrink-0">
           <AvatarFallback class="bg-muted text-muted-foreground text-xs">
             <User class="h-4 w-4" />

@@ -691,7 +691,12 @@
                     </div>
                   </div>
                   <Button
-                    v-if="policy.id !== 'pricing' || walletConfigured || loadingWalletCheck"
+                    v-if="
+                      policy.id !== 'pricing' ||
+                      walletConfigured ||
+                      isCollectiveMember ||
+                      loadingWalletCheck
+                    "
                     @click="openAddPolicyDialog(policy.id)"
                     variant="outline"
                     size="sm"
@@ -731,6 +736,20 @@
                         >Free access - no charges applied</span
                       >
                       <span v-else>Open access - most permissive settings</span>
+                    </p>
+                  </div>
+                </div>
+
+                <!-- Collective wallet note (member) -->
+                <div v-if="policy.id === 'pricing' && isCollectiveMember" class="mb-3">
+                  <div
+                    class="flex items-start gap-2 rounded-xl border border-border bg-muted/40 px-4 py-3"
+                  >
+                    <Wallet class="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                    <p class="body-sm text-muted-foreground">
+                      Payouts route to the
+                      <span class="font-medium text-foreground">{{ collectiveName }}</span>
+                      collective wallet. You can switch to your own wallet in Settings → Payments.
                     </p>
                   </div>
                 </div>
@@ -1481,12 +1500,16 @@ import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { useDataEndpointCreation } from '@/composables/useDataEndpointCreation'
+import { useCollectiveMode } from '@/composables/useCollectiveMode'
 import { useUserStore } from '@/stores/user'
+import { collectiveStatsSummary } from '@/stores/mockCollective'
 import type { DatasetListItem } from '@/api/types'
 
 const router = useRouter()
 const userStore = useUserStore()
 const { isDark } = useTheme()
+const { isCollectiveMember } = useCollectiveMode()
+const collectiveName = collectiveStatsSummary.name
 const modelSelectorRef = ref<InstanceType<typeof ModelSelector> | null>(null)
 const cachedModelName = ref('')
 

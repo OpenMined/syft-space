@@ -4,6 +4,8 @@ import { useRoute } from 'vue-router'
 import AppLayout from './components/AppLayout.vue'
 import FeedbackButton from './components/FeedbackButton.vue'
 import SplashScreen from './components/SplashScreen.vue'
+import MemberLoginScreen from './components/MemberLoginScreen.vue'
+import { useCollectiveMode } from './composables/useCollectiveMode'
 import { useTheme } from './composables/useTheme'
 import { loadGlobalData } from './lib/utils'
 import { Toaster } from '@/components/ui/sonner'
@@ -41,6 +43,7 @@ onUnmounted(() => {
 })
 
 const serverStore = useServerAvailabilityStore()
+const { needsMemberLogin } = useCollectiveMode()
 
 const isUpdatesPage = computed(() => route.name === 'updates')
 const isAboutPage = computed(() => route.name === 'about')
@@ -70,7 +73,12 @@ watch(
 </script>
 
 <template>
-  <SplashScreen v-if="!serverStore.isReady && !isStandalonePage" :is-slow="serverStore.isSlow" />
+  <!-- Collective member visitor login (gates the whole app) -->
+  <MemberLoginScreen v-if="needsMemberLogin" />
+  <SplashScreen
+    v-else-if="!serverStore.isReady && !isStandalonePage"
+    :is-slow="serverStore.isSlow"
+  />
   <template v-else>
     <!-- Sidebar layout for main app -->
     <AppLayout v-if="showSidebar">

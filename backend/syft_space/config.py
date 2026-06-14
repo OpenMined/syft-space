@@ -4,6 +4,22 @@ from pydantic import Field, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _repo_root() -> Path:
+    # backend/syft_space/config.py -> syft_space/ -> backend/ -> repo root
+    return Path(__file__).resolve().parents[2]
+
+
+def _default_data_dir() -> Path:
+    preferred = Path("~/.syft-space").expanduser()
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        return preferred
+    except OSError:
+        fallback = _repo_root() / ".syft-space"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
 class AppSettings(BaseSettings):
     """Application settings loaded from environment variables"""
 
@@ -26,9 +42,10 @@ class AppSettings(BaseSettings):
     )
 
     # Database settings
-    sqlite_db_path: Path = Path(
-        "~/.syft-space/app.db"
-    ).expanduser()  # Default path for SQLite database
+    sqlite_db_path: Path = Field(
+        default_factory=lambda: _default_data_dir() / "app.db",
+        description="Path for SQLite database file",
+    )
 
     # Application settings
     debug: bool = False
@@ -39,7 +56,7 @@ class AppSettings(BaseSettings):
         description="Log level for all handlers (DEBUG, INFO, WARNING, ERROR)",
     )
     log_file: str = Field(
-        default="~/.syft-space/logs/syft-space-server.log",
+        default_factory=lambda: str(_default_data_dir() / "logs" / "syft-space-server.log"),
         description="Path to log file. If set, enables file logging with rotation. Example: /data/logs/syft-space.log",
     )
 

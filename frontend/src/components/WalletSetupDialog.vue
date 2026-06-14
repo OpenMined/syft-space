@@ -24,6 +24,17 @@
               {{ walletAddress }}
             </p>
           </div>
+          <div
+            v-if="isCollectiveAdmin"
+            class="flex items-start space-x-3 rounded-lg border border-border bg-muted/40 p-4"
+          >
+            <Checkbox id="dialog-share-wallet" v-model="collectiveWalletShareable" class="mt-0.5" />
+            <div>
+              <Label for="dialog-share-wallet" class="text-sm font-medium cursor-pointer">
+                Share this wallet with the collective
+              </Label>
+            </div>
+          </div>
           <div v-if="showChangeWallet" class="space-y-3 pt-3 border-t">
             <div class="space-y-2">
               <Label for="dialog-new-wallet">New Wallet Address</Label>
@@ -57,6 +68,25 @@
               <Loader2 v-if="saving" class="h-4 w-4 mr-2 animate-spin" />
               Create Wallet
             </Button>
+            <div
+              v-if="isCollectiveAdmin"
+              class="flex items-start space-x-3 rounded-lg border border-border bg-muted/40 p-4"
+            >
+              <Checkbox
+                id="dialog-share-new-wallet"
+                v-model="collectiveWalletShareable"
+                class="mt-0.5"
+              />
+              <div>
+                <Label for="dialog-share-new-wallet" class="text-sm font-medium cursor-pointer">
+                  Make new wallet shareable
+                </Label>
+                <p class="text-sm text-muted-foreground mt-1">
+                  This means members of your collective(s) can decide to collect their revenues with
+                  your wallet.
+                </p>
+              </div>
+            </div>
             <button
               @click="showImportWallet = !showImportWallet"
               class="text-sm text-primary hover:text-primary/80 text-left"
@@ -95,6 +125,7 @@ import { ref, watch } from 'vue'
 import { Wallet, Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -106,6 +137,7 @@ import {
 } from '@/components/ui/dialog'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { useUserStore } from '@/stores/user'
+import { useCollectiveMode } from '@/composables/useCollectiveMode'
 
 const props = defineProps<{
   open: boolean
@@ -117,6 +149,7 @@ const emit = defineEmits<{
 }>()
 
 const userStore = useUserStore()
+const { isCollectiveAdmin } = useCollectiveMode()
 
 const walletAddress = ref<string | null>(null)
 const currentWalletId = ref<string | null>(null)
@@ -126,6 +159,7 @@ const newWalletAddress = ref('')
 const walletAddressError = ref<string | null>(null)
 const showImportWallet = ref(false)
 const importPrivateKey = ref('')
+const collectiveWalletShareable = ref(true)
 
 const isValidEthAddress = (address: string): boolean => {
   return /^0x[0-9a-fA-F]{40}$/.test(address)

@@ -25,7 +25,12 @@ export interface CreateDatasetRequest {
   tags: string
   configuration: {
     collectionName?: string
-    filePaths: FilePathItem[]
+    filePaths?: FilePathItem[]
+    // Remote connector fields (e.g. WordPress) — stub values for the demo.
+    http_url?: string
+    grpc_url?: string
+    api_key?: string
+    collection_name?: string
   }
 }
 

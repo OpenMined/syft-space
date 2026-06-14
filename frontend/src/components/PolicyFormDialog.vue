@@ -1,5 +1,14 @@
 <template>
-  <Dialog :open="open" @update:open="$emit('update:open', $event)">
+  <!-- Pricing uses the dedicated wallet-aware modal -->
+  <AddPricingRuleDialog
+    v-if="policyType === 'pricing'"
+    :open="open"
+    :initial-data="initialData"
+    :is-submitting="isSubmitting"
+    @update:open="$emit('update:open', $event)"
+    @save="$emit('save', $event)"
+  />
+  <Dialog v-else :open="open" @update:open="$emit('update:open', $event)">
     <DialogContent class="sm:max-w-[600px]">
       <DialogHeader>
         <DialogTitle
@@ -12,9 +21,7 @@
               ? 'access control'
               : policyType === 'rate_limit'
                 ? 'usage limit'
-                : policyType === 'pricing'
-                  ? 'pricing'
-                  : 'PII filter'
+                : 'PII filter'
           }}
           policy for this endpoint.
         </DialogDescription>
@@ -108,56 +115,6 @@
           </div>
         </div>
 
-        <!-- Pricing Policy Form -->
-        <div v-if="policyType === 'pricing'" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Price per query ($)</Label>
-              <Input
-                v-model="pricingForm.price"
-                type="number"
-                step="any"
-                placeholder="Enter price per query"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-            </div>
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Note</Label>
-              <Input
-                v-model="pricingForm.note"
-                placeholder="Optional description"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-            </div>
-          </div>
-          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <div class="space-y-1 sm:flex-shrink-0 sm:w-32">
-              <Label class="body-sm text-muted-foreground font-medium">Apply To</Label>
-              <Select v-model="pricingForm.userType">
-                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  <SelectItem value="specific">Specific Users</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div v-if="pricingForm.userType === 'specific'" class="space-y-1 flex-1">
-              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
-              <Input
-                v-model="pricingForm.users"
-                placeholder="user1@example.com, user2@example.com"
-                class="h-9 rounded-lg border-border bg-card body-sm"
-              />
-              <p class="text-xs text-muted-foreground">
-                Comma-separated list. Wildcard supported (e.g., *@company.com, *.edu,
-                *@contractors.org)
-              </p>
-            </div>
-          </div>
-        </div>
-
         <!-- PII Filter Policy Form -->
         <div v-if="policyType === 'pii_filter'" class="space-y-4">
           <div class="space-y-2">
@@ -237,6 +194,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
+import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 import {
   getPolicyTypeLabel,
   PII_FILTER_CATEGORIES,

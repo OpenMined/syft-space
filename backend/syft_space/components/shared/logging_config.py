@@ -29,16 +29,21 @@ logger.add(
 
 # File handler
 log_path = Path(app_settings.log_file).expanduser()
-log_path.parent.mkdir(parents=True, exist_ok=True)
-logger.add(
-    str(log_path.resolve()),
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <5} | {name} - {message}",
-    level=app_settings.log_level.upper(),
-    rotation="50 MB",
-    retention="7 days",
-    compression="gz",
-    colorize=False,
-)
+try:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.add(
+        str(log_path.resolve()),
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <5} | {name} - {message}",
+        level=app_settings.log_level.upper(),
+        rotation="50 MB",
+        retention="7 days",
+        compression="gz",
+        colorize=False,
+    )
+except OSError as e:
+    # Some environments (e.g. restricted sandboxes) may not allow writing to the
+    # default user directory. Keep console logging enabled so the server can run.
+    logger.warning(f"File logging disabled (cannot write to {log_path!s}): {e!s}")
 
 
 class InterceptHandler(logging.Handler):
