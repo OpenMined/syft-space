@@ -1,7 +1,7 @@
-import { Shield, Gauge, DollarSign } from 'lucide-vue-next'
+import { Shield, Gauge, DollarSign, UserCheck } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
-export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing' | 'pii_filter'
+export type PolicyTypeId = 'access' | 'rate_limit' | 'pricing' | 'pii_filter' | 'human_in_the_loop'
 
 export type PaymentPolicyType =
   | 'mpp_per_request'
@@ -58,6 +58,14 @@ export const POLICY_TYPES: PolicyType[] = [
     icon: DollarSign,
     color: 'yellow',
   },
+  {
+    id: 'human_in_the_loop',
+    name: 'Human in the Loop',
+    label: 'Require human approval',
+    description: 'Hold replies for your review before they are sent',
+    icon: UserCheck,
+    color: 'purple',
+  },
 ]
 
 export const getPolicyTypeLabel = (type: string): string => {
@@ -70,6 +78,8 @@ export const getPolicyTypeLabel = (type: string): string => {
       return 'Pricing'
     case 'pii_filter':
       return 'PII Filter'
+    case 'human_in_the_loop':
+      return 'Human in the Loop'
     default:
       return 'Policy'
   }
@@ -80,6 +90,7 @@ export const createEmptyPolicyRules = (): PolicyRulesRecord => ({
   rate_limit: [],
   pricing: [],
   pii_filter: [],
+  human_in_the_loop: [],
 })
 
 export const generateRuleId = (): string => {
@@ -154,6 +165,9 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
 
     case 'pii_filter':
       return 'AI-powered PII redaction enabled'
+
+    case 'human_in_the_loop':
+      return 'Replies held for human approval before sending'
 
     default:
       return 'Rule configured'

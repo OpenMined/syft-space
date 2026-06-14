@@ -11,6 +11,9 @@ import {
   Plus,
   MessageSquare,
   BarChart3,
+  Bot,
+  Users,
+  Inbox,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -19,6 +22,7 @@ import { Separator } from '@/components/ui/separator'
 import { useSidebar } from '@/composables/useSidebar'
 import { useUserStore } from '@/stores/user'
 import { useEndpointsStore } from '@/stores/endpoints'
+import { useTriageStore } from '@/stores/triage'
 import SyftLogo from '@/assets/syftbox-logo.svg'
 import SidebarNavItem from '@/components/SidebarNavItem.vue'
 
@@ -27,6 +31,7 @@ const route = useRoute()
 const { isCollapsed, toggle } = useSidebar()
 const userStore = useUserStore()
 const endpointsStore = useEndpointsStore()
+const triageStore = useTriageStore()
 
 const liveCount = computed(() => endpointsStore.endpoints.filter((e) => e.published).length)
 
@@ -34,9 +39,12 @@ const routeMapping: Record<string, string[]> = {
   home: ['home'],
   datasets: ['datasets', 'dataset-detail'],
   models: ['models', 'model-detail'],
+  agents: ['agents', 'agent-detail'],
   chat: ['chat'],
   endpoints: ['endpoints', 'endpoint-detail'],
   analytics: ['analytics'],
+  relationships: ['relationships', 'person-detail'],
+  'relationships-triage': ['relationships-triage'],
   settings: ['settings'],
 }
 
@@ -63,7 +71,20 @@ const mainNav: NavItem[] = [{ id: 'home', route: 'home', label: 'Home', icon: La
 const resourceNav: NavItem[] = [
   { id: 'datasets', route: 'datasets', label: 'Data Sources', icon: Database },
   { id: 'models', route: 'models', label: 'Models', icon: Brain },
+  { id: 'agents', route: 'agents', label: 'Agents', icon: Bot },
   { id: 'chat', route: 'chat', label: 'Chat', icon: MessageSquare },
+]
+
+const relationshipNav: NavItem[] = [
+  { id: 'relationships', route: 'relationships', label: 'People', icon: Users },
+  {
+    id: 'relationships-triage',
+    route: 'relationships-triage',
+    label: 'Triage',
+    icon: Inbox,
+    badge: () => (triageStore.pendingTriage.length > 0 ? triageStore.pendingTriage.length : undefined),
+    badgeVariant: 'destructive',
+  },
 ]
 
 const liveNav: NavItem[] = [
@@ -95,6 +116,7 @@ const resolveNav = (items: NavItem[]): ResolvedNavItem[] =>
 const mainNavResolved = computed(() => resolveNav(mainNav))
 const resourceNavResolved = computed(() => resolveNav(resourceNav))
 const liveNavResolved = computed(() => resolveNav(liveNav))
+const relationshipNavResolved = computed(() => resolveNav(relationshipNav))
 const bottomNavResolved = computed(() => resolveNav(bottomNav))
 </script>
 
@@ -184,6 +206,26 @@ const bottomNavResolved = computed(() => resolveNav(bottomNav))
         <div class="space-y-0.5">
           <SidebarNavItem
             v-for="item in liveNavResolved"
+            :key="item.id"
+            :item="item"
+            :collapsed="isCollapsed"
+            @click="navigateTo(item.route)"
+          />
+        </div>
+      </div>
+
+      <!-- Relationships Section -->
+      <div class="pt-4">
+        <p
+          v-if="!isCollapsed"
+          class="px-3 pb-2 text-xs font-semibold text-muted-foreground tracking-wider uppercase"
+        >
+          Relationships
+        </p>
+        <Separator v-else class="mb-2" />
+        <div class="space-y-0.5">
+          <SidebarNavItem
+            v-for="item in relationshipNavResolved"
             :key="item.id"
             :item="item"
             :collapsed="isCollapsed"

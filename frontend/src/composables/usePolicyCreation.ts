@@ -45,6 +45,7 @@ const POLICY_DISPLAY_NAMES: Record<string, string> = {
   rate_limit: 'Rate Limiter',
   pricing: 'Pricing',
   pii_filter: 'PII Filter',
+  human_in_the_loop: 'Human in the Loop',
 }
 
 const RATE_LIMIT_UNIT_MAP: Record<string, string> = {
@@ -152,6 +153,19 @@ const createPiiFilterPolicy = async (
     endpoint_id: endpointId,
   })
 
+const createHumanInTheLoopPolicy = async (
+  formData: PolicyFormData,
+  endpointId: string,
+  endpointName: string,
+  ruleIndex: number = 1,
+) =>
+  policiesApi.create({
+    name: generatePolicyName('human_in_the_loop', formData, endpointName, ruleIndex),
+    policy_type: 'human_in_the_loop',
+    configuration: {},
+    endpoint_id: endpointId,
+  })
+
 const validateAuthorizationForm = (formData: AuthorizationFormData): boolean =>
   processUserList(formData.users).length > 0
 
@@ -170,7 +184,7 @@ export function usePolicyCreation() {
   const creationError = ref<string | null>(null)
 
   const createPolicy = async (
-    policyType: 'access' | 'rate_limit' | 'pricing' | 'pii_filter',
+    policyType: 'access' | 'rate_limit' | 'pricing' | 'pii_filter' | 'human_in_the_loop',
     formData: PolicyFormData,
     endpointId: string,
     endpointName: string,
@@ -205,6 +219,13 @@ export function usePolicyCreation() {
         case 'pii_filter':
           return await createPiiFilterPolicy(
             formData as PiiFilterFormData,
+            endpointId,
+            endpointName,
+            ruleIndex,
+          )
+        case 'human_in_the_loop':
+          return await createHumanInTheLoopPolicy(
+            formData,
             endpointId,
             endpointName,
             ruleIndex,

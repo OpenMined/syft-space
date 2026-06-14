@@ -14,6 +14,11 @@ import AboutPage from '../pages/AboutPage.vue'
 import OnboardingPage from '../pages/OnboardingPage.vue'
 import GoLivePage from '../pages/GoLivePage.vue'
 import ChatPage from '../pages/ChatPage.vue'
+import AgentsPage from '../pages/AgentsPage.vue'
+import AgentDetailPage from '../pages/AgentDetailPage.vue'
+import RelationshipsPage from '../pages/RelationshipsPage.vue'
+import PersonDetailPage from '../pages/PersonDetailPage.vue'
+import TriagePage from '../pages/TriagePage.vue'
 import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 import { settingsApi } from '../api/endpoints/settings'
@@ -72,6 +77,31 @@ const router = createRouter({
       path: '/models',
       name: 'models',
       component: ModelsPage,
+    },
+    {
+      path: '/agents',
+      name: 'agents',
+      component: AgentsPage,
+    },
+    {
+      path: '/agents/:id',
+      name: 'agent-detail',
+      component: AgentDetailPage,
+    },
+    {
+      path: '/relationships',
+      name: 'relationships',
+      component: RelationshipsPage,
+    },
+    {
+      path: '/relationships/triage',
+      name: 'relationships-triage',
+      component: TriagePage,
+    },
+    {
+      path: '/relationships/:id',
+      name: 'person-detail',
+      component: PersonDetailPage,
     },
     {
       path: '/endpoints/:slug',
