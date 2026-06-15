@@ -176,6 +176,15 @@ class WordPressChromaDBDatasetType(IngestableDatasetType):
         """The (prefixed) collection name from the vector store."""
         return self.vector_store.collection_name
 
+    @classmethod
+    def redact_configuration(cls, configuration: dict[str, Any]) -> dict[str, Any]:
+        """Drop the WordPress Application Password from the exposed config."""
+        return {
+            k: v
+            for k, v in configuration.items()
+            if k not in ("applicationPassword", "application_password")
+        }
+
 
 __all__ = [
     "WordPressChromaDBConfiguration",
