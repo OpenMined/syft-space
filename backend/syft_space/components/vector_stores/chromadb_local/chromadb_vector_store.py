@@ -225,39 +225,45 @@ class ChromaDBLocalVectorStore:
         Each chunk gets prev/next pointers so the search method can
         fetch surrounding context in a single batch call.
         """
+
+        # Early return if no chunks to store.
         if not chunks:
             return
 
+        # Get the document ID and number of chunks.
         doc_id = chunks[0]["doc_id"]
-        chunk_ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
+        num_chunks = len(chunks)
+        chunk_ids = [f"{doc_id}_{i}" for i in range(num_chunks)]
 
-        for i, chunk in enumerate(chunks):
-            prev_chunk_id = chunk_ids[i - 1] if i > 0 else ""
-            next_chunk_id = chunk_ids[i + 1] if i < len(chunks) - 1 else ""
+        # Embed all chunks in one call.
+        embeddings = await asyncio.to_thread(
+            self._generate_embeddings, [chunk["embedding_text"] for chunk in chunks]
+        )
 
-            embeddings = await asyncio.to_thread(
-                self._generate_embeddings, [chunk["embedding_text"]]
-            )
+        # Build metadata for all chunks.
+        metadatas = [
+            {
+                "doc_id": doc_id,
+                "chunk_index": i,
+                "prev_chunk_id": chunk_ids[i - 1] if i > 0 else "",
+                "next_chunk_id": chunk_ids[i + 1] if i < num_chunks - 1 else "",
+                "file_name": chunk["file_name"],
+                "file_type": chunk["file_type"] or "",
+                "file_size": chunk["file_size"],
+                "page_numbers": ",".join(map(str, chunk["page_numbers"])),
+                "headings": " > ".join(chunk["headings"]),
+                "picture_ids": ",".join(chunk["picture_ids"]),
+            }
+            for i, chunk in enumerate(chunks)
+        ]
 
-            await collection.add(
-                ids=[chunk_ids[i]],
-                documents=[chunk["text"]],
-                embeddings=embeddings,
-                metadatas=[
-                    {
-                        "doc_id": doc_id,
-                        "chunk_index": i,
-                        "prev_chunk_id": prev_chunk_id,
-                        "next_chunk_id": next_chunk_id,
-                        "file_name": chunk["file_name"],
-                        "file_type": chunk["file_type"] or "",
-                        "file_size": chunk["file_size"],
-                        "page_numbers": ",".join(map(str, chunk["page_numbers"])),
-                        "headings": " > ".join(chunk["headings"]),
-                        "picture_ids": ",".join(chunk["picture_ids"]),
-                    }
-                ],
-            )
+        # Write all chunks in one call.
+        await collection.add(
+            ids=chunk_ids,
+            documents=[chunk["text"] for chunk in chunks],
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
 
     def _process_query_results(
         self,
