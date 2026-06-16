@@ -968,12 +968,12 @@ class DatasetHandler:
         configuration: dict[str, Any],
         parent_id: str | None,
     ) -> SourceBrowseResponse:
-        """List one level of items from any registered source.
+        """Return one level of items from a source, starting at ``parent_id``.
 
-        Looks up the provider for ``dtype``, validates the browse
-        configuration so bad credentials surface as 400 rather than a
-        deeper 500, builds a browser, and returns one level of items
-        starting at ``parent_id``.
+        Validation runs only at the top level (``parent_id is None``): the
+        first call probes the credentials so bad ones fail as a 400.
+        Drill-downs reuse those validated creds and skip the probe —
+        ``list_items`` surfaces any failure on its own.
         """
         try:
             provider = SOURCE_REGISTRY.get(dtype)
@@ -982,12 +982,14 @@ class DatasetHandler:
                 status_code=404, detail=f"Unknown source type: {dtype}"
             ) from e
 
-        try:
-            await provider.validate_browse_config(configuration)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid browse configuration: {e}"
-            ) from e
+        # Probe credentials once, on the first (top-level) call only.
+        if parent_id is None:
+            try:
+                await provider.validate_browse_config(configuration)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid browse configuration: {e}"
+                ) from e
 
         try:
             browser = provider.for_browse(configuration)
