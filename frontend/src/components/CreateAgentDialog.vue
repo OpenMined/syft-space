@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, X } from 'lucide-vue-next'
+import { Plus, X, Search, ArrowLeft, Sparkles, Server, Folder } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import {
   mockAgents,
@@ -27,6 +27,7 @@ import {
   AVAILABLE_SKILLS,
   AVAILABLE_MCPS,
   AVAILABLE_FOLDERS,
+  getOrchestratorLabel,
   type Orchestrator,
 } from '@/stores/mockAgents'
 
@@ -37,6 +38,11 @@ const isOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
 })
+
+type AccessKey = 'skills' | 'mcps' | 'folders'
+
+const step = ref<1 | 2>(1)
+const accessSearch = ref('')
 
 const formData = ref({
   name: '',
@@ -49,7 +55,18 @@ const formData = ref({
 })
 const tagInput = ref('')
 
+const accessGroups = [
+  { key: 'skills' as const, label: 'Skills', pool: AVAILABLE_SKILLS, icon: Sparkles, mono: false },
+  { key: 'mcps' as const, label: 'MCPs', pool: AVAILABLE_MCPS, icon: Server, mono: false },
+  { key: 'folders' as const, label: 'Folders', pool: AVAILABLE_FOLDERS, icon: Folder, mono: true },
+]
+
 const isFormValid = computed(() => formData.value.name.trim() !== '')
+
+const selectedTotal = computed(
+  () =>
+    formData.value.skills.length + formData.value.mcps.length + formData.value.folders.length,
+)
 
 const toggle = (list: string[], value: boolean, item: string) => {
   if (value) {
@@ -58,6 +75,16 @@ const toggle = (list: string[], value: boolean, item: string) => {
     const idx = list.indexOf(item)
     if (idx !== -1) list.splice(idx, 1)
   }
+}
+
+const filterPool = (pool: string[]) =>
+  pool.filter((item) => item.toLowerCase().includes(accessSearch.value.trim().toLowerCase()))
+
+const isAllSelected = (key: AccessKey, pool: string[]) =>
+  pool.every((item) => formData.value[key].includes(item))
+
+const toggleAll = (key: AccessKey, pool: string[]) => {
+  formData.value[key] = isAllSelected(key, pool) ? [] : [...pool]
 }
 
 const addTag = () => {
@@ -77,16 +104,29 @@ const slugify = (name: string) =>
     .replace(/(^-|-$)/g, '')
 
 const resetForm = () => {
+  step.value = 1
+  accessSearch.value = ''
   formData.value = {
     name: '',
     description: '',
     orchestrator: 'claude',
-    skills: [],
-    mcps: [],
-    folders: [],
+    // Everything Claude reports access to is selected by default.
+    skills: [...AVAILABLE_SKILLS],
+    mcps: [...AVAILABLE_MCPS],
+    folders: [...AVAILABLE_FOLDERS],
     tags: [],
   }
   tagInput.value = ''
+}
+
+const goToAccess = () => {
+  if (!isFormValid.value) return
+  accessSearch.value = ''
+  step.value = 2
+}
+
+const goBack = () => {
+  step.value = 1
 }
 
 const handleCancel = () => {
@@ -130,10 +170,16 @@ watch(isOpen, (open) => {
   <Dialog v-model:open="isOpen">
     <DialogContent class="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle class="heading-3">Add Agent</DialogTitle>
+        <div class="flex items-center gap-3">
+          <DialogTitle class="heading-3">
+            {{ step === 1 ? 'Add Agent' : `Connect ${getOrchestratorLabel(formData.orchestrator)}` }}
+          </DialogTitle>
+          <span class="text-xs text-muted-foreground">Step {{ step }} of 2</span>
+        </div>
       </DialogHeader>
 
-      <div class="space-y-6 mt-6">
+      <!-- Step 1: basics -->
+      <div v-if="step === 1" class="space-y-6 mt-6">
         <!-- Name -->
         <div class="space-y-2">
           <Label for="agent-name" class="text-sm font-medium">
@@ -163,7 +209,8 @@ watch(isOpen, (open) => {
             </SelectContent>
           </Select>
           <p class="text-xs text-muted-foreground">
-            The session engine that drives this agent.
+            The session engine that drives this agent. We'll scan its skills, MCPs and folders
+            next.
           </p>
         </div>
 
@@ -176,60 +223,6 @@ watch(isOpen, (open) => {
             placeholder="What is this agent for?"
             class="w-full"
           />
-        </div>
-
-        <!-- Imported access: Skills / MCPs / Folders -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="space-y-2">
-            <Label class="text-sm font-medium">Skills</Label>
-            <div class="space-y-2 rounded-lg border border-border/60 p-3">
-              <label
-                v-for="skill in AVAILABLE_SKILLS"
-                :key="skill"
-                class="flex items-center gap-2.5 text-sm cursor-pointer"
-              >
-                <Checkbox
-                  :model-value="formData.skills.includes(skill)"
-                  @update:model-value="toggle(formData.skills, $event as boolean, skill)"
-                />
-                {{ skill }}
-              </label>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <Label class="text-sm font-medium">MCPs</Label>
-            <div class="space-y-2 rounded-lg border border-border/60 p-3">
-              <label
-                v-for="mcp in AVAILABLE_MCPS"
-                :key="mcp"
-                class="flex items-center gap-2.5 text-sm cursor-pointer"
-              >
-                <Checkbox
-                  :model-value="formData.mcps.includes(mcp)"
-                  @update:model-value="toggle(formData.mcps, $event as boolean, mcp)"
-                />
-                {{ mcp }}
-              </label>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <Label class="text-sm font-medium">Folders</Label>
-            <div class="space-y-2 rounded-lg border border-border/60 p-3">
-              <label
-                v-for="folder in AVAILABLE_FOLDERS"
-                :key="folder"
-                class="flex items-center gap-2.5 text-sm cursor-pointer font-mono text-xs"
-              >
-                <Checkbox
-                  :model-value="formData.folders.includes(folder)"
-                  @update:model-value="toggle(formData.folders, $event as boolean, folder)"
-                />
-                {{ folder }}
-              </label>
-            </div>
-          </div>
         </div>
 
         <!-- Tags -->
@@ -255,7 +248,10 @@ watch(isOpen, (open) => {
               class="px-3 py-1"
             >
               {{ tag }}
-              <button class="ml-2 hover:text-destructive transition-colors" @click="removeTag(index)">
+              <button
+                class="ml-2 hover:text-destructive transition-colors"
+                @click="removeTag(index)"
+              >
                 <X class="h-3 w-3" />
               </button>
             </Badge>
@@ -263,9 +259,85 @@ watch(isOpen, (open) => {
         </div>
       </div>
 
+      <!-- Step 2: discovered access browser -->
+      <div v-else class="space-y-4 mt-6">
+        <p class="text-sm text-muted-foreground">
+          We found the following in your local
+          <span class="font-medium text-foreground">{{
+            getOrchestratorLabel(formData.orchestrator)
+          }}</span>
+          — <span class="font-medium text-foreground">{{ selectedTotal }}</span> selected. Untick
+          anything you don't want this agent to expose.
+        </p>
+
+        <div class="relative">
+          <Search
+            class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
+          />
+          <Input
+            v-model="accessSearch"
+            placeholder="Search skills, MCPs, folders..."
+            class="pl-9"
+          />
+        </div>
+
+        <div class="space-y-4">
+          <div
+            v-for="group in accessGroups"
+            :key="group.key"
+            class="rounded-lg border border-border/60"
+          >
+            <div class="flex items-center justify-between px-3 py-2 border-b border-border/60">
+              <div class="flex items-center gap-2">
+                <component :is="group.icon" class="h-4 w-4 text-muted-foreground" />
+                <span class="text-sm font-medium text-foreground">{{ group.label }}</span>
+                <Badge variant="secondary" class="text-[11px]">
+                  {{ formData[group.key].length }}/{{ group.pool.length }}
+                </Badge>
+              </div>
+              <button
+                class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                @click="toggleAll(group.key, group.pool)"
+              >
+                {{ isAllSelected(group.key, group.pool) ? 'Deselect all' : 'Select all' }}
+              </button>
+            </div>
+            <div class="p-3 space-y-2">
+              <label
+                v-for="item in filterPool(group.pool)"
+                :key="item"
+                class="flex items-center gap-2.5 text-sm cursor-pointer"
+                :class="group.mono ? 'font-mono text-xs' : ''"
+              >
+                <Checkbox
+                  :model-value="formData[group.key].includes(item)"
+                  @update:model-value="toggle(formData[group.key], $event as boolean, item)"
+                />
+                {{ item }}
+              </label>
+              <p
+                v-if="filterPool(group.pool).length === 0"
+                class="text-xs text-muted-foreground italic"
+              >
+                No matches
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <DialogFooter class="mt-8">
-        <Button variant="outline" @click="handleCancel">Cancel</Button>
-        <Button :disabled="!isFormValid" @click="handleCreate">Add Agent</Button>
+        <template v-if="step === 1">
+          <Button variant="outline" @click="handleCancel">Cancel</Button>
+          <Button :disabled="!isFormValid" @click="goToAccess">Continue</Button>
+        </template>
+        <template v-else>
+          <Button variant="outline" @click="goBack">
+            <ArrowLeft class="h-4 w-4 mr-1" />
+            Back
+          </Button>
+          <Button :disabled="!isFormValid" @click="handleCreate">Add Agent</Button>
+        </template>
       </DialogFooter>
     </DialogContent>
   </Dialog>
