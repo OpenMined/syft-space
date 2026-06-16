@@ -90,9 +90,9 @@ class WordPressChromaDBConfiguration(BaseModel):
         default=None,
         alias="selectedItems",
         description=(
-            "Restrict ingestion to these external_ids "
-            "(``{post_type}:{id}``). ``None`` ingests everything; an "
-            "empty list ingests nothing."
+            "The external_ids (``{post_type}:{id}``) to ingest and watch "
+            "for changes. The source polls exactly these items; an empty "
+            "or unset selection ingests nothing."
         ),
     )
 

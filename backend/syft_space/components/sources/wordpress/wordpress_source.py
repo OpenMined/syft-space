@@ -1,16 +1,20 @@
 """WordPress REST API source.
 
-Pulls posts and pages (or other public post types) from a self-hosted
-WordPress site via ``/wp-json/wp/v2/``. Auth is required — uses HTTP
-Basic Auth with a username + Application Password (generate one under
-``Users → Profile → Application Passwords`` in ``wp-admin``).
+Pulls posts/pages (or any public post type) from a self-hosted WordPress
+site via ``/wp-json/wp/v2/``, authenticating with Basic Auth (username +
+Application Password, generated under wp-admin → Users → Profile).
 
-The change stream polls each configured post type on a fixed interval;
-the first poll backfills all published items, subsequent polls use the
-last-seen ``modified_gmt`` as an exclusive cursor. ``fetch`` writes the
-post body HTML to a tempfile so docling can parse it downstream.
+Ingestion is driven by an explicit selection made at picker time. Each
+poll re-fetches the selected items via the REST ``include`` filter and
+emits their current ``modified_gmt`` as a fingerprint; the ingestion
+repository dedups on that fingerprint, so only edited items re-ingest.
+There is no full-site crawl.
 
-Deletes are not detected in v1 — WP's REST API does not emit tombstones.
+``fetch`` writes a post's body HTML to a tempfile for downstream parsing.
+
+Not handled in v1: deletes (the REST API emits no tombstones) and a
+"subscribe to a whole post type" mode (which would only grow the
+selection, leaving modification detection unchanged).
 """
 
 from __future__ import annotations
@@ -38,20 +42,19 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_POST_TYPES = ["post", "page"]
 DEFAULT_POLL_INTERVAL_SECONDS = 300
-# Many WP sites sit behind Cloudflare bot management which rejects the
-# default python-httpx UA. Send a mainstream UA by default; users on
-# sites that prefer a custom allowlist can override via configuration.
+# Many WP sites sit behind WAFs/Cloudflare that reject the default httpx
+# User-Agent. Default to a mainstream UA; override via config when a site
+# expects a specific allowlisted value.
 DEFAULT_USER_AGENT = "curl/8.7.1"
 PAGE_SIZE = 100
 
 
 class WordPressBrowseConfig(BaseModel):
-    """Picker-time configuration for the WordPress source.
+    """Connection config for browsing the WordPress REST API.
 
-    Holds the connection fields needed to authenticate against the WP
-    REST API and the set of post types the picker enumerates as
-    containers. Ingest-time fields are added by
-    ``WordPressDatasetConfig`` below.
+    The fields needed to authenticate and to enumerate post types as
+    picker containers. ``WordPressDatasetConfig`` adds the ingest-time
+    fields.
     """
 
     site_url: str = Field(
@@ -100,11 +103,9 @@ class WordPressBrowseConfig(BaseModel):
 
 
 class WordPressDatasetConfig(WordPressBrowseConfig):
-    """Full dataset configuration for the WordPress source.
+    """Full dataset config — the shape stored on the dataset row.
 
-    Extends the browse configuration with the change-stream polling
-    cadence and an optional explicit selection of items to ingest.
-    The dataset row stores this shape.
+    Adds the poll cadence and the item selection to the browse config.
     """
 
     poll_interval_seconds: int = Field(
@@ -117,9 +118,9 @@ class WordPressDatasetConfig(WordPressBrowseConfig):
         default=None,
         alias="selectedItems",
         description=(
-            "Restrict ingestion to these external_ids "
-            "(``{post_type}:{id}``). ``None`` ingests everything the "
-            "source emits; an empty list ingests nothing."
+            "The external_ids (``{post_type}:{id}``) to ingest and watch "
+            "for changes. The source polls exactly these items; an empty "
+            "or unset selection ingests nothing."
         ),
     )
 
@@ -130,6 +131,7 @@ def _external_id(post_type: str, post_id: int) -> str:
 
 
 def _parse_external_id(external_id: str) -> tuple[str, int]:
+    """Inverse of ``_external_id``: ``post:1234`` -> ``("post", 1234)``."""
     post_type, _, post_id_str = external_id.partition(":")
     if not post_type or not post_id_str:
         raise ValueError(f"malformed external_id: {external_id!r}")
@@ -137,10 +139,10 @@ def _parse_external_id(external_id: str) -> tuple[str, int]:
 
 
 def _make_client(cfg: WordPressBrowseConfig) -> httpx.AsyncClient:
-    """Build an httpx client for the WordPress REST API.
+    """Build an httpx client bound to the site's REST API root.
 
-    Accepts a browse config because the ingest config inherits from it
-    and only browse-shaped fields are needed to authenticate.
+    Takes a browse config since the ingest config inherits it and only
+    the connection fields are needed to authenticate.
     """
     return httpx.AsyncClient(
         base_url=f"{cfg.site_url}/wp-json/wp/v2",
@@ -154,15 +156,14 @@ def _make_client(cfg: WordPressBrowseConfig) -> httpx.AsyncClient:
 
 
 async def _probe(cfg: WordPressBrowseConfig) -> None:
-    """Check that each configured post type is reachable with the given creds.
+    """Verify each post type is reachable with the given credentials.
 
-    Uses ``/{type}s?per_page=1`` (the listing endpoint) rather than
-    ``/users/me`` because hardened sites commonly lock down user
-    endpoints while leaving listings open.
+    Hits the listing endpoint (``/{type}s?per_page=1``) rather than
+    ``/users/me``, which hardened sites commonly lock down.
 
     Raises:
-        ValueError: auth fails, a listed post type isn't exposed at the
-            target URL, or the site WAF blocks the request.
+        ValueError: bad auth, a post type not exposed over REST, or the
+            site's WAF blocking the request.
     """
     async with _make_client(cfg) as client:
         for post_type in cfg.post_types:
@@ -187,6 +188,7 @@ async def _probe(cfg: WordPressBrowseConfig) -> None:
 
 
 def _to_source_item(post_type: str, parent_id: str, item: dict[str, Any]) -> SourceItem:
+    """Map a REST listing row to a leaf ``SourceItem`` for the picker."""
     title = (
         (item.get("title") or {}).get("rendered") or item.get("slug") or str(item["id"])
     )
@@ -205,12 +207,11 @@ def _to_source_item(post_type: str, parent_id: str, item: dict[str, Any]) -> Sou
 
 
 class WordPressBrowser:
-    """Picker-time access to the WordPress REST API.
+    """Picker-time browsing of the WordPress REST API.
 
-    Built by ``WordPressProvider.for_browse``. ``list_items(None)``
-    returns one container per configured post type;
-    ``list_items("type:<name>")`` returns one page of recently-modified
-    items in that type.
+    Built by ``WordPressProvider.for_browse``. ``list_items(None)`` returns
+    one container per post type; ``list_items("type:<name>")`` returns a
+    page of that type's most recently modified items.
     """
 
     def __init__(self, config: WordPressBrowseConfig) -> None:
@@ -254,26 +255,17 @@ class WordPressBrowser:
 class WordPressSource:
     """Ingest-time access to the WordPress REST API.
 
-    Built by ``WordPressProvider.for_ingest``. Maintains per-type
-    ``modified_gmt`` cursors that advance with each poll, and a
-    fingerprint cache populated by ``change_stream()`` emissions and
-    ``fetch()`` responses (``fingerprint()`` is synchronous and cannot
-    reach the network).
+    Built by ``WordPressProvider.for_ingest``. Each poll re-fetches the
+    selected items via the REST ``include`` filter and emits their current
+    ``modified_gmt``. ``_fingerprints`` caches those values (also filled by
+    ``fetch``) so the synchronous ``fingerprint()`` drift-check has
+    something to read without a network call.
     """
 
     def __init__(self, config: WordPressDatasetConfig) -> None:
         self.config = config
-        self._client: httpx.AsyncClient | None = None
-        self._cursors: dict[str, str | None] = dict.fromkeys(self.config.post_types)
         self._fingerprints: dict[str, str] = {}
-        self._selected_items: set[str] | None = (
-            None if config.selected_items is None else set(config.selected_items)
-        )
-
-    def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None:
-            self._client = _make_client(self.config)
-        return self._client
+        self._selected_items: set[str] = set(config.selected_items or ())
 
     async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
         """Delegate to a transient ``WordPressBrowser`` using the browse subset."""
@@ -284,20 +276,24 @@ class WordPressSource:
 
     @asynccontextmanager
     async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:
-        """Materialize a post's body HTML to a tempfile and yield it."""
+        """Download a post's rendered HTML to a tempfile and yield it.
+
+        Caches the post's ``modified_gmt`` as a fingerprint on the way.
+        """
         post_type, post_id = _parse_external_id(external_id)
-        client = self._get_client()
-        r = await client.get(
-            f"/{post_type}s/{post_id}",
-            params={
-                "_fields": (
-                    "id,slug,link,modified_gmt,title,content,excerpt,"
-                    "categories,tags,author,status"
-                ),
-            },
-        )
-        r.raise_for_status()
-        post = r.json()
+        # Scope the client to the request — closed before the (slow) ingest.
+        async with _make_client(self.config) as client:
+            r = await client.get(
+                f"/{post_type}s/{post_id}",
+                params={
+                    "_fields": (
+                        "id,slug,link,modified_gmt,title,content,excerpt,"
+                        "categories,tags,author,status"
+                    ),
+                },
+            )
+            r.raise_for_status()
+            post = r.json()
         html: str = (post.get("content") or {}).get("rendered", "")
         title: str = (post.get("title") or {}).get("rendered", "")
         slug: str = post.get("slug") or str(post_id)
@@ -335,13 +331,12 @@ class WordPressSource:
             tmp_path.unlink(missing_ok=True)
 
     def fingerprint(self, external_id: str) -> str:
-        """Return the cached ``modified_gmt`` for the given external_id.
+        """Return the cached ``modified_gmt`` for an item.
 
-        The cache is populated by ``change_stream()`` emissions and
-        ``fetch()`` responses. A cache miss (e.g. immediately after
-        restart, before the first poll completes) raises ``OSError`` —
-        the ingestion manager treats that as a best-effort skip and
-        proceeds with the job's previously-recorded fingerprint.
+        The cache is filled by ``change_stream`` polls and ``fetch``. A
+        miss (e.g. right after restart, before the first poll) raises
+        ``OSError``, which the ingestion manager treats as a best-effort
+        skip — it proceeds with the job's recorded fingerprint.
         """
         try:
             return self._fingerprints[external_id]
@@ -352,69 +347,69 @@ class WordPressSource:
             ) from e
 
     def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Poll each configured post type on the configured interval."""
+        """Re-poll the selected items every ``poll_interval_seconds``."""
         return self._change_stream_impl()
 
     async def _change_stream_impl(self) -> AsyncIterator[SourceChangeEvent]:
-        client = self._get_client()
-        while True:
-            for post_type in self.config.post_types:
-                try:
-                    async for event in self._poll_post_type(client, post_type):
-                        yield event
-                except httpx.HTTPError as e:
-                    logger.warning(
-                        "WordPress poll failed for type %s: %s", post_type, e
-                    )
-            await asyncio.sleep(self.config.poll_interval_seconds)
+        # One client for the life of the stream; closed when the consuming
+        # task is cancelled and the generator unwinds.
+        async with _make_client(self.config) as client:
+            while True:
+                for post_type, post_ids in self._selected_by_type().items():
+                    try:
+                        async for event in self._poll_post_type(
+                            client, post_type, post_ids
+                        ):
+                            yield event
+                    except httpx.HTTPError as e:
+                        logger.warning(
+                            "WordPress poll failed for type %s: %s", post_type, e
+                        )
+                await asyncio.sleep(self.config.poll_interval_seconds)
+
+    def _selected_by_type(self) -> dict[str, list[int]]:
+        """Group the selected external_ids by post type: ``{type: [id, ...]}``.
+
+        Malformed ids are skipped (and logged) so one bad entry can't
+        abort the whole poll.
+        """
+        grouped: dict[str, list[int]] = {}
+        for external_id in self._selected_items:
+            try:
+                post_type, post_id = _parse_external_id(external_id)
+            except ValueError:
+                logger.warning("Skipping malformed selected id: %r", external_id)
+                continue
+            grouped.setdefault(post_type, []).append(post_id)
+        return grouped
 
     async def _poll_post_type(
-        self, client: httpx.AsyncClient, post_type: str
+        self, client: httpx.AsyncClient, post_type: str, post_ids: list[int]
     ) -> AsyncIterator[SourceChangeEvent]:
-        """One pass: paginate all items modified after the cursor.
+        """Re-fetch one post type's selected items in ``include`` batches.
 
-        ``self._selected_items`` (when non-None) restricts emission to
-        the listed ``external_id``s; the cursor still advances past
-        every item the API returns, so we don't re-scan the skipped
-        ones on the next poll.
+        Emits an event per returned item with its current ``modified_gmt``;
+        the repository dedups, so unchanged items are a no-op. Items the
+        API omits (unpublished/deleted) are silently skipped — see the
+        module note on deletes.
         """
-        params: dict[str, Any] = {
-            "per_page": PAGE_SIZE,
-            "orderby": "modified",
-            "order": "asc",
-            "status": "publish",
-            "_fields": "id,modified_gmt",
-        }
-        cursor = self._cursors.get(post_type)
-        if cursor is not None:
-            # ``modified_after`` is exclusive — strictly newer items only.
-            params["modified_after"] = cursor
-
-        page = 1
-        latest_seen: str | None = cursor
-        while True:
-            r = await client.get(f"/{post_type}s", params={**params, "page": page})
-            # WP returns 400 with code ``rest_post_invalid_page_number``
-            # when paginating past the end. Treat that as end-of-stream.
-            if r.status_code == 400:
-                break
+        for start in range(0, len(post_ids), PAGE_SIZE):
+            batch = post_ids[start : start + PAGE_SIZE]
+            r = await client.get(
+                f"/{post_type}s",
+                params={
+                    "include": ",".join(str(i) for i in batch),
+                    "per_page": len(batch),
+                    "status": "publish",
+                    "_fields": "id,modified_gmt",
+                },
+            )
             r.raise_for_status()
-            items = r.json()
-            if not items:
-                break
-
-            for item in items:
+            for item in r.json():
                 modified = item.get("modified_gmt")
                 if not modified:
                     continue
                 external_id = _external_id(post_type, item["id"])
-                if latest_seen is None or modified > latest_seen:
-                    latest_seen = modified
-                if (
-                    self._selected_items is not None
-                    and external_id not in self._selected_items
-                ):
-                    continue
                 self._fingerprints[external_id] = modified
                 yield SourceChangeEvent(
                     event_type="updated",
@@ -422,26 +417,14 @@ class WordPressSource:
                     fingerprint=modified,
                 )
 
-            try:
-                total_pages = int(r.headers.get("X-WP-TotalPages", "1"))
-            except ValueError:
-                total_pages = 1
-            if page >= total_pages:
-                break
-            page += 1
-
-        if latest_seen is not None:
-            self._cursors[post_type] = latest_seen
-
 
 class WordPressProvider:
-    """Description of the WordPress source for the registry.
+    """Registry description and factories for the WordPress source.
 
-    Holds metadata, the browse and dataset configuration schemas, and
-    the factories that build a ``WordPressBrowser`` or
-    ``WordPressSource`` from a raw configuration dict. Both validators
-    probe the live WP REST API so bad credentials surface immediately
-    rather than at first ingest.
+    Exposes metadata, the browse/dataset config schemas, and factories
+    that build a ``WordPressBrowser`` or ``WordPressSource`` from a raw
+    config dict. Both validators probe the live REST API so bad
+    credentials fail fast instead of at first ingest.
     """
 
     NAME = "wordpress"
