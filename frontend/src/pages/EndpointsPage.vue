@@ -46,9 +46,7 @@
 
     <!-- Filter Tabs -->
     <div
-      v-if="
-        !endpointsStore.isLoading && !endpointsStore.error && endpointsStore.endpoints.length > 0
-      "
+      v-if="!endpointsStore.isLoading && !endpointsStore.error && allEndpoints.length > 0"
       class="flex items-center justify-between mb-5"
     >
       <div class="flex items-center gap-1">
@@ -70,7 +68,7 @@
         </button>
       </div>
       <p class="text-xs text-muted-foreground">
-        Showing {{ filteredEndpoints.length }} of {{ endpointsStore.endpoints.length }}
+        Showing {{ filteredEndpoints.length }} of {{ allEndpoints.length }}
       </p>
     </div>
 
@@ -122,7 +120,7 @@
       v-if="
         !endpointsStore.isLoading &&
         !endpointsStore.error &&
-        endpointsStore.endpoints.length === 0 &&
+        allEndpoints.length === 0 &&
         !searchQuery
       "
       class="text-center py-8"
@@ -136,57 +134,6 @@
         <Plus class="h-4 w-4 mr-2" />
         Publish
       </Button>
-    </div>
-
-    <!-- Agent & relationship APIs (mock-first demo) -->
-    <div v-if="filteredRelationshipApis.length > 0" class="mt-10">
-      <div class="flex items-center gap-2 mb-4">
-        <h2 class="text-sm font-semibold text-foreground">Assistant &amp; relationship APIs</h2>
-        <Badge variant="secondary" class="text-[11px]">{{ filteredRelationshipApis.length }}</Badge>
-      </div>
-      <div class="space-y-3">
-        <div
-          v-for="api in filteredRelationshipApis"
-          :key="api.id"
-          class="rounded-lg border border-border/50 bg-card px-5 py-4"
-        >
-          <div class="flex items-start gap-4">
-            <div class="p-2.5 rounded-lg bg-primary/10 shrink-0">
-              <component :is="rootIcon(api.rootType)" class="h-5 w-5 text-foreground/60" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-1 flex-wrap">
-                <span class="font-medium text-foreground">{{ api.name }}</span>
-                <Badge variant="outline" class="text-[11px] px-2 py-0.5 capitalize">
-                  {{ api.rootType }}
-                </Badge>
-                <Badge
-                  v-if="api.hasHilPolicy"
-                  variant="outline"
-                  class="text-[11px] px-2 py-0.5 bg-purple-500/10 text-purple-600 border-purple-500/20"
-                >
-                  <UserCheck class="h-3 w-3 mr-1" /> HIL
-                </Badge>
-              </div>
-              <p v-if="api.prompt" class="text-xs text-muted-foreground line-clamp-1 mb-2">
-                {{ api.prompt }}
-              </p>
-              <div class="flex flex-wrap gap-2">
-                <Badge
-                  v-for="binding in api.channels.filter((c) => c.enabled)"
-                  :key="binding.platform"
-                  variant="secondary"
-                  class="text-[11px] px-2 py-0.5"
-                >
-                  <component :is="channelIcons[binding.platform]" class="h-3 w-3 mr-1" />
-                  {{ getPlatformLabel(binding.platform) }}
-                  <span v-if="binding.isDefaultReply" class="ml-1 opacity-70">· default</span>
-                </Badge>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -247,7 +194,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ArrowUpDown, Plus, Search, Server, UserCheck, Bot, Database, Brain, Globe, Slack, Phone } from 'lucide-vue-next'
+import { ArrowUpDown, Plus, Search, Server } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -274,18 +221,34 @@ import type { EndpointItem } from '@/stores/endpoints'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { toast } from 'vue-sonner'
 import { useRouter } from 'vue-router'
-import { mockApis, getPlatformLabel, type Platform, type RootType } from '@/stores/mockApis'
+import { mockApis } from '@/stores/mockApis'
 
 const router = useRouter()
 const endpointsStore = useEndpointsStore()
 
-const channelIcons: Record<Platform, typeof Globe> = {
-  syfthub: Globe,
-  slack: Slack,
-  whatsapp: Phone,
-}
-const rootIcon = (rootType: RootType) =>
-  rootType === 'agent' ? Bot : rootType === 'model' ? Brain : Database
+// Mock-first demo APIs (agent / data / model backed) rendered as regular list
+// members alongside the real backend endpoints.
+const MOCK_API_CREATED_AT = '2026-06-10T12:00:00.000Z'
+const mockApisAsEndpoints = computed<EndpointItem[]>(() =>
+  mockApis.map((api) => ({
+    id: api.id,
+    name: api.name,
+    slug: api.id,
+    summary: api.prompt ?? '',
+    description: '',
+    datasetId: api.rootType === 'data' ? api.rootResourceId : undefined,
+    modelId: api.rootType === 'model' ? api.rootResourceId : undefined,
+    systemPrompt: api.prompt,
+    tags: [],
+    published: api.channels.some((c) => c.enabled),
+    createdAt: MOCK_API_CREATED_AT,
+  })),
+)
+
+const allEndpoints = computed<EndpointItem[]>(() => [
+  ...endpointsStore.endpoints,
+  ...mockApisAsEndpoints.value,
+])
 
 onMounted(() => {
   endpointsStore.fetchEndpoints()
@@ -315,11 +278,11 @@ const classifyEndpoint = (e: EndpointItem): Exclude<FilterValue, 'all'> | 'unkno
   return 'unknown'
 }
 
-const publishedCount = computed(() => endpointsStore.endpoints.filter((e) => e.published).length)
+const publishedCount = computed(() => allEndpoints.value.filter((e) => e.published).length)
 
 const filterCounts = computed(() => {
   const counts = { data: 0, model: 0, hybrid: 0 }
-  for (const e of endpointsStore.endpoints) {
+  for (const e of allEndpoints.value) {
     const kind = classifyEndpoint(e)
     if (kind === 'data') counts.data++
     else if (kind === 'model') counts.model++
@@ -329,7 +292,7 @@ const filterCounts = computed(() => {
 })
 
 const filterOptions = computed<{ value: FilterValue; label: string; count: number }[]>(() => [
-  { value: 'all', label: 'All', count: endpointsStore.endpoints.length },
+  { value: 'all', label: 'All', count: allEndpoints.value.length },
   { value: 'data', label: 'Data', count: filterCounts.value.data },
   { value: 'model', label: 'Model', count: filterCounts.value.model },
   { value: 'hybrid', label: 'Hybrid', count: filterCounts.value.hybrid },
@@ -338,7 +301,7 @@ const filterOptions = computed<{ value: FilterValue; label: string; count: numbe
 const filteredEndpoints = computed(() => {
   const query = searchQuery.value.toLowerCase().trim()
 
-  const filtered = endpointsStore.endpoints.filter((endpoint) => {
+  const filtered = allEndpoints.value.filter((endpoint) => {
     if (activeFilter.value !== 'all' && classifyEndpoint(endpoint) !== activeFilter.value) {
       return false
     }
@@ -358,18 +321,6 @@ const filteredEndpoints = computed(() => {
     sorted.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
   }
   return sorted
-})
-
-const filteredRelationshipApis = computed(() => {
-  const query = searchQuery.value.toLowerCase().trim()
-  if (activeFilter.value !== 'all') {
-    // The classic Data/Model/Hybrid filters apply to backend endpoints only.
-    if (activeFilter.value === 'hybrid') return []
-    return mockApis.filter(
-      (api) => api.rootType === activeFilter.value && (!query || api.name.toLowerCase().includes(query)),
-    )
-  }
-  return mockApis.filter((api) => !query || api.name.toLowerCase().includes(query))
 })
 
 const handleDeleteEndpoint = (endpoint: EndpointItem) => {
