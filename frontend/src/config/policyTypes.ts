@@ -166,8 +166,23 @@ export const getRuleSummary = (policyId: PolicyTypeId, config: PolicyConfig): st
     case 'pii_filter':
       return 'AI-powered PII redaction enabled'
 
-    case 'human_in_the_loop':
-      return 'Replies held for human approval before sending'
+    case 'human_in_the_loop': {
+      const scope =
+        config.appliesTo === 'specific'
+          ? (() => {
+              const userList = config.users
+                ? (config.users as string)
+                    .split(',')
+                    .map((u) => u.trim())
+                    .filter((u) => u)
+                : []
+              return userList.length > 0 ? userList.join(', ') : 'specific users (none configured)'
+            })()
+          : 'all users'
+      return config.approvalMode === 'ai_mediated'
+        ? `AI-mediated approval for ${scope}`
+        : `Always require human approval for ${scope}`
+    }
 
     default:
       return 'Rule configured'

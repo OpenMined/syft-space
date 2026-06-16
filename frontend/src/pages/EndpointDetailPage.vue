@@ -1145,48 +1145,6 @@ const getWatchedPaths = computed(() => {
   })
 })
 
-// Get statistics for a specific path by filtering jobs
-const getStatsForPath = (watchedPath: string) => {
-  if (!ingestionJobs.value?.jobs) {
-    return { fileCount: 0, status: 'unknown' }
-  }
-
-  // Filter jobs that start with the watched path
-  const pathJobs = ingestionJobs.value.jobs.filter((job) =>
-    job.external_id.startsWith(watchedPath),
-  )
-
-  if (pathJobs.length === 0) {
-    return { fileCount: 0, status: 'unknown' }
-  }
-
-  // Count jobs by status
-  const statusCounts = pathJobs.reduce(
-    (counts, job) => {
-      counts[job.status] = (counts[job.status] || 0) + 1
-      return counts
-    },
-    {} as Record<string, number>,
-  )
-
-  // Determine overall status based on priority
-  let status = 'unknown'
-  if ((statusCounts['in_progress'] ?? 0) > 0) {
-    status = 'processing'
-  } else if ((statusCounts['pending'] ?? 0) > 0) {
-    status = 'queued'
-  } else if ((statusCounts['failed'] ?? 0) > 0) {
-    status = 'errored'
-  } else if ((statusCounts['completed'] ?? 0) > 0) {
-    status = 'indexed'
-  }
-
-  return {
-    fileCount: pathJobs.length,
-    status,
-  }
-}
-
 // Fetch all ingestion jobs across all pages
 const fetchAllIngestionJobs = async (datasetId: string) => {
   const allJobs = []

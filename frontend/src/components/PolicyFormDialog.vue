@@ -14,7 +14,9 @@
                 ? 'usage limit'
                 : policyType === 'pricing'
                   ? 'pricing'
-                  : 'PII filter'
+                  : policyType === 'human_in_the_loop'
+                    ? 'human-in-the-loop approval'
+                    : 'PII filter'
           }}
           policy for this endpoint.
         </DialogDescription>
@@ -176,6 +178,121 @@
             />
           </div>
         </div>
+
+        <!-- Human in the Loop Policy Form -->
+        <div v-if="policyType === 'human_in_the_loop'" class="space-y-4">
+          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <div class="space-y-1 sm:flex-shrink-0 sm:w-40">
+              <Label class="body-sm text-muted-foreground font-medium">Applies to</Label>
+              <Select v-model="humanInTheLoopForm.appliesTo">
+                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All users</SelectItem>
+                  <SelectItem value="specific">Specific users</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div v-if="humanInTheLoopForm.appliesTo === 'specific'" class="space-y-1 flex-1">
+              <Label class="body-sm text-muted-foreground font-medium">Users</Label>
+              <Input
+                v-model="humanInTheLoopForm.users"
+                placeholder="user1@example.com, *@company.com"
+                class="h-9 rounded-lg border-border bg-card body-sm placeholder:text-muted-foreground"
+              />
+              <p class="text-xs text-muted-foreground">
+                Comma-separated list. Wildcard supported (e.g., *@company.com).
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <Label class="body-sm text-muted-foreground font-medium">Approval of output</Label>
+            <RadioGroup v-model="humanInTheLoopForm.approvalMode" class="gap-2">
+              <div
+                class="flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors"
+                :class="
+                  humanInTheLoopForm.approvalMode === 'always'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-card'
+                "
+                @click="humanInTheLoopForm.approvalMode = 'always'"
+              >
+                <RadioGroupItem value="always" id="hil-mode-always" class="mt-0.5" />
+                <Label for="hil-mode-always" class="cursor-pointer space-y-0.5">
+                  <span class="block text-sm font-medium text-foreground"
+                    >Always require approval</span
+                  >
+                  <span class="block text-xs text-muted-foreground font-normal">
+                    Every reply is held for your manual review before it is sent.
+                  </span>
+                </Label>
+              </div>
+              <div
+                class="flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors"
+                :class="
+                  humanInTheLoopForm.approvalMode === 'ai_mediated'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-card'
+                "
+                @click="humanInTheLoopForm.approvalMode = 'ai_mediated'"
+              >
+                <RadioGroupItem value="ai_mediated" id="hil-mode-ai" class="mt-0.5" />
+                <Label for="hil-mode-ai" class="cursor-pointer space-y-0.5">
+                  <span class="block text-sm font-medium text-foreground">AI-mediated</span>
+                  <span class="block text-xs text-muted-foreground font-normal">
+                    A model triages each reply and only escalates the ones that need you.
+                  </span>
+                </Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          <div v-if="humanInTheLoopForm.approvalMode === 'ai_mediated'" class="space-y-4">
+            <div class="space-y-1">
+              <Label class="body-sm text-muted-foreground font-medium">Triaging model</Label>
+              <Select v-model="humanInTheLoopForm.triagingModel">
+                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
+                  <SelectValue
+                    :placeholder="modelsLoading ? 'Loading models…' : 'Select a model'"
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
+                    {{ model.name }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p
+                v-if="!modelsLoading && availableModels.length === 0"
+                class="text-xs text-muted-foreground"
+              >
+                No models found. Add a model first to use AI-mediated triaging.
+              </p>
+            </div>
+            <div class="space-y-1">
+              <Label class="body-sm text-muted-foreground font-medium">Triaging prompt</Label>
+              <Textarea
+                v-model="humanInTheLoopForm.triagingPrompt"
+                :rows="4"
+                class="rounded-lg border-border bg-card body-sm"
+              />
+              <p class="text-xs text-muted-foreground">
+                Instructions the model uses to decide what to auto-send and what to escalate to you.
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-1">
+            <Label class="body-sm text-muted-foreground font-medium">Note</Label>
+            <Input
+              v-model="humanInTheLoopForm.note"
+              placeholder="Optional description"
+              class="h-9 rounded-lg border-border bg-card body-sm"
+            />
+          </div>
+        </div>
       </div>
 
       <DialogFooter>
@@ -215,7 +332,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { usePolicyCreation } from '@/composables/usePolicyCreation'
+import { Textarea } from '@/components/ui/textarea'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { usePolicyCreation, DEFAULT_HIL_TRIAGING_PROMPT } from '@/composables/usePolicyCreation'
 import { getPolicyTypeLabel } from '@/config/policyTypes'
 import type { PolicyTypeId } from '@/config/policyTypes'
 import type {
@@ -223,7 +342,10 @@ import type {
   RateLimitFormData,
   PricingFormData,
   PiiFilterFormData,
+  HumanInTheLoopFormData,
 } from '@/composables/usePolicyCreation'
+import { modelsApi } from '@/api/endpoints/models'
+import type { ModelListItem } from '@/api/types'
 
 const props = defineProps<{
   open: boolean
@@ -265,6 +387,32 @@ const piiFilterForm = ref<PiiFilterFormData>({
   note: '',
 })
 
+const createHilFormDefaults = (): HumanInTheLoopFormData => ({
+  appliesTo: 'all',
+  users: '',
+  approvalMode: 'always',
+  triagingModel: '',
+  triagingPrompt: DEFAULT_HIL_TRIAGING_PROMPT,
+  note: '',
+})
+
+const humanInTheLoopForm = ref<HumanInTheLoopFormData>(createHilFormDefaults())
+
+const availableModels = ref<ModelListItem[]>([])
+const modelsLoading = ref(false)
+
+const loadModels = async () => {
+  if (availableModels.value.length > 0 || modelsLoading.value) return
+  modelsLoading.value = true
+  try {
+    availableModels.value = await modelsApi.list()
+  } catch {
+    availableModels.value = []
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
 const getCurrentFormData = () => {
   switch (props.policyType) {
     case 'access':
@@ -275,6 +423,8 @@ const getCurrentFormData = () => {
       return pricingForm.value
     case 'pii_filter':
       return piiFilterForm.value
+    case 'human_in_the_loop':
+      return humanInTheLoopForm.value
     default:
       return null
   }
@@ -298,6 +448,9 @@ const resetForm = (policyType: PolicyTypeId) => {
       break
     case 'pii_filter':
       piiFilterForm.value = { note: '' }
+      break
+    case 'human_in_the_loop':
+      humanInTheLoopForm.value = createHilFormDefaults()
       break
   }
 }
@@ -330,6 +483,18 @@ const loadInitialData = (policyType: PolicyTypeId, data: Record<string, unknown>
     case 'pii_filter':
       piiFilterForm.value = { note: (data.note as string) || '' }
       break
+    case 'human_in_the_loop': {
+      const defaults = createHilFormDefaults()
+      humanInTheLoopForm.value = {
+        appliesTo: (data.appliesTo as 'all' | 'specific') || defaults.appliesTo,
+        users: (data.users as string) || '',
+        approvalMode: (data.approvalMode as 'always' | 'ai_mediated') || defaults.approvalMode,
+        triagingModel: (data.triagingModel as string) || '',
+        triagingPrompt: (data.triagingPrompt as string) || defaults.triagingPrompt,
+        note: (data.note as string) || '',
+      }
+      break
+    }
   }
 }
 
@@ -341,6 +506,9 @@ watch(
         loadInitialData(props.policyType, props.initialData)
       } else {
         resetForm(props.policyType)
+      }
+      if (props.policyType === 'human_in_the_loop') {
+        loadModels()
       }
     }
   },

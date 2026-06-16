@@ -34,11 +34,26 @@ export interface PiiFilterFormData {
   note: string
 }
 
+export interface HumanInTheLoopFormData {
+  appliesTo: 'all' | 'specific'
+  users: string
+  approvalMode: 'always' | 'ai_mediated'
+  triagingModel: string
+  triagingPrompt: string
+  note: string
+}
+
+export const DEFAULT_HIL_TRIAGING_PROMPT =
+  'You are triaging an assistant reply before it is sent.\n' +
+  'Auto-approve and send the reply when it is accurate, safe, on-topic and needs no human judgement.\n' +
+  'Otherwise hold it for human review and explain in one sentence why.'
+
 export type PolicyFormData =
   | AuthorizationFormData
   | RateLimitFormData
   | PricingFormData
   | PiiFilterFormData
+  | HumanInTheLoopFormData
 
 const POLICY_DISPLAY_NAMES: Record<string, string> = {
   access: 'Authorization',
@@ -153,8 +168,18 @@ const createPiiFilterPolicy = async (
     endpoint_id: endpointId,
   })
 
+const buildHumanInTheLoopConfiguration = (
+  formData: HumanInTheLoopFormData,
+): Record<string, unknown> => ({
+  applied_to: formData.appliesTo === 'specific' ? processUserList(formData.users) : ['*'],
+  approval_mode: formData.approvalMode,
+  ...(formData.approvalMode === 'ai_mediated'
+    ? { triaging_model: formData.triagingModel, triaging_prompt: formData.triagingPrompt }
+    : {}),
+})
+
 const createHumanInTheLoopPolicy = async (
-  formData: PolicyFormData,
+  formData: HumanInTheLoopFormData,
   endpointId: string,
   endpointName: string,
   ruleIndex: number = 1,
@@ -162,7 +187,7 @@ const createHumanInTheLoopPolicy = async (
   policiesApi.create({
     name: generatePolicyName('human_in_the_loop', formData, endpointName, ruleIndex),
     policy_type: 'human_in_the_loop',
-    configuration: {},
+    configuration: buildHumanInTheLoopConfiguration(formData),
     endpoint_id: endpointId,
   })
 
@@ -177,6 +202,17 @@ const validateRateLimitForm = (formData: RateLimitFormData): boolean => {
 const validatePricingForm = (formData: PricingFormData): boolean => {
   const price = parseFloat(formData.price)
   return !isNaN(price) && price >= 0
+}
+
+const validateHumanInTheLoopForm = (formData: HumanInTheLoopFormData): boolean => {
+  if (formData.appliesTo === 'specific' && processUserList(formData.users).length === 0) return false
+  if (
+    formData.approvalMode === 'ai_mediated' &&
+    (!formData.triagingModel || !formData.triagingPrompt.trim())
+  ) {
+    return false
+  }
+  return true
 }
 
 export function usePolicyCreation() {
@@ -225,7 +261,7 @@ export function usePolicyCreation() {
           )
         case 'human_in_the_loop':
           return await createHumanInTheLoopPolicy(
-            formData,
+            formData as HumanInTheLoopFormData,
             endpointId,
             endpointName,
             ruleIndex,
@@ -342,6 +378,8 @@ export function usePolicyCreation() {
         return validatePricingForm(formData as PricingFormData)
       case 'pii_filter':
         return true
+      case 'human_in_the_loop':
+        return validateHumanInTheLoopForm(formData as HumanInTheLoopFormData)
       default:
         return false
     }
