@@ -249,39 +249,35 @@
             </RadioGroup>
           </div>
 
-          <div v-if="humanInTheLoopForm.approvalMode === 'ai_mediated'" class="space-y-4">
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Triaging model</Label>
-              <Select v-model="humanInTheLoopForm.triagingModel">
-                <SelectTrigger class="h-9 rounded-lg border-border bg-card body-sm">
-                  <SelectValue
-                    :placeholder="modelsLoading ? 'Loading models…' : 'Select a model'"
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
-                    {{ model.name }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p
-                v-if="!modelsLoading && availableModels.length === 0"
-                class="text-xs text-muted-foreground"
-              >
-                No models found. Add a model first to use AI-mediated triaging.
-              </p>
-            </div>
-            <div class="space-y-1">
-              <Label class="body-sm text-muted-foreground font-medium">Triaging prompt</Label>
+          <div
+            v-if="humanInTheLoopForm.approvalMode === 'ai_mediated'"
+            class="space-y-5 rounded-lg border border-border bg-muted/30 p-4"
+          >
+            <section class="space-y-3">
+              <Label class="text-sm font-medium">Triaging model</Label>
+              <ModelSelector
+                :model-value="humanInTheLoopForm.triagingModel"
+                title=""
+                description=""
+                id-prefix="hil-triage"
+                @update:model-value="(id: string) => (humanInTheLoopForm.triagingModel = id)"
+              />
+            </section>
+
+            <Separator />
+
+            <section class="space-y-3">
+              <Label class="text-sm font-medium">Triaging prompt</Label>
               <Textarea
                 v-model="humanInTheLoopForm.triagingPrompt"
-                :rows="4"
-                class="rounded-lg border-border bg-card body-sm"
+                placeholder="Enter the triaging prompt..."
+                class="min-h-[140px] font-mono text-sm"
               />
-              <p class="text-xs text-muted-foreground">
-                Instructions the model uses to decide what to auto-send and what to escalate to you.
+              <p class="text-[11px] text-muted-foreground">
+                Sent to the triaging model for every reply. Controls what gets auto-sent and what is
+                escalated to you.
               </p>
-            </div>
+            </section>
           </div>
 
           <div class="space-y-1">
@@ -333,7 +329,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Separator } from '@/components/ui/separator'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import ModelSelector from '@/components/ModelSelector.vue'
 import { usePolicyCreation, DEFAULT_HIL_TRIAGING_PROMPT } from '@/composables/usePolicyCreation'
 import { getPolicyTypeLabel } from '@/config/policyTypes'
 import type { PolicyTypeId } from '@/config/policyTypes'
@@ -344,8 +342,6 @@ import type {
   PiiFilterFormData,
   HumanInTheLoopFormData,
 } from '@/composables/usePolicyCreation'
-import { modelsApi } from '@/api/endpoints/models'
-import type { ModelListItem } from '@/api/types'
 
 const props = defineProps<{
   open: boolean
@@ -397,21 +393,6 @@ const createHilFormDefaults = (): HumanInTheLoopFormData => ({
 })
 
 const humanInTheLoopForm = ref<HumanInTheLoopFormData>(createHilFormDefaults())
-
-const availableModels = ref<ModelListItem[]>([])
-const modelsLoading = ref(false)
-
-const loadModels = async () => {
-  if (availableModels.value.length > 0 || modelsLoading.value) return
-  modelsLoading.value = true
-  try {
-    availableModels.value = await modelsApi.list()
-  } catch {
-    availableModels.value = []
-  } finally {
-    modelsLoading.value = false
-  }
-}
 
 const getCurrentFormData = () => {
   switch (props.policyType) {
@@ -506,9 +487,6 @@ watch(
         loadInitialData(props.policyType, props.initialData)
       } else {
         resetForm(props.policyType)
-      }
-      if (props.policyType === 'human_in_the_loop') {
-        loadModels()
       }
     }
   },

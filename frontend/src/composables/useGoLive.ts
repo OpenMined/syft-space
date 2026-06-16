@@ -8,7 +8,7 @@ import { usePolicyCreation } from './usePolicyCreation'
 import type { PolicyRulesRecord, PolicyTypeId } from '@/config/policyTypes'
 import type { CreateEndpointRequest, CreatePolicyRequest, PolicyResponse } from '@/api/types'
 
-export type ResourceType = 'data-source' | 'model'
+export type ResourceType = 'data-source' | 'model' | 'agent'
 export type ResponseMode = 'raw' | 'summary' | 'both'
 
 export interface GoLiveData {

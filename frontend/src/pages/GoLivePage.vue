@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ShieldCheck,
   Info,
+  Bot,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -52,6 +53,8 @@ import { endpointsApi } from '@/api/endpoints/endpoints'
 import ModelSelector from '@/components/ModelSelector.vue'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
 import CreateModelDialogSimple from '@/components/CreateModelDialogSimple.vue'
+import CreateAgentDialog from '@/components/CreateAgentDialog.vue'
+import { mockAgents } from '@/stores/mockAgents'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
@@ -91,6 +94,7 @@ const steps = [
 
 const selectedDataSourceId = ref('')
 const selectedModelId = ref('')
+const selectedAgentId = ref('')
 const datasets = ref<DatasetListItem[]>([])
 const models = ref<ModelListItem[]>([])
 const isLoadingResources = ref(false)
@@ -98,12 +102,14 @@ const isLoadingResources = ref(false)
 const resourceType = computed<ResourceType | ''>(() => {
   if (selectedDataSourceId.value) return 'data-source'
   if (selectedModelId.value) return 'model'
+  if (selectedAgentId.value) return 'agent'
   return ''
 })
 
 const selectedResourceId = computed(() => {
   if (selectedDataSourceId.value) return selectedDataSourceId.value
-  return selectedModelId.value
+  if (selectedModelId.value) return selectedModelId.value
+  return selectedAgentId.value
 })
 
 const loadResources = async () => {
@@ -123,16 +129,37 @@ onMounted(() => {
   loadResources()
 })
 
+// Only one resource can back an API — selecting any kind clears the others.
 const toggleDataSource = (id: string) => {
-  selectedDataSourceId.value = selectedDataSourceId.value === id ? '' : id
+  const next = selectedDataSourceId.value === id ? '' : id
+  selectedDataSourceId.value = next
+  if (next) {
+    selectedModelId.value = ''
+    selectedAgentId.value = ''
+  }
 }
 
 const toggleModel = (id: string) => {
-  selectedModelId.value = selectedModelId.value === id ? '' : id
+  const next = selectedModelId.value === id ? '' : id
+  selectedModelId.value = next
+  if (next) {
+    selectedDataSourceId.value = ''
+    selectedAgentId.value = ''
+  }
+}
+
+const toggleAgent = (id: string) => {
+  const next = selectedAgentId.value === id ? '' : id
+  selectedAgentId.value = next
+  if (next) {
+    selectedDataSourceId.value = ''
+    selectedModelId.value = ''
+  }
 }
 
 const showCreateDatasetDialog = ref(false)
 const showCreateModelDialog = ref(false)
+const showCreateAgentDialog = ref(false)
 
 const handleDatasetCreated = async () => {
   showCreateDatasetDialog.value = false
@@ -142,6 +169,10 @@ const handleDatasetCreated = async () => {
 const handleModelCreated = async () => {
   showCreateModelDialog.value = false
   models.value = await modelsApi.list()
+}
+
+const handleAgentCreated = () => {
+  showCreateAgentDialog.value = false
 }
 
 const responseMode = ref<ResponseMode>('raw')
@@ -224,6 +255,9 @@ const handlePromptPresetChange = (presetId: unknown) => {
 
 const hasDataSource = computed(() => !!selectedDataSourceId.value)
 const hasModel = computed(() => !!selectedModelId.value)
+const hasAgent = computed(() => !!selectedAgentId.value)
+// An agent is treated like a model for policy purposes (PII filter, HIL, etc.).
+const actsLikeModel = computed(() => hasModel.value || hasAgent.value)
 const showsResponseMode = computed(() => hasDataSource.value)
 const needsModel = computed(() => {
   if (hasModel.value) return false
@@ -235,6 +269,7 @@ const isDataOnlyRaw = computed(
 )
 
 const apiTypeLabel = computed(() => {
+  if (hasAgent.value) return 'Agent API'
   if (hasDataSource.value && hasModel.value) return 'Combined API'
   if (hasDataSource.value) return 'Data API'
   return 'Model API'
@@ -274,8 +309,8 @@ const handleAiModelUpdate = (modelId: string) => {
 const aiModelName = computed(() => models.value.find((m) => m.id === aiModelId.value)?.name ?? '')
 
 const piiFilterEnabled = ref(false)
-watch(hasModel, (modelSelected) => {
-  if (!modelSelected) piiFilterEnabled.value = false
+watch(actsLikeModel, (modelLike) => {
+  if (!modelLike) piiFilterEnabled.value = false
 })
 
 const policyRules = ref<PolicyRulesRecord>(createEmptyPolicyRules())
@@ -522,7 +557,9 @@ const isCheckingBeforePublish = ref(false)
 
 const existingEndpointUrl = computed(() => userStore.getEndpointUrlInMarketplace(name.value))
 
-const canProceedStep1 = computed(() => !!selectedDataSourceId.value || !!selectedModelId.value)
+const canProceedStep1 = computed(
+  () => !!selectedDataSourceId.value || !!selectedModelId.value || !!selectedAgentId.value,
+)
 
 const canProceedStep2 = computed(() => {
   if (
@@ -575,6 +612,9 @@ const selectedDataSourceName = computed(
 )
 const selectedModelName = computed(
   () => models.value.find((m) => m.id === selectedModelId.value)?.name ?? '',
+)
+const selectedAgentName = computed(
+  () => mockAgents.find((a) => a.id === selectedAgentId.value)?.name ?? '',
 )
 
 const responseModeLabel = computed(() => {
@@ -697,9 +737,9 @@ const handleOverwriteConfirm = async () => {
         <div class="max-w-2xl mx-auto px-6 py-10">
           <!-- ============ STEP 1: Pick your resource(s) ============ -->
           <div v-if="currentStep === 1">
-            <h1 class="text-2xl font-semibold text-foreground mb-2">Pick your resource(s)</h1>
+            <h1 class="text-2xl font-semibold text-foreground mb-2">Pick your resource</h1>
             <p class="text-muted-foreground mb-8">
-              Select a data source, a model, or both to publish.
+              Select one resource to publish — a data source, a model, or an agent.
             </p>
 
             <div v-if="isLoadingResources" class="flex items-center justify-center py-20">
@@ -810,6 +850,63 @@ const handleOverwriteConfirm = async () => {
                   </button>
                 </div>
               </div>
+
+              <!-- Agents -->
+              <div class="mt-8">
+                <div class="flex items-center gap-2 mb-3">
+                  <Bot class="h-4 w-4 text-muted-foreground" />
+                  <h3 class="text-sm font-semibold text-foreground">Agents</h3>
+                  <Badge v-if="selectedAgentId" variant="secondary" class="text-[10px]">
+                    1 selected
+                  </Badge>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    v-for="a in mockAgents"
+                    :key="a.id"
+                    class="p-4 rounded-lg border text-left transition-all hover:shadow-xs"
+                    :class="
+                      selectedAgentId === a.id
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/40'
+                    "
+                    @click="toggleAgent(a.id)"
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="min-w-0">
+                        <p class="font-medium text-foreground truncate">{{ a.name }}</p>
+                        <p class="text-xs text-muted-foreground mt-1 line-clamp-2">
+                          {{ a.description || 'No description' }}
+                        </p>
+                      </div>
+                      <div
+                        v-if="selectedAgentId === a.id"
+                        class="shrink-0 h-5 w-5 rounded-full bg-primary flex items-center justify-center"
+                      >
+                        <Check class="h-3 w-3 text-primary-foreground" />
+                      </div>
+                    </div>
+                    <div v-if="a.tags.length" class="flex flex-wrap gap-1 mt-2">
+                      <Badge
+                        v-for="tag in a.tags.slice(0, 3)"
+                        :key="tag"
+                        variant="secondary"
+                        class="text-[10px]"
+                      >
+                        {{ tag }}
+                      </Badge>
+                    </div>
+                  </button>
+
+                  <button
+                    class="p-4 rounded-lg border border-dashed border-border hover:border-primary/40 text-left transition-all flex items-center gap-3 text-muted-foreground hover:text-foreground"
+                    @click="showCreateAgentDialog = true"
+                  >
+                    <Plus class="h-5 w-5 shrink-0" />
+                    <span class="text-sm font-medium">Add agent</span>
+                  </button>
+                </div>
+              </div>
             </template>
           </div>
 
@@ -917,8 +1014,8 @@ const handleOverwriteConfirm = async () => {
                 <Separator class="mt-8" />
               </section>
 
-              <!-- PII Filter (model endpoints only) -->
-              <section v-if="hasModel">
+              <!-- PII Filter (model & agent endpoints only) -->
+              <section v-if="actsLikeModel">
                 <div
                   class="flex items-start justify-between gap-4 p-4 rounded-lg border transition-all"
                   :class="
@@ -1337,6 +1434,11 @@ const handleOverwriteConfirm = async () => {
                       <span class="text-foreground">{{ selectedModelName }}</span>
                       <Badge variant="secondary" class="text-[10px]">Model</Badge>
                     </div>
+                    <div v-if="selectedAgentName" class="flex items-center gap-2">
+                      <Bot class="h-4 w-4 text-emerald-500" />
+                      <span class="text-foreground">{{ selectedAgentName }}</span>
+                      <Badge variant="secondary" class="text-[10px]">Agent</Badge>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1679,6 +1781,13 @@ const handleOverwriteConfirm = async () => {
       :open="showCreateModelDialog"
       @update:open="showCreateModelDialog = $event"
       @model-created="handleModelCreated"
+    />
+
+    <!-- Create Agent Dialog -->
+    <CreateAgentDialog
+      :open="showCreateAgentDialog"
+      @update:open="showCreateAgentDialog = $event"
+      @agent-created="handleAgentCreated"
     />
   </div>
 </template>
