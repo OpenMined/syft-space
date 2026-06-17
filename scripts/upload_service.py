@@ -14,12 +14,14 @@ An independent, self-contained service (not part of syft-space). It accepts
 authenticated file uploads and stores them on disk in a folder namespaced by
 the uploading user's email address.
 
-Run it with uv (dependencies are declared inline above, PEP 723):
+Run it with uv (dependencies are declared inline above, PEP 723). With no
+arguments it prompts for the upload folder and auth token:
+
+    uv run scripts/upload_service.py
+
+Or supply them up front via flags or environment variables (skips the prompts):
 
     uv run scripts/upload_service.py --upload-dir ./uploads --auth-token secret123
-
-Or configure via environment variables:
-
     UPLOAD_DIR=./uploads UPLOAD_AUTH_TOKEN=secret123 uv run scripts/upload_service.py
 
 Upload a file (the token must match, email + file are required):
@@ -35,6 +37,7 @@ The file above lands at: <upload-dir>/alice@example.com/report.pdf
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import re
 from pathlib import Path
@@ -167,16 +170,16 @@ def _resolve_config(args: argparse.Namespace) -> Config:
     upload_dir = args.upload_dir or os.environ.get("UPLOAD_DIR")
     auth_token = args.auth_token or os.environ.get("UPLOAD_AUTH_TOKEN")
 
+    # Interactive fallback: prompt for anything not supplied via CLI/env.
     if not upload_dir:
-        raise SystemExit(
-            "error: upload directory is required "
-            "(pass --upload-dir or set UPLOAD_DIR)."
-        )
+        upload_dir = input("Upload folder path: ").strip()
     if not auth_token:
-        raise SystemExit(
-            "error: auth token is required "
-            "(pass --auth-token or set UPLOAD_AUTH_TOKEN)."
-        )
+        auth_token = getpass.getpass("Auth token: ").strip()
+
+    if not upload_dir:
+        raise SystemExit("error: upload folder path is required.")
+    if not auth_token:
+        raise SystemExit("error: auth token is required.")
 
     # The upload dir is the parent folder; per-user email subfolders live
     # inside it. Validate the path, and create it (with parents) if missing.

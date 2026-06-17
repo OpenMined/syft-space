@@ -11,7 +11,24 @@ syft-space — it has no shared imports and declares its own dependencies inline
 - Saves each file under a folder **namespaced by the uploader's email address**:
   `<upload-dir>/<email>/<filename>`.
 
-## Run
+## Quick start (one command)
+
+`run.sh` bootstraps everything — it installs `uv` if missing, pins Python 3.12,
+downloads `upload_service.py`, and runs it. The service then **prompts you for
+the upload folder path and auth token**. Safe to pipe straight from curl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/OpenMined/syft-space/upload-service/scripts/run.sh | bash
+```
+
+## Run manually
+
+```bash
+uv run scripts/upload_service.py
+```
+
+This prompts for the upload folder and auth token interactively. You can skip
+the prompts by passing flags or environment variables:
 
 ```bash
 # Via CLI flags
