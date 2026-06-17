@@ -1,20 +1,19 @@
 """WordPress REST API source.
 
-Pulls posts/pages (or any public post type) from a self-hosted WordPress
-site via ``/wp-json/wp/v2/``, authenticating with Basic Auth (username +
-Application Password, generated under wp-admin → Users → Profile).
+Ingests posts, pages, or any public post type from a self-hosted WordPress
+site via ``/wp-json/wp/v2/``, using Basic Auth (username + Application
+Password, from wp-admin → Users → Profile).
 
-Ingestion is driven by an explicit selection made at picker time. Each
-poll re-fetches the selected items via the REST ``include`` filter and
-emits their current ``modified_gmt`` as a fingerprint; the ingestion
-repository dedups on that fingerprint, so only edited items re-ingest.
-There is no full-site crawl.
+``WordPressProvider`` builds the two runtime objects: ``WordPressBrowser``
+for picker-time discovery, ``WordPressSource`` for ingestion. Ingestion is
+driven by an explicit picker selection (``selected_items``): each poll
+re-fetches those items via the REST ``include`` filter and emits their
+``modified_gmt`` as a fingerprint, which the ingestion repository dedups on
+so only edited items re-ingest. ``fetch`` writes a post's rendered HTML to
+a tempfile. There is no full-site crawl.
 
-``fetch`` writes a post's body HTML to a tempfile for downstream parsing.
-
-Not handled in v1: deletes (the REST API emits no tombstones) and a
-"subscribe to a whole post type" mode (which would only grow the
-selection, leaving modification detection unchanged).
+Not handled in v1: deletes (no REST tombstones — a removed item just stops
+appearing in polls) and a "subscribe to a whole post type" mode.
 """
 
 from __future__ import annotations
