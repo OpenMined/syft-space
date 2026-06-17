@@ -18,7 +18,6 @@ from syft_space.components.dataset_types.interfaces import IngestableDatasetType
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.wordpress.wordpress_source import (
     DEFAULT_POLL_INTERVAL_SECONDS,
-    DEFAULT_POST_TYPES,
     DEFAULT_USER_AGENT,
     WordPressProvider,
 )
@@ -66,11 +65,6 @@ class WordPressChromaDBConfiguration(BaseModel):
             "Users → Profile → Application Passwords in wp-admin)"
         ),
         json_schema_extra={"format": "password"},
-    )
-    post_types: list[str] = Field(
-        default_factory=lambda: list(DEFAULT_POST_TYPES),
-        alias="postTypes",
-        description="REST API post types to ingest (e.g. post, page)",
     )
     poll_interval_seconds: int = Field(
         default=DEFAULT_POLL_INTERVAL_SECONDS,
@@ -127,7 +121,6 @@ class WordPressChromaDBDatasetType(IngestableDatasetType):
             "site_url": cfg.site_url,
             "username": cfg.username,
             "application_password": cfg.application_password,
-            "post_types": list(cfg.post_types),
             "poll_interval_seconds": cfg.poll_interval_seconds,
             "user_agent": cfg.user_agent,
             "selected_items": cfg.selected_items,

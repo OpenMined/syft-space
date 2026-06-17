@@ -40,21 +40,31 @@ from syft_space.components.sources.interfaces import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_POST_TYPES = ["post", "page"]
 DEFAULT_POLL_INTERVAL_SECONDS = 300
 # Many WP sites sit behind WAFs/Cloudflare that reject the default httpx
 # User-Agent. Default to a mainstream UA; override via config when a site
 # expects a specific allowlisted value.
 DEFAULT_USER_AGENT = "curl/8.7.1"
 PAGE_SIZE = 100
+# Statuses surfaced to the picker and watched by the poll. The authenticated
+# account is expected to hold read_private_posts; drafts and trash are left out.
+BROWSE_STATUSES = "publish,private"
+# Upper bound on pages walked in a single browse drill-down. WordPress caps
+# per_page at 100, so this bounds one browse to ~5000 items; generic cursor
+# pagination (a later change) lifts the cap by paging on demand instead.
+MAX_BROWSE_PAGES = 50
+# Registered but non-content types — media has no body to ingest; the
+# block-editor internals (wp_block, wp_template, ...) are already
+# viewable=false and filtered out by that check.
+_EXCLUDED_TYPES = {"attachment"}
 
 
 class WordPressBrowseConfig(BaseModel):
     """Connection config for browsing the WordPress REST API.
 
-    The fields needed to authenticate and to enumerate post types as
-    picker containers. ``WordPressDatasetConfig`` adds the ingest-time
-    fields.
+    Just the fields needed to authenticate. The post types to browse are
+    discovered from the site itself (see ``_fetch_post_types``);
+    ``WordPressDatasetConfig`` adds the ingest-time fields.
     """
 
     site_url: str = Field(
@@ -74,11 +84,6 @@ class WordPressBrowseConfig(BaseModel):
             "Users → Profile → Application Passwords in wp-admin)"
         ),
         json_schema_extra={"format": "password"},
-    )
-    post_types: list[str] = Field(
-        default_factory=lambda: list(DEFAULT_POST_TYPES),
-        alias="postTypes",
-        description="REST API post types to ingest (e.g. post, page)",
     )
     user_agent: str = Field(
         default=DEFAULT_USER_AGENT,
@@ -155,36 +160,63 @@ def _make_client(cfg: WordPressBrowseConfig) -> httpx.AsyncClient:
     )
 
 
-async def _probe(cfg: WordPressBrowseConfig) -> None:
-    """Verify each post type is reachable with the given credentials.
+async def _fetch_post_types(client: httpx.AsyncClient) -> dict[str, dict[str, str]]:
+    """Discover the site's ingestable post types from ``/types``.
 
-    Hits the listing endpoint (``/{type}s?per_page=1``) rather than
-    ``/users/me``, which hardened sites commonly lock down.
+    Requested in ``edit`` context so the call doubles as the credential
+    check — ``/types`` is public in the default ``view`` context and would
+    not surface bad auth. Edit context also carries ``viewable``, which we
+    use to keep public content types and drop the block-editor internals.
+    Each kept type is mapped to its REST URL segment (``rest_base``), which
+    is not always ``slug + "s"`` for custom types.
+
+    ``_fields`` is deliberately not sent: on this object-style endpoint
+    WordPress collapses a ``_fields`` request to an empty response.
+
+    Returns:
+        ``{slug: {"name": <label>, "rest_base": <url segment>}}``.
 
     Raises:
-        ValueError: bad auth, a post type not exposed over REST, or the
-            site's WAF blocking the request.
+        ValueError: bad auth (401), or a permission/WAF block (403).
+    """
+    r = await client.get("/types", params={"context": "edit"})
+    if r.status_code == 401:
+        raise ValueError(
+            "Authentication failed (401) — check username and Application Password"
+        )
+    if r.status_code == 403:
+        raise ValueError(
+            "Listing post types returned 403 — the user may lack edit rights, "
+            "or the site blocks this User-Agent (override userAgent)"
+        )
+    r.raise_for_status()
+    types: dict[str, dict[str, str]] = {}
+    for info in r.json().values():
+        slug = info.get("slug")
+        if not slug or slug in _EXCLUDED_TYPES or not info.get("viewable"):
+            continue
+        rest_base = info.get("rest_base")
+        if rest_base:
+            types[slug] = {"name": info.get("name") or slug, "rest_base": rest_base}
+    return types
+
+
+async def _validate_connection(cfg: WordPressBrowseConfig) -> None:
+    """Verify the credentials and that the site exposes ingestable content.
+
+    Delegates to ``_fetch_post_types`` (whose ``edit``-context request is
+    the actual auth check) and fails if no content types come back.
+
+    Raises:
+        ValueError: bad auth, a WAF block, or a site with no ingestable
+            post types exposed over REST.
     """
     async with _make_client(cfg) as client:
-        for post_type in cfg.post_types:
-            r = await client.get(f"/{post_type}s", params={"per_page": 1})
-            if r.status_code == 401:
-                raise ValueError(
-                    "Authentication failed (401) — check username and "
-                    "Application Password"
-                )
-            if r.status_code == 403:
-                raise ValueError(
-                    f"Listing {post_type}s returned 403 — site may "
-                    "block this User-Agent (override userAgent in the "
-                    "configuration)"
-                )
-            if r.status_code == 404:
-                raise ValueError(
-                    f"Post type {post_type!r} not found at "
-                    f"{cfg.site_url} — verify it's exposed via REST"
-                )
-            r.raise_for_status()
+        if not await _fetch_post_types(client):
+            raise ValueError(
+                f"No ingestable post types are exposed over the REST API at "
+                f"{cfg.site_url}"
+            )
 
 
 def _to_source_item(post_type: str, parent_id: str, item: dict[str, Any]) -> SourceItem:
@@ -210,46 +242,79 @@ class WordPressBrowser:
     """Picker-time browsing of the WordPress REST API.
 
     Built by ``WordPressProvider.for_browse``. ``list_items(None)`` returns
-    one container per post type; ``list_items("type:<name>")`` returns a
-    page of that type's most recently modified items.
+    one container per post type the site exposes; ``list_items("type:<slug>")``
+    returns that type's items, most recently modified first, walking every
+    page up to ``MAX_BROWSE_PAGES``.
     """
 
     def __init__(self, config: WordPressBrowseConfig) -> None:
         self.config = config
 
     async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
-        if parent_id is None:
-            return [
-                SourceItem(
-                    external_id=f"type:{t}",
-                    display_name=f"{t.title()}s",
-                    parent_id=None,
-                    is_container=True,
-                    is_leaf=False,
-                    metadata={"post_type": t},
-                )
-                for t in self.config.post_types
-            ]
-
-        if not parent_id.startswith("type:"):
-            return []
-        post_type = parent_id[len("type:") :]
-        if post_type not in self.config.post_types:
-            return []
-
         async with _make_client(self.config) as client:
+            types = await _fetch_post_types(client)
+            if parent_id is None:
+                return [
+                    SourceItem(
+                        external_id=f"type:{slug}",
+                        display_name=info["name"],
+                        parent_id=None,
+                        is_container=True,
+                        is_leaf=False,
+                        metadata={"post_type": slug, "rest_base": info["rest_base"]},
+                    )
+                    for slug, info in types.items()
+                ]
+
+            if not parent_id.startswith("type:"):
+                return []
+            post_type = parent_id[len("type:") :]
+            info = types.get(post_type)
+            if info is None:
+                return []
+
+            return await self._list_type(
+                client, post_type, parent_id, info["rest_base"]
+            )
+
+    async def _list_type(
+        self,
+        client: httpx.AsyncClient,
+        post_type: str,
+        parent_id: str,
+        rest_base: str,
+    ) -> list[SourceItem]:
+        """Page through one post type's items and return them all.
+
+        WordPress caps ``per_page`` at 100, so a type with more items spans
+        several pages. Walk them in order until the ``X-WP-TotalPages``
+        header (or an empty page) says we're done, bounded by
+        ``MAX_BROWSE_PAGES`` so one browse can't run unbounded. Requesting a
+        page past the last returns 400, which we treat as the end.
+        """
+        items: list[SourceItem] = []
+        for page in range(1, MAX_BROWSE_PAGES + 1):
             r = await client.get(
-                f"/{post_type}s",
+                f"/{rest_base}",
                 params={
                     "per_page": PAGE_SIZE,
+                    "page": page,
                     "orderby": "modified",
                     "order": "desc",
-                    "status": "publish",
+                    "status": BROWSE_STATUSES,
                     "_fields": "id,slug,title,modified_gmt,link",
                 },
             )
+            if r.status_code == 400:
+                break
             r.raise_for_status()
-            return [_to_source_item(post_type, parent_id, item) for item in r.json()]
+            rows = r.json()
+            if not rows:
+                break
+            items.extend(_to_source_item(post_type, parent_id, row) for row in rows)
+            if page >= int(r.headers.get("X-WP-TotalPages", page)):
+                break
+        return items
 
 
 class WordPressSource:
@@ -266,6 +331,18 @@ class WordPressSource:
         self.config = config
         self._fingerprints: dict[str, str] = {}
         self._selected_items: set[str] = set(config.selected_items or ())
+        self._post_types: dict[str, dict[str, str]] = {}
+
+    async def _rest_base(self, client: httpx.AsyncClient, post_type: str) -> str:
+        """Resolve a post type's REST URL segment, caching the lookup."""
+        if not self._post_types:
+            self._post_types = await _fetch_post_types(client)
+        info = self._post_types.get(post_type)
+        if info is None:
+            raise ValueError(
+                f"Post type {post_type!r} is not exposed over the REST API"
+            )
+        return info["rest_base"]
 
     async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
         """Delegate to a transient ``WordPressBrowser`` using the browse subset."""
@@ -283,8 +360,9 @@ class WordPressSource:
         post_type, post_id = _parse_external_id(external_id)
         # Scope the client to the request — closed before the (slow) ingest.
         async with _make_client(self.config) as client:
+            rest_base = await self._rest_base(client, post_type)
             r = await client.get(
-                f"/{post_type}s/{post_id}",
+                f"/{rest_base}/{post_id}",
                 params={
                     "_fields": (
                         "id,slug,link,modified_gmt,title,content,excerpt,"
@@ -361,7 +439,7 @@ class WordPressSource:
                             client, post_type, post_ids
                         ):
                             yield event
-                    except httpx.HTTPError as e:
+                    except (httpx.HTTPError, ValueError) as e:
                         logger.warning(
                             "WordPress poll failed for type %s: %s", post_type, e
                         )
@@ -393,14 +471,15 @@ class WordPressSource:
         API omits (unpublished/deleted) are silently skipped — see the
         module note on deletes.
         """
+        rest_base = await self._rest_base(client, post_type)
         for start in range(0, len(post_ids), PAGE_SIZE):
             batch = post_ids[start : start + PAGE_SIZE]
             r = await client.get(
-                f"/{post_type}s",
+                f"/{rest_base}",
                 params={
                     "include": ",".join(str(i) for i in batch),
                     "per_page": len(batch),
-                    "status": "publish",
+                    "status": BROWSE_STATUSES,
                     "_fields": "id,modified_gmt",
                 },
             )
@@ -423,8 +502,8 @@ class WordPressProvider:
 
     Exposes metadata, the browse/dataset config schemas, and factories
     that build a ``WordPressBrowser`` or ``WordPressSource`` from a raw
-    config dict. Both validators probe the live REST API so bad
-    credentials fail fast instead of at first ingest.
+    config dict. Both validators hit the live REST API so bad credentials
+    fail fast instead of at first ingest.
     """
 
     NAME = "wordpress"
@@ -467,7 +546,7 @@ class WordPressProvider:
             cfg = WordPressBrowseConfig.model_validate(configuration)
         except ValidationError as e:
             raise ValueError(f"Invalid browse configuration: {e}") from e
-        await _probe(cfg)
+        await _validate_connection(cfg)
 
     @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
@@ -475,7 +554,7 @@ class WordPressProvider:
             cfg = WordPressDatasetConfig.model_validate(configuration)
         except ValidationError as e:
             raise ValueError(f"Invalid configuration: {e}") from e
-        await _probe(cfg)
+        await _validate_connection(cfg)
 
     @classmethod
     def for_browse(cls, configuration: dict[str, Any]) -> WordPressBrowser:
