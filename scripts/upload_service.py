@@ -3,7 +3,7 @@
 # dependencies = [
 #     "fastapi==0.116.2",
 #     "uvicorn[standard]==0.35.0",
-#     "pydantic[email]==2.11.9",
+#     "pydantic==2.11.9",
 #     "python-multipart==0.0.31",
 #     "loguru>=0.7.3",
 # ]
@@ -12,7 +12,7 @@
 
 An independent, self-contained service (not part of syft-space). It accepts
 authenticated file uploads and stores them on disk in a folder namespaced by
-the uploading user's email address.
+a unique identifier for the uploading user.
 
 Run it with uv (dependencies are declared inline above, PEP 723). With no
 arguments it prompts for the upload folder and auth token:
@@ -24,11 +24,11 @@ Or supply them up front via flags or environment variables (skips the prompts):
     uv run scripts/upload_service.py --upload-dir ./uploads --auth-token secret123
     UPLOAD_DIR=./uploads UPLOAD_AUTH_TOKEN=secret123 uv run scripts/upload_service.py
 
-Upload a file (the token must match, email + file are required):
+Upload a file (the token must match, identifier + file are required):
 
     curl -X POST http://localhost:8082/upload \\
         -H "Authorization: Bearer secret123" \\
-        -F "email=alice@example.com" \\
+        -F "identifier=alice@example.com" \\
         -F "file=@./report.pdf"
 
 The file above lands at: <upload-dir>/alice@example.com/report.pdf
@@ -46,12 +46,13 @@ import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from loguru import logger
-from pydantic import EmailStr, TypeAdapter, ValidationError
 
 # Bytes read/written per chunk while streaming uploads to disk.
 CHUNK_SIZE = 1024 * 1024  # 1 MiB
 
-_email_validator = TypeAdapter(EmailStr)
+# A unique identifier becomes a single folder name, so restrict it to
+# filesystem-safe characters. This still accepts email addresses.
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9._@+-]+$")
 
 
 class Config:
@@ -66,28 +67,31 @@ class Config:
 config: Config
 
 
-def _sanitize_email(email: str) -> str:
-    """Validate an email and turn it into a safe single path segment.
+def _sanitize_identifier(identifier: str) -> str:
+    """Validate a unique identifier and turn it into a safe path segment.
 
-    Rejects anything that isn't a valid email so path-traversal payloads
-    (e.g. "../../etc") never reach the filesystem.
+    Accepts any identifier made of filesystem-safe characters and rejects
+    path-traversal payloads (e.g. "../../etc") so they never reach the
+    filesystem. The result is a single folder name.
     """
-    try:
-        normalized = _email_validator.validate_python(email)
-    except ValidationError:
+    candidate = (identifier or "").strip()
+    if (
+        candidate in {"", ".", ".."}
+        or not _IDENTIFIER_RE.match(candidate)
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid email address.",
+            detail="Invalid identifier.",
         )
     # Lowercase for stable, case-insensitive namespacing on disk.
-    return normalized.lower()
+    return candidate.lower()
 
 
 def _sanitize_filename(filename: str | None) -> str:
     """Reduce an uploaded filename to a safe basename.
 
     Strips any directory components and rejects empty/dot-only names so a
-    client cannot escape its email-namespaced folder.
+    client cannot escape its identifier-namespaced folder.
     """
     if not filename:
         raise HTTPException(
@@ -130,11 +134,13 @@ def health() -> dict[str, str]:
 
 @app.post("/upload", dependencies=[Depends(require_auth)])
 async def upload(
-    email: str = Form(..., description="Email of the uploading user."),
+    identifier: str = Form(
+        ..., description="Unique identifier of the uploading user."
+    ),
     file: UploadFile = File(..., description="File to store."),
 ) -> dict[str, object]:
-    """Store an uploaded file under <upload-dir>/<email>/<filename>."""
-    namespace = _sanitize_email(email)
+    """Store an uploaded file under <upload-dir>/<identifier>/<filename>."""
+    namespace = _sanitize_identifier(identifier)
     filename = _sanitize_filename(file.filename)
 
     target_dir = config.upload_dir / namespace
@@ -158,7 +164,7 @@ async def upload(
 
     logger.info("Stored {} bytes at {}", size, target_path)
     return {
-        "email": namespace,
+        "identifier": namespace,
         "filename": filename,
         "size": size,
         "path": str(target_path),
@@ -181,7 +187,7 @@ def _resolve_config(args: argparse.Namespace) -> Config:
     if not auth_token:
         raise SystemExit("error: auth token is required.")
 
-    # The upload dir is the parent folder; per-user email subfolders live
+    # The upload dir is the parent folder; per-identifier subfolders live
     # inside it. Validate the path, and create it (with parents) if missing.
     resolved_dir = Path(upload_dir).expanduser().resolve()
     if resolved_dir.exists() and not resolved_dir.is_dir():

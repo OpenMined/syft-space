@@ -8,8 +8,8 @@ syft-space — it has no shared imports and declares its own dependencies inline
 
 - Accepts authenticated file uploads over HTTP.
 - Requires a bearer token; only callers presenting the configured token can upload.
-- Saves each file under a folder **namespaced by the uploader's email address**:
-  `<upload-dir>/<email>/<filename>`.
+- Saves each file under a folder **namespaced by a unique identifier** for the
+  uploader (e.g. an email or user id): `<upload-dir>/<identifier>/<filename>`.
 
 ## Quick start (one command)
 
@@ -45,7 +45,7 @@ Optional flags: `--host` (default `0.0.0.0`), `--port` (default `8082`).
 ```bash
 curl -X POST http://localhost:8082/upload \
     -H "Authorization: Bearer secret123" \
-    -F "email=alice@example.com" \
+    -F "identifier=alice@example.com" \
     -F "file=@./report.pdf"
 ```
 
@@ -56,11 +56,12 @@ Result on disk: `./uploads/alice@example.com/report.pdf`
 | Method | Path      | Auth   | Body                                  |
 | ------ | --------- | ------ | ------------------------------------- |
 | GET    | `/health` | none   | —                                     |
-| POST   | `/upload` | Bearer | `email` (form), `file` (multipart)    |
+| POST   | `/upload` | Bearer | `identifier` (form), `file` (multipart) |
 
 ## Notes
 
-- Emails are validated and lowercased before being used as a directory name, and
-  filenames are reduced to a safe basename — so neither can be used for path
-  traversal outside the upload directory.
+- Identifiers are restricted to filesystem-safe characters (`A-Z a-z 0-9 . _ @ + -`)
+  and lowercased before being used as a directory name, and filenames are reduced
+  to a safe basename — so neither can be used for path traversal outside the
+  upload directory.
 - Interactive API docs are available at `http://localhost:8082/docs`.
