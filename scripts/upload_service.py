@@ -1,0 +1,224 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "fastapi==0.116.2",
+#     "uvicorn[standard]==0.35.0",
+#     "pydantic[email]==2.11.9",
+#     "python-multipart==0.0.31",
+#     "loguru>=0.7.3",
+# ]
+# ///
+"""Standalone file upload service.
+
+An independent, self-contained service (not part of syft-space). It accepts
+authenticated file uploads and stores them on disk in a folder namespaced by
+the uploading user's email address.
+
+Run it with uv (dependencies are declared inline above, PEP 723):
+
+    uv run scripts/upload_service.py --upload-dir ./uploads --auth-token secret123
+
+Or configure via environment variables:
+
+    UPLOAD_DIR=./uploads UPLOAD_AUTH_TOKEN=secret123 uv run scripts/upload_service.py
+
+Upload a file (the token must match, email + file are required):
+
+    curl -X POST http://localhost:8082/upload \\
+        -H "Authorization: Bearer secret123" \\
+        -F "email=alice@example.com" \\
+        -F "file=@./report.pdf"
+
+The file above lands at: <upload-dir>/alice@example.com/report.pdf
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+from pathlib import Path
+
+import uvicorn
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from loguru import logger
+from pydantic import EmailStr, TypeAdapter, ValidationError
+
+# Bytes read/written per chunk while streaming uploads to disk.
+CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
+_email_validator = TypeAdapter(EmailStr)
+
+
+class Config:
+    """Runtime configuration, resolved from CLI args then environment."""
+
+    def __init__(self, upload_dir: Path, auth_token: str) -> None:
+        self.upload_dir = upload_dir
+        self.auth_token = auth_token
+
+
+# Populated in main() before the server starts.
+config: Config
+
+
+def _sanitize_email(email: str) -> str:
+    """Validate an email and turn it into a safe single path segment.
+
+    Rejects anything that isn't a valid email so path-traversal payloads
+    (e.g. "../../etc") never reach the filesystem.
+    """
+    try:
+        normalized = _email_validator.validate_python(email)
+    except ValidationError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid email address.",
+        )
+    # Lowercase for stable, case-insensitive namespacing on disk.
+    return normalized.lower()
+
+
+def _sanitize_filename(filename: str | None) -> str:
+    """Reduce an uploaded filename to a safe basename.
+
+    Strips any directory components and rejects empty/dot-only names so a
+    client cannot escape its email-namespaced folder.
+    """
+    if not filename:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Uploaded file is missing a filename.",
+        )
+    # Keep only the final path component, regardless of separator style.
+    base = os.path.basename(filename.replace("\\", "/")).strip()
+    if base in {"", ".", ".."} or not re.sub(r"[.\s]", "", base):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid filename.",
+        )
+    return base
+
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def require_auth(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> None:
+    """Reject any request that doesn't carry the configured bearer token."""
+    if credentials is None or credentials.credentials != config.auth_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing auth token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+app = FastAPI(title="Upload Service", version="1.0.0")
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    """Liveness probe; no auth required."""
+    return {"status": "ok"}
+
+
+@app.post("/upload", dependencies=[Depends(require_auth)])
+async def upload(
+    email: str = Form(..., description="Email of the uploading user."),
+    file: UploadFile = File(..., description="File to store."),
+) -> dict[str, object]:
+    """Store an uploaded file under <upload-dir>/<email>/<filename>."""
+    namespace = _sanitize_email(email)
+    filename = _sanitize_filename(file.filename)
+
+    target_dir = config.upload_dir / namespace
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / filename
+
+    size = 0
+    try:
+        with target_path.open("wb") as out:
+            while chunk := await file.read(CHUNK_SIZE):
+                out.write(chunk)
+                size += len(chunk)
+    except OSError as exc:
+        logger.error("Failed to write upload {}: {}", target_path, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to store uploaded file.",
+        )
+    finally:
+        await file.close()
+
+    logger.info("Stored {} bytes at {}", size, target_path)
+    return {
+        "email": namespace,
+        "filename": filename,
+        "size": size,
+        "path": str(target_path),
+    }
+
+
+def _resolve_config(args: argparse.Namespace) -> Config:
+    """Resolve config from CLI args, falling back to environment variables."""
+    upload_dir = args.upload_dir or os.environ.get("UPLOAD_DIR")
+    auth_token = args.auth_token or os.environ.get("UPLOAD_AUTH_TOKEN")
+
+    if not upload_dir:
+        raise SystemExit(
+            "error: upload directory is required "
+            "(pass --upload-dir or set UPLOAD_DIR)."
+        )
+    if not auth_token:
+        raise SystemExit(
+            "error: auth token is required "
+            "(pass --auth-token or set UPLOAD_AUTH_TOKEN)."
+        )
+
+    # The upload dir is the parent folder; per-user email subfolders live
+    # inside it. Validate the path, and create it (with parents) if missing.
+    resolved_dir = Path(upload_dir).expanduser().resolve()
+    if resolved_dir.exists() and not resolved_dir.is_dir():
+        raise SystemExit(
+            f"error: upload path exists but is not a directory: {resolved_dir}"
+        )
+    try:
+        resolved_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise SystemExit(
+            f"error: could not create upload directory {resolved_dir}: {exc}"
+        )
+    if not os.access(resolved_dir, os.W_OK):
+        raise SystemExit(f"error: upload directory is not writable: {resolved_dir}")
+    return Config(upload_dir=resolved_dir, auth_token=auth_token)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Standalone file upload service.")
+    parser.add_argument(
+        "--upload-dir",
+        help="Folder where uploaded files are saved (env: UPLOAD_DIR).",
+    )
+    parser.add_argument(
+        "--auth-token",
+        help="Bearer token required to upload (env: UPLOAD_AUTH_TOKEN).",
+    )
+    parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0).")
+    parser.add_argument(
+        "--port", type=int, default=8082, help="Bind port (default: 8082)."
+    )
+    args = parser.parse_args()
+
+    global config
+    config = _resolve_config(args)
+
+    logger.info("Upload directory: {}", config.upload_dir)
+    logger.info("Listening on {}:{}", args.host, args.port)
+    uvicorn.run(app, host=args.host, port=args.port)
+
+
+if __name__ == "__main__":
+    main()
