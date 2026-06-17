@@ -13,6 +13,10 @@ export interface FileNode {
   isLoading?: boolean
   hasLoaded?: boolean
   permissionDenied?: boolean
+  /** Source-specific status (e.g. WordPress 'publish' | 'private'). */
+  status?: string
+  /** External URL to preview the item, if the source provides one. */
+  link?: string
 }
 
 const TCC_SERVICE_MAP: Record<string, string> = {
@@ -64,7 +68,9 @@ export function useSourceBrowser(
       }
 
       const nodes: FileNode[] = response.items.map((item: SourceItem) => {
-        const modified = (item.metadata?.modified as string | undefined) ?? undefined
+        const modified =
+          (item.metadata?.modified_gmt as string | undefined) ??
+          (item.metadata?.modified as string | undefined)
         return {
           name: item.display_name,
           path: item.external_id,
@@ -73,6 +79,8 @@ export function useSourceBrowser(
           modifiedTime: modified ? new Date(modified) : undefined,
           children: item.is_container ? [] : undefined,
           hasLoaded: false,
+          status: (item.metadata?.status as string | undefined) ?? undefined,
+          link: (item.metadata?.link as string | undefined) ?? undefined,
         }
       })
 

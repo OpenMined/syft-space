@@ -20,6 +20,7 @@ selection, leaving modification detection unchanged).
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import tempfile
@@ -221,8 +222,11 @@ async def _validate_connection(cfg: WordPressBrowseConfig) -> None:
 
 def _to_source_item(post_type: str, parent_id: str, item: dict[str, Any]) -> SourceItem:
     """Map a REST listing row to a leaf ``SourceItem`` for the picker."""
+    rendered = (item.get("title") or {}).get("rendered")
+    # WordPress returns titles HTML-encoded (e.g. ``&#8217;``); decode so the
+    # picker shows real text instead of entities.
     title = (
-        (item.get("title") or {}).get("rendered") or item.get("slug") or str(item["id"])
+        html.unescape(rendered) if rendered else (item.get("slug") or str(item["id"]))
     )
     return SourceItem(
         external_id=_external_id(post_type, item["id"]),
@@ -234,6 +238,7 @@ def _to_source_item(post_type: str, parent_id: str, item: dict[str, Any]) -> Sou
             "post_type": post_type,
             "modified_gmt": item.get("modified_gmt"),
             "link": item.get("link"),
+            "status": item.get("status"),
         },
     )
 
@@ -302,7 +307,7 @@ class WordPressBrowser:
                     "orderby": "modified",
                     "order": "desc",
                     "status": BROWSE_STATUSES,
-                    "_fields": "id,slug,title,modified_gmt,link",
+                    "_fields": "id,slug,title,modified_gmt,link,status",
                 },
             )
             if r.status_code == 400:

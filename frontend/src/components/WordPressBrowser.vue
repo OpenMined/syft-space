@@ -6,7 +6,12 @@
           <h3 class="text-lg font-medium text-foreground">Select posts & pages</h3>
           <Badge variant="secondary">{{ selected.length }} selected</Badge>
         </div>
-        <Button @click="clearSelection" variant="outline" size="sm" :disabled="selected.length === 0">
+        <Button
+          @click="clearSelection"
+          variant="outline"
+          size="sm"
+          :disabled="selected.length === 0"
+        >
           Clear Selection
         </Button>
       </div>
@@ -72,19 +77,51 @@
                     <div
                       v-for="item in group.children || []"
                       :key="item.path"
-                      class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted"
+                      class="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted"
                     >
                       <Checkbox
                         :model-value="selected.includes(item.path)"
                         @update:model-value="(checked) => onItemCheckbox(item.path, checked)"
                       />
-                      <FileText class="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                      <div class="flex-1 min-w-0">
-                        <p class="text-sm truncate">{{ item.name }}</p>
-                        <p v-if="item.modifiedTime" class="text-xs text-muted-foreground">
-                          modified {{ formatModified(item.modifiedTime) }}
-                        </p>
-                      </div>
+                      <component
+                        :is="item.link ? 'a' : 'div'"
+                        :href="item.link || undefined"
+                        :target="item.link ? '_blank' : undefined"
+                        :rel="item.link ? 'noopener noreferrer' : undefined"
+                        @click.stop
+                        class="flex items-center gap-2 flex-1 min-w-0"
+                        :class="item.link ? 'cursor-pointer' : ''"
+                      >
+                        <FileText
+                          class="w-4 h-4 flex-shrink-0 text-muted-foreground"
+                          :class="
+                            item.link
+                              ? 'group-hover:text-blue-600 dark:group-hover:text-blue-400'
+                              : ''
+                          "
+                        />
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-1.5 min-w-0">
+                            <span
+                              class="text-sm truncate min-w-0"
+                              :class="
+                                item.link ? 'group-hover:underline group-hover:text-foreground' : ''
+                              "
+                              >{{ item.name }}</span
+                            >
+                            <Badge
+                              v-if="item.status === 'private'"
+                              variant="outline"
+                              class="flex-shrink-0 h-4 px-1 text-[10px] font-normal text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700"
+                            >
+                              Private
+                            </Badge>
+                          </div>
+                          <p v-if="item.modifiedTime" class="text-xs text-muted-foreground">
+                            modified {{ formatModified(item.modifiedTime) }}
+                          </p>
+                        </div>
+                      </component>
                     </div>
                   </div>
                 </div>
@@ -119,7 +156,9 @@
                 >
                   <FileText class="w-4 h-4 flex-shrink-0" />
                   <span class="flex-1 truncate">
-                    <span class="font-mono text-[11px] text-blue-700 dark:text-blue-300 mr-2">{{ id }}</span>
+                    <span class="font-mono text-[11px] text-blue-700 dark:text-blue-300 mr-2">{{
+                      id
+                    }}</span>
                     <span>{{ titleForId(id) }}</span>
                   </span>
                   <button
@@ -156,14 +195,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import {
-  ChevronDown,
-  ChevronRight,
-  FileText,
-  Folder,
-  Newspaper,
-  X,
-} from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, FileText, Folder, Newspaper, X } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
