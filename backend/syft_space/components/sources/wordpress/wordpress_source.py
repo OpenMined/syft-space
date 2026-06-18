@@ -76,15 +76,18 @@ class WordPressBrowseConfig(BaseModel):
     site_url: str = Field(
         ...,
         alias="siteUrl",
+        title="Site URL",
         description="Base URL of the WordPress site (e.g. https://example.com)",
     )
     username: str = Field(
         ...,
+        title="Username",
         description="WordPress user_login or display name — used for Basic Auth",
     )
     application_password: str = Field(
         ...,
         alias="applicationPassword",
+        title="Application password",
         description=(
             "WordPress Application Password (24 chars; generate under "
             "Users → Profile → Application Passwords in wp-admin)"
@@ -94,6 +97,7 @@ class WordPressBrowseConfig(BaseModel):
     user_agent: str = Field(
         default=DEFAULT_USER_AGENT,
         alias="userAgent",
+        title="User agent",
         description=(
             "HTTP User-Agent header — override when a site WAF expects a "
             "specific allowlisted value"

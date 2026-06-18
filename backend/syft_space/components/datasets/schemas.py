@@ -25,6 +25,14 @@ class DatasetTypeInfoResponse(BaseModel):
     )
     icon: str = Field(..., description="Icon for the dataset type")
     enabled: bool = Field(..., description="Whether the dataset type is enabled")
+    browse_schema: dict[str, Any] = Field(
+        ...,
+        description="JSON schema for the browse-time connect form (credentials)",
+    )
+    browsable: bool = Field(
+        ...,
+        description="Whether this type's source can be browsed in the picker",
+    )
 
 
 class CreateDatasetRequest(BaseModel):

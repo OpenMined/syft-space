@@ -8,7 +8,10 @@ from uuid import UUID
 from fastapi import HTTPException
 from loguru import logger
 
-from syft_space.components.dataset_types.interfaces import IngestableDatasetType
+from syft_space.components.dataset_types.interfaces import (
+    BaseDatasetType,
+    IngestableDatasetType,
+)
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import (
     Dataset,
@@ -381,22 +384,29 @@ class DatasetHandler:
         Returns:
             List of dataset type information
         """
-        type_names = self.registry.list_dataset_types()
-        types_info = []
+        return [
+            self._type_info(self.registry.get_dataset_type(name))
+            for name in self.registry.list_dataset_types()
+        ]
 
-        for name in type_names:
-            dataset_type_cls = self.registry.get_dataset_type(name)
-            types_info.append(
-                DatasetTypeInfoResponse(
-                    name=dataset_type_cls.name(),
-                    description=dataset_type_cls.description(),
-                    config_schema=dataset_type_cls.configuration_schema(),
-                    icon=dataset_type_cls.icon(),
-                    enabled=dataset_type_cls.enabled(),
-                )
-            )
+    @staticmethod
+    def _type_info(dataset_type_cls: type[BaseDatasetType]) -> DatasetTypeInfoResponse:
+        """Build the API view of a dataset type.
 
-        return types_info
+        ``browse_schema`` is the source's connect-form schema; ``browsable``
+        is false for no-op sources (e.g. externally-fed Weaviate), so the
+        picker can hide types that can't be browsed.
+        """
+        source_cls = dataset_type_cls.SOURCE_PROVIDER_CLS
+        return DatasetTypeInfoResponse(
+            name=dataset_type_cls.name(),
+            description=dataset_type_cls.description(),
+            config_schema=dataset_type_cls.configuration_schema(),
+            icon=dataset_type_cls.icon(),
+            enabled=dataset_type_cls.enabled(),
+            browse_schema=source_cls.browse_schema(),
+            browsable=not getattr(source_cls, "IS_NOOP", False),
+        )
 
     def get_dataset_type(self, name: str) -> DatasetTypeInfoResponse:
         """Get information about a specific dataset type.
@@ -417,13 +427,7 @@ class DatasetHandler:
                 status_code=404, detail=f"Dataset type '{name}' not found"
             ) from None
 
-        return DatasetTypeInfoResponse(
-            name=dataset_type_cls.name(),
-            description=dataset_type_cls.description(),
-            config_schema=dataset_type_cls.configuration_schema(),
-            icon=dataset_type_cls.icon(),
-            enabled=dataset_type_cls.enabled(),
-        )
+        return self._type_info(dataset_type_cls)
 
     # ============== Dataset CRUD Methods ==============
 
