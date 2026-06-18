@@ -77,51 +77,41 @@
                     <div
                       v-for="item in group.children || []"
                       :key="item.path"
-                      class="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted"
+                      class="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+                      @click="onItemCheckbox(item.path, !selected.includes(item.path))"
                     >
                       <Checkbox
                         :model-value="selected.includes(item.path)"
                         @update:model-value="(checked) => onItemCheckbox(item.path, checked)"
-                      />
-                      <component
-                        :is="item.link ? 'a' : 'div'"
-                        :href="item.link || undefined"
-                        :target="item.link ? '_blank' : undefined"
-                        :rel="item.link ? 'noopener noreferrer' : undefined"
                         @click.stop
-                        class="flex items-center gap-2 flex-1 min-w-0"
-                        :class="item.link ? 'cursor-pointer' : ''"
-                      >
-                        <FileText
-                          class="w-4 h-4 flex-shrink-0 text-muted-foreground"
-                          :class="
-                            item.link
-                              ? 'group-hover:text-blue-600 dark:group-hover:text-blue-400'
-                              : ''
-                          "
-                        />
-                        <div class="flex-1 min-w-0">
-                          <div class="flex items-center gap-1.5 min-w-0">
-                            <span
-                              class="text-sm truncate min-w-0"
-                              :class="
-                                item.link ? 'group-hover:underline group-hover:text-foreground' : ''
-                              "
-                              >{{ item.name }}</span
-                            >
-                            <Badge
-                              v-if="item.status === 'private'"
-                              variant="outline"
-                              class="flex-shrink-0 h-4 px-1 text-[10px] font-normal text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700"
-                            >
-                              Private
-                            </Badge>
-                          </div>
-                          <p v-if="item.modifiedTime" class="text-xs text-muted-foreground">
-                            modified {{ formatModified(item.modifiedTime) }}
-                          </p>
+                      />
+                      <FileText class="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                          <span class="text-sm truncate min-w-0">{{ item.name }}</span>
+                          <Badge
+                            v-if="item.status === 'private'"
+                            variant="outline"
+                            class="flex-shrink-0 h-4 px-1 text-[10px] font-normal text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700"
+                          >
+                            Private
+                          </Badge>
                         </div>
-                      </component>
+                        <p v-if="item.modifiedTime" class="text-xs text-muted-foreground">
+                          modified {{ formatModified(item.modifiedTime) }}
+                        </p>
+                      </div>
+                      <a
+                        v-if="item.link"
+                        :href="item.link"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click.stop
+                        title="Preview post"
+                        class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted-foreground/10 transition-opacity"
+                      >
+                        <ExternalLink class="w-3.5 h-3.5" />
+                      </a>
                     </div>
                   </div>
                 </div>
@@ -195,7 +185,15 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ChevronDown, ChevronRight, FileText, Folder, Newspaper, X } from 'lucide-vue-next'
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Folder,
+  Newspaper,
+  X,
+} from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'

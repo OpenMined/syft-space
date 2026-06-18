@@ -987,6 +987,7 @@ class DatasetHandler:
             try:
                 await provider.validate_browse_config(configuration)
             except ValueError as e:
+                logger.warning(f"Browse config rejected for '{dtype}': {e}")
                 raise HTTPException(
                     status_code=400, detail=f"Invalid browse configuration: {e}"
                 ) from e
@@ -995,12 +996,16 @@ class DatasetHandler:
             browser = provider.for_browse(configuration)
             items = await browser.list_items(parent_id)
         except ValueError as e:
+            logger.warning(f"Browse failed for '{dtype}' (parent={parent_id}): {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
         except FileNotFoundError as e:
+            logger.warning(f"Browse target not found for '{dtype}': {e}")
             raise HTTPException(status_code=404, detail=str(e)) from e
         except NotADirectoryError as e:
+            logger.warning(f"Browse target not a container for '{dtype}': {e}")
             raise HTTPException(status_code=400, detail=f"Not a container: {e}") from e
         except PermissionError as e:
+            logger.warning(f"Browse denied for '{dtype}': {e}")
             raise HTTPException(status_code=403, detail=str(e)) from e
 
         return SourceBrowseResponse(parent_id=parent_id, items=items)
