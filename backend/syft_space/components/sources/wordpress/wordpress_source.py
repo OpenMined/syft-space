@@ -41,6 +41,7 @@ from syft_space.components.sources.errors import (
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,
+    SourcePage,
 )
 
 logger = logging.getLogger(__name__)
@@ -262,32 +263,41 @@ class WordPressBrowser:
     def __init__(self, config: WordPressBrowseConfig) -> None:
         self.config = config
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
         async with _make_client(self.config) as client:
             types = await _fetch_post_types(client)
             if parent_id is None:
-                return [
-                    SourceItem(
-                        external_id=f"type:{slug}",
-                        display_name=info["name"],
-                        parent_id=None,
-                        is_container=True,
-                        is_leaf=False,
-                        metadata={"post_type": slug, "rest_base": info["rest_base"]},
-                    )
-                    for slug, info in types.items()
-                ]
+                return SourcePage(
+                    items=[
+                        SourceItem(
+                            external_id=f"type:{slug}",
+                            display_name=info["name"],
+                            parent_id=None,
+                            is_container=True,
+                            is_leaf=False,
+                            metadata={
+                                "post_type": slug,
+                                "rest_base": info["rest_base"],
+                            },
+                        )
+                        for slug, info in types.items()
+                    ],
+                    next_cursor=None,
+                )
 
             if not parent_id.startswith("type:"):
-                return []
+                return SourcePage(items=[], next_cursor=None)
             post_type = parent_id[len("type:") :]
             info = types.get(post_type)
             if info is None:
-                return []
+                return SourcePage(items=[], next_cursor=None)
 
-            return await self._list_type(
+            items = await self._list_type(
                 client, post_type, parent_id, info["rest_base"]
             )
+            return SourcePage(items=items, next_cursor=None)
 
     async def _list_type(
         self,
@@ -356,12 +366,14 @@ class WordPressSource:
             )
         return info["rest_base"]
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
         """Delegate to a transient ``WordPressBrowser`` using the browse subset."""
         browser = WordPressBrowser(
             WordPressBrowseConfig.model_validate(self.config.model_dump())
         )
-        return await browser.list_items(parent_id)
+        return await browser.list_items(parent_id, cursor)
 
     @asynccontextmanager
     async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:

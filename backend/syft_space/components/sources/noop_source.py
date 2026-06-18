@@ -17,22 +17,26 @@ from typing import Any
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
-    SourceItem,
+    SourcePage,
 )
 
 
 class NoOpBrowser:
-    """Picker-side no-op. ``list_items`` always returns an empty list."""
+    """Picker-side no-op. ``list_items`` always returns an empty page."""
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
-        return []
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
+        return SourcePage(items=[], next_cursor=None)
 
 
 class NoOpSource:
     """Ingest-side no-op. Lists nothing and emits no change events."""
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
-        return []
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
+        return SourcePage(items=[], next_cursor=None)
 
     def fetch(self, external_id: str) -> AbstractAsyncContextManager[IngestFile]:
         """Always raises — the no-op source has nothing to fetch."""

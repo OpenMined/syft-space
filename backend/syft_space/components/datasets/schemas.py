@@ -356,6 +356,13 @@ class SourceBrowseRequest(BaseModel):
         default=None,
         description="Container id to list. Null lists the source's top level.",
     )
+    cursor: str | None = Field(
+        default=None,
+        description=(
+            "Opaque resume token from a prior response's next_cursor. Null "
+            "fetches the first page of the requested level."
+        ),
+    )
 
 
 class SourceBrowseResponse(BaseModel):

@@ -968,13 +968,15 @@ class DatasetHandler:
         dtype: str,
         configuration: dict[str, Any],
         parent_id: str | None,
+        cursor: str | None = None,
     ) -> SourceBrowseResponse:
-        """Return one level of items from a source, starting at ``parent_id``.
+        """Return one page of items from a source level, starting at ``parent_id``.
 
-        Validation runs only at the top level (``parent_id is None``): the
-        first call probes the credentials, so bad auth fails as 401 and a
-        permission/WAF block as 403. Drill-downs reuse those validated creds
-        and skip the probe — ``list_items`` surfaces any failure on its own.
+        Validation runs only on the first page of the top level
+        (``parent_id is None and cursor is None``): that first call probes the
+        credentials, so bad auth fails as 401 and a permission/WAF block as
+        403. Drill-downs and "load more" pages reuse those validated creds and
+        skip the probe — ``list_items`` surfaces any failure on its own.
         Source-layer failures carry their own status via ``SourceError``;
         stdlib errors from filesystem sources map to a status here.
         """
@@ -986,11 +988,11 @@ class DatasetHandler:
             ) from e
 
         try:
-            # Probe credentials once, on the first (top-level) call only.
-            if parent_id is None:
+            # Probe credentials once, on the first page of the top level only.
+            if parent_id is None and cursor is None:
                 await provider.validate_browse_config(configuration)
             browser = provider.for_browse(configuration)
-            items = await browser.list_items(parent_id)
+            page = await browser.list_items(parent_id, cursor)
         except SourceError as e:
             logger.warning(f"Browse failed for '{dtype}' (parent={parent_id}): {e}")
             raise e.to_http_exception() from e
@@ -1003,7 +1005,9 @@ class DatasetHandler:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-        return SourceBrowseResponse(parent_id=parent_id, items=items)
+        return SourceBrowseResponse(
+            parent_id=parent_id, items=page.items, next_cursor=page.next_cursor
+        )
 
     async def serve_image(
         self, dataset_id: str, doc_id: str, filename: str, tenant: Tenant

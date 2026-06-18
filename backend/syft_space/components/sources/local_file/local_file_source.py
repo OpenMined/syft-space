@@ -18,6 +18,7 @@ from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,
+    SourcePage,
 )
 from syft_space.components.sources.local_file.local_file_watcher import (
     get_local_file_watcher,
@@ -89,7 +90,9 @@ class LocalFileBrowser:
     def __init__(self, config: LocalFileBrowseConfig) -> None:
         self.config = config
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
         """List one level of directory contents under the user's home.
 
         ``parent_id=None`` lists the home directory; otherwise
@@ -97,6 +100,11 @@ class LocalFileBrowser:
         home directory. Dotfiles are included only when ``show_hidden``
         is set. Folders come first, then files, each group sorted
         alphabetically.
+
+        Returns the whole level in one page (``next_cursor=None``); the
+        ``cursor`` argument is accepted for protocol conformance but
+        unused. Offset-chunking pathological directories is a future
+        follow-up.
         """
         home = SyncPath.home()
         try:
@@ -149,7 +157,7 @@ class LocalFileBrowser:
             )
 
         items.sort(key=lambda i: (not i.is_container, i.display_name.lower()))
-        return items
+        return SourcePage(items=items, next_cursor=None)
 
 
 class LocalFileSource:
@@ -164,7 +172,9 @@ class LocalFileSource:
         self.config = config
         self._allowed_extensions: set[str] = set(config.allowed_extensions)
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
         """List directory contents using the picker's home-rooted walk.
 
         Delegates to a transient ``LocalFileBrowser`` so the directory
@@ -176,7 +186,7 @@ class LocalFileSource:
                 {"show_hidden": self.config.show_hidden}
             )
         )
-        return await browser.list_items(parent_id)
+        return await browser.list_items(parent_id, cursor)
 
     def watched_paths(self) -> list[str]:
         """Absolute directory/file paths to monitor."""

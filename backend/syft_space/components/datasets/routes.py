@@ -100,7 +100,9 @@ def build_dataset_routes(
         configuration; the handler dispatches to that source's
         ``list_items`` for one level of containers/leaves.
         """
-        return await handler.browse_source(req.dtype, req.configuration, req.parent_id)
+        return await handler.browse_source(
+            req.dtype, req.configuration, req.parent_id, req.cursor
+        )
 
     # ============== Image Serving Endpoint ==============
 
