@@ -15,11 +15,13 @@ export const datasetsApi = {
     dtype: string,
     parentId: string | null = null,
     configuration: Record<string, unknown> = {},
+    cursor: string | null = null,
   ): Promise<SourceBrowseResponse> => {
     const body: SourceBrowseRequest = {
       dtype,
       configuration,
       parent_id: parentId,
+      cursor,
     }
     const response = await apiClient.post<SourceBrowseResponse>('/datasets/browse', body)
     return response.data

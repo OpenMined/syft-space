@@ -17,6 +17,10 @@ export interface FileNode {
   status?: string
   /** External URL to preview the item, if the source provides one. */
   link?: string
+  /** Cursor for the next page of this container's children; null when exhausted. */
+  nextCursor?: string | null
+  /** True while a "load more" fetch for this container is in flight. */
+  isLoadingMore?: boolean
 }
 
 const TCC_SERVICE_MAP: Record<string, string> = {
@@ -42,6 +46,8 @@ export function useSourceBrowser(
   configuration: Record<string, unknown> = {},
 ) {
   const rootNodes = ref<FileNode[]>([])
+  const rootNextCursor = ref<string | null>(null)
+  const rootLoadingMore = ref(false)
   const loadingPaths = ref<Set<string>>(new Set())
   const loadedPaths = ref<Set<string>>(new Set())
   const error = ref<string | null>(null)
@@ -51,7 +57,13 @@ export function useSourceBrowser(
   const loadDirectory = async (
     parentId: string | null,
     isInitial = false,
-  ): Promise<{ nodes: FileNode[]; permissionDenied: boolean }> => {
+    cursor: string | null = null,
+  ): Promise<{
+    nodes: FileNode[]
+    permissionDenied: boolean
+    nextCursor: string | null
+    ok: boolean
+  }> => {
     const loadingKey = parentId ?? '__root__'
     try {
       if (isInitial) {
@@ -61,7 +73,7 @@ export function useSourceBrowser(
         loadingPaths.value.add(loadingKey)
       }
 
-      const response = await datasetsApi.browse(dtype, parentId, configuration)
+      const response = await datasetsApi.browse(dtype, parentId, configuration, cursor)
 
       if (!response || !Array.isArray(response.items)) {
         throw new Error('Invalid response from server')
@@ -85,7 +97,12 @@ export function useSourceBrowser(
       })
 
       loadedPaths.value.add(loadingKey)
-      return { nodes, permissionDenied: false }
+      return {
+        nodes,
+        permissionDenied: false,
+        nextCursor: response.next_cursor ?? null,
+        ok: true,
+      }
     } catch (err) {
       const status = axios.isAxiosError(err) ? err.response?.status : undefined
       // The backend sends a user-facing reason in `detail` (e.g. "Authentication
@@ -103,7 +120,7 @@ export function useSourceBrowser(
               ? err.message
               : 'Failed to load directory')
       }
-      return { nodes: [], permissionDenied: is403 }
+      return { nodes: [], permissionDenied: is403, nextCursor: null, ok: false }
     } finally {
       if (isInitial) {
         isInitialLoading.value = false
@@ -113,10 +130,22 @@ export function useSourceBrowser(
     }
   }
 
+  /** Append nodes not already present (dedup by path) into an existing list. */
+  const appendDeduped = (existing: FileNode[], incoming: FileNode[]) => {
+    const seen = new Set(existing.map((n) => n.path))
+    for (const node of incoming) {
+      if (!seen.has(node.path)) {
+        existing.push(node)
+        seen.add(node.path)
+      }
+    }
+  }
+
   const loadRootDirectory = async () => {
     rootPermissionDenied.value = false
     const result = await loadDirectory(null, true)
     rootNodes.value = result.nodes
+    rootNextCursor.value = result.nextCursor
     rootPermissionDenied.value = result.permissionDenied
   }
 
@@ -130,10 +159,48 @@ export function useSourceBrowser(
     try {
       const result = await loadDirectory(parentNode.path)
       parentNode.children = result.nodes
+      parentNode.nextCursor = result.nextCursor
       parentNode.hasLoaded = true
       parentNode.permissionDenied = result.permissionDenied
     } finally {
       parentNode.isLoading = false
+    }
+  }
+
+  /** Fetch the next page of a container's children and append it. */
+  const loadMore = async (node: FileNode) => {
+    if (!node.nextCursor || node.isLoadingMore) {
+      return
+    }
+    node.isLoadingMore = true
+    try {
+      const result = await loadDirectory(node.path, false, node.nextCursor)
+      if (result.ok) {
+        if (!node.children) {
+          node.children = []
+        }
+        appendDeduped(node.children, result.nodes)
+        node.nextCursor = result.nextCursor
+      }
+    } finally {
+      node.isLoadingMore = false
+    }
+  }
+
+  /** Fetch the next page of the root level and append it. */
+  const loadMoreRoot = async () => {
+    if (!rootNextCursor.value || rootLoadingMore.value) {
+      return
+    }
+    rootLoadingMore.value = true
+    try {
+      const result = await loadDirectory(null, false, rootNextCursor.value)
+      if (result.ok) {
+        appendDeduped(rootNodes.value, result.nodes)
+        rootNextCursor.value = result.nextCursor
+      }
+    } finally {
+      rootLoadingMore.value = false
     }
   }
 
@@ -164,12 +231,16 @@ export function useSourceBrowser(
 
   return {
     rootNodes,
+    rootNextCursor,
+    rootLoadingMore,
     error,
     isLoading,
     isInitialLoading,
     rootPermissionDenied,
     loadRootDirectory,
     loadSubdirectory,
+    loadMore,
+    loadMoreRoot,
     retryDirectory,
     retryRootDirectory,
   }

@@ -12,6 +12,7 @@ export interface SourceBrowseRequest {
   dtype: string
   configuration?: Record<string, unknown>
   parent_id?: string | null
+  cursor?: string | null
 }
 
 export interface SourceBrowseResponse {
