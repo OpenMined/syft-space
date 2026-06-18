@@ -443,11 +443,10 @@
             <div v-if="selectedDataSourceType === 'filesystem'" class="mt-6">
               <Card class="bg-card border-border">
                 <CardContent class="p-6">
-                  <FileExplorer
-                    ref="fileExplorerRef"
+                  <SourceBrowser
+                    ref="sourceBrowserRef"
+                    dtype="local_file"
                     v-model="selectedFiles"
-                    :show-hidden="false"
-                    :allow-multiple="true"
                   />
                 </CardContent>
               </Card>
@@ -483,9 +482,9 @@
                         class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0"
                       >
                         <component
-                          :is="getFileIcon(file, false, fileExplorerRef?.rootNodes)"
+                          :is="getFileIcon(file, false, sourceBrowserRef?.rootNodes)"
                           class="h-4 w-4"
-                          :class="getFileIconColor(file, fileExplorerRef?.rootNodes)"
+                          :class="getFileIconColor(file, sourceBrowserRef?.rootNodes)"
                         />
                       </div>
                       <div class="flex-1 min-w-0 space-y-3">
@@ -1500,7 +1499,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
-import FileExplorer from '@/components/FileExplorer.vue'
+import SourceBrowser from '@/components/SourceBrowser.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
@@ -1637,12 +1636,12 @@ const formData = ref({
 
 // Data source selection
 const selectedDataSourceType = ref<'filesystem' | 'existing' | ''>('')
-const selectedFiles = ref<string[]>([]) // Start with empty selection for FileExplorer
+const selectedFiles = ref<string[]>([])
 const fileDescriptions = ref({} as Record<string, string>)
-const fileExplorerRef = ref<InstanceType<typeof FileExplorer> | null>(null)
+const sourceBrowserRef = ref<InstanceType<typeof SourceBrowser> | null>(null)
 const { getFileIcon, getFileIconColor } = useFileIcon()
 
-// Cache for file types (to use in step 4 when FileExplorer is unmounted)
+// Cache for file types (to use in later steps when the browser is unmounted)
 const selectedPathTypes = ref<Record<string, 'file' | 'directory'>>({})
 
 // Helper to find a node in the file tree
@@ -1664,14 +1663,14 @@ const findNodeInTree = (nodes: FileNode[], targetPath: string): FileNode | null 
   return null
 }
 
-// Watch selectedFiles and cache their types when FileExplorer data is available
+// Watch selectedFiles and cache their types while the browser tree is loaded
 watch(
   selectedFiles,
   (newFiles) => {
-    if (fileExplorerRef.value?.rootNodes) {
+    if (sourceBrowserRef.value?.rootNodes) {
       for (const file of newFiles) {
         if (!selectedPathTypes.value[file]) {
-          const node = findNodeInTree(fileExplorerRef.value.rootNodes, file)
+          const node = findNodeInTree(sourceBrowserRef.value.rootNodes, file)
           if (node) {
             selectedPathTypes.value[file] = node.type
           }
