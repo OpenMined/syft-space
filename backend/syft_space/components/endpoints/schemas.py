@@ -7,7 +7,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
+from syft_space.components.dataset_types.redaction import (
+    redact_config as redact_dataset_config,
+)
 from syft_space.components.endpoints.entities import ResponseType
+from syft_space.components.model_types.redaction import (
+    redact_config as redact_model_config,
+)
 
 
 class CreateEndpointRequest(BaseModel):
@@ -127,6 +133,12 @@ class AttachedModel(BaseModel):
 
         from_attributes = True
 
+    @model_validator(mode="after")
+    def _redact_configuration(self) -> "AttachedModel":
+        """Strip credentials before the embedded config leaves the API."""
+        self.configuration = redact_model_config(self.configuration, self.dtype)
+        return self
+
 
 class AttachedDataset(BaseModel):
     """Response model for attached dataset."""
@@ -141,6 +153,12 @@ class AttachedDataset(BaseModel):
         """Pydantic config."""
 
         from_attributes = True
+
+    @model_validator(mode="after")
+    def _redact_configuration(self) -> "AttachedDataset":
+        """Strip credentials before the embedded config leaves the API."""
+        self.configuration = redact_dataset_config(self.configuration, self.dtype)
+        return self
 
 
 class EndpointResponse(BaseModel):

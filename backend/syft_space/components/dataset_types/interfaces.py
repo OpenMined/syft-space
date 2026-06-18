@@ -119,6 +119,16 @@ class BaseDatasetType:
         return cls.VECTOR_STORE_CLS.connection_fields()
 
     @classmethod
+    def redact_configuration(cls, configuration: dict[str, Any]) -> dict[str, Any]:
+        """Return a copy of the stored configuration safe to expose over the API.
+
+        The default exposes the configuration unchanged. Bindings with
+        credential fields override this to drop or mask them before the
+        configuration is serialized into a response.
+        """
+        return dict(configuration)
+
+    @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
         """Validate by splitting and delegating to each collaborator.
 

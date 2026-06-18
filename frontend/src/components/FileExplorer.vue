@@ -143,7 +143,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import TreeNode from './FileExplorerTreeNode.vue'
 import { useFileIcon } from '@/composables/useFileIcon'
-import { useDatasetBrowser, type FileNode } from '@/composables/useDatasetBrowser'
+import { useSourceBrowser, type FileNode } from '@/composables/useSourceBrowser'
 
 const props = defineProps<{
   modelValue: string[]
@@ -170,7 +170,7 @@ const {
   loadSubdirectory,
   retryDirectory,
   retryRootDirectory,
-} = useDatasetBrowser()
+} = useSourceBrowser('local_file')
 
 // Load initial data on mount
 onMounted(async () => {

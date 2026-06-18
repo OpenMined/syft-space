@@ -21,17 +21,28 @@
           />
         </div>
 
-        <!-- File Explorer -->
+        <!-- Source-specific browser -->
         <div v-if="!props.dataset" class="space-y-4">
           <FileExplorer
+            v-if="sourceType === 'local_file'"
             ref="fileExplorerRef"
             v-model="formData.selectedFiles"
             :show-hidden="false"
             :allow-multiple="true"
           />
+          <WordPressBrowser
+            v-else-if="sourceType === 'wordpress'"
+            v-model="formData.selectedFiles"
+            :site-url="credentials.siteUrl"
+            :username="credentials.username"
+            :application-password="credentials.applicationPassword"
+          />
 
-          <!-- Selected Items with Descriptions -->
-          <div v-if="formData.selectedFiles.length > 0" class="space-y-3">
+          <!-- Per-file descriptions (local_file only) -->
+          <div
+            v-if="sourceType === 'local_file' && formData.selectedFiles.length > 0"
+            class="space-y-3"
+          >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <h4 class="text-sm font-medium text-foreground">Selected Items</h4>
@@ -197,6 +208,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Plus, X } from 'lucide-vue-next'
 import FileExplorer from '@/components/FileExplorer.vue'
+import WordPressBrowser from '@/components/WordPressBrowser.vue'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
@@ -210,10 +222,22 @@ interface EditDataset {
   filePaths: Array<{ path: string; description: string }>
 }
 
-const props = defineProps<{
-  open: boolean
-  dataset?: EditDataset | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    dataset?: EditDataset | null
+    sourceType?: string
+    credentials?: Record<string, string>
+  }>(),
+  {
+    dataset: null,
+    sourceType: 'local_file',
+    credentials: () => ({}),
+  },
+)
+
+const sourceType = computed(() => props.sourceType)
+const credentials = computed(() => props.credentials)
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
@@ -249,6 +273,23 @@ const isFormValid = computed(() => {
   }
   return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
 })
+
+const buildConfiguration = (): Record<string, unknown> => {
+  if (sourceType.value === 'wordpress') {
+    return {
+      siteUrl: credentials.value.siteUrl ?? '',
+      username: credentials.value.username ?? '',
+      applicationPassword: credentials.value.applicationPassword ?? '',
+      selectedItems: [...formData.value.selectedFiles],
+    }
+  }
+  // local_file (default)
+  const filePathsWithDescriptions = formData.value.selectedFiles.map((filePath) => ({
+    path: filePath,
+    description: fileDescriptions.value[filePath] || '',
+  }))
+  return { filePaths: filePathsWithDescriptions }
+}
 
 const getFileName = (path: string) => {
   return path.split('/').pop() || path
@@ -296,11 +337,6 @@ const handleCreate = async () => {
   isCreating.value = true
 
   try {
-    const filePathsWithDescriptions = formData.value.selectedFiles.map((filePath) => ({
-      path: filePath,
-      description: fileDescriptions.value[filePath] || '',
-    }))
-
     if (props.dataset) {
       const updateRequest: UpdateDatasetRequest = {
         name: formData.value.name.trim(),
@@ -313,13 +349,11 @@ const handleCreate = async () => {
       toast.success(`"${props.dataset.name}" updated`)
     } else {
       const createRequest: CreateDatasetRequest = {
-        dtype: 'local_file',
+        dtype: sourceType.value,
         name: formData.value.name.trim(),
         summary: formData.value.summary.trim() || '',
         tags: formData.value.tags.join(','),
-        configuration: {
-          filePaths: filePathsWithDescriptions,
-        },
+        configuration: buildConfiguration(),
       }
 
       await datasetsApi.create(createRequest)

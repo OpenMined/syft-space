@@ -95,6 +95,11 @@ def register_builtin_sources() -> None:
         "LocalFileProvider",
     )
     SOURCE_REGISTRY.register(
+        "wordpress",
+        "syft_space.components.sources.wordpress.wordpress_source",
+        "WordPressProvider",
+    )
+    SOURCE_REGISTRY.register(
         "noop",
         "syft_space.components.sources.noop_source",
         "NoOpProvider",

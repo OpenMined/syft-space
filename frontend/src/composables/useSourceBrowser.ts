@@ -3,8 +3,6 @@ import axios from 'axios'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import type { SourceItem } from '@/api/types'
 
-const LOCAL_FILE_DTYPE = 'local_file'
-
 export interface FileNode {
   name: string
   path: string
@@ -15,6 +13,10 @@ export interface FileNode {
   isLoading?: boolean
   hasLoaded?: boolean
   permissionDenied?: boolean
+  /** Source-specific status (e.g. WordPress 'publish' | 'private'). */
+  status?: string
+  /** External URL to preview the item, if the source provides one. */
+  link?: string
 }
 
 const TCC_SERVICE_MAP: Record<string, string> = {
@@ -35,7 +37,10 @@ function getTccService(path: string): string | null {
   return null
 }
 
-export function useDatasetBrowser() {
+export function useSourceBrowser(
+  dtype: string,
+  configuration: Record<string, unknown> = {},
+) {
   const rootNodes = ref<FileNode[]>([])
   const loadingPaths = ref<Set<string>>(new Set())
   const loadedPaths = ref<Set<string>>(new Set())
@@ -56,14 +61,16 @@ export function useDatasetBrowser() {
         loadingPaths.value.add(loadingKey)
       }
 
-      const response = await datasetsApi.browse(LOCAL_FILE_DTYPE, parentId)
+      const response = await datasetsApi.browse(dtype, parentId, configuration)
 
       if (!response || !Array.isArray(response.items)) {
         throw new Error('Invalid response from server')
       }
 
       const nodes: FileNode[] = response.items.map((item: SourceItem) => {
-        const modified = (item.metadata?.modified as string | undefined) ?? undefined
+        const modified =
+          (item.metadata?.modified_gmt as string | undefined) ??
+          (item.metadata?.modified as string | undefined)
         return {
           name: item.display_name,
           path: item.external_id,
@@ -72,19 +79,29 @@ export function useDatasetBrowser() {
           modifiedTime: modified ? new Date(modified) : undefined,
           children: item.is_container ? [] : undefined,
           hasLoaded: false,
+          status: (item.metadata?.status as string | undefined) ?? undefined,
+          link: (item.metadata?.link as string | undefined) ?? undefined,
         }
       })
 
       loadedPaths.value.add(loadingKey)
       return { nodes, permissionDenied: false }
     } catch (err) {
-      const is403 = axios.isAxiosError(err) && err.response?.status === 403
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined
+      // The backend sends a user-facing reason in `detail` (e.g. "Authentication
+      // failed (401)…"); prefer it so the picker says why, not just "failed".
+      const detail = axios.isAxiosError(err)
+        ? (err.response?.data?.detail as string | undefined)
+        : undefined
+      const is403 = status === 403
       if (isInitial) {
-        error.value = is403
-          ? 'Permission denied'
-          : err instanceof Error
-            ? err.message
-            : 'Failed to load directory'
+        error.value =
+          detail ??
+          (is403
+            ? 'Permission denied'
+            : err instanceof Error
+              ? err.message
+              : 'Failed to load directory')
       }
       return { nodes: [], permissionDenied: is403 }
     } finally {

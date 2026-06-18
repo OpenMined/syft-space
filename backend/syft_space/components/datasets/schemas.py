@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from syft_space.components.dataset_types.redaction import redact_config
 from syft_space.components.datasets.entities import ProvisionerStatus
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.sources.interfaces import SourceItem
@@ -178,7 +179,7 @@ class DatasetResponse(BaseModel):
             id=dataset.id,
             name=dataset.name,
             dtype=dataset.dtype,
-            configuration=dataset.configuration,
+            configuration=redact_config(dataset.configuration, dataset.dtype),
             summary=dataset.summary,
             tags=dataset.tags,
             provisioner_state=provisioner_state_response,
@@ -227,7 +228,7 @@ class DatasetListItem(BaseModel):
             created_at=dataset.created_at,
             connected_endpoints=dataset.endpoints,
             provisioner_status=provisioner_status_response,
-            configuration=dataset.configuration,
+            configuration=redact_config(dataset.configuration, dataset.dtype),
         )
 
 

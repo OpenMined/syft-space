@@ -109,6 +109,11 @@ class OpenAIModelType(BaseModelType):
             "order": ["api_key", "model", "base_url"],
         }
 
+    @classmethod
+    def redact_configuration(cls, configuration: dict[str, Any]) -> dict[str, Any]:
+        """Drop the OpenAI API key from the exposed config."""
+        return {k: v for k, v in configuration.items() if k != "api_key"}
+
     async def chat(
         self,
         ctx: ChatContext,

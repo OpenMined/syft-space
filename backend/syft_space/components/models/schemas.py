@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from syft_space.components.model_types.redaction import redact_config
+
 
 class ModelTypeInfoResponse(BaseModel):
     """Response model for model type information."""
@@ -99,6 +101,12 @@ class ModelResponse(BaseModel):
 
         from_attributes = True
 
+    @model_validator(mode="after")
+    def _redact_configuration(self) -> "ModelResponse":
+        """Strip credentials before the config leaves the API."""
+        self.configuration = redact_config(self.configuration, self.dtype)
+        return self
+
 
 class ModelResponseWithEndpoints(ModelResponse):
     connected_endpoints: list[EndpointListItem] = Field(
@@ -137,3 +145,9 @@ class ModelListItem(BaseModel):
 
         from_attributes = True
         populate_by_name = True
+
+    @model_validator(mode="after")
+    def _redact_configuration(self) -> "ModelListItem":
+        """Strip credentials before the config leaves the API."""
+        self.configuration = redact_config(self.configuration, self.dtype)
+        return self

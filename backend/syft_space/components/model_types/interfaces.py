@@ -126,6 +126,16 @@ class BaseModelType(Protocol):
         """
         ...
 
+    @classmethod
+    def redact_configuration(cls, configuration: dict[str, Any]) -> dict[str, Any]:
+        """Return a copy of the stored configuration safe to expose over the API.
+
+        The default exposes the configuration unchanged. Model types with
+        credential fields override this to drop or mask them before the
+        configuration is serialized into a response.
+        """
+        return dict(configuration)
+
     async def chat(
         self,
         ctx: ChatContext,

@@ -30,10 +30,7 @@ export interface CreateDatasetRequest {
   name: string
   summary: string
   tags: string
-  configuration: {
-    collectionName?: string
-    filePaths: FilePathItem[]
-  }
+  configuration: Record<string, unknown>
 }
 
 export interface ProvisionerStateResponse {
