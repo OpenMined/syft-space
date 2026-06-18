@@ -35,6 +35,7 @@ from syft_space.components.datasets.schemas import (
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.ingest_types import IngestContext
+from syft_space.components.sources.errors import SourceError
 from syft_space.components.sources.registry import SOURCE_REGISTRY
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.vector_stores.chunking import PAGE_IMAGES_BASE_DIR
@@ -971,9 +972,11 @@ class DatasetHandler:
         """Return one level of items from a source, starting at ``parent_id``.
 
         Validation runs only at the top level (``parent_id is None``): the
-        first call probes the credentials so bad ones fail as a 400.
-        Drill-downs reuse those validated creds and skip the probe —
-        ``list_items`` surfaces any failure on its own.
+        first call probes the credentials, so bad auth fails as 401 and a
+        permission/WAF block as 403. Drill-downs reuse those validated creds
+        and skip the probe — ``list_items`` surfaces any failure on its own.
+        Source-layer failures carry their own status via ``SourceError``;
+        stdlib errors from filesystem sources map to a status here.
         """
         try:
             provider = SOURCE_REGISTRY.get(dtype)
@@ -982,31 +985,23 @@ class DatasetHandler:
                 status_code=404, detail=f"Unknown source type: {dtype}"
             ) from e
 
-        # Probe credentials once, on the first (top-level) call only.
-        if parent_id is None:
-            try:
-                await provider.validate_browse_config(configuration)
-            except ValueError as e:
-                logger.warning(f"Browse config rejected for '{dtype}': {e}")
-                raise HTTPException(
-                    status_code=400, detail=f"Invalid browse configuration: {e}"
-                ) from e
-
         try:
+            # Probe credentials once, on the first (top-level) call only.
+            if parent_id is None:
+                await provider.validate_browse_config(configuration)
             browser = provider.for_browse(configuration)
             items = await browser.list_items(parent_id)
-        except ValueError as e:
+        except SourceError as e:
             logger.warning(f"Browse failed for '{dtype}' (parent={parent_id}): {e}")
-            raise HTTPException(status_code=400, detail=str(e)) from e
+            raise e.to_http_exception() from e
         except FileNotFoundError as e:
-            logger.warning(f"Browse target not found for '{dtype}': {e}")
             raise HTTPException(status_code=404, detail=str(e)) from e
         except NotADirectoryError as e:
-            logger.warning(f"Browse target not a container for '{dtype}': {e}")
             raise HTTPException(status_code=400, detail=f"Not a container: {e}") from e
         except PermissionError as e:
-            logger.warning(f"Browse denied for '{dtype}': {e}")
             raise HTTPException(status_code=403, detail=str(e)) from e
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
         return SourceBrowseResponse(parent_id=parent_id, items=items)
 

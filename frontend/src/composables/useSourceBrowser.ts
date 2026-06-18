@@ -87,13 +87,21 @@ export function useSourceBrowser(
       loadedPaths.value.add(loadingKey)
       return { nodes, permissionDenied: false }
     } catch (err) {
-      const is403 = axios.isAxiosError(err) && err.response?.status === 403
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined
+      // The backend sends a user-facing reason in `detail` (e.g. "Authentication
+      // failed (401)…"); prefer it so the picker says why, not just "failed".
+      const detail = axios.isAxiosError(err)
+        ? (err.response?.data?.detail as string | undefined)
+        : undefined
+      const is403 = status === 403
       if (isInitial) {
-        error.value = is403
-          ? 'Permission denied'
-          : err instanceof Error
-            ? err.message
-            : 'Failed to load directory'
+        error.value =
+          detail ??
+          (is403
+            ? 'Permission denied'
+            : err instanceof Error
+              ? err.message
+              : 'Failed to load directory')
       }
       return { nodes: [], permissionDenied: is403 }
     } finally {

@@ -33,6 +33,11 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.sources.errors import (
+    SourceAuthError,
+    SourceError,
+    SourceForbiddenError,
+)
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,
@@ -177,15 +182,16 @@ async def _fetch_post_types(client: httpx.AsyncClient) -> dict[str, dict[str, st
         ``{slug: {"name": <label>, "rest_base": <url segment>}}``.
 
     Raises:
-        ValueError: bad auth (401), or a permission/WAF block (403).
+        SourceAuthError: credentials rejected (401).
+        SourceForbiddenError: permission or WAF/User-Agent block (403).
     """
     r = await client.get("/types", params={"context": "edit"})
     if r.status_code == 401:
-        raise ValueError(
+        raise SourceAuthError(
             "Authentication failed (401) — check username and Application Password"
         )
     if r.status_code == 403:
-        raise ValueError(
+        raise SourceForbiddenError(
             "Listing post types returned 403 — the user may lack edit rights, "
             "or the site blocks this User-Agent (override userAgent)"
         )
@@ -208,8 +214,10 @@ async def _validate_connection(cfg: WordPressBrowseConfig) -> None:
     the actual auth check) and fails if no content types come back.
 
     Raises:
-        ValueError: bad auth, a WAF block, or a site with no ingestable
-            post types exposed over REST.
+        SourceAuthError: credentials rejected (401).
+        SourceForbiddenError: permission or WAF/User-Agent block (403).
+        ValueError: connected, but no ingestable post types are exposed
+            over REST.
     """
     async with _make_client(cfg) as client:
         if not await _fetch_post_types(client):
@@ -443,7 +451,7 @@ class WordPressSource:
                             client, post_type, post_ids
                         ):
                             yield event
-                    except (httpx.HTTPError, ValueError) as e:
+                    except (httpx.HTTPError, SourceError, ValueError) as e:
                         logger.warning(
                             "WordPress poll failed for type %s: %s", post_type, e
                         )
