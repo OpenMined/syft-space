@@ -1,65 +1,69 @@
 <template>
   <div class="source-node">
-    <div
-      class="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer select-none"
-      :class="{ 'bg-blue-50 dark:bg-blue-950/50': isLeafSelected }"
-      :style="{ paddingLeft: `${depth * 20 + 8}px` }"
-      @click="onRowClick"
-    >
-      <div class="w-5 h-5 flex items-center justify-center flex-shrink-0">
-        <component
-          v-if="isContainer"
-          :is="isExpanded ? ChevronDown : ChevronRight"
-          class="w-4 h-4 text-muted-foreground"
-        />
-      </div>
-
-      <Checkbox
-        :model-value="checkboxState"
-        @click.stop
-        @update:model-value="onCheckbox"
-        class="flex-shrink-0"
-      />
-
-      <component :is="iconComponent" class="w-4 h-4 flex-shrink-0" :class="iconClass" />
-
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-1.5 min-w-0">
-          <span class="text-sm truncate min-w-0" :class="{ 'font-medium': isContainer }">
-            {{ node.name }}
-          </span>
-          <Badge
-            v-if="node.status === 'private'"
-            variant="outline"
-            class="flex-shrink-0 h-4 px-1 text-[10px] font-normal text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700"
+    <TooltipProvider :delay-duration="400">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <div
+            class="group flex items-center gap-2 px-2 py-1 rounded hover:bg-muted cursor-pointer select-none"
+            :class="{ 'bg-blue-50 dark:bg-blue-950/50': isLeafSelected }"
+            :style="{ paddingLeft: `${depth * 20 + 8}px` }"
+            @click="onRowClick"
           >
-            Private
-          </Badge>
-        </div>
-        <p v-if="node.modifiedTime" class="text-xs text-muted-foreground">
+            <div class="w-5 h-5 flex items-center justify-center flex-shrink-0">
+              <component
+                v-if="isContainer"
+                :is="isExpanded ? ChevronDown : ChevronRight"
+                class="w-4 h-4 text-muted-foreground"
+              />
+            </div>
+
+            <Checkbox
+              :model-value="checkboxState"
+              @click.stop
+              @update:model-value="onCheckbox"
+              class="flex-shrink-0"
+            />
+
+            <component :is="iconComponent" class="w-4 h-4 flex-shrink-0" :class="iconClass" />
+
+            <div class="flex-1 min-w-0 flex items-center gap-1.5">
+              <span class="text-sm truncate min-w-0" :class="{ 'font-medium': isContainer }">
+                {{ node.name }}
+              </span>
+              <Badge
+                v-if="node.status === 'private'"
+                variant="outline"
+                class="flex-shrink-0 h-4 px-1 text-[10px] font-normal text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700"
+              >
+                Private
+              </Badge>
+            </div>
+
+            <span
+              v-if="!isContainer && node.size"
+              class="text-xs text-muted-foreground flex-shrink-0"
+            >
+              {{ formatFileSize(node.size) }}
+            </span>
+
+            <a
+              v-if="node.link"
+              :href="node.link"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click.stop
+              title="Preview"
+              class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted-foreground/10 transition-opacity"
+            >
+              <ExternalLink class="w-3.5 h-3.5" />
+            </a>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent v-if="node.modifiedTime" side="bottom" align="start">
           modified {{ formatModified(node.modifiedTime) }}
-        </p>
-      </div>
-
-      <span
-        v-if="!isContainer && node.size"
-        class="text-xs text-muted-foreground flex-shrink-0"
-      >
-        {{ formatFileSize(node.size) }}
-      </span>
-
-      <a
-        v-if="node.link"
-        :href="node.link"
-        target="_blank"
-        rel="noopener noreferrer"
-        @click.stop
-        title="Preview"
-        class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted-foreground/10 transition-opacity"
-      >
-        <ExternalLink class="w-3.5 h-3.5" />
-      </a>
-    </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
 
     <div v-if="isContainer && isExpanded" class="mt-0.5 space-y-0.5">
       <div
@@ -137,6 +141,12 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useFileIcon } from '@/composables/useFileIcon'
 import type { FileNode } from '@/composables/useSourceBrowser'
 
@@ -215,9 +225,24 @@ const onRowClick = () => {
   }
 }
 
+const isSameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate()
+
 const formatModified = (d: Date) => {
   try {
-    return d.toISOString().slice(0, 16).replace('T', ' ')
+    const now = new Date()
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+    if (isSameDay(d, now)) return `Today at ${time}`
+    const yesterday = new Date(now)
+    yesterday.setDate(now.getDate() - 1)
+    if (isSameDay(d, yesterday)) return `Yesterday at ${time}`
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    })
   } catch {
     return ''
   }
