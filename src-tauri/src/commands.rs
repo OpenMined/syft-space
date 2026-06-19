@@ -3,7 +3,33 @@
 use crate::state::{AppState, PendingUpdate, UpdateWindowState, UpdateWindowType};
 use crate::windows::_show_update_window;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Theme};
+
+#[cfg(target_os = "macos")]
+use {
+    crate::windows::{MACOS_TRAFFIC_LIGHTS_INSET_X, MACOS_TRAFFIC_LIGHTS_INSET_Y},
+    tauri_plugin_decorum::WebviewWindowExt,
+};
+
+#[tauri::command]
+pub fn update_theme(app: AppHandle, is_dark: bool) {
+    for (_, window) in app.webview_windows() {
+        if let Err(e) = window.set_theme(if is_dark {
+            Some(Theme::Dark)
+        } else {
+            Some(Theme::Light)
+        }) {
+            log::error!("Error setting theme: {}", e);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Some(window) = app.get_webview_window("main") {
+        window
+            .set_traffic_lights_inset(MACOS_TRAFFIC_LIGHTS_INSET_X, MACOS_TRAFFIC_LIGHTS_INSET_Y)
+            .unwrap();
+    }
+}
 
 #[tauri::command]
 pub async fn reset_tcc_permission(service: String) -> Result<(), String> {

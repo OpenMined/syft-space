@@ -5,6 +5,12 @@ export type Theme = 'light' | 'dark' | 'system'
 const theme = ref<Theme>('system')
 const isDark = ref(false)
 
+interface TauriGlobal {
+  core?: {
+    invoke?: (command: string, args?: Record<string, unknown>) => Promise<unknown>
+  }
+}
+
 // Function to detect system theme
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window !== 'undefined') {
@@ -26,6 +32,18 @@ function applyTheme(newTheme: 'light' | 'dark') {
   }
 }
 
+function syncNativeTheme(newTheme: 'light' | 'dark') {
+  const tauri =
+    typeof window !== 'undefined'
+      ? (window as Window & { __TAURI__?: TauriGlobal }).__TAURI__
+      : undefined
+  if (!tauri?.core?.invoke) return
+
+  tauri.core.invoke('update_theme', { isDark: newTheme === 'dark' }).catch(() => {
+    // Native theme sync is best-effort for the browser/dev fallback.
+  })
+}
+
 // Function to update theme
 function updateTheme(newTheme: Theme) {
   theme.value = newTheme
@@ -40,6 +58,7 @@ function updateTheme(newTheme: Theme) {
   }
 
   applyTheme(resolvedTheme)
+  syncNativeTheme(resolvedTheme)
 }
 
 export function useTheme() {
@@ -56,7 +75,9 @@ export function useTheme() {
 
       const handleChange = () => {
         if (theme.value === 'system') {
-          applyTheme(getSystemTheme())
+          const systemTheme = getSystemTheme()
+          applyTheme(systemTheme)
+          syncNativeTheme(systemTheme)
         }
       }
 
