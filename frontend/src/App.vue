@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from './components/AppLayout.vue'
+import AppTopbar from './components/AppTopbar.vue'
 import FeedbackButton from './components/FeedbackButton.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import { useTheme } from './composables/useTheme'
@@ -78,8 +79,13 @@ watch(
     </AppLayout>
 
     <!-- Full-screen layout for standalone/create/onboarding pages -->
-    <div v-else class="min-h-screen bg-background text-foreground">
-      <router-view />
+    <div v-else class="flex h-screen flex-col bg-background text-foreground">
+      <div v-if="!isStandalonePage" class="hidden md:block">
+        <AppTopbar />
+      </div>
+      <div class="flex-1 overflow-y-auto">
+        <router-view />
+      </div>
     </div>
 
     <FeedbackButton v-if="!isStandalonePage" />

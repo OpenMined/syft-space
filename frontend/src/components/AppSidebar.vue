@@ -24,9 +24,11 @@ import SidebarNavItem from '@/components/SidebarNavItem.vue'
 
 const router = useRouter()
 const route = useRoute()
-const { isCollapsed, toggle } = useSidebar()
+const { isCollapsed } = useSidebar()
 const userStore = useUserStore()
 const endpointsStore = useEndpointsStore()
+const isTauri =
+  typeof window !== 'undefined' && Boolean((window as Window & { __TAURI__?: unknown }).__TAURI__)
 
 const liveCount = computed(() => endpointsStore.endpoints.filter((e) => e.published).length)
 
@@ -104,25 +106,25 @@ const bottomNavResolved = computed(() => resolveNav(bottomNav))
     :class="isCollapsed ? 'w-16' : 'w-60'"
   >
     <!-- Logo -->
-    <div class="flex items-center justify-between h-16 px-4 shrink-0">
-      <TooltipProvider :delay-duration="0">
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <button class="flex items-center gap-3 min-w-0" @click="toggle">
-              <img :src="SyftLogo" alt="Syft Space" class="h-7 w-7 shrink-0" />
-              <span
-                v-if="!isCollapsed"
-                class="text-sm font-semibold text-foreground tracking-tight truncate"
-              >
-                Syft Space
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {{ isCollapsed ? 'Expand sidebar' : 'Collapse sidebar' }}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+    <div
+      v-if="isTauri"
+      class="flex items-center h-16 shrink-0"
+      :class="isCollapsed ? 'justify-center px-3' : 'justify-start px-4'"
+    >
+      <div class="flex items-center gap-3 min-w-0">
+        <img
+          :src="SyftLogo"
+          alt="Syft Space"
+          class="shrink-0"
+          :class="isCollapsed ? 'h-9 w-9' : 'h-10 w-10'"
+        />
+        <span
+          v-if="!isCollapsed"
+          class="text-base font-semibold text-foreground tracking-tight truncate"
+        >
+          Syft Space
+        </span>
+      </div>
     </div>
 
     <!-- Navigation -->
