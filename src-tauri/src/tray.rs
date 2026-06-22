@@ -235,17 +235,23 @@ fn start_status_polling(app: &AppHandle) {
             };
 
             if should_rebuild {
-                if let Some(tray) = app_handle.tray_by_id(TRAY_ID) {
-                    match build_menu(&app_handle, &new_state) {
-                        Ok(menu) => {
-                            if let Err(e) = tray.set_menu(Some(menu)) {
-                                log::error!("Failed to update tray menu: {}", e);
+                let app_for_menu = app_handle.clone();
+                let state_for_menu = new_state.clone();
+                if let Err(e) = app_handle.run_on_main_thread(move || {
+                    if let Some(tray) = app_for_menu.tray_by_id(TRAY_ID) {
+                        match build_menu(&app_for_menu, &state_for_menu) {
+                            Ok(menu) => {
+                                if let Err(e) = tray.set_menu(Some(menu)) {
+                                    log::error!("Failed to update tray menu: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Failed to build tray menu: {}", e);
                             }
                         }
-                        Err(e) => {
-                            log::error!("Failed to build tray menu: {}", e);
-                        }
                     }
+                }) {
+                    log::error!("Failed to schedule tray menu update: {}", e);
                 }
             }
 

@@ -50,7 +50,7 @@ fn resolve_backend_path(app: &tauri::App) -> std::path::PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(e) = window.set_skip_taskbar(false) {
@@ -73,13 +73,19 @@ pub fn run() {
                 }
             }
         }))
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_shell::init());
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(tauri_plugin_decorum::init());
+
+    builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
         .invoke_handler(tauri::generate_handler![
+            commands::update_theme,
             commands::update_window_response,
             commands::get_window_state,
             commands::reset_tcc_permission,
