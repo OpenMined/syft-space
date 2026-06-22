@@ -100,6 +100,9 @@ class MppPerDocumentPolicy(MppPaymentPolicy):
         # before doing the (no-op) charge.
         if price == 0 or count == 0:
             add_response_cost(response, 0, "USD")
+            context.add_policy_metadata(
+                self._free_entry(context, details={"documents": count})
+            )
             return context
 
         total = count * price
@@ -111,9 +114,18 @@ class MppPerDocumentPolicy(MppPaymentPolicy):
 
         if isinstance(result, Challenge):
             www_authenticate = result.to_www_authenticate(realm=context.endpoint_slug)
+            description = f"Payment of ${total} required for {count} documents"
             raise PaymentRequiredError(
                 www_authenticate=www_authenticate,
-                description=(f"Payment of ${total} required for {count} documents"),
+                description=description,
+                metadata_entry=self._rejected_entry(
+                    context,
+                    reason_code="PAYMENT_REQUIRED",
+                    reason=description,
+                    amount=total,
+                    currency="USD",
+                    details={"documents": count},
+                ),
             )
 
         credential, receipt = result
@@ -123,9 +135,18 @@ class MppPerDocumentPolicy(MppPaymentPolicy):
             "status": receipt.status,
             "external_id": receipt.external_id,
         }
-        context.metadata["payment_receipt_header"] = receipt.reference
 
         add_response_cost(context.response, total, "USD")
+
+        context.add_policy_metadata(
+            self._charged_entry(
+                context,
+                amount=total,
+                reference=receipt.reference,
+                external_id=receipt.external_id,
+                details={"documents": count},
+            )
+        )
 
         logger.info(
             f"MPP per-document payment verified: ${total} from "

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
+    PolicyMetadataEntry,
     PolicyViolationError,
 )
 from syft_space.components.shared.utils import (
@@ -118,10 +119,19 @@ class EndpointAccessPolicy(BasePolicyType):
             denial_reasons.append(reason)
 
         # All policies denied - abort
+        message = f"Access denied: {'; '.join(denial_reasons)}"
         raise PolicyViolationError(
-            message=f"Access denied: {'; '.join(denial_reasons)}",
+            message=message,
             policy_type=self.NAME,
             details={"user": user_email, "reasons": denial_reasons},
+            outcome="access_denied",
+            metadata_entry=PolicyMetadataEntry(
+                policy_type=self.NAME,
+                kind="access",
+                status="rejected",
+                reason_code="ACCESS_DENIED",
+                reason=message,
+            ),
         )
 
     async def post_hook(

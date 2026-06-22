@@ -37,9 +37,16 @@ class PrepaidBalancePerRequestPolicy(PrepaidBalancePaymentPolicyBase):
         price = self._find_matching_price(user_email, configs)
 
         if price is None:
+            message = "No pricing tier matches your account"
             raise PolicyViolationError(
-                message="No pricing tier matches your account",
+                message=message,
                 policy_type=self.NAME,
+                outcome="policy_violation",
+                metadata_entry=self._rejected_entry(
+                    context,
+                    reason_code="NO_PRICING_TIER",
+                    reason=message,
+                ),
             )
 
         charger = context.payment_chargers.prepaid()
@@ -51,14 +58,23 @@ class PrepaidBalancePerRequestPolicy(PrepaidBalancePaymentPolicyBase):
                 charge_quantity=1,
             )
         except BalanceShortfallError as exc:
+            message = "Insufficient balance. Please purchase more credits."
             raise PolicyViolationError(
-                message="Insufficient balance. Please purchase more credits.",
+                message=message,
                 policy_type=self.NAME,
                 details={
                     "user": user_email,
                     "price": price,
                     "currency": exc.currency,
                 },
+                outcome="policy_violation",
+                metadata_entry=self._rejected_entry(
+                    context,
+                    reason_code="INSUFFICIENT_BALANCE",
+                    reason=message,
+                    amount=price,
+                    currency=exc.currency,
+                ),
             ) from exc
 
         # Generic key — metadata is scoped to this policy invocation.
@@ -92,11 +108,28 @@ class PrepaidBalancePerRequestPolicy(PrepaidBalancePaymentPolicyBase):
 
         if has_summary or has_documents:
             add_response_cost(response, price, charger.currency)
+            context.add_policy_metadata(
+                self._charged_entry(
+                    context,
+                    amount=price,
+                    currency=charger.currency,
+                    wallet_type=charger.wallet_type,
+                    transaction_id=transaction_id,
+                )
+            )
             return context
 
         # Cancel the reservation since the response is empty. Record zero
         # so consumers see this policy applied with no net charge.
         await charger.cancel(transaction_id)
         add_response_cost(response, 0, charger.currency)
+        context.add_policy_metadata(
+            self._refunded_entry(
+                context,
+                currency=charger.currency,
+                wallet_type=charger.wallet_type,
+                transaction_id=transaction_id,
+            )
+        )
 
         return context

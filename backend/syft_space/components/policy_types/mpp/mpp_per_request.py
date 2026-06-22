@@ -66,9 +66,17 @@ class MppPerRequestPolicy(MppPaymentPolicy):
 
         if isinstance(result, Challenge):
             www_authenticate = result.to_www_authenticate(realm=context.endpoint_slug)
+            description = f"Payment of ${price} required to query this endpoint"
             raise PaymentRequiredError(
                 www_authenticate=www_authenticate,
-                description=f"Payment of ${price} required to query this endpoint",
+                description=description,
+                metadata_entry=self._rejected_entry(
+                    context,
+                    reason_code="PAYMENT_REQUIRED",
+                    reason=description,
+                    amount=price,
+                    currency="USD",
+                ),
             )
 
         credential, receipt = result
@@ -92,7 +100,7 @@ class MppPerRequestPolicy(MppPaymentPolicy):
         self, configs: list[dict[str, Any]], context: PolicyContext
     ) -> PolicyContext:
         """Post-hook: add this policy's charge to the response total and
-        stash the receipt reference for the Payment-Receipt header.
+        emit its policy-metadata entry.
 
         The price from the matched tier is always added (including 0 for
         free tiers) so the response always reflects what *this policy*
@@ -103,11 +111,23 @@ class MppPerRequestPolicy(MppPaymentPolicy):
             return context
 
         price = self._find_matching_price(context.sender_email, configs)
-        if price is not None:
-            add_response_cost(context.response, price, "USD")
+        if price is None:
+            return context
 
-        receipt_info = context.metadata.get("mpp_receipt")
-        if receipt_info:
-            context.metadata["payment_receipt_header"] = receipt_info.get("reference")
+        add_response_cost(context.response, price, "USD")
+
+        if price == 0:
+            context.add_policy_metadata(self._free_entry(context))
+            return context
+
+        receipt_info = context.metadata.get("mpp_receipt") or {}
+        context.add_policy_metadata(
+            self._charged_entry(
+                context,
+                amount=price,
+                reference=receipt_info.get("reference"),
+                external_id=receipt_info.get("external_id"),
+            )
+        )
 
         return context

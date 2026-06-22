@@ -1,10 +1,91 @@
 """Policy type interfaces and domain models."""
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from mpp import Challenge, Credential, Receipt
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+# --------------------------------------------------------------------------- #
+# Policy metadata contract                                                     #
+#                                                                              #
+# Every query response (success and rejection) carries a PolicyMetadata        #
+# object describing what each policy did: what it charged, to whom, the        #
+# rail-native transaction id, and — for rejections — why it was blocked.       #
+# This is the authoritative source the SDK surfaces (OME-284/285); clients     #
+# no longer reconstruct price/recipient from policy configs.                   #
+# --------------------------------------------------------------------------- #
+
+
+class TransactionRef(BaseModel):
+    """A rail-native payment reference.
+
+    `id` is the underlying rail's own identifier — a Tempo transaction hash
+    for MPP, or the prepaid ledger `transaction_id` (a UUID) for
+    Xendit/Stripe — disambiguated by `rail`.
+    """
+
+    rail: Literal["mpp", "xendit", "stripe"] = Field(
+        ..., description="Settlement rail that produced this transaction"
+    )
+    id: str = Field(
+        ..., description="Rail-native transaction id (tx hash / ledger UUID)"
+    )
+    reference: str | None = Field(
+        default=None, description="Secondary reference (e.g. MPP external_id)"
+    )
+
+
+class Recipient(BaseModel):
+    """Who gets paid for a query — the endpoint owner / publisher."""
+
+    username: str | None = Field(default=None, description="Endpoint owner username")
+    email: str | None = Field(default=None, description="Endpoint owner email")
+    wallet_address: str | None = Field(
+        default=None, description="Public MPP wallet address (never a private key)"
+    )
+
+
+class PolicyMetadataEntry(BaseModel):
+    """One policy's contribution to the query's metadata."""
+
+    policy_type: str = Field(
+        ..., description="Policy type name, e.g. 'mpp_per_request'"
+    )
+    kind: Literal["payment", "access", "transform", "rate_limit"] = Field(
+        ..., description="Category of policy that produced this entry"
+    )
+    status: Literal["charged", "refunded", "free", "rejected", "applied", "skipped"] = (
+        Field(..., description="What happened for this policy on this query")
+    )
+    amount: float | None = Field(default=None, description="Amount charged/refunded")
+    currency: str | None = Field(default=None, description="Currency of the amount")
+    recipient: Recipient | None = Field(
+        default=None, description="Who was/would be paid (payment policies)"
+    )
+    transaction: TransactionRef | None = Field(
+        default=None, description="Settled transaction reference (payment policies)"
+    )
+    reason_code: str | None = Field(
+        default=None,
+        description="Machine code when rejected: PAYMENT_REQUIRED, "
+        "INSUFFICIENT_BALANCE, NO_PRICING_TIER, ACCESS_DENIED, RATE_LIMITED",
+    )
+    reason: str | None = Field(default=None, description="Human-readable explanation")
+    details: dict[str, Any] = Field(
+        default_factory=dict, description="Extra context, e.g. {'documents': 3}"
+    )
+
+
+class PolicyMetadata(BaseModel):
+    """Aggregate of all policy entries for one query.
+
+    `outcome` mirrors the `QueryOutcome` string values. It is kept as a plain
+    string here to avoid an import cycle with the endpoints component.
+    """
+
+    outcome: str = Field(..., description="Overall query outcome (QueryOutcome value)")
+    entries: list[PolicyMetadataEntry] = Field(default_factory=list)
 
 
 class PolicyViolationError(Exception):
@@ -15,7 +96,13 @@ class PolicyViolationError(Exception):
     """
 
     def __init__(
-        self, message: str, policy_type: str, details: dict[str, Any] | None = None
+        self,
+        message: str,
+        policy_type: str,
+        details: dict[str, Any] | None = None,
+        *,
+        outcome: str = "policy_violation",
+        metadata_entry: "PolicyMetadataEntry | None" = None,
     ) -> None:
         """Initialize the PolicyViolationError.
 
@@ -23,10 +110,15 @@ class PolicyViolationError(Exception):
             message: Human-readable error message
             policy_type: Name of the policy type that raised the error
             details: Optional additional details about the error
+            outcome: QueryOutcome value to report (e.g. "policy_violation",
+                "access_denied", "rate_limited")
+            metadata_entry: The rejected PolicyMetadataEntry to surface to the client
         """
         super().__init__(message)
         self.policy_type = policy_type
         self.details = details or {}
+        self.outcome = outcome
+        self.metadata_entry = metadata_entry
 
 
 class PaymentRequiredError(Exception):
@@ -36,10 +128,41 @@ class PaymentRequiredError(Exception):
     The endpoint handler should catch this and return HTTP 402.
     """
 
-    def __init__(self, www_authenticate: str, description: str | None = None):
+    def __init__(
+        self,
+        www_authenticate: str,
+        description: str | None = None,
+        *,
+        metadata_entry: "PolicyMetadataEntry | None" = None,
+    ):
         self.www_authenticate = www_authenticate
         self.description = description
+        self.metadata_entry = metadata_entry
         super().__init__(description or "Payment required")
+
+
+class QueryRejectedError(Exception):
+    """A query was rejected by a policy (payment/access/rate-limit).
+
+    Carries everything the route needs to render the rejection body with the
+    same `policy_metadata` envelope as a successful response. Built by the
+    query handler from PaymentRequiredError / PolicyViolationError so the
+    route has a single rejection branch.
+    """
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        detail: str,
+        policy_metadata: "PolicyMetadata",
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.detail = detail
+        self.policy_metadata = policy_metadata
+        self.headers = headers
+        super().__init__(detail)
 
 
 class PolicyAttachError(Exception):
@@ -257,12 +380,25 @@ class PolicyContext(BaseModel):
         default=None, description="Response payload (for post hooks)"
     )
     metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Additional metadata"
+        default_factory=dict,
+        description="Cross-hook scratch (transaction id handoff, etc.)",
     )
     payment_chargers: PaymentChargers | None = Field(
         default=None,
         description="Per-request payment chargers, built from attached wallets",
     )
+    recipient: Recipient | None = Field(
+        default=None,
+        description="Endpoint owner identity (the 'to whom' for payment entries)",
+    )
+    policy_metadata: list[PolicyMetadataEntry] = Field(
+        default_factory=list,
+        description="Accumulated per-policy metadata entries for this query",
+    )
+
+    def add_policy_metadata(self, entry: PolicyMetadataEntry) -> None:
+        """Append a policy's metadata entry, surfaced on the query response."""
+        self.policy_metadata.append(entry)
 
 
 class BasePolicyType(Protocol):

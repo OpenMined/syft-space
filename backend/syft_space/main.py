@@ -153,7 +153,6 @@ from syft_space.components.wallets.handlers import WalletHandler
 from syft_space.components.wallets.mpp.provider import MppWalletProvider
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.routes import build_wallet_routes
-
 from syft_space.config import app_settings
 
 
@@ -615,6 +614,7 @@ query_endpoint_handler = QueryEndpointHandler(
     wallet_repository=wallet_repository,
     balance_service=balance_service,
     event_reporter=report_query_event,
+    marketplace_repository=marketplace_repository,
 )
 publish_endpoint_handler = PublishEndpointHandler(
     endpoint_repository=endpoint_repository,

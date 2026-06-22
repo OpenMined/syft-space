@@ -14,6 +14,7 @@ from syft_space.components.endpoints.entities import ResponseType
 from syft_space.components.model_types.redaction import (
     redact_config as redact_model_config,
 )
+from syft_space.components.policy_types.interfaces import PolicyMetadata
 
 
 class CreateEndpointRequest(BaseModel):
@@ -434,6 +435,11 @@ class QueryEndpointResponse(BaseModel):
     )
     currency: str | None = Field(
         default=None, description="Currency of the cost (ISO code)"
+    )
+    policy_metadata: PolicyMetadata | None = Field(
+        default=None,
+        description="Per-policy metadata: what each policy charged, to whom, "
+        "transaction ids, and rejection reasons",
     )
 
     @model_validator(mode="after")

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
+    PolicyMetadataEntry,
     PolicyViolationError,
 )
 from syft_space.components.policy_types.rate_limit.limiter import (
@@ -207,12 +208,13 @@ class EndpointRateLimitPolicy(BasePolicyType):
             if not is_allowed:
                 friendly_limit = config.get_friendly_description()
                 _, reset_seconds = get_rate_limit_stats(key, count, window_seconds)
+                message = (
+                    f"Rate limit exceeded: {friendly_limit}. "
+                    f"Requests in window: {current_count}. "
+                    f"Try again in {reset_seconds}s."
+                )
                 raise PolicyViolationError(
-                    message=(
-                        f"Rate limit exceeded: {friendly_limit}. "
-                        f"Requests in window: {current_count}. "
-                        f"Try again in {reset_seconds}s."
-                    ),
+                    message=message,
                     policy_type=self.NAME,
                     details={
                         "limit": config.limit,
@@ -220,7 +222,25 @@ class EndpointRateLimitPolicy(BasePolicyType):
                         "reset_seconds": reset_seconds,
                         "scope": config.scope.value,
                     },
+                    outcome="rate_limited",
+                    metadata_entry=PolicyMetadataEntry(
+                        policy_type=self.NAME,
+                        kind="rate_limit",
+                        status="rejected",
+                        reason_code="RATE_LIMITED",
+                        reason=message,
+                        details={
+                            "limit": config.limit,
+                            "remaining": 0,
+                            "reset_seconds": reset_seconds,
+                            "scope": config.scope.value,
+                        },
+                    ),
                 )
+
+            # Within limit — no metadata entry. Emitting an "applied" entry on
+            # every allowed request pollutes the SDK-surfaced billing list; we
+            # only record an entry when the limit actually blocks (rejected).
 
         return context
 

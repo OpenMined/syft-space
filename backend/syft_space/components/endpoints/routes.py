@@ -23,7 +23,7 @@ from syft_space.components.endpoints.schemas import (
     UnpublishResult,
     UpdateEndpointRequest,
 )
-from syft_space.components.policy_types.interfaces import PaymentRequiredError
+from syft_space.components.policy_types.interfaces import QueryRejectedError
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
 
@@ -130,24 +130,18 @@ def build_endpoint_routes(
         auth_request = AuthenticatedQueryRequest.from_request(request, sender_email)
 
         try:
-            response, payment_receipt = await handler.query_endpoint(
+            return await handler.query_endpoint(
                 slug, auth_request, tenant, x_payment=x_payment
             )
-        except PaymentRequiredError as e:
+        except QueryRejectedError as e:
             return JSONResponse(
-                status_code=402,
-                content={"detail": e.description or "Payment required"},
-                headers={"WWW-Authenticate": e.www_authenticate},
+                status_code=e.status_code,
+                content={
+                    "detail": e.detail,
+                    "policy_metadata": e.policy_metadata.model_dump(),
+                },
+                headers=e.headers,
             )
-
-        if payment_receipt:
-            return JSONResponse(
-                status_code=200,
-                content=response.model_dump(),
-                headers={"Payment-Receipt": payment_receipt},
-            )
-
-        return response
 
     @router.post("/{slug}/preview", response_model=QueryEndpointResponse)
     async def preview_endpoint(
@@ -168,24 +162,18 @@ def build_endpoint_routes(
         auth_request = AuthenticatedQueryRequest.from_request(request, sender_email)
 
         try:
-            response, payment_receipt = await qhandler.query_endpoint(
+            return await qhandler.query_endpoint(
                 slug, auth_request, tenant, x_payment=None
             )
-        except PaymentRequiredError as e:
+        except QueryRejectedError as e:
             return JSONResponse(
-                status_code=402,
-                content={"detail": e.description or "Payment required"},
-                headers={"WWW-Authenticate": e.www_authenticate},
+                status_code=e.status_code,
+                content={
+                    "detail": e.detail,
+                    "policy_metadata": e.policy_metadata.model_dump(),
+                },
+                headers=e.headers,
             )
-
-        if payment_receipt:
-            return JSONResponse(
-                status_code=200,
-                content=response.model_dump(),
-                headers={"Payment-Receipt": payment_receipt},
-            )
-
-        return response
 
     # ── Publish routes (PublishEndpointHandler) ──────────────────
 
