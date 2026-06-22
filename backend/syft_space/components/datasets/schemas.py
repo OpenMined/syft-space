@@ -25,6 +25,14 @@ class DatasetTypeInfoResponse(BaseModel):
     )
     icon: str = Field(..., description="Icon for the dataset type")
     enabled: bool = Field(..., description="Whether the dataset type is enabled")
+    browse_schema: dict[str, Any] = Field(
+        ...,
+        description="JSON schema for the browse-time connect form (credentials)",
+    )
+    browsable: bool = Field(
+        ...,
+        description="Whether this type's source can be browsed in the picker",
+    )
 
 
 class CreateDatasetRequest(BaseModel):
@@ -355,6 +363,13 @@ class SourceBrowseRequest(BaseModel):
     parent_id: str | None = Field(
         default=None,
         description="Container id to list. Null lists the source's top level.",
+    )
+    cursor: str | None = Field(
+        default=None,
+        description=(
+            "Opaque resume token from a prior response's next_cursor. Null "
+            "fetches the first page of the requested level."
+        ),
     )
 
 

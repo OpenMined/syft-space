@@ -16,34 +16,30 @@
           </Label>
           <Select v-model="selectedSourceId">
             <SelectTrigger id="source-type" class="w-full">
-              <SelectValue placeholder="Select a source type" />
+              <SelectValue :placeholder="loadError ? 'Failed to load sources' : 'Select a source type'" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem v-for="source in SOURCE_TYPES" :key="source.id" :value="source.id">
-                <span class="mr-2">{{ source.icon }}</span>
-                {{ source.label }}
+              <SelectItem v-for="source in browsableTypes" :key="source.name" :value="source.name">
+                <span class="mr-2">{{ presentation(source.name).icon }}</span>
+                {{ presentation(source.name).label }}
               </SelectItem>
             </SelectContent>
           </Select>
-          <p v-if="selectedSource" class="text-xs text-muted-foreground">
-            {{ selectedSource.description }}
+          <p v-if="loadError" class="text-xs text-destructive">{{ loadError }}</p>
+          <p v-else-if="selectedType" class="text-xs text-muted-foreground">
+            {{ selectedDescription }}
           </p>
         </div>
 
-        <div v-if="selectedSource && selectedSource.credentialFields.length > 0" class="space-y-4">
-          <div
-            v-for="field in selectedSource.credentialFields"
-            :key="field.name"
-            class="space-y-2"
-          >
+        <div v-if="requiredFields.length > 0" class="space-y-4">
+          <div v-for="field in requiredFields" :key="field.name" class="space-y-2">
             <Label :for="`cred-${field.name}`" class="text-sm font-medium">
-              {{ field.label }}
-              <span v-if="field.required" class="text-red-500">*</span>
+              {{ field.label }} <span class="text-red-500">*</span>
             </Label>
             <Input
               :id="`cred-${field.name}`"
               v-model="credentials[field.name]"
-              :type="field.type === 'password' ? 'password' : 'text'"
+              :type="field.type"
               :placeholder="field.placeholder"
               class="w-full"
             />
@@ -60,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   Dialog,
   DialogContent,
@@ -79,61 +75,47 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { datasetsApi } from '@/api/endpoints/datasets'
+import type { DatasetTypeInfoResponse } from '@/api/types'
 
-interface CredentialField {
-  name: string
-  label: string
-  type: 'text' | 'password' | 'url'
-  placeholder: string
-  required: boolean
+interface FieldCopy {
+  label?: string
+  placeholder?: string
 }
 
-interface SourceType {
-  id: string
+interface SourceCopy {
   label: string
-  description: string
   icon: string
-  credentialFields: CredentialField[]
+  description?: string
+  fields?: Record<string, FieldCopy>
 }
 
-const SOURCE_TYPES: SourceType[] = [
-  {
-    id: 'local_file',
+// Presentation layer: all user-facing copy lives here, keyed by source type.
+// The backend schema supplies structure (which fields, required, type/format)
+// and is the fallback for labels/description when an entry is missing here.
+const PRESENTATION: Record<string, SourceCopy> = {
+  local_file: {
     label: 'Local files',
-    description: 'Files and folders from this machine.',
     icon: '📁',
-    credentialFields: [],
+    description: 'Files and folders from this machine.',
   },
-  {
-    id: 'wordpress',
+  wordpress: {
     label: 'WordPress',
-    description: 'Posts and pages from a self-hosted WordPress site via the REST API.',
     icon: '📰',
-    credentialFields: [
-      {
-        name: 'siteUrl',
-        label: 'Site URL',
-        type: 'url',
-        placeholder: 'https://example.com',
-        required: true,
-      },
-      {
-        name: 'username',
-        label: 'Username',
-        type: 'text',
-        placeholder: 'wp-admin user_login',
-        required: true,
-      },
-      {
-        name: 'applicationPassword',
+    description: 'Posts and pages from a self-hosted WordPress site.',
+    fields: {
+      siteUrl: { label: 'Site URL', placeholder: 'https://example.com' },
+      username: { label: 'Username', placeholder: 'wp-admin user_login' },
+      applicationPassword: {
         label: 'Application password',
-        type: 'password',
-        placeholder: 'Generate in Users → Profile → Application Passwords',
-        required: true,
+        placeholder: 'Generate under Users → Profile → Application Passwords',
       },
-    ],
+    },
   },
-]
+}
+
+const presentation = (name: string): SourceCopy =>
+  PRESENTATION[name] ?? { label: name, icon: '🗂️' }
 
 const props = defineProps<{
   open: boolean
@@ -149,18 +131,54 @@ const isOpen = computed({
   set: (value) => emit('update:open', value),
 })
 
+const types = ref<DatasetTypeInfoResponse[]>([])
+const loadError = ref<string | null>(null)
 const selectedSourceId = ref<string>('')
 const credentials = ref<Record<string, string>>({})
 
-const selectedSource = computed(() =>
-  SOURCE_TYPES.find((s) => s.id === selectedSourceId.value) ?? null,
+const loadTypes = async () => {
+  try {
+    loadError.value = null
+    types.value = await datasetsApi.listTypes()
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : 'Failed to load source types'
+  }
+}
+
+onMounted(loadTypes)
+
+const browsableTypes = computed(() => types.value.filter((t) => t.browsable))
+
+const selectedType = computed(
+  () => browsableTypes.value.find((t) => t.name === selectedSourceId.value) ?? null,
 )
 
+const selectedDescription = computed(() => {
+  const type = selectedType.value
+  if (!type) return ''
+  return presentation(type.name).description ?? type.description
+})
+
+const requiredFields = computed(() => {
+  const type = selectedType.value
+  const schema = type?.browse_schema
+  if (!type || !schema?.properties) return []
+  const fieldCopy = presentation(type.name).fields ?? {}
+  return (schema.required ?? []).map((name) => {
+    const prop = schema.properties?.[name]
+    const copy = fieldCopy[name]
+    return {
+      name,
+      label: copy?.label ?? prop?.title ?? name,
+      placeholder: copy?.placeholder ?? '',
+      type: prop?.format === 'password' ? 'password' : 'text',
+    }
+  })
+})
+
 const canContinue = computed(() => {
-  if (!selectedSource.value) return false
-  return selectedSource.value.credentialFields
-    .filter((f) => f.required)
-    .every((f) => (credentials.value[f.name] ?? '').trim() !== '')
+  if (!selectedType.value) return false
+  return requiredFields.value.every((f) => (credentials.value[f.name] ?? '').trim() !== '')
 })
 
 const reset = () => {
@@ -174,15 +192,20 @@ const handleCancel = () => {
 }
 
 const handleContinue = () => {
-  if (!selectedSource.value || !canContinue.value) return
+  if (!selectedType.value || !canContinue.value) return
   const trimmed: Record<string, string> = {}
-  for (const field of selectedSource.value.credentialFields) {
+  for (const field of requiredFields.value) {
     trimmed[field.name] = (credentials.value[field.name] ?? '').trim()
   }
-  emit('continue', { sourceType: selectedSource.value.id, credentials: trimmed })
+  emit('continue', { sourceType: selectedType.value.name, credentials: trimmed })
   reset()
   isOpen.value = false
 }
+
+// Clear any entered credentials when switching source type.
+watch(selectedSourceId, () => {
+  credentials.value = {}
+})
 
 watch(
   () => props.open,

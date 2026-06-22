@@ -41,6 +41,7 @@ from syft_space.components.sources.errors import (
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,
+    SourcePage,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,10 +55,10 @@ PAGE_SIZE = 100
 # Statuses surfaced to the picker and watched by the poll. The authenticated
 # account is expected to hold read_private_posts; drafts and trash are left out.
 BROWSE_STATUSES = "publish,private"
-# Upper bound on pages walked in a single browse drill-down. WordPress caps
-# per_page at 100, so this bounds one browse to ~5000 items; generic cursor
-# pagination (a later change) lifts the cap by paging on demand instead.
-MAX_BROWSE_PAGES = 50
+# WordPress caps per_page at 100, so a post type with more items spans
+# several REST pages. The browser hands back one page plus a cursor (the
+# next WP page number) and the picker fetches more on demand — no upper
+# bound, no silent cap.
 # Registered but non-content types — media has no body to ingest; the
 # block-editor internals (wp_block, wp_template, ...) are already
 # viewable=false and filtered out by that check.
@@ -75,15 +76,18 @@ class WordPressBrowseConfig(BaseModel):
     site_url: str = Field(
         ...,
         alias="siteUrl",
+        title="Site URL",
         description="Base URL of the WordPress site (e.g. https://example.com)",
     )
     username: str = Field(
         ...,
+        title="Username",
         description="WordPress user_login or display name — used for Basic Auth",
     )
     application_password: str = Field(
         ...,
         alias="applicationPassword",
+        title="Application password",
         description=(
             "WordPress Application Password (24 chars; generate under "
             "Users → Profile → Application Passwords in wp-admin)"
@@ -93,6 +97,7 @@ class WordPressBrowseConfig(BaseModel):
     user_agent: str = Field(
         default=DEFAULT_USER_AGENT,
         alias="userAgent",
+        title="User agent",
         description=(
             "HTTP User-Agent header — override when a site WAF expects a "
             "specific allowlisted value"
@@ -255,78 +260,84 @@ class WordPressBrowser:
 
     Built by ``WordPressProvider.for_browse``. ``list_items(None)`` returns
     one container per post type the site exposes; ``list_items("type:<slug>")``
-    returns that type's items, most recently modified first, walking every
-    page up to ``MAX_BROWSE_PAGES``.
+    returns one page of that type's items, most recently modified first, plus
+    a cursor (the next WP page number) for fetching more on demand.
     """
 
     def __init__(self, config: WordPressBrowseConfig) -> None:
         self.config = config
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
         async with _make_client(self.config) as client:
             types = await _fetch_post_types(client)
             if parent_id is None:
-                return [
-                    SourceItem(
-                        external_id=f"type:{slug}",
-                        display_name=info["name"],
-                        parent_id=None,
-                        is_container=True,
-                        is_leaf=False,
-                        metadata={"post_type": slug, "rest_base": info["rest_base"]},
-                    )
-                    for slug, info in types.items()
-                ]
+                return SourcePage(
+                    items=[
+                        SourceItem(
+                            external_id=f"type:{slug}",
+                            display_name=info["name"],
+                            parent_id=None,
+                            is_container=True,
+                            is_leaf=False,
+                            metadata={
+                                "post_type": slug,
+                                "rest_base": info["rest_base"],
+                            },
+                        )
+                        for slug, info in types.items()
+                    ],
+                    next_cursor=None,
+                )
 
             if not parent_id.startswith("type:"):
-                return []
+                return SourcePage(items=[], next_cursor=None)
             post_type = parent_id[len("type:") :]
             info = types.get(post_type)
             if info is None:
-                return []
+                return SourcePage(items=[], next_cursor=None)
 
-            return await self._list_type(
-                client, post_type, parent_id, info["rest_base"]
+            page = int(cursor) if cursor else 1
+            return await self._list_type_page(
+                client, post_type, parent_id, info["rest_base"], page
             )
 
-    async def _list_type(
+    async def _list_type_page(
         self,
         client: httpx.AsyncClient,
         post_type: str,
         parent_id: str,
         rest_base: str,
-    ) -> list[SourceItem]:
-        """Page through one post type's items and return them all.
+        page: int,
+    ) -> SourcePage:
+        """Fetch one page of a post type's items, most recently modified first.
 
-        WordPress caps ``per_page`` at 100, so a type with more items spans
-        several pages. Walk them in order until the ``X-WP-TotalPages``
-        header (or an empty page) says we're done, bounded by
-        ``MAX_BROWSE_PAGES`` so one browse can't run unbounded. Requesting a
-        page past the last returns 400, which we treat as the end.
+        Returns the page's items plus a cursor for the next page (the next WP
+        page number as a string) while one remains, else ``None``. WordPress
+        caps ``per_page`` at 100, so larger types span multiple pages; the
+        picker fetches them on demand. Requesting a page past the last returns
+        400 (``rest_post_invalid_page_number``), which we treat as exhausted.
         """
-        items: list[SourceItem] = []
-        for page in range(1, MAX_BROWSE_PAGES + 1):
-            r = await client.get(
-                f"/{rest_base}",
-                params={
-                    "per_page": PAGE_SIZE,
-                    "page": page,
-                    "orderby": "modified",
-                    "order": "desc",
-                    "status": BROWSE_STATUSES,
-                    "_fields": "id,slug,title,modified_gmt,link,status",
-                },
-            )
-            if r.status_code == 400:
-                break
-            r.raise_for_status()
-            rows = r.json()
-            if not rows:
-                break
-            items.extend(_to_source_item(post_type, parent_id, row) for row in rows)
-            if page >= int(r.headers.get("X-WP-TotalPages", page)):
-                break
-        return items
+        r = await client.get(
+            f"/{rest_base}",
+            params={
+                "per_page": PAGE_SIZE,
+                "page": page,
+                "orderby": "modified",
+                "order": "desc",
+                "status": BROWSE_STATUSES,
+                "_fields": "id,slug,title,modified_gmt,link,status",
+            },
+        )
+        if r.status_code == 400:
+            return SourcePage(items=[], next_cursor=None)
+        r.raise_for_status()
+        rows = r.json()
+        items = [_to_source_item(post_type, parent_id, row) for row in rows]
+        total_pages = int(r.headers.get("X-WP-TotalPages", page))
+        next_cursor = str(page + 1) if rows and page < total_pages else None
+        return SourcePage(items=items, next_cursor=next_cursor)
 
 
 class WordPressSource:
@@ -356,12 +367,14 @@ class WordPressSource:
             )
         return info["rest_base"]
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
         """Delegate to a transient ``WordPressBrowser`` using the browse subset."""
         browser = WordPressBrowser(
             WordPressBrowseConfig.model_validate(self.config.model_dump())
         )
-        return await browser.list_items(parent_id)
+        return await browser.list_items(parent_id, cursor)
 
     @asynccontextmanager
     async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:

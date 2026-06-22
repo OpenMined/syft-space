@@ -8,7 +8,10 @@ from uuid import UUID
 from fastapi import HTTPException
 from loguru import logger
 
-from syft_space.components.dataset_types.interfaces import IngestableDatasetType
+from syft_space.components.dataset_types.interfaces import (
+    BaseDatasetType,
+    IngestableDatasetType,
+)
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import (
     Dataset,
@@ -381,22 +384,29 @@ class DatasetHandler:
         Returns:
             List of dataset type information
         """
-        type_names = self.registry.list_dataset_types()
-        types_info = []
+        return [
+            self._type_info(self.registry.get_dataset_type(name))
+            for name in self.registry.list_dataset_types()
+        ]
 
-        for name in type_names:
-            dataset_type_cls = self.registry.get_dataset_type(name)
-            types_info.append(
-                DatasetTypeInfoResponse(
-                    name=dataset_type_cls.name(),
-                    description=dataset_type_cls.description(),
-                    config_schema=dataset_type_cls.configuration_schema(),
-                    icon=dataset_type_cls.icon(),
-                    enabled=dataset_type_cls.enabled(),
-                )
-            )
+    @staticmethod
+    def _type_info(dataset_type_cls: type[BaseDatasetType]) -> DatasetTypeInfoResponse:
+        """Build the API view of a dataset type.
 
-        return types_info
+        ``browse_schema`` is the source's connect-form schema; ``browsable``
+        is false for no-op sources (e.g. externally-fed Weaviate), so the
+        picker can hide types that can't be browsed.
+        """
+        source_cls = dataset_type_cls.SOURCE_PROVIDER_CLS
+        return DatasetTypeInfoResponse(
+            name=dataset_type_cls.name(),
+            description=dataset_type_cls.description(),
+            config_schema=dataset_type_cls.configuration_schema(),
+            icon=dataset_type_cls.icon(),
+            enabled=dataset_type_cls.enabled(),
+            browse_schema=source_cls.browse_schema(),
+            browsable=not getattr(source_cls, "IS_NOOP", False),
+        )
 
     def get_dataset_type(self, name: str) -> DatasetTypeInfoResponse:
         """Get information about a specific dataset type.
@@ -417,13 +427,7 @@ class DatasetHandler:
                 status_code=404, detail=f"Dataset type '{name}' not found"
             ) from None
 
-        return DatasetTypeInfoResponse(
-            name=dataset_type_cls.name(),
-            description=dataset_type_cls.description(),
-            config_schema=dataset_type_cls.configuration_schema(),
-            icon=dataset_type_cls.icon(),
-            enabled=dataset_type_cls.enabled(),
-        )
+        return self._type_info(dataset_type_cls)
 
     # ============== Dataset CRUD Methods ==============
 
@@ -968,13 +972,15 @@ class DatasetHandler:
         dtype: str,
         configuration: dict[str, Any],
         parent_id: str | None,
+        cursor: str | None = None,
     ) -> SourceBrowseResponse:
-        """Return one level of items from a source, starting at ``parent_id``.
+        """Return one page of items from a source level, starting at ``parent_id``.
 
-        Validation runs only at the top level (``parent_id is None``): the
-        first call probes the credentials, so bad auth fails as 401 and a
-        permission/WAF block as 403. Drill-downs reuse those validated creds
-        and skip the probe — ``list_items`` surfaces any failure on its own.
+        Validation runs only on the first page of the top level
+        (``parent_id is None and cursor is None``): that first call probes the
+        credentials, so bad auth fails as 401 and a permission/WAF block as
+        403. Drill-downs and "load more" pages reuse those validated creds and
+        skip the probe — ``list_items`` surfaces any failure on its own.
         Source-layer failures carry their own status via ``SourceError``;
         stdlib errors from filesystem sources map to a status here.
         """
@@ -986,11 +992,11 @@ class DatasetHandler:
             ) from e
 
         try:
-            # Probe credentials once, on the first (top-level) call only.
-            if parent_id is None:
+            # Probe credentials once, on the first page of the top level only.
+            if parent_id is None and cursor is None:
                 await provider.validate_browse_config(configuration)
             browser = provider.for_browse(configuration)
-            items = await browser.list_items(parent_id)
+            page = await browser.list_items(parent_id, cursor)
         except SourceError as e:
             logger.warning(f"Browse failed for '{dtype}' (parent={parent_id}): {e}")
             raise e.to_http_exception() from e
@@ -1003,7 +1009,9 @@ class DatasetHandler:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-        return SourceBrowseResponse(parent_id=parent_id, items=items)
+        return SourceBrowseResponse(
+            parent_id=parent_id, items=page.items, next_cursor=page.next_cursor
+        )
 
     async def serve_image(
         self, dataset_id: str, doc_id: str, filename: str, tenant: Tenant

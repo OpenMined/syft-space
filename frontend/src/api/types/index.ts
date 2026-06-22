@@ -12,6 +12,7 @@ export interface SourceBrowseRequest {
   dtype: string
   configuration?: Record<string, unknown>
   parent_id?: string | null
+  cursor?: string | null
 }
 
 export interface SourceBrowseResponse {
@@ -102,12 +103,27 @@ export interface DatasetListItem {
   provisioner_status?: ProvisionerStatusResponse
 }
 
+export interface BrowseSchemaProperty {
+  title?: string
+  description?: string
+  type?: string
+  format?: string
+  default?: unknown
+}
+
+export interface BrowseSchema {
+  properties?: Record<string, BrowseSchemaProperty>
+  required?: string[]
+}
+
 export interface DatasetTypeInfoResponse {
   name: string
   description: string
   config_schema: Record<string, unknown>
   icon: string
   enabled: boolean
+  browse_schema: BrowseSchema
+  browsable: boolean
 }
 
 // Ingestion API types

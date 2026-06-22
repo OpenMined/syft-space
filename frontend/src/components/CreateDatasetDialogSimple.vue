@@ -23,19 +23,12 @@
 
         <!-- Source-specific browser -->
         <div v-if="!props.dataset" class="space-y-4">
-          <FileExplorer
-            v-if="sourceType === 'local_file'"
-            ref="fileExplorerRef"
+          <SourceBrowser
+            :key="sourceType"
+            ref="sourceBrowserRef"
+            :dtype="sourceType"
+            :configuration="browserConfiguration"
             v-model="formData.selectedFiles"
-            :show-hidden="false"
-            :allow-multiple="true"
-          />
-          <WordPressBrowser
-            v-else-if="sourceType === 'wordpress'"
-            v-model="formData.selectedFiles"
-            :site-url="credentials.siteUrl"
-            :username="credentials.username"
-            :application-password="credentials.applicationPassword"
           />
 
           <!-- Per-file descriptions (local_file only) -->
@@ -73,9 +66,9 @@
                     class="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0"
                   >
                     <component
-                      :is="getFileIcon(file, false, fileExplorerRef?.rootNodes)"
+                      :is="getFileIcon(file, false, sourceBrowserRef?.rootNodes)"
                       class="h-4 w-4"
-                      :class="getFileIconColor(file, fileExplorerRef?.rootNodes)"
+                      :class="getFileIconColor(file, sourceBrowserRef?.rootNodes)"
                     />
                   </div>
                   <div class="flex-1 min-w-0 space-y-3">
@@ -207,8 +200,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Plus, X } from 'lucide-vue-next'
-import FileExplorer from '@/components/FileExplorer.vue'
-import WordPressBrowser from '@/components/WordPressBrowser.vue'
+import SourceBrowser from '@/components/SourceBrowser.vue'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
@@ -239,6 +231,17 @@ const props = withDefaults(
 const sourceType = computed(() => props.sourceType)
 const credentials = computed(() => props.credentials)
 
+const browserConfiguration = computed<Record<string, unknown>>(() => {
+  if (sourceType.value === 'wordpress') {
+    return {
+      siteUrl: credentials.value.siteUrl ?? '',
+      username: credentials.value.username ?? '',
+      applicationPassword: credentials.value.applicationPassword ?? '',
+    }
+  }
+  return {}
+})
+
 const emit = defineEmits<{
   'update:open': [value: boolean]
   'dataset-created': []
@@ -257,7 +260,7 @@ const formData = ref({
 const tagInput = ref('')
 const fileDescriptions = ref<Record<string, string>>({})
 const { getFileIcon, getFileIconColor } = useFileIcon()
-const fileExplorerRef = ref<InstanceType<typeof FileExplorer> | null>(null)
+const sourceBrowserRef = ref<InstanceType<typeof SourceBrowser> | null>(null)
 const isCreating = ref(false)
 const isInitialized = ref(false)
 

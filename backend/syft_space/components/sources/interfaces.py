@@ -51,6 +51,22 @@ class SourceItem(BaseModel):
     )
 
 
+class SourcePage(BaseModel):
+    """One page of a source level: the items plus a cursor to resume.
+
+    Returned by ``list_items``. ``next_cursor`` is an opaque, source-owned
+    token: only the source that minted it knows how to parse it (a WordPress
+    page number, an S3 continuation token, ...). The handler, request, and
+    frontend echo it as a string. ``None`` means the level is exhausted.
+    """
+
+    items: list[SourceItem] = Field(default_factory=list)
+    next_cursor: str | None = Field(
+        default=None,
+        description="Opaque resume token for the next page. None ⇒ exhausted.",
+    )
+
+
 class SourceChangeEvent(BaseModel):
     """A change emitted by a source's ``change_stream``."""
 
@@ -68,12 +84,17 @@ class BaseBrowser(Protocol):
     cannot fetch, fingerprint, or watch.
     """
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
-        """Discover items at the given level.
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
+        """Discover one page of items at the given level.
 
         Args:
             parent_id: For hierarchical sources, descend into the given parent.
                 ``None`` returns the top-level items.
+            cursor: Opaque resume token from a prior page's ``next_cursor``.
+                ``None`` returns the first page. ``parent_id`` says *which*
+                level; ``cursor`` says *where in that level* to resume.
         """
         ...
 
@@ -86,8 +107,10 @@ class BaseSource(Protocol):
     does not know about vector stores or persistence.
     """
 
-    async def list_items(self, parent_id: str | None = None) -> list[SourceItem]:
-        """Discover items at the given level."""
+    async def list_items(
+        self, parent_id: str | None = None, cursor: str | None = None
+    ) -> SourcePage:
+        """Discover one page of items at the given level."""
         ...
 
     def fetch(self, external_id: str) -> AbstractAsyncContextManager[IngestFile]:
