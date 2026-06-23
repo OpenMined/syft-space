@@ -10,7 +10,9 @@ from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
     PolicyMetadataEntry,
+    PolicyRejection,
     PolicyViolationError,
+    ReasonCode,
 )
 from syft_space.components.policy_types.rate_limit.limiter import (
     check_rate_limit,
@@ -222,12 +224,12 @@ class EndpointRateLimitPolicy(BasePolicyType):
                         "reset_seconds": reset_seconds,
                         "scope": config.scope.value,
                     },
-                    outcome="rate_limited",
+                    outcome=PolicyRejection.RATE_LIMITED,
                     metadata_entry=PolicyMetadataEntry(
                         policy_type=self.NAME,
                         kind="rate_limit",
                         status="rejected",
-                        reason_code="RATE_LIMITED",
+                        reason_code=ReasonCode.RATE_LIMITED,
                         reason=message,
                         details={
                             "limit": config.limit,

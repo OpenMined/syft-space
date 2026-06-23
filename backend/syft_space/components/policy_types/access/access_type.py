@@ -8,7 +8,9 @@ from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
     PolicyMetadataEntry,
+    PolicyRejection,
     PolicyViolationError,
+    ReasonCode,
 )
 from syft_space.components.shared.utils import (
     ConfigSchemaGenerator,
@@ -124,12 +126,12 @@ class EndpointAccessPolicy(BasePolicyType):
             message=message,
             policy_type=self.NAME,
             details={"user": user_email, "reasons": denial_reasons},
-            outcome="access_denied",
+            outcome=PolicyRejection.ACCESS_DENIED,
             metadata_entry=PolicyMetadataEntry(
                 policy_type=self.NAME,
                 kind="access",
                 status="rejected",
-                reason_code="ACCESS_DENIED",
+                reason_code=ReasonCode.ACCESS_DENIED,
                 reason=message,
             ),
         )

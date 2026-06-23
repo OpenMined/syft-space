@@ -1,5 +1,6 @@
 """Policy type interfaces and domain models."""
 
+from enum import Enum
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
@@ -9,12 +10,41 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 # --------------------------------------------------------------------------- #
 # Policy metadata contract                                                     #
 #                                                                              #
-# Every query response (success and rejection) carries a PolicyMetadata        #
-# object describing what each policy did: what it charged, to whom, the        #
-# rail-native transaction id, and — for rejections — why it was blocked.       #
-# This is the authoritative source the SDK surfaces (OME-284/285); clients     #
-# no longer reconstruct price/recipient from policy configs.                   #
+# Each policy contributes a PolicyMetadataEntry describing what it did: what   #
+# it charged, to whom, the rail-native transaction id, and — for rejections —  #
+# why it blocked the query. The endpoints layer aggregates these into the      #
+# PolicyMetadata envelope returned on the query response (endpoints.schemas).  #
+# It is the authoritative source of price/recipient/outcome for API clients.   #
 # --------------------------------------------------------------------------- #
+
+
+class PolicyRejection(str, Enum):
+    """The categories of rejection a policy can produce.
+
+    Owned by `policy_types` because policies are what *produce* these — unlike
+    the endpoints-owned `QueryOutcome`, which also covers query-lifecycle
+    states no policy emits (success, not_found, not_published, internal_error).
+    `QueryOutcome` is a deliberate value-superset; the endpoints layer coerces
+    a PolicyRejection into its QueryOutcome twin at the rejection boundary.
+    """
+
+    POLICY_VIOLATION = "policy_violation"
+    ACCESS_DENIED = "access_denied"
+    RATE_LIMITED = "rate_limited"
+
+
+class ReasonCode(str, Enum):
+    """Machine-readable code on a rejected PolicyMetadataEntry.
+
+    A stable contract the SDK can switch on, distinct from the human-readable
+    `reason`. Owned by `policy_types` because policies are what produce them.
+    """
+
+    NO_PRICING_TIER = "NO_PRICING_TIER"
+    INSUFFICIENT_BALANCE = "INSUFFICIENT_BALANCE"
+    PAYMENT_REQUIRED = "PAYMENT_REQUIRED"
+    ACCESS_DENIED = "ACCESS_DENIED"
+    RATE_LIMITED = "RATE_LIMITED"
 
 
 class TransactionRef(BaseModel):
@@ -66,26 +96,13 @@ class PolicyMetadataEntry(BaseModel):
     transaction: TransactionRef | None = Field(
         default=None, description="Settled transaction reference (payment policies)"
     )
-    reason_code: str | None = Field(
-        default=None,
-        description="Machine code when rejected: PAYMENT_REQUIRED, "
-        "INSUFFICIENT_BALANCE, NO_PRICING_TIER, ACCESS_DENIED, RATE_LIMITED",
+    reason_code: ReasonCode | None = Field(
+        default=None, description="Machine-readable rejection code (see ReasonCode)"
     )
     reason: str | None = Field(default=None, description="Human-readable explanation")
     details: dict[str, Any] = Field(
         default_factory=dict, description="Extra context, e.g. {'documents': 3}"
     )
-
-
-class PolicyMetadata(BaseModel):
-    """Aggregate of all policy entries for one query.
-
-    `outcome` mirrors the `QueryOutcome` string values. It is kept as a plain
-    string here to avoid an import cycle with the endpoints component.
-    """
-
-    outcome: str = Field(..., description="Overall query outcome (QueryOutcome value)")
-    entries: list[PolicyMetadataEntry] = Field(default_factory=list)
 
 
 class PolicyViolationError(Exception):
@@ -101,7 +118,7 @@ class PolicyViolationError(Exception):
         policy_type: str,
         details: dict[str, Any] | None = None,
         *,
-        outcome: str = "policy_violation",
+        outcome: PolicyRejection = PolicyRejection.POLICY_VIOLATION,
         metadata_entry: "PolicyMetadataEntry | None" = None,
     ) -> None:
         """Initialize the PolicyViolationError.
@@ -110,14 +127,13 @@ class PolicyViolationError(Exception):
             message: Human-readable error message
             policy_type: Name of the policy type that raised the error
             details: Optional additional details about the error
-            outcome: QueryOutcome value to report (e.g. "policy_violation",
-                "access_denied", "rate_limited")
+            outcome: The rejection category (defaults to POLICY_VIOLATION)
             metadata_entry: The rejected PolicyMetadataEntry to surface to the client
         """
         super().__init__(message)
         self.policy_type = policy_type
         self.details = details or {}
-        self.outcome = outcome
+        self.outcome: PolicyRejection = outcome
         self.metadata_entry = metadata_entry
 
 
@@ -139,30 +155,6 @@ class PaymentRequiredError(Exception):
         self.description = description
         self.metadata_entry = metadata_entry
         super().__init__(description or "Payment required")
-
-
-class QueryRejectedError(Exception):
-    """A query was rejected by a policy (payment/access/rate-limit).
-
-    Carries everything the route needs to render the rejection body with the
-    same `policy_metadata` envelope as a successful response. Built by the
-    query handler from PaymentRequiredError / PolicyViolationError so the
-    route has a single rejection branch.
-    """
-
-    def __init__(
-        self,
-        *,
-        status_code: int,
-        detail: str,
-        policy_metadata: "PolicyMetadata",
-        headers: dict[str, str] | None = None,
-    ) -> None:
-        self.status_code = status_code
-        self.detail = detail
-        self.policy_metadata = policy_metadata
-        self.headers = headers
-        super().__init__(detail)
 
 
 class PolicyAttachError(Exception):

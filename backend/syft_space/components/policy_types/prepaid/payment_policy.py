@@ -16,13 +16,14 @@ from syft_space.components.policy_types.interfaces import (
     PolicyMetadataEntry,
     TransactionRef,
 )
+from syft_space.components.policy_types.payment_metadata import PaymentMetadataMixin
 from syft_space.components.shared.utils import (
     ConfigSchemaGenerator,
     matches_any_pattern,
 )
 
 
-class PrepaidBalancePaymentPolicyBase(BasePolicyType):
+class PrepaidBalancePaymentPolicyBase(PaymentMetadataMixin, BasePolicyType):
     """Shared scaffolding for all prepaid-balance payment policies."""
 
     PROVIDER_NAME: ClassVar[str]  # "stripe", "xendit", ...
@@ -98,12 +99,10 @@ class PrepaidBalancePaymentPolicyBase(BasePolicyType):
 
         return best_price
 
-    # ----------------------------------------------------------------- #
-    # PolicyMetadataEntry builders — keep emitted entries DRY across the #
-    # per-request / per-document subclasses. Each fills in the invariant #
-    # policy_type / kind / recipient and lets callers supply only the    #
-    # varying fields.                                                    #
-    # ----------------------------------------------------------------- #
+    # PolicyMetadataEntry builders. The invariant shape (policy_type / kind /
+    # recipient / status) lives in PaymentMetadataMixin; only the prepaid-rail
+    # TransactionRef is built here. `_free_entry` / `_rejected_entry` are
+    # inherited from the mixin.
     @staticmethod
     def _prepaid_transaction(
         wallet_type: str, transaction_id: UUID | str | None
@@ -132,15 +131,13 @@ class PrepaidBalancePaymentPolicyBase(BasePolicyType):
         details: dict[str, Any] | None = None,
     ) -> PolicyMetadataEntry:
         """Build a 'charged' entry."""
-        return PolicyMetadataEntry(
-            policy_type=self.NAME,
-            kind="payment",
+        return self._payment_entry(
+            context,
             status="charged",
             amount=amount,
             currency=currency,
-            recipient=context.recipient,
             transaction=self._prepaid_transaction(wallet_type, transaction_id),
-            details=details or {},
+            details=details,
         )
 
     def _refunded_entry(
@@ -153,54 +150,11 @@ class PrepaidBalancePaymentPolicyBase(BasePolicyType):
         details: dict[str, Any] | None = None,
     ) -> PolicyMetadataEntry:
         """Build a 'refunded' (amount=0) entry — reservation cancelled."""
-        return PolicyMetadataEntry(
-            policy_type=self.NAME,
-            kind="payment",
+        return self._payment_entry(
+            context,
             status="refunded",
             amount=0,
             currency=currency,
-            recipient=context.recipient,
             transaction=self._prepaid_transaction(wallet_type, transaction_id),
-            details=details or {},
-        )
-
-    def _free_entry(
-        self,
-        context: PolicyContext,
-        *,
-        currency: str,
-        details: dict[str, Any] | None = None,
-    ) -> PolicyMetadataEntry:
-        """Build a 'free' (amount=0) entry — no charge made."""
-        return PolicyMetadataEntry(
-            policy_type=self.NAME,
-            kind="payment",
-            status="free",
-            amount=0,
-            currency=currency,
-            recipient=context.recipient,
-            details=details or {},
-        )
-
-    def _rejected_entry(
-        self,
-        context: PolicyContext,
-        *,
-        reason_code: str,
-        reason: str,
-        amount: float | None = None,
-        currency: str | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> PolicyMetadataEntry:
-        """Build a 'rejected' entry (no tier / insufficient balance)."""
-        return PolicyMetadataEntry(
-            policy_type=self.NAME,
-            kind="payment",
-            status="rejected",
-            amount=amount,
-            currency=currency,
-            recipient=context.recipient,
-            reason_code=reason_code,
-            reason=reason,
-            details=details or {},
+            details=details,
         )

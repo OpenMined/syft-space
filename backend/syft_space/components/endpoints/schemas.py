@@ -11,10 +11,37 @@ from syft_space.components.dataset_types.redaction import (
     redact_config as redact_dataset_config,
 )
 from syft_space.components.endpoints.entities import ResponseType
+from syft_space.components.endpoints.interfaces import QueryOutcome
 from syft_space.components.model_types.redaction import (
     redact_config as redact_model_config,
 )
-from syft_space.components.policy_types.interfaces import PolicyMetadata
+from syft_space.components.policy_types.interfaces import PolicyMetadataEntry
+
+
+class PolicyMetadata(BaseModel):
+    """Aggregate of every policy's entry for one query, plus the overall outcome.
+
+    Assembled by the endpoints layer (success path and rejection path alike),
+    so `outcome` is the endpoints-owned `QueryOutcome` — the full query
+    lifecycle, a superset of the policy-produced `PolicyRejection` categories.
+    """
+
+    outcome: QueryOutcome = Field(..., description="Overall query outcome")
+    entries: list[PolicyMetadataEntry] = Field(default_factory=list)
+
+
+class RejectionResponse(BaseModel):
+    """Body returned when a policy blocks a query (HTTP 402/403).
+
+    Carries the same `policy_metadata` envelope as a successful
+    QueryEndpointResponse, so the SDK reads policy outcomes from one typed
+    field regardless of status code.
+    """
+
+    detail: str = Field(..., description="Human-readable rejection message")
+    policy_metadata: PolicyMetadata = Field(
+        ..., description="Per-policy metadata, including the rejection reason"
+    )
 
 
 class CreateEndpointRequest(BaseModel):

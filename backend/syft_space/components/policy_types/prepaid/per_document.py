@@ -15,6 +15,7 @@ from syft_space.components.policy_types.interfaces import (
     Capabilities,
     PolicyContext,
     PolicyViolationError,
+    ReasonCode,
     add_response_cost,
 )
 from syft_space.components.policy_types.prepaid.payment_policy import (
@@ -56,10 +57,9 @@ class PrepaidBalancePerDocumentPolicy(PrepaidBalancePaymentPolicyBase):
             raise PolicyViolationError(
                 message=message,
                 policy_type=self.NAME,
-                outcome="policy_violation",
                 metadata_entry=self._rejected_entry(
                     context,
-                    reason_code="NO_PRICING_TIER",
+                    reason_code=ReasonCode.NO_PRICING_TIER,
                     reason=message,
                 ),
             )
@@ -77,10 +77,9 @@ class PrepaidBalancePerDocumentPolicy(PrepaidBalancePaymentPolicyBase):
                     "price": price,
                     "currency": charger.currency,
                 },
-                outcome="policy_violation",
                 metadata_entry=self._rejected_entry(
                     context,
-                    reason_code="INSUFFICIENT_BALANCE",
+                    reason_code=ReasonCode.INSUFFICIENT_BALANCE,
                     reason=message,
                     amount=price,
                     currency=charger.currency,
@@ -149,10 +148,9 @@ class PrepaidBalancePerDocumentPolicy(PrepaidBalancePaymentPolicyBase):
                     "total": total,
                     "currency": exc.currency,
                 },
-                outcome="policy_violation",
                 metadata_entry=self._rejected_entry(
                     context,
-                    reason_code="INSUFFICIENT_BALANCE",
+                    reason_code=ReasonCode.INSUFFICIENT_BALANCE,
                     reason=message,
                     amount=total,
                     currency=exc.currency,

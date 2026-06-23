@@ -1,5 +1,7 @@
 """Endpoint API routes."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -7,7 +9,10 @@ from syft_space.components.auth.dependencies import get_verified_user_email
 from syft_space.components.auth.public import public_route
 from syft_space.components.endpoints.handlers import EndpointHandler
 from syft_space.components.endpoints.publish_handler import PublishEndpointHandler
-from syft_space.components.endpoints.query_handler import QueryEndpointHandler
+from syft_space.components.endpoints.query_handler import (
+    QueryEndpointHandler,
+    QueryRejectedError,
+)
 from syft_space.components.endpoints.schemas import (
     AuthenticatedQueryRequest,
     CreateEndpointRequest,
@@ -18,14 +23,29 @@ from syft_space.components.endpoints.schemas import (
     PublishEndpointResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
+    RejectionResponse,
     SlugAvailabilityRequest,
     SlugAvailabilityResponse,
     UnpublishResult,
     UpdateEndpointRequest,
 )
-from syft_space.components.policy_types.interfaces import QueryRejectedError
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
+
+# OpenAPI: both query routes return a RejectionResponse on 402/403, so the SDK
+# can see the rejection shape in the schema (it carries the policy_metadata).
+_REJECTION_RESPONSES: dict[int | str, dict[str, Any]] = {
+    402: {"model": RejectionResponse, "description": "Payment required"},
+    403: {"model": RejectionResponse, "description": "Blocked by a policy"},
+}
+
+
+def _render_rejection(e: QueryRejectedError) -> JSONResponse:
+    """Render a QueryRejectedError as its typed JSON body + HTTP status/headers."""
+    body = RejectionResponse(detail=e.detail, policy_metadata=e.policy_metadata)
+    return JSONResponse(
+        status_code=e.status_code, content=body.model_dump(), headers=e.headers
+    )
 
 
 def build_endpoint_routes(
@@ -117,7 +137,11 @@ def build_endpoint_routes(
     # ── Query route (QueryEndpointHandler) ───────────────────────
 
     @public_route
-    @router.post("/{slug}/query", response_model=QueryEndpointResponse)
+    @router.post(
+        "/{slug}/query",
+        response_model=QueryEndpointResponse,
+        responses=_REJECTION_RESPONSES,
+    )
     async def query_endpoint(
         slug: str,
         request: QueryEndpointRequest,
@@ -134,16 +158,13 @@ def build_endpoint_routes(
                 slug, auth_request, tenant, x_payment=x_payment
             )
         except QueryRejectedError as e:
-            return JSONResponse(
-                status_code=e.status_code,
-                content={
-                    "detail": e.detail,
-                    "policy_metadata": e.policy_metadata.model_dump(),
-                },
-                headers=e.headers,
-            )
+            return _render_rejection(e)
 
-    @router.post("/{slug}/preview", response_model=QueryEndpointResponse)
+    @router.post(
+        "/{slug}/preview",
+        response_model=QueryEndpointResponse,
+        responses=_REJECTION_RESPONSES,
+    )
     async def preview_endpoint(
         slug: str,
         request: QueryEndpointRequest,
@@ -166,14 +187,7 @@ def build_endpoint_routes(
                 slug, auth_request, tenant, x_payment=None
             )
         except QueryRejectedError as e:
-            return JSONResponse(
-                status_code=e.status_code,
-                content={
-                    "detail": e.detail,
-                    "policy_metadata": e.policy_metadata.model_dump(),
-                },
-                headers=e.headers,
-            )
+            return _render_rejection(e)
 
     # ── Publish routes (PublishEndpointHandler) ──────────────────
 

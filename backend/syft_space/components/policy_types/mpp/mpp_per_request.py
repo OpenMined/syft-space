@@ -10,6 +10,7 @@ from syft_space.components.policy_types.interfaces import (
     PaymentRequiredError,
     PolicyContext,
     PolicyViolationError,
+    ReasonCode,
     add_response_cost,
 )
 from syft_space.components.policy_types.mpp.mpp_payment_policy import (
@@ -72,7 +73,7 @@ class MppPerRequestPolicy(MppPaymentPolicy):
                 description=description,
                 metadata_entry=self._rejected_entry(
                     context,
-                    reason_code="PAYMENT_REQUIRED",
+                    reason_code=ReasonCode.PAYMENT_REQUIRED,
                     reason=description,
                     amount=price,
                     currency="USD",

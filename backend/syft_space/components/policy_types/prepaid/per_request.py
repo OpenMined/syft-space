@@ -16,6 +16,7 @@ from syft_space.components.policy_types.interfaces import (
     BalanceShortfallError,
     PolicyContext,
     PolicyViolationError,
+    ReasonCode,
     add_response_cost,
 )
 from syft_space.components.policy_types.prepaid.payment_policy import (
@@ -41,10 +42,9 @@ class PrepaidBalancePerRequestPolicy(PrepaidBalancePaymentPolicyBase):
             raise PolicyViolationError(
                 message=message,
                 policy_type=self.NAME,
-                outcome="policy_violation",
                 metadata_entry=self._rejected_entry(
                     context,
-                    reason_code="NO_PRICING_TIER",
+                    reason_code=ReasonCode.NO_PRICING_TIER,
                     reason=message,
                 ),
             )
@@ -67,10 +67,9 @@ class PrepaidBalancePerRequestPolicy(PrepaidBalancePaymentPolicyBase):
                     "price": price,
                     "currency": exc.currency,
                 },
-                outcome="policy_violation",
                 metadata_entry=self._rejected_entry(
                     context,
-                    reason_code="INSUFFICIENT_BALANCE",
+                    reason_code=ReasonCode.INSUFFICIENT_BALANCE,
                     reason=message,
                     amount=price,
                     currency=exc.currency,

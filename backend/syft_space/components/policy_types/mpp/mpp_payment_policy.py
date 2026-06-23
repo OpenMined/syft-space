@@ -43,10 +43,11 @@ from syft_space.components.policy_types.interfaces import (
     TransactionRef,
 )
 from syft_space.components.policy_types.mpp.policy_config import MppPaymentConfig
+from syft_space.components.policy_types.payment_metadata import PaymentMetadataMixin
 from syft_space.components.shared.utils import matches_any_pattern
 
 
-class MppPaymentPolicy(BasePolicyType):
+class MppPaymentPolicy(PaymentMetadataMixin, BasePolicyType):
     """Shared scaffolding for all MPP-based payment policies."""
 
     NAME: ClassVar[str]
@@ -113,12 +114,10 @@ class MppPaymentPolicy(BasePolicyType):
 
         return best_price
 
-    # ----------------------------------------------------------------- #
-    # PolicyMetadataEntry builders — keep emitted entries DRY across the #
-    # per-request / per-document subclasses. Each fills in the invariant #
-    # policy_type / kind / recipient and lets callers supply only the    #
-    # varying fields.                                                    #
-    # ----------------------------------------------------------------- #
+    # PolicyMetadataEntry builders. The invariant shape (policy_type / kind /
+    # recipient / status) lives in PaymentMetadataMixin; only the MPP-rail
+    # TransactionRef is built here. `_free_entry` / `_rejected_entry` are
+    # inherited from the mixin.
     def _charged_entry(
         self,
         context: PolicyContext,
@@ -144,54 +143,11 @@ class MppPaymentPolicy(BasePolicyType):
                 id=reference,
                 reference=external_id,
             )
-        return PolicyMetadataEntry(
-            policy_type=self.NAME,
-            kind="payment",
+        return self._payment_entry(
+            context,
             status="charged",
             amount=amount,
             currency=currency,
-            recipient=context.recipient,
             transaction=transaction,
-            details=details or {},
-        )
-
-    def _free_entry(
-        self,
-        context: PolicyContext,
-        *,
-        currency: str = "USD",
-        details: dict[str, Any] | None = None,
-    ) -> PolicyMetadataEntry:
-        """Build a 'free' (amount=0) entry."""
-        return PolicyMetadataEntry(
-            policy_type=self.NAME,
-            kind="payment",
-            status="free",
-            amount=0,
-            currency=currency,
-            recipient=context.recipient,
-            details=details or {},
-        )
-
-    def _rejected_entry(
-        self,
-        context: PolicyContext,
-        *,
-        reason_code: str,
-        reason: str,
-        amount: float | None = None,
-        currency: str | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> PolicyMetadataEntry:
-        """Build a 'rejected' entry (payment required / no tier)."""
-        return PolicyMetadataEntry(
-            policy_type=self.NAME,
-            kind="payment",
-            status="rejected",
-            amount=amount,
-            currency=currency,
-            recipient=context.recipient,
-            reason_code=reason_code,
-            reason=reason,
-            details=details or {},
+            details=details,
         )

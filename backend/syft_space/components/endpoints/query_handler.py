@@ -19,6 +19,7 @@ from syft_space.components.endpoints.schemas import (
     AuthenticatedQueryRequest,
     DocumentResponse,
     MessageResponse,
+    PolicyMetadata,
     ProviderInfo,
     QueryEndpointResponse,
     ReferencesResponse,
@@ -38,9 +39,8 @@ from syft_space.components.policies.repository import PolicyRepository
 from syft_space.components.policy_types.interfaces import (
     PaymentRequiredError,
     PolicyContext,
-    PolicyMetadata,
+    PolicyMetadataEntry,
     PolicyViolationError,
-    QueryRejectedError,
     Recipient,
 )
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
@@ -48,6 +48,82 @@ from syft_space.components.shared.search_types import SearchContext, SearchParam
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.repository import WalletRepository
+
+
+class QueryRejectedError(Exception):
+    """A query was rejected by a policy (payment/access/rate-limit).
+
+    Carries everything the route needs to render the rejection body with the
+    same `policy_metadata` envelope as a successful response. Built by the
+    query handler from PaymentRequiredError / PolicyViolationError so the route
+    has a single rejection branch. Lives in the endpoints layer because it
+    carries the HTTP status_code/headers the adapter renders.
+    """
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        detail: str,
+        policy_metadata: PolicyMetadata,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.detail = detail
+        self.policy_metadata = policy_metadata
+        self.headers = headers
+        super().__init__(detail)
+
+    @staticmethod
+    def _envelope_entries(
+        prior_entries: list[PolicyMetadataEntry] | None,
+        rejecting_entry: PolicyMetadataEntry | None,
+    ) -> list[PolicyMetadataEntry]:
+        """Entries from policies that already ran (e.g. an earlier charge),
+        followed by the rejecting policy's own entry — so a chain like
+        "policy A charged, policy B rejected" surfaces both, not just B.
+        """
+        entries = list(prior_entries or [])
+        if rejecting_entry is not None:
+            entries.append(rejecting_entry)
+        return entries
+
+    @classmethod
+    def from_violation(
+        cls,
+        e: PolicyViolationError,
+        prior_entries: list[PolicyMetadataEntry] | None = None,
+    ) -> "QueryRejectedError":
+        """Build a 403 rejection carrying the policy_metadata envelope.
+
+        `QueryOutcome` is a value-superset of `PolicyRejection`, so coercing the
+        rejection to its outcome by value always succeeds.
+        """
+        return cls(
+            status_code=403,
+            detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
+            policy_metadata=PolicyMetadata(
+                outcome=QueryOutcome(e.outcome.value),
+                entries=cls._envelope_entries(prior_entries, e.metadata_entry),
+            ),
+        )
+
+    @classmethod
+    def from_payment(
+        cls,
+        e: PaymentRequiredError,
+        prior_entries: list[PolicyMetadataEntry] | None = None,
+    ) -> "QueryRejectedError":
+        """Build a 402 rejection carrying the policy_metadata envelope."""
+        return cls(
+            status_code=402,
+            detail=e.description or "Payment required",
+            policy_metadata=PolicyMetadata(
+                outcome=QueryOutcome.PAYMENT_REQUIRED,
+                entries=cls._envelope_entries(prior_entries, e.metadata_entry),
+            ),
+            headers={"WWW-Authenticate": e.www_authenticate},
+        )
 
 
 class QueryEndpointHandler:
@@ -100,6 +176,9 @@ class QueryEndpointHandler:
         endpoint: Endpoint | None = None
         outcome: QueryOutcome = QueryOutcome.SUCCESS
         final_response: QueryEndpointResponse | None = None
+        # Set once the context exists; lets the rejection branches surface
+        # entries from policies that already ran before the block.
+        policy_context: PolicyContext | None = None
 
         try:
             endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
@@ -234,7 +313,7 @@ class QueryEndpointHandler:
             # Attach the success policy_metadata envelope onto the response.
             response_dict = policy_context.response or {}
             response_dict["policy_metadata"] = PolicyMetadata(
-                outcome=QueryOutcome.SUCCESS.value,
+                outcome=QueryOutcome.SUCCESS,
                 entries=policy_context.policy_metadata,
             ).model_dump()
 
@@ -243,11 +322,13 @@ class QueryEndpointHandler:
 
         except PolicyViolationError as e:
             # A policy blocked the request from any point in the pipeline.
-            outcome = self._safe_outcome(e.outcome)
-            raise self._reject_violation(e) from e
+            outcome = QueryOutcome(e.outcome.value)
+            prior = policy_context.policy_metadata if policy_context else None
+            raise QueryRejectedError.from_violation(e, prior) from e
         except PaymentRequiredError as e:
             outcome = QueryOutcome.PAYMENT_REQUIRED
-            raise self._reject_payment(e) from e
+            prior = policy_context.policy_metadata if policy_context else None
+            raise QueryRejectedError.from_payment(e, prior) from e
         except HTTPException:
             if outcome == QueryOutcome.SUCCESS:
                 outcome = QueryOutcome.INTERNAL_ERROR
@@ -302,43 +383,6 @@ class QueryEndpointHandler:
         if not (username or email or wallet_address):
             return None
         return Recipient(username=username, email=email, wallet_address=wallet_address)
-
-    @staticmethod
-    def _safe_outcome(outcome: str) -> QueryOutcome:
-        """Map a policy's outcome string to a QueryOutcome, never raising.
-
-        A policy may supply any string; an unrecognized value falls back to
-        POLICY_VIOLATION so a deliberate rejection is never masked as a 500.
-        """
-        try:
-            return QueryOutcome(outcome)
-        except ValueError:
-            return QueryOutcome.POLICY_VIOLATION
-
-    def _reject_violation(self, e: PolicyViolationError) -> QueryRejectedError:
-        """Build a 403 rejection carrying the policy_metadata envelope."""
-        entry = e.metadata_entry
-        return QueryRejectedError(
-            status_code=403,
-            detail=f"Policy '{e.policy_type}' blocked request: {e.details}",
-            policy_metadata=PolicyMetadata(
-                outcome=e.outcome,
-                entries=[entry] if entry else [],
-            ),
-        )
-
-    def _reject_payment(self, e: PaymentRequiredError) -> QueryRejectedError:
-        """Build a 402 rejection carrying the policy_metadata envelope."""
-        entry = e.metadata_entry
-        return QueryRejectedError(
-            status_code=402,
-            detail=e.description or "Payment required",
-            policy_metadata=PolicyMetadata(
-                outcome=QueryOutcome.PAYMENT_REQUIRED.value,
-                entries=[entry] if entry else [],
-            ),
-            headers={"WWW-Authenticate": e.www_authenticate},
-        )
 
     async def _search_dataset(
         self,
