@@ -15,7 +15,7 @@ dependencies = [
     "fastapi==0.116.2",
     "uvicorn[standard]==0.35.0",
     "pydantic[email]==2.11.9",
-    "pydantic-settings>=2.0.0",
+    "pydantic-settings>=2.14.2",
     "sqlmodel>=0.0.14",
     "alembic>=1.13.0",
     "aiosqlite>=0.19.0",
