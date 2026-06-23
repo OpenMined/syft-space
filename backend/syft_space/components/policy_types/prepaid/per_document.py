@@ -15,6 +15,7 @@ from syft_space.components.policy_types.interfaces import (
     Capabilities,
     PolicyContext,
     PolicyViolationError,
+    ReasonCode,
     add_response_cost,
 )
 from syft_space.components.policy_types.prepaid.payment_policy import (
@@ -52,16 +53,23 @@ class PrepaidBalancePerDocumentPolicy(PrepaidBalancePaymentPolicyBase):
         price = self._find_matching_price(user_email, configs)
 
         if price is None:
+            message = "No pricing tier matches your account"
             raise PolicyViolationError(
-                message="No pricing tier matches your account",
+                message=message,
                 policy_type=self.NAME,
+                metadata_entry=self._rejected_entry(
+                    context,
+                    reason_code=ReasonCode.NO_PRICING_TIER,
+                    reason=message,
+                ),
             )
 
         charger = context.payment_chargers.prepaid()
         balance = await charger.get_balance(user_email)
         if balance < price:
+            message = "Insufficient balance. Please purchase more credits."
             raise PolicyViolationError(
-                message="Insufficient balance. Please purchase more credits.",
+                message=message,
                 policy_type=self.NAME,
                 details={
                     "user": user_email,
@@ -69,6 +77,14 @@ class PrepaidBalancePerDocumentPolicy(PrepaidBalancePaymentPolicyBase):
                     "price": price,
                     "currency": charger.currency,
                 },
+                metadata_entry=self._rejected_entry(
+                    context,
+                    reason_code=ReasonCode.INSUFFICIENT_BALANCE,
+                    reason=message,
+                    amount=price,
+                    currency=charger.currency,
+                    details={"balance": balance, "price": price},
+                ),
             )
 
         context.metadata["prepaid_per_doc_price"] = price
@@ -101,21 +117,29 @@ class PrepaidBalancePerDocumentPolicy(PrepaidBalancePaymentPolicyBase):
         # this policy applied with no net cost.
         if count == 0:
             add_response_cost(response, 0, charger.currency)
+            context.add_policy_metadata(
+                self._free_entry(
+                    context,
+                    currency=charger.currency,
+                    details={"documents": count},
+                )
+            )
             return context
 
         total = count * price
         user_email = str(context.sender_email)
 
         try:
-            await charger.reserve(
+            transaction_id = await charger.reserve(
                 user_email=user_email,
                 amount=total,
                 charge_unit="document",
                 charge_quantity=count,
             )
         except BalanceShortfallError as exc:
+            message = "Insufficient balance for the documents retrieved."
             raise PolicyViolationError(
-                message="Insufficient balance for the documents retrieved.",
+                message=message,
                 policy_type=self.NAME,
                 details={
                     "user": user_email,
@@ -124,8 +148,26 @@ class PrepaidBalancePerDocumentPolicy(PrepaidBalancePaymentPolicyBase):
                     "total": total,
                     "currency": exc.currency,
                 },
+                metadata_entry=self._rejected_entry(
+                    context,
+                    reason_code=ReasonCode.INSUFFICIENT_BALANCE,
+                    reason=message,
+                    amount=total,
+                    currency=exc.currency,
+                    details={"documents": count, "price": price},
+                ),
             ) from exc
 
         add_response_cost(response, total, charger.currency)
+        context.add_policy_metadata(
+            self._charged_entry(
+                context,
+                amount=total,
+                currency=charger.currency,
+                wallet_type=charger.wallet_type,
+                transaction_id=transaction_id,
+                details={"documents": count},
+            )
+        )
 
         return context

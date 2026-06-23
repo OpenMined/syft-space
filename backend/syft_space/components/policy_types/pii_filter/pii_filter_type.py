@@ -24,14 +24,20 @@ from syft_space.components.model_types.interfaces import (
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
     PolicyContext,
+    PolicyMetadataEntry,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 
-_PII_SYSTEM_PROMPT = """\
-You are a PII (Personally Identifiable Information) sanitization assistant.
-Review the provided text and replace any PII with the placeholder [REDACTED].
+# The placeholder the model is told to substitute for PII. The
+# `spans_redacted` count below greps for this exact token, so the prompt and
+# the count stay coupled through this single constant.
+_REDACTION_TOKEN = "[REDACTED]"
 
-Replace the following with [REDACTED]:
+_PII_SYSTEM_PROMPT = f"""\
+You are a PII (Personally Identifiable Information) sanitization assistant.
+Review the provided text and replace any PII with the placeholder {_REDACTION_TOKEN}.
+
+Replace the following with {_REDACTION_TOKEN}:
 - Full names of real individuals
 - Email addresses
 - Phone numbers
@@ -96,7 +102,9 @@ class PiiFilterType(BasePolicyType):
         return PiiFilterConfig.model_json_schema(schema_generator=ConfigSchemaGenerator)
 
     async def pre_hook(
-        self, configs: list[dict[str, Any]], context: PolicyContext  # noqa: ARG002
+        self,
+        configs: list[dict[str, Any]],
+        context: PolicyContext,  # noqa: ARG002
     ) -> PolicyContext:
         """No pre-request work — PII sanitization only runs on responses."""
         return context
@@ -153,6 +161,15 @@ class PiiFilterType(BasePolicyType):
             if result.messages:
                 sanitized = result.messages[-1].content.strip()
                 context.response = self._replace_text(context.response, sanitized)
+                spans_redacted = sanitized.count(_REDACTION_TOKEN)
+                context.add_policy_metadata(
+                    PolicyMetadataEntry(
+                        policy_type=self.NAME,
+                        kind="transform",
+                        status="applied",
+                        details={"spans_redacted": spans_redacted},
+                    )
+                )
         except Exception as exc:
             logger.warning(
                 f"PII filter: model sanitization call failed, skipping redaction: {exc}"

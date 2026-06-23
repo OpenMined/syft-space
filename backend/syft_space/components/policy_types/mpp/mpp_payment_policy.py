@@ -38,12 +38,16 @@ from typing import Any, ClassVar
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
     Capabilities,
+    PolicyContext,
+    PolicyMetadataEntry,
+    TransactionRef,
 )
 from syft_space.components.policy_types.mpp.policy_config import MppPaymentConfig
+from syft_space.components.policy_types.payment_metadata import PaymentMetadataMixin
 from syft_space.components.shared.utils import matches_any_pattern
 
 
-class MppPaymentPolicy(BasePolicyType):
+class MppPaymentPolicy(PaymentMetadataMixin, BasePolicyType):
     """Shared scaffolding for all MPP-based payment policies."""
 
     NAME: ClassVar[str]
@@ -109,3 +113,41 @@ class MppPaymentPolicy(BasePolicyType):
                     best_price = validated.price
 
         return best_price
+
+    # PolicyMetadataEntry builders. The invariant shape (policy_type / kind /
+    # recipient / status) lives in PaymentMetadataMixin; only the MPP-rail
+    # TransactionRef is built here. `_free_entry` / `_rejected_entry` are
+    # inherited from the mixin.
+    def _charged_entry(
+        self,
+        context: PolicyContext,
+        *,
+        amount: float,
+        currency: str = "USD",
+        reference: str | None,
+        external_id: str | None,
+        details: dict[str, Any] | None = None,
+    ) -> PolicyMetadataEntry:
+        """Build a 'charged' entry.
+
+        ``TransactionRef.id`` is a required str. MPP receipts can lack a
+        ``reference`` (e.g. settlement metadata missing), which would make
+        pydantic raise *after* the charge already settled. Guard here: only
+        attach a ``transaction`` when a reference is present; otherwise emit
+        the entry with ``transaction=None`` (status/amount/recipient intact).
+        """
+        transaction: TransactionRef | None = None
+        if reference is not None:
+            transaction = TransactionRef(
+                rail="mpp",
+                id=reference,
+                reference=external_id,
+            )
+        return self._payment_entry(
+            context,
+            status="charged",
+            amount=amount,
+            currency=currency,
+            transaction=transaction,
+            details=details,
+        )

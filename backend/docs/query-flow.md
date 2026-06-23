@@ -26,14 +26,14 @@ sequenceDiagram
     Q->>Q: load policies + inject wallet credentials
     Q->>POL: pre-hooks (access, rate_limit, payment)
     alt blocked
-        POL-->>C: 403 (denied / rate limited) or 402 (payment required)
+        POL-->>C: 402/403 + policy_metadata (reason_code, reason)
     end
     POL->>DS: search (if raw/both)
     DS->>MD: inject top hits as context (if both)
     MD->>POL2: response
     POL2->>POL2: post-hooks (settle payment, record usage)
     Q->>AN: fire-and-forget query event
-    Q-->>C: 200 { summary?, references? }
+    Q-->>C: 200 { summary?, references?, policy_metadata }
 ```
 
 ## Step by step
@@ -108,9 +108,10 @@ Branches on `endpoint.response_type`:
 
 `post_hook` runs for each policy type with both request and response available:
 
-- **Payment** policies settle the charge — add the cost (and an MPP
-  `Payment-Receipt` header), or **cancel the reservation** if the response was
-  empty (no summary, no documents), so callers aren't billed for nothing.
+- **Payment** policies settle the charge — record what was charged, to whom, and
+  the rail-native transaction id in `policy_metadata`, or **cancel the
+  reservation** if the response was empty (no summary, no documents), so callers
+  aren't billed for nothing.
 - Other policies record usage / audit as needed. A post-hook can still block.
 
 ### 8. Analytics
@@ -125,11 +126,38 @@ is drained on shutdown.
 // 200 OK
 {
   "summary":    { /* LLM answer, usage, cost */ } /* present for summary|both */,
-  "references": { /* documents[], provider_info */ } /* present for raw|both */
+  "references": { /* documents[], provider_info */ } /* present for raw|both */,
+  "policy_metadata": { /* see below */ }
 }
 ```
 
+Every query response — success **and** rejection — carries a `policy_metadata`
+envelope, the authoritative record of what each policy did. Clients read it
+instead of reconstructing price/recipient from policy config:
+
+```jsonc
+{
+  "outcome": "success",          // or payment_required / rate_limited / access_denied / ...
+  "entries": [
+    {
+      "policy_type": "mpp_per_request",
+      "kind":   "payment",       // payment | access | transform | rate_limit
+      "status": "charged",       // charged | refunded | free | rejected | applied | skipped
+      "amount": 0.01, "currency": "USD",
+      "recipient":   { "username": "...", "wallet_address": "..." },
+      "transaction": { "rail": "mpp", "id": "0x…" },
+      "reason_code": null,       // e.g. INSUFFICIENT_BALANCE / RATE_LIMITED when rejected
+      "reason":      null        // human-readable explanation when rejected
+    }
+  ]
+}
+```
+
+On a block, the route returns `402`/`403` with the **same** envelope (plus a
+`detail` message), so a rejection's `reason_code`/`reason` explain *why* in the
+body, not just the status code.
+
 For the precise field set, see `POST /endpoints/{slug}/query` in `/docs`. For
-the payment-specific exchanges (challenge, receipt, prepaid settlement) see
+the payment-specific exchanges (challenge, prepaid settlement) see
 [Payments & Wallets](./payments.md).
 </content>

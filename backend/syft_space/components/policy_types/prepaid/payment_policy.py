@@ -6,19 +6,24 @@ export, tier matching, identity boilerplate — is provider-agnostic and
 lives here.
 """
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal, cast
+from uuid import UUID
 
 from syft_space.components.policy_types.interfaces import (
     BasePolicyType,
     Capabilities,
+    PolicyContext,
+    PolicyMetadataEntry,
+    TransactionRef,
 )
+from syft_space.components.policy_types.payment_metadata import PaymentMetadataMixin
 from syft_space.components.shared.utils import (
     ConfigSchemaGenerator,
     matches_any_pattern,
 )
 
 
-class PrepaidBalancePaymentPolicyBase(BasePolicyType):
+class PrepaidBalancePaymentPolicyBase(PaymentMetadataMixin, BasePolicyType):
     """Shared scaffolding for all prepaid-balance payment policies."""
 
     PROVIDER_NAME: ClassVar[str]  # "stripe", "xendit", ...
@@ -93,3 +98,63 @@ class PrepaidBalancePaymentPolicyBase(BasePolicyType):
                     best_price = validated.price
 
         return best_price
+
+    # PolicyMetadataEntry builders. The invariant shape (policy_type / kind /
+    # recipient / status) lives in PaymentMetadataMixin; only the prepaid-rail
+    # TransactionRef is built here. `_free_entry` / `_rejected_entry` are
+    # inherited from the mixin.
+    @staticmethod
+    def _prepaid_transaction(
+        wallet_type: str, transaction_id: UUID | str | None
+    ) -> TransactionRef | None:
+        """Build a TransactionRef, guarding a None ledger id.
+
+        ``TransactionRef.id`` is a required str; defensively skip attaching a
+        transaction when the ledger id is missing rather than letting pydantic
+        raise after the balance was already reserved.
+        """
+        if transaction_id is None:
+            return None
+        return TransactionRef(
+            rail=cast(Literal["xendit", "stripe"], wallet_type),
+            id=str(transaction_id),
+        )
+
+    def _charged_entry(
+        self,
+        context: PolicyContext,
+        *,
+        amount: float,
+        currency: str,
+        wallet_type: str,
+        transaction_id: UUID | str | None,
+        details: dict[str, Any] | None = None,
+    ) -> PolicyMetadataEntry:
+        """Build a 'charged' entry."""
+        return self._payment_entry(
+            context,
+            status="charged",
+            amount=amount,
+            currency=currency,
+            transaction=self._prepaid_transaction(wallet_type, transaction_id),
+            details=details,
+        )
+
+    def _refunded_entry(
+        self,
+        context: PolicyContext,
+        *,
+        currency: str,
+        wallet_type: str,
+        transaction_id: UUID | str | None,
+        details: dict[str, Any] | None = None,
+    ) -> PolicyMetadataEntry:
+        """Build a 'refunded' (amount=0) entry — reservation cancelled."""
+        return self._payment_entry(
+            context,
+            status="refunded",
+            amount=0,
+            currency=currency,
+            transaction=self._prepaid_transaction(wallet_type, transaction_id),
+            details=details,
+        )
