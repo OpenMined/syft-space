@@ -90,7 +90,7 @@ sequenceDiagram
     C->>SS: POST /{slug}/query (X-Payment: signed)
     SS->>T: verify / settle payment
     SS->>SS: run RAG pipeline
-    SS-->>C: 200 + Payment-Receipt header
+    SS-->>C: 200 + policy_metadata (charge, tx id, recipient)
 ```
 
 If the response turns out empty, the post-hook avoids charging. Balance and
@@ -123,6 +123,17 @@ sequenceDiagram
 Users can inspect their own balance/invoices/transactions through the public
 `/payments/gateway/wallets/{id}/…/me` routes; owners get tenant-wide views under
 the admin-only `/payments/gateway/…` routes.
+
+## What the caller sees per query
+
+Charges are reported in the query response itself, not via headers. Every
+response carries a `policy_metadata` envelope with one entry per policy; a
+payment entry records its `status` (`charged` / `refunded` / `free`), the
+`amount`/`currency`, the `recipient`, and the rail-native `transaction` id
+(Tempo tx hash for MPP, ledger UUID for prepaid). When a payment policy blocks
+the query, the same envelope rides the `402`/`403` with a `reason_code`
+(e.g. `PAYMENT_REQUIRED`, `INSUFFICIENT_BALANCE`) and human-readable `reason`.
+See [Query Flow](./query-flow.md#9-response) for the full shape.
 
 ## Wallet deletion guard
 
