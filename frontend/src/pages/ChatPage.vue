@@ -49,11 +49,17 @@ const inputText = ref('')
 const messagesEndRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
 
-const isModelEndpoint = (e: EndpointItem) => !!e.modelId && !e.datasetId
-const isDataEndpoint = (e: EndpointItem) => !!e.datasetId && !e.modelId
+// An endpoint can answer (produces a summary) when it has a model and isn't
+// retrieval-only, and can serve as a data source (produces references) when it
+// has a dataset and isn't generation-only. Hybrid endpoints satisfy both, so
+// they appear in both the model selector and the data-source list.
+const producesSummary = (e: EndpointItem) => !!e.modelId && e.responseType !== 'raw'
+const producesReferences = (e: EndpointItem) => !!e.datasetId && e.responseType !== 'summary'
 
-const modelEndpoints = computed(() => endpointsStore.endpoints.filter(isModelEndpoint))
-const dataEndpoints = computed(() => endpointsStore.endpoints.filter(isDataEndpoint))
+const modelEndpoints = computed(() => endpointsStore.endpoints.filter(producesSummary))
+const dataEndpoints = computed(() =>
+  endpointsStore.endpoints.filter((e) => producesReferences(e) && e.slug !== endpointSlug.value),
+)
 
 const hasNoModelEndpoints = computed(
   () => !endpointsStore.isLoading && modelEndpoints.value.length === 0,
@@ -117,6 +123,7 @@ async function handleSend() {
   await sendMessage({
     content: text,
     endpointSlug: endpointSlug.value,
+    endpointName: selectedEndpoint.value?.name,
     dataSources: selectedDataSources.value,
   })
 }

@@ -15,6 +15,7 @@ export interface EndpointItem {
   modelType?: ValueOf<typeof MODEL_TYPES>
   modelId?: string
   datasetId?: string
+  responseType?: string
   systemPrompt?: string | null
   tags: string[]
   published: boolean
@@ -52,6 +53,7 @@ export const useEndpointsStore = defineStore('endpoints', () => {
       modelType: item.model?.dtype as ValueOf<typeof MODEL_TYPES>,
       modelId: item.model?.id,
       datasetId: item.dataset?.id,
+      responseType: item.response_type,
       systemPrompt: item.system_prompt ?? null,
       tags: parseTags(item.tags),
       published: item.published,
