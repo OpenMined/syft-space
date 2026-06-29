@@ -1056,6 +1056,8 @@ const endpointForEdit = computed(() => {
     name: endpoint.value.name,
     summary: endpoint.value.summary,
     description: endpoint.value.description,
+    model_id: endpoint.value.model_id ?? endpoint.value.model?.id,
+    system_prompt: endpoint.value.system_prompt,
   }
 })
 
@@ -1072,10 +1074,17 @@ const openDeleteDialog = () => {
   showDeleteDialog.value = true
 }
 
-const handleEditSaved = (data: { summary: string; description: string }) => {
+const handleEditSaved = (data: {
+  summary: string
+  description: string
+  system_prompt?: string | null
+}) => {
   if (endpoint.value) {
     endpoint.value.summary = data.summary
     endpoint.value.description = data.description
+    if (data.system_prompt !== undefined) {
+      endpoint.value.system_prompt = data.system_prompt
+    }
   }
 }
 

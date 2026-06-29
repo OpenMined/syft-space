@@ -110,6 +110,7 @@ class EndpointHandler:
             name=request.name,
             summary=request.summary,
             description=request.description,
+            system_prompt=request.system_prompt,
         )
         if not updated_endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")

@@ -244,7 +244,13 @@ const deleteNameConfirm = ref('')
 const isDeleting = ref(false)
 
 const showEditDialog = ref(false)
-const endpointToEdit = ref<{ slug: string; name: string; summary: string } | null>(null)
+const endpointToEdit = ref<{
+  slug: string
+  name: string
+  summary: string
+  model_id?: string
+  system_prompt?: string | null
+} | null>(null)
 
 const classifyEndpoint = (e: EndpointItem): Exclude<FilterValue, 'all'> | 'unknown' => {
   const hasDataset = !!e.datasetId
@@ -311,15 +317,24 @@ const handleEditEndpoint = (endpoint: EndpointItem) => {
     slug: endpoint.slug,
     name: endpoint.name,
     summary: endpoint.summary,
+    model_id: endpoint.modelId,
+    system_prompt: endpoint.systemPrompt,
   }
   showEditDialog.value = true
 }
 
-const handleEditSaved = (data: { summary: string }) => {
+const handleEditSaved = (data: {
+  summary: string
+  description: string
+  system_prompt?: string | null
+}) => {
   if (endpointToEdit.value) {
     const index = endpointsStore.endpoints.findIndex((e) => e.slug === endpointToEdit.value!.slug)
     if (index > -1 && endpointsStore.endpoints[index]) {
       endpointsStore.endpoints[index].summary = data.summary
+      if (data.system_prompt !== undefined) {
+        endpointsStore.endpoints[index].systemPrompt = data.system_prompt
+      }
     }
   }
   endpointToEdit.value = null

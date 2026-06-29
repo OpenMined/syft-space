@@ -74,6 +74,22 @@
             language="en-US"
           />
         </div>
+
+        <div v-if="endpoint?.model_id" class="space-y-2">
+          <Label for="edit-system-prompt" class="body-sm font-medium text-foreground">
+            System prompt
+          </Label>
+          <Textarea
+            id="edit-system-prompt"
+            v-model="localSystemPrompt"
+            placeholder="Enter a custom system prompt..."
+            class="min-h-[140px] font-mono body-sm"
+          />
+          <p class="body-sm text-muted-foreground">
+            Sent to the model before every query. Controls tone, format, and how retrieved documents
+            are used.
+          </p>
+        </div>
       </div>
       <DialogFooter>
         <Button variant="outline" @click="handleCancel" :disabled="isSaving">Cancel</Button>
@@ -95,6 +111,7 @@ import { Eye, Pencil } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
@@ -113,6 +130,8 @@ interface EndpointData {
   name: string
   summary: string
   description?: string
+  model_id?: string
+  system_prompt?: string | null
 }
 
 const props = defineProps<{
@@ -122,13 +141,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
-  saved: [data: { summary: string; description: string }]
+  saved: [data: { summary: string; description: string; system_prompt?: string | null }]
 }>()
 
 const { isDark } = useTheme()
 
 const localSummary = ref('')
 const localDescription = ref('')
+const localSystemPrompt = ref('')
 const isSaving = ref(false)
 const isPreviewMode = ref(false)
 
@@ -138,6 +158,7 @@ watch(
     if (newEndpoint) {
       localSummary.value = newEndpoint.summary
       localDescription.value = newEndpoint.description || ''
+      localSystemPrompt.value = newEndpoint.system_prompt || ''
       isPreviewMode.value = false
 
       if (!newEndpoint.description) {
@@ -145,6 +166,9 @@ watch(
           const fullEndpoint = await endpointsApi.get(newEndpoint.slug)
           if (fullEndpoint.description) {
             localDescription.value = fullEndpoint.description
+          }
+          if (newEndpoint.model_id) {
+            localSystemPrompt.value = fullEndpoint.system_prompt || ''
           }
         } catch (error) {
           console.error('Failed to fetch endpoint details:', error)
@@ -173,10 +197,14 @@ const handleSave = async () => {
 
   isSaving.value = true
 
+  const hasModel = !!props.endpoint.model_id
+  const systemPrompt = hasModel ? localSystemPrompt.value.trim() || null : undefined
+
   try {
     await endpointsApi.update(props.endpoint.slug, {
       summary: localSummary.value,
       description: localDescription.value || undefined,
+      ...(hasModel ? { system_prompt: systemPrompt } : {}),
     })
 
     await endpointsApi.publish(props.endpoint.slug, {
@@ -186,6 +214,7 @@ const handleSave = async () => {
     emit('saved', {
       summary: localSummary.value,
       description: localDescription.value,
+      ...(hasModel ? { system_prompt: systemPrompt } : {}),
     })
 
     emit('update:open', false)
