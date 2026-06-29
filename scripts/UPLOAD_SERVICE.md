@@ -38,7 +38,8 @@ uv run scripts/upload_service.py --upload-dir ./uploads --auth-token secret123
 UPLOAD_DIR=./uploads UPLOAD_AUTH_TOKEN=secret123 uv run scripts/upload_service.py
 ```
 
-Optional flags: `--host` (default `0.0.0.0`), `--port` (default `8082`).
+Optional flags: `--host` (default `0.0.0.0`), `--port` (default `8082`),
+`--staging-dir` (env `STAGING_DIR`, default a folder in the system temp dir).
 
 ## Upload a file
 
@@ -64,4 +65,11 @@ Result on disk: `./uploads/alice@example.com/report.pdf`
   and lowercased before being used as a directory name, and filenames are reduced
   to a safe basename — so neither can be used for path traversal outside the
   upload directory.
+- **Atomic writes:** each upload is streamed to a temp file in the staging dir
+  (outside the upload folder) and then `shutil.move`d into place. On the same
+  filesystem this is a rename, so a service watching the upload folder only ever
+  sees a complete file, never partial chunks. If the staging dir is on a
+  different filesystem the move degrades to a copy (logged at startup) and
+  atomicity is lost — set `--staging-dir`/`STAGING_DIR` to a same-filesystem
+  path (outside the watched folder) to keep moves atomic.
 - Interactive API docs are available at `http://localhost:8082/docs`.

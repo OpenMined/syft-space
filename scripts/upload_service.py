@@ -40,6 +40,8 @@ import argparse
 import getpass
 import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 
 import uvicorn
@@ -58,9 +60,13 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9._@+-]+$")
 class Config:
     """Runtime configuration, resolved from CLI args then environment."""
 
-    def __init__(self, upload_dir: Path, auth_token: str) -> None:
+    def __init__(self, upload_dir: Path, auth_token: str, staging_dir: Path) -> None:
         self.upload_dir = upload_dir
         self.auth_token = auth_token
+        # Where in-progress uploads are streamed before being atomically moved
+        # into upload_dir. Must be on the same filesystem as upload_dir and
+        # outside it, so a watcher on upload_dir never sees a partial file.
+        self.staging_dir = staging_dir
 
 
 # Populated in main() before the server starts.
@@ -139,7 +145,12 @@ async def upload(
     ),
     file: UploadFile = File(..., description="File to store."),
 ) -> dict[str, object]:
-    """Store an uploaded file under <upload-dir>/<identifier>/<filename>."""
+    """Store an uploaded file under <upload-dir>/<identifier>/<filename>.
+
+    The upload is streamed to a temp file in the staging area first, then moved
+    into place with an atomic rename. A watcher on the upload folder therefore
+    only ever sees a complete file, never partial chunks mid-write.
+    """
     namespace = _sanitize_identifier(identifier)
     filename = _sanitize_filename(file.filename)
 
@@ -147,20 +158,32 @@ async def upload(
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / filename
 
+    # Stream to a temp file outside the watched upload tree.
+    config.staging_dir.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=config.staging_dir, suffix=".part")
+    tmp_path = Path(tmp_name)
     size = 0
     try:
-        with target_path.open("wb") as out:
+        with os.fdopen(tmp_fd, "wb") as out:
             while chunk := await file.read(CHUNK_SIZE):
                 out.write(chunk)
                 size += len(chunk)
+            out.flush()
+            os.fsync(out.fileno())
+        # Publish the completed file into the upload folder. On the same
+        # filesystem shutil.move is a rename, so it appears atomically and the
+        # watcher never sees a partial file.
+        shutil.move(str(tmp_path), str(target_path))
     except OSError as exc:
-        logger.error("Failed to write upload {}: {}", target_path, exc)
+        logger.error("Failed to store upload {}: {}", target_path, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to store uploaded file.",
         )
     finally:
         await file.close()
+        # Remove the temp file if the move never happened (error/disconnect).
+        tmp_path.unlink(missing_ok=True)
 
     logger.info("Stored {} bytes at {}", size, target_path)
     return {
@@ -202,7 +225,45 @@ def _resolve_config(args: argparse.Namespace) -> Config:
         )
     if not os.access(resolved_dir, os.W_OK):
         raise SystemExit(f"error: upload directory is not writable: {resolved_dir}")
-    return Config(upload_dir=resolved_dir, auth_token=auth_token)
+
+    # Staging area for in-progress uploads. Must live OUTSIDE the upload dir
+    # since the whole upload folder is watched. Default to the system temp dir;
+    # if that is a different filesystem the move falls back to a copy (logged),
+    # so point --staging-dir / STAGING_DIR at a same-filesystem path for a
+    # guaranteed atomic, partial-read-free publish.
+    staging = args.staging_dir or os.environ.get("STAGING_DIR")
+    if staging:
+        resolved_staging = Path(staging).expanduser().resolve()
+    else:
+        resolved_staging = Path(tempfile.gettempdir()) / "upload-service-staging"
+    if resolved_staging == resolved_dir or resolved_dir in resolved_staging.parents:
+        raise SystemExit(
+            "error: staging directory must be outside the upload directory "
+            f"(got {resolved_staging})."
+        )
+    try:
+        resolved_staging.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise SystemExit(
+            f"error: could not create staging directory {resolved_staging}: {exc}"
+        )
+    if not os.access(resolved_staging, os.W_OK):
+        raise SystemExit(
+            f"error: staging directory is not writable: {resolved_staging}"
+        )
+    if resolved_staging.stat().st_dev != resolved_dir.stat().st_dev:
+        logger.warning(
+            "Staging dir {} is on a different filesystem than upload dir {}; "
+            "uploads will be copied (not atomically renamed).",
+            resolved_staging,
+            resolved_dir,
+        )
+
+    return Config(
+        upload_dir=resolved_dir,
+        auth_token=auth_token,
+        staging_dir=resolved_staging,
+    )
 
 
 def main() -> None:
@@ -215,6 +276,15 @@ def main() -> None:
         "--auth-token",
         help="Bearer token required to upload (env: UPLOAD_AUTH_TOKEN).",
     )
+    parser.add_argument(
+        "--staging-dir",
+        help=(
+            "Directory for in-progress uploads; lives outside the watched "
+            "upload dir (env: STAGING_DIR). For atomic moves it should be on "
+            "the same filesystem as the upload dir. Defaults to a folder in the "
+            "system temp dir."
+        ),
+    )
     parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0).")
     parser.add_argument(
         "--port", type=int, default=8082, help="Bind port (default: 8082)."
@@ -225,6 +295,7 @@ def main() -> None:
     config = _resolve_config(args)
 
     logger.info("Upload directory: {}", config.upload_dir)
+    logger.info("Staging directory: {}", config.staging_dir)
     logger.info("Listening on {}:{}", args.host, args.port)
     uvicorn.run(app, host=args.host, port=args.port)
 
