@@ -199,7 +199,7 @@
         </div>
 
         <!-- Your APIs -->
-        <div class="mt-10 rounded-xl border border-border/60 bg-card overflow-hidden">
+        <div class="mt-10 max-w-[45rem] rounded-xl border border-border/60 bg-card overflow-hidden">
           <div class="flex items-center justify-between px-6 py-4 border-b border-border/50">
             <h2 class="text-base font-semibold text-foreground">Your APIs</h2>
             <button
@@ -265,7 +265,7 @@
         <h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-12 mb-4">
           Get started
         </h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-[45rem]">
           <button
             v-for="action in quickActions"
             :key="action.label"
