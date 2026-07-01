@@ -11,6 +11,7 @@ from sqlmodel import SQLModel
 
 from syft_space.components.datasets.entities import (  # noqa: F401
     Dataset,
+    DatasetSelection,
     ProvisionerState,
 )
 from syft_space.components.endpoints.entities import Endpoint  # noqa: F401

@@ -77,6 +77,10 @@ class Dataset(SQLModel, table=True):
             "cascade": "all, delete",
         },
     )
+    selections: list["DatasetSelection"] = Relationship(
+        back_populates="dataset",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
     class Config:
         """Pydantic config."""
@@ -149,3 +153,47 @@ class ProvisionerState(SQLModel, table=True):
     datasets: list["Dataset"] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[Dataset.provisioner_state_id]"}
     )
+
+
+class DatasetSelection(SQLModel, table=True):
+    """A single user-selected source item for a dataset (desired state / intent).
+
+    One row per picker-granularity selection — a file/directory path for
+    local sources, or a ``{post_type}:{id}`` string for WordPress. This is
+    the normalized replacement for the selection list that previously lived
+    inside the dataset ``configuration`` JSON blob: modelling it as rows makes
+    add/remove atomic (INSERT/DELETE) and dedup a ``UNIQUE`` constraint.
+
+    Distinct from ``IngestionJob``: this is *what the user wants ingested*
+    (intent), whereas an ingestion job is *what the engine has done about an
+    item* (execution). They share the item id-space but not their lifecycle,
+    and a single selection (e.g. a folder) can expand to many jobs.
+    """
+
+    __tablename__ = "dataset_selection"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "item_id", name="uq_dataset_selection"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    dataset_id: UUID = Field(
+        ...,
+        sa_column=Column(
+            ForeignKey("datasets.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        description="Dataset this selection belongs to",
+    )
+    item_id: str = Field(
+        ...,
+        description="Selected item id in the picker id-space (path | '{post_type}:{id}')",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Optional user-provided description (local_file items)",
+    )
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # Relationship
+    dataset: "Dataset" = Relationship(back_populates="selections")
