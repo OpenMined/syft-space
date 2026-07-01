@@ -8,7 +8,7 @@
   >
     <div class="min-h-screen">
       <!-- Skeleton (initial load) -->
-      <div v-if="isInitialLoading" class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-20">
+      <div v-if="isInitialLoading" class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <Skeleton class="h-12 w-80 mb-4" />
         <Skeleton class="h-5 w-96 mb-8" />
         <div class="flex gap-3 mb-10">
@@ -164,7 +164,7 @@
       </div>
 
       <!-- Returning user: dashboard -->
-      <div v-else class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-20">
+      <div v-else class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <!-- Hero -->
         <h1
           class="text-4xl sm:text-5xl font-bold tracking-tight text-foreground mb-4 leading-[1.05]"
@@ -199,7 +199,7 @@
         </div>
 
         <!-- Your APIs -->
-        <div class="mt-10 max-w-[45rem] rounded-xl border border-border/60 bg-card overflow-hidden">
+        <div class="mt-10 rounded-xl border border-border/60 bg-card overflow-hidden">
           <div class="flex items-center justify-between px-6 py-4 border-b border-border/50">
             <h2 class="text-base font-semibold text-foreground">Your APIs</h2>
             <button
@@ -265,7 +265,7 @@
         <h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-12 mb-4">
           Get started
         </h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-[45rem]">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <button
             v-for="action in quickActions"
             :key="action.label"
