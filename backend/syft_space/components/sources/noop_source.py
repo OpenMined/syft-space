@@ -115,6 +115,11 @@ class NoOpProvider:
         return []
 
     @classmethod
+    def selection_covers(cls, item_id: str, external_id: str) -> bool:
+        """No selection concept — nothing is ever covered."""
+        return False
+
+    @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
         """No-op — any payload is accepted."""
         return None

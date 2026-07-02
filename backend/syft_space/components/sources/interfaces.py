@@ -224,6 +224,17 @@ class BaseSourceProvider(Protocol):
         ...
 
     @classmethod
+    def selection_covers(cls, item_id: str, external_id: str) -> bool:
+        """Whether the pick ``item_id`` covers the ingested item ``external_id``.
+
+        Id-space knowledge is provider-owned: a directory pick covers the
+        files under it, a post pick covers exactly itself. Used when a pick
+        is removed from a dataset's selection to find the ingestion jobs it
+        produced and tombstone them.
+        """
+        ...
+
+    @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
         """Validate a browse-time configuration payload.
 

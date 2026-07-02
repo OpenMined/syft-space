@@ -584,6 +584,11 @@ class WordPressProvider:
         return [(item_id, None) for item_id in (config.selected_items or [])]
 
     @classmethod
+    def selection_covers(cls, item_id: str, external_id: str) -> bool:
+        """A post pick covers exactly itself (``{post_type}:{id}`` equality)."""
+        return external_id == item_id
+
+    @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
         try:
             cfg = WordPressBrowseConfig.model_validate(configuration)

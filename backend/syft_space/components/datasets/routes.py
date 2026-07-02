@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from syft_space.components.auth.public import public_route
 from syft_space.components.datasets.handlers import DatasetHandler
 from syft_space.components.datasets.schemas import (
+    AddSelectionRequest,
     CreateDatasetRequest,
     DatasetListItem,
     DatasetResponse,
@@ -15,6 +16,8 @@ from syft_space.components.datasets.schemas import (
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
+    RemoveSelectionRequest,
+    SelectionResponse,
     SourceBrowseRequest,
     SourceBrowseResponse,
     UpdateDatasetRequest,
@@ -246,6 +249,72 @@ def build_dataset_routes(
                 await ingestion_manager.stop_dataset_ingestion(dataset.id)
 
         return await handler.delete_dataset(name, tenant)
+
+    # ============== Selection Endpoints ==============
+
+    @router.post("/{name}/selection", response_model=SelectionResponse)
+    async def add_selection(
+        name: str,
+        request: AddSelectionRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SelectionResponse:
+        """Add picks to a dataset's selection.
+
+        Idempotent per item. Restarts the dataset's ingestion stream so the
+        new picks are scanned immediately and watched from now on.
+
+        Args:
+            name: Dataset name
+            request: Picks to add (item_id + optional description)
+            tenant: Current tenant (injected)
+
+        Returns:
+            The dataset's full selection after the add
+        """
+        response = await handler.add_selection(name, request, tenant)
+
+        if ingestion_manager:
+            dataset = await handler.repository.get_by_name(name, tenant.id)
+            if dataset:
+                await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
+
+        return response
+
+    @router.delete("/{name}/selection", response_model=SelectionResponse)
+    async def remove_selection(
+        name: str,
+        request: RemoveSelectionRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SelectionResponse:
+        """Remove picks from a dataset's selection.
+
+        Tombstones the ingestion jobs the removed picks produced (their
+        vectors are removed once vector-store deletion lands), then restarts
+        the stream with the remaining picks. Items covered by both a removed
+        and a remaining pick are re-ingested by the restarted stream's
+        initial scan.
+
+        Args:
+            name: Dataset name
+            request: Item ids to remove
+            tenant: Current tenant (injected)
+
+        Returns:
+            The dataset's remaining selection
+        """
+        response, removed_ids = await handler.remove_selection(name, request, tenant)
+
+        if ingestion_manager and removed_ids:
+            dataset = await handler.repository.get_by_name(name, tenant.id)
+            if dataset:
+                await ingestion_manager.apply_unselection(
+                    dataset.id, tenant.id, removed_ids
+                )
+                await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
+
+        return response
 
     @public_route
     @router.get("/{name}/health", response_model=HealthcheckResponse)

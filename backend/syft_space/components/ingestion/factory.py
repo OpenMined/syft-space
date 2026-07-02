@@ -22,6 +22,14 @@ class DatasetTypeFactory:
         dataset_type_cls = self._registry.get_dataset_type(dataset.dtype)
         return dataset_type_cls(dataset.configuration)
 
+    def provider_cls(self, dataset: Dataset):
+        """The binding's source provider class — a class-level lookup.
+
+        For provider classmethods (``selection_covers``, ...) that don't
+        need a constructed source/vector-store pair.
+        """
+        return self._registry.get_dataset_type(dataset.dtype).SOURCE_PROVIDER_CLS
+
     def has_source(self, dataset: Dataset) -> bool:
         """Whether this dataset's binding exposes an active ``BaseSource``.
 

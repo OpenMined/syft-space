@@ -42,6 +42,9 @@ class SourceScanner:
         self._factory = factory
 
         self._source_tasks: dict[UUID, asyncio.Task] = {}
+        # Serializes restart/stop per dataset so concurrent pick changes
+        # can't interleave a stop with a stale start.
+        self._task_locks: dict[UUID, asyncio.Lock] = {}
 
         # Shared primitives, bound at startup by the facade.
         self._shutdown_event: asyncio.Event | None = None
@@ -102,7 +105,33 @@ class SourceScanner:
         logger.info(f"Started source task for dataset '{dataset.name}'")
         return 1
 
+    async def restart(self, dataset: Dataset) -> None:
+        """Stop and re-start a dataset's stream (after its picks changed).
+
+        The new stream re-reads the picks in ``start`` and its initial scan
+        re-emits everything in scope, which is cheap: the job repository
+        dedups on fingerprint. Unlike ``stop``, pending jobs are NOT
+        cancelled — they belong to picks that are still selected.
+        Serialized per dataset via ``_task_locks``.
+        """
+        lock = self._task_locks.setdefault(dataset.id, asyncio.Lock())
+        async with lock:
+            await self._cancel_task(dataset.id)
+            await self.start(dataset)
+
     async def stop(self, dataset_id: UUID) -> int:
+        lock = self._task_locks.setdefault(dataset_id, asyncio.Lock())
+        async with lock:
+            await self._cancel_task(dataset_id)
+
+        cancelled = await self._ingestion_repository.cancel_pending_by_dataset(
+            dataset_id
+        )
+        logger.info(f"Cancelled {cancelled} pending jobs for dataset {dataset_id}")
+        return cancelled
+
+    async def _cancel_task(self, dataset_id: UUID) -> None:
+        """Cancel and await a dataset's source task, if running."""
         task = self._source_tasks.pop(dataset_id, None)
         self._sources.pop(dataset_id, None)
         if task is not None and not task.done():
@@ -111,12 +140,6 @@ class SourceScanner:
                 await task
             except asyncio.CancelledError:
                 pass
-
-        cancelled = await self._ingestion_repository.cancel_pending_by_dataset(
-            dataset_id
-        )
-        logger.info(f"Cancelled {cancelled} pending jobs for dataset {dataset_id}")
-        return cancelled
 
     async def stop_all(self) -> None:
         """Cancel and await every per-dataset source consumer."""
@@ -127,6 +150,7 @@ class SourceScanner:
             await asyncio.gather(*source_tasks, return_exceptions=True)
         self._source_tasks.clear()
         self._sources.clear()
+        self._task_locks.clear()
 
     async def _run_source(
         self,

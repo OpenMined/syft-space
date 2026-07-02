@@ -12,7 +12,11 @@ from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.sources.interfaces import SourceItem
 
 if TYPE_CHECKING:
-    from syft_space.components.datasets.entities import Dataset, ProvisionerState
+    from syft_space.components.datasets.entities import (
+        Dataset,
+        DatasetSelection,
+        ProvisionerState,
+    )
 
 
 class DatasetTypeInfoResponse(BaseModel):
@@ -139,6 +143,56 @@ class ProvisionerStatusResponse(BaseModel):
         from_attributes = True
 
 
+class SelectedItemResponse(BaseModel):
+    """One selection pick of a dataset (a ``dataset_selection`` row)."""
+
+    item_id: str = Field(
+        ..., description="Item id in the picker id-space (path | '{post_type}:{id}')"
+    )
+    description: str | None = Field(
+        None, description="Optional user-provided description"
+    )
+    added_at: datetime = Field(..., description="When the item was selected")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class SelectionItemRequest(BaseModel):
+    """One pick to add to a dataset's selection."""
+
+    item_id: str = Field(
+        ...,
+        min_length=1,
+        description="Item id in the picker id-space (path | '{post_type}:{id}')",
+    )
+    description: str | None = Field(
+        None, description="Optional user-provided description"
+    )
+
+
+class AddSelectionRequest(BaseModel):
+    """Request body for adding picks to a dataset's selection."""
+
+    items: list[SelectionItemRequest] = Field(..., min_length=1)
+
+
+class RemoveSelectionRequest(BaseModel):
+    """Request body for removing picks from a dataset's selection."""
+
+    item_ids: list[str] = Field(..., min_length=1)
+
+
+class SelectionResponse(BaseModel):
+    """The dataset's full selection after an add/remove operation."""
+
+    selected_items: list[SelectedItemResponse] = Field(
+        ..., description="Current selection picks"
+    )
+
+
 class DatasetResponse(BaseModel):
     """Response model for dataset details."""
 
@@ -148,6 +202,10 @@ class DatasetResponse(BaseModel):
     configuration: dict[str, Any] = Field(..., description="Configuration")
     summary: str = Field(..., description="Dataset summary")
     tags: str = Field(..., description="Comma-separated tags")
+    selected_items: list[SelectedItemResponse] = Field(
+        default_factory=list,
+        description="Selection picks (from the dataset_selection table)",
+    )
     provisioner_state: ProvisionerStateResponse | None = Field(
         None, description="Provisioner state"
     )
@@ -167,12 +225,14 @@ class DatasetResponse(BaseModel):
         cls,
         dataset: "Dataset",
         provisioner_state: Optional["ProvisionerState"] = None,
+        selections: list["DatasetSelection"] | None = None,
     ) -> "DatasetResponse":
         """Create DatasetResponse from Dataset entity.
 
         Args:
             dataset: Dataset entity
             provisioner_state: Optional ProvisionerState entity
+            selections: Optional selection rows to expose as ``selected_items``
 
         Returns:
             DatasetResponse with provisioner_state populated if provided
@@ -190,6 +250,9 @@ class DatasetResponse(BaseModel):
             configuration=redact_config(dataset.configuration, dataset.dtype),
             summary=dataset.summary,
             tags=dataset.tags,
+            selected_items=[
+                SelectedItemResponse.model_validate(s) for s in (selections or [])
+            ],
             provisioner_state=provisioner_state_response,
             created_at=dataset.created_at,
             updated_at=dataset.updated_at,

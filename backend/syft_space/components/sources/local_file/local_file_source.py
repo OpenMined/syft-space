@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -339,6 +340,13 @@ class LocalFileProvider:
         """Return ``(path, description)`` picks from the source configuration."""
         config = LocalFileDatasetConfig.model_validate(configuration)
         return [(item.path, item.description) for item in config.file_paths]
+
+    @classmethod
+    def selection_covers(cls, item_id: str, external_id: str) -> bool:
+        """A path pick covers itself and, for directories, everything under it."""
+        if external_id == item_id:
+            return True
+        return external_id.startswith(item_id.rstrip(os.sep) + os.sep)
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:

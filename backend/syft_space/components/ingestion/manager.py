@@ -161,6 +161,62 @@ class IngestionManager(LifecycleService):
     async def stop_dataset_ingestion(self, dataset_id: UUID) -> int:
         return await self._scanner.stop(dataset_id)
 
+    async def restart_dataset_ingestion(
+        self, dataset_id: UUID, tenant_id: UUID
+    ) -> None:
+        """Restart a dataset's stream so it runs with the current selection.
+
+        Called after picks are added or removed. The restarted stream
+        re-reads the selection table and re-emits everything in scope;
+        the job repository's fingerprint dedup makes that cheap. Silent
+        on missing/sourceless datasets.
+        """
+        dataset = await self._dataset_repository.get_by_id(dataset_id, tenant_id)
+        if not dataset or not self._factory.has_source(dataset):
+            return
+        await self._scanner.restart(dataset)
+
+    async def apply_unselection(
+        self, dataset_id: UUID, tenant_id: UUID, item_ids: list[str]
+    ) -> int:
+        """Tombstone the ingestion jobs produced by removed picks.
+
+        Which jobs a pick produced is id-space knowledge owned by the
+        source provider (``selection_covers``): a directory pick covers the
+        files under it, a post pick covers itself. Overlapping picks
+        self-heal — the restarted stream's initial scan resurrects any item
+        still covered by a remaining pick.
+
+        Returns the number of jobs tombstoned.
+        """
+        dataset = await self._dataset_repository.get_by_id(dataset_id, tenant_id)
+        if not dataset:
+            return 0
+        try:
+            provider = self._factory.provider_cls(dataset)
+        except KeyError:
+            return 0
+
+        jobs = await self._ingestion_repository.get_by_dataset(dataset_id, tenant_id)
+        count = 0
+        for job in jobs:
+            if job.status == IngestionJobStatus.DELETED.value:
+                continue
+            if any(
+                provider.selection_covers(item_id, job.external_id)
+                for item_id in item_ids
+            ):
+                if await self._ingestion_repository.mark_deleted_by_external_id(
+                    dataset_id, job.external_id
+                ):
+                    count += 1
+        if count:
+            logger.info(
+                f"Tombstoned {count} jobs for dataset {dataset_id} "
+                f"after unselecting {len(item_ids)} pick(s)"
+            )
+        return count
+
     async def start_ingestion_by_id(self, dataset_id: UUID, tenant_id: UUID) -> int:
         """Convenience for auto-start after dataset creation. Silent on miss."""
         dataset = await self._dataset_repository.get_by_id(dataset_id, tenant_id)
