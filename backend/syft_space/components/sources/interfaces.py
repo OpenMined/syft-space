@@ -210,20 +210,6 @@ class BaseSourceProvider(Protocol):
         ...
 
     @classmethod
-    def extract_selected_items(
-        cls, configuration: dict[str, Any]
-    ) -> list[tuple[str, str | None]]:
-        """Return ``(item_id, description)`` picks from a source configuration.
-
-        The create request transports the selection inside the source
-        configuration (``filePaths`` / ``selectedItems``); each provider
-        knows where its own selection lives. The create handler uses this
-        to write ``dataset_selection`` rows without any per-dtype knowledge.
-        Sources with no selection concept return ``[]``.
-        """
-        ...
-
-    @classmethod
     def selection_covers(cls, item_id: str, external_id: str) -> bool:
         """Whether the pick ``item_id`` covers the ingested item ``external_id``.
 

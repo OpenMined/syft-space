@@ -44,6 +44,9 @@ function getTccService(path: string): string | null {
 export function useSourceBrowser(
   dtype: string,
   configuration: Record<string, unknown> = {},
+  // When set, browse an existing dataset's source server-side (stored
+  // credentials) instead of passing client-supplied configuration.
+  datasetName?: string,
 ) {
   const rootNodes = ref<FileNode[]>([])
   const rootNextCursor = ref<string | null>(null)
@@ -73,7 +76,9 @@ export function useSourceBrowser(
         loadingPaths.value.add(loadingKey)
       }
 
-      const response = await datasetsApi.browse(dtype, parentId, configuration, cursor)
+      const response = datasetName
+        ? await datasetsApi.browseDataset(datasetName, parentId, cursor)
+        : await datasetsApi.browse(dtype, parentId, configuration, cursor)
 
       if (!response || !Array.isArray(response.items)) {
         throw new Error('Invalid response from server')

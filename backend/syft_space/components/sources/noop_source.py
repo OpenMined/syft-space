@@ -108,13 +108,6 @@ class NoOpProvider:
         return {"type": "object", "properties": {}}
 
     @classmethod
-    def extract_selected_items(
-        cls, configuration: dict[str, Any]
-    ) -> list[tuple[str, str | None]]:
-        """No selection concept — always empty."""
-        return []
-
-    @classmethod
     def selection_covers(cls, item_id: str, external_id: str) -> bool:
         """No selection concept — nothing is ever covered."""
         return False

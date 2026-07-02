@@ -215,17 +215,21 @@
 
         <!-- Overview Tab Content -->
         <TabsContent value="overview" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- Watched Paths (local_file only; "paths" is a filesystem concept) -->
+          <!-- Selected items (source-agnostic: file paths, WordPress posts, ...) -->
           <div
-            v-if="dataset.dtype === 'local_file'"
+            v-if="getDatasetManagement() === 'Self-managed'"
             class="lg:col-span-2 bg-card border border-border rounded-xl p-6"
           >
             <div class="flex items-center justify-between mb-5">
               <h2 class="heading-3 flex items-center gap-2">
                 <Database class="h-5 w-5 text-foreground/70" />
-                Watched Paths
+                {{ selectionPanelTitle }}
               </h2>
               <div class="flex items-center gap-3">
+                <Button variant="outline" size="sm" @click="openAddSource">
+                  <Plus class="h-3.5 w-3.5 mr-2" />
+                  Add source
+                </Button>
                 <Button
                   v-if="ingestionStatus?.failed && ingestionStatus.failed > 0"
                   variant="outline"
@@ -250,27 +254,27 @@
               </div>
             </div>
 
-            <div v-if="getWatchedPaths().length > 0" class="space-y-2.5">
+            <div v-if="getSelectedItems().length > 0" class="space-y-2.5">
               <div
-                v-for="path in getWatchedPaths()"
-                :key="path.id"
+                v-for="item in getSelectedItems()"
+                :key="item.id"
                 class="flex items-start justify-between gap-4 px-4 py-3 bg-muted/40 border border-border/60 rounded-lg"
               >
                 <div class="min-w-0 flex-1">
-                  <p class="body-sm font-mono text-foreground truncate">{{ path.path }}</p>
-                  <p v-if="path.description" class="text-xs text-muted-foreground mt-1 truncate">
-                    {{ path.description }}
+                  <p class="body-sm font-mono text-foreground truncate">{{ item.id }}</p>
+                  <p v-if="item.description" class="text-xs text-muted-foreground mt-1 truncate">
+                    {{ item.description }}
                   </p>
                 </div>
                 <div class="flex items-center gap-1.5 shrink-0 mt-1">
                   <span
                     :class="[
                       'w-1.5 h-1.5 rounded-full',
-                      path.status === 'watching' ? 'bg-primary' : 'bg-muted-foreground',
+                      item.status === 'watching' ? 'bg-primary' : 'bg-muted-foreground',
                     ]"
                   ></span>
                   <span class="text-xs text-muted-foreground">
-                    {{ path.status === 'watching' ? 'Watching' : 'Not Watching' }}
+                    {{ item.status === 'watching' ? 'Watching' : 'Not Watching' }}
                   </span>
                 </div>
               </div>
@@ -282,7 +286,7 @@
               >
                 <Database class="h-5 w-5 text-muted-foreground" />
               </div>
-              <p class="text-muted-foreground body-sm">No watched paths configured</p>
+              <p class="text-muted-foreground body-sm">No items selected yet</p>
             </div>
           </div>
 
@@ -519,6 +523,13 @@
     @update:open="!$event && handleDialogClose()"
   />
 
+  <!-- Add Source Dialog -->
+  <AddSourceDialog
+    v-model:open="showAddSourceDialog"
+    :dataset="addSourceDataset"
+    @sources-added="handleSourcesAdded"
+  />
+
   <!-- Delete Confirmation Dialog -->
   <DeleteConfirmationDialog
     v-model:open="showDeleteDialog"
@@ -563,6 +574,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import AddSourceDialog from '@/components/AddSourceDialog.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import type {
@@ -593,9 +605,14 @@ const editingDataset = ref<{
   name: string
   summary: string
   tags: string[]
-  filePaths: Array<{ path: string; description: string }>
 } | null>(null)
 const showDeleteDialog = ref(false)
+const showAddSourceDialog = ref(false)
+const addSourceDataset = ref<{
+  name: string
+  dtype: string
+  selectedIds: string[]
+} | null>(null)
 const isRefreshingPaths = ref(false)
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
@@ -632,7 +649,6 @@ const editDataset = async () => {
       name: dataset.value.name,
       summary: dataset.value.summary,
       tags: dataset.value.tags || [],
-      filePaths: [], // Not used in edit mode
     }
     showEditDialog.value = true
   } catch (err) {
@@ -721,6 +737,23 @@ const handleDialogClose = () => {
   editingDataset.value = null
 }
 
+const openAddSource = () => {
+  if (!dataset.value) return
+  addSourceDataset.value = {
+    name: dataset.value.name,
+    dtype: dataset.value.dtype,
+    selectedIds: (dataset.value.selected_items || []).map((item) => item.item_id),
+  }
+  showAddSourceDialog.value = true
+}
+
+const handleSourcesAdded = async () => {
+  showAddSourceDialog.value = false
+  addSourceDataset.value = null
+  // Reload so the new watched paths and ingestion jobs appear.
+  await loadDataset(route.params.slug as string)
+}
+
 const confirmDelete = async () => {
   if (dataset.value) {
     try {
@@ -749,20 +782,30 @@ const getDatasetManagement = () => {
   return dataset.value.dtype === 'remote_weaviate' ? 'External' : 'Self-managed'
 }
 
-// Get watched paths from dataset configuration
-const getWatchedPaths = () => {
+// Title for the selection panel — source-specific where a noun reads more
+// naturally ("Watched Paths" for files, "Watched posts" for WordPress),
+// falling back to the generic "Selected items".
+const selectionPanelTitle = computed(() => {
+  switch (dataset.value?.dtype) {
+    case 'local_file':
+      return 'Watched Paths'
+    case 'wordpress':
+      return 'Watched posts'
+    default:
+      return 'Selected items'
+  }
+})
+
+// Source-agnostic selected items from the dataset_selection rows
+// (file paths, '{post_type}:{id}', ...), descriptions included.
+const getSelectedItems = () => {
   if (getDatasetManagement() !== 'Self-managed' || !dataset.value) {
     return []
   }
 
-  const config = dataset.value.configuration as Record<string, unknown>
-  const filePaths = (config?.filePaths as Array<{ path: string; description?: string }>) || []
-
-  return filePaths.map((pathItem) => ({
-    id: pathItem.path,
-    path: pathItem.path,
-    description: pathItem.description || 'Selected folder for ingestion',
-    fileCount: ingestionJobs.value?.total || 0,
+  return (dataset.value.selected_items || []).map((item) => ({
+    id: item.item_id,
+    description: item.description || '',
     status: ingestionStatus.value?.is_watching ? 'watching' : 'not_watching',
   }))
 }

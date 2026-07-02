@@ -5,7 +5,14 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from syft_space.components.dataset_types.redaction import (
     redact_config as redact_dataset_config,
@@ -168,6 +175,18 @@ class AttachedModel(BaseModel):
         return self
 
 
+class AttachedSelectedItem(BaseModel):
+    """A selection pick of an attached dataset (a ``dataset_selection`` row)."""
+
+    item_id: str = Field(..., description="Item id in the picker id-space")
+    description: str | None = Field(None, description="Optional description")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
 class AttachedDataset(BaseModel):
     """Response model for attached dataset."""
 
@@ -176,6 +195,13 @@ class AttachedDataset(BaseModel):
     summary: str = Field(..., description="Dataset summary")
     dtype: str = Field(..., description="Dataset type")
     configuration: dict[str, Any] = Field(..., description="Configuration")
+    selected_items: list[AttachedSelectedItem] = Field(
+        default_factory=list,
+        # Maps from the eagerly-loaded ``Dataset.selections`` relationship
+        # when validating from the entity (see endpoints repository).
+        validation_alias=AliasChoices("selections", "selected_items"),
+        description="Selection picks (from the dataset_selection table)",
+    )
 
     class Config:
         """Pydantic config."""

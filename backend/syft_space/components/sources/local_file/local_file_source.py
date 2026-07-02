@@ -37,13 +37,6 @@ DEFAULT_ALLOWED_EXTENSIONS = [
 ]
 
 
-class FilePathItem(BaseModel):
-    """A file path item with path and description."""
-
-    path: str = Field(..., description="The file or directory path to watch")
-    description: str = Field(..., description="Description of the data at this path")
-
-
 class LocalFileBrowseConfig(BaseModel):
     """Picker-time configuration for the local filesystem source.
 
@@ -64,15 +57,11 @@ class LocalFileBrowseConfig(BaseModel):
 class LocalFileDatasetConfig(LocalFileBrowseConfig):
     """Full dataset configuration for the local filesystem source.
 
-    Extends the browse configuration with the paths to watch and the
-    file extensions to admit. The dataset row stores this shape.
+    Extends the browse configuration with the file extensions to admit.
+    The paths to watch are NOT part of the configuration — they live in
+    the ``dataset_selection`` table and arrive via ``change_stream``.
     """
 
-    file_paths: list[FilePathItem] = Field(
-        ...,
-        alias="filePaths",
-        description="File or directory paths to watch for ingestion",
-    )
     allowed_extensions: list[str] = Field(
         default_factory=lambda: list(DEFAULT_ALLOWED_EXTENSIONS),
         alias="allowedExtensions",
@@ -338,14 +327,6 @@ class LocalFileProvider:
         )
 
     @classmethod
-    def extract_selected_items(
-        cls, configuration: dict[str, Any]
-    ) -> list[tuple[str, str | None]]:
-        """Return ``(path, description)`` picks from the source configuration."""
-        config = LocalFileDatasetConfig.model_validate(configuration)
-        return [(item.path, item.description) for item in config.file_paths]
-
-    @classmethod
     def selection_covers(cls, item_id: str, external_id: str) -> bool:
         """A path pick covers itself and, for directories, everything under it.
 
@@ -372,21 +353,19 @@ class LocalFileProvider:
 
     @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        """Validate a full dataset configuration and the paths it points to.
+        """Validate a full dataset configuration payload.
+
+        The paths to ingest are not part of the configuration (they live in
+        the selection table); the picker only offers existing paths, and the
+        scan skips anything that has since disappeared.
 
         Raises:
-            ValueError: If the payload is malformed or any configured
-                ``file_paths`` entry does not exist on disk.
+            ValueError: If the payload is malformed.
         """
         try:
-            config = LocalFileDatasetConfig.model_validate(configuration)
+            LocalFileDatasetConfig.model_validate(configuration)
         except ValidationError as e:
             raise ValueError(f"Invalid configuration: {e}") from e
-
-        for file_path_item in config.file_paths:
-            path = AsyncPath(file_path_item.path)
-            if not await path.exists():
-                raise ValueError(f"file_paths does not exist: {file_path_item.path}")
 
     @classmethod
     def for_browse(cls, configuration: dict[str, Any]) -> LocalFileBrowser:

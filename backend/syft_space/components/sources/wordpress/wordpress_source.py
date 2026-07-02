@@ -6,11 +6,11 @@ Password, from wp-admin → Users → Profile).
 
 ``WordPressProvider`` builds the two runtime objects: ``WordPressBrowser``
 for picker-time discovery, ``WordPressSource`` for ingestion. Ingestion is
-driven by an explicit picker selection (``selected_items``): each poll
-re-fetches those items via the REST ``include`` filter and emits their
-``modified_gmt`` as a fingerprint, which the ingestion repository dedups on
-so only edited items re-ingest. ``fetch`` writes a post's rendered HTML to
-a tempfile. There is no full-site crawl.
+driven by the dataset's selection-table picks passed to ``change_stream``:
+each poll re-fetches those items via the REST ``include`` filter and emits
+their ``modified_gmt`` as a fingerprint, which the ingestion repository
+dedups on so only edited items re-ingest. ``fetch`` writes a post's rendered
+HTML to a tempfile. There is no full-site crawl.
 
 Not handled in v1: deletes (no REST tombstones — a removed item just stops
 appearing in polls) and a "subscribe to a whole post type" mode.
@@ -120,7 +120,9 @@ class WordPressBrowseConfig(BaseModel):
 class WordPressDatasetConfig(WordPressBrowseConfig):
     """Full dataset config — the shape stored on the dataset row.
 
-    Adds the poll cadence and the item selection to the browse config.
+    Adds the poll cadence to the browse config. The items to poll are NOT
+    part of the configuration — they live in the ``dataset_selection``
+    table and arrive via ``change_stream``.
     """
 
     poll_interval_seconds: int = Field(
@@ -128,15 +130,6 @@ class WordPressDatasetConfig(WordPressBrowseConfig):
         alias="pollIntervalSeconds",
         description="Seconds between change-stream polls",
         gt=0,
-    )
-    selected_items: list[str] | None = Field(
-        default=None,
-        alias="selectedItems",
-        description=(
-            "The external_ids (``{post_type}:{id}``) to ingest and watch "
-            "for changes. The source polls exactly these items; an empty "
-            "or unset selection ingests nothing."
-        ),
     )
 
 
@@ -574,14 +567,6 @@ class WordPressProvider:
         return WordPressDatasetConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
-
-    @classmethod
-    def extract_selected_items(
-        cls, configuration: dict[str, Any]
-    ) -> list[tuple[str, str | None]]:
-        """Return ``({post_type}:{id}, None)`` picks from the source configuration."""
-        config = WordPressDatasetConfig.model_validate(configuration)
-        return [(item_id, None) for item_id in (config.selected_items or [])]
 
     @classmethod
     def selection_covers(cls, item_id: str, external_id: str) -> bool:

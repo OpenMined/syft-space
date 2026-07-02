@@ -1,8 +1,7 @@
-"""Tests for the Phase 3 cutover: picks → change_stream(selected_ids).
+"""Tests for the selection cutover: picks → change_stream(selected_ids).
 
-Covers the three testable units of the uniform-pick cutover:
-- ``extract_selected_items`` (create-path: provider-owned, no dtype knowledge
-  in generic code),
+Covers the three testable units of the uniform-pick model:
+- ``selection_covers`` (provider-owned pick↔item id-space matching),
 - ``LocalFileSource._enumerate_paths`` (directory picks expand, file picks
   are emitted directly — classification is live and source-private),
 - ``SourceScanner`` reads picks and passes their ids as-is to
@@ -26,45 +25,30 @@ from syft_space.components.sources.wordpress.wordpress_source import (
     WordPressProvider,
 )
 
-# ============== extract_selected_items (create path, provider-owned) ==============
+# ============== selection_covers (provider-owned id-space matching) ==============
 
 
-class TestExtractSelectedItems:
-    def test_local_file_paths_and_descriptions(self, tmp_path: Path):
-        cfg = {
-            "filePaths": [
-                {"path": str(tmp_path), "description": "folder"},
-                {"path": str(tmp_path / "a.txt"), "description": "file"},
-            ]
-        }
-        assert LocalFileProvider.extract_selected_items(cfg) == [
-            (str(tmp_path), "folder"),
-            (str(tmp_path / "a.txt"), "file"),
-        ]
+class TestSelectionCovers:
+    def test_local_file_self_and_under_directory(self):
+        covers = LocalFileProvider.selection_covers
+        assert covers("/a/b", "/a/b") is True
+        assert covers("/a/b", "/a/b/c.txt") is True
+        assert covers("/a/b", "/a/b/x/y.txt") is True
+        assert covers("/a/b", "/a/bc.txt") is False  # common prefix, not under
 
-    def test_wordpress_ids(self):
-        cfg = {
-            "siteUrl": "https://example.com",
-            "username": "u",
-            "applicationPassword": "p",
-            "selectedItems": ["post:1", "page:9"],
-        }
-        assert WordPressProvider.extract_selected_items(cfg) == [
-            ("post:1", None),
-            ("page:9", None),
-        ]
+    def test_wordpress_exact_id(self):
+        assert WordPressProvider.selection_covers("post:1", "post:1") is True
+        assert WordPressProvider.selection_covers("post:1", "post:11") is False
 
-    def test_noop_has_no_selection(self):
-        assert NoOpProvider.extract_selected_items({"anything": True}) == []
+    def test_noop_never_covers(self):
+        assert NoOpProvider.selection_covers("x", "x") is False
 
 
 # ============== LocalFileSource._enumerate_paths (expansion) ==============
 
 
 def _local_source(exts=(".txt",)):
-    return LocalFileProvider.for_ingest(
-        {"filePaths": [], "allowedExtensions": list(exts)}
-    )
+    return LocalFileProvider.for_ingest({"allowedExtensions": list(exts)})
 
 
 class TestEnumeratePaths:

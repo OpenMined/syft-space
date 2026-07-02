@@ -10,6 +10,7 @@ from syft_space.components.datasets.handlers import DatasetHandler
 from syft_space.components.datasets.schemas import (
     AddSelectionRequest,
     CreateDatasetRequest,
+    DatasetBrowseRequest,
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
@@ -105,6 +106,23 @@ def build_dataset_routes(
         """
         return await handler.browse_source(
             req.dtype, req.configuration, req.parent_id, req.cursor
+        )
+
+    @router.post("/{name}/browse", response_model=SourceBrowseResponse)
+    async def browse_dataset_source(
+        name: str,
+        req: DatasetBrowseRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SourceBrowseResponse:
+        """Browse an existing dataset's source using its stored credentials.
+
+        Drives the "add source" picker: the server reads connection details
+        from the dataset's stored configuration, so credentials are never
+        sent to (or required from) the client.
+        """
+        return await handler.browse_dataset_source(
+            name, tenant, req.parent_id, req.cursor
         )
 
     # ============== Image Serving Endpoint ==============

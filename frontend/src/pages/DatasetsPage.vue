@@ -206,10 +206,7 @@
   </div>
 
   <!-- Pick Source Dialog -->
-  <PickSourceDialog
-    v-model:open="showPickSourceDialog"
-    @continue="handleSourcePicked"
-  />
+  <PickSourceDialog v-model:open="showPickSourceDialog" @continue="handleSourcePicked" />
 
   <!-- Create Dataset Dialog -->
   <CreateDatasetDialogSimple
@@ -292,7 +289,6 @@ const editingDataset = ref<{
   name: string
   summary: string
   tags: string[]
-  filePaths: Array<{ path: string; description: string }>
 } | null>(null)
 const showDeleteDialog = ref(false)
 const datasetToDelete = ref<DataSource | null>(null)
@@ -364,7 +360,6 @@ const handleEditDataset = async (dataset: DataSource) => {
               .map((tag) => tag.trim())
               .filter(Boolean)
           : [],
-        filePaths: [], // Not used in edit mode anymore
       }
       showCreateDataSourceDialog.value = true
     } else {

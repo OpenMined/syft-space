@@ -32,6 +32,27 @@ export interface CreateDatasetRequest {
   summary: string
   tags: string
   configuration: Record<string, unknown>
+  // Picker selection for the dataset. Stored server-side in the
+  // dataset_selection table, never inside configuration.
+  selected_items?: SelectionItemRequest[]
+}
+
+// One pick to add to a dataset's selection (create or add-source flows).
+export interface SelectionItemRequest {
+  item_id: string
+  description?: string | null
+}
+
+// A dataset_selection row as returned by the API.
+export interface SelectedItemResponse {
+  item_id: string
+  description: string | null
+  added_at: string
+}
+
+// The dataset's full selection after an add/remove operation.
+export interface SelectionResponse {
+  selected_items: SelectedItemResponse[]
 }
 
 export interface ProvisionerStateResponse {
@@ -53,6 +74,9 @@ export interface DatasetResponse {
   created_at: string
   updated_at: string
   connected_endpoints: EndpointListItem[]
+  // The dataset's selection picks (file paths for local files,
+  // '{post_type}:{id}' for WordPress), from the dataset_selection table.
+  selected_items?: SelectedItemResponse[]
 }
 
 export interface HealthcheckResponse {
@@ -83,6 +107,7 @@ export interface EndpointListItem {
     summary: string
     dtype: string
     configuration: Record<string, unknown>
+    selected_items?: Array<{ item_id: string; description: string | null }>
   }
 }
 
@@ -101,6 +126,7 @@ export interface DatasetListItem {
   configuration: Record<string, unknown>
   connected_endpoints: EndpointListItem[]
   provisioner_status?: ProvisionerStatusResponse
+  selected_items?: SelectedItemResponse[]
 }
 
 export interface BrowseSchemaProperty {
@@ -303,6 +329,7 @@ export interface EndpointResponse {
     summary: string
     dtype: string
     configuration: Record<string, unknown>
+    selected_items?: Array<{ item_id: string; description: string | null }>
   }
   policies?: AttachedPolicy[]
 }

@@ -57,7 +57,10 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
             statement = (
                 select(Dataset)
                 .where(Dataset.tenant_id == tenant_id)
-                .options(selectinload(Dataset.endpoints))
+                .options(
+                    selectinload(Dataset.endpoints),
+                    selectinload(Dataset.selections),
+                )
             )
             result = await session.exec(statement)
             return list(result.all())

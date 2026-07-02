@@ -506,12 +506,6 @@ class DatasetHandler:
                 f"Connection fields overridden from provisioner state: {connection_fields}"
             )
 
-        # The selection travels inside the request configuration, but storage
-        # keeps only ``dataset_selection`` rows (the single source of truth):
-        # extract the picks, then strip the key before persisting the blob.
-        selection_items = dataset_type.extract_selected_items(final_config)
-        final_config = dataset_type.strip_selection(final_config)
-
         # Create dataset entity
         dataset = Dataset(
             name=request.name,
@@ -527,11 +521,12 @@ class DatasetHandler:
         created_dataset = await self.repository.create(dataset)
 
         # Write the selection picks to the normalized table — the scanner
-        # reads its ingestion scope from there.
+        # reads its ingestion scope from there. The configuration blob never
+        # carries the selection.
         if self.selection_repository is not None:
-            for item_id, description in selection_items:
+            for item in request.selected_items:
                 await self.selection_repository.add(
-                    created_dataset.id, item_id, description
+                    created_dataset.id, item.item_id, item.description
                 )
 
         return await self._build_response(created_dataset, provisioner_state)
@@ -634,27 +629,9 @@ class DatasetHandler:
     async def _build_response(
         self, dataset: Dataset, provisioner_state: ProvisionerState | None
     ) -> DatasetResponse:
-        """Build a ``DatasetResponse`` with the selection attached.
-
-        The stored configuration no longer carries the selection key; the
-        frontend still reads it from ``configuration``, so it is
-        re-materialized here from the ``dataset_selection`` rows (via the
-        binding's ``selection_to_config``) until the UI switches to the
-        ``selected_items`` field.
-        """
+        """Build a ``DatasetResponse`` with ``selected_items`` from the rows."""
         selections = await self._list_selections(dataset.id)
-        response = DatasetResponse.from_dataset(dataset, provisioner_state, selections)
-        if selections:
-            try:
-                dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
-            except KeyError:
-                return response
-            response.configuration.update(
-                dataset_type_cls.selection_to_config(
-                    [(s.item_id, s.description) for s in selections]
-                )
-            )
-        return response
+        return DatasetResponse.from_dataset(dataset, provisioner_state, selections)
 
     def _require_selection_repository(self) -> DatasetSelectionRepository:
         if self.selection_repository is None:
@@ -1109,6 +1086,53 @@ class DatasetHandler:
                 status_code=404, detail=f"Unknown source type: {dtype}"
             ) from e
 
+        return await self._browse_with_provider(
+            provider, dtype, configuration, parent_id, cursor
+        )
+
+    async def browse_dataset_source(
+        self,
+        name: str,
+        tenant: Tenant,
+        parent_id: str | None,
+        cursor: str | None = None,
+    ) -> SourceBrowseResponse:
+        """Browse an existing dataset's source using its STORED credentials.
+
+        Drives the "add source" picker: the server splits the dataset's
+        stored configuration and hands the source half to the binding's
+        provider, so credentials are never sent to (or required from) the
+        client — API responses redact them, so the client couldn't supply
+        them anyway.
+        """
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+        try:
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        except KeyError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Dataset type '{dataset.dtype}' not found"
+            ) from e
+
+        source_cfg, _ = dataset_type_cls.split_config(dataset.configuration)
+        return await self._browse_with_provider(
+            dataset_type_cls.SOURCE_PROVIDER_CLS,
+            dataset.dtype,
+            source_cfg,
+            parent_id,
+            cursor,
+        )
+
+    async def _browse_with_provider(
+        self,
+        provider: Any,
+        dtype: str,
+        configuration: dict[str, Any],
+        parent_id: str | None,
+        cursor: str | None,
+    ) -> SourceBrowseResponse:
+        """Run one browse page against a provider, mapping errors to HTTP."""
         try:
             # Probe credentials once, on the first page of the top level only.
             if parent_id is None and cursor is None:

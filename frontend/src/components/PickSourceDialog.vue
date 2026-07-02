@@ -4,8 +4,8 @@
       <DialogHeader>
         <DialogTitle class="heading-3">Choose data source</DialogTitle>
         <DialogDescription>
-          Pick where this dataset's content comes from. Credentials are kept in the
-          browser until you create the dataset.
+          Pick where this dataset's content comes from. Credentials are kept in the browser until
+          you create the dataset.
         </DialogDescription>
       </DialogHeader>
 
@@ -16,7 +16,9 @@
           </Label>
           <Select v-model="selectedSourceId">
             <SelectTrigger id="source-type" class="w-full">
-              <SelectValue :placeholder="loadError ? 'Failed to load sources' : 'Select a source type'" />
+              <SelectValue
+                :placeholder="loadError ? 'Failed to load sources' : 'Select a source type'"
+              />
             </SelectTrigger>
             <SelectContent>
               <SelectItem v-for="source in browsableTypes" :key="source.name" :value="source.name">
@@ -114,8 +116,7 @@ const PRESENTATION: Record<string, SourceCopy> = {
   },
 }
 
-const presentation = (name: string): SourceCopy =>
-  PRESENTATION[name] ?? { label: name, icon: '🗂️' }
+const presentation = (name: string): SourceCopy => PRESENTATION[name] ?? { label: name, icon: '🗂️' }
 
 const props = defineProps<{
   open: boolean

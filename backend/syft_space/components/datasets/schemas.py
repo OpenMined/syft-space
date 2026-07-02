@@ -39,6 +39,19 @@ class DatasetTypeInfoResponse(BaseModel):
     )
 
 
+class SelectionItemRequest(BaseModel):
+    """One pick to add to a dataset's selection."""
+
+    item_id: str = Field(
+        ...,
+        min_length=1,
+        description="Item id in the picker id-space (path | '{post_type}:{id}')",
+    )
+    description: str | None = Field(
+        None, description="Optional user-provided description"
+    )
+
+
 class CreateDatasetRequest(BaseModel):
     """Request model for creating a dataset."""
 
@@ -46,6 +59,13 @@ class CreateDatasetRequest(BaseModel):
     dtype: str = Field(..., description="Dataset type name")
     configuration: dict[str, Any] = Field(
         ..., description="Filled configuration schema"
+    )
+    selected_items: list[SelectionItemRequest] = Field(
+        default_factory=list,
+        description=(
+            "Picker selection for the dataset (stored in the "
+            "dataset_selection table, not inside configuration)"
+        ),
     )
     summary: str = Field(default="", description="Brief summary of the dataset")
     tags: str = Field(
@@ -160,19 +180,6 @@ class SelectedItemResponse(BaseModel):
         from_attributes = True
 
 
-class SelectionItemRequest(BaseModel):
-    """One pick to add to a dataset's selection."""
-
-    item_id: str = Field(
-        ...,
-        min_length=1,
-        description="Item id in the picker id-space (path | '{post_type}:{id}')",
-    )
-    description: str | None = Field(
-        None, description="Optional user-provided description"
-    )
-
-
 class AddSelectionRequest(BaseModel):
     """Request body for adding picks to a dataset's selection."""
 
@@ -276,6 +283,10 @@ class DatasetListItem(BaseModel):
         None, description="Provisioner status"
     )
     configuration: dict[str, Any] = Field(..., description="Dataset configuration")
+    selected_items: list[SelectedItemResponse] = Field(
+        default_factory=list,
+        description="Selection picks (from the dataset_selection table)",
+    )
 
     @classmethod
     def from_dataset(
@@ -300,6 +311,10 @@ class DatasetListItem(BaseModel):
             connected_endpoints=dataset.endpoints,
             provisioner_status=provisioner_status_response,
             configuration=redact_config(dataset.configuration, dataset.dtype),
+            # Requires ``selections`` to be eagerly loaded (repository.get_all).
+            selected_items=[
+                SelectedItemResponse.model_validate(s) for s in dataset.selections
+            ],
         )
 
 
@@ -408,6 +423,25 @@ class ProvisionerActionResponse(BaseModel):
 
 
 # ============== Source Browser Schemas ==============
+
+
+class DatasetBrowseRequest(BaseModel):
+    """Request model for browsing an existing dataset's source.
+
+    Unlike ``SourceBrowseRequest``, the caller supplies no credentials: the
+    server reads them from the dataset's stored configuration. Used by the
+    "add source" picker — API responses redact credentials, so the client
+    could not supply them anyway.
+    """
+
+    parent_id: str | None = Field(
+        default=None,
+        description="Container id to list. Null lists the source's top level.",
+    )
+    cursor: str | None = Field(
+        default=None,
+        description="Opaque resume token from a prior response's next_cursor.",
+    )
 
 
 class SourceBrowseRequest(BaseModel):

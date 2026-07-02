@@ -33,13 +33,8 @@ export const useEndpointsStore = defineStore('endpoints', () => {
 
   const transformEndpointListItem = (item: EndpointListItem): EndpointItem => {
     let watchedPaths: string[] | undefined = undefined
-    if (
-      item.dataset?.configuration?.filePaths &&
-      Array.isArray(item.dataset.configuration.filePaths)
-    ) {
-      watchedPaths = (
-        item.dataset.configuration.filePaths as Array<{ path: string; description: string }>
-      ).map((fp) => fp.path)
+    if (item.dataset?.selected_items?.length) {
+      watchedPaths = item.dataset.selected_items.map((s) => s.item_id)
     }
 
     return {

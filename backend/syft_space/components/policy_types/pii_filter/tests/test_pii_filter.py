@@ -25,7 +25,9 @@ def _make_model_mock(sanitized_text: str) -> AsyncMock:
     mock.chat.return_value = ChatResult(
         id="mock-id",
         model="mock-model",
-        messages=[ChatMessageResult(role="assistant", content=sanitized_text, tokens=10)],
+        messages=[
+            ChatMessageResult(role="assistant", content=sanitized_text, tokens=10)
+        ],
         finish_reason="stop",
         usage=TokenUsage(prompt_tokens=50, completion_tokens=10, total_tokens=60),
     )
@@ -216,7 +218,9 @@ async def test_validate_config_accepts_empty_config() -> None:
 
 @pytest.mark.asyncio
 async def test_validate_config_accepts_instructions_field() -> None:
-    cfg = await PiiFilterType.validate_config({"instructions": "Also redact nicknames."})
+    cfg = await PiiFilterType.validate_config(
+        {"instructions": "Also redact nicknames."}
+    )
     assert cfg["instructions"] == "Also redact nicknames."
 
 

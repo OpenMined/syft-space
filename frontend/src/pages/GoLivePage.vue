@@ -1084,10 +1084,7 @@ const handleOverwriteConfirm = async () => {
               <div class="space-y-4">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
-                    <component
-                      :is="pricingPolicyType.icon"
-                      class="h-4 w-4 text-muted-foreground"
-                    />
+                    <component :is="pricingPolicyType.icon" class="h-4 w-4 text-muted-foreground" />
                     <div>
                       <h3 class="text-sm font-semibold text-foreground">
                         {{ pricingPolicyType.name }}

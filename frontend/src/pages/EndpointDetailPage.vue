@@ -129,9 +129,7 @@
                   <span
                     :class="[
                       'inline-block w-2 h-2 rounded-full',
-                      endpoint.published
-                        ? 'bg-success animate-pulse'
-                        : 'bg-muted-foreground/60',
+                      endpoint.published ? 'bg-success animate-pulse' : 'bg-muted-foreground/60',
                     ]"
                   ></span>
                   <span
@@ -319,9 +317,7 @@
                       <code class="body-sm font-medium text-foreground font-mono break-all">
                         {{ path.path }}
                       </code>
-                      <span class="body-sm text-muted-foreground"
-                        >{{ path.fileCount }} files</span
-                      >
+                      <span class="body-sm text-muted-foreground">{{ path.fileCount }} files</span>
                     </div>
                     <p v-if="path.description" class="body-sm text-muted-foreground mt-1">
                       {{ path.description }}
@@ -605,9 +601,7 @@
               <CardContent class="space-y-3 flex-1">
                 <div class="flex justify-between items-center py-1">
                   <span class="body-sm text-muted-foreground">Total Policies</span>
-                  <span class="body-sm font-medium text-foreground">{{
-                    totalPoliciesCount
-                  }}</span>
+                  <span class="body-sm font-medium text-foreground">{{ totalPoliciesCount }}</span>
                 </div>
                 <Separator />
                 <div class="flex justify-between items-center py-1">
@@ -676,10 +670,7 @@
               placeholder="Filter by email..."
               class="h-9 max-w-sm flex-1 min-w-[200px]"
             />
-            <Select
-              v-if="lockedWallet?.wallet_type === 'xendit'"
-              v-model="txnStatusFilter"
-            >
+            <Select v-if="lockedWallet?.wallet_type === 'xendit'" v-model="txnStatusFilter">
               <SelectTrigger class="h-9 w-40">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
@@ -1112,10 +1103,8 @@ const allTags = computed(() => {
 
 const watchedPathStats = computed(() => {
   const stats = new Map<string, { fileCount: number; counts: Record<string, number> }>()
-  const config = endpoint.value?.dataset?.configuration as Record<string, unknown> | undefined
-  const filePaths = (config?.filePaths as Array<{ path: string }> | undefined) || []
-  for (const { path } of filePaths) {
-    stats.set(path, { fileCount: 0, counts: {} })
+  for (const { item_id } of endpoint.value?.dataset?.selected_items || []) {
+    stats.set(item_id, { fileCount: 0, counts: {} })
   }
   for (const job of ingestionJobs.value?.jobs ?? []) {
     for (const [path, entry] of stats) {
@@ -1139,62 +1128,17 @@ const statusFromCounts = (counts: Record<string, number>): string => {
 const getWatchedPaths = computed(() => {
   if (!endpoint.value?.dataset) return []
 
-  const config = endpoint.value.dataset.configuration as Record<string, unknown>
-  const filePaths = (config?.filePaths as Array<{ path: string; description?: string }>) || []
-
-  return filePaths.map((pathItem) => {
-    const entry = watchedPathStats.value.get(pathItem.path)
+  return (endpoint.value.dataset.selected_items || []).map((item) => {
+    const entry = watchedPathStats.value.get(item.item_id)
     return {
-      id: pathItem.path,
-      path: pathItem.path,
-      description: pathItem.description || 'Selected folder for ingestion',
+      id: item.item_id,
+      path: item.item_id,
+      description: item.description || 'Selected for ingestion',
       fileCount: entry?.fileCount ?? 0,
       status: entry && entry.fileCount > 0 ? statusFromCounts(entry.counts) : 'unknown',
     }
   })
 })
-
-// Get statistics for a specific path by filtering jobs
-const getStatsForPath = (watchedPath: string) => {
-  if (!ingestionJobs.value?.jobs) {
-    return { fileCount: 0, status: 'unknown' }
-  }
-
-  // Filter jobs that start with the watched path
-  const pathJobs = ingestionJobs.value.jobs.filter((job) =>
-    job.external_id.startsWith(watchedPath),
-  )
-
-  if (pathJobs.length === 0) {
-    return { fileCount: 0, status: 'unknown' }
-  }
-
-  // Count jobs by status
-  const statusCounts = pathJobs.reduce(
-    (counts, job) => {
-      counts[job.status] = (counts[job.status] || 0) + 1
-      return counts
-    },
-    {} as Record<string, number>,
-  )
-
-  // Determine overall status based on priority
-  let status = 'unknown'
-  if ((statusCounts['in_progress'] ?? 0) > 0) {
-    status = 'processing'
-  } else if ((statusCounts['pending'] ?? 0) > 0) {
-    status = 'queued'
-  } else if ((statusCounts['failed'] ?? 0) > 0) {
-    status = 'errored'
-  } else if ((statusCounts['completed'] ?? 0) > 0) {
-    status = 'indexed'
-  }
-
-  return {
-    fileCount: pathJobs.length,
-    status,
-  }
-}
 
 // Fetch all ingestion jobs across all pages
 const fetchAllIngestionJobs = async (datasetId: string) => {
@@ -1374,10 +1318,7 @@ const statUniqueUsers = computed(() => {
 
 const statTotalReceived = computed(() => {
   if (lockedWallet.value?.wallet_type === 'mpp') {
-    const total = filteredMppTransactions.value.reduce(
-      (sum, t) => sum + Number(t.amount || 0),
-      0,
-    )
+    const total = filteredMppTransactions.value.reduce((sum, t) => sum + Number(t.amount || 0), 0)
     const currency = lockedWallet.value.currency ?? 'USD'
     return `$${formatPrice(total)} ${currency}`
   }
@@ -1385,7 +1326,10 @@ const statTotalReceived = computed(() => {
     const debits = filteredLedgerEntries.value.filter((e) => e.type === 'debit')
     const total = debits.reduce((sum, e) => sum + Number(e.amount || 0), 0)
     const currency =
-      debits[0]?.currency ?? filteredLedgerEntries.value[0]?.currency ?? lockedWallet.value.currency ?? 'USD'
+      debits[0]?.currency ??
+      filteredLedgerEntries.value[0]?.currency ??
+      lockedWallet.value.currency ??
+      'USD'
     return `$${formatPrice(total)} ${currency}`
   }
   return '$0.00'
