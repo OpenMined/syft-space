@@ -141,6 +141,32 @@ class BaseDatasetType:
         return cls.SOURCE_PROVIDER_CLS.extract_selected_items(source_cfg)
 
     @classmethod
+    def selection_to_config(cls, items: list[tuple[str, str | None]]) -> dict[str, Any]:
+        """Render ``(item_id, description)`` picks in this binding's flat-config
+        shape (e.g. ``{"filePaths": [...]}``) — the inverse of
+        ``extract_selected_items``.
+
+        Used to re-materialize the selection into API responses while the
+        frontend still reads it from ``configuration``; storage itself keeps
+        only the ``dataset_selection`` rows. Bindings without a selection
+        concept return ``{}``.
+        """
+        return {}
+
+    @classmethod
+    def strip_selection(cls, configuration: dict[str, Any]) -> dict[str, Any]:
+        """Return a copy of a flat config without this binding's selection key.
+
+        Applied before a configuration is persisted, so the stored blob never
+        duplicates what the ``dataset_selection`` table owns. The key names
+        are derived from ``selection_to_config`` so the two stay in sync.
+        """
+        configuration = dict(configuration)
+        for key in cls.selection_to_config([]):
+            configuration.pop(key, None)
+        return configuration
+
+    @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
         """Validate by splitting and delegating to each collaborator.
 

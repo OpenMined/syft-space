@@ -160,10 +160,17 @@ class SourceScanner:
         selected_ids: list[str],
     ) -> None:
         try:
+            # One bulk read instead of a per-item query for every re-emitted
+            # event: the initial scan re-emits everything in scope, and items
+            # the map vouches for (COMPLETED + unchanged fingerprint) are
+            # skipped in memory.
+            skip_map = await self._ingestion_repository.get_completed_fingerprints(
+                dataset_id
+            )
             async for event in source.change_stream(selected_ids):
                 if self._shutdown_event and self._shutdown_event.is_set():
                     break
-                await self._handle_source_event(dataset_id, tenant_id, event)
+                await self._handle_source_event(dataset_id, tenant_id, event, skip_map)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -172,15 +179,29 @@ class SourceScanner:
             logger.info(f"Source task ended for {dataset_id}")
 
     async def _handle_source_event(
-        self, dataset_id: UUID, tenant_id: UUID, event: SourceChangeEvent
+        self,
+        dataset_id: UUID,
+        tenant_id: UUID,
+        event: SourceChangeEvent,
+        skip_map: dict[str, str],
     ) -> None:
         if event.event_type == "deleted":
             # Tombstone, don't hard-delete — the kept row preserves the
             # external_id mapping needed to remove the item's vectors
-            # (see IngestionJobStatus.DELETED).
+            # (see IngestionJobStatus.DELETED). Drop the map entry so a
+            # later re-create with an identical fingerprint isn't skipped.
+            skip_map.pop(event.external_id, None)
             await self._ingestion_repository.mark_deleted_by_external_id(
                 dataset_id, event.external_id
             )
+            return
+
+        if (
+            event.fingerprint is not None
+            and skip_map.get(event.external_id) == event.fingerprint
+        ):
+            # Already ingested, unchanged — zero DB work. Only COMPLETED
+            # rows enter the map, so this can't mask a pending/failed row.
             return
 
         await self._ingestion_repository.upsert_by_external_id(

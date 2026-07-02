@@ -506,6 +506,12 @@ class DatasetHandler:
                 f"Connection fields overridden from provisioner state: {connection_fields}"
             )
 
+        # The selection travels inside the request configuration, but storage
+        # keeps only ``dataset_selection`` rows (the single source of truth):
+        # extract the picks, then strip the key before persisting the blob.
+        selection_items = dataset_type.extract_selected_items(final_config)
+        final_config = dataset_type.strip_selection(final_config)
+
         # Create dataset entity
         dataset = Dataset(
             name=request.name,
@@ -521,21 +527,14 @@ class DatasetHandler:
         created_dataset = await self.repository.create(dataset)
 
         # Write the selection picks to the normalized table — the scanner
-        # reads its ingestion scope from there. The configuration blob still
-        # carries the same selection; the table is the authoritative copy.
+        # reads its ingestion scope from there.
         if self.selection_repository is not None:
-            for item_id, description in dataset_type.extract_selected_items(
-                created_dataset.configuration
-            ):
+            for item_id, description in selection_items:
                 await self.selection_repository.add(
                     created_dataset.id, item_id, description
                 )
 
-        return DatasetResponse.from_dataset(
-            created_dataset,
-            provisioner_state,
-            await self._list_selections(created_dataset.id),
-        )
+        return await self._build_response(created_dataset, provisioner_state)
 
     async def list_datasets(self, tenant: Tenant) -> list[DatasetListItem]:
         """List all datasets for a tenant.
@@ -580,9 +579,7 @@ class DatasetHandler:
                 dataset.provisioner_state_id
             )
 
-        return DatasetResponse.from_dataset(
-            dataset, provisioner_state, await self._list_selections(dataset.id)
-        )
+        return await self._build_response(dataset, provisioner_state)
 
     async def update_dataset(
         self, name: str, request: UpdateDatasetRequest, tenant: Tenant
@@ -624,11 +621,7 @@ class DatasetHandler:
                 updated_dataset.provisioner_state_id
             )
 
-        return DatasetResponse.from_dataset(
-            updated_dataset,
-            provisioner_state,
-            await self._list_selections(updated_dataset.id),
-        )
+        return await self._build_response(updated_dataset, provisioner_state)
 
     # ============== Selection ==============
 
@@ -637,6 +630,31 @@ class DatasetHandler:
         if self.selection_repository is None:
             return []
         return await self.selection_repository.list_for_dataset(dataset_id)
+
+    async def _build_response(
+        self, dataset: Dataset, provisioner_state: ProvisionerState | None
+    ) -> DatasetResponse:
+        """Build a ``DatasetResponse`` with the selection attached.
+
+        The stored configuration no longer carries the selection key; the
+        frontend still reads it from ``configuration``, so it is
+        re-materialized here from the ``dataset_selection`` rows (via the
+        binding's ``selection_to_config``) until the UI switches to the
+        ``selected_items`` field.
+        """
+        selections = await self._list_selections(dataset.id)
+        response = DatasetResponse.from_dataset(dataset, provisioner_state, selections)
+        if selections:
+            try:
+                dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+            except KeyError:
+                return response
+            response.configuration.update(
+                dataset_type_cls.selection_to_config(
+                    [(s.item_id, s.description) for s in selections]
+                )
+            )
+        return response
 
     def _require_selection_repository(self) -> DatasetSelectionRepository:
         if self.selection_repository is None:

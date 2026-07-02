@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 from syft_space.components.datasets.entities import Dataset
@@ -135,7 +135,9 @@ class TestScannerPassesPicks:
         ]
         scanner = SourceScanner(
             dataset_repository=Mock(),
-            ingestion_repository=Mock(),
+            ingestion_repository=Mock(
+                get_completed_fingerprints=AsyncMock(return_value={})
+            ),
             selection_repository=_SelRepo(picks),
             factory=_Factory(_Binding(source)),
         )

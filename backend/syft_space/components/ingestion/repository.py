@@ -101,6 +101,25 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                 await session.refresh(job)
                 return job
 
+    async def get_completed_fingerprints(self, dataset_id: UUID) -> dict[str, str]:
+        """Map of ``external_id -> fingerprint`` for a dataset's COMPLETED jobs.
+
+        Loaded once at stream start as an in-memory skip-map: an event whose
+        fingerprint matches its map entry is dropped without a per-item
+        query. Only COMPLETED rows are safe to skip from a snapshot — a
+        completed job never regresses on its own, and a changed item
+        produces a different fingerprint that misses the map and falls
+        through to ``upsert_by_external_id``'s fresh check.
+        """
+        async with self.db.get_session() as session:
+            result = await session.exec(
+                select(IngestionJob.external_id, IngestionJob.fingerprint).where(
+                    IngestionJob.dataset_id == dataset_id,
+                    IngestionJob.status == IngestionJobStatus.COMPLETED.value,
+                )
+            )
+            return dict(result.all())
+
     async def get_by_external_id(
         self, dataset_id: UUID, external_id: str
     ) -> IngestionJob | None:
@@ -243,15 +262,8 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
             result = await session.exec(stmt)
             results = result.all()
 
-            stats = {
-                "pending": 0,
-                "in_progress": 0,
-                "completed": 0,
-                "failed": 0,
-                "cancelled": 0,
-                "deleted": 0,
-                "total": 0,
-            }
+            stats = {status.value: 0 for status in IngestionJobStatus}
+            stats["total"] = 0
 
             for status, count in results:
                 stats[status] = count

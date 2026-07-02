@@ -170,6 +170,11 @@ class WordPressChromaDBDatasetType(IngestableDatasetType):
         return self.vector_store.collection_name
 
     @classmethod
+    def selection_to_config(cls, items: list[tuple[str, str | None]]) -> dict[str, Any]:
+        """Render picks as the flat ``selectedItems`` shape."""
+        return {"selectedItems": [item_id for item_id, _ in items]}
+
+    @classmethod
     def redact_configuration(cls, configuration: dict[str, Any]) -> dict[str, Any]:
         """Drop the WordPress Application Password from the exposed config."""
         return {

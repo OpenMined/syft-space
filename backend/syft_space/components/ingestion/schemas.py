@@ -41,6 +41,7 @@ class IngestionStatusResponse(BaseModel):
     completed: int = Field(..., description="Completed jobs count")
     failed: int = Field(..., description="Failed jobs count")
     cancelled: int = Field(..., description="Cancelled jobs count")
+    deleted: int = Field(..., description="Deleted (tombstoned) jobs count")
 
 
 class IngestionJobListResponse(BaseModel):

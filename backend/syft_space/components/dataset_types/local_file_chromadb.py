@@ -107,6 +107,16 @@ class LocalFileChromaDBDatasetType(IngestableDatasetType):
         return source_cfg, vector_store_cfg
 
     @classmethod
+    def selection_to_config(cls, items: list[tuple[str, str | None]]) -> dict[str, Any]:
+        """Render picks as the flat ``filePaths`` shape."""
+        return {
+            "filePaths": [
+                {"path": item_id, "description": description or ""}
+                for item_id, description in items
+            ]
+        }
+
+    @classmethod
     def description(cls) -> str:
         """Get the description of the binding."""
         return cls.__doc__ or ""

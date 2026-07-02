@@ -273,6 +273,10 @@ class LocalFileSource:
 
     async def _to_source_item(self, path: AsyncPath) -> SourceItem:
         stat = await path.stat()
+        # Resolved, so the initial scan and the watchdog (whose events carry
+        # OS-resolved paths) agree on one external_id per file even when the
+        # configured pick traverses a symlink.
+        path = await path.resolve()
         return SourceItem(
             external_id=str(path),
             display_name=path.name,
@@ -343,10 +347,16 @@ class LocalFileProvider:
 
     @classmethod
     def selection_covers(cls, item_id: str, external_id: str) -> bool:
-        """A path pick covers itself and, for directories, everything under it."""
-        if external_id == item_id:
+        """A path pick covers itself and, for directories, everything under it.
+
+        Both sides resolve first: job external_ids are stored resolved, while
+        a pick keeps the form the user selected, which may traverse a symlink.
+        """
+        pick = os.path.realpath(item_id)
+        external = os.path.realpath(external_id)
+        if external == pick:
             return True
-        return external_id.startswith(item_id.rstrip(os.sep) + os.sep)
+        return external.startswith(pick.rstrip(os.sep) + os.sep)
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:

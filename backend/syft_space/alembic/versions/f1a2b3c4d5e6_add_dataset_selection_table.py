@@ -1,4 +1,4 @@
-"""add dataset_selection table and backfill from configuration blobs
+"""add dataset_selection table, backfill from and strip configuration blobs
 
 Revision ID: f1a2b3c4d5e6
 Revises: 758674b03ba7
@@ -6,16 +6,17 @@ Create Date: 2026-07-01 10:00:00.000000
 
 Normalizes the dataset selection list out of the ``datasets.configuration``
 JSON blob into a dedicated ``dataset_selection`` table (one row per selected
-item). This is the storage half of making add/remove selection atomic.
+item), making add/remove selection atomic and the table the single source of
+truth for the selection.
 
-This migration is ADDITIVE only:
+Upgrade:
 - creates the table
 - backfills one row per existing selected item, read from each dataset's
   configuration blob
+- strips the selection key from each configuration blob
 
-It does NOT strip the selection key from ``configuration`` — reads still come
-from the blob until the ingestion/API cutover lands. A later migration removes
-the key once the table is authoritative.
+Downgrade is lossless: the selection key is reconstructed into each
+configuration blob from the table rows before the table is dropped.
 
 No app code is imported. The dtype -> selection-key mapping and the per-source
 item shapes are inlined so future refactors of the config/source classes don't
@@ -141,8 +142,55 @@ def upgrade() -> None:
     if pending:
         op.bulk_insert(_selection_table, pending)
 
+    # Strip the selection key from each configuration blob — the table is
+    # now the single source of truth for the selection.
+    for ds_id, dtype, config_raw in rows:
+        key = _SELECTION_KEY.get(dtype)
+        if key is None:
+            continue
+        config = _load_config(config_raw)
+        if key not in config:
+            continue
+        config.pop(key)
+        bind.execute(
+            sa.text("UPDATE datasets SET configuration = :cfg WHERE id = :id"),
+            {"cfg": json.dumps(config), "id": ds_id},
+        )
+
 
 def downgrade() -> None:
+    # Reconstruct the selection key in each configuration blob from the
+    # table rows (inverse of the upgrade strip), then drop the table.
+    bind = op.get_bind()
+    selections: dict[str, list[tuple[str, str | None]]] = {}
+    for dataset_id, item_id, description in bind.execute(
+        sa.text(
+            "SELECT dataset_id, item_id, description FROM dataset_selection "
+            "ORDER BY added_at"
+        )
+    ):
+        selections.setdefault(str(dataset_id), []).append((item_id, description))
+
+    for ds_id, dtype, config_raw in bind.execute(
+        sa.text("SELECT id, dtype, configuration FROM datasets")
+    ).fetchall():
+        key = _SELECTION_KEY.get(dtype)
+        picks = selections.get(str(ds_id))
+        if key is None or not picks:
+            continue
+        config = _load_config(config_raw)
+        if dtype == "local_file":
+            config[key] = [
+                {"path": item_id, "description": description or ""}
+                for item_id, description in picks
+            ]
+        else:
+            config[key] = [item_id for item_id, _ in picks]
+        bind.execute(
+            sa.text("UPDATE datasets SET configuration = :cfg WHERE id = :id"),
+            {"cfg": json.dumps(config), "id": ds_id},
+        )
+
     op.drop_index(
         op.f("ix_dataset_selection_dataset_id"), table_name="dataset_selection"
     )
