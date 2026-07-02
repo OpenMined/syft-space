@@ -77,10 +77,6 @@ class Dataset(SQLModel, table=True):
             "cascade": "all, delete",
         },
     )
-    selections: list["DatasetSelection"] = Relationship(
-        back_populates="dataset",
-        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
-    )
 
     class Config:
         """Pydantic config."""
@@ -194,6 +190,3 @@ class DatasetSelection(SQLModel, table=True):
         description="Optional user-provided description (local_file items)",
     )
     added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-    # Relationship
-    dataset: "Dataset" = Relationship(back_populates="selections")

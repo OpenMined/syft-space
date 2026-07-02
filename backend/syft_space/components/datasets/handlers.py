@@ -35,6 +35,9 @@ from syft_space.components.datasets.schemas import (
     SourceBrowseResponse,
     UpdateDatasetRequest,
 )
+from syft_space.components.datasets.selection_repository import (
+    DatasetSelectionRepository,
+)
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.ingest_types import IngestContext
@@ -55,6 +58,7 @@ class DatasetHandler:
         repository: DatasetRepository,
         provisioner_state_repository: ProvisionerStateRepository,
         endpoint_repository: EndpointRepository | None = None,
+        selection_repository: DatasetSelectionRepository | None = None,
     ):
         """Initialize the dataset handler.
 
@@ -63,11 +67,13 @@ class DatasetHandler:
             repository: Dataset repository
             provisioner_state_repository: Provisioner state repository
             endpoint_repository: Endpoint repository (used to guard against deleting datasets in use)
+            selection_repository: Selection repository (writes picks on create)
         """
         self.registry = registry
         self.repository = repository
         self.provisioner_state_repository = provisioner_state_repository
         self.endpoint_repository = endpoint_repository
+        self.selection_repository = selection_repository
 
     # ============== Private Provisioner Lifecycle Methods ==============
 
@@ -508,6 +514,18 @@ class DatasetHandler:
 
         # Save to database and build response
         created_dataset = await self.repository.create(dataset)
+
+        # Write the selection picks to the normalized table — the scanner
+        # reads its ingestion scope from there. The configuration blob still
+        # carries the same selection; the table is the authoritative copy.
+        if self.selection_repository is not None:
+            for item_id, description in dataset_type.extract_selected_items(
+                created_dataset.configuration
+            ):
+                await self.selection_repository.add(
+                    created_dataset.id, item_id, description
+                )
+
         return DatasetResponse.from_dataset(created_dataset, provisioner_state)
 
     async def list_datasets(self, tenant: Tenant) -> list[DatasetListItem]:

@@ -25,6 +25,9 @@ from loguru import logger
 
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import Dataset
+from syft_space.components.datasets.selection_repository import (
+    DatasetSelectionRepository,
+)
 from syft_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
 from syft_space.components.ingestion.factory import DatasetTypeFactory
 from syft_space.components.ingestion.job_processor import JobProcessor
@@ -44,6 +47,7 @@ class IngestionManager(LifecycleService):
         self,
         dataset_repository: "DatasetRepository",
         ingestion_repository: IngestionJobRepository,
+        selection_repository: DatasetSelectionRepository,
         registry: DatasetTypeRegistry,
     ):
         self._dataset_repository = dataset_repository
@@ -51,7 +55,10 @@ class IngestionManager(LifecycleService):
 
         self._factory = DatasetTypeFactory(registry)
         self._scanner = SourceScanner(
-            dataset_repository, ingestion_repository, self._factory
+            dataset_repository,
+            ingestion_repository,
+            selection_repository,
+            self._factory,
         )
         self._job_processor = JobProcessor(
             dataset_repository, ingestion_repository, self._factory

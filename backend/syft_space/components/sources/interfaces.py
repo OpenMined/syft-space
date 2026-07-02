@@ -136,11 +136,20 @@ class BaseSource(Protocol):
         """
         ...
 
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Async iterator of change events for this source.
+    def change_stream(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
+        """Async iterator of leaf change events for the given picks.
 
-        Sources own their own watching/polling strategy. The ingestion
-        manager consumes this stream to keep the dataset in sync.
+        The ingestion manager owns the scope — it reads the dataset's picks
+        from the selection table and passes their ids here as-is. Every pick
+        is a branch the source expands to 1..N leaf ``SourceChangeEvent``s
+        (a folder → one per contained file; a single file / post → exactly
+        one). Branch-vs-leaf classification is the source's private concern
+        (live filesystem check, id shape, …), as is how it keeps emitting
+        after the initial expansion (filesystem events, polling, …). A
+        source with no watch mechanism simply ends the stream after the
+        initial expansion.
         """
         ...
 
@@ -197,6 +206,20 @@ class BaseSourceProvider(Protocol):
 
         Must extend ``browse_schema``: every browse field is also a
         dataset field, plus the ingestion-time additions.
+        """
+        ...
+
+    @classmethod
+    def extract_selected_items(
+        cls, configuration: dict[str, Any]
+    ) -> list[tuple[str, str | None]]:
+        """Return ``(item_id, description)`` picks from a source configuration.
+
+        The create request transports the selection inside the source
+        configuration (``filePaths`` / ``selectedItems``); each provider
+        knows where its own selection lives. The create handler uses this
+        to write ``dataset_selection`` rows without any per-dtype knowledge.
+        Sources with no selection concept return ``[]``.
         """
         ...
 

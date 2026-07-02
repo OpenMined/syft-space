@@ -23,6 +23,7 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
     - update_status(): Update job status with timestamps
     - get_stats_by_dataset(): Get aggregated statistics
     - cancel_pending_by_dataset(): Cancel all pending jobs for a dataset
+    - mark_deleted_by_external_id(): Tombstone a job on a source deleted event
     """
 
     def __init__(self, db: AsyncDatabase):
@@ -248,6 +249,7 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                 "completed": 0,
                 "failed": 0,
                 "cancelled": 0,
+                "deleted": 0,
                 "total": 0,
             }
 
@@ -287,10 +289,17 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
             await session.commit()
             return count
 
-    async def delete_by_external_id(self, dataset_id: UUID, external_id: str) -> bool:
-        """Delete a job by source-unique id (for source ``deleted`` events).
+    async def mark_deleted_by_external_id(
+        self, dataset_id: UUID, external_id: str
+    ) -> bool:
+        """Tombstone a job by source-unique id (for source ``deleted`` events).
 
-        Returns True if a row was deleted, False if no match.
+        Flips the row to DELETED instead of removing it, preserving the
+        ``external_id``<->dataset mapping required to remove the item's
+        vectors. A re-created item resurrects the row via
+        ``upsert_by_external_id``.
+
+        Returns True if a row was tombstoned, False if no match.
         """
         async with self.db.get_session() as session:
             result = await session.exec(
@@ -302,7 +311,11 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
             job = result.first()
 
             if job:
-                await session.delete(job)
+                now = datetime.now(timezone.utc)
+                job.status = IngestionJobStatus.DELETED.value
+                job.updated_at = now
+                job.completed_at = now
+                session.add(job)
                 await session.commit()
                 return True
             return False

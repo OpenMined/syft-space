@@ -188,23 +188,21 @@ class LocalFileSource:
         )
         return await browser.list_items(parent_id, cursor)
 
-    def watched_paths(self) -> list[str]:
-        """Absolute directory/file paths to monitor."""
-        return [item.path for item in self.config.file_paths]
-
     def allowed_extensions(self) -> set[str]:
         """Allowed file extensions (including the leading dot)."""
         return self._allowed_extensions
 
-    async def _enumerate_configured_files(self) -> list[SourceItem]:
-        """Walk every ingestable file under the configured paths.
+    async def _enumerate_paths(self, paths: list[str]) -> list[SourceItem]:
+        """Walk every ingestable file under the given paths (dirs expanded).
 
         Used by ``change_stream`` to seed the ingestion manager with
-        ``created`` events for files already on disk.
+        ``created`` events for files already on disk. A directory pick
+        (branch) is expanded to its files; a file pick (leaf) is emitted
+        directly.
         """
         items: list[SourceItem] = []
-        for fp in self.config.file_paths:
-            root = AsyncPath(fp.path)
+        for raw in paths:
+            root = AsyncPath(raw)
             if await root.is_file():
                 if root.suffix in self._allowed_extensions:
                     items.append(await self._to_source_item(root))
@@ -240,23 +238,28 @@ class LocalFileSource:
             separators=(",", ":"),
         )
 
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Yield filesystem change events for the configured paths.
+    def change_stream(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
+        """Yield filesystem change events for the given picks.
 
-        The watchdog subscription is opened before the initial scan so
-        events that fire during the scan are buffered. The scan then
-        emits ``created`` events for files already on disk, and the
-        watchdog stream takes over after that.
+        The manager supplies the dataset's pick ids read from the selection
+        table; classification is live and local — a directory pick is watched
+        and expanded to its files, a file pick is watched and emitted
+        directly. The watchdog subscription is opened before the initial scan
+        so events that fire during the scan are buffered; the scan emits
+        ``created`` for files already on disk, then the watchdog stream
+        (create/update/delete) takes over.
         """
-        return self._change_stream_impl()
+        return self._change_stream_impl(selected_ids)
 
-    async def _change_stream_impl(self) -> AsyncIterator[SourceChangeEvent]:
+    async def _change_stream_impl(
+        self, paths: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
         watcher = get_local_file_watcher()
-        sub_iter = await watcher.subscribe(
-            self.watched_paths(), self._allowed_extensions
-        )
+        sub_iter = await watcher.subscribe(paths, self._allowed_extensions)
         try:
-            for item in await self._enumerate_configured_files():
+            for item in await self._enumerate_paths(paths):
                 yield SourceChangeEvent(
                     event_type="created",
                     external_id=item.external_id,
@@ -328,6 +331,14 @@ class LocalFileProvider:
         return LocalFileDatasetConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
+
+    @classmethod
+    def extract_selected_items(
+        cls, configuration: dict[str, Any]
+    ) -> list[tuple[str, str | None]]:
+        """Return ``(path, description)`` picks from the source configuration."""
+        config = LocalFileDatasetConfig.model_validate(configuration)
+        return [(item.path, item.description) for item in config.file_paths]
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:

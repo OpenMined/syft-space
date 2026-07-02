@@ -129,6 +129,18 @@ class BaseDatasetType:
         return dict(configuration)
 
     @classmethod
+    def extract_selected_items(
+        cls, configuration: dict[str, Any]
+    ) -> list[tuple[str, str | None]]:
+        """Return the ``(item_id, description)`` selection picks from a flat config.
+
+        Splits the flat user configuration and delegates to the source
+        provider, which knows where its own selection lives.
+        """
+        source_cfg, _ = cls.split_config(configuration)
+        return cls.SOURCE_PROVIDER_CLS.extract_selected_items(source_cfg)
+
+    @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
         """Validate by splitting and delegating to each collaborator.
 

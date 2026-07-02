@@ -16,6 +16,11 @@ class IngestionJobStatus(str, Enum):
     COMPLETED = "completed"  # Successfully ingested
     FAILED = "failed"  # Ingestion failed (can retry)
     CANCELLED = "cancelled"  # Job cancelled (e.g., file deleted, dataset deleted)
+    # Tombstone: the source reported the item deleted. The row is kept so the
+    # external_id <-> dataset mapping survives for removing the item's vectors.
+    # If the item reappears, upsert_by_external_id resets the row to PENDING
+    # and it re-ingests automatically.
+    DELETED = "deleted"
 
 
 class IngestionJob(SQLModel, table=True):

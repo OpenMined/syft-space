@@ -15,6 +15,9 @@ from uuid import UUID
 from loguru import logger
 
 from syft_space.components.datasets.entities import Dataset
+from syft_space.components.datasets.selection_repository import (
+    DatasetSelectionRepository,
+)
 from syft_space.components.ingestion.factory import DatasetTypeFactory
 from syft_space.components.ingestion.repository import IngestionJobRepository
 from syft_space.components.sources.interfaces import BaseSource, SourceChangeEvent
@@ -30,10 +33,12 @@ class SourceScanner:
         self,
         dataset_repository: "DatasetRepository",
         ingestion_repository: IngestionJobRepository,
+        selection_repository: DatasetSelectionRepository,
         factory: DatasetTypeFactory,
     ):
         self._dataset_repository = dataset_repository
         self._ingestion_repository = ingestion_repository
+        self._selection_repository = selection_repository
         self._factory = factory
 
         self._source_tasks: dict[UUID, asyncio.Task] = {}
@@ -81,9 +86,16 @@ class SourceScanner:
                 "source-based ingestion"
             )
 
+        # Read the dataset's scope (the user's picks) from the selection
+        # table. Captured once at stream start; a pick change restarts the
+        # stream. Picks are passed as-is — branch-vs-leaf classification and
+        # expansion are the source's private concern.
+        picks = await self._selection_repository.list_for_dataset(dataset.id)
+        selected_ids = [p.item_id for p in picks]
+
         self._sources[dataset.id] = source
         task = asyncio.create_task(
-            self._run_source(dataset.id, dataset.tenant_id, source),
+            self._run_source(dataset.id, dataset.tenant_id, source, selected_ids),
             name=f"IngestionSource[{dataset.id}]",
         )
         self._source_tasks[dataset.id] = task
@@ -117,10 +129,14 @@ class SourceScanner:
         self._sources.clear()
 
     async def _run_source(
-        self, dataset_id: UUID, tenant_id: UUID, source: BaseSource
+        self,
+        dataset_id: UUID,
+        tenant_id: UUID,
+        source: BaseSource,
+        selected_ids: list[str],
     ) -> None:
         try:
-            async for event in source.change_stream():
+            async for event in source.change_stream(selected_ids):
                 if self._shutdown_event and self._shutdown_event.is_set():
                     break
                 await self._handle_source_event(dataset_id, tenant_id, event)
@@ -135,7 +151,10 @@ class SourceScanner:
         self, dataset_id: UUID, tenant_id: UUID, event: SourceChangeEvent
     ) -> None:
         if event.event_type == "deleted":
-            await self._ingestion_repository.delete_by_external_id(
+            # Tombstone, don't hard-delete — the kept row preserves the
+            # external_id mapping needed to remove the item's vectors
+            # (see IngestionJobStatus.DELETED).
+            await self._ingestion_repository.mark_deleted_by_external_id(
                 dataset_id, event.external_id
             )
             return

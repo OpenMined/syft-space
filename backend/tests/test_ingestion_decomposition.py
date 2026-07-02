@@ -87,6 +87,7 @@ class TestRetryFailedJobs:
         mgr = IngestionManager(
             dataset_repository=Mock(),
             ingestion_repository=_FakeIngestionRepo(3),
+            selection_repository=Mock(),
             registry=_FakeRegistry({}),
         )
         mgr._job_processor.notify = Mock()
@@ -100,6 +101,7 @@ class TestRetryFailedJobs:
         mgr = IngestionManager(
             dataset_repository=Mock(),
             ingestion_repository=_FakeIngestionRepo(0),
+            selection_repository=Mock(),
             registry=_FakeRegistry({}),
         )
         mgr._job_processor.notify = Mock()
@@ -120,6 +122,7 @@ class TestStartupBinding:
         mgr = IngestionManager(
             dataset_repository=dataset_repo,
             ingestion_repository=Mock(),
+            selection_repository=Mock(),
             registry=_FakeRegistry({}),
         )
 

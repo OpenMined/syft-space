@@ -23,7 +23,7 @@ import html
 import logging
 import os
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -353,7 +353,6 @@ class WordPressSource:
     def __init__(self, config: WordPressDatasetConfig) -> None:
         self.config = config
         self._fingerprints: dict[str, str] = {}
-        self._selected_items: set[str] = set(config.selected_items or ())
         self._post_types: dict[str, dict[str, str]] = {}
 
     async def _rest_base(self, client: httpx.AsyncClient, post_type: str) -> str:
@@ -449,16 +448,27 @@ class WordPressSource:
                 "on next change_stream poll"
             ) from e
 
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Re-poll the selected items every ``poll_interval_seconds``."""
-        return self._change_stream_impl()
+    def change_stream(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
+        """Re-poll the selected posts every ``poll_interval_seconds``.
 
-    async def _change_stream_impl(self) -> AsyncIterator[SourceChangeEvent]:
+        The manager supplies the dataset's pick ids from the selection table
+        — ``{post_type}:{id}`` posts, polled directly. Ids are self-
+        describing, so a future container pick (``category:{id}``) would be
+        classified here and expanded to its posts; for now every pick is an
+        individual post.
+        """
+        return self._change_stream_impl(selected_ids)
+
+    async def _change_stream_impl(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
         # One client for the life of the stream; closed when the consuming
         # task is cancelled and the generator unwinds.
         async with _make_client(self.config) as client:
             while True:
-                for post_type, post_ids in self._selected_by_type().items():
+                for post_type, post_ids in self._group_by_type(selected_ids).items():
                     try:
                         async for event in self._poll_post_type(
                             client, post_type, post_ids
@@ -470,14 +480,14 @@ class WordPressSource:
                         )
                 await asyncio.sleep(self.config.poll_interval_seconds)
 
-    def _selected_by_type(self) -> dict[str, list[int]]:
-        """Group the selected external_ids by post type: ``{type: [id, ...]}``.
+    def _group_by_type(self, ids: Iterable[str]) -> dict[str, list[int]]:
+        """Group external_ids by post type: ``{type: [id, ...]}``.
 
         Malformed ids are skipped (and logged) so one bad entry can't
         abort the whole poll.
         """
         grouped: dict[str, list[int]] = {}
-        for external_id in self._selected_items:
+        for external_id in ids:
             try:
                 post_type, post_id = _parse_external_id(external_id)
             except ValueError:
@@ -564,6 +574,14 @@ class WordPressProvider:
         return WordPressDatasetConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
+
+    @classmethod
+    def extract_selected_items(
+        cls, configuration: dict[str, Any]
+    ) -> list[tuple[str, str | None]]:
+        """Return ``({post_type}:{id}, None)`` picks from the source configuration."""
+        config = WordPressDatasetConfig.model_validate(configuration)
+        return [(item_id, None) for item_id in (config.selected_items or [])]
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
