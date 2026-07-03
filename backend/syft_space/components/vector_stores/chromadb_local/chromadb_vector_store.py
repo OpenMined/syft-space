@@ -77,6 +77,11 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.5
 # Embedding model — same as Weaviate (all-MiniLM-L6-v2).
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
+# ChromaDB rejects a single add() larger than its max batch size (~5461).
+# A large file (e.g. a CSV chunked per row) easily exceeds it, so writes are
+# split into batches comfortably under that ceiling.
+_ADD_BATCH_SIZE = 5000
+
 
 class ChromaDBLocalVectorStore:
     """Local ChromaDB vector store.
@@ -257,13 +262,16 @@ class ChromaDBLocalVectorStore:
             for i, chunk in enumerate(chunks)
         ]
 
-        # Write all chunks in one call.
-        await collection.add(
-            ids=chunk_ids,
-            documents=[chunk["text"] for chunk in chunks],
-            embeddings=embeddings,
-            metadatas=metadatas,
-        )
+        # Write in batches under ChromaDB's max add() size (see _ADD_BATCH_SIZE).
+        documents = [chunk["text"] for chunk in chunks]
+        for start in range(0, num_chunks, _ADD_BATCH_SIZE):
+            end = start + _ADD_BATCH_SIZE
+            await collection.add(
+                ids=chunk_ids[start:end],
+                documents=documents[start:end],
+                embeddings=embeddings[start:end],
+                metadatas=metadatas[start:end],
+            )
 
     def _process_query_results(
         self,
