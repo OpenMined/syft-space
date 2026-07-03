@@ -28,6 +28,7 @@ from syft_space.components.endpoints.schemas import (
 )
 from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.model_types.interfaces import (
+    BaseModelType,
     ChatContext,
     ChatMessage,
     ChatParameters,
@@ -179,6 +180,10 @@ class QueryEndpointHandler:
         # Set once the context exists; lets the rejection branches surface
         # entries from policies that already ran before the block.
         policy_context: PolicyContext | None = None
+        # The per-request model instance, closed in ``finally`` so its HTTP
+        # connection pool never leaks (it must outlive the pii_filter
+        # post-hook, which chats through it, so it can't close any earlier).
+        model_instance: BaseModelType | None = None
 
         try:
             endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
@@ -287,11 +292,11 @@ class QueryEndpointHandler:
                 response_type in [ResponseType.SUMMARY, ResponseType.BOTH]
                 and endpoint.model_id
             ):
-                summary, _model_instance, _model_id = await self._chat_with_model(
+                summary, model_instance, _model_id = await self._chat_with_model(
                     endpoint, request, references
                 )
                 if "pii_filter" in configs_by_type:
-                    policy_context.metadata["model_instance"] = _model_instance
+                    policy_context.metadata["model_instance"] = model_instance
                     policy_context.metadata["model_id"] = _model_id
 
             # Create response
@@ -337,6 +342,15 @@ class QueryEndpointHandler:
             outcome = QueryOutcome.INTERNAL_ERROR
             raise
         finally:
+            # Close the per-request model instance's connection pool. Safe on
+            # every path: it either succeeded (and post-hooks are done) or
+            # failed after being handed back; idempotent if already closed.
+            if model_instance is not None:
+                try:
+                    await model_instance.aclose()
+                except Exception:
+                    logger.exception("Failed to close model instance; continuing")
+
             if self.event_reporter:
                 # Extract IDs here so the adapter never touches a possibly-detached ORM instance.
                 try:
@@ -461,6 +475,13 @@ class QueryEndpointHandler:
                 status_code=500, detail=f"Model type '{model.dtype}' not registered"
             ) from None
 
+        # TODO: building (and later closing) a fresh model client on every
+        # request is a workaround for the connection-pool leak, not the real
+        # fix. Prefer a longer-lived, pooled model instance keyed by model
+        # id/config (created once, reused across requests, closed on app
+        # shutdown) so we neither leak nor pay client/pool setup per query.
+        # That also removes the per-request aclose dance in this method and in
+        # query_endpoint's finally.
         model_instance = model_type_cls(model.configuration)
 
         if isinstance(request.messages, str):
@@ -469,6 +490,17 @@ class QueryEndpointHandler:
             messages = [
                 ChatMessage(role=m.role, content=m.content) for m in request.messages
             ]
+
+        # OME-235: a non-empty endpoint system prompt overrides the model's
+        # default — replacing a caller-supplied leading system message, or
+        # inserted at the front when absent. Applied before the RAG-context
+        # message below so that context injection is never clobbered.
+        if endpoint.system_prompt:
+            override = ChatMessage(role="system", content=endpoint.system_prompt)
+            if messages and messages[0].role == "system":
+                messages[0] = override
+            else:
+                messages.insert(0, override)
 
         if references and references.documents:
             context_content = "\\n\\n".join(
@@ -492,10 +524,14 @@ class QueryEndpointHandler:
             frequency_penalty=request.frequency_penalty,
         )
 
+        # On any failure before the instance is handed back to the caller,
+        # close it here — otherwise its HTTP connection pool leaks (the caller
+        # only closes instances it actually receives).
         try:
             chat_result = await model_instance.chat(ctx, messages, chat_params)
         except Exception as e:
             logger.exception(f"Model chat failed: {e}")
+            await model_instance.aclose()
             raise HTTPException(
                 status_code=500, detail=f"Model chat failed: {str(e)}"
             ) from e
@@ -507,6 +543,7 @@ class QueryEndpointHandler:
                 f"model_id={endpoint.model_id}, "
                 f"chat_result_id={chat_result.id}"
             )
+            await model_instance.aclose()
             raise HTTPException(status_code=500, detail="Model returned no messages")
 
         summary = SummaryResponse(

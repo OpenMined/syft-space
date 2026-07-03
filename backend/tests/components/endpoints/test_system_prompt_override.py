@@ -14,7 +14,7 @@ from uuid import uuid4
 import pytest
 
 from syft_space.components.endpoints.entities import Endpoint
-from syft_space.components.endpoints.handlers import EndpointHandler
+from syft_space.components.endpoints.query_handler import QueryEndpointHandler
 from syft_space.components.endpoints.schemas import (
     AuthenticatedQueryRequest,
     ChatMessageRequest,
@@ -39,7 +39,7 @@ def _make_chat_result() -> ChatResult:
     )
 
 
-def _make_handler(model_instance: MagicMock) -> tuple[EndpointHandler, MagicMock]:
+def _make_handler(model_instance: MagicMock) -> tuple[QueryEndpointHandler, MagicMock]:
     """Build a handler whose dependencies are mocks. Returns (handler, model)."""
     tenant_id = uuid4()
     model_id = uuid4()
@@ -58,7 +58,7 @@ def _make_handler(model_instance: MagicMock) -> tuple[EndpointHandler, MagicMock
     model_registry = MagicMock()
     model_registry.get_model_type = MagicMock(return_value=model_type_cls)
 
-    handler = EndpointHandler(
+    handler = QueryEndpointHandler(
         endpoint_repository=MagicMock(),
         dataset_repository=MagicMock(),
         model_repository=model_repository,
