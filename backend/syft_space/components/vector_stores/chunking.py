@@ -32,6 +32,11 @@ IMAGE_ENDPOINT_PREFIX = "/api/v1/datasets"
 # Total timeout = pages × this value.
 _SUBPROCESS_TIMEOUT_PER_PAGE = 180
 
+# Tabular sources docling models as one giant table item. They use the fast
+# heuristic tokenizer (which never wedges); everything else uses the accurate
+# HF tokenizer. See _build_hybrid_chunker.
+_TABULAR_EXTS = {".csv", ".xls", ".xlsx"}
+
 
 def _heuristic_count_tokens(text: str) -> int:
     """Approximate token count (~4 chars/token) — no model, no network.
@@ -112,22 +117,30 @@ def _extract_pictures_and_chunks(
     return chunks
 
 
-def _build_hybrid_chunker():
-    """HybridChunker with a dependency-free tokenizer (no Hugging Face Hub).
+def _build_hybrid_chunker(heuristic: bool):
+    """Build a HybridChunker with either the accurate or the heuristic tokenizer.
 
-    HybridChunker's default tokenizer is the ``all-MiniLM-L6-v2`` tokenizer
-    pulled from the HF Hub — the only thing in the pipeline that touches HF
-    (embeddings run on ChromaDB's local ONNX model). It is also what wedges on
-    huge single-table CSVs: tokenising the multi-megabyte serialisation is
-    pathologically slow. Chunk sizing only needs an *approximate* token count
-    to keep chunks within the embedder's window, so a ~4-chars/token heuristic
-    replaces it: no model, no network, and fast on any input. The ONNX embedder
-    still does the real (truncating) embedding downstream.
+    Two tokenizers, picked by content kind:
 
-    Used by both HybridChunker sites — the in-process chunker and the PDF
-    subprocess worker — so they size chunks identically.
+    - ``heuristic=False`` (prose: PDF/DOCX/HTML/...) — the default
+      ``all-MiniLM-L6-v2`` tokenizer from the HF Hub. Accurate token sizing, so
+      no chunk gets silently truncated at embed time. Wedge-safe here because
+      only a single multi-megabyte *table* item is pathologically slow to
+      tokenise, and prose documents don't contain one.
+
+    - ``heuristic=True`` (tabular: CSV/XLSX) — a dependency-free ~4-chars/token
+      counter. Docling models a whole sheet as one giant table item; tokenising
+      its serialisation with a real tokenizer wedges (600s+), so the heuristic
+      keeps it fast. Tabular text runs well above 4 chars/token, so the count
+      over-estimates and never under-splits into truncated chunks.
+
+    (Embeddings run on ChromaDB's local ONNX model, so they never touch HF.)
     """
     from docling_core.transforms.chunker import HybridChunker
+
+    if not heuristic:
+        return HybridChunker()
+
     from docling_core.transforms.chunker.tokenizer.base import BaseTokenizer
 
     class _HeuristicTokenizer(BaseTokenizer):
@@ -236,7 +249,7 @@ def _worker_convert_pages() -> None:
         failed_pages = [p for p in page_nums if p not in succeeded]
 
     doc = result.document
-    chunker = _build_hybrid_chunker()
+    chunker = _build_hybrid_chunker(heuristic=False)
     try:
         chunks = _extract_pictures_and_chunks(
             doc, chunker, images_dir, doc_id, filename, file_size
@@ -295,7 +308,10 @@ class DocumentChunker:
 
     # Shared across all instances
     _converter = None
-    _chunker = None
+    # Two chunkers: the accurate HF tokenizer for prose, the fast heuristic for
+    # tabular sources (see _build_hybrid_chunker). Lazily built and cached.
+    _chunker_prose = None
+    _chunker_tabular = None
 
     @property
     def converter(self):
@@ -316,20 +332,29 @@ class DocumentChunker:
                     DocumentChunker._converter = DocumentConverter()
         return DocumentChunker._converter
 
-    @property
-    def chunker(self):
-        """Lazily initialize Docling HybridChunker.
+    def _get_chunker(self, tabular: bool):
+        """Lazily build+cache the HybridChunker for this content kind.
 
-        Uses a dependency-free heuristic tokenizer (see
-        ``_build_hybrid_chunker``) so chunking pulls nothing from the HF Hub
-        and never wedges tokenising huge tables. Thread-safe via
-        double-checked locking.
+        ``tabular`` selects the fast heuristic tokenizer (CSV/XLSX); otherwise
+        the accurate HF tokenizer (prose). Thread-safe via double-checked
+        locking.
         """
-        if DocumentChunker._chunker is None:
+        if tabular:
+            if DocumentChunker._chunker_tabular is None:
+                with self._chunker_lock:
+                    if DocumentChunker._chunker_tabular is None:
+                        DocumentChunker._chunker_tabular = _build_hybrid_chunker(
+                            heuristic=True
+                        )
+            return DocumentChunker._chunker_tabular
+
+        if DocumentChunker._chunker_prose is None:
             with self._chunker_lock:
-                if DocumentChunker._chunker is None:
-                    DocumentChunker._chunker = _build_hybrid_chunker()
-        return DocumentChunker._chunker
+                if DocumentChunker._chunker_prose is None:
+                    DocumentChunker._chunker_prose = _build_hybrid_chunker(
+                        heuristic=False
+                    )
+        return DocumentChunker._chunker_prose
 
     @staticmethod
     def get_page_images_dir(collection_name: str, doc_id: str) -> Path:
@@ -353,11 +378,12 @@ class DocumentChunker:
         images_dir: Path,
         doc_id: str,
         file: IngestFile,
+        chunker: Any,
     ) -> list[dict[str, Any]]:
         """Extract pictures and chunks from a single ConversionResult."""
         return _extract_pictures_and_chunks(
             result.document,
-            self.chunker,
+            chunker,
             images_dir,
             doc_id,
             file.filename,
@@ -584,13 +610,16 @@ class DocumentChunker:
 
         images_dir = self.get_page_images_dir(collection_name, doc_id)
 
-        # Non-PDF rich formats (DOCX, HTML, etc.) — single in-process convert
+        # Non-PDF rich formats (DOCX, HTML, etc.) — single in-process convert.
+        # Tabular sources use the fast heuristic tokenizer; prose uses the
+        # accurate HF one (see _build_hybrid_chunker).
         if ext != ".pdf":
             source = DocumentStream(
                 name=file.filename, stream=BytesIO(file.path.read_bytes())
             )
             result = self.converter.convert(source)
-            return self._extract_from_result(result, images_dir, doc_id, file)
+            chunker = self._get_chunker(tabular=ext in _TABULAR_EXTS)
+            return self._extract_from_result(result, images_dir, doc_id, file, chunker)
 
         # PDF path: always use subprocess isolation.  Docling's layout
         # model can trigger C-level std::bad_alloc that kills the process
