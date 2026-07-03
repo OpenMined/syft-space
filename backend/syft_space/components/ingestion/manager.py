@@ -95,6 +95,15 @@ class IngestionManager(LifecycleService):
             sources=self._sources,
         )
 
+        # Recover jobs left IN_PROGRESS by a previous process that died
+        # mid-ingest (reload/crash/OOM). No worker is running yet, so any such
+        # row is stale — re-queue it before the processor starts draining,
+        # otherwise it stays IN_PROGRESS forever (the processor only claims
+        # PENDING jobs).
+        requeued = await self._ingestion_repository.reset_orphaned_in_progress()
+        if requeued:
+            logger.info(f"Re-queued {requeued} orphaned in-progress ingestion jobs")
+
         self._job_processor.start()
         self._startup_init_task = asyncio.create_task(
             self._start_existing_dataset_tasks(),

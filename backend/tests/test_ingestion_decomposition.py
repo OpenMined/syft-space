@@ -121,7 +121,9 @@ class TestStartupBinding:
         dataset_repo.get_all_with_provisioner_state_id = AsyncMock(return_value=[])
         mgr = IngestionManager(
             dataset_repository=dataset_repo,
-            ingestion_repository=Mock(),
+            ingestion_repository=Mock(
+                reset_orphaned_in_progress=AsyncMock(return_value=0)
+            ),
             selection_repository=Mock(),
             registry=_FakeRegistry({}),
         )

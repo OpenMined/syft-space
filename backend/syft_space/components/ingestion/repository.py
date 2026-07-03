@@ -332,6 +332,43 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                 return True
             return False
 
+    async def reset_orphaned_in_progress(self) -> int:
+        """Re-queue every IN_PROGRESS job (startup recovery).
+
+        A job is only IN_PROGRESS while a worker is actively ingesting it. On a
+        fresh process start no worker is running yet, so any IN_PROGRESS row is
+        an orphan left by a previous process that died mid-ingest (reload,
+        crash, OOM) — it would otherwise sit IN_PROGRESS forever, since the
+        processor only ever claims PENDING jobs. Reset them to PENDING so they
+        are picked up again.
+
+        Single-instance assumption: one server process per database. Do not
+        call this while another instance may be processing the same DB, or it
+        would yank that instance's in-flight jobs back to PENDING.
+
+        Returns:
+            Number of jobs re-queued.
+        """
+        async with self.db.get_session() as session:
+            result = await session.exec(
+                select(IngestionJob).where(
+                    IngestionJob.status == IngestionJobStatus.IN_PROGRESS.value,
+                )
+            )
+            jobs = result.all()
+
+            now = datetime.now(timezone.utc)
+            count = 0
+            for job in jobs:
+                job.status = IngestionJobStatus.PENDING.value
+                job.updated_at = now
+                job.started_at = None
+                session.add(job)
+                count += 1
+
+            await session.commit()
+            return count
+
     async def reset_failed_jobs(self, dataset_id: UUID, tenant_id: UUID) -> int:
         """Reset all failed jobs to pending for retry.
 
