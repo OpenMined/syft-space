@@ -33,6 +33,16 @@ IMAGE_ENDPOINT_PREFIX = "/api/v1/datasets"
 _SUBPROCESS_TIMEOUT_PER_PAGE = 180
 
 
+def _heuristic_count_tokens(text: str) -> int:
+    """Approximate token count (~4 chars/token) — no model, no network.
+
+    Good enough to size chunks to the embedder's window; the ONNX embedder
+    does the real, truncating embedding downstream. Defined at module scope so
+    it is a stable, hashable callable (docling's prose splitter memoises on it).
+    """
+    return max(1, len(text) // 4)
+
+
 def _self_command() -> list[str]:
     """Return the command prefix to re-invoke this package's ``__main__``.
 
@@ -102,6 +112,41 @@ def _extract_pictures_and_chunks(
     return chunks
 
 
+def _build_hybrid_chunker():
+    """HybridChunker with a dependency-free tokenizer (no Hugging Face Hub).
+
+    HybridChunker's default tokenizer is the ``all-MiniLM-L6-v2`` tokenizer
+    pulled from the HF Hub — the only thing in the pipeline that touches HF
+    (embeddings run on ChromaDB's local ONNX model). It is also what wedges on
+    huge single-table CSVs: tokenising the multi-megabyte serialisation is
+    pathologically slow. Chunk sizing only needs an *approximate* token count
+    to keep chunks within the embedder's window, so a ~4-chars/token heuristic
+    replaces it: no model, no network, and fast on any input. The ONNX embedder
+    still does the real (truncating) embedding downstream.
+
+    Used by both HybridChunker sites — the in-process chunker and the PDF
+    subprocess worker — so they size chunks identically.
+    """
+    from docling_core.transforms.chunker import HybridChunker
+    from docling_core.transforms.chunker.tokenizer.base import BaseTokenizer
+
+    class _HeuristicTokenizer(BaseTokenizer):
+        max_tokens: int = 256
+
+        def count_tokens(self, text: str) -> int:
+            return _heuristic_count_tokens(text)
+
+        def get_max_tokens(self) -> int:
+            return self.max_tokens
+
+        def get_tokenizer(self):
+            # Docling's prose splitter (semchunk) calls this and uses the
+            # result as a token-counter callable, so return the counter itself.
+            return _heuristic_count_tokens
+
+    return HybridChunker(tokenizer=_HeuristicTokenizer())
+
+
 def _worker_convert_pages() -> None:
     """Entry point for subprocess PDF page conversion.
 
@@ -127,7 +172,6 @@ def _worker_convert_pages() -> None:
     )
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
-    from docling_core.transforms.chunker import HybridChunker
 
     args = sys.argv[2:]
     pdf_path = Path(args[0])
@@ -192,7 +236,7 @@ def _worker_convert_pages() -> None:
         failed_pages = [p for p in page_nums if p not in succeeded]
 
     doc = result.document
-    chunker = HybridChunker()
+    chunker = _build_hybrid_chunker()
     try:
         chunks = _extract_pictures_and_chunks(
             doc, chunker, images_dir, doc_id, filename, file_size
@@ -276,16 +320,15 @@ class DocumentChunker:
     def chunker(self):
         """Lazily initialize Docling HybridChunker.
 
-        Uses the default tokenizer (all-MiniLM-L6-v2) to ensure chunk
-        sizes align with the embedding model's context window.
-        Thread-safe via double-checked locking.
+        Uses a dependency-free heuristic tokenizer (see
+        ``_build_hybrid_chunker``) so chunking pulls nothing from the HF Hub
+        and never wedges tokenising huge tables. Thread-safe via
+        double-checked locking.
         """
-        from docling_core.transforms.chunker import HybridChunker
-
         if DocumentChunker._chunker is None:
             with self._chunker_lock:
                 if DocumentChunker._chunker is None:
-                    DocumentChunker._chunker = HybridChunker()
+                    DocumentChunker._chunker = _build_hybrid_chunker()
         return DocumentChunker._chunker
 
     @staticmethod
