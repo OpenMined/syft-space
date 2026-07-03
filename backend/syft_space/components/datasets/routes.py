@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import FileResponse
 
 from syft_space.components.auth.public import public_route
@@ -18,6 +18,8 @@ from syft_space.components.datasets.schemas import (
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
     RemoveSelectionRequest,
+    SelectionIdsResponse,
+    SelectionPageResponse,
     SelectionResponse,
     SourceBrowseRequest,
     SourceBrowseResponse,
@@ -269,6 +271,50 @@ def build_dataset_routes(
         return await handler.delete_dataset(name, tenant)
 
     # ============== Selection Endpoints ==============
+
+    @router.get("/{name}/selection", response_model=SelectionPageResponse)
+    async def get_selection(
+        name: str,
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SelectionPageResponse:
+        """A page of a dataset's selection picks.
+
+        The selection is no longer inlined in the dataset/endpoint payload;
+        detail views fetch and page through it here.
+
+        Args:
+            name: Dataset name
+            limit: Max picks to return (1-200)
+            offset: Picks to skip
+            tenant: Current tenant (injected)
+
+        Returns:
+            The requested page plus the total pick count
+        """
+        return await handler.get_selection_page(name, tenant, limit, offset)
+
+    @router.get("/{name}/selection/ids", response_model=SelectionIdsResponse)
+    async def get_selection_ids(
+        name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SelectionIdsResponse:
+        """Every selected item id for a dataset (unpaged).
+
+        For the "add source" picker, which pre-checks already-selected items
+        and so needs the complete id set rather than a page.
+
+        Args:
+            name: Dataset name
+            tenant: Current tenant (injected)
+
+        Returns:
+            All selected item ids
+        """
+        return await handler.get_selection_ids(name, tenant)
 
     @router.post("/{name}/selection", response_model=SelectionResponse)
     async def add_selection(

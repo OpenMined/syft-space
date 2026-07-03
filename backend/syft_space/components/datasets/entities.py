@@ -77,9 +77,9 @@ class Dataset(SQLModel, table=True):
             "cascade": "all, delete",
         },
     )
-    # Selection picks, exposed as ``selected_items`` on embedded API
-    # responses (DatasetListItem / AttachedDataset). Must be eagerly
-    # loaded (selectinload) wherever those responses are built.
+    # Selection picks. The full list is fetched on demand via the selection
+    # API; list/embedded responses expose only a count/preview. Must be
+    # eagerly loaded (selectinload) wherever those responses are built.
     selections: list["DatasetSelection"] = Relationship(
         back_populates="dataset",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},

@@ -15,7 +15,6 @@ from syft_space.components.dataset_types.interfaces import (
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.entities import (
     Dataset,
-    DatasetSelection,
     InvalidProvisionerTransitionError,
     ProvisionerBusyError,
     ProvisionerState,
@@ -36,6 +35,8 @@ from syft_space.components.datasets.schemas import (
     ProvisionerInfoResponse,
     RemoveSelectionRequest,
     SelectedItemResponse,
+    SelectionIdsResponse,
+    SelectionPageResponse,
     SelectionResponse,
     SourceBrowseResponse,
     UpdateDatasetRequest,
@@ -620,18 +621,15 @@ class DatasetHandler:
 
     # ============== Selection ==============
 
-    async def _list_selections(self, dataset_id: UUID) -> list[DatasetSelection]:
-        """The dataset's selection rows ([] when no repository is wired)."""
-        if self.selection_repository is None:
-            return []
-        return await self.selection_repository.list_for_dataset(dataset_id)
-
     async def _build_response(
         self, dataset: Dataset, provisioner_state: ProvisionerState | None
     ) -> DatasetResponse:
-        """Build a ``DatasetResponse`` with ``selected_items`` from the rows."""
-        selections = await self._list_selections(dataset.id)
-        return DatasetResponse.from_dataset(dataset, provisioner_state, selections)
+        """Build a ``DatasetResponse``.
+
+        The selection is no longer embedded — clients page it via
+        ``get_selection_page``.
+        """
+        return DatasetResponse.from_dataset(dataset, provisioner_state)
 
     def _require_selection_repository(self) -> DatasetSelectionRepository:
         if self.selection_repository is None:
@@ -691,6 +689,41 @@ class DatasetHandler:
             selected_items=[SelectedItemResponse.model_validate(r) for r in rows]
         )
         return response, removed
+
+    async def get_selection_page(
+        self, name: str, tenant: Tenant, limit: int, offset: int
+    ) -> SelectionPageResponse:
+        """A page of a dataset's selection (items + total count).
+
+        Backs the detail views, which fetch the selection on demand rather
+        than receiving it inline in the dataset/endpoint payload.
+        """
+        selection_repository = self._require_selection_repository()
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        rows = await selection_repository.list_page(dataset.id, limit, offset)
+        total = await selection_repository.count_for_dataset(dataset.id)
+        return SelectionPageResponse(
+            items=[SelectedItemResponse.model_validate(r) for r in rows],
+            total=total,
+        )
+
+    async def get_selection_ids(
+        self, name: str, tenant: Tenant
+    ) -> SelectionIdsResponse:
+        """Every selected item id for a dataset (unpaged).
+
+        For the picker's pre-selection, which needs the complete id set.
+        """
+        selection_repository = self._require_selection_repository()
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        item_ids = await selection_repository.list_ids_for_dataset(dataset.id)
+        return SelectionIdsResponse(item_ids=item_ids)
 
     async def delete_dataset(self, name: str, tenant: Tenant) -> dict:
         """Delete a dataset by name within a tenant.

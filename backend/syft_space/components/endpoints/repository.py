@@ -7,7 +7,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from sqlmodel import or_, select
 
-from syft_space.components.datasets.entities import Dataset
 from syft_space.components.endpoints.entities import Endpoint
 from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
@@ -38,7 +37,7 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 .where(Endpoint.tenant_id == tenant_id)
                 .options(
                     selectinload(Endpoint.model),
-                    selectinload(Endpoint.dataset).selectinload(Dataset.selections),
+                    selectinload(Endpoint.dataset),
                 )
             )
             result = await session.exec(statement)
@@ -77,7 +76,7 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 .where(Endpoint.slug == slug, Endpoint.tenant_id == tenant_id)
                 .options(
                     selectinload(Endpoint.model),
-                    selectinload(Endpoint.dataset).selectinload(Dataset.selections),
+                    selectinload(Endpoint.dataset),
                     selectinload(Endpoint.policies),
                 )
             )
@@ -137,7 +136,7 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 .where(Endpoint.slug == slug, Endpoint.tenant_id == tenant_id)
                 .options(
                     selectinload(Endpoint.model),
-                    selectinload(Endpoint.dataset).selectinload(Dataset.selections),
+                    selectinload(Endpoint.dataset),
                     selectinload(Endpoint.policies),
                 )
             )
@@ -332,7 +331,7 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                 )
                 .options(
                     selectinload(Endpoint.model),
-                    selectinload(Endpoint.dataset).selectinload(Dataset.selections),
+                    selectinload(Endpoint.dataset),
                     selectinload(Endpoint.policies),
                 )
             )

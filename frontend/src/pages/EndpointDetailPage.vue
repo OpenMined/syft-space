@@ -306,66 +306,81 @@
               Watched Paths
             </h2>
             <div class="space-y-3">
-              <div
-                v-for="path in getWatchedPaths"
-                :key="path.id"
-                class="p-3 bg-muted/50 border border-border rounded-lg"
-              >
-                <div class="flex items-start justify-between gap-4">
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-baseline flex-wrap gap-x-2">
-                      <code class="body-sm font-medium text-foreground font-mono break-all">
-                        {{ path.path }}
-                      </code>
-                      <span class="body-sm text-muted-foreground">{{ path.fileCount }} files</span>
-                    </div>
-                    <p v-if="path.description" class="body-sm text-muted-foreground mt-1">
-                      {{ path.description }}
-                    </p>
-                  </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <span
-                          class="inline-flex items-center gap-1.5 text-xs font-medium shrink-0 cursor-help"
+              <div class="max-h-96 space-y-3 overflow-y-auto pr-1" @scroll="onWatchedPathsScroll">
+                <div
+                  v-for="path in getWatchedPaths"
+                  :key="path.id"
+                  class="p-3 bg-muted/50 border border-border rounded-lg"
+                >
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-baseline flex-wrap gap-x-2">
+                        <code class="body-sm font-medium text-foreground font-mono break-all">
+                          {{ path.path }}
+                        </code>
+                        <span class="body-sm text-muted-foreground"
+                          >{{ path.fileCount }} files</span
                         >
+                      </div>
+                      <p v-if="path.description" class="body-sm text-muted-foreground mt-1">
+                        {{ path.description }}
+                      </p>
+                    </div>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger as-child>
                           <span
-                            :class="[
-                              'inline-block w-2 h-2 rounded-full',
-                              path.status === 'indexed'
-                                ? 'bg-success'
-                                : path.status === 'processing'
-                                  ? 'bg-primary'
-                                  : path.status === 'queued'
-                                    ? 'bg-warning'
-                                    : path.status === 'errored'
-                                      ? 'bg-destructive'
-                                      : 'bg-muted-foreground/50',
-                            ]"
-                          ></span>
-                          <span
-                            :class="
-                              path.status === 'indexed'
-                                ? 'text-success'
-                                : path.status === 'processing'
-                                  ? 'text-primary'
-                                  : path.status === 'queued'
-                                    ? 'text-warning'
-                                    : path.status === 'errored'
-                                      ? 'text-destructive'
-                                      : 'text-muted-foreground'
-                            "
+                            class="inline-flex items-center gap-1.5 text-xs font-medium shrink-0 cursor-help"
                           >
-                            {{ getStatusShortLabel(path.status) }}
+                            <span
+                              :class="[
+                                'inline-block w-2 h-2 rounded-full',
+                                path.status === 'indexed'
+                                  ? 'bg-success'
+                                  : path.status === 'processing'
+                                    ? 'bg-primary'
+                                    : path.status === 'queued'
+                                      ? 'bg-warning'
+                                      : path.status === 'errored'
+                                        ? 'bg-destructive'
+                                        : 'bg-muted-foreground/50',
+                              ]"
+                            ></span>
+                            <span
+                              :class="
+                                path.status === 'indexed'
+                                  ? 'text-success'
+                                  : path.status === 'processing'
+                                    ? 'text-primary'
+                                    : path.status === 'queued'
+                                      ? 'text-warning'
+                                      : path.status === 'errored'
+                                        ? 'text-destructive'
+                                        : 'text-muted-foreground'
+                              "
+                            >
+                              {{ getStatusShortLabel(path.status) }}
+                            </span>
                           </span>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{{ getStatusLabel(path.status) }}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{{ getStatusLabel(path.status) }}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                 </div>
+              </div>
+
+              <div
+                v-if="hasMoreWatchedPaths"
+                class="pt-1 text-center text-xs text-muted-foreground"
+              >
+                {{
+                  datasetSelectionLoading
+                    ? 'Loading…'
+                    : `Showing ${datasetSelectionItems.length} of ${datasetSelectionTotal}`
+                }}
               </div>
             </div>
           </section>
@@ -985,6 +1000,7 @@ import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
+import { datasetsApi } from '@/api/endpoints/datasets'
 import { policiesApi } from '@/api/policies/policies'
 import { walletsApi } from '@/api/endpoints/wallets'
 import { paymentsApi } from '@/api/endpoints/payments'
@@ -1000,7 +1016,11 @@ import { useUserStore } from '@/stores/user'
 import { usePolicyCreation } from '@/composables/usePolicyCreation'
 import type { PolicyFormData } from '@/composables/usePolicyCreation'
 import type { EndpointResponse } from '@/api/types'
-import type { IngestionStatusResponse, IngestionJobListResponse } from '@/api/types'
+import type {
+  IngestionStatusResponse,
+  IngestionJobListResponse,
+  SelectedItemResponse,
+} from '@/api/types'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
@@ -1033,6 +1053,13 @@ const selectedPolicyType = ref<PolicyTypeId>('access')
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
 const slugCopied = ref(false)
+
+// The attached dataset's selection is no longer inlined in the endpoint
+// payload — fetch and page it here, keyed by the dataset name.
+const SELECTION_PAGE_SIZE = 10
+const datasetSelectionItems = ref<SelectedItemResponse[]>([])
+const datasetSelectionTotal = ref(0)
+const datasetSelectionLoading = ref(false)
 
 const { createPolicy, isCreating: policyCreating } = usePolicyCreation()
 
@@ -1103,7 +1130,7 @@ const allTags = computed(() => {
 
 const watchedPathStats = computed(() => {
   const stats = new Map<string, { fileCount: number; counts: Record<string, number> }>()
-  for (const { item_id } of endpoint.value?.dataset?.selected_items || []) {
+  for (const { item_id } of datasetSelectionItems.value) {
     stats.set(item_id, { fileCount: 0, counts: {} })
   }
   for (const job of ingestionJobs.value?.jobs ?? []) {
@@ -1128,7 +1155,7 @@ const statusFromCounts = (counts: Record<string, number>): string => {
 const getWatchedPaths = computed(() => {
   if (!endpoint.value?.dataset) return []
 
-  return (endpoint.value.dataset.selected_items || []).map((item) => {
+  return datasetSelectionItems.value.map((item) => {
     const entry = watchedPathStats.value.get(item.item_id)
     return {
       id: item.item_id,
@@ -1139,6 +1166,37 @@ const getWatchedPaths = computed(() => {
     }
   })
 })
+
+const hasMoreWatchedPaths = computed(
+  () => datasetSelectionItems.value.length < datasetSelectionTotal.value,
+)
+
+// Fetch the attached dataset's selection page-by-page.
+const loadDatasetSelection = async (datasetName: string, reset = false) => {
+  const offset = reset ? 0 : datasetSelectionItems.value.length
+  datasetSelectionLoading.value = true
+  try {
+    const page = await datasetsApi.getSelection(datasetName, SELECTION_PAGE_SIZE, offset)
+    datasetSelectionItems.value = reset
+      ? page.items
+      : [...datasetSelectionItems.value, ...page.items]
+    datasetSelectionTotal.value = page.total
+  } catch (err) {
+    console.error('Failed to load dataset selection:', err)
+  } finally {
+    datasetSelectionLoading.value = false
+  }
+}
+
+// Auto-load the next page when the list is scrolled near the bottom.
+const onWatchedPathsScroll = (e: Event) => {
+  const el = e.target as HTMLElement
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  const name = endpoint.value?.dataset?.name
+  if (name && nearBottom && hasMoreWatchedPaths.value && !datasetSelectionLoading.value) {
+    loadDatasetSelection(name, false)
+  }
+}
 
 // Fetch all ingestion jobs across all pages
 const fetchAllIngestionJobs = async (datasetId: string) => {
@@ -1621,6 +1679,7 @@ onMounted(async () => {
         const [ingestionResponse, allJobs] = await Promise.all([
           ingestionApi.getStatus(response.dataset.id),
           fetchAllIngestionJobs(response.dataset.id),
+          loadDatasetSelection(response.dataset.name, true),
         ])
         ingestionStatus.value = ingestionResponse
         ingestionJobs.value = {

@@ -55,6 +55,17 @@ export interface SelectionResponse {
   selected_items: SelectedItemResponse[]
 }
 
+// A page of a dataset's selection picks (GET /datasets/{name}/selection).
+export interface SelectionPageResponse {
+  items: SelectedItemResponse[]
+  total: number
+}
+
+// Every selected item id for a dataset (GET /datasets/{name}/selection/ids).
+export interface SelectionIdsResponse {
+  item_ids: string[]
+}
+
 export interface ProvisionerStateResponse {
   status: string
   state?: Record<string, unknown>
@@ -74,9 +85,6 @@ export interface DatasetResponse {
   created_at: string
   updated_at: string
   connected_endpoints: EndpointListItem[]
-  // The dataset's selection picks (file paths for local files,
-  // '{post_type}:{id}' for WordPress), from the dataset_selection table.
-  selected_items?: SelectedItemResponse[]
 }
 
 export interface HealthcheckResponse {
@@ -107,7 +115,7 @@ export interface EndpointListItem {
     summary: string
     dtype: string
     configuration: Record<string, unknown>
-    selected_items?: Array<{ item_id: string; description: string | null }>
+    selected_items_count?: number
   }
 }
 
@@ -126,7 +134,11 @@ export interface DatasetListItem {
   configuration: Record<string, unknown>
   connected_endpoints: EndpointListItem[]
   provisioner_status?: ProvisionerStatusResponse
-  selected_items?: SelectedItemResponse[]
+  // The list view ships a count + short preview instead of the full array,
+  // so a dataset with many picks does not bloat the list payload. Fetch the
+  // full, paged selection via datasetsApi.getSelection.
+  selected_items_count?: number
+  selected_items_preview?: SelectedItemResponse[]
 }
 
 export interface BrowseSchemaProperty {
@@ -329,7 +341,7 @@ export interface EndpointResponse {
     summary: string
     dtype: string
     configuration: Record<string, unknown>
-    selected_items?: Array<{ item_id: string; description: string | null }>
+    selected_items_count?: number
   }
   policies?: AttachedPolicy[]
 }

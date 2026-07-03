@@ -148,7 +148,7 @@
                 </p>
 
                 <div
-                  v-if="dataSource.watchedPaths && dataSource.watchedPaths.length > 0"
+                  v-if="dataSource.watchedPathsCount && dataSource.watchedPathsCount > 0"
                   class="mb-3 space-y-1.5"
                 >
                   <div
@@ -163,6 +163,12 @@
                     class="rounded-md border border-border/50 bg-muted/40 px-3 py-2 font-mono text-xs text-foreground/80 truncate"
                   >
                     {{ path }}
+                  </div>
+                  <div
+                    v-if="dataSource.watchedPathsCount > dataSource.watchedPaths.length"
+                    class="px-1 text-[11px] text-muted-foreground"
+                  >
+                    +{{ dataSource.watchedPathsCount - dataSource.watchedPaths.length }} more
                   </div>
                 </div>
 
@@ -255,6 +261,7 @@ interface DataSource {
   status: 'running' | 'stopped'
   endpointCount: number
   watchedPaths?: string[]
+  watchedPathsCount?: number
   isCustom?: boolean
   configuration?: Record<string, unknown>
   connected_endpoints: Array<{ id: string; name: string; slug: string }>

@@ -1,7 +1,7 @@
 """Dataset API schemas for request/response models."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -14,7 +14,6 @@ from syft_space.components.sources.interfaces import SourceItem
 if TYPE_CHECKING:
     from syft_space.components.datasets.entities import (
         Dataset,
-        DatasetSelection,
         ProvisionerState,
     )
 
@@ -200,6 +199,30 @@ class SelectionResponse(BaseModel):
     )
 
 
+class SelectionPageResponse(BaseModel):
+    """A page of a dataset's selection picks.
+
+    The full selection is no longer embedded in the dataset/endpoint payloads;
+    clients fetch it here on demand and page through it, so a dataset watching
+    hundreds of hand-picked leaves does not bloat every list/detail response.
+    """
+
+    items: list[SelectedItemResponse] = Field(
+        ..., description="Selection picks for the requested page"
+    )
+    total: int = Field(..., description="Total number of selection picks")
+
+
+class SelectionIdsResponse(BaseModel):
+    """Every selected item id for a dataset (unpaged).
+
+    For the "add source" picker, which pre-checks already-selected items and so
+    needs the complete id set, not a page. Ids only — cheap to ship in full.
+    """
+
+    item_ids: list[str] = Field(..., description="All selected item ids")
+
+
 class DatasetResponse(BaseModel):
     """Response model for dataset details."""
 
@@ -209,10 +232,6 @@ class DatasetResponse(BaseModel):
     configuration: dict[str, Any] = Field(..., description="Configuration")
     summary: str = Field(..., description="Dataset summary")
     tags: str = Field(..., description="Comma-separated tags")
-    selected_items: list[SelectedItemResponse] = Field(
-        default_factory=list,
-        description="Selection picks (from the dataset_selection table)",
-    )
     provisioner_state: ProvisionerStateResponse | None = Field(
         None, description="Provisioner state"
     )
@@ -232,14 +251,15 @@ class DatasetResponse(BaseModel):
         cls,
         dataset: "Dataset",
         provisioner_state: Optional["ProvisionerState"] = None,
-        selections: list["DatasetSelection"] | None = None,
     ) -> "DatasetResponse":
         """Create DatasetResponse from Dataset entity.
+
+        The selection is no longer embedded here — clients fetch it via
+        ``GET /datasets/{name}/selection`` (paged). See ``SelectionPageResponse``.
 
         Args:
             dataset: Dataset entity
             provisioner_state: Optional ProvisionerState entity
-            selections: Optional selection rows to expose as ``selected_items``
 
         Returns:
             DatasetResponse with provisioner_state populated if provided
@@ -257,9 +277,6 @@ class DatasetResponse(BaseModel):
             configuration=redact_config(dataset.configuration, dataset.dtype),
             summary=dataset.summary,
             tags=dataset.tags,
-            selected_items=[
-                SelectedItemResponse.model_validate(s) for s in (selections or [])
-            ],
             provisioner_state=provisioner_state_response,
             created_at=dataset.created_at,
             updated_at=dataset.updated_at,
@@ -283,10 +300,19 @@ class DatasetListItem(BaseModel):
         None, description="Provisioner status"
     )
     configuration: dict[str, Any] = Field(..., description="Dataset configuration")
-    selected_items: list[SelectedItemResponse] = Field(
-        default_factory=list,
-        description="Selection picks (from the dataset_selection table)",
+    # The list view shows a count + a short preview instead of the full array,
+    # so a dataset with many picks never bloats the list payload. The full,
+    # paged list lives at ``GET /datasets/{name}/selection``.
+    selected_items_count: int = Field(
+        default=0, description="Total number of selection picks"
     )
+    selected_items_preview: list[SelectedItemResponse] = Field(
+        default_factory=list,
+        description="First few selection picks, for an at-a-glance preview",
+    )
+
+    # How many picks the list preview shows before collapsing to "+N more".
+    PREVIEW_LIMIT: ClassVar[int] = 3
 
     @classmethod
     def from_dataset(
@@ -301,6 +327,8 @@ class DatasetListItem(BaseModel):
                 provisioner_state
             )
 
+        # Requires ``selections`` to be eagerly loaded (repository.get_all).
+        selections = dataset.selections
         return cls(
             id=dataset.id,
             name=dataset.name,
@@ -311,9 +339,10 @@ class DatasetListItem(BaseModel):
             connected_endpoints=dataset.endpoints,
             provisioner_status=provisioner_status_response,
             configuration=redact_config(dataset.configuration, dataset.dtype),
-            # Requires ``selections`` to be eagerly loaded (repository.get_all).
-            selected_items=[
-                SelectedItemResponse.model_validate(s) for s in dataset.selections
+            selected_items_count=len(selections),
+            selected_items_preview=[
+                SelectedItemResponse.model_validate(s)
+                for s in selections[: cls.PREVIEW_LIMIT]
             ],
         )
 

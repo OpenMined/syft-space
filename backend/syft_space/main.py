@@ -606,6 +606,7 @@ endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
     model_repository=model_repository,
+    selection_repository=dataset_selection_repository,
     deletion_check=check_endpoint_deletable,
 )
 query_endpoint_handler = QueryEndpointHandler(

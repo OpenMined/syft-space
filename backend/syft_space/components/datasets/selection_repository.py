@@ -5,12 +5,15 @@ replacing the list that previously sat inside the dataset ``configuration``
 blob. Modelling it as rows makes concurrent add/remove atomic and dedup a
 ``UNIQUE(dataset_id, item_id)`` constraint rather than app-level logic.
 
-Phase 1: this repository is additive and not yet wired into ingestion or the
-API — it exists so the table has a typed access layer and test coverage.
+This is the single owner of ``dataset_selection`` queries: ingestion reads
+the scope from here, the selection API pages/lists rows through it, and the
+endpoint list composes selection counts via ``count_by_datasets`` — so no
+other repository joins into this table.
 """
 
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
@@ -99,6 +102,92 @@ class DatasetSelectionRepository(AsyncBaseRepository[DatasetSelection]):
         async with self.db.get_session() as session:
             statement = (
                 select(DatasetSelection)
+                .where(DatasetSelection.dataset_id == dataset_id)
+                .order_by(DatasetSelection.added_at)
+            )
+            result = await session.exec(statement)
+            return list(result.all())
+
+    async def list_page(
+        self, dataset_id: UUID, limit: int, offset: int
+    ) -> list[DatasetSelection]:
+        """A page of a dataset's selections, oldest first.
+
+        Args:
+            dataset_id: Owning dataset
+            limit: Maximum rows to return
+            offset: Rows to skip
+
+        Returns:
+            Selection rows ordered by ``added_at``, sliced to the page.
+        """
+        async with self.db.get_session() as session:
+            statement = (
+                select(DatasetSelection)
+                .where(DatasetSelection.dataset_id == dataset_id)
+                .order_by(DatasetSelection.added_at)
+                .offset(offset)
+                .limit(limit)
+            )
+            result = await session.exec(statement)
+            return list(result.all())
+
+    async def count_for_dataset(self, dataset_id: UUID) -> int:
+        """Count a dataset's selections.
+
+        Args:
+            dataset_id: Owning dataset
+
+        Returns:
+            Total number of selection rows.
+        """
+        async with self.db.get_session() as session:
+            statement = select(func.count()).where(
+                DatasetSelection.dataset_id == dataset_id
+            )
+            result = await session.exec(statement)
+            return int(result.one())
+
+    async def count_by_datasets(self, dataset_ids: list[UUID]) -> dict[UUID, int]:
+        """Count selections for several datasets in one grouped query.
+
+        Lets callers (e.g. the endpoint list) show a selection count without
+        loading any selection rows — the count is computed in the database.
+        Datasets with no selections are absent from the result; callers should
+        default those to zero.
+
+        Args:
+            dataset_ids: Datasets to count
+
+        Returns:
+            ``{dataset_id: count}`` for datasets that have at least one row.
+        """
+        if not dataset_ids:
+            return {}
+        async with self.db.get_session() as session:
+            statement = (
+                select(DatasetSelection.dataset_id, func.count())
+                .where(DatasetSelection.dataset_id.in_(dataset_ids))
+                .group_by(DatasetSelection.dataset_id)
+            )
+            result = await session.exec(statement)
+            return {row[0]: int(row[1]) for row in result.all()}
+
+    async def list_ids_for_dataset(self, dataset_id: UUID) -> list[str]:
+        """List a dataset's selected item ids, oldest first.
+
+        Ids only (no descriptions/timestamps) — cheap to return in full for
+        the picker's pre-selection, which needs the complete set, not a page.
+
+        Args:
+            dataset_id: Owning dataset
+
+        Returns:
+            ``item_id`` values ordered by ``added_at``.
+        """
+        async with self.db.get_session() as session:
+            statement = (
+                select(DatasetSelection.item_id)
                 .where(DatasetSelection.dataset_id == dataset_id)
                 .order_by(DatasetSelection.added_at)
             )

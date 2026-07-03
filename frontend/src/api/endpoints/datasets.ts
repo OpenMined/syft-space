@@ -6,6 +6,8 @@ import type {
   SourceBrowseRequest,
   SelectionItemRequest,
   SelectionResponse,
+  SelectionPageResponse,
+  SelectionIdsResponse,
   SourceBrowseResponse,
   UpdateDatasetRequest,
   HealthcheckResponse,
@@ -65,6 +67,21 @@ export const datasetsApi = {
 
   update: async (name: string, dataset: UpdateDatasetRequest): Promise<DatasetResponse> => {
     const response = await apiClient.patch<DatasetResponse>(`/datasets/${name}`, dataset)
+    return response.data
+  },
+
+  // A page of a dataset's selection picks. The selection is no longer inlined
+  // in the dataset/endpoint payload — detail views fetch and page it here.
+  getSelection: async (name: string, limit = 50, offset = 0): Promise<SelectionPageResponse> => {
+    const response = await apiClient.get<SelectionPageResponse>(`/datasets/${name}/selection`, {
+      params: { limit, offset },
+    })
+    return response.data
+  },
+
+  // Every selected item id for a dataset (unpaged) — for picker pre-selection.
+  getSelectionIds: async (name: string): Promise<SelectionIdsResponse> => {
+    const response = await apiClient.get<SelectionIdsResponse>(`/datasets/${name}/selection/ids`)
     return response.data
   },
 

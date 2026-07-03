@@ -51,6 +51,49 @@ class TestDatasetSelectionRepository:
         }
         assert {r.item_id for r in await repo.list_for_dataset(ds2)} == {"post:3"}
 
+    async def test_page_and_count_are_ordered_and_scoped(self, main_db: AsyncDatabase):
+        repo = DatasetSelectionRepository(main_db)
+        ds, other = uuid4(), uuid4()
+        for i in range(5):
+            await repo.add(ds, f"post:{i}")
+        await repo.add(other, "post:99")
+
+        # Count is scoped to the dataset.
+        assert await repo.count_for_dataset(ds) == 5
+        assert await repo.count_for_dataset(other) == 1
+
+        # Pages are added_at-ordered slices; concatenating them reproduces the
+        # full ordered list with no overlap or gap.
+        page1 = await repo.list_page(ds, limit=2, offset=0)
+        page2 = await repo.list_page(ds, limit=2, offset=2)
+        page3 = await repo.list_page(ds, limit=2, offset=4)
+        assert [r.item_id for r in page1] == ["post:0", "post:1"]
+        assert [r.item_id for r in page2] == ["post:2", "post:3"]
+        assert [r.item_id for r in page3] == ["post:4"]
+
+    async def test_count_by_datasets_groups_and_omits_empty(
+        self, main_db: AsyncDatabase
+    ):
+        repo = DatasetSelectionRepository(main_db)
+        ds1, ds2, empty = uuid4(), uuid4(), uuid4()
+        await repo.add(ds1, "a")
+        await repo.add(ds1, "b")
+        await repo.add(ds2, "c")
+
+        counts = await repo.count_by_datasets([ds1, ds2, empty])
+        assert counts == {ds1: 2, ds2: 1}  # datasets with no rows are absent
+        assert await repo.count_by_datasets([]) == {}
+
+    async def test_list_ids_is_ordered_and_scoped(self, main_db: AsyncDatabase):
+        repo = DatasetSelectionRepository(main_db)
+        ds, other = uuid4(), uuid4()
+        await repo.add(ds, "a")
+        await repo.add(ds, "b")
+        await repo.add(other, "z")
+
+        assert await repo.list_ids_for_dataset(ds) == ["a", "b"]
+        assert await repo.list_ids_for_dataset(other) == ["z"]
+
     async def test_same_item_id_allowed_across_datasets(self, main_db: AsyncDatabase):
         repo = DatasetSelectionRepository(main_db)
         ds1, ds2 = uuid4(), uuid4()
