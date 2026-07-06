@@ -52,15 +52,16 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
 
         Returns:
             List of datasets with endpoints eagerly loaded
+
+        Selections are intentionally NOT eager-loaded: the list view needs only
+        a count and a short preview, which the handler composes from bounded
+        selection queries rather than pulling every pick.
         """
         async with self.db.get_session() as session:
             statement = (
                 select(Dataset)
                 .where(Dataset.tenant_id == tenant_id)
-                .options(
-                    selectinload(Dataset.endpoints),
-                    selectinload(Dataset.selections),
-                )
+                .options(selectinload(Dataset.endpoints))
             )
             result = await session.exec(statement)
             return list(result.all())

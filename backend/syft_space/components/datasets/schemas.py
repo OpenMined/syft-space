@@ -14,6 +14,7 @@ from syft_space.components.sources.interfaces import SourceItem
 if TYPE_CHECKING:
     from syft_space.components.datasets.entities import (
         Dataset,
+        DatasetSelection,
         ProvisionerState,
     )
 
@@ -319,16 +320,21 @@ class DatasetListItem(BaseModel):
         cls,
         dataset: "Dataset",
         provisioner_state: Optional["ProvisionerState"] = None,
+        selected_items_count: int = 0,
+        selected_items_preview: list["DatasetSelection"] | None = None,
     ) -> "DatasetListItem":
-        """Create DatasetListItem from Dataset entity."""
+        """Create DatasetListItem from Dataset entity.
+
+        The selection count and preview are supplied by the caller (computed
+        in the DB — a bulk count plus a small per-dataset page), so the full
+        selection is never loaded just to show a badge and a few chips.
+        """
         provisioner_status_response = None
         if provisioner_state:
             provisioner_status_response = ProvisionerStatusResponse.model_validate(
                 provisioner_state
             )
 
-        # Requires ``selections`` to be eagerly loaded (repository.get_all).
-        selections = dataset.selections
         return cls(
             id=dataset.id,
             name=dataset.name,
@@ -339,10 +345,10 @@ class DatasetListItem(BaseModel):
             connected_endpoints=dataset.endpoints,
             provisioner_status=provisioner_status_response,
             configuration=redact_config(dataset.configuration, dataset.dtype),
-            selected_items_count=len(selections),
+            selected_items_count=selected_items_count,
             selected_items_preview=[
                 SelectedItemResponse.model_validate(s)
-                for s in selections[: cls.PREVIEW_LIMIT]
+                for s in (selected_items_preview or [])
             ],
         )
 

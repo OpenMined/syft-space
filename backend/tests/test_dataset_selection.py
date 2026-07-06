@@ -37,6 +37,36 @@ class TestDatasetSelectionRepository:
         # The duplicate did not overwrite the original description.
         assert rows[0].description == "first"
 
+    async def test_add_many_inserts_and_reports_new_rows(self, main_db: AsyncDatabase):
+        repo = DatasetSelectionRepository(main_db)
+        ds = uuid4()
+
+        added = await repo.add_many(ds, [("a", "desc-a"), ("b", None), ("c", "desc-c")])
+        assert added == 3
+        rows = await repo.list_for_dataset(ds)
+        assert {r.item_id for r in rows} == {"a", "b", "c"}
+        assert {r.item_id: r.description for r in rows}["a"] == "desc-a"
+
+    async def test_add_many_skips_existing_and_intra_batch_dupes(
+        self, main_db: AsyncDatabase
+    ):
+        repo = DatasetSelectionRepository(main_db)
+        ds = uuid4()
+        await repo.add(ds, "a", "original")
+
+        # "a" already exists; "b" is duplicated within the batch.
+        added = await repo.add_many(ds, [("a", "again"), ("b", None), ("b", None)])
+        assert added == 1  # only one new "b"
+
+        rows = await repo.list_for_dataset(ds)
+        assert sorted(r.item_id for r in rows) == ["a", "b"]
+        # The pre-existing row's description is untouched.
+        assert {r.item_id: r.description for r in rows}["a"] == "original"
+
+    async def test_add_many_empty_is_noop(self, main_db: AsyncDatabase):
+        repo = DatasetSelectionRepository(main_db)
+        assert await repo.add_many(uuid4(), []) == 0
+
     async def test_list_is_scoped_per_dataset(self, main_db: AsyncDatabase):
         repo = DatasetSelectionRepository(main_db)
         ds1, ds2 = uuid4(), uuid4()

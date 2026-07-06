@@ -63,8 +63,8 @@ class DatasetHandler:
         registry: DatasetTypeRegistry,
         repository: DatasetRepository,
         provisioner_state_repository: ProvisionerStateRepository,
-        endpoint_repository: EndpointRepository | None = None,
-        selection_repository: DatasetSelectionRepository | None = None,
+        endpoint_repository: EndpointRepository,
+        selection_repository: DatasetSelectionRepository,
     ):
         """Initialize the dataset handler.
 
@@ -72,8 +72,8 @@ class DatasetHandler:
             registry: Dataset type registry
             repository: Dataset repository
             provisioner_state_repository: Provisioner state repository
-            endpoint_repository: Endpoint repository (used to guard against deleting datasets in use)
-            selection_repository: Selection repository (writes picks on create)
+            endpoint_repository: Endpoint repository (guards against deleting datasets in use)
+            selection_repository: Selection repository (the source of truth for picks)
         """
         self.registry = registry
         self.repository = repository
@@ -534,11 +534,10 @@ class DatasetHandler:
         # Write the selection picks to the normalized table — the scanner
         # reads its ingestion scope from there. The configuration blob never
         # carries the selection.
-        if self.selection_repository is not None:
-            for item in request.selected_items:
-                await self.selection_repository.add(
-                    created_dataset.id, item.item_id, item.description
-                )
+        await self.selection_repository.add_many(
+            created_dataset.id,
+            [(item.item_id, item.description) for item in request.selected_items],
+        )
 
         return await self._build_response(created_dataset, provisioner_state)
 
@@ -552,6 +551,13 @@ class DatasetHandler:
             List of datasets
         """
         datasets = await self.repository.get_all(tenant.id)
+
+        # Selection counts in one grouped query; a short preview per dataset is
+        # a small bounded page. Neither loads the full selection.
+        counts = await self.selection_repository.count_by_datasets(
+            [ds.id for ds in datasets]
+        )
+
         result = []
         for ds in datasets:
             provisioner_state = None
@@ -559,7 +565,17 @@ class DatasetHandler:
                 provisioner_state = await self.provisioner_state_repository.get_by_id(
                     ds.provisioner_state_id
                 )
-            result.append(DatasetListItem.from_dataset(ds, provisioner_state))
+            preview = await self.selection_repository.list_page(
+                ds.id, DatasetListItem.PREVIEW_LIMIT, 0
+            )
+            result.append(
+                DatasetListItem.from_dataset(
+                    ds,
+                    provisioner_state,
+                    selected_items_count=counts.get(ds.id, 0),
+                    selected_items_preview=preview,
+                )
+            )
         return result
 
     async def get_dataset(self, name: str, tenant: Tenant) -> DatasetResponse:
@@ -641,16 +657,9 @@ class DatasetHandler:
         """
         return DatasetResponse.from_dataset(dataset, provisioner_state)
 
-    def _require_selection_repository(self) -> DatasetSelectionRepository:
-        if self.selection_repository is None:
-            raise HTTPException(
-                status_code=503, detail="Selection storage is not configured"
-            )
-        return self.selection_repository
-
     async def add_selection(
         self, name: str, request: AddSelectionRequest, tenant: Tenant
-    ) -> SelectionResponse:
+    ) -> tuple[SelectionResponse, Dataset]:
         """Add picks to a dataset's selection.
 
         Idempotent per item — the ``UNIQUE(dataset_id, item_id)`` constraint
@@ -658,9 +667,10 @@ class DatasetHandler:
         the new picks are scanned and watched.
 
         Returns:
-            The dataset's full selection after the add.
+            The dataset's full selection after the add, and the resolved dataset
+            (so the route can restart ingestion without re-fetching it).
         """
-        selection_repository = self._require_selection_repository()
+        selection_repository = self.selection_repository
         dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
@@ -681,25 +691,30 @@ class DatasetHandler:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-        for item in request.items:
-            await selection_repository.add(dataset.id, item.item_id, item.description)
+        await selection_repository.add_many(
+            dataset.id,
+            [(item.item_id, item.description) for item in request.items],
+        )
 
         rows = await selection_repository.list_for_dataset(dataset.id)
-        return SelectionResponse(
+        response = SelectionResponse(
             selected_items=[SelectedItemResponse.model_validate(r) for r in rows]
         )
+        return response, dataset
 
     async def remove_selection(
         self, name: str, request: RemoveSelectionRequest, tenant: Tenant
-    ) -> tuple[SelectionResponse, list[str]]:
+    ) -> tuple[SelectionResponse, list[str], Dataset]:
         """Remove picks from a dataset's selection.
 
         Returns:
-            The remaining selection, and the ids that were actually removed.
-            Only actually-removed ids drive job tombstoning downstream, so a
-            requested id that was never selected cannot take jobs with it.
+            The remaining selection, the ids that were actually removed, and the
+            resolved dataset (so the route can tombstone/restart without
+            re-fetching it). Only actually-removed ids drive job tombstoning
+            downstream, so a requested id that was never selected cannot take
+            jobs with it.
         """
-        selection_repository = self._require_selection_repository()
+        selection_repository = self.selection_repository
         dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
@@ -714,7 +729,7 @@ class DatasetHandler:
         response = SelectionResponse(
             selected_items=[SelectedItemResponse.model_validate(r) for r in rows]
         )
-        return response, removed
+        return response, removed, dataset
 
     async def get_selection_page(
         self, name: str, tenant: Tenant, limit: int, offset: int
@@ -724,7 +739,7 @@ class DatasetHandler:
         Backs the detail views, which fetch the selection on demand rather
         than receiving it inline in the dataset/endpoint payload.
         """
-        selection_repository = self._require_selection_repository()
+        selection_repository = self.selection_repository
         dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
@@ -743,7 +758,7 @@ class DatasetHandler:
 
         For the picker's pre-selection, which needs the complete id set.
         """
-        selection_repository = self._require_selection_repository()
+        selection_repository = self.selection_repository
         dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
@@ -771,16 +786,15 @@ class DatasetHandler:
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
-        if self.endpoint_repository:
-            attached = await self.endpoint_repository.get_by_dataset_id(
-                dataset.id, tenant.id
+        attached = await self.endpoint_repository.get_by_dataset_id(
+            dataset.id, tenant.id
+        )
+        if attached:
+            names = ", ".join(f"'{e.name}'" for e in attached)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot delete data source '{name}': it is used by {len(attached)} API(s): {names}. Remove it from those APIs first.",
             )
-            if attached:
-                names = ", ".join(f"'{e.name}'" for e in attached)
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Cannot delete data source '{name}': it is used by {len(attached)} API(s): {names}. Remove it from those APIs first.",
-                )
 
         if dataset.provisioner_state_id:
             logger.info(

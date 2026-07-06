@@ -67,6 +67,49 @@ class DatasetSelectionRepository(AsyncBaseRepository[DatasetSelection]):
                 await session.rollback()
                 return False
 
+    async def add_many(
+        self, dataset_id: UUID, items: list[tuple[str, str | None]]
+    ) -> int:
+        """Add several selections in one transaction, ignoring duplicates.
+
+        Bulk form of ``add`` for create / add-selection, which write many picks
+        at once. Rows already present and duplicates within the batch are
+        skipped (same idempotency as ``add``), and the whole set commits once
+        instead of one transaction per pick.
+
+        Args:
+            dataset_id: Owning dataset
+            items: ``(item_id, description)`` pairs to add
+
+        Returns:
+            The number of new rows inserted.
+        """
+        if not items:
+            return 0
+        async with self.db.get_session() as session:
+            result = await session.exec(
+                select(DatasetSelection.item_id).where(
+                    DatasetSelection.dataset_id == dataset_id,
+                    DatasetSelection.item_id.in_([item_id for item_id, _ in items]),
+                )
+            )
+            skip = set(result.all())
+            added = 0
+            for item_id, description in items:
+                if item_id in skip:
+                    continue
+                skip.add(item_id)  # also dedup within the batch
+                session.add(
+                    DatasetSelection(
+                        dataset_id=dataset_id,
+                        item_id=item_id,
+                        description=description,
+                    )
+                )
+                added += 1
+            await session.commit()
+            return added
+
     async def remove(self, dataset_id: UUID, item_id: str) -> bool:
         """Remove one selection.
 

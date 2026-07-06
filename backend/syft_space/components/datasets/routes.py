@@ -336,12 +336,10 @@ def build_dataset_routes(
         Returns:
             The dataset's full selection after the add
         """
-        response = await handler.add_selection(name, request, tenant)
+        response, dataset = await handler.add_selection(name, request, tenant)
 
         if ingestion_manager:
-            dataset = await handler.repository.get_by_name(name, tenant.id)
-            if dataset:
-                await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
+            await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
 
         return response
 
@@ -368,15 +366,15 @@ def build_dataset_routes(
         Returns:
             The dataset's remaining selection
         """
-        response, removed_ids = await handler.remove_selection(name, request, tenant)
+        response, removed_ids, dataset = await handler.remove_selection(
+            name, request, tenant
+        )
 
         if ingestion_manager and removed_ids:
-            dataset = await handler.repository.get_by_name(name, tenant.id)
-            if dataset:
-                await ingestion_manager.apply_unselection(
-                    dataset.id, tenant.id, removed_ids
-                )
-                await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
+            await ingestion_manager.apply_unselection(
+                dataset.id, tenant.id, removed_ids
+            )
+            await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
 
         return response
 
