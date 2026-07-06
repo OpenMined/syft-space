@@ -113,6 +113,11 @@ class NoOpProvider:
         return False
 
     @classmethod
+    async def validate_selection(cls, item_ids: list[str]) -> None:
+        """No-op — no selection concept, any pick is accepted (and ignored)."""
+        return None
+
+    @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
         """No-op — any payload is accepted."""
         return None

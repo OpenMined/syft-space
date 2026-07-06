@@ -221,6 +221,23 @@ class BaseSourceProvider(Protocol):
         ...
 
     @classmethod
+    async def validate_selection(cls, item_ids: list[str]) -> None:
+        """Validate picks before they are stored (create / add-selection).
+
+        Existence, not content: whether each pick still refers to something
+        real (a path on disk, a post that exists), not whether it currently
+        yields any ingestable items — an empty container is a valid pick.
+        Providers with no notion of pick validity no-op.
+
+        Args:
+            item_ids: Picker id-space identifiers to validate.
+
+        Raises:
+            ValueError: If any pick is invalid (e.g. a path that does not exist).
+        """
+        ...
+
+    @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
         """Validate a browse-time configuration payload.
 

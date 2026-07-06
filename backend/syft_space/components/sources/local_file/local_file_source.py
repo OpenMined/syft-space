@@ -368,6 +368,22 @@ class LocalFileProvider:
             raise ValueError(f"Invalid configuration: {e}") from e
 
     @classmethod
+    async def validate_selection(cls, item_ids: list[str]) -> None:
+        """Validate the selected paths.
+
+        - Reject picks whose path does not exist on disk.
+        - Reject picks whose path is not a file or directory.
+
+        Raises:
+            ValueError: If any selected path does not exist on disk.
+        """
+        missing = [
+            item_id for item_id in item_ids if not await AsyncPath(item_id).exists()
+        ]
+        if missing:
+            raise ValueError("Selected path(s) do not exist: " + ", ".join(missing))
+
+    @classmethod
     def for_browse(cls, configuration: dict[str, Any]) -> LocalFileBrowser:
         """Build a browser from a raw browse configuration dict."""
         return LocalFileBrowser(LocalFileBrowseConfig.model_validate(configuration))

@@ -574,6 +574,16 @@ class WordPressProvider:
         return external_id == item_id
 
     @classmethod
+    async def validate_selection(cls, item_ids: list[str]) -> None:
+        """No-op for now — post existence is not probed at selection time.
+
+        The picker only surfaces existing posts; confirming per-post existence
+        would mean a REST round-trip per pick in the request path. Revisit if
+        stale post picks become a problem.
+        """
+        return None
+
+    @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
         try:
             cfg = WordPressBrowseConfig.model_validate(configuration)

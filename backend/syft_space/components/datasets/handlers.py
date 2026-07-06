@@ -479,6 +479,16 @@ class DatasetHandler:
                 status_code=400, detail=f"Invalid configuration: {str(e)}"
             ) from e
 
+        # Validate the picker selection (e.g. local paths must exist) before
+        # provisioning anything — a bad pick would otherwise create a dataset
+        # that silently ingests nothing.
+        try:
+            await dataset_type.SOURCE_PROVIDER_CLS.validate_selection(
+                [item.item_id for item in request.selected_items]
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
         # Check if name already exists within tenant
         existing = await self.repository.get_by_name(request.name, tenant.id)
         if existing:
@@ -654,6 +664,22 @@ class DatasetHandler:
         dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        # Reject invalid picks (e.g. non-existent paths) before storing them.
+        try:
+            provider_cls = self.registry.get_dataset_type(
+                dataset.dtype
+            ).SOURCE_PROVIDER_CLS
+        except KeyError:
+            raise HTTPException(
+                status_code=400, detail=f"Dataset type '{dataset.dtype}' not found"
+            ) from None
+        try:
+            await provider_cls.validate_selection(
+                [item.item_id for item in request.items]
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
         for item in request.items:
             await selection_repository.add(dataset.id, item.item_id, item.description)
