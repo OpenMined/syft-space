@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from syft_space.components.datasets.repository import DatasetRepository
+from syft_space.components.datasets.selection_repository import (
+    DatasetSelectionRepository,
+)
 from syft_space.components.endpoints.entities import Endpoint
 from syft_space.components.endpoints.interfaces import DeletionCheck
 from syft_space.components.endpoints.repository import EndpointRepository
@@ -27,12 +30,26 @@ class EndpointHandler:
         endpoint_repository: EndpointRepository,
         dataset_repository: DatasetRepository,
         model_repository: ModelRepository,
+        selection_repository: DatasetSelectionRepository,
         deletion_check: DeletionCheck | None = None,
     ):
         self.endpoint_repository = endpoint_repository
         self.dataset_repository = dataset_repository
         self.model_repository = model_repository
+        self.selection_repository = selection_repository
         self.deletion_check = deletion_check
+
+    async def _to_detail(self, endpoint: Endpoint) -> EndpointDetailResponse:
+        """Build a detail response, populating the attached dataset's
+        selection count from the selection repository (computed in the DB;
+        no selection rows are loaded)."""
+        response = EndpointDetailResponse.model_validate(endpoint)
+        if response.dataset is not None:
+            counts = await self.selection_repository.count_by_datasets(
+                [response.dataset.id]
+            )
+            response.dataset.selected_items_count = counts.get(response.dataset.id, 0)
+        return response
 
     async def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
@@ -91,14 +108,23 @@ class EndpointHandler:
     async def list_endpoints(self, tenant: Tenant) -> list[EndpointListItem]:
         """List all endpoints for a tenant."""
         endpoints = await self.endpoint_repository.get_all(tenant.id)
-        return [EndpointListItem.model_validate(ep) for ep in endpoints]
+        items = [EndpointListItem.model_validate(ep) for ep in endpoints]
+
+        # Selection counts are computed in one grouped DB query (no rows
+        # loaded) and composed in — the selection aggregate owns that data.
+        dataset_ids = [ep.dataset.id for ep in endpoints if ep.dataset]
+        counts = await self.selection_repository.count_by_datasets(dataset_ids)
+        for item in items:
+            if item.dataset is not None:
+                item.dataset.selected_items_count = counts.get(item.dataset.id, 0)
+        return items
 
     async def get_endpoint(self, slug: str, tenant: Tenant) -> EndpointDetailResponse:
         """Get a specific endpoint by slug within a tenant."""
         endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
-        return EndpointDetailResponse.model_validate(endpoint)
+        return await self._to_detail(endpoint)
 
     async def update_endpoint(
         self, slug: str, request: UpdateEndpointRequest, tenant: Tenant
@@ -110,10 +136,11 @@ class EndpointHandler:
             name=request.name,
             summary=request.summary,
             description=request.description,
+            system_prompt=request.system_prompt,
         )
         if not updated_endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
-        return EndpointDetailResponse.model_validate(updated_endpoint)
+        return await self._to_detail(updated_endpoint)
 
     async def delete_endpoint(self, slug: str, tenant: Tenant) -> dict:
         """Delete an endpoint by slug within a tenant.
@@ -149,7 +176,7 @@ class EndpointHandler:
         endpoint.archived = True
         endpoint.updated_at = datetime.now(timezone.utc)
         updated = await self.endpoint_repository.update(endpoint)
-        return EndpointDetailResponse.model_validate(updated)
+        return await self._to_detail(updated)
 
     async def unarchive_endpoint(
         self, slug: str, tenant: Tenant
@@ -164,4 +191,4 @@ class EndpointHandler:
         endpoint.archived = False
         endpoint.updated_at = datetime.now(timezone.utc)
         updated = await self.endpoint_repository.update(endpoint)
-        return EndpointDetailResponse.model_validate(updated)
+        return await self._to_detail(updated)

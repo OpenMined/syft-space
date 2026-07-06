@@ -18,7 +18,6 @@ from syft_space.components.dataset_types.interfaces import IngestableDatasetType
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.local_file.local_file_source import (
-    FilePathItem,
     LocalFileProvider,
 )
 from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store import (
@@ -62,11 +61,6 @@ class ChromaDBLocalConfiguration(BaseModel):
         alias="ingestFileTypeOptions",
         description="Allowed file extensions for ingestion",
     )
-    file_paths: list[FilePathItem] = Field(
-        default_factory=list,
-        alias="filePaths",
-        description="List of file paths with descriptions to watch for ingestion",
-    )
 
     model_config = {"populate_by_name": True}
 
@@ -97,7 +91,6 @@ class LocalFileChromaDBDatasetType(IngestableDatasetType):
         """Translate flat configuration into (source_cfg, vector_store_cfg)."""
         cfg = ChromaDBLocalConfiguration.model_validate(configuration)
         source_cfg = {
-            "file_paths": [fp.model_dump() for fp in cfg.file_paths],
             "allowed_extensions": list(cfg.ingest_file_type_options),
         }
         vector_store_cfg = {

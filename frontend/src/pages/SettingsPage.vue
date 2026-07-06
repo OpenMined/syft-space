@@ -247,7 +247,9 @@
                   <template v-if="wallet.wallet_type === 'mpp'">
                     {{ wallet.display.wallet_address || 'No address' }}
                   </template>
-                  <template v-else-if="wallet.wallet_type === 'xendit' || wallet.wallet_type === 'stripe'">
+                  <template
+                    v-else-if="wallet.wallet_type === 'xendit' || wallet.wallet_type === 'stripe'"
+                  >
                     Webhook: {{ wallet.display.webhook_url || 'N/A' }}
                   </template>
                 </p>
@@ -514,9 +516,8 @@
                 Stripe Wallet
               </DialogTitle>
               <DialogDescription>
-                Enter your Stripe API credentials. The webhook signing secret comes from
-                Stripe Dashboard → Developers → Webhooks (you'll register the URL we show
-                you after setup).
+                Enter your Stripe API credentials. The webhook signing secret comes from Stripe
+                Dashboard → Developers → Webhooks (you'll register the URL we show you after setup).
               </DialogDescription>
             </DialogHeader>
             <div class="space-y-4 py-2">
@@ -525,8 +526,8 @@
               <div v-if="addWalletWebhookUrl" class="space-y-1">
                 <Label class="text-sm font-medium">Webhook URL</Label>
                 <p class="text-xs text-muted-foreground">
-                  Paste this URL into Stripe Dashboard → Developers → Webhooks → Add
-                  endpoint, and enable the four
+                  Paste this URL into Stripe Dashboard → Developers → Webhooks → Add endpoint, and
+                  enable the four
                   <code class="font-mono">checkout.session.*</code> events.
                 </p>
                 <div class="flex gap-2">
@@ -592,9 +593,7 @@
                   class="w-full"
                   @click="handleCreateStripe"
                   :disabled="
-                    addWalletSaving ||
-                    !addStripeForm.secretKey ||
-                    !addStripeForm.webhookSecret
+                    addWalletSaving || !addStripeForm.secretKey || !addStripeForm.webhookSecret
                   "
                 >
                   <Loader2 v-if="addWalletSaving" class="h-4 w-4 mr-2 animate-spin" />

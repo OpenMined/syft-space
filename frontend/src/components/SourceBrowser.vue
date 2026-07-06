@@ -40,10 +40,7 @@
                 <div v-else-if="error" class="p-4 text-sm text-destructive">
                   {{ error }}
                 </div>
-                <div
-                  v-else-if="rootNodes.length === 0"
-                  class="p-4 text-sm text-muted-foreground"
-                >
+                <div v-else-if="rootNodes.length === 0" class="p-4 text-sm text-muted-foreground">
                   {{ presentation.emptyText }}
                 </div>
                 <template v-else>
@@ -54,6 +51,7 @@
                     :dtype="dtype"
                     :container-mode="presentation.containerMode"
                     :selected="selected"
+                    :locked-selection="lockedSelection"
                     :expanded="expanded"
                     @toggle-expand="toggleExpand"
                     @toggle-select="toggleSelect"
@@ -89,13 +87,33 @@
               variant="secondary"
               class="bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200"
             >
-              {{ selected.length }} item{{ selected.length !== 1 ? 's' : '' }}
+              {{ selected.length }} new
             </Badge>
           </div>
 
-          <div v-if="selected.length > 0" class="flex-1 min-h-0">
+          <div v-if="lockedSelection.length > 0 || selected.length > 0" class="flex-1 min-h-0">
             <ScrollArea class="h-full">
               <div class="space-y-1 pr-4">
+                <!-- Already-selected (locked): shown for context, cannot be removed -->
+                <div
+                  v-for="id in lockedSelection"
+                  :key="`locked-${id}`"
+                  class="flex items-center gap-2 text-xs text-muted-foreground bg-muted/60 border border-border rounded-md px-3 py-2"
+                >
+                  <component
+                    :is="chipIcon(id)"
+                    class="w-4 h-4 flex-shrink-0 opacity-70"
+                    :class="chipIconClass(id)"
+                  />
+                  <span class="flex-1 truncate">
+                    <span :class="{ 'font-mono text-sm': dtype === 'local_file' }">
+                      {{ dtype === 'local_file' ? id : titleForId(id) }}
+                    </span>
+                  </span>
+                  <span class="text-[10px] uppercase tracking-wide flex-shrink-0 pr-2">Added</span>
+                </div>
+
+                <!-- New selections: removable -->
                 <div
                   v-for="id in selected"
                   :key="id"
@@ -221,9 +239,17 @@ const props = withDefaults(
     dtype: string
     configuration?: Record<string, unknown>
     modelValue: string[]
+    // Already-saved selection: shown selected but immutable (add-only mode).
+    // modelValue holds only the NEW selections.
+    lockedSelection?: string[]
+    // When set, browse this existing dataset's source server-side (stored
+    // credentials) instead of passing client-supplied configuration.
+    datasetName?: string
   }>(),
-  { configuration: () => ({}) },
+  { configuration: () => ({}), lockedSelection: () => [] },
 )
+
+const lockedSet = computed(() => new Set(props.lockedSelection))
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
@@ -260,7 +286,7 @@ const {
   loadMoreRoot,
   retryDirectory,
   retryRootDirectory,
-} = useSourceBrowser(props.dtype, props.configuration)
+} = useSourceBrowser(props.dtype, props.configuration, props.datasetName)
 
 onMounted(loadRootDirectory)
 
@@ -277,12 +303,14 @@ const toggleExpand = async (node: FileNode) => {
 
 const toggleSelect = (paths: string[], on: boolean) => {
   const current = [...selected.value]
+  // Locked items belong to the saved selection — never add or remove them here.
+  const editable = paths.filter((path) => !lockedSet.value.has(path))
   if (on) {
-    for (const path of paths) {
+    for (const path of editable) {
       if (!current.includes(path)) current.push(path)
     }
   } else {
-    for (const path of paths) {
+    for (const path of editable) {
       const i = current.indexOf(path)
       if (i > -1) current.splice(i, 1)
     }

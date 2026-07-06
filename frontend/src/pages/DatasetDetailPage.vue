@@ -215,17 +215,33 @@
 
         <!-- Overview Tab Content -->
         <TabsContent value="overview" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- Watched Paths (local_file only; "paths" is a filesystem concept) -->
+          <!-- Selected items (source-agnostic: file paths, WordPress posts, ...) -->
           <div
-            v-if="dataset.dtype === 'local_file'"
+            v-if="getDatasetManagement() === 'Self-managed'"
             class="lg:col-span-2 bg-card border border-border rounded-xl p-6"
           >
             <div class="flex items-center justify-between mb-5">
               <h2 class="heading-3 flex items-center gap-2">
                 <Database class="h-5 w-5 text-foreground/70" />
-                Watched Paths
+                {{ selectionPanelTitle }}
               </h2>
               <div class="flex items-center gap-3">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        class="h-8 w-8"
+                        aria-label="Add source"
+                        @click="openAddSource"
+                      >
+                        <Plus class="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Add source</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 <Button
                   v-if="ingestionStatus?.failed && ingestionStatus.failed > 0"
                   variant="outline"
@@ -250,39 +266,49 @@
               </div>
             </div>
 
-            <div v-if="getWatchedPaths().length > 0" class="space-y-2.5">
-              <div
-                v-for="path in getWatchedPaths()"
-                :key="path.id"
-                class="flex items-start justify-between gap-4 px-4 py-3 bg-muted/40 border border-border/60 rounded-lg"
-              >
-                <div class="min-w-0 flex-1">
-                  <p class="body-sm font-mono text-foreground truncate">{{ path.path }}</p>
-                  <p v-if="path.description" class="text-xs text-muted-foreground mt-1 truncate">
-                    {{ path.description }}
-                  </p>
+            <div v-if="selectedItemsView.length > 0" class="space-y-3">
+              <div class="max-h-96 space-y-2.5 overflow-y-auto pr-1" @scroll="onSelectionScroll">
+                <div
+                  v-for="item in selectedItemsView"
+                  :key="item.id"
+                  class="flex items-start justify-between gap-4 px-4 py-3 bg-muted/40 border border-border/60 rounded-lg"
+                >
+                  <div class="min-w-0 flex-1">
+                    <p class="body-sm font-mono text-foreground truncate">{{ item.id }}</p>
+                    <p v-if="item.description" class="text-xs text-muted-foreground mt-1 truncate">
+                      {{ item.description }}
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0 mt-1">
+                    <span
+                      :class="[
+                        'w-1.5 h-1.5 rounded-full',
+                        item.status === 'watching' ? 'bg-primary' : 'bg-muted-foreground',
+                      ]"
+                    ></span>
+                    <span class="text-xs text-muted-foreground">
+                      {{ item.status === 'watching' ? 'Watching' : 'Not Watching' }}
+                    </span>
+                  </div>
                 </div>
-                <div class="flex items-center gap-1.5 shrink-0 mt-1">
-                  <span
-                    :class="[
-                      'w-1.5 h-1.5 rounded-full',
-                      path.status === 'watching' ? 'bg-primary' : 'bg-muted-foreground',
-                    ]"
-                  ></span>
-                  <span class="text-xs text-muted-foreground">
-                    {{ path.status === 'watching' ? 'Watching' : 'Not Watching' }}
-                  </span>
-                </div>
+              </div>
+
+              <div v-if="hasMoreSelection" class="pt-1 text-center text-xs text-muted-foreground">
+                {{
+                  selectionLoading
+                    ? 'Loading…'
+                    : `Showing ${selectionItems.length} of ${selectionTotal}`
+                }}
               </div>
             </div>
 
-            <div v-else class="text-center py-12">
+            <div v-else-if="!selectionLoading" class="text-center py-12">
               <div
                 class="mx-auto mb-3 h-10 w-10 rounded-full bg-muted flex items-center justify-center"
               >
                 <Database class="h-5 w-5 text-muted-foreground" />
               </div>
-              <p class="text-muted-foreground body-sm">No watched paths configured</p>
+              <p class="text-muted-foreground body-sm">No items selected yet</p>
             </div>
           </div>
 
@@ -519,6 +545,13 @@
     @update:open="!$event && handleDialogClose()"
   />
 
+  <!-- Add Source Dialog -->
+  <AddSourceDialog
+    v-model:open="showAddSourceDialog"
+    :dataset="addSourceDataset"
+    @sources-added="handleSourcesAdded"
+  />
+
   <!-- Delete Confirmation Dialog -->
   <DeleteConfirmationDialog
     v-model:open="showDeleteDialog"
@@ -560,9 +593,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import AddSourceDialog from '@/components/AddSourceDialog.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import type {
@@ -570,6 +605,7 @@ import type {
   IngestionStatusResponse,
   IngestionJobListResponse,
   DatasetTypeInfoResponse,
+  SelectedItemResponse,
 } from '@/api/types'
 
 // Interface for tag parsing
@@ -593,9 +629,14 @@ const editingDataset = ref<{
   name: string
   summary: string
   tags: string[]
-  filePaths: Array<{ path: string; description: string }>
 } | null>(null)
 const showDeleteDialog = ref(false)
+const showAddSourceDialog = ref(false)
+const addSourceDataset = ref<{
+  name: string
+  dtype: string
+  selectedIds: string[]
+} | null>(null)
 const isRefreshingPaths = ref(false)
 const ingestionStatus = ref<IngestionStatusResponse | null>(null)
 const ingestionJobs = ref<IngestionJobListResponse | null>(null)
@@ -604,6 +645,13 @@ const isRetryingJobs = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const isLoadingFiles = ref(false)
+
+// Selection is fetched on demand and paged in — no longer inlined in the
+// dataset payload — so a source watching many picks stays cheap to render.
+const SELECTION_PAGE_SIZE = 10
+const selectionItems = ref<SelectedItemResponse[]>([])
+const selectionTotal = ref(0)
+const selectionLoading = ref(false)
 
 const connectedEndpoints = computed(() => {
   if (!dataset.value) return []
@@ -632,7 +680,6 @@ const editDataset = async () => {
       name: dataset.value.name,
       summary: dataset.value.summary,
       tags: dataset.value.tags || [],
-      filePaths: [], // Not used in edit mode
     }
     showEditDialog.value = true
   } catch (err) {
@@ -674,12 +721,15 @@ const loadDataset = async (name: string) => {
       console.error('Failed to load dataset type info:', typeErr)
       return null
     })
-    const ingestionPromise =
-      getDatasetManagement() === 'Self-managed'
-        ? loadIngestionData(datasetResponse.id)
-        : Promise.resolve()
+    const selfManaged = getDatasetManagement() === 'Self-managed'
+    const ingestionPromise = selfManaged ? loadIngestionData(datasetResponse.id) : Promise.resolve()
+    const selectionPromise = selfManaged ? loadSelection(true) : Promise.resolve()
 
-    const [typeInfoResponse] = await Promise.all([typeInfoPromise, ingestionPromise])
+    const [typeInfoResponse] = await Promise.all([
+      typeInfoPromise,
+      ingestionPromise,
+      selectionPromise,
+    ])
     datasetTypeInfo.value = typeInfoResponse
   } catch (err) {
     console.error('Failed to load dataset:', err)
@@ -721,6 +771,32 @@ const handleDialogClose = () => {
   editingDataset.value = null
 }
 
+const openAddSource = async () => {
+  if (!dataset.value) return
+  // The picker pre-checks already-selected items, so it needs the full id
+  // set (not a page) — fetched from the dedicated ids endpoint.
+  let selectedIds: string[] = []
+  try {
+    const res = await datasetsApi.getSelectionIds(dataset.value.name)
+    selectedIds = res.item_ids
+  } catch (err) {
+    console.error('Failed to load selection ids:', err)
+  }
+  addSourceDataset.value = {
+    name: dataset.value.name,
+    dtype: dataset.value.dtype,
+    selectedIds,
+  }
+  showAddSourceDialog.value = true
+}
+
+const handleSourcesAdded = async () => {
+  showAddSourceDialog.value = false
+  addSourceDataset.value = null
+  // Reload so the new watched paths and ingestion jobs appear.
+  await loadDataset(route.params.slug as string)
+}
+
 const confirmDelete = async () => {
   if (dataset.value) {
     try {
@@ -749,22 +825,57 @@ const getDatasetManagement = () => {
   return dataset.value.dtype === 'remote_weaviate' ? 'External' : 'Self-managed'
 }
 
-// Get watched paths from dataset configuration
-const getWatchedPaths = () => {
-  if (getDatasetManagement() !== 'Self-managed' || !dataset.value) {
-    return []
+// Title for the selection panel — source-specific where a noun reads more
+// naturally ("Watched Paths" for files, "Watched posts" for WordPress),
+// falling back to the generic "Selected items".
+const selectionPanelTitle = computed(() => {
+  switch (dataset.value?.dtype) {
+    case 'local_file':
+      return 'Watched Paths'
+    case 'wordpress':
+      return 'Watched posts'
+    default:
+      return 'Selected items'
   }
+})
 
-  const config = dataset.value.configuration as Record<string, unknown>
-  const filePaths = (config?.filePaths as Array<{ path: string; description?: string }>) || []
-
-  return filePaths.map((pathItem) => ({
-    id: pathItem.path,
-    path: pathItem.path,
-    description: pathItem.description || 'Selected folder for ingestion',
-    fileCount: ingestionJobs.value?.total || 0,
+// Source-agnostic selected items from the paged selection fetch
+// (file paths, '{post_type}:{id}', ...), descriptions included.
+const selectedItemsView = computed(() =>
+  selectionItems.value.map((item) => ({
+    id: item.item_id,
+    description: item.description || '',
     status: ingestionStatus.value?.is_watching ? 'watching' : 'not_watching',
-  }))
+  })),
+)
+
+const hasMoreSelection = computed(() => selectionItems.value.length < selectionTotal.value)
+
+// Load the selection page-by-page. ``reset`` starts from the first page
+// (initial load / after picks change); otherwise the next page is appended.
+const loadSelection = async (reset = false) => {
+  if (!dataset.value || getDatasetManagement() !== 'Self-managed') return
+
+  const offset = reset ? 0 : selectionItems.value.length
+  selectionLoading.value = true
+  try {
+    const page = await datasetsApi.getSelection(dataset.value.name, SELECTION_PAGE_SIZE, offset)
+    selectionItems.value = reset ? page.items : [...selectionItems.value, ...page.items]
+    selectionTotal.value = page.total
+  } catch (err) {
+    console.error('Failed to load selection:', err)
+  } finally {
+    selectionLoading.value = false
+  }
+}
+
+// Auto-load the next page when the list is scrolled near the bottom.
+const onSelectionScroll = (e: Event) => {
+  const el = e.target as HTMLElement
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  if (nearBottom && hasMoreSelection.value && !selectionLoading.value) {
+    loadSelection(false)
+  }
 }
 
 // Get filtered ingestion jobs

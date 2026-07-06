@@ -80,16 +80,6 @@ class WordPressChromaDBConfiguration(BaseModel):
             "an allowlisted value"
         ),
     )
-    selected_items: list[str] | None = Field(
-        default=None,
-        alias="selectedItems",
-        description=(
-            "The external_ids (``{post_type}:{id}``) to ingest and watch "
-            "for changes. The source polls exactly these items; an empty "
-            "or unset selection ingests nothing."
-        ),
-    )
-
     model_config = {"populate_by_name": True}
 
     @field_validator("collection_name")
@@ -123,7 +113,6 @@ class WordPressChromaDBDatasetType(IngestableDatasetType):
             "application_password": cfg.application_password,
             "poll_interval_seconds": cfg.poll_interval_seconds,
             "user_agent": cfg.user_agent,
-            "selected_items": cfg.selected_items,
         }
         vector_store_cfg = {
             "collection_name": cfg.collection_name,

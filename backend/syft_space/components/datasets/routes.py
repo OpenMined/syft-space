@@ -2,19 +2,25 @@
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import FileResponse
 
 from syft_space.components.auth.public import public_route
 from syft_space.components.datasets.handlers import DatasetHandler
 from syft_space.components.datasets.schemas import (
+    AddSelectionRequest,
     CreateDatasetRequest,
+    DatasetBrowseRequest,
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
+    RemoveSelectionRequest,
+    SelectionIdsResponse,
+    SelectionPageResponse,
+    SelectionResponse,
     SourceBrowseRequest,
     SourceBrowseResponse,
     UpdateDatasetRequest,
@@ -102,6 +108,23 @@ def build_dataset_routes(
         """
         return await handler.browse_source(
             req.dtype, req.configuration, req.parent_id, req.cursor
+        )
+
+    @router.post("/{name}/browse", response_model=SourceBrowseResponse)
+    async def browse_dataset_source(
+        name: str,
+        req: DatasetBrowseRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SourceBrowseResponse:
+        """Browse an existing dataset's source using its stored credentials.
+
+        Drives the "add source" picker: the server reads connection details
+        from the dataset's stored configuration, so credentials are never
+        sent to (or required from) the client.
+        """
+        return await handler.browse_dataset_source(
+            name, tenant, req.parent_id, req.cursor
         )
 
     # ============== Image Serving Endpoint ==============
@@ -246,6 +269,114 @@ def build_dataset_routes(
                 await ingestion_manager.stop_dataset_ingestion(dataset.id)
 
         return await handler.delete_dataset(name, tenant)
+
+    # ============== Selection Endpoints ==============
+
+    @router.get("/{name}/selection", response_model=SelectionPageResponse)
+    async def get_selection(
+        name: str,
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SelectionPageResponse:
+        """A page of a dataset's selection picks.
+
+        The selection is no longer inlined in the dataset/endpoint payload;
+        detail views fetch and page through it here.
+
+        Args:
+            name: Dataset name
+            limit: Max picks to return (1-200)
+            offset: Picks to skip
+            tenant: Current tenant (injected)
+
+        Returns:
+            The requested page plus the total pick count
+        """
+        return await handler.get_selection_page(name, tenant, limit, offset)
+
+    @router.get("/{name}/selection/ids", response_model=SelectionIdsResponse)
+    async def get_selection_ids(
+        name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SelectionIdsResponse:
+        """Every selected item id for a dataset (unpaged).
+
+        For the "add source" picker, which pre-checks already-selected items
+        and so needs the complete id set rather than a page.
+
+        Args:
+            name: Dataset name
+            tenant: Current tenant (injected)
+
+        Returns:
+            All selected item ids
+        """
+        return await handler.get_selection_ids(name, tenant)
+
+    @router.post("/{name}/selection", response_model=SelectionResponse)
+    async def add_selection(
+        name: str,
+        request: AddSelectionRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SelectionResponse:
+        """Add picks to a dataset's selection.
+
+        Idempotent per item. Restarts the dataset's ingestion stream so the
+        new picks are scanned immediately and watched from now on.
+
+        Args:
+            name: Dataset name
+            request: Picks to add (item_id + optional description)
+            tenant: Current tenant (injected)
+
+        Returns:
+            The dataset's full selection after the add
+        """
+        response, dataset = await handler.add_selection(name, request, tenant)
+
+        if ingestion_manager:
+            await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
+
+        return response
+
+    @router.delete("/{name}/selection", response_model=SelectionResponse)
+    async def remove_selection(
+        name: str,
+        request: RemoveSelectionRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> SelectionResponse:
+        """Remove picks from a dataset's selection.
+
+        Tombstones the ingestion jobs the removed picks produced (their
+        vectors are removed once vector-store deletion lands), then restarts
+        the stream with the remaining picks. Items covered by both a removed
+        and a remaining pick are re-ingested by the restarted stream's
+        initial scan.
+
+        Args:
+            name: Dataset name
+            request: Item ids to remove
+            tenant: Current tenant (injected)
+
+        Returns:
+            The dataset's remaining selection
+        """
+        response, removed_ids, dataset = await handler.remove_selection(
+            name, request, tenant
+        )
+
+        if ingestion_manager and removed_ids:
+            await ingestion_manager.apply_unselection(
+                dataset.id, tenant.id, removed_ids
+            )
+            await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
+
+        return response
 
     @public_route
     @router.get("/{name}/health", response_model=HealthcheckResponse)

@@ -54,6 +54,9 @@ from syft_space.components.datasets.repository import DatasetRepository
 
 # Import route builders
 from syft_space.components.datasets.routes import build_dataset_routes
+from syft_space.components.datasets.selection_repository import (
+    DatasetSelectionRepository,
+)
 
 # Import endpoint heartbeat manager
 from syft_space.components.endpoints.endpoint_heartbeat_manager import (
@@ -429,6 +432,7 @@ model_repository = ModelRepository(database)
 policy_repository = PolicyRepository(database)
 endpoint_repository = EndpointRepository(database)
 ingestion_job_repository = IngestionJobRepository(database)
+dataset_selection_repository = DatasetSelectionRepository(database)
 marketplace_repository = MarketplaceRepository(database)
 wallet_repository = WalletRepository(database)
 
@@ -454,6 +458,7 @@ dataset_handler = DatasetHandler(
     dataset_repository,
     provisioner_state_repository,
     endpoint_repository=endpoint_repository,
+    selection_repository=dataset_selection_repository,
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 capability_checker = CapabilityChecker(
@@ -601,6 +606,7 @@ endpoint_handler = EndpointHandler(
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
     model_repository=model_repository,
+    selection_repository=dataset_selection_repository,
     deletion_check=check_endpoint_deletable,
 )
 query_endpoint_handler = QueryEndpointHandler(
@@ -644,6 +650,7 @@ feedback_handler = FeedbackHandler(marketplace_repository)
 ingestion_manager = IngestionManager(
     dataset_repository=dataset_repository,
     ingestion_repository=ingestion_job_repository,
+    selection_repository=dataset_selection_repository,
     registry=DATASET_TYPE_REGISTRY,
 )
 ingestion_handler = IngestionHandler(

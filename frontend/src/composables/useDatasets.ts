@@ -64,14 +64,12 @@ export function useDatasets() {
 
   // Transform API data to match the existing component interface
   const transformDataset = (dataset: DatasetListItem) => {
-    // Extract watched paths from configuration for local_file datasets
-    let watchedPaths: string[] = []
-    if (dataset.dtype === 'local_file' && dataset.configuration?.filePaths) {
-      // filePaths is an array of {path: string, description: string}
-      watchedPaths = (
-        dataset.configuration.filePaths as Array<{ path: string; description: string }>
-      ).map((item) => item.path)
-    }
+    // The list ships a short preview + total count of the selection rows, not
+    // the full array — so a source watching many picks never bloats the list.
+    const watchedPaths: string[] = (dataset.selected_items_preview || []).map(
+      (item) => item.item_id,
+    )
+    const watchedPathsCount = dataset.selected_items_count ?? watchedPaths.length
 
     // Determine status from provisioner_status
     let status: 'running' | 'stopped' = 'stopped'
@@ -95,7 +93,8 @@ export function useDatasets() {
         : [],
       status, // Use actual provisioner status
       endpointCount: dataset.connected_endpoints?.length || 0, // Use actual endpoint count
-      watchedPaths, // Extract from configuration.filePaths for local_file datasets
+      watchedPaths, // Preview subset of the dataset_selection rows
+      watchedPathsCount, // Total selection-row count (for the "+N more" affordance)
       isCustom: dataset.dtype !== 'local_file', // Consider non-local_file as custom
       configuration: dataset.configuration, // Pass through full configuration
       connected_endpoints: dataset.connected_endpoints || [], // Include endpoints for later use

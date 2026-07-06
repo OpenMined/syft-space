@@ -1,7 +1,7 @@
 """Dataset API schemas for request/response models."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -12,7 +12,11 @@ from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.sources.interfaces import SourceItem
 
 if TYPE_CHECKING:
-    from syft_space.components.datasets.entities import Dataset, ProvisionerState
+    from syft_space.components.datasets.entities import (
+        Dataset,
+        DatasetSelection,
+        ProvisionerState,
+    )
 
 
 class DatasetTypeInfoResponse(BaseModel):
@@ -35,6 +39,19 @@ class DatasetTypeInfoResponse(BaseModel):
     )
 
 
+class SelectionItemRequest(BaseModel):
+    """One pick to add to a dataset's selection."""
+
+    item_id: str = Field(
+        ...,
+        min_length=1,
+        description="Item id in the picker id-space (path | '{post_type}:{id}')",
+    )
+    description: str | None = Field(
+        None, description="Optional user-provided description"
+    )
+
+
 class CreateDatasetRequest(BaseModel):
     """Request model for creating a dataset."""
 
@@ -42,6 +59,13 @@ class CreateDatasetRequest(BaseModel):
     dtype: str = Field(..., description="Dataset type name")
     configuration: dict[str, Any] = Field(
         ..., description="Filled configuration schema"
+    )
+    selected_items: list[SelectionItemRequest] = Field(
+        default_factory=list,
+        description=(
+            "Picker selection for the dataset (stored in the "
+            "dataset_selection table, not inside configuration)"
+        ),
     )
     summary: str = Field(default="", description="Brief summary of the dataset")
     tags: str = Field(
@@ -139,6 +163,67 @@ class ProvisionerStatusResponse(BaseModel):
         from_attributes = True
 
 
+class SelectedItemResponse(BaseModel):
+    """One selection pick of a dataset (a ``dataset_selection`` row)."""
+
+    item_id: str = Field(
+        ..., description="Item id in the picker id-space (path | '{post_type}:{id}')"
+    )
+    description: str | None = Field(
+        None, description="Optional user-provided description"
+    )
+    added_at: datetime = Field(..., description="When the item was selected")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+
+
+class AddSelectionRequest(BaseModel):
+    """Request body for adding picks to a dataset's selection."""
+
+    items: list[SelectionItemRequest] = Field(..., min_length=1)
+
+
+class RemoveSelectionRequest(BaseModel):
+    """Request body for removing picks from a dataset's selection."""
+
+    item_ids: list[str] = Field(..., min_length=1)
+
+
+class SelectionResponse(BaseModel):
+    """The dataset's full selection after an add/remove operation."""
+
+    selected_items: list[SelectedItemResponse] = Field(
+        ..., description="Current selection picks"
+    )
+
+
+class SelectionPageResponse(BaseModel):
+    """A page of a dataset's selection picks.
+
+    The full selection is no longer embedded in the dataset/endpoint payloads;
+    clients fetch it here on demand and page through it, so a dataset watching
+    hundreds of hand-picked leaves does not bloat every list/detail response.
+    """
+
+    items: list[SelectedItemResponse] = Field(
+        ..., description="Selection picks for the requested page"
+    )
+    total: int = Field(..., description="Total number of selection picks")
+
+
+class SelectionIdsResponse(BaseModel):
+    """Every selected item id for a dataset (unpaged).
+
+    For the "add source" picker, which pre-checks already-selected items and so
+    needs the complete id set, not a page. Ids only — cheap to ship in full.
+    """
+
+    item_ids: list[str] = Field(..., description="All selected item ids")
+
+
 class DatasetResponse(BaseModel):
     """Response model for dataset details."""
 
@@ -169,6 +254,9 @@ class DatasetResponse(BaseModel):
         provisioner_state: Optional["ProvisionerState"] = None,
     ) -> "DatasetResponse":
         """Create DatasetResponse from Dataset entity.
+
+        The selection is no longer embedded here — clients fetch it via
+        ``GET /datasets/{name}/selection`` (paged). See ``SelectionPageResponse``.
 
         Args:
             dataset: Dataset entity
@@ -213,14 +301,34 @@ class DatasetListItem(BaseModel):
         None, description="Provisioner status"
     )
     configuration: dict[str, Any] = Field(..., description="Dataset configuration")
+    # The list view shows a count + a short preview instead of the full array,
+    # so a dataset with many picks never bloats the list payload. The full,
+    # paged list lives at ``GET /datasets/{name}/selection``.
+    selected_items_count: int = Field(
+        default=0, description="Total number of selection picks"
+    )
+    selected_items_preview: list[SelectedItemResponse] = Field(
+        default_factory=list,
+        description="First few selection picks, for an at-a-glance preview",
+    )
+
+    # How many picks the list preview shows before collapsing to "+N more".
+    PREVIEW_LIMIT: ClassVar[int] = 3
 
     @classmethod
     def from_dataset(
         cls,
         dataset: "Dataset",
         provisioner_state: Optional["ProvisionerState"] = None,
+        selected_items_count: int = 0,
+        selected_items_preview: list["DatasetSelection"] | None = None,
     ) -> "DatasetListItem":
-        """Create DatasetListItem from Dataset entity."""
+        """Create DatasetListItem from Dataset entity.
+
+        The selection count and preview are supplied by the caller (computed
+        in the DB — a bulk count plus a small per-dataset page), so the full
+        selection is never loaded just to show a badge and a few chips.
+        """
         provisioner_status_response = None
         if provisioner_state:
             provisioner_status_response = ProvisionerStatusResponse.model_validate(
@@ -237,6 +345,11 @@ class DatasetListItem(BaseModel):
             connected_endpoints=dataset.endpoints,
             provisioner_status=provisioner_status_response,
             configuration=redact_config(dataset.configuration, dataset.dtype),
+            selected_items_count=selected_items_count,
+            selected_items_preview=[
+                SelectedItemResponse.model_validate(s)
+                for s in (selected_items_preview or [])
+            ],
         )
 
 
@@ -345,6 +458,25 @@ class ProvisionerActionResponse(BaseModel):
 
 
 # ============== Source Browser Schemas ==============
+
+
+class DatasetBrowseRequest(BaseModel):
+    """Request model for browsing an existing dataset's source.
+
+    Unlike ``SourceBrowseRequest``, the caller supplies no credentials: the
+    server reads them from the dataset's stored configuration. Used by the
+    "add source" picker — API responses redact credentials, so the client
+    could not supply them anyway.
+    """
+
+    parent_id: str | None = Field(
+        default=None,
+        description="Container id to list. Null lists the source's top level.",
+    )
+    cursor: str | None = Field(
+        default=None,
+        description="Opaque resume token from a prior response's next_cursor.",
+    )
 
 
 class SourceBrowseRequest(BaseModel):

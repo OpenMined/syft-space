@@ -128,7 +128,17 @@ const toggleDataSource = (id: string) => {
 }
 
 const toggleModel = (id: string) => {
-  selectedModelId.value = selectedModelId.value === id ? '' : id
+  const selecting = selectedModelId.value !== id
+  selectedModelId.value = selecting ? id : ''
+  if (selecting) {
+    if (!systemPrompt.value) {
+      selectedPromptPreset.value = 'summarise-cite'
+      systemPrompt.value = PROMPT_PRESETS['summarise-cite']?.prompt ?? ''
+    }
+  } else {
+    selectedPromptPreset.value = 'summarise-cite'
+    systemPrompt.value = ''
+  }
 }
 
 const showCreateDatasetDialog = ref(false)
@@ -809,6 +819,36 @@ const handleOverwriteConfirm = async () => {
                     <span class="text-sm font-medium">Add model</span>
                   </button>
                 </div>
+
+                <!-- System prompt (shown once a model is attached) -->
+                <div v-if="selectedModelId" class="mt-6 space-y-3">
+                  <div class="flex items-center gap-2">
+                    <Sparkles class="h-4 w-4 text-muted-foreground" />
+                    <h4 class="text-sm font-semibold text-foreground">System prompt</h4>
+                  </div>
+                  <Select
+                    :model-value="selectedPromptPreset"
+                    @update:model-value="handlePromptPresetChange"
+                  >
+                    <SelectTrigger class="w-full">
+                      <SelectValue placeholder="Choose a prompt template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="(preset, key) in PROMPT_PRESETS" :key="key" :value="key">
+                        {{ preset.label }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Textarea
+                    v-model="systemPrompt"
+                    placeholder="Enter a custom system prompt..."
+                    class="min-h-[140px] font-mono text-sm"
+                  />
+                  <p class="text-[11px] text-muted-foreground">
+                    Sent to the model before every query. Controls tone, format, and how retrieved
+                    documents are used.
+                  </p>
+                </div>
               </div>
             </template>
           </div>
@@ -1044,10 +1084,7 @@ const handleOverwriteConfirm = async () => {
               <div class="space-y-4">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
-                    <component
-                      :is="pricingPolicyType.icon"
-                      class="h-4 w-4 text-muted-foreground"
-                    />
+                    <component :is="pricingPolicyType.icon" class="h-4 w-4 text-muted-foreground" />
                     <div>
                       <h3 class="text-sm font-semibold text-foreground">
                         {{ pricingPolicyType.name }}

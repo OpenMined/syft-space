@@ -35,7 +35,10 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
             statement = (
                 select(Endpoint)
                 .where(Endpoint.tenant_id == tenant_id)
-                .options(selectinload(Endpoint.model), selectinload(Endpoint.dataset))
+                .options(
+                    selectinload(Endpoint.model),
+                    selectinload(Endpoint.dataset),
+                )
             )
             result = await session.exec(statement)
             return list(result.all())

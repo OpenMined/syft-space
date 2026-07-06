@@ -32,6 +32,38 @@ export interface CreateDatasetRequest {
   summary: string
   tags: string
   configuration: Record<string, unknown>
+  // Picker selection for the dataset. Stored server-side in the
+  // dataset_selection table, never inside configuration.
+  selected_items?: SelectionItemRequest[]
+}
+
+// One pick to add to a dataset's selection (create or add-source flows).
+export interface SelectionItemRequest {
+  item_id: string
+  description?: string | null
+}
+
+// A dataset_selection row as returned by the API.
+export interface SelectedItemResponse {
+  item_id: string
+  description: string | null
+  added_at: string
+}
+
+// The dataset's full selection after an add/remove operation.
+export interface SelectionResponse {
+  selected_items: SelectedItemResponse[]
+}
+
+// A page of a dataset's selection picks (GET /datasets/{name}/selection).
+export interface SelectionPageResponse {
+  items: SelectedItemResponse[]
+  total: number
+}
+
+// Every selected item id for a dataset (GET /datasets/{name}/selection/ids).
+export interface SelectionIdsResponse {
+  item_ids: string[]
 }
 
 export interface ProvisionerStateResponse {
@@ -83,6 +115,7 @@ export interface EndpointListItem {
     summary: string
     dtype: string
     configuration: Record<string, unknown>
+    selected_items_count?: number
   }
 }
 
@@ -101,6 +134,11 @@ export interface DatasetListItem {
   configuration: Record<string, unknown>
   connected_endpoints: EndpointListItem[]
   provisioner_status?: ProvisionerStatusResponse
+  // The list view ships a count + short preview instead of the full array,
+  // so a dataset with many picks does not bloat the list payload. Fetch the
+  // full, paged selection via datasetsApi.getSelection.
+  selected_items_count?: number
+  selected_items_preview?: SelectedItemResponse[]
 }
 
 export interface BrowseSchemaProperty {
@@ -303,6 +341,7 @@ export interface EndpointResponse {
     summary: string
     dtype: string
     configuration: Record<string, unknown>
+    selected_items_count?: number
   }
   policies?: AttachedPolicy[]
 }
