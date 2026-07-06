@@ -4,8 +4,11 @@
       <Tooltip>
         <TooltipTrigger as-child>
           <div
-            class="group flex items-center gap-2 px-2 py-1 rounded hover:bg-muted cursor-pointer select-none"
-            :class="{ 'bg-blue-50 dark:bg-blue-950/50': isLeafSelected }"
+            class="group flex items-center gap-2 px-2 py-1 rounded hover:bg-muted select-none"
+            :class="[
+              isLeafSelected ? 'bg-blue-50 dark:bg-blue-950/50' : '',
+              isLocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+            ]"
             :style="{ paddingLeft: `${depth * 20 + 8}px` }"
             @click="onRowClick"
           >
@@ -19,6 +22,7 @@
 
             <Checkbox
               :model-value="checkboxState"
+              :disabled="checkboxDisabled"
               @click.stop
               @update:model-value="onCheckbox"
               class="flex-shrink-0"
@@ -36,6 +40,13 @@
                 class="flex-shrink-0 h-4 px-1 text-[10px] font-normal text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700"
               >
                 Private
+              </Badge>
+              <Badge
+                v-if="isLocked"
+                variant="secondary"
+                class="flex-shrink-0 h-4 px-1 text-[10px] font-normal text-muted-foreground"
+              >
+                Added
               </Badge>
             </div>
 
@@ -103,16 +114,14 @@
           :dtype="dtype"
           :container-mode="containerMode"
           :selected="selected"
+          :locked-selection="lockedSelection"
           :expanded="expanded"
           @toggle-expand="(n: FileNode) => $emit('toggle-expand', n)"
           @toggle-select="(paths: string[], on: boolean) => $emit('toggle-select', paths, on)"
           @load-more="(n: FileNode) => $emit('load-more', n)"
           @retry-permission="(n: FileNode) => $emit('retry-permission', n)"
         />
-        <div
-          v-if="node.nextCursor"
-          :style="{ paddingLeft: `${(depth + 1) * 20 + 8}px` }"
-        >
+        <div v-if="node.nextCursor" :style="{ paddingLeft: `${(depth + 1) * 20 + 8}px` }">
           <Button
             variant="ghost"
             size="sm"
@@ -141,12 +150,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useFileIcon } from '@/composables/useFileIcon'
 import type { FileNode } from '@/composables/useSourceBrowser'
 
@@ -157,9 +161,10 @@ const props = withDefaults(
     dtype: string
     containerMode: 'self' | 'group'
     selected: string[]
+    lockedSelection?: string[]
     expanded: Set<string>
   }>(),
-  { depth: 0 },
+  { depth: 0, lockedSelection: () => [] },
 )
 
 const emit = defineEmits<{
@@ -171,18 +176,25 @@ const emit = defineEmits<{
 
 const { getFileIcon, getFileIconColor, formatFileSize } = useFileIcon()
 
+const lockedSet = computed(() => new Set(props.lockedSelection))
 const isContainer = computed(() => props.node.type === 'directory')
 const isExpanded = computed(() => props.expanded.has(props.node.path))
-const isLeafSelected = computed(() => props.selected.includes(props.node.path))
+/** A leaf already part of the saved selection — shown selected but immutable. */
+const isLocked = computed(() => !isContainer.value && lockedSet.value.has(props.node.path))
+const isLeafSelected = computed(() => props.selected.includes(props.node.path) || isLocked.value)
 
 /** Paths of the container's currently-loaded leaf/child items. */
 const childPaths = computed(() => (props.node.children ?? []).map((c) => c.path))
+/** Loaded children that are not locked — the only ones a group toggle affects. */
+const togglableChildPaths = computed(() =>
+  childPaths.value.filter((id) => !lockedSet.value.has(id)),
+)
 
-/** Tri-state for group-mode containers: all / some / none of loaded children selected. */
+/** Tri-state for group-mode containers: counts selected + locked children. */
 const groupState = computed<boolean | 'indeterminate'>(() => {
   const ids = childPaths.value
   if (ids.length === 0) return false
-  const count = ids.filter((id) => props.selected.includes(id)).length
+  const count = ids.filter((id) => props.selected.includes(id) || lockedSet.value.has(id)).length
   if (count === 0) return false
   if (count === ids.length) return true
   return 'indeterminate'
@@ -191,6 +203,15 @@ const groupState = computed<boolean | 'indeterminate'>(() => {
 const checkboxState = computed<boolean | 'indeterminate'>(() => {
   if (isContainer.value && props.containerMode === 'group') return groupState.value
   return isLeafSelected.value
+})
+
+/** Locked leaves can't be toggled; group containers with no togglable child are inert. */
+const checkboxDisabled = computed(() => {
+  if (isLocked.value) return true
+  if (isContainer.value && props.containerMode === 'group') {
+    return childPaths.value.length > 0 && togglableChildPaths.value.length === 0
+  }
+  return false
 })
 
 const iconComponent = computed(() => {
@@ -210,9 +231,10 @@ const iconClass = computed(() => {
 const onCheckbox = (checked: boolean | 'indeterminate') => {
   const on = checked === true
   if (isContainer.value && props.containerMode === 'group') {
-    if (childPaths.value.length === 0) return
-    emit('toggle-select', childPaths.value, on)
+    if (togglableChildPaths.value.length === 0) return
+    emit('toggle-select', togglableChildPaths.value, on)
   } else {
+    if (isLocked.value) return
     emit('toggle-select', [props.node.path], on)
   }
 }
@@ -221,6 +243,7 @@ const onRowClick = () => {
   if (isContainer.value) {
     emit('toggle-expand', props.node)
   } else {
+    if (isLocked.value) return
     emit('toggle-select', [props.node.path], !isLeafSelected.value)
   }
 }

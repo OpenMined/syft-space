@@ -4,6 +4,10 @@ import type {
   DatasetResponse,
   DatasetListItem,
   SourceBrowseRequest,
+  SelectionItemRequest,
+  SelectionResponse,
+  SelectionPageResponse,
+  SelectionIdsResponse,
   SourceBrowseResponse,
   UpdateDatasetRequest,
   HealthcheckResponse,
@@ -24,6 +28,20 @@ export const datasetsApi = {
       cursor,
     }
     const response = await apiClient.post<SourceBrowseResponse>('/datasets/browse', body)
+    return response.data
+  },
+
+  // Browse an existing dataset's source using its stored credentials (server-side).
+  // Used by the "add source" picker so credentials never round-trip to the client.
+  browseDataset: async (
+    name: string,
+    parentId: string | null = null,
+    cursor: string | null = null,
+  ): Promise<SourceBrowseResponse> => {
+    const response = await apiClient.post<SourceBrowseResponse>(`/datasets/${name}/browse`, {
+      parent_id: parentId,
+      cursor,
+    })
     return response.data
   },
 
@@ -49,6 +67,29 @@ export const datasetsApi = {
 
   update: async (name: string, dataset: UpdateDatasetRequest): Promise<DatasetResponse> => {
     const response = await apiClient.patch<DatasetResponse>(`/datasets/${name}`, dataset)
+    return response.data
+  },
+
+  // A page of a dataset's selection picks. The selection is no longer inlined
+  // in the dataset/endpoint payload — detail views fetch and page it here.
+  getSelection: async (name: string, limit = 50, offset = 0): Promise<SelectionPageResponse> => {
+    const response = await apiClient.get<SelectionPageResponse>(`/datasets/${name}/selection`, {
+      params: { limit, offset },
+    })
+    return response.data
+  },
+
+  // Every selected item id for a dataset (unpaged) — for picker pre-selection.
+  getSelectionIds: async (name: string): Promise<SelectionIdsResponse> => {
+    const response = await apiClient.get<SelectionIdsResponse>(`/datasets/${name}/selection/ids`)
+    return response.data
+  },
+
+  // Additively add picker items to a dataset's selection (source-agnostic).
+  addSelection: async (name: string, items: SelectionItemRequest[]): Promise<SelectionResponse> => {
+    const response = await apiClient.post<SelectionResponse>(`/datasets/${name}/selection`, {
+      items,
+    })
     return response.data
   },
 

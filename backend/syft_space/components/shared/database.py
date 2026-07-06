@@ -90,15 +90,28 @@ class AsyncDatabase:
             pool_recycle=3600,  # Recycle connections after 1 hour
         )
 
-        # Configure PRAGMA for foreign key constraints
-        if isinstance(self.config, SQLiteConfig) and self.config.enable_foreign_keys:
+        # Per-connection SQLite PRAGMAs.
+        if isinstance(self.config, SQLiteConfig):
+            enable_foreign_keys = self.config.enable_foreign_keys
 
             @event.listens_for(self.engine.sync_engine, "connect")
             def set_sqlite_pragma(dbapi_conn, connection_record):
                 cursor = dbapi_conn.cursor()
-                cursor.execute("PRAGMA foreign_keys=ON")
+                # WAL lets readers proceed while a writer holds the lock —
+                # the default rollback journal blocks every read for the
+                # duration of each write transaction. Sticky on the DB
+                # file, but set per-connection so new DBs get it too.
+                cursor.execute("PRAGMA journal_mode=WAL")
+                # With WAL, NORMAL only risks losing the very last commits
+                # on power loss (never corruption) and skips an fsync per
+                # transaction.
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                # Wait for a locked database instead of failing immediately
+                # ("database is locked") under concurrent write bursts.
+                cursor.execute("PRAGMA busy_timeout=5000")
+                if enable_foreign_keys:
+                    cursor.execute("PRAGMA foreign_keys=ON")
                 cursor.close()
-                # logger.debug("SQLite PRAGMA foreign_keys=ON set for new connection")
 
     async def dispose(self) -> None:
         """Dispose of the engine and close all pooled connections."""

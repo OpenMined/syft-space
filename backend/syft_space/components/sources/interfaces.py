@@ -136,11 +136,20 @@ class BaseSource(Protocol):
         """
         ...
 
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Async iterator of change events for this source.
+    def change_stream(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
+        """Async iterator of leaf change events for the given picks.
 
-        Sources own their own watching/polling strategy. The ingestion
-        manager consumes this stream to keep the dataset in sync.
+        The ingestion manager owns the scope — it reads the dataset's picks
+        from the selection table and passes their ids here as-is. Every pick
+        is a branch the source expands to 1..N leaf ``SourceChangeEvent``s
+        (a folder → one per contained file; a single file / post → exactly
+        one). Branch-vs-leaf classification is the source's private concern
+        (live filesystem check, id shape, …), as is how it keeps emitting
+        after the initial expansion (filesystem events, polling, …). A
+        source with no watch mechanism simply ends the stream after the
+        initial expansion.
         """
         ...
 
@@ -197,6 +206,34 @@ class BaseSourceProvider(Protocol):
 
         Must extend ``browse_schema``: every browse field is also a
         dataset field, plus the ingestion-time additions.
+        """
+        ...
+
+    @classmethod
+    def selection_covers(cls, item_id: str, external_id: str) -> bool:
+        """Whether the pick ``item_id`` covers the ingested item ``external_id``.
+
+        Id-space knowledge is provider-owned: a directory pick covers the
+        files under it, a post pick covers exactly itself. Used when a pick
+        is removed from a dataset's selection to find the ingestion jobs it
+        produced and tombstone them.
+        """
+        ...
+
+    @classmethod
+    async def validate_selection(cls, item_ids: list[str]) -> None:
+        """Validate picks before they are stored (create / add-selection).
+
+        Existence, not content: whether each pick still refers to something
+        real (a path on disk, a post that exists), not whether it currently
+        yields any ingestable items — an empty container is a valid pick.
+        Providers with no notion of pick validity no-op.
+
+        Args:
+            item_ids: Picker id-space identifiers to validate.
+
+        Raises:
+            ValueError: If any pick is invalid (e.g. a path that does not exist).
         """
         ...
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -36,13 +37,6 @@ DEFAULT_ALLOWED_EXTENSIONS = [
 ]
 
 
-class FilePathItem(BaseModel):
-    """A file path item with path and description."""
-
-    path: str = Field(..., description="The file or directory path to watch")
-    description: str = Field(..., description="Description of the data at this path")
-
-
 class LocalFileBrowseConfig(BaseModel):
     """Picker-time configuration for the local filesystem source.
 
@@ -63,15 +57,11 @@ class LocalFileBrowseConfig(BaseModel):
 class LocalFileDatasetConfig(LocalFileBrowseConfig):
     """Full dataset configuration for the local filesystem source.
 
-    Extends the browse configuration with the paths to watch and the
-    file extensions to admit. The dataset row stores this shape.
+    Extends the browse configuration with the file extensions to admit.
+    The paths to watch are NOT part of the configuration — they live in
+    the ``dataset_selection`` table and arrive via ``change_stream``.
     """
 
-    file_paths: list[FilePathItem] = Field(
-        ...,
-        alias="filePaths",
-        description="File or directory paths to watch for ingestion",
-    )
     allowed_extensions: list[str] = Field(
         default_factory=lambda: list(DEFAULT_ALLOWED_EXTENSIONS),
         alias="allowedExtensions",
@@ -188,23 +178,21 @@ class LocalFileSource:
         )
         return await browser.list_items(parent_id, cursor)
 
-    def watched_paths(self) -> list[str]:
-        """Absolute directory/file paths to monitor."""
-        return [item.path for item in self.config.file_paths]
-
     def allowed_extensions(self) -> set[str]:
         """Allowed file extensions (including the leading dot)."""
         return self._allowed_extensions
 
-    async def _enumerate_configured_files(self) -> list[SourceItem]:
-        """Walk every ingestable file under the configured paths.
+    async def _enumerate_paths(self, paths: list[str]) -> list[SourceItem]:
+        """Walk every ingestable file under the given paths (dirs expanded).
 
         Used by ``change_stream`` to seed the ingestion manager with
-        ``created`` events for files already on disk.
+        ``created`` events for files already on disk. A directory pick
+        (branch) is expanded to its files; a file pick (leaf) is emitted
+        directly.
         """
         items: list[SourceItem] = []
-        for fp in self.config.file_paths:
-            root = AsyncPath(fp.path)
+        for raw in paths:
+            root = AsyncPath(raw)
             if await root.is_file():
                 if root.suffix in self._allowed_extensions:
                     items.append(await self._to_source_item(root))
@@ -240,23 +228,28 @@ class LocalFileSource:
             separators=(",", ":"),
         )
 
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Yield filesystem change events for the configured paths.
+    def change_stream(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
+        """Yield filesystem change events for the given picks.
 
-        The watchdog subscription is opened before the initial scan so
-        events that fire during the scan are buffered. The scan then
-        emits ``created`` events for files already on disk, and the
-        watchdog stream takes over after that.
+        The manager supplies the dataset's pick ids read from the selection
+        table; classification is live and local — a directory pick is watched
+        and expanded to its files, a file pick is watched and emitted
+        directly. The watchdog subscription is opened before the initial scan
+        so events that fire during the scan are buffered; the scan emits
+        ``created`` for files already on disk, then the watchdog stream
+        (create/update/delete) takes over.
         """
-        return self._change_stream_impl()
+        return self._change_stream_impl(selected_ids)
 
-    async def _change_stream_impl(self) -> AsyncIterator[SourceChangeEvent]:
+    async def _change_stream_impl(
+        self, paths: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
         watcher = get_local_file_watcher()
-        sub_iter = await watcher.subscribe(
-            self.watched_paths(), self._allowed_extensions
-        )
+        sub_iter = await watcher.subscribe(paths, self._allowed_extensions)
         try:
-            for item in await self._enumerate_configured_files():
+            for item in await self._enumerate_paths(paths):
                 yield SourceChangeEvent(
                     event_type="created",
                     external_id=item.external_id,
@@ -269,6 +262,10 @@ class LocalFileSource:
 
     async def _to_source_item(self, path: AsyncPath) -> SourceItem:
         stat = await path.stat()
+        # Resolved, so the initial scan and the watchdog (whose events carry
+        # OS-resolved paths) agree on one external_id per file even when the
+        # configured pick traverses a symlink.
+        path = await path.resolve()
         return SourceItem(
             external_id=str(path),
             display_name=path.name,
@@ -330,6 +327,19 @@ class LocalFileProvider:
         )
 
     @classmethod
+    def selection_covers(cls, item_id: str, external_id: str) -> bool:
+        """A path pick covers itself and, for directories, everything under it.
+
+        Both sides resolve first: job external_ids are stored resolved, while
+        a pick keeps the form the user selected, which may traverse a symlink.
+        """
+        pick = os.path.realpath(item_id)
+        external = os.path.realpath(external_id)
+        if external == pick:
+            return True
+        return external.startswith(pick.rstrip(os.sep) + os.sep)
+
+    @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
         """Validate a picker-time payload against ``LocalFileBrowseConfig``.
 
@@ -343,21 +353,35 @@ class LocalFileProvider:
 
     @classmethod
     async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        """Validate a full dataset configuration and the paths it points to.
+        """Validate a full dataset configuration payload.
+
+        The paths to ingest are not part of the configuration (they live in
+        the selection table); the picker only offers existing paths, and the
+        scan skips anything that has since disappeared.
 
         Raises:
-            ValueError: If the payload is malformed or any configured
-                ``file_paths`` entry does not exist on disk.
+            ValueError: If the payload is malformed.
         """
         try:
-            config = LocalFileDatasetConfig.model_validate(configuration)
+            LocalFileDatasetConfig.model_validate(configuration)
         except ValidationError as e:
             raise ValueError(f"Invalid configuration: {e}") from e
 
-        for file_path_item in config.file_paths:
-            path = AsyncPath(file_path_item.path)
-            if not await path.exists():
-                raise ValueError(f"file_paths does not exist: {file_path_item.path}")
+    @classmethod
+    async def validate_selection(cls, item_ids: list[str]) -> None:
+        """Validate the selected paths.
+
+        - Reject picks whose path does not exist on disk.
+        - Reject picks whose path is not a file or directory.
+
+        Raises:
+            ValueError: If any selected path does not exist on disk.
+        """
+        missing = [
+            item_id for item_id in item_ids if not await AsyncPath(item_id).exists()
+        ]
+        if missing:
+            raise ValueError("Selected path(s) do not exist: " + ", ".join(missing))
 
     @classmethod
     def for_browse(cls, configuration: dict[str, Any]) -> LocalFileBrowser:

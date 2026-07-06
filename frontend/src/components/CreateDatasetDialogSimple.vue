@@ -204,14 +204,13 @@ import SourceBrowser from '@/components/SourceBrowser.vue'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
-import type { CreateDatasetRequest, UpdateDatasetRequest } from '@/api/types'
+import type { CreateDatasetRequest, SelectionItemRequest, UpdateDatasetRequest } from '@/api/types'
 
 interface EditDataset {
   id: string
   name: string
   summary: string
   tags: string[]
-  filePaths: Array<{ path: string; description: string }>
 }
 
 const props = withDefaults(
@@ -283,16 +282,20 @@ const buildConfiguration = (): Record<string, unknown> => {
       siteUrl: credentials.value.siteUrl ?? '',
       username: credentials.value.username ?? '',
       applicationPassword: credentials.value.applicationPassword ?? '',
-      selectedItems: [...formData.value.selectedFiles],
     }
   }
-  // local_file (default)
-  const filePathsWithDescriptions = formData.value.selectedFiles.map((filePath) => ({
-    path: filePath,
-    description: fileDescriptions.value[filePath] || '',
-  }))
-  return { filePaths: filePathsWithDescriptions }
+  // local_file (default) — no source-specific config beyond defaults; the
+  // selection travels in selected_items, not in the configuration.
+  return {}
 }
+
+// The picker selection, sent as selected_items (stored server-side in the
+// dataset_selection table, never inside configuration).
+const buildSelectedItems = (): SelectionItemRequest[] =>
+  formData.value.selectedFiles.map((itemId) => ({
+    item_id: itemId,
+    description: fileDescriptions.value[itemId] || '',
+  }))
 
 const getFileName = (path: string) => {
   return path.split('/').pop() || path
@@ -357,6 +360,7 @@ const handleCreate = async () => {
         summary: formData.value.summary.trim() || '',
         tags: formData.value.tags.join(','),
         configuration: buildConfiguration(),
+        selected_items: buildSelectedItems(),
       }
 
       await datasetsApi.create(createRequest)

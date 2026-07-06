@@ -50,7 +50,9 @@ class NoOpSource:
             f"{NoOpProvider.NAME!r} source has no fingerprintable items"
         )
 
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
+    def change_stream(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
         """Return an async iterator that yields nothing and completes."""
         return self._change_stream_impl()
 
@@ -104,6 +106,16 @@ class NoOpProvider:
     def configuration_schema(cls) -> dict[str, Any]:
         """No configurable fields."""
         return {"type": "object", "properties": {}}
+
+    @classmethod
+    def selection_covers(cls, item_id: str, external_id: str) -> bool:
+        """No selection concept — nothing is ever covered."""
+        return False
+
+    @classmethod
+    async def validate_selection(cls, item_ids: list[str]) -> None:
+        """No-op — no selection concept, any pick is accepted (and ignored)."""
+        return None
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:

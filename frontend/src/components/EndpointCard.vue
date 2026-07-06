@@ -43,12 +43,12 @@
 
         <div class="flex items-center gap-2 flex-wrap text-[11px]">
           <span
-            v-if="endpoint.watchedPaths && endpoint.watchedPaths.length > 0"
+            v-if="endpoint.watchedPathsCount && endpoint.watchedPathsCount > 0"
             class="inline-flex items-center gap-1 text-muted-foreground"
           >
             <Database class="h-3 w-3" />
-            {{ endpoint.watchedPaths.length }}
-            {{ endpoint.watchedPaths.length === 1 ? 'path' : 'paths' }}
+            {{ endpoint.watchedPathsCount }}
+            {{ endpoint.watchedPathsCount === 1 ? 'path' : 'paths' }}
           </span>
 
           <span

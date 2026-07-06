@@ -162,6 +162,15 @@ class BaseModelType(Protocol):
         """
         ...
 
+    async def aclose(self) -> None:
+        """Release any resources (e.g. HTTP connection pools).
+
+        Instances are built per request, so the caller must close them after
+        use or their underlying network transports leak until GC. Must be
+        idempotent.
+        """
+        ...
+
     @classmethod
     def enabled(cls) -> bool:
         """Check if this model type is enabled.

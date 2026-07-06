@@ -6,11 +6,11 @@ Password, from wp-admin → Users → Profile).
 
 ``WordPressProvider`` builds the two runtime objects: ``WordPressBrowser``
 for picker-time discovery, ``WordPressSource`` for ingestion. Ingestion is
-driven by an explicit picker selection (``selected_items``): each poll
-re-fetches those items via the REST ``include`` filter and emits their
-``modified_gmt`` as a fingerprint, which the ingestion repository dedups on
-so only edited items re-ingest. ``fetch`` writes a post's rendered HTML to
-a tempfile. There is no full-site crawl.
+driven by the dataset's selection-table picks passed to ``change_stream``:
+each poll re-fetches those items via the REST ``include`` filter and emits
+their ``modified_gmt`` as a fingerprint, which the ingestion repository
+dedups on so only edited items re-ingest. ``fetch`` writes a post's rendered
+HTML to a tempfile. There is no full-site crawl.
 
 Not handled in v1: deletes (no REST tombstones — a removed item just stops
 appearing in polls) and a "subscribe to a whole post type" mode.
@@ -23,7 +23,7 @@ import html
 import logging
 import os
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -120,7 +120,9 @@ class WordPressBrowseConfig(BaseModel):
 class WordPressDatasetConfig(WordPressBrowseConfig):
     """Full dataset config — the shape stored on the dataset row.
 
-    Adds the poll cadence and the item selection to the browse config.
+    Adds the poll cadence to the browse config. The items to poll are NOT
+    part of the configuration — they live in the ``dataset_selection``
+    table and arrive via ``change_stream``.
     """
 
     poll_interval_seconds: int = Field(
@@ -128,15 +130,6 @@ class WordPressDatasetConfig(WordPressBrowseConfig):
         alias="pollIntervalSeconds",
         description="Seconds between change-stream polls",
         gt=0,
-    )
-    selected_items: list[str] | None = Field(
-        default=None,
-        alias="selectedItems",
-        description=(
-            "The external_ids (``{post_type}:{id}``) to ingest and watch "
-            "for changes. The source polls exactly these items; an empty "
-            "or unset selection ingests nothing."
-        ),
     )
 
 
@@ -353,7 +346,6 @@ class WordPressSource:
     def __init__(self, config: WordPressDatasetConfig) -> None:
         self.config = config
         self._fingerprints: dict[str, str] = {}
-        self._selected_items: set[str] = set(config.selected_items or ())
         self._post_types: dict[str, dict[str, str]] = {}
 
     async def _rest_base(self, client: httpx.AsyncClient, post_type: str) -> str:
@@ -449,16 +441,27 @@ class WordPressSource:
                 "on next change_stream poll"
             ) from e
 
-    def change_stream(self) -> AsyncIterator[SourceChangeEvent]:
-        """Re-poll the selected items every ``poll_interval_seconds``."""
-        return self._change_stream_impl()
+    def change_stream(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
+        """Re-poll the selected posts every ``poll_interval_seconds``.
 
-    async def _change_stream_impl(self) -> AsyncIterator[SourceChangeEvent]:
+        The manager supplies the dataset's pick ids from the selection table
+        — ``{post_type}:{id}`` posts, polled directly. Ids are self-
+        describing, so a future container pick (``category:{id}``) would be
+        classified here and expanded to its posts; for now every pick is an
+        individual post.
+        """
+        return self._change_stream_impl(selected_ids)
+
+    async def _change_stream_impl(
+        self, selected_ids: list[str]
+    ) -> AsyncIterator[SourceChangeEvent]:
         # One client for the life of the stream; closed when the consuming
         # task is cancelled and the generator unwinds.
         async with _make_client(self.config) as client:
             while True:
-                for post_type, post_ids in self._selected_by_type().items():
+                for post_type, post_ids in self._group_by_type(selected_ids).items():
                     try:
                         async for event in self._poll_post_type(
                             client, post_type, post_ids
@@ -470,14 +473,14 @@ class WordPressSource:
                         )
                 await asyncio.sleep(self.config.poll_interval_seconds)
 
-    def _selected_by_type(self) -> dict[str, list[int]]:
-        """Group the selected external_ids by post type: ``{type: [id, ...]}``.
+    def _group_by_type(self, ids: Iterable[str]) -> dict[str, list[int]]:
+        """Group external_ids by post type: ``{type: [id, ...]}``.
 
         Malformed ids are skipped (and logged) so one bad entry can't
         abort the whole poll.
         """
         grouped: dict[str, list[int]] = {}
-        for external_id in self._selected_items:
+        for external_id in ids:
             try:
                 post_type, post_id = _parse_external_id(external_id)
             except ValueError:
@@ -564,6 +567,21 @@ class WordPressProvider:
         return WordPressDatasetConfig.model_json_schema(
             schema_generator=ConfigSchemaGenerator
         )
+
+    @classmethod
+    def selection_covers(cls, item_id: str, external_id: str) -> bool:
+        """A post pick covers exactly itself (``{post_type}:{id}`` equality)."""
+        return external_id == item_id
+
+    @classmethod
+    async def validate_selection(cls, item_ids: list[str]) -> None:
+        """No-op for now — post existence is not probed at selection time.
+
+        The picker only surfaces existing posts; confirming per-post existence
+        would mean a REST round-trip per pick in the request path. Revisit if
+        stale post picks become a problem.
+        """
+        return None
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:

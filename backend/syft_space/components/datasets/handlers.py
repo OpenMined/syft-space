@@ -25,6 +25,7 @@ from syft_space.components.datasets.provisioner_state_repository import (
 )
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.datasets.schemas import (
+    AddSelectionRequest,
     CreateDatasetRequest,
     DatasetListItem,
     DatasetResponse,
@@ -32,8 +33,16 @@ from syft_space.components.datasets.schemas import (
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
+    RemoveSelectionRequest,
+    SelectedItemResponse,
+    SelectionIdsResponse,
+    SelectionPageResponse,
+    SelectionResponse,
     SourceBrowseResponse,
     UpdateDatasetRequest,
+)
+from syft_space.components.datasets.selection_repository import (
+    DatasetSelectionRepository,
 )
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
@@ -54,7 +63,8 @@ class DatasetHandler:
         registry: DatasetTypeRegistry,
         repository: DatasetRepository,
         provisioner_state_repository: ProvisionerStateRepository,
-        endpoint_repository: EndpointRepository | None = None,
+        endpoint_repository: EndpointRepository,
+        selection_repository: DatasetSelectionRepository,
     ):
         """Initialize the dataset handler.
 
@@ -62,12 +72,14 @@ class DatasetHandler:
             registry: Dataset type registry
             repository: Dataset repository
             provisioner_state_repository: Provisioner state repository
-            endpoint_repository: Endpoint repository (used to guard against deleting datasets in use)
+            endpoint_repository: Endpoint repository (guards against deleting datasets in use)
+            selection_repository: Selection repository (the source of truth for picks)
         """
         self.registry = registry
         self.repository = repository
         self.provisioner_state_repository = provisioner_state_repository
         self.endpoint_repository = endpoint_repository
+        self.selection_repository = selection_repository
 
     # ============== Private Provisioner Lifecycle Methods ==============
 
@@ -467,6 +479,16 @@ class DatasetHandler:
                 status_code=400, detail=f"Invalid configuration: {str(e)}"
             ) from e
 
+        # Validate the picker selection (e.g. local paths must exist) before
+        # provisioning anything — a bad pick would otherwise create a dataset
+        # that silently ingests nothing.
+        try:
+            await dataset_type.SOURCE_PROVIDER_CLS.validate_selection(
+                [item.item_id for item in request.selected_items]
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
         # Check if name already exists within tenant
         existing = await self.repository.get_by_name(request.name, tenant.id)
         if existing:
@@ -508,7 +530,16 @@ class DatasetHandler:
 
         # Save to database and build response
         created_dataset = await self.repository.create(dataset)
-        return DatasetResponse.from_dataset(created_dataset, provisioner_state)
+
+        # Write the selection picks to the normalized table — the scanner
+        # reads its ingestion scope from there. The configuration blob never
+        # carries the selection.
+        await self.selection_repository.add_many(
+            created_dataset.id,
+            [(item.item_id, item.description) for item in request.selected_items],
+        )
+
+        return await self._build_response(created_dataset, provisioner_state)
 
     async def list_datasets(self, tenant: Tenant) -> list[DatasetListItem]:
         """List all datasets for a tenant.
@@ -520,6 +551,13 @@ class DatasetHandler:
             List of datasets
         """
         datasets = await self.repository.get_all(tenant.id)
+
+        # Selection counts in one grouped query; a short preview per dataset is
+        # a small bounded page. Neither loads the full selection.
+        counts = await self.selection_repository.count_by_datasets(
+            [ds.id for ds in datasets]
+        )
+
         result = []
         for ds in datasets:
             provisioner_state = None
@@ -527,7 +565,17 @@ class DatasetHandler:
                 provisioner_state = await self.provisioner_state_repository.get_by_id(
                     ds.provisioner_state_id
                 )
-            result.append(DatasetListItem.from_dataset(ds, provisioner_state))
+            preview = await self.selection_repository.list_page(
+                ds.id, DatasetListItem.PREVIEW_LIMIT, 0
+            )
+            result.append(
+                DatasetListItem.from_dataset(
+                    ds,
+                    provisioner_state,
+                    selected_items_count=counts.get(ds.id, 0),
+                    selected_items_preview=preview,
+                )
+            )
         return result
 
     async def get_dataset(self, name: str, tenant: Tenant) -> DatasetResponse:
@@ -553,7 +601,7 @@ class DatasetHandler:
                 dataset.provisioner_state_id
             )
 
-        return DatasetResponse.from_dataset(dataset, provisioner_state)
+        return await self._build_response(dataset, provisioner_state)
 
     async def update_dataset(
         self, name: str, request: UpdateDatasetRequest, tenant: Tenant
@@ -595,7 +643,128 @@ class DatasetHandler:
                 updated_dataset.provisioner_state_id
             )
 
-        return DatasetResponse.from_dataset(updated_dataset, provisioner_state)
+        return await self._build_response(updated_dataset, provisioner_state)
+
+    # ============== Selection ==============
+
+    async def _build_response(
+        self, dataset: Dataset, provisioner_state: ProvisionerState | None
+    ) -> DatasetResponse:
+        """Build a ``DatasetResponse``.
+
+        The selection is no longer embedded — clients page it via
+        ``get_selection_page``.
+        """
+        return DatasetResponse.from_dataset(dataset, provisioner_state)
+
+    async def add_selection(
+        self, name: str, request: AddSelectionRequest, tenant: Tenant
+    ) -> tuple[SelectionResponse, Dataset]:
+        """Add picks to a dataset's selection.
+
+        Idempotent per item — the ``UNIQUE(dataset_id, item_id)`` constraint
+        dedups re-adds. The route restarts the dataset's stream afterwards so
+        the new picks are scanned and watched.
+
+        Returns:
+            The dataset's full selection after the add, and the resolved dataset
+            (so the route can restart ingestion without re-fetching it).
+        """
+        selection_repository = self.selection_repository
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        # Reject invalid picks (e.g. non-existent paths) before storing them.
+        try:
+            provider_cls = self.registry.get_dataset_type(
+                dataset.dtype
+            ).SOURCE_PROVIDER_CLS
+        except KeyError:
+            raise HTTPException(
+                status_code=400, detail=f"Dataset type '{dataset.dtype}' not found"
+            ) from None
+        try:
+            await provider_cls.validate_selection(
+                [item.item_id for item in request.items]
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        await selection_repository.add_many(
+            dataset.id,
+            [(item.item_id, item.description) for item in request.items],
+        )
+
+        rows = await selection_repository.list_for_dataset(dataset.id)
+        response = SelectionResponse(
+            selected_items=[SelectedItemResponse.model_validate(r) for r in rows]
+        )
+        return response, dataset
+
+    async def remove_selection(
+        self, name: str, request: RemoveSelectionRequest, tenant: Tenant
+    ) -> tuple[SelectionResponse, list[str], Dataset]:
+        """Remove picks from a dataset's selection.
+
+        Returns:
+            The remaining selection, the ids that were actually removed, and the
+            resolved dataset (so the route can tombstone/restart without
+            re-fetching it). Only actually-removed ids drive job tombstoning
+            downstream, so a requested id that was never selected cannot take
+            jobs with it.
+        """
+        selection_repository = self.selection_repository
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        removed = [
+            item_id
+            for item_id in request.item_ids
+            if await selection_repository.remove(dataset.id, item_id)
+        ]
+
+        rows = await selection_repository.list_for_dataset(dataset.id)
+        response = SelectionResponse(
+            selected_items=[SelectedItemResponse.model_validate(r) for r in rows]
+        )
+        return response, removed, dataset
+
+    async def get_selection_page(
+        self, name: str, tenant: Tenant, limit: int, offset: int
+    ) -> SelectionPageResponse:
+        """A page of a dataset's selection (items + total count).
+
+        Backs the detail views, which fetch the selection on demand rather
+        than receiving it inline in the dataset/endpoint payload.
+        """
+        selection_repository = self.selection_repository
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        rows = await selection_repository.list_page(dataset.id, limit, offset)
+        total = await selection_repository.count_for_dataset(dataset.id)
+        return SelectionPageResponse(
+            items=[SelectedItemResponse.model_validate(r) for r in rows],
+            total=total,
+        )
+
+    async def get_selection_ids(
+        self, name: str, tenant: Tenant
+    ) -> SelectionIdsResponse:
+        """Every selected item id for a dataset (unpaged).
+
+        For the picker's pre-selection, which needs the complete id set.
+        """
+        selection_repository = self.selection_repository
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        item_ids = await selection_repository.list_ids_for_dataset(dataset.id)
+        return SelectionIdsResponse(item_ids=item_ids)
 
     async def delete_dataset(self, name: str, tenant: Tenant) -> dict:
         """Delete a dataset by name within a tenant.
@@ -617,16 +786,15 @@ class DatasetHandler:
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
-        if self.endpoint_repository:
-            attached = await self.endpoint_repository.get_by_dataset_id(
-                dataset.id, tenant.id
+        attached = await self.endpoint_repository.get_by_dataset_id(
+            dataset.id, tenant.id
+        )
+        if attached:
+            names = ", ".join(f"'{e.name}'" for e in attached)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot delete data source '{name}': it is used by {len(attached)} API(s): {names}. Remove it from those APIs first.",
             )
-            if attached:
-                names = ", ".join(f"'{e.name}'" for e in attached)
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Cannot delete data source '{name}': it is used by {len(attached)} API(s): {names}. Remove it from those APIs first.",
-                )
 
         if dataset.provisioner_state_id:
             logger.info(
@@ -991,6 +1159,53 @@ class DatasetHandler:
                 status_code=404, detail=f"Unknown source type: {dtype}"
             ) from e
 
+        return await self._browse_with_provider(
+            provider, dtype, configuration, parent_id, cursor
+        )
+
+    async def browse_dataset_source(
+        self,
+        name: str,
+        tenant: Tenant,
+        parent_id: str | None,
+        cursor: str | None = None,
+    ) -> SourceBrowseResponse:
+        """Browse an existing dataset's source using its STORED credentials.
+
+        Drives the "add source" picker: the server splits the dataset's
+        stored configuration and hands the source half to the binding's
+        provider, so credentials are never sent to (or required from) the
+        client — API responses redact them, so the client couldn't supply
+        them anyway.
+        """
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+        try:
+            dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        except KeyError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Dataset type '{dataset.dtype}' not found"
+            ) from e
+
+        source_cfg, _ = dataset_type_cls.split_config(dataset.configuration)
+        return await self._browse_with_provider(
+            dataset_type_cls.SOURCE_PROVIDER_CLS,
+            dataset.dtype,
+            source_cfg,
+            parent_id,
+            cursor,
+        )
+
+    async def _browse_with_provider(
+        self,
+        provider: Any,
+        dtype: str,
+        configuration: dict[str, Any],
+        parent_id: str | None,
+        cursor: str | None,
+    ) -> SourceBrowseResponse:
+        """Run one browse page against a provider, mapping errors to HTTP."""
         try:
             # Probe credentials once, on the first page of the top level only.
             if parent_id is None and cursor is None:

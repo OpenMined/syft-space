@@ -247,6 +247,16 @@ class OpenAIModelType(BaseModelType):
                 message=f"OpenAI API is unhealthy: {str(e)}",
             )
 
+    async def aclose(self) -> None:
+        """Close the underlying HTTP client's connection pool.
+
+        Idempotent: safe to call more than once and when no client was built
+        (e.g. the ``openai`` package is unavailable).
+        """
+        client = getattr(self, "client", None)
+        if client is not None:
+            await client.close()
+
     @classmethod
     def get_actions(
         cls,

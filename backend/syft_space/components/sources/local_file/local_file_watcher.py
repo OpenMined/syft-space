@@ -55,11 +55,18 @@ class _WatchedPathFilter:
 
 
 def _file_fingerprint(stat_result: object) -> str:
+    """Serialize byte-identically to ``LocalFileSource.fingerprint``.
+
+    The repository compares fingerprints as opaque strings, so the watcher
+    and the source MUST produce the same serialization for the same stat —
+    a formatting difference alone would re-queue unchanged files.
+    """
     return json.dumps(
         {
             "size": stat_result.st_size,  # type: ignore[attr-defined]
             "mtime_ns": stat_result.st_mtime_ns,  # type: ignore[attr-defined]
-        }
+        },
+        separators=(",", ":"),
     )
 
 
@@ -86,7 +93,10 @@ class _SubscriptionHandler(FileSystemEventHandler):
         self._bridge.push(
             SourceChangeEvent(
                 event_type=event_type,  # type: ignore[arg-type]
-                external_id=str(file_path),
+                # Resolved, so watcher events and the initial scan agree on
+                # one external_id per file (the OS may report either form
+                # when the watched path traverses a symlink).
+                external_id=str(file_path.resolve()),
                 fingerprint=_file_fingerprint(stat),
             )
         )
@@ -118,7 +128,7 @@ class _SubscriptionHandler(FileSystemEventHandler):
         self._bridge.push(
             SourceChangeEvent(
                 event_type="deleted",
-                external_id=str(path),
+                external_id=str(path.resolve()),
                 fingerprint=None,
             )
         )

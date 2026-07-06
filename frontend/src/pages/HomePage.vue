@@ -391,7 +391,7 @@ const rowMeta = (ep: EndpointItem) => {
   else parts.push('Data API')
 
   if (ep.datasetId) {
-    const paths = ep.watchedPaths?.length ?? 0
+    const paths = ep.watchedPathsCount ?? 0
     if (paths > 0) parts.push(`${paths} path${paths === 1 ? '' : 's'}`)
     else if (ep.dataSourceType) parts.push(formatType(ep.dataSourceType))
   }

@@ -81,11 +81,11 @@ class IngestionHandler:
             dataset_name=dataset.name,
             is_watching=is_watching,
             total_jobs=stats["total"],
-            pending=stats["pending"],
-            in_progress=stats["in_progress"],
-            completed=stats["completed"],
-            failed=stats["failed"],
-            cancelled=stats["cancelled"],
+            pending=stats[IngestionJobStatus.PENDING.value],
+            in_progress=stats[IngestionJobStatus.IN_PROGRESS.value],
+            completed=stats[IngestionJobStatus.COMPLETED.value],
+            failed=stats[IngestionJobStatus.FAILED.value],
+            cancelled=stats[IngestionJobStatus.CANCELLED.value],
         )
 
     async def list_ingestion_jobs(

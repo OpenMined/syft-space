@@ -71,19 +71,17 @@ export function useDataEndpointCreation() {
 
     creationStep.value = 'Creating dataset...'
 
-    const filePathsWithDescriptions = data.selectedFiles.map((filePath) => ({
-      path: filePath,
-      description: data.fileDescriptions[filePath] || '',
-    }))
-
     const createRequest: CreateDatasetRequest = {
       dtype: 'local_file',
       name: data.endpointName,
       summary: `Dataset for ${data.summary}`,
       tags: data.tags.join(','),
-      configuration: {
-        filePaths: filePathsWithDescriptions,
-      },
+      configuration: {},
+      // Stored server-side in the dataset_selection table.
+      selected_items: data.selectedFiles.map((itemId) => ({
+        item_id: itemId,
+        description: data.fileDescriptions[itemId] || '',
+      })),
     }
 
     const response = await datasetsApi.create(createRequest)

@@ -18,7 +18,7 @@ export interface EndpointItem {
   systemPrompt?: string | null
   tags: string[]
   published: boolean
-  watchedPaths?: string[]
+  watchedPathsCount?: number
   createdAt: string
 }
 
@@ -32,16 +32,6 @@ export const useEndpointsStore = defineStore('endpoints', () => {
   let inFlight: Promise<void> | null = null
 
   const transformEndpointListItem = (item: EndpointListItem): EndpointItem => {
-    let watchedPaths: string[] | undefined = undefined
-    if (
-      item.dataset?.configuration?.filePaths &&
-      Array.isArray(item.dataset.configuration.filePaths)
-    ) {
-      watchedPaths = (
-        item.dataset.configuration.filePaths as Array<{ path: string; description: string }>
-      ).map((fp) => fp.path)
-    }
-
     return {
       id: item.id,
       name: item.name,
@@ -55,7 +45,7 @@ export const useEndpointsStore = defineStore('endpoints', () => {
       systemPrompt: item.system_prompt ?? null,
       tags: parseTags(item.tags),
       published: item.published,
-      watchedPaths,
+      watchedPathsCount: item.dataset?.selected_items_count,
       createdAt: item.created_at,
     }
   }

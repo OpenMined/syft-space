@@ -5,7 +5,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from syft_space.components.dataset_types.redaction import (
     redact_config as redact_dataset_config,
@@ -169,13 +175,21 @@ class AttachedModel(BaseModel):
 
 
 class AttachedDataset(BaseModel):
-    """Response model for attached dataset."""
+    """Response model for attached dataset.
+
+    The selection list is not embedded here — the client fetches it via
+    ``GET /datasets/{name}/selection`` (paged) using this dataset's ``name``.
+    Only a lightweight count rides along, for the endpoint list's badge.
+    """
 
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(..., description="Dataset name")
     summary: str = Field(..., description="Dataset summary")
     dtype: str = Field(..., description="Dataset type")
     configuration: dict[str, Any] = Field(..., description="Configuration")
+    selected_items_count: int = Field(
+        default=0, description="Number of selection picks"
+    )
 
     class Config:
         """Pydantic config."""
