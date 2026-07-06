@@ -23,6 +23,7 @@ export interface DataSourceRef {
 export interface SendMessageOptions {
   content: string
   endpointSlug: string
+  endpointName?: string
   dataSources?: DataSourceRef[]
 }
 
@@ -81,6 +82,47 @@ function mergeReferences(
   }
 }
 
+// Tag a chat target's own (server-side RAG) references with its endpoint name so
+// the references panel attributes them, mirroring how data-source docs are tagged.
+function tagTargetReferences(
+  refs: ChatReferencesResponse | null,
+  slug: string,
+  name: string | undefined,
+): ChatReferencesResponse | null {
+  if (!refs?.documents?.length || !name) return refs
+  return {
+    ...refs,
+    documents: refs.documents.map((doc) => ({
+      ...doc,
+      source_endpoint_slug: doc.source_endpoint_slug ?? slug,
+      source_endpoint_name: doc.source_endpoint_name ?? name,
+    })),
+  }
+}
+
+// Merge client-side data-source references with the chat target's own references
+// (a hybrid endpoint retrieves server-side), keeping the highest-scoring docs.
+function combineReferences(
+  clientRefs: ChatReferencesResponse | null,
+  targetRefs: ChatReferencesResponse | null,
+): ChatReferencesResponse | null {
+  if (!targetRefs?.documents?.length) return clientRefs
+  if (!clientRefs?.documents?.length) return targetRefs
+
+  const documents = [...clientRefs.documents, ...targetRefs.documents]
+    .sort((a, b) => b.similarity_score - a.similarity_score)
+    .slice(0, MAX_CONTEXT_DOCS)
+
+  const engines = new Set<string>()
+  if (clientRefs.search_engine) engines.add(clientRefs.search_engine)
+  if (targetRefs.search_engine) engines.add(targetRefs.search_engine)
+  const enginesList = Array.from(engines)
+  const searchEngine =
+    enginesList.length === 1 ? enginesList[0]! : enginesList.length > 1 ? 'multiple' : null
+
+  return { documents, search_engine: searchEngine }
+}
+
 function formatContext(refs: ChatReferencesResponse): string {
   const body = refs.documents
     .map((d) => {
@@ -103,7 +145,7 @@ export function useEndpointChat() {
   }
 
   async function sendMessage(options: SendMessageOptions) {
-    const { content, endpointSlug, dataSources = [] } = options
+    const { content, endpointSlug, endpointName, dataSources = [] } = options
 
     abortController?.abort()
     abortController = new AbortController()
@@ -151,10 +193,12 @@ export function useEndpointChat() {
         { signal },
       )
 
+      const targetRefs = tagTargetReferences(response.references, endpointSlug, endpointName)
+
       turns.value.push({
         role: 'assistant',
         content: response.summary?.message.content ?? '(no response)',
-        references: mergedRefs,
+        references: combineReferences(mergedRefs, targetRefs),
         summary: response.summary,
       })
 
