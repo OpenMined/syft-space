@@ -141,11 +141,16 @@ class JobProcessor:
         source, dataset_type = resolved
 
         external_id = job.external_id
+        # Flips to True once we've claimed the job (marked it IN_PROGRESS).
+        # Only after claiming can a concurrent edit or unselect race our
+        # terminal write, so only then do we guard it. A failure *before*
+        # claiming leaves the row PENDING and must mark FAILED unconditionally,
+        # or the job would loop forever.
+        claimed = False
         try:
-            # Fingerprint-drift check via the source. Opaque string compare —
-            # if the item changed since the job was queued, re-upsert with
-            # the new fingerprint and cancel this one (the upsert produces
-            # a new pending job).
+            # Re-fingerprint before claiming: if the item changed since the job
+            # was queued, re-queue it under the new fingerprint and cancel this
+            # one. The fingerprint is an opaque string the source owns.
             try:
                 current_fp = source.fingerprint(external_id)
                 if current_fp != job.fingerprint:
@@ -170,17 +175,18 @@ class JobProcessor:
                 )
                 return
             except OSError as e:
-                # Best-effort: if we can't re-fingerprint, proceed with ingestion.
+                # Can't re-fingerprint — proceed and let the ingest try anyway.
                 logger.debug(f"Fingerprint recheck failed for {external_id}: {e}")
 
+            # Claim the job.
             await self._ingestion_repository.update_status(
                 job.id, IngestionJobStatus.IN_PROGRESS
             )
+            claimed = True
 
             try:
                 async with source.fetch(external_id) as ingest_file:
-                    # TOCTOU re-check on the dataset row (could have been
-                    # deleted mid-fetch).
+                    # The dataset may have been deleted while we fetched.
                     dataset = await self._dataset_repository.get_by_id(
                         job.dataset_id, job.tenant_id
                     )
@@ -211,13 +217,25 @@ class JobProcessor:
                 )
                 return
 
+            # Mark COMPLETED only if the row is still the job we claimed. A
+            # concurrent edit (re-queued it to PENDING) or unselect (tombstoned
+            # it to DELETED) must win — a blind write would silently drop it.
             await self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.COMPLETED
+                job.id,
+                IngestionJobStatus.COMPLETED,
+                expected_status=IngestionJobStatus.IN_PROGRESS,
             )
             logger.info(f"Successfully ingested: {external_id}")
 
         except Exception as e:
             logger.exception(f"Failed to ingest {external_id}: {e}")
+            # Same guard as COMPLETED, but only once claimed: a failed ingest of
+            # the old content must not overwrite a row re-queued or tombstoned
+            # mid-flight. Before claiming, the row is still PENDING — fail it
+            # outright so it doesn't retry forever.
             await self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.FAILED, str(e)
+                job.id,
+                IngestionJobStatus.FAILED,
+                str(e),
+                expected_status=(IngestionJobStatus.IN_PROGRESS if claimed else None),
             )

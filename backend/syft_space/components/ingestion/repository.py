@@ -10,6 +10,15 @@ from sqlmodel import select
 from syft_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
 from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
+# How many times an unchanged item may fail before we stop re-queuing it.
+# Sources re-emit their items (WordPress polls on an interval, filesystem
+# streams re-scan on restart), and each re-emit would otherwise reset a FAILED
+# job to PENDING and retry it forever. This caps the automatic retries so a
+# poison item (malformed/unsupported content) settles as FAILED, while
+# transient failures still get a few attempts. A changed fingerprint resets the
+# count, so edited content gets a fresh budget.
+MAX_INGEST_RETRIES = 3
+
 
 class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
     """Repository for IngestionJob CRUD operations.
@@ -44,14 +53,18 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
     ) -> IngestionJob:
         """Create or update an ingestion job by source-unique id.
 
-        Logic:
-        - Existing row with matching ``fingerprint`` AND status == COMPLETED → skip.
-        - Existing row with different fingerprint OR not completed → reset to PENDING.
-        - No existing row → create PENDING.
+        The fingerprint is an opaque string the source owns (see
+        ``BaseSource.fingerprint``); the repository only compares it for
+        equality. Same fingerprint means the item is unchanged.
 
-        The fingerprint comparison is an opaque string equality check —
-        sources define the format (see ``BaseSource.fingerprint``); the
-        repository treats it as a blob.
+        Logic:
+        - Unchanged AND COMPLETED → skip (already ingested).
+        - Unchanged AND FAILED past its retry budget → skip. Sources re-emit
+          items on every poll/re-scan; without this a permanently-failing item
+          would reset to PENDING and retry forever (see ``MAX_INGEST_RETRIES``).
+        - Otherwise → (re)queue as PENDING. A changed fingerprint also resets
+          the retry budget, since it is effectively new content.
+        - No existing row → create PENDING.
         """
         async with self.db.get_session() as session:
             result = await session.exec(
@@ -65,12 +78,18 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
             now = datetime.now(timezone.utc)
 
             if existing:
-                if (
-                    existing.fingerprint == fingerprint
-                    and existing.status == IngestionJobStatus.COMPLETED.value
-                ):
+                unchanged = existing.fingerprint == fingerprint
+                settled = existing.status == IngestionJobStatus.COMPLETED.value or (
+                    existing.status == IngestionJobStatus.FAILED.value
+                    and existing.retry_count >= MAX_INGEST_RETRIES
+                )
+                if unchanged and settled:
+                    # Already done, or a poison item that exhausted its retries.
+                    # Don't re-queue — this is what stops the source's re-emit
+                    # loop from retrying the same content indefinitely.
                     logger.info(
-                        f"Item {external_id} already ingested with same fingerprint"
+                        f"Item {external_id} not re-queued "
+                        f"(status={existing.status}, fingerprint unchanged)"
                     )
                     return existing
 
@@ -80,7 +99,11 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                 existing.updated_at = now
                 existing.started_at = None
                 existing.completed_at = None
-                # Keep retry_count for tracking history
+                if not unchanged:
+                    # New content — give it a fresh retry budget. On unchanged
+                    # content retry_count is preserved so repeated failures
+                    # accumulate toward MAX_INGEST_RETRIES.
+                    existing.retry_count = 0
 
                 session.add(existing)
                 await session.commit()
@@ -202,6 +225,7 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
         job_id: UUID,
         status: IngestionJobStatus,
         error_message: str | None = None,
+        expected_status: IngestionJobStatus | None = None,
     ) -> IngestionJob | None:
         """Update job status with appropriate timestamps.
 
@@ -209,13 +233,28 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
             job_id: Job UUID
             status: New status
             error_message: Error message for FAILED status
+            expected_status: Optimistic guard. If given, the write applies only
+                when the row is currently in this status; on mismatch the row is
+                left untouched and ``None`` is returned. Lets a worker reach a
+                terminal state only if nothing changed the row while it worked —
+                e.g. a concurrent edit re-queued it to PENDING, or an unselect
+                tombstoned it to DELETED.
 
         Returns:
-            Updated job or None if not found
+            Updated job, or ``None`` if not found or the ``expected_status``
+            guard did not match.
         """
         async with self.db.get_session() as session:
             job = await session.get(IngestionJob, job_id)
             if not job:
+                return None
+
+            if expected_status is not None and job.status != expected_status.value:
+                logger.info(
+                    f"Skipping {status.value} for job {job_id}: expected "
+                    f"{expected_status.value} but row is {job.status} "
+                    "(changed under the worker)"
+                )
                 return None
 
             now = datetime.now(timezone.utc)
