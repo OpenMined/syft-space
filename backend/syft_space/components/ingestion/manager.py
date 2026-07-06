@@ -206,19 +206,22 @@ class IngestionManager(LifecycleService):
         except KeyError:
             return 0
 
-        jobs = await self._ingestion_repository.get_by_dataset(dataset_id, tenant_id)
-        count = 0
-        for job in jobs:
-            if job.status == IngestionJobStatus.DELETED.value:
-                continue
+        # Test every live job against the removed picks (unbounded — a directory
+        # pick can cover thousands of jobs), then tombstone the covered ones in
+        # a single bulk write.
+        external_ids = await self._ingestion_repository.get_active_external_ids(
+            dataset_id, tenant_id
+        )
+        covered = [
+            external_id
+            for external_id in external_ids
             if any(
-                provider.selection_covers(item_id, job.external_id)
-                for item_id in item_ids
-            ):
-                if await self._ingestion_repository.mark_deleted_by_external_id(
-                    dataset_id, job.external_id
-                ):
-                    count += 1
+                provider.selection_covers(item_id, external_id) for item_id in item_ids
+            )
+        ]
+        count = await self._ingestion_repository.mark_deleted_by_external_ids(
+            dataset_id, covered
+        )
         if count:
             logger.info(
                 f"Tombstoned {count} jobs for dataset {dataset_id} "

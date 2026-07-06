@@ -371,6 +371,63 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                 return True
             return False
 
+    async def get_active_external_ids(
+        self, dataset_id: UUID, tenant_id: UUID
+    ) -> list[str]:
+        """Every non-tombstoned job's ``external_id`` for a dataset (unbounded).
+
+        Backs unselection: the caller needs to test *all* live jobs against the
+        removed picks, so this returns the full set with no page limit. A
+        single-column projection keeps it cheap even for large datasets.
+        """
+        async with self.db.get_session() as session:
+            result = await session.exec(
+                select(IngestionJob.external_id).where(
+                    IngestionJob.dataset_id == dataset_id,
+                    IngestionJob.tenant_id == tenant_id,
+                    IngestionJob.status != IngestionJobStatus.DELETED.value,
+                )
+            )
+            return list(result.all())
+
+    async def mark_deleted_by_external_ids(
+        self, dataset_id: UUID, external_ids: list[str]
+    ) -> int:
+        """Tombstone many jobs by source-unique id in one pass.
+
+        Bulk form of ``mark_deleted_by_external_id`` for unselection, which may
+        cover thousands of jobs. Already-DELETED rows are skipped so the count
+        reflects rows actually tombstoned. The id list is chunked to stay under
+        SQLite's bound-parameter limit.
+
+        Returns the number of rows tombstoned.
+        """
+        if not external_ids:
+            return 0
+        # Well under SQLite's ~999 bound-variable ceiling, with headroom for the
+        # other predicates in the WHERE clause.
+        chunk_size = 500
+        count = 0
+        async with self.db.get_session() as session:
+            now = datetime.now(timezone.utc)
+            for start in range(0, len(external_ids), chunk_size):
+                chunk = external_ids[start : start + chunk_size]
+                result = await session.exec(
+                    select(IngestionJob).where(
+                        IngestionJob.dataset_id == dataset_id,
+                        IngestionJob.external_id.in_(chunk),
+                        IngestionJob.status != IngestionJobStatus.DELETED.value,
+                    )
+                )
+                for job in result.all():
+                    job.status = IngestionJobStatus.DELETED.value
+                    job.updated_at = now
+                    job.completed_at = now
+                    session.add(job)
+                    count += 1
+            await session.commit()
+            return count
+
     async def reset_orphaned_in_progress(self) -> int:
         """Re-queue every IN_PROGRESS job (startup recovery).
 
