@@ -13,6 +13,7 @@
         <!-- Source browser: already-selected items are locked; pick new ones to add -->
         <SourceBrowser
           v-if="dataset"
+          ref="sourceBrowserRef"
           :key="dataset.name"
           :dtype="dataset.dtype"
           :dataset-name="dataset.name"
