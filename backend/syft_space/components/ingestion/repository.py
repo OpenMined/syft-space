@@ -192,6 +192,10 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
     ) -> list[IngestionJob]:
         """Get all jobs for a dataset with optional status filter.
 
+        DELETED rows are tombstones kept only for the external_id<->vector
+        mapping, not real jobs — they are excluded from the default listing.
+        Pass an explicit ``status_filter`` to query them.
+
         Args:
             dataset_id: Dataset UUID
             tenant_id: Tenant UUID (for security)
@@ -211,6 +215,10 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
             if status_filter:
                 status_values = [s.value for s in status_filter]
                 stmt = stmt.where(IngestionJob.status.in_(status_values))
+            else:
+                stmt = stmt.where(
+                    IngestionJob.status != IngestionJobStatus.DELETED.value
+                )
 
             stmt = (
                 stmt.order_by(IngestionJob.created_at.desc())
@@ -281,12 +289,16 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
     ) -> dict[str, int]:
         """Get aggregated job statistics for a dataset.
 
+        DELETED tombstones are excluded entirely — they are kept only for the
+        external_id<->vector mapping, not counted as jobs — so no status count
+        or ``total`` inflates as items are deleted.
+
         Args:
             dataset_id: Dataset UUID
             tenant_id: Tenant UUID (for security)
 
         Returns:
-            Dict with counts per status and total
+            Dict with counts per non-deleted status and total
         """
         async with self.db.get_session() as session:
             # Get counts grouped by status
@@ -295,6 +307,7 @@ class IngestionJobRepository(AsyncBaseRepository[IngestionJob]):
                 .where(
                     IngestionJob.dataset_id == dataset_id,
                     IngestionJob.tenant_id == tenant_id,
+                    IngestionJob.status != IngestionJobStatus.DELETED.value,
                 )
                 .group_by(IngestionJob.status)
             )

@@ -86,7 +86,6 @@ class IngestionHandler:
             completed=stats[IngestionJobStatus.COMPLETED.value],
             failed=stats[IngestionJobStatus.FAILED.value],
             cancelled=stats[IngestionJobStatus.CANCELLED.value],
-            deleted=stats[IngestionJobStatus.DELETED.value],
         )
 
     async def list_ingestion_jobs(
