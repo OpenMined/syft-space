@@ -20,8 +20,26 @@ class ResponseType(str, Enum):
     """Type of response for an endpoint."""
 
     RAW = "raw"  # Only dataset search results
-    SUMMARY = "summary"  # Only model chat results
+    SUMMARY = "summary"  # Only model chat results (dataset optional, as RAG grounding)
     BOTH = "both"  # Both dataset search + model chat
+
+
+def validate_response_type_attachments(
+    response_type: ResponseType, *, has_dataset: bool, has_model: bool
+) -> str | None:
+    """Return an error message when the attachments can't serve the response type.
+
+    ``raw`` needs a dataset, ``summary`` needs a model (dataset optional, as
+    RAG grounding), ``both`` needs both. Enforced at endpoint creation only;
+    pre-existing endpoints keep their legacy query behavior.
+    """
+    if response_type is ResponseType.RAW and not has_dataset:
+        return "response_type 'raw' requires a dataset_id"
+    if response_type is ResponseType.SUMMARY and not has_model:
+        return "response_type 'summary' requires a model_id"
+    if response_type is ResponseType.BOTH and not (has_dataset and has_model):
+        return "response_type 'both' requires both a dataset_id and a model_id"
+    return None
 
 
 class Endpoint(SQLModel, table=True):

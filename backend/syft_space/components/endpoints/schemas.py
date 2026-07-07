@@ -16,7 +16,10 @@ from pydantic import (
 from syft_space.components.dataset_types.redaction import (
     redact_config as redact_dataset_config,
 )
-from syft_space.components.endpoints.entities import ResponseType
+from syft_space.components.endpoints.entities import (
+    ResponseType,
+    validate_response_type_attachments,
+)
 from syft_space.components.endpoints.interfaces import QueryOutcome
 from syft_space.components.model_types.redaction import (
     redact_config as redact_model_config,
@@ -94,6 +97,31 @@ class CreateEndpointRequest(BaseModel):
             )
 
         return _slug
+
+    @field_validator("response_type")
+    @classmethod
+    def validate_response_type(cls, v: str) -> str:
+        """Validate the response type."""
+        try:
+            ResponseType(v)
+        except ValueError:
+            valid = ", ".join(rt.value for rt in ResponseType)
+            raise ValueError(
+                f"Invalid response_type '{v}'. Must be one of: {valid}"
+            ) from None
+        return v
+
+    @model_validator(mode="after")
+    def validate_attachments(self) -> "CreateEndpointRequest":
+        """Validate the attachments can serve the response type."""
+        error = validate_response_type_attachments(
+            ResponseType(self.response_type),
+            has_dataset=self.dataset_id is not None,
+            has_model=self.model_id is not None,
+        )
+        if error:
+            raise ValueError(error)
+        return self
 
     class Config:
         """Pydantic config."""

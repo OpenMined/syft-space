@@ -54,14 +54,11 @@ class EndpointHandler:
     async def create_endpoint(
         self, request: CreateEndpointRequest, tenant: Tenant
     ) -> EndpointCreateResponse:
-        """Create a new endpoint."""
-        # Validate at least one of dataset_id or model_id is provided
-        if request.dataset_id is None and request.model_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="At least one of dataset_id or model_id must be provided",
-            )
+        """Create a new endpoint.
 
+        The response_type/attachment invariant is enforced by
+        ``CreateEndpointRequest`` validators.
+        """
         # Check if slug already exists within tenant
         existing = await self.endpoint_repository.get_by_slug(request.slug, tenant.id)
         if existing:
