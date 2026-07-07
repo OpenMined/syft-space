@@ -267,9 +267,11 @@ class QueryEndpointHandler:
 
             response_type = ResponseType(endpoint.response_type)
 
-            # Search dataset if needed
+            # Search dataset if needed. For SUMMARY the references only
+            # ground the model; they are stripped from the response below.
             if (
-                response_type in [ResponseType.RAW, ResponseType.BOTH]
+                response_type
+                in [ResponseType.RAW, ResponseType.SUMMARY, ResponseType.BOTH]
                 and endpoint.dataset_id
             ):
                 # Pass the query through unchanged for retrieval. The
@@ -317,6 +319,12 @@ class QueryEndpointHandler:
 
             # Attach the success policy_metadata envelope onto the response.
             response_dict = policy_context.response or {}
+
+            # Stripped only after post-hooks so per-document policies could
+            # charge for the retrieved references.
+            if response_type == ResponseType.SUMMARY:
+                response_dict["references"] = None
+
             response_dict["policy_metadata"] = PolicyMetadata(
                 outcome=QueryOutcome.SUCCESS,
                 entries=policy_context.policy_metadata,
