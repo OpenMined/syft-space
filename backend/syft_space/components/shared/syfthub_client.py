@@ -104,6 +104,12 @@ class FailedDependencyError(SyftHubError):
     pass
 
 
+class RateLimitError(SyftHubError):
+    """Rate limited by SyftHub (429) - callers should back off, not retry."""
+
+    pass
+
+
 class ServerError(SyftHubError):
     """Server-side error (5xx) - covers 500, 502, 503, 504, etc."""
 
@@ -311,6 +317,8 @@ def _raise_for_status(response: httpx.Response) -> None:
         raise FailedDependencyError(
             parsed.message, status_code=status, code=parsed.code
         )
+    elif status == 429:
+        raise RateLimitError(parsed.message, status_code=status, code=parsed.code)
     elif status >= 500:
         raise ServerError(parsed.message, status_code=status, code=parsed.code)
     else:
