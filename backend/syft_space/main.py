@@ -546,6 +546,8 @@ _OUTCOME_TO_STATUS = {
     QueryOutcome.NOT_PUBLISHED: QueryEventStatus.NOT_PUBLISHED,
     QueryOutcome.PAYMENT_REQUIRED: QueryEventStatus.PAYMENT_REQUIRED,
     QueryOutcome.POLICY_VIOLATION: QueryEventStatus.POLICY_VIOLATION,
+    QueryOutcome.ACCESS_DENIED: QueryEventStatus.ACCESS_DENIED,
+    QueryOutcome.RATE_LIMITED: QueryEventStatus.RATE_LIMITED,
     QueryOutcome.INTERNAL_ERROR: QueryEventStatus.INTERNAL_ERROR,
 }
 _pending_event_tasks: set[asyncio.Task] = set()
@@ -592,7 +594,9 @@ async def report_query_event(event: QueryOutcomeEvent) -> None:
             endpoint_slug=event.endpoint_slug,
             dataset_id=event.dataset_id,
             user_email=event.user_email,
-            status=_OUTCOME_TO_STATUS[event.outcome].value,
+            status=_OUTCOME_TO_STATUS.get(
+                event.outcome, QueryEventStatus.INTERNAL_ERROR
+            ).value,
             query_text=query_text,
             cost_lines=cost_lines,
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import UUID
@@ -11,7 +12,11 @@ from loguru import logger
 
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.shared.lifecycle import LifecycleService
-from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
+from syft_space.components.shared.syfthub_client import (
+    RateLimitError,
+    SyftHubClient,
+    SyftHubError,
+)
 
 if TYPE_CHECKING:
     from syft_space.components.marketplaces.repository import MarketplaceRepository
@@ -51,6 +56,7 @@ class EndpointHeartbeatManager(LifecycleService):
 
     # Fixed health check interval
     CHECK_INTERVAL = 30.0  # Check + deliver every 30 seconds
+    JITTER_MAX = 5.0  # Random extra sleep so co-located instances desynchronize
     TTL_MULTIPLIER = 3.0  # TTL = 90s (3 missed checks before stale)
     POLL_INTERVAL = 5.0  # Poll for public_url every 5 seconds
 
@@ -168,7 +174,7 @@ class EndpointHeartbeatManager(LifecycleService):
 
                 try:
                     await asyncio.wait_for(
-                        self._shutdown_event.wait(), timeout=self._check_interval
+                        self._shutdown_event.wait(), timeout=self._jittered_interval()
                     )
                     break
                 except asyncio.TimeoutError:
@@ -180,13 +186,21 @@ class EndpointHeartbeatManager(LifecycleService):
                 logger.exception(f"Unexpected error in endpoint heartbeat loop: {e}")
                 try:
                     await asyncio.wait_for(
-                        self._shutdown_event.wait(), timeout=self._check_interval
+                        self._shutdown_event.wait(), timeout=self._jittered_interval()
                     )
                     break
                 except asyncio.TimeoutError:
                     pass
 
         logger.info("Endpoint heartbeat loop stopped")
+
+    def _jittered_interval(self) -> float:
+        """Check interval plus random jitter.
+
+        Co-located instances otherwise heartbeat in lockstep and hit the
+        marketplace's rate limiter together.
+        """
+        return self._check_interval + random.uniform(0.0, self.JITTER_MAX)  # nosec B311
 
     async def _wait_for_public_url(self) -> bool:
         """Wait for public_url to be set in settings.
@@ -307,6 +321,13 @@ class EndpointHeartbeatManager(LifecycleService):
                     f"{len(endpoint_health)} endpoints, ttl={ttl}s"
                 )
 
+        except RateLimitError as e:
+            self._handle_transport_failure(state, now, immediate=True)
+            logger.warning(
+                f"Endpoint heartbeat to {marketplace.name} rate limited, "
+                f"backing off {state.next_delivery_at - now:.0f}s: {e.message} "
+                f"(failures={state.consecutive_failures})"
+            )
         except SyftHubError as e:
             self._handle_transport_failure(state, now)
             logger.warning(
@@ -329,20 +350,27 @@ class EndpointHeartbeatManager(LifecycleService):
         return self._states[marketplace_id]
 
     def _handle_transport_failure(
-        self, state: MarketplaceDeliveryState, now: float
+        self, state: MarketplaceDeliveryState, now: float, immediate: bool = False
     ) -> None:
         """Handle a transport failure — backoff after repeated failures.
 
         First TRANSPORT_MAX_FAILURES attempts retry every CHECK_INTERVAL (no backoff).
         After that, exponential backoff up to TRANSPORT_MAX_INTERVAL.
+
+        With immediate=True (rate limited: the server asked us to slow
+        down), the grace period is skipped and backoff starts on the first
+        failure, escalating with each consecutive one.
         """
         state.consecutive_failures += 1
-        if state.consecutive_failures >= self.TRANSPORT_MAX_FAILURES:
+        effective_failures = state.consecutive_failures
+        if immediate:
+            effective_failures += self.TRANSPORT_MAX_FAILURES - 1
+        if effective_failures >= self.TRANSPORT_MAX_FAILURES:
             backoff = min(
                 self._check_interval
                 * (
                     self.TRANSPORT_BACKOFF_FACTOR
-                    ** (state.consecutive_failures - self.TRANSPORT_MAX_FAILURES)
+                    ** (effective_failures - self.TRANSPORT_MAX_FAILURES)
                 ),
                 self.TRANSPORT_MAX_INTERVAL,
             )

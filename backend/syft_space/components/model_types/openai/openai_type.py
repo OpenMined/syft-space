@@ -3,6 +3,8 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from loguru import logger
+
 from syft_space.components.model_types.interfaces import (
     BaseModelType,
     ChatContext,
@@ -24,6 +26,12 @@ try:
 except ImportError:
     enabled = False
 
+# Retries for transient failures (429, 5xx, timeouts); the client's built-in
+# backoff honors the server's Retry-After header.
+MAX_RETRIES = 3
+# Per-request timeout in seconds.
+REQUEST_TIMEOUT_SECONDS = 600.0
+
 
 class OpenAIModelType(BaseModelType):
     """OpenAI model type for interacting with OpenAI's API.
@@ -44,12 +52,14 @@ class OpenAIModelType(BaseModelType):
         """
         self.config = config
         if enabled:
-            api_key = config.get("api_key", "")
-            base_url = config.get("base_url")
-            if base_url:
-                self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-            else:
-                self.client = AsyncOpenAI(api_key=api_key)
+            client_kwargs: dict[str, Any] = {
+                "api_key": config.get("api_key", ""),
+                "max_retries": MAX_RETRIES,
+                "timeout": REQUEST_TIMEOUT_SECONDS,
+            }
+            if config.get("base_url"):
+                client_kwargs["base_url"] = config["base_url"]
+            self.client = AsyncOpenAI(**client_kwargs)
 
     @classmethod
     def name(cls) -> str:
@@ -175,6 +185,22 @@ class OpenAIModelType(BaseModelType):
 
         # Call OpenAI API
         response = await self.client.chat.completions.create(**completion_params)
+
+        # Upstream gateways occasionally return an empty completion (all-None
+        # payload) on transient failures instead of an HTTP error.
+        if not response.choices:
+            logger.info(
+                f"Model {model} returned a completion with no choices "
+                f"(response_id={response.id}), returning empty response"
+            )
+            return ChatResult(
+                id=response.id or "",
+                model=response.model or model,
+                messages=[],
+                finish_reason="error",
+                usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                metadata={"empty_response": True},
+            )
 
         # Extract the first choice (OpenAI returns a list)
         choice = response.choices[0]

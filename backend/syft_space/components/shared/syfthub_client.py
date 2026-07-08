@@ -1,10 +1,15 @@
 """SyftHub marketplace API client using httpx."""
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar
+
+import httpx
+from fastapi import HTTPException
+from loguru import logger
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 
 class _Unset(Enum):
@@ -14,11 +19,6 @@ class _Unset(Enum):
 
 
 UNSET = _Unset.UNSET
-
-import httpx
-from fastapi import HTTPException
-from loguru import logger
-from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 # =============================================================================
 # Exceptions
@@ -100,6 +100,12 @@ class ValidationError(SyftHubError):
 
 class FailedDependencyError(SyftHubError):
     """Failed dependency - accounting service issue (424)."""
+
+    pass
+
+
+class RateLimitError(SyftHubError):
+    """Rate limited by SyftHub (429) - callers should back off, not retry."""
 
     pass
 
@@ -311,6 +317,8 @@ def _raise_for_status(response: httpx.Response) -> None:
         raise FailedDependencyError(
             parsed.message, status_code=status, code=parsed.code
         )
+    elif status == 429:
+        raise RateLimitError(parsed.message, status_code=status, code=parsed.code)
     elif status >= 500:
         raise ServerError(parsed.message, status_code=status, code=parsed.code)
     else:
@@ -342,27 +350,75 @@ def _handle_response_raw(response: httpx.Response) -> dict[str, Any]:
 # =============================================================================
 
 
+class TokenCache:
+    """Process-wide SyftHub session store, keyed by (base_url, username).
+
+    Lets short-lived SyftHubClient instances (heartbeats, per-request auth)
+    reuse sessions instead of hitting /auth/login — the most expensive and
+    rate-limited endpoint — on every instantiation.
+    """
+
+    def __init__(self) -> None:
+        self._tokens: dict[tuple[str, str], TokenResponse] = {}
+
+    def get(self, base_url: str, username: str) -> TokenResponse | None:
+        """Return the cached session for this identity, if any."""
+        return self._tokens.get((base_url, username))
+
+    def put(self, base_url: str, username: str, tokens: TokenResponse) -> None:
+        """Store (or replace) the session for this identity."""
+        self._tokens[(base_url, username)] = tokens
+
+    def evict(self, base_url: str, username: str) -> None:
+        """Drop the session for this identity so it can't be reused."""
+        self._tokens.pop((base_url, username), None)
+
+    def clear(self) -> None:
+        """Drop all cached sessions (forces fresh logins)."""
+        self._tokens.clear()
+
+
+# Default cache shared by all clients in the process.
+_default_token_cache = TokenCache()
+
+
 class AsyncRefreshTokenAuth(httpx.Auth):
     """Auto-refresh auth that handles 401s by refreshing the access token."""
 
     requires_response_body = True
 
     def __init__(
-        self, auth_client: httpx.AsyncClient, access_token: str, refresh_token: str
+        self,
+        auth_client: httpx.AsyncClient,
+        access_token: str,
+        refresh_token: str,
+        on_tokens_updated: Callable[[TokenResponse], None] | None = None,
+        relogin: Callable[[], Awaitable[TokenResponse]] | None = None,
     ):
         self.auth_client = auth_client
         self.access_token = access_token
         self.refresh_token = refresh_token
+        self._on_tokens_updated = on_tokens_updated
+        self._relogin = relogin
         self._lock = asyncio.Lock()
 
     async def _refresh(self) -> None:
-        response = await self.auth_client.post(
-            "/api/v1/auth/refresh",
-            json={"refresh_token": self.refresh_token},
-        )
-        tokens = _handle_response(response, TokenResponse)
+        try:
+            response = await self.auth_client.post(
+                "/api/v1/auth/refresh",
+                json={"refresh_token": self.refresh_token},
+            )
+            tokens = _handle_response(response, TokenResponse)
+        except SyftHubError:
+            # Refresh token rejected (e.g. expired cached session) — fall
+            # back to a full password login when credentials are available.
+            if self._relogin is None:
+                raise
+            tokens = await self._relogin()
         self.access_token = tokens.access_token
         self.refresh_token = tokens.refresh_token
+        if self._on_tokens_updated is not None:
+            self._on_tokens_updated(tokens)
 
     async def async_auth_flow(
         self, request: httpx.Request
@@ -387,15 +443,25 @@ class SyftHubClient:
     # Default timeout for HTTP requests (10 seconds)
     DEFAULT_TIMEOUT = 10.0
 
-    def __init__(self, base_url: str, timeout: float | None = None):
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float | None = None,
+        token_cache: TokenCache | None = None,
+    ):
         """Initialize SyftHub client.
 
         Args:
             base_url: Base URL for the SyftHub instance (str)
             timeout: Request timeout in seconds (default: 10.0)
+            token_cache: Session cache consulted by login(). Defaults to the
+                process-wide cache shared by all clients.
         """
         # Normalize URL (remove trailing slash)
         self.base_url = base_url.rstrip("/")
+        self._token_cache = (
+            token_cache if token_cache is not None else _default_token_cache
+        )
         self._timeout = httpx.Timeout(timeout or self.DEFAULT_TIMEOUT)
         self._auth_client = httpx.AsyncClient(
             base_url=self.base_url, timeout=self._timeout
@@ -482,33 +548,95 @@ class SyftHubClient:
         Used when a sibling endpoint (e.g. /auth/register/verify-otp) already
         issued tokens — skips the extra /auth/login round-trip.
         """
-        self._tokens = TokenResponse(
-            access_token=access_token, refresh_token=refresh_token
+        self._install_auth(
+            TokenResponse(access_token=access_token, refresh_token=refresh_token)
         )
+
+    def _install_auth(
+        self,
+        tokens: TokenResponse,
+        on_tokens_updated: Callable[[TokenResponse], None] | None = None,
+        relogin: Callable[[], Awaitable[TokenResponse]] | None = None,
+    ) -> None:
+        """Build the authenticated client around the given tokens."""
+        self._tokens = tokens
         auth = AsyncRefreshTokenAuth(
             auth_client=self._auth_client,
-            access_token=access_token,
-            refresh_token=refresh_token,
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            on_tokens_updated=on_tokens_updated,
+            relogin=relogin,
         )
         self._client = httpx.AsyncClient(
             base_url=self.base_url, auth=auth, timeout=self._timeout
         )
 
-    async def login(self, username: str, password: str) -> TokenResponse:
+    async def _password_login(self, username: str, password: str) -> TokenResponse:
+        """POST credentials to /auth/login and return fresh tokens."""
+        response = await self._auth_client.post(
+            "/api/v1/auth/login",
+            data={"username": username, "password": password},
+        )
+        return _handle_response(response, TokenResponse)
+
+    async def _relogin(self, username: str, password: str) -> TokenResponse:
+        """Full password login used as refresh fallback.
+
+        Evicts the cached session on failure so a dead token can't be
+        served to subsequent clients.
+        """
+        try:
+            return await self._password_login(username, password)
+        except SyftHubError:
+            self._token_cache.evict(self.base_url, username)
+            raise
+
+    async def login(
+        self, username: str, password: str, use_cache: bool = True
+    ) -> TokenResponse:
         """
         Login and setup authenticated client.
+
+        Reuses the token cache's session for this (base_url, username)
+        when available, skipping the /auth/login round-trip. An expired
+        cached session is refreshed transparently on first 401; if the
+        refresh token is also rejected, a full password login runs instead.
+
+        Args:
+            username: SyftHub login email
+            password: SyftHub password
+            use_cache: Reuse/populate the token cache. Pass False to force
+                a credential-validating login.
 
         Raises:
             AuthenticationError: Invalid credentials
             ValidationError: Invalid request data
             ServerError: Server-side error
         """
-        response = await self._auth_client.post(
-            "/api/v1/auth/login",
-            data={"username": username, "password": password},
-        )
-        tokens = _handle_response(response, TokenResponse)
-        self.authenticate_with_tokens(tokens.access_token, tokens.refresh_token)
+
+        def _cache_tokens(tokens: TokenResponse) -> None:
+            self._tokens = tokens
+            self._token_cache.put(self.base_url, username, tokens)
+
+        async def _relogin_fallback() -> TokenResponse:
+            return await self._relogin(username, password)
+
+        if use_cache:
+            cached = self._token_cache.get(self.base_url, username)
+            if cached is not None:
+                self._install_auth(
+                    cached, on_tokens_updated=_cache_tokens, relogin=_relogin_fallback
+                )
+                return cached
+
+        tokens = await self._password_login(username, password)
+        if use_cache:
+            self._token_cache.put(self.base_url, username, tokens)
+            self._install_auth(
+                tokens, on_tokens_updated=_cache_tokens, relogin=_relogin_fallback
+            )
+        else:
+            self._install_auth(tokens)
         return tokens
 
     async def accounting_credentials(self) -> AccountingResponse:

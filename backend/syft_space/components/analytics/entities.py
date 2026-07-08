@@ -17,6 +17,8 @@ class QueryEventStatus(str, Enum):
     NOT_PUBLISHED = "not_published"
     PAYMENT_REQUIRED = "payment_required"
     POLICY_VIOLATION = "policy_violation"
+    ACCESS_DENIED = "access_denied"
+    RATE_LIMITED = "rate_limited"
     INTERNAL_ERROR = "internal_error"
 
 
