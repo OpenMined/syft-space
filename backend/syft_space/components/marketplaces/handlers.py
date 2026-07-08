@@ -165,7 +165,12 @@ class MarketplaceHandler:
         """
         async with SyftHubClient(str(request.url)) as syfthub_client:
             try:
-                await syfthub_client.login(request.username, request.password)
+                # use_cache=False: this login validates user-supplied
+                # credentials before they are persisted — a cached session
+                # for the same account must not mask a wrong password.
+                await syfthub_client.login(
+                    request.username, request.password, use_cache=False
+                )
                 user_profile = await syfthub_client.profile()
                 await self._sync_public_url(syfthub_client)
             except SyftHubError as e:
