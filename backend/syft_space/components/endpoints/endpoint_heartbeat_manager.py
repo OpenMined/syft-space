@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import UUID
@@ -55,6 +56,7 @@ class EndpointHeartbeatManager(LifecycleService):
 
     # Fixed health check interval
     CHECK_INTERVAL = 30.0  # Check + deliver every 30 seconds
+    JITTER_MAX = 5.0  # Random extra sleep so co-located instances desynchronize
     TTL_MULTIPLIER = 3.0  # TTL = 90s (3 missed checks before stale)
     POLL_INTERVAL = 5.0  # Poll for public_url every 5 seconds
 
@@ -172,7 +174,7 @@ class EndpointHeartbeatManager(LifecycleService):
 
                 try:
                     await asyncio.wait_for(
-                        self._shutdown_event.wait(), timeout=self._check_interval
+                        self._shutdown_event.wait(), timeout=self._jittered_interval()
                     )
                     break
                 except asyncio.TimeoutError:
@@ -184,13 +186,21 @@ class EndpointHeartbeatManager(LifecycleService):
                 logger.exception(f"Unexpected error in endpoint heartbeat loop: {e}")
                 try:
                     await asyncio.wait_for(
-                        self._shutdown_event.wait(), timeout=self._check_interval
+                        self._shutdown_event.wait(), timeout=self._jittered_interval()
                     )
                     break
                 except asyncio.TimeoutError:
                     pass
 
         logger.info("Endpoint heartbeat loop stopped")
+
+    def _jittered_interval(self) -> float:
+        """Check interval plus random jitter.
+
+        Co-located instances otherwise heartbeat in lockstep and hit the
+        marketplace's rate limiter together.
+        """
+        return self._check_interval + random.uniform(0.0, self.JITTER_MAX)  # nosec B311
 
     async def _wait_for_public_url(self) -> bool:
         """Wait for public_url to be set in settings.
