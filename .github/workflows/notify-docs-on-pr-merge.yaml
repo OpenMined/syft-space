@@ -1,0 +1,35 @@
+# Creates a draft issue in OpenMined/syft-space-hub-docs whenever a PR is merged into main.
+#
+# Required secret:
+#   DOCS_REPO_PAT — GitHub Personal Access Token (classic) with `repo` scope,
+#                   belonging to a user with write access to OpenMined/syft-space-hub-docs.
+
+name: Notify Docs on PR Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  notify:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create draft issue in syft-space-hub-docs
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DOCS_REPO_PAT }}
+          script: |
+            const pr = context.payload.pull_request;
+            const sourceRepo = context.repo.repo;
+
+            await github.rest.issues.create({
+              owner: 'OpenMined',
+              repo: 'syft-space-hub-docs',
+              title: `[DRAFT] Update documentation to match changes in ${sourceRepo} PR #${pr.number}`,
+              body: `## Documentation Update Required\n\nA PR was merged into \`${sourceRepo}\` that may require documentation updates.\n\n**Source PR:** ${pr.html_url}\n**Title:** ${pr.title}\n**Merged by:** @${pr.merged_by.login}\n\n---\n_This issue was automatically created by GitHub Actions._`,
+              assignees: ['callezenwaka'],
+            });
