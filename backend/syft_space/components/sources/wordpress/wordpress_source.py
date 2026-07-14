@@ -47,10 +47,13 @@ from syft_space.components.sources.interfaces import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL_SECONDS = 300
-# Many WP sites sit behind WAFs/Cloudflare that reject the default httpx
-# User-Agent. Default to a mainstream UA; override via config when a site
-# expects a specific allowlisted value.
-DEFAULT_USER_AGENT = "curl/8.7.1"
+# WAFs (Cloudflare, Wordfence, ...) 403 tool-like User-Agents before the
+# request reaches WordPress, so default to a browser UA. Override with the
+# `userAgent` config field if a site allowlists a specific value.
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
 PAGE_SIZE = 100
 # Statuses surfaced to the picker and watched by the poll. The authenticated
 # account is expected to hold read_private_posts; drafts and trash are left out.
