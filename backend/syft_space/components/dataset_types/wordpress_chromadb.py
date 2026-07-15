@@ -25,7 +25,7 @@ from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store im
     ChromaDBLocalVectorStore,
 )
 from syft_space.components.vector_stores.chromadb_local.schemas import (
-    DEFAULT_HTTP_PORT,
+    default_http_port,
 )
 
 
@@ -44,7 +44,7 @@ class WordPressChromaDBConfiguration(BaseModel):
         ),
     )
     http_port: int = Field(
-        default=DEFAULT_HTTP_PORT,
+        default_factory=default_http_port,
         alias="httpPort",
         description="ChromaDB server HTTP port",
     )

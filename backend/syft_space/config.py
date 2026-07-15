@@ -98,6 +98,31 @@ class AppSettings(BaseSettings):
         description="Use Tempo testnet for MPP payments. Set to False for production (mainnet).",
     )
 
+    # ChromaDB settings (defaults match the local subprocess setup)
+    chromadb_host: str = Field(
+        default="localhost",
+        description="ChromaDB server host",
+    )
+    chromadb_http_port: int = Field(
+        default=8100,
+        description="ChromaDB server HTTP port",
+    )
+    chromadb_database: str = Field(
+        default="default_database",
+        description="ChromaDB database holding this space's collections",
+    )
+    chromadb_ssl: bool = Field(
+        default=False,
+        description="Connect to ChromaDB over TLS",
+    )
+    chromadb_provision: bool = Field(
+        default=True,
+        description=(
+            "Spawn a local ChromaDB subprocess. Set to False to use an "
+            "externally managed server (its database is ensured at startup)."
+        ),
+    )
+
     # Endpoint health check settings
     heartbeat_enabled: bool = Field(
         default=True,

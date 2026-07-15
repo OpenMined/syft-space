@@ -4,7 +4,12 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
-DEFAULT_HTTP_PORT = 8100
+from syft_space.config import app_settings
+
+
+def default_http_port() -> int:
+    """Default ChromaDB port (``SYFT_CHROMADB_HTTP_PORT``)."""
+    return app_settings.chromadb_http_port
 
 
 class ChromaDBLocalVectorStoreConfiguration(BaseModel):
@@ -21,7 +26,7 @@ class ChromaDBLocalVectorStoreConfiguration(BaseModel):
         description="Name of the ChromaDB collection (alphanumeric and underscores only)",
     )
     http_port: int = Field(
-        default=DEFAULT_HTTP_PORT,
+        default_factory=default_http_port,
         alias="httpPort",
         description="ChromaDB server HTTP port",
     )
