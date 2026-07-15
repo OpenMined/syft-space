@@ -38,6 +38,7 @@ from syft_space.components.vector_stores.chunking import (
     DocumentChunker,
     build_image_urls,
 )
+from syft_space.config import app_settings
 
 try:
     from chromadb.errors import NotFoundError as _ChromaNotFoundError
@@ -83,15 +84,28 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 _ADD_BATCH_SIZE = 5000
 
 
-class ChromaDBLocalVectorStore:
-    """Local ChromaDB vector store.
+def _resolve_provisioner_cls() -> type[LocalChromaDBProvisioner] | None:
+    """Resolve the provisioner from ``SYFT_CHROMADB_PROVISION``.
 
-    Connects to a process-local ``chroma run`` server (provisioned by
-    ``LocalChromaDBProvisioner``) and owns one collection per dataset.
+    ``None`` (externally managed server) skips provisioning entirely,
+    same as provisioner-less stores like ``weaviate_remote``.
+    """
+    if app_settings.chromadb_provision:
+        return LocalChromaDBProvisioner
+    return None
+
+
+class ChromaDBLocalVectorStore:
+    """ChromaDB vector store.
+
+    Connects to the server configured via ``SYFT_CHROMADB_*`` settings —
+    by default a process-local ``chroma run`` subprocess, or an
+    externally managed server when ``SYFT_CHROMADB_PROVISION=false``.
+    Owns one collection per dataset.
     """
 
     NAME = "chromadb_local"
-    PROVISIONER_CLS = LocalChromaDBProvisioner
+    PROVISIONER_CLS = _resolve_provisioner_cls()
 
     # Class-level lock for thread-safe lazy embedding-model init.
     _embedding_fn_lock = threading.Lock()
@@ -135,7 +149,7 @@ class ChromaDBLocalVectorStore:
     @classmethod
     def host(cls) -> str:
         """Get the host of the ChromaDB server."""
-        return "localhost"
+        return app_settings.chromadb_host
 
     @classmethod
     def configuration_schema(cls) -> dict[str, Any]:
@@ -181,7 +195,8 @@ class ChromaDBLocalVectorStore:
                     self._client = await chromadb.AsyncHttpClient(
                         host=self.host(),
                         port=self.config.http_port,
-                        ssl=False,
+                        ssl=app_settings.chromadb_ssl,
+                        database=app_settings.chromadb_database,
                     )
         return self._client
 

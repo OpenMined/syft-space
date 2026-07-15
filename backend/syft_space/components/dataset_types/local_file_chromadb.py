@@ -24,7 +24,7 @@ from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store im
     ChromaDBLocalVectorStore,
 )
 from syft_space.components.vector_stores.chromadb_local.schemas import (
-    DEFAULT_HTTP_PORT,
+    default_http_port,
 )
 
 DEFAULT_INGEST_FILE_TYPE_OPTIONS = [
@@ -52,7 +52,7 @@ class ChromaDBLocalConfiguration(BaseModel):
         description="Name of the ChromaDB collection (alphanumeric and underscores only)",
     )
     http_port: int = Field(
-        default=DEFAULT_HTTP_PORT,
+        default_factory=default_http_port,
         alias="httpPort",
         description="ChromaDB server HTTP port",
     )

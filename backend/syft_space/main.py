@@ -148,6 +148,9 @@ from syft_space.components.tenants.middleware import TenantMiddleware
 from syft_space.components.tenants.repository import TenantRepository
 from syft_space.components.tenants.routes import build_tenant_routes
 from syft_space.components.vector_stores import register_builtin_vector_stores
+from syft_space.components.vector_stores.chromadb_local.external import (
+    ensure_external_database,
+)
 
 # Import wallet components
 from syft_space.components.wallets.gateway.stripe.provider import StripeWalletProvider
@@ -298,6 +301,11 @@ async def lifespan(app: FastAPI):
         set_diagnostics_enabled(diagnostics.enabled)
     except Exception as e:
         logger.warning(f"Failed to load diagnostics preference: {e}")
+
+    # 2.2. Externally managed ChromaDB: ensure this space's database
+    # exists before anything ingests or searches; raises if unreachable.
+    if not app_settings.chromadb_provision:
+        await ensure_external_database()
 
     # 3. Define lifecycle services (startup order: proxy → provisioner →
     # local_file_watcher → ingestion → endpoint_heartbeat). Watcher must

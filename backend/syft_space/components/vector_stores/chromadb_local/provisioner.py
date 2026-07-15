@@ -10,9 +10,10 @@ from typing import Any
 from anyio import Path as AsyncPath
 from loguru import logger
 
+from syft_space.components.vector_stores.chromadb_local.schemas import (
+    default_http_port,
+)
 from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
-
-DEFAULT_HTTP_PORT = 8100
 
 
 def _chroma_command() -> list[str]:
@@ -58,7 +59,9 @@ class LocalChromaDBProvisioner(BaseVectorStoreProvisioner):
             State dict with pid, pid_file, data_path, http_port for re-discovery
         """
         # Extract config (use camelCase key from schema or snake_case)
-        http_port = config.get("httpPort") or config.get("http_port", DEFAULT_HTTP_PORT)
+        http_port = (
+            config.get("httpPort") or config.get("http_port") or default_http_port()
+        )
 
         # Data directory for persistence (async mkdir)
         home = await AsyncPath.home()
@@ -242,7 +245,7 @@ class LocalChromaDBProvisioner(BaseVectorStoreProvisioner):
             return "stopped"
 
         # Check health
-        http_port = state.get("httpPort", DEFAULT_HTTP_PORT)
+        http_port = state.get("httpPort") or default_http_port()
         is_healthy = await cls._check_health(http_port)
 
         if is_healthy:
