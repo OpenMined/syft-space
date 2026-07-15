@@ -28,6 +28,9 @@ from syft_space.components.shared.search_types import (
     SearchResult,
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.vector_stores.chromadb_local.external_provisioner import (
+    ExternalChromaDBProvisioner,
+)
 from syft_space.components.vector_stores.chromadb_local.provisioner import (
     LocalChromaDBProvisioner,
 )
@@ -38,6 +41,7 @@ from syft_space.components.vector_stores.chunking import (
     DocumentChunker,
     build_image_urls,
 )
+from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
 from syft_space.config import app_settings
 
 try:
@@ -84,15 +88,15 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 _ADD_BATCH_SIZE = 5000
 
 
-def _resolve_provisioner_cls() -> type[LocalChromaDBProvisioner] | None:
+def _resolve_provisioner_cls() -> type[BaseVectorStoreProvisioner]:
     """Resolve the provisioner from ``SYFT_CHROMADB_PROVISION``.
 
-    ``None`` (externally managed server) skips provisioning entirely,
-    same as provisioner-less stores like ``weaviate_remote``.
+    Local mode manages a ``chroma run`` subprocess; external mode only
+    ensures the space's database exists and tracks server health.
     """
     if app_settings.chromadb_provision:
         return LocalChromaDBProvisioner
-    return None
+    return ExternalChromaDBProvisioner
 
 
 class ChromaDBLocalVectorStore:

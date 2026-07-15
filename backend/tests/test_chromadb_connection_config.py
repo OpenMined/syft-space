@@ -1,5 +1,5 @@
 """ChromaDB connection settings (``SYFT_CHROMADB_*``): config-sourced
-defaults, provisioner resolution, and the ensure-database bootstrap."""
+defaults, provisioner resolution, and the external provisioner."""
 
 from __future__ import annotations
 
@@ -8,10 +8,13 @@ import pytest
 from syft_space.components.vector_stores.chromadb_local import (
     chromadb_vector_store as store_module,
 )
-from syft_space.components.vector_stores.chromadb_local import external
+from syft_space.components.vector_stores.chromadb_local import external_provisioner
 from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store import (
     ChromaDBLocalVectorStore,
     _resolve_provisioner_cls,
+)
+from syft_space.components.vector_stores.chromadb_local.external_provisioner import (
+    ExternalChromaDBProvisioner,
 )
 from syft_space.components.vector_stores.chromadb_local.provisioner import (
     LocalChromaDBProvisioner,
@@ -34,9 +37,9 @@ def test_provision_true_resolves_subprocess_provisioner(monkeypatch):
     assert _resolve_provisioner_cls() is LocalChromaDBProvisioner
 
 
-def test_provision_false_skips_provisioner(monkeypatch):
+def test_provision_false_resolves_external_provisioner(monkeypatch):
     monkeypatch.setattr(app_settings, "chromadb_provision", False)
-    assert _resolve_provisioner_cls() is None
+    assert _resolve_provisioner_cls() is ExternalChromaDBProvisioner
 
 
 # ============== Port default flows from config ==============
@@ -111,7 +114,7 @@ async def test_get_client_defaults_match_local_subprocess(monkeypatch):
     ]
 
 
-# ============== Ensure-database bootstrap ==============
+# ============== External provisioner ==============
 
 
 class _FakeAdmin:
@@ -130,59 +133,62 @@ class _FakeAdmin:
         self.created.append(name)
 
 
-async def test_ensure_database_creates_when_missing(monkeypatch):
+async def test_start_creates_database_when_missing(monkeypatch):
     admin = _FakeAdmin(existing=False)
-    monkeypatch.setattr(external, "_build_admin_client", lambda: admin)
+    monkeypatch.setattr(external_provisioner, "_build_admin_client", lambda: admin)
+    monkeypatch.setattr(app_settings, "chromadb_host", "chroma")
+    monkeypatch.setattr(app_settings, "chromadb_http_port", 8000)
     monkeypatch.setattr(app_settings, "chromadb_database", "space_a")
 
-    await external._ensure_database_once()
+    state = await ExternalChromaDBProvisioner.start({})
 
     assert admin.created == ["space_a"]
+    assert state == {"host": "chroma", "httpPort": 8000, "database": "space_a"}
 
 
-async def test_ensure_database_noop_when_present(monkeypatch):
+async def test_start_noop_when_database_present(monkeypatch):
     admin = _FakeAdmin(existing=True)
-    monkeypatch.setattr(external, "_build_admin_client", lambda: admin)
+    monkeypatch.setattr(external_provisioner, "_build_admin_client", lambda: admin)
 
-    await external._ensure_database_once()
+    await ExternalChromaDBProvisioner.start({})
 
     assert admin.created == []
 
 
-async def test_ensure_database_tolerates_concurrent_create(monkeypatch):
+async def test_start_tolerates_concurrent_create(monkeypatch):
     admin = _FakeAdmin(
         existing=False, create_error=ValueError("Database space_a already exists")
     )
-    monkeypatch.setattr(external, "_build_admin_client", lambda: admin)
+    monkeypatch.setattr(external_provisioner, "_build_admin_client", lambda: admin)
     monkeypatch.setattr(app_settings, "chromadb_database", "space_a")
 
-    await external._ensure_database_once()  # must not raise
+    await ExternalChromaDBProvisioner.start({})  # must not raise
 
 
-async def test_ensure_database_fails_fast_when_unreachable(monkeypatch):
-    async def _always_down():
-        raise ConnectionError("connection refused")
-
-    monkeypatch.setattr(external, "_ensure_database_once", _always_down)
-    monkeypatch.setattr(external, "_ENSURE_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(external, "_RETRY_INTERVAL_SECONDS", 0.01)
+async def test_start_raises_when_unreachable(monkeypatch):
+    admin = _FakeAdmin(
+        existing=False, create_error=ConnectionError("connection refused")
+    )
+    monkeypatch.setattr(external_provisioner, "_build_admin_client", lambda: admin)
 
     with pytest.raises(RuntimeError, match="unavailable"):
-        await external.ensure_external_database()
+        await ExternalChromaDBProvisioner.start({})
 
 
-async def test_ensure_database_recovers_after_retry(monkeypatch):
-    attempts = {"n": 0}
+async def test_running_and_status_follow_heartbeat(monkeypatch):
+    async def _up():
+        return True
 
-    async def _flaky():
-        attempts["n"] += 1
-        if attempts["n"] < 3:
-            raise ConnectionError("still starting")
+    async def _down():
+        return False
 
-    monkeypatch.setattr(external, "_ensure_database_once", _flaky)
-    monkeypatch.setattr(external, "_ENSURE_TIMEOUT_SECONDS", 5.0)
-    monkeypatch.setattr(external, "_RETRY_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(external_provisioner, "_heartbeat", _up)
+    assert await ExternalChromaDBProvisioner.is_running({}) is True
+    assert await ExternalChromaDBProvisioner.status({}) == "running"
+    await ExternalChromaDBProvisioner.wait_until_ready({})  # must not raise
 
-    await external.ensure_external_database()
-
-    assert attempts["n"] == 3
+    monkeypatch.setattr(external_provisioner, "_heartbeat", _down)
+    assert await ExternalChromaDBProvisioner.is_running({}) is False
+    assert await ExternalChromaDBProvisioner.status({}) == "stopped"
+    with pytest.raises(TimeoutError):
+        await ExternalChromaDBProvisioner.wait_until_ready({})
