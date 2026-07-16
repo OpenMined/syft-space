@@ -36,7 +36,7 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
 
     if len(sys.argv) > 1 and sys.argv[1] == "--convert-pdf-pages":
-        from syft_space.components.vector_stores.chunking import (
+        from syft_space.components.chunking.docling_local import (
             _worker_convert_pages,
         )
 

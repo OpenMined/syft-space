@@ -1,0 +1,19 @@
+# Overlay: convert documents via a docling-serve container instead of
+# the in-process docling library.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.docling.yml up --build
+#
+# Stackable with docker-compose.chromadb.yml.
+services:
+  syft-space-server:
+    environment:
+      - SYFT_DOCLING_SERVE_URL=http://docling-serve:5001
+    depends_on:
+      docling-serve:
+        condition: service_started
+
+  docling-serve:
+    image: ghcr.io/docling-project/docling-serve-cpu:v1.26.0
+    container_name: docling-serve
+    restart: unless-stopped
