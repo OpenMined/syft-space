@@ -123,6 +123,15 @@ class AppSettings(BaseSettings):
         ),
     )
 
+    # Docling settings
+    docling_serve_url: HttpUrl | None = Field(
+        default=None,
+        description=(
+            "URL of an externally managed docling-serve instance. Unset: "
+            "documents are converted in-process with the docling library."
+        ),
+    )
+
     # Endpoint health check settings
     heartbeat_enabled: bool = Field(
         default=True,
@@ -139,9 +148,9 @@ class AppSettings(BaseSettings):
         description="Timeout in seconds for local chat model/dataset calls",
     )
 
-    @field_validator("public_url", mode="before")
+    @field_validator("public_url", "docling_serve_url", mode="before")
     @classmethod
-    def validate_public_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
+    def validate_optional_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
         if not v:
             return
         if not isinstance(v, HttpUrl):
