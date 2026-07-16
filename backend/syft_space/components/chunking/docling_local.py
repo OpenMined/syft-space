@@ -19,12 +19,12 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from syft_space.components.shared.ingest_types import IngestFile
-from syft_space.components.vector_stores.chunking import (
+from syft_space.components.chunking.chunker import (
     _build_hybrid_chunker,
     _extract_pictures_and_chunks,
     _get_pdf_page_count,
 )
+from syft_space.components.shared.ingest_types import IngestFile
 
 logger = logging.getLogger(__name__)
 

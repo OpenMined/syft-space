@@ -218,10 +218,10 @@ def _resolve_backend() -> DoclingBackend:
     locally.
     """
     if app_settings.docling_serve_url:
-        from syft_space.components.vector_stores.docling_remote import (
+        from syft_space.components.chunking.docling_remote import (
             RemoteDoclingBackend,
         )
-        from syft_space.components.vector_stores.docling_serve_client import (
+        from syft_space.components.chunking.docling_serve_client import (
             DoclingServeClient,
         )
 
@@ -229,7 +229,7 @@ def _resolve_backend() -> DoclingBackend:
             DoclingServeClient(str(app_settings.docling_serve_url))
         )
 
-    from syft_space.components.vector_stores.docling_local import LocalDoclingBackend
+    from syft_space.components.chunking.docling_local import LocalDoclingBackend
 
     return LocalDoclingBackend()
 

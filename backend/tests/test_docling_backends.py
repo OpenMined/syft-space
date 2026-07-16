@@ -8,19 +8,19 @@ from typing import Any
 import httpx
 import pytest
 
-from syft_space.components.shared.ingest_types import IngestFile
-from syft_space.components.vector_stores import docling_remote
-from syft_space.components.vector_stores.chunking import (
+from syft_space.components.chunking import docling_remote
+from syft_space.components.chunking.chunker import (
     DocumentChunker,
     _build_hybrid_chunker,
     _resolve_backend,
 )
-from syft_space.components.vector_stores.docling_local import LocalDoclingBackend
-from syft_space.components.vector_stores.docling_remote import RemoteDoclingBackend
-from syft_space.components.vector_stores.docling_serve_client import (
+from syft_space.components.chunking.docling_local import LocalDoclingBackend
+from syft_space.components.chunking.docling_remote import RemoteDoclingBackend
+from syft_space.components.chunking.docling_serve_client import (
     DoclingServeClient,
     DoclingServeError,
 )
+from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.config import app_settings
 
 # ============== Backend resolution ==============
