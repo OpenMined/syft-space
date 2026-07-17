@@ -148,6 +148,13 @@ class AppSettings(BaseSettings):
         default="USD",
         description="Currency of the cluster credits wallet",
     )
+    cluster_managed_by: str = Field(
+        default="Syft Space Host",
+        description=(
+            "Display name of whoever manages the credits wallet, shown to "
+            "members as 'Managed by <name>'."
+        ),
+    )
 
     # Endpoint health check settings
     heartbeat_enabled: bool = Field(

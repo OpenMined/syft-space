@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from syft_space.components.wallets.cluster.config import ClusterWalletConfig
 from syft_space.components.wallets.interfaces import SetupResult
+from syft_space.config import app_settings
 
 
 class ClusterWalletProvider:
@@ -23,12 +24,11 @@ class ClusterWalletProvider:
 
     async def setup_wallet(self, raw_credentials: dict[str, Any]) -> SetupResult:
         raise ValueError(
-            "Cluster wallets are managed by the cluster and cannot be "
-            "created through the API"
+            "This wallet is managed externally and cannot be created through the API"
         )
 
     def extract_display(
         self, configuration: dict[str, Any], wallet_id: UUID
     ) -> dict[str, Any]:
         """Safe display info — never the service token."""
-        return {"managed_by": "Your cluster"}
+        return {"managed_by": app_settings.cluster_managed_by}
