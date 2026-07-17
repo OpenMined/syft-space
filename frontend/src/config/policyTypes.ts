@@ -7,9 +7,11 @@ export type PaymentPolicyType =
   | 'mpp_per_request'
   | 'xendit_per_request'
   | 'stripe_per_request'
+  | 'cluster_per_request'
   | 'mpp_per_document'
   | 'xendit_per_document'
   | 'stripe_per_document'
+  | 'cluster_per_document'
 
 export interface PolicyConfig {
   id: string

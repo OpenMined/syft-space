@@ -282,12 +282,12 @@
               </SelectTrigger>
               <SelectContent>
                 <SelectItem v-for="w in wallets" :key="w.id" :value="w.id">
-                  {{ w.name }} · {{ providerLabel(w.wallet_type) }} · {{ w.currency }}
+                  {{ w.name }} · {{ providerLabel(w) }} · {{ w.currency }}
                 </SelectItem>
               </SelectContent>
             </Select>
             <button
-              v-if="!lockedWalletId"
+              v-if="!lockedWalletId && !hasManagedWallet"
               class="text-xs text-primary hover:text-primary/80 underline-offset-2 hover:underline"
               @click="view = 'pick-provider'"
             >
@@ -385,7 +385,7 @@
                 <span class="text-right font-medium">{{ selectedWallet.name }}</span>
                 <span class="text-muted-foreground">Provider</span>
                 <span class="text-right font-medium">
-                  {{ providerLabel(selectedWallet.wallet_type) }}
+                  {{ providerLabel(selectedWallet) }}
                 </span>
                 <span class="text-muted-foreground">Price</span>
                 <span class="text-right font-medium">
@@ -536,6 +536,10 @@ const selectedWallet = computed(
   () => wallets.value.find((w) => w.id === selectedWalletId.value) ?? null,
 )
 
+// A managed wallet is the only wallet the space may use — hide the inline
+// wallet-setup entry points while it exists (the backend blocks creation too).
+const hasManagedWallet = computed(() => wallets.value.some((w) => w.managed))
+
 const priceHint = computed(() => {
   const price = parseFloat(form.value.price)
   if (isNaN(price) || price <= 0 || !selectedWallet.value) return ''
@@ -565,8 +569,9 @@ const canCreateStripe = computed(
     stripeForm.value.webhookSecret.trim().length > 0,
 )
 
-const providerLabel = (walletType: string): string => {
-  switch (walletType) {
+const providerLabel = (wallet: WalletListItem): string => {
+  if (wallet.managed) return 'Managed'
+  switch (wallet.wallet_type) {
     case 'mpp':
       return 'MPP (Tempo)'
     case 'xendit':
@@ -574,7 +579,7 @@ const providerLabel = (walletType: string): string => {
     case 'stripe':
       return 'Stripe'
     default:
-      return walletType
+      return wallet.wallet_type
   }
 }
 
@@ -616,6 +621,9 @@ const policyTypeForWallet = (walletType: string, chargeMode: ChargeMode): Paymen
   }
   if (walletType === 'stripe') {
     return chargeMode === 'document' ? 'stripe_per_document' : 'stripe_per_request'
+  }
+  if (walletType === 'cluster') {
+    return chargeMode === 'document' ? 'cluster_per_document' : 'cluster_per_request'
   }
   return chargeMode === 'document' ? 'xendit_per_document' : 'xendit_per_request'
 }

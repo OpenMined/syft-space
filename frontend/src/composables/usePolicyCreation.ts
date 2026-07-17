@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { policiesApi } from '@/api/policies/policies'
 import { walletsApi } from '@/api/endpoints/wallets'
 import type { CreatePolicyRequest } from '@/api/types'
+import type { PaymentPolicyType } from '@/config/policyTypes'
 
 export interface PolicyRules {
   access: Array<{ id: string; config: Record<string, unknown> }>
@@ -261,14 +262,7 @@ export function usePolicyCreation() {
         } else if (policyType === 'pricing') {
           walletId = rule.config.walletId as string | undefined
           const walletType = rule.config.walletType as string | undefined
-          const explicitPolicyType = rule.config.policyType as
-            | 'mpp_per_request'
-            | 'xendit_per_request'
-            | 'stripe_per_request'
-            | 'mpp_per_document'
-            | 'xendit_per_document'
-            | 'stripe_per_document'
-            | undefined
+          const explicitPolicyType = rule.config.policyType as PaymentPolicyType | undefined
           // Default when no explicit type: derive from wallet type, defaulting
           // to per-request charging (the most common case).
           const defaultPolicyType =
@@ -276,7 +270,9 @@ export function usePolicyCreation() {
               ? 'mpp_per_request'
               : walletType === 'stripe'
                 ? 'stripe_per_request'
-                : 'xendit_per_request'
+                : walletType === 'cluster'
+                  ? 'cluster_per_request'
+                  : 'xendit_per_request'
           backendPolicyType = explicitPolicyType ?? defaultPolicyType
 
           const userType = rule.config.userType as 'all' | 'specific'

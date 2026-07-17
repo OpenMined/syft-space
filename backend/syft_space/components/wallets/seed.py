@@ -17,7 +17,7 @@ from syft_space.config import app_settings
 
 logger = logging.getLogger(__name__)
 
-CLUSTER_WALLET_NAME = "Space Credits"
+CLUSTER_WALLET_NAME = "Cluster Shared Wallet"
 
 
 async def seed_cluster_wallet(repository: WalletRepository, tenant_id: UUID) -> None:
