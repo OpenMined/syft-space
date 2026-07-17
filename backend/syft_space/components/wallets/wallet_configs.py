@@ -10,6 +10,7 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from syft_space.components.wallets.cluster.config import ClusterWalletConfig
 from syft_space.components.wallets.gateway.xendit.config import XenditWalletConfig
 from syft_space.components.wallets.mpp.config import MppWalletConfig
 
@@ -19,6 +20,9 @@ class WalletCategory(str, Enum):
 
     MPP = "mpp"
     GATEWAY = "gateway"
+    # Managed cluster credits: no local top-ups/invoices, balance lives at
+    # the cluster's credits service, spend history is journaled locally.
+    CLUSTER = "cluster"
 
 
 class WalletType(str, Enum):
@@ -26,6 +30,7 @@ class WalletType(str, Enum):
 
     MPP = "mpp"
     XENDIT = "xendit"
+    CLUSTER = "cluster"
 
     @property
     def category(self) -> WalletCategory:
@@ -36,15 +41,18 @@ class WalletType(str, Enum):
 WALLET_TYPE_CATEGORIES: dict[WalletType, WalletCategory] = {
     WalletType.MPP: WalletCategory.MPP,
     WalletType.XENDIT: WalletCategory.GATEWAY,
+    WalletType.CLUSTER: WalletCategory.CLUSTER,
 }
 
 # Maps each wallet type to its Pydantic config class
 WALLET_CONFIG_REGISTRY: dict[WalletType, type[BaseModel]] = {
     WalletType.MPP: MppWalletConfig,
     WalletType.XENDIT: XenditWalletConfig,
+    WalletType.CLUSTER: ClusterWalletConfig,
 }
 
 __all__ = [
+    "ClusterWalletConfig",
     "MppWalletConfig",
     "XenditWalletConfig",
     "WalletCategory",

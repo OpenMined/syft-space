@@ -14,6 +14,7 @@ from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.interfaces import WalletProvider
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.schemas import WalletListItem, WalletResponse
+from syft_space.components.wallets.wallet_configs import WalletType
 
 
 class WalletHandler:
@@ -51,6 +52,11 @@ class WalletHandler:
 
     # --- Generic operations (all wallet types) ---
 
+    async def _has_managed_wallet(self, tenant_id) -> bool:
+        """True when a cluster-managed wallet exists for this tenant."""
+        wallets = await self.repository.get_all(tenant_id)
+        return any(w.wallet_type == WalletType.CLUSTER.value for w in wallets)
+
     async def list_wallets(self, tenant: Tenant) -> list[WalletListItem]:
         """List all wallets for a tenant."""
         wallets = await self.repository.get_all(tenant.id)
@@ -66,6 +72,7 @@ class WalletHandler:
                     country=w.country,
                     is_active=w.is_active,
                     display=display,
+                    managed=w.wallet_type == WalletType.CLUSTER.value,
                     created_at=w.created_at,
                 )
             )
@@ -87,6 +94,7 @@ class WalletHandler:
             country=wallet.country,
             is_active=wallet.is_active,
             display=display,
+            managed=wallet.wallet_type == WalletType.CLUSTER.value,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
@@ -103,6 +111,12 @@ class WalletHandler:
         wallet = await self.repository.get_by_id(wallet_id, tenant.id)
         if not wallet:
             raise HTTPException(status_code=404, detail="Wallet not found")
+
+        if wallet.wallet_type == WalletType.CLUSTER.value:
+            raise HTTPException(
+                status_code=403,
+                detail="This wallet is managed by the cluster and cannot be deleted",
+            )
 
         if not force and self.deletion_check is not None:
             error = await self.deletion_check(wallet_id, tenant.id)
@@ -128,7 +142,23 @@ class WalletHandler:
         The provider validates and enriches credentials, returning currency
         and (optionally) country alongside the configuration. The handler
         enforces (tenant, wallet_type, currency) uniqueness.
+
+        Blocked entirely while a cluster-managed wallet exists — members
+        of a Syft Cluster can only use the managed credits wallet.
         """
+        if wallet_type == WalletType.CLUSTER.value:
+            raise HTTPException(
+                status_code=403,
+                detail="Cluster wallets are seeded by the cluster, not created here",
+            )
+        if await self._has_managed_wallet(tenant.id):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Wallet creation is disabled — this space uses a "
+                    "managed credits wallet"
+                ),
+            )
         provider = self._get_provider(wallet_type)
 
         try:
@@ -182,6 +212,7 @@ class WalletHandler:
             country=wallet.country,
             is_active=wallet.is_active,
             display=display,
+            managed=wallet.wallet_type == WalletType.CLUSTER.value,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )
@@ -206,6 +237,15 @@ class WalletHandler:
         if not wallet:
             raise HTTPException(status_code=404, detail="Wallet not found")
 
+        if wallet.wallet_type == WalletType.CLUSTER.value:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "This wallet is managed by the cluster — its config "
+                    "comes from the environment"
+                ),
+            )
+
         provider = self._get_provider(wallet.wallet_type)
         try:
             updated_config = provider.update_credentials(wallet.configuration, updates)
@@ -224,6 +264,7 @@ class WalletHandler:
             country=wallet.country,
             is_active=wallet.is_active,
             display=display,
+            managed=wallet.wallet_type == WalletType.CLUSTER.value,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at,
         )

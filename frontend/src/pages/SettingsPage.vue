@@ -186,7 +186,12 @@
               <p class="text-sm text-muted-foreground">Manage your payment wallets</p>
             </div>
           </div>
-          <Button variant="outline" size="sm" @click="addWalletDialogOpen = true">
+          <Button
+            v-if="!hasManagedWallet"
+            variant="outline"
+            size="sm"
+            @click="addWalletDialogOpen = true"
+          >
             <Plus class="h-4 w-4 mr-2" />
             Add Wallet
           </Button>
@@ -215,10 +220,11 @@
             <div class="flex items-center gap-3 min-w-0">
               <div
                 class="h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                :class="walletIconBgClass(wallet.wallet_type)"
+                :class="walletIconBgClass(wallet)"
               >
+                <Wallet v-if="wallet.managed" class="h-4 w-4 text-sky-600 dark:text-sky-400" />
                 <Zap
-                  v-if="wallet.wallet_type === 'mpp'"
+                  v-else-if="wallet.wallet_type === 'mpp'"
                   class="h-4 w-4 text-emerald-600 dark:text-emerald-400"
                 />
                 <CreditCard
@@ -242,8 +248,12 @@
                   >
                     {{ wallet.is_active ? 'Active' : 'Inactive' }}
                   </Badge>
+                  <Badge v-if="wallet.managed" variant="secondary" class="text-xs"> Managed </Badge>
                 </div>
-                <p class="text-xs text-muted-foreground font-mono truncate">
+                <p v-if="wallet.managed" class="text-xs text-muted-foreground truncate">
+                  Managed by {{ wallet.display.managed_by || 'your cluster' }}
+                </p>
+                <p v-else class="text-xs text-muted-foreground font-mono truncate">
                   <template v-if="wallet.wallet_type === 'mpp'">
                     {{ wallet.display.wallet_address || 'No address' }}
                   </template>
@@ -273,6 +283,7 @@
                 Manage
               </Button>
               <Button
+                v-if="!wallet.managed"
                 variant="ghost"
                 size="sm"
                 class="text-destructive hover:text-destructive"
@@ -693,7 +704,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import {
   Settings,
   Globe,
@@ -754,6 +765,11 @@ const diagnosticsEnabled = ref(false)
 const loadingWallets = ref(true)
 const allWallets = ref<WalletListItem[]>([])
 const walletDialogOpen = ref(false)
+
+// A managed wallet is seeded from the environment and is the only wallet
+// the space may use — creation and deletion are disabled while it exists
+// (the backend enforces this too).
+const hasManagedWallet = computed(() => allWallets.value.some((w) => w.managed))
 
 const proxyStatus = reactive({
   connected: false,
@@ -924,11 +940,12 @@ watch(
   },
 )
 
-// Per-provider icon background. MPP → emerald; Xendit → violet; Stripe →
-// indigo (mirrors the inline picker in AddPricingRuleDialog and the SyftHub
-// credits-panel chip colours).
-const walletIconBgClass = (walletType: string): string => {
-  switch (walletType) {
+// Per-provider icon background. Managed → sky; MPP → emerald; Xendit →
+// violet; Stripe → indigo (mirrors the inline picker in AddPricingRuleDialog
+// and the SyftHub credits-panel chip colours).
+const walletIconBgClass = (wallet: WalletListItem): string => {
+  if (wallet.managed) return 'bg-sky-100 dark:bg-sky-900/30'
+  switch (wallet.wallet_type) {
     case 'mpp':
       return 'bg-emerald-100 dark:bg-emerald-900/30'
     case 'stripe':

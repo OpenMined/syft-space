@@ -473,8 +473,16 @@
           >
             <Receipt class="h-5 w-5 text-muted-foreground" />
           </div>
-          <p class="text-sm font-semibold text-foreground mb-1">No payment wallets configured</p>
-          <p class="text-sm text-muted-foreground">Add a wallet to start tracking earnings.</p>
+          <p class="text-sm font-semibold text-foreground mb-1">
+            {{ hasManagedWallet ? 'No invoices to show' : 'No payment wallets configured' }}
+          </p>
+          <p class="text-sm text-muted-foreground">
+            {{
+              hasManagedWallet
+                ? 'This space uses a managed credits wallet — spend is tracked per endpoint.'
+                : 'Add a wallet to start tracking earnings.'
+            }}
+          </p>
         </div>
 
         <template v-else>
@@ -1014,6 +1022,7 @@ const selectedNgramSize = computed({
 
 // ── Earnings state ─────────────────────────────────────────────────────────
 const wallets = ref<WalletListItem[]>([])
+const hasManagedWallet = ref(false)
 const walletsLoading = ref(false)
 const selectedWalletId = ref<string>('')
 const invoicesLoading = ref(false)
@@ -1065,8 +1074,10 @@ const fetchWallets = async () => {
   walletsLoading.value = true
   try {
     const all = await walletsApi.list()
-    // MPP wallets use on-chain transactions, not invoices — exclude them.
-    wallets.value = all.filter((w) => w.wallet_type !== 'mpp')
+    // Only gateway wallets have invoices — MPP settles on-chain and managed
+    // wallets are topped up outside the space, so exclude both.
+    hasManagedWallet.value = all.some((w) => w.managed)
+    wallets.value = all.filter((w) => w.wallet_type !== 'mpp' && !w.managed)
     const first = wallets.value[0]
     if (first && !selectedWalletId.value) {
       selectedWalletId.value = first.id

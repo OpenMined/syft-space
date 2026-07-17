@@ -132,6 +132,23 @@ class AppSettings(BaseSettings):
         ),
     )
 
+    # Syft Cluster credits (managed wallet) settings
+    cluster_credits_url: HttpUrl | None = Field(
+        default=None,
+        description=(
+            "Base URL of the cluster credits service. Set (with the token) "
+            "to seed the managed cluster wallet at startup."
+        ),
+    )
+    cluster_credits_token: str = Field(
+        default="",
+        description="Per-space service token for the cluster credits API",
+    )
+    cluster_credits_currency: str = Field(
+        default="USD",
+        description="Currency of the cluster credits wallet",
+    )
+
     # Endpoint health check settings
     heartbeat_enabled: bool = Field(
         default=True,
@@ -148,7 +165,9 @@ class AppSettings(BaseSettings):
         description="Timeout in seconds for local chat model/dataset calls",
     )
 
-    @field_validator("public_url", "docling_serve_url", mode="before")
+    @field_validator(
+        "public_url", "docling_serve_url", "cluster_credits_url", mode="before"
+    )
     @classmethod
     def validate_optional_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
         if not v:

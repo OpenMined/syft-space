@@ -26,6 +26,11 @@ class WalletResponse(BaseModel):
     display: dict[str, Any] = Field(
         default_factory=dict, description="Type-specific display info for frontend"
     )
+    managed: bool = Field(
+        default=False,
+        description="Wallet is managed externally (seeded from env); "
+        "creation/update/delete are disabled for it",
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
@@ -44,6 +49,11 @@ class WalletListItem(BaseModel):
     is_active: bool = Field(..., description="Whether wallet is active")
     display: dict[str, Any] = Field(
         default_factory=dict, description="Type-specific display info"
+    )
+    managed: bool = Field(
+        default=False,
+        description="Wallet is managed externally (seeded from env); "
+        "creation/update/delete are disabled for it",
     )
     created_at: datetime = Field(..., description="Creation timestamp")
 
