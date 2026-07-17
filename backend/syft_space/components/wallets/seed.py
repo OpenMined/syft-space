@@ -1,6 +1,6 @@
 """Seed the managed cluster wallet from env at startup.
 
-Spaces provisioned into a Syft Cluster get ``SYFT_CLUSTER_CREDITS_URL``
+Spaces provisioned into a cluster get ``SYFT_CLUSTER_CREDITS_URL``
 and ``SYFT_CLUSTER_CREDITS_TOKEN`` in their Secret. This hook upserts the
 matching wallet so billing works without any UI action: create it when
 missing, refresh the stored config when the env changed (token rotation
@@ -17,7 +17,7 @@ from syft_space.config import app_settings
 
 logger = logging.getLogger(__name__)
 
-CLUSTER_WALLET_NAME = "Cluster Shared Wallet"
+CLUSTER_WALLET_NAME = "Managed Credits Wallet"
 
 
 async def seed_cluster_wallet(repository: WalletRepository, tenant_id: UUID) -> None:

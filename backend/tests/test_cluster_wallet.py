@@ -338,6 +338,19 @@ def test_seed_module_reads_settings_lazily():
     assert seed_module.app_settings is app_settings
 
 
+def test_display_managed_by_from_env(monkeypatch):
+    from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
+    from syft_space.config import AppSettings
+
+    provider = ClusterWalletProvider()
+    monkeypatch.setattr(app_settings, "cluster_managed_by", "Acme Research Station")
+    assert provider.extract_display({}, uuid4()) == {
+        "managed_by": "Acme Research Station"
+    }
+
+    assert AppSettings.model_fields["cluster_managed_by"].default == "Syft Space Host"
+
+
 # ============== Exclusivity guards ==============
 
 

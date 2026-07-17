@@ -115,7 +115,7 @@ class WalletHandler:
         if wallet.wallet_type == WalletType.CLUSTER.value:
             raise HTTPException(
                 status_code=403,
-                detail="This wallet is managed by the cluster and cannot be deleted",
+                detail="This wallet is managed externally and cannot be deleted",
             )
 
         if not force and self.deletion_check is not None:
@@ -143,13 +143,14 @@ class WalletHandler:
         and (optionally) country alongside the configuration. The handler
         enforces (tenant, wallet_type, currency) uniqueness.
 
-        Blocked entirely while a cluster-managed wallet exists — members
-        of a Syft Cluster can only use the managed credits wallet.
+        Blocked entirely while a managed wallet exists — spaces with a
+        managed credits wallet can only use that wallet.
         """
         if wallet_type == WalletType.CLUSTER.value:
             raise HTTPException(
                 status_code=403,
-                detail="Cluster wallets are seeded by the cluster, not created here",
+                detail="Managed wallets are seeded from the environment, "
+                "not created here",
             )
         if await self._has_managed_wallet(tenant.id):
             raise HTTPException(
@@ -241,7 +242,7 @@ class WalletHandler:
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    "This wallet is managed by the cluster — its config "
+                    "This wallet is managed externally — its config "
                     "comes from the environment"
                 ),
             )

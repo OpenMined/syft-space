@@ -251,7 +251,7 @@
                   <Badge v-if="wallet.managed" variant="secondary" class="text-xs"> Managed </Badge>
                 </div>
                 <p v-if="wallet.managed" class="text-xs text-muted-foreground truncate">
-                  Managed by {{ wallet.display.managed_by || 'your cluster' }}
+                  Managed by {{ wallet.display.managed_by || 'Syft Space Host' }}
                 </p>
                 <p v-else class="text-xs text-muted-foreground font-mono truncate">
                   <template v-if="wallet.wallet_type === 'mpp'">
