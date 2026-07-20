@@ -33,6 +33,15 @@ def build_request_routes(handler: RequestHandler) -> APIRouter:
         """Member: own requests. Admin: all requests."""
         return await handler.list_requests(user)
 
+    @router.get("/{request_id}", response_model=RequestResponse)
+    async def get_request(
+        request_id: UUID,
+        user: SessionUser = Depends(get_current_user),
+        handler: RequestHandler = Depends(get_handler),
+    ) -> RequestResponse:
+        """One request for status polling; members see only their own."""
+        return await handler.get_request(request_id, user)
+
     @router.post("", response_model=RequestResponse, status_code=201)
     async def submit_request(
         body: SubmitRequestBody,

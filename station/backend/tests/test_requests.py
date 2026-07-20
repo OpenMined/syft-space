@@ -63,6 +63,35 @@ async def test_submit_duplicate_subdomain_conflicts(handler):
     assert exc.value.status_code == 409
 
 
+# ============== Get one (status polling) ==============
+
+
+async def test_get_request_returns_own(handler):
+    request = await handler.submit(submit_body("alpha"), MEMBER)
+    fetched = await handler.get_request(request.id, MEMBER)
+    assert fetched.id == request.id
+    assert fetched.subdomain == "alpha"
+
+
+async def test_get_request_admin_sees_any(handler):
+    request = await handler.submit(submit_body("alpha"), MEMBER)
+    fetched = await handler.get_request(request.id, ADMIN)
+    assert fetched.id == request.id
+
+
+async def test_get_request_non_owner_403(handler):
+    request = await handler.submit(submit_body("alpha"), MEMBER)
+    with pytest.raises(HTTPException) as exc:
+        await handler.get_request(request.id, OTHER_MEMBER)
+    assert exc.value.status_code == 403
+
+
+async def test_get_request_unknown_404(handler):
+    with pytest.raises(HTTPException) as exc:
+        await handler.get_request(uuid4(), MEMBER)
+    assert exc.value.status_code == 404
+
+
 # ============== Approve / provision ==============
 
 

@@ -67,6 +67,17 @@ class RequestHandler:
             raise HTTPException(status_code=404, detail="Request not found")
         return request
 
+    async def get_request(
+        self, request_id: UUID, user: SessionUser
+    ) -> RequestResponse:
+        """One request, for status polling. Members see only their own."""
+        request = await self._get_request(request_id)
+        if user.role != ROLE_ADMIN and request.owner_email != user.email:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Not your request"
+            )
+        return _to_response(request)
+
     # --- Lifecycle ---
 
     async def submit(
