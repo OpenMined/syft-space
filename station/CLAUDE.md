@@ -1,0 +1,113 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working in
+`station/` — the Syft Station control plane. It supplements the repo-root
+CLAUDE.md; where they conflict, this file wins for code under `station/`.
+
+## Project Overview
+
+Syft Station is the control plane for running member-owned Syft Spaces on
+shared Kubernetes infrastructure. Members sign in with SyftHub and request a
+space; the admin reviews requests; approved spaces are provisioned onto the
+cluster as labeled resource bundles (Deployment/PVC/Service/Ingress/Secret).
+The station is a FastAPI backend + Vue 3 frontend, deployed in production as
+ONE in-cluster pod (the backend serves the built frontend statically).
+
+Design doc: `station.md` at the repo root (uncommitted, kept current).
+
+## Naming rule (important)
+
+- **"Syft Station" is the brand** — user-visible copy, docs headings, URLs.
+- **`cluster` is the integration surface** — everything syft-space or a k8s
+  Secret references keeps the name: `SYFT_CLUSTER_CREDITS_*`,
+  `SYFT_CLUSTER_MANAGED_BY`, `WalletType.CLUSTER`, `cluster_per_request`.
+  Never rename these to "station"; never write "cluster" in new user-visible
+  station copy.
+- The Kubernetes substrate is always spelled out as "the Kubernetes cluster".
+
+## Architecture
+
+### Backend (`station/backend`, package `syft_station`)
+
+- FastAPI + SQLModel + aiosqlite + Alembic, mirroring syft-space conventions.
+- Domain-driven components in `syft_station/components/`, each with the same
+  file split as syft-space: `entities.py`, `handlers.py`, `repository.py`,
+  `routes.py`, `schemas.py` (plus `interfaces.py` where a seam exists).
+- Components:
+  - `auth/` — SyftHub sign-in proxy (hub tokens are used once and discarded;
+    the station issues its own signed session cookie). Role = admin iff
+    email == `SYFT_STATION_ADMIN_EMAIL`.
+  - `setup/` — first-run settings (domain + supported version);
+    `onboarded ⇔ domain != ""`.
+  - `requests/` — space-request lifecycle:
+    PENDING → PROVISIONING → ACTIVE, plus REJECTED / FAILED (retryable) /
+    DELETED / WITHDRAWN (member withdraws own PENDING request; kept as a
+    state so the admin retains visibility). Only PENDING / PROVISIONING /
+    ACTIVE reserve a subdomain.
+  - `spaces/` — provisioned-space registry + space admin-token lifecycle
+    (one-time reveal, regenerate). Runtime status is NOT stored — Kubernetes
+    is the source of truth for it.
+  - `provision/` — the `Provisioner` protocol. `DevProvisioner` fakes it for
+    local dev (subdomain containing "fail" → FAILED, to exercise retry);
+    the real k8s implementation is ticket C2.
+  - `shared/` — `database.py` (AsyncDatabase + AsyncBaseRepository, WAL
+    pragmas), logging.
+- Routes are built with the `build_*_routes(handler) -> APIRouter` factory
+  pattern and mounted under `/api/v1`.
+- Config: pydantic-settings with env prefix `SYFT_STATION_` (`config.py`).
+  SQLite at `~/.syft-station/app.db`.
+- CLI (`cli.py`, console script `syft-station`): internal-only — `server`
+  (wraps uvicorn; container ENTRYPOINT) and `upgrade-db` (Alembic).
+  It is NOT a user-facing tool; Helm is the installer.
+
+### Frontend (`station/frontend`)
+
+Vue 3 + TypeScript + Tailwind + shadcn/ui + Pinia — identical stack and
+conventions to the root `frontend/` (its CLAUDE.md applies: shadcn/ui
+components, lucide-vue-next icons, `<script setup>`, bun not npm).
+State currently lives in the mocked `stores/station.ts`; ticket C4 wires it
+to the backend API. Dev server runs on :5174.
+
+## Development Commands
+
+### Backend (from `station/backend/`)
+
+```bash
+uv sync --extra dev            # install deps (creates .venv + uv.lock)
+uv run uvicorn syft_station.main:app --reload --port 8090
+uv run pytest                  # tests
+uv run --extra lint ruff check .    # lint
+uv run --extra lint ruff format .   # format
+uv run alembic revision --autogenerate -m "..."   # new migration
+```
+
+### Frontend (from `station/frontend/`)
+
+```bash
+bun install
+bun dev                        # :5174
+bun run lint && bun run typecheck && bun run format
+```
+
+### Kubernetes dev environment
+
+k3d is the local cluster (prod parity with the k3s install story). A
+`station/justfile` will carry the cluster/dev recipes — it gets created when
+the k8s provisioner work (C2) starts. Until then the backend runs host-side
+with `DevProvisioner`; no cluster is needed.
+
+## Development Patterns
+
+- Follow syft-space patterns exactly: handlers own business logic and raise
+  `HTTPException`; repositories own persistence; routes are thin.
+- Alembic from day one — schema changes always come with a migration
+  (`upgrade-db` runs them; never silent auto-migrate in production).
+- Tests mirror syft-space style: handler/repository-level with temp-file
+  SQLite fixtures; external HTTP (SyftHub) stubbed via `httpx.MockTransport`
+  through the client's `_build_http_client` seam.
+- Space admin tokens: plaintext is stored only until first reveal, then
+  cleared; regenerate mints a new token.
+- Zero code coupling with syft-space: the only contract is the syft-space
+  container image + `SYFT_*` env vars + its health endpoint. Never import
+  from `syft_space`.
+- Always run lint/typecheck (and backend tests) after changes.

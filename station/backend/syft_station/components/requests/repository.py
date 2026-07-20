@@ -1,0 +1,71 @@
+"""Space request repository."""
+
+from datetime import UTC, datetime
+from uuid import UUID
+
+from sqlmodel import select
+
+from syft_station.components.requests.entities import (
+    SUBDOMAIN_RESERVING_STATUSES,
+    RequestStatus,
+    SpaceRequest,
+)
+from syft_station.components.shared.database import AsyncBaseRepository, AsyncDatabase
+
+
+class RequestRepository(AsyncBaseRepository[SpaceRequest]):
+    """Repository for SpaceRequest operations."""
+
+    def __init__(self, db: AsyncDatabase):
+        super().__init__(db, SpaceRequest)
+
+    async def list_by_owner(self, owner_email: str) -> list[SpaceRequest]:
+        async with self.db.get_session() as session:
+            statement = (
+                select(SpaceRequest)
+                .where(SpaceRequest.owner_email == owner_email)
+                .order_by(SpaceRequest.created_at.desc())  # type: ignore[attr-defined]
+            )
+            result = await session.exec(statement)
+            return list(result.all())
+
+    async def list_all(self) -> list[SpaceRequest]:
+        async with self.db.get_session() as session:
+            statement = select(SpaceRequest).order_by(
+                SpaceRequest.created_at.desc()  # type: ignore[attr-defined]
+            )
+            result = await session.exec(statement)
+            return list(result.all())
+
+    async def subdomain_in_use(
+        self, subdomain: str, exclude_id: UUID | None = None
+    ) -> bool:
+        """True if any live request reserves this subdomain."""
+        async with self.db.get_session() as session:
+            statement = select(SpaceRequest).where(
+                SpaceRequest.subdomain == subdomain,
+                SpaceRequest.status.in_(  # type: ignore[attr-defined]
+                    [s.value for s in SUBDOMAIN_RESERVING_STATUSES]
+                ),
+            )
+            result = await session.exec(statement)
+            for row in result.all():
+                if exclude_id is None or row.id != exclude_id:
+                    return True
+            return False
+
+    async def set_status(
+        self,
+        request: SpaceRequest,
+        status: RequestStatus,
+        *,
+        reject_reason: str | None = None,
+        space_id: UUID | None = None,
+    ) -> SpaceRequest:
+        request.status = status.value
+        if reject_reason is not None:
+            request.reject_reason = reject_reason
+        if space_id is not None:
+            request.space_id = space_id
+        request.updated_at = datetime.now(UTC)
+        return await self.update(request)
