@@ -33,6 +33,19 @@ class SpaceRepository(AsyncBaseRepository[Space]):
             result = await session.exec(statement)
             return result.first()
 
+    async def delete_space(self, space_id: UUID) -> None:
+        """Remove a space and its token rows from the registry."""
+        async with self.db.get_session() as session:
+            tokens = await session.exec(
+                select(SpaceToken).where(SpaceToken.space_id == space_id)
+            )
+            for row in tokens.all():
+                await session.delete(row)
+            space = await session.get(Space, space_id)
+            if space:
+                await session.delete(space)
+            await session.commit()
+
     # --- Tokens ---
 
     async def create_token(self, space_id: UUID, token: str) -> SpaceToken:

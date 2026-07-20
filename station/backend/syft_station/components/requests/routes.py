@@ -79,6 +79,15 @@ def build_request_routes(handler: RequestHandler) -> APIRouter:
         """Retry a FAILED request (admin)."""
         return await handler.retry(request_id)
 
+    @router.post("/{request_id}/delete", response_model=RequestResponse)
+    async def delete_space(
+        request_id: UUID,
+        user: SessionUser = Depends(get_current_user),
+        handler: RequestHandler = Depends(get_handler),
+    ) -> RequestResponse:
+        """Tear down an active/failed space (owner or admin); marks DELETED."""
+        return await handler.delete_space(request_id, user)
+
     @router.post("/{request_id}/withdraw", response_model=RequestResponse)
     async def withdraw_request(
         request_id: UUID,

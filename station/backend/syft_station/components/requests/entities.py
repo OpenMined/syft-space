@@ -12,8 +12,9 @@ class RequestStatus(StrEnum):
 
     PENDING → PROVISIONING → ACTIVE is the happy path. REJECTED and
     WITHDRAWN are terminal; FAILED is retryable by the admin; DELETED means
-    the space was removed (data retained). Only PENDING / PROVISIONING /
-    ACTIVE reserve the subdomain.
+    the space was explicitly torn down (its k8s resources, including the data
+    volume, removed). Only PENDING / PROVISIONING / ACTIVE reserve the
+    subdomain.
     """
 
     PENDING = "pending"

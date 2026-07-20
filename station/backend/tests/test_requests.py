@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
+from syft_station.components.provision.interfaces import ProvisionError, SpaceSpec
 from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.entities import RequestStatus
 from syft_station.components.requests.handlers import RequestHandler
@@ -254,6 +255,125 @@ async def test_withdraw_non_pending_409(handler, setup_repository):
     with pytest.raises(HTTPException) as exc:
         await handler.withdraw(request.id, MEMBER)
     assert exc.value.status_code == 409
+
+
+# ============== Delete (space teardown) ==============
+
+
+class RecordingProvisioner:
+    """Mock provisioner that records deprovision calls (subdomain, purge)."""
+
+    def __init__(self):
+        self.deprovisioned: list[tuple[str, bool]] = []
+
+    async def provision(self, spec: SpaceSpec) -> str:
+        if "fail" in spec.subdomain:
+            raise ProvisionError("recording: fail")
+        return f"https://{spec.subdomain}.{spec.domain}"
+
+    async def deprovision(self, subdomain: str, purge: bool) -> None:
+        self.deprovisioned.append((subdomain, purge))
+
+
+@pytest.fixture
+def rec_provisioner() -> RecordingProvisioner:
+    return RecordingProvisioner()
+
+
+@pytest.fixture
+def rec_handler(
+    request_repository, space_repository, setup_repository, rec_provisioner
+) -> RequestHandler:
+    return RequestHandler(
+        repository=request_repository,
+        space_repository=space_repository,
+        setup_repository=setup_repository,
+        provisioner=rec_provisioner,
+    )
+
+
+async def test_delete_active_space_tears_down_and_frees_subdomain(
+    rec_handler, rec_provisioner, setup_repository
+):
+    await onboard(setup_repository)
+    request = await rec_handler.submit(submit_body("alpha"), MEMBER)
+    approved = await rec_handler.approve(request.id, ApproveRequestBody())
+    await rec_handler.wait_for_provisioning()
+
+    deleted = await rec_handler.delete_space(request.id, MEMBER)
+    assert deleted.status == RequestStatus.DELETED.value
+
+    # The provisioner was asked to fully tear down the space's subdomain.
+    assert rec_provisioner.deprovisioned == [("alpha", True)]
+    # Space + token rows are gone from the registry...
+    assert await rec_handler.space_repository.get_by_subdomain("alpha") is None
+    assert await rec_handler.space_repository.get_token(approved.space_id) is None
+    # ...and the subdomain is free to request again.
+    again = await rec_handler.submit(submit_body("alpha"), OTHER_MEMBER)
+    assert again.subdomain == "alpha"
+
+
+async def test_delete_failed_space_cleans_up(
+    rec_handler, rec_provisioner, setup_repository
+):
+    await onboard(setup_repository)
+    request = await rec_handler.submit(submit_body("will-fail"), MEMBER)
+    await rec_handler.approve(request.id, ApproveRequestBody())
+    await rec_handler.wait_for_provisioning()
+    assert (await rec_handler.list_requests(MEMBER))[0].status == (
+        RequestStatus.FAILED.value
+    )
+
+    deleted = await rec_handler.delete_space(request.id, MEMBER)
+    assert deleted.status == RequestStatus.DELETED.value
+    assert rec_provisioner.deprovisioned == [("will-fail", True)]
+
+
+async def test_delete_admin_can_delete_any(rec_handler, setup_repository):
+    await onboard(setup_repository)
+    request = await rec_handler.submit(submit_body("alpha"), MEMBER)
+    await rec_handler.approve(request.id, ApproveRequestBody())
+    await rec_handler.wait_for_provisioning()
+
+    deleted = await rec_handler.delete_space(request.id, ADMIN)
+    assert deleted.status == RequestStatus.DELETED.value
+
+
+async def test_delete_non_owner_403(rec_handler, setup_repository):
+    await onboard(setup_repository)
+    request = await rec_handler.submit(submit_body("alpha"), MEMBER)
+    await rec_handler.approve(request.id, ApproveRequestBody())
+    await rec_handler.wait_for_provisioning()
+
+    with pytest.raises(HTTPException) as exc:
+        await rec_handler.delete_space(request.id, OTHER_MEMBER)
+    assert exc.value.status_code == 403
+
+
+async def test_delete_pending_request_409(rec_handler):
+    request = await rec_handler.submit(submit_body("alpha"), MEMBER)
+    with pytest.raises(HTTPException) as exc:
+        await rec_handler.delete_space(request.id, MEMBER)
+    assert exc.value.status_code == 409
+
+
+async def test_delete_while_provisioning_409(rec_handler, setup_repository):
+    await onboard(setup_repository)
+    request = await rec_handler.submit(submit_body("alpha"), MEMBER)
+    # Approve returns while provisioning is still in-flight (background task).
+    await rec_handler.approve(request.id, ApproveRequestBody())
+    try:
+        with pytest.raises(HTTPException) as exc:
+            await rec_handler.delete_space(request.id, MEMBER)
+        assert exc.value.status_code == 409
+    finally:
+        await rec_handler.wait_for_provisioning()
+
+
+async def test_delete_unknown_request_404(rec_handler):
+    with pytest.raises(HTTPException) as exc:
+        await rec_handler.delete_space(uuid4(), MEMBER)
+    assert exc.value.status_code == 404
 
 
 # ============== Slug helpers ==============

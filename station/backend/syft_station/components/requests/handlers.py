@@ -35,6 +35,10 @@ def _to_response(request: SpaceRequest) -> RequestResponse:
     return RequestResponse.model_validate(request.model_dump())
 
 
+# Only states that have provisioned k8s resources can be torn down.
+_DELETABLE_STATUSES = {RequestStatus.ACTIVE.value, RequestStatus.FAILED.value}
+
+
 class RequestHandler:
     """Submit / approve / reject / retry / withdraw, driving the provisioner."""
 
@@ -146,6 +150,48 @@ class RequestHandler:
                 detail="Only failed requests can be retried",
             )
         return await self._start_provisioning(request)
+
+    async def delete_space(
+        self, request_id: UUID, user: SessionUser
+    ) -> RequestResponse:
+        """Tear down a provisioned space and mark the request DELETED.
+
+        The only path that calls the provisioner's deprovision — deletion is
+        always an explicit user action (no implicit rollback on failure).
+        Full teardown (purge=True): the data volume goes too, so a freed
+        subdomain can't be re-provisioned onto another owner's leftover data.
+        DELETED is kept as a state for admin visibility.
+        """
+        request = await self._get_request(request_id)
+        if user.role != ROLE_ADMIN and request.owner_email != user.email:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Not your request"
+            )
+        if request.status not in _DELETABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Only active or failed spaces can be deleted "
+                f"(status: {request.status})",
+            )
+
+        space = None
+        if request.space_id:
+            space = await self.space_repository.get_by_id(request.space_id)
+        subdomain = space.subdomain if space else request.subdomain
+
+        try:
+            await self.provisioner.deprovision(subdomain, purge=True)
+        except Exception as e:
+            logger.exception(f"Teardown failed for '{subdomain}'")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to tear down the space — please try again",
+            ) from e
+
+        if space:
+            await self.space_repository.delete_space(space.id)
+        request = await self.repository.set_status(request, RequestStatus.DELETED)
+        return _to_response(request)
 
     async def withdraw(self, request_id: UUID, user: SessionUser) -> RequestResponse:
         request = await self._get_request(request_id)
