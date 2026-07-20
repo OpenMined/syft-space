@@ -92,6 +92,42 @@ class AppSettings(BaseSettings):
         ),
     )
 
+    # Per-space deployment settings
+    space_image: str = Field(
+        default="openmined/syft-space",
+        description="Container image (repo only) each space is deployed from",
+    )
+    ingress_class: str = Field(
+        default="traefik",
+        description="IngressClass routing <subdomain>.<domain> to the space",
+    )
+    space_pvc_size: str = Field(
+        default="2Gi",
+        description="Storage requested for each space's data volume",
+    )
+    space_cpu_request: str = Field(default="250m")
+    space_cpu_limit: str = Field(default="1")
+    space_memory_request: str = Field(default="512Mi")
+    space_memory_limit: str = Field(default="2Gi")
+
+    # Shared infrastructure each space connects to (in-cluster service DNS)
+    chromadb_host: str = Field(
+        default="chromadb",
+        description="Hostname of the shared ChromaDB service",
+    )
+    chromadb_port: int = Field(
+        default=8100,
+        description="HTTP port of the shared ChromaDB service",
+    )
+    docling_url: str = Field(
+        default="http://docling-serve:5001",
+        description="URL of the shared docling-serve service",
+    )
+    managed_by_name: str = Field(
+        default="Syft Station",
+        description="Display name injected as SYFT_CLUSTER_MANAGED_BY into spaces",
+    )
+
 
 # Global settings instance
 app_settings = AppSettings()

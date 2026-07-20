@@ -1,0 +1,91 @@
+# Per-space Deployment — one replica of the syft-space image, Recreate strategy
+# (RWO PVC + SQLite can't have two writers). Env follows the syft-space contract:
+# external ChromaDB (per-space database) + docling, admin key from the Secret,
+# all data under /data on the PVC (analytics.db MUST be set — the image would
+# otherwise write it to the home dir, off-volume).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${RESOURCE_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: syft-space
+    app.kubernetes.io/managed-by: syft-station
+    syftcluster.openmined.org/space: "${SUBDOMAIN}"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      syftcluster.openmined.org/space: "${SUBDOMAIN}"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: syft-space
+        app.kubernetes.io/managed-by: syft-station
+        syftcluster.openmined.org/space: "${SUBDOMAIN}"
+      annotations:
+        syftcluster.openmined.org/owner-email: "${OWNER_EMAIL}"
+    spec:
+      containers:
+        - name: syft-space
+          image: ${IMAGE}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SYFT_PORT
+              value: "8080"
+            - name: SYFT_ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${RESOURCE_NAME}
+                  key: SYFT_ADMIN_API_KEY
+            - name: SYFT_SQLITE_DB_PATH
+              value: "/data/app.db"
+            - name: SYFT_ANALYTICS_DB_PATH
+              value: "/data/analytics.db"
+            - name: SYFT_LOG_FILE
+              value: "/data/logs/space.log"
+            - name: SYFT_CHROMADB_HOST
+              value: "${CHROMADB_HOST}"
+            - name: SYFT_CHROMADB_HTTP_PORT
+              value: "${CHROMADB_PORT}"
+            - name: SYFT_CHROMADB_DATABASE
+              value: "${SUBDOMAIN}"
+            - name: SYFT_CHROMADB_PROVISION
+              value: "False"
+            - name: SYFT_CHROMADB_SSL
+              value: "False"
+            - name: SYFT_DOCLING_SERVE_URL
+              value: "${DOCLING_URL}"
+            - name: SYFT_CLUSTER_MANAGED_BY
+              value: "${MANAGED_BY}"
+            - name: SYFT_PUBLIC_URL
+              value: "${PUBLIC_URL}"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "${CPU_REQUEST}"
+              memory: "${MEMORY_REQUEST}"
+            limits:
+              cpu: "${CPU_LIMIT}"
+              memory: "${MEMORY_LIMIT}"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ${RESOURCE_NAME}

@@ -20,6 +20,7 @@ dependencies = [
     "loguru>=0.7.2",
     "typer>=0.15",
     "kubernetes>=31.0",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
@@ -46,7 +47,7 @@ build-backend = "hatchling.build"
 packages = ["syft_station"]
 # Built frontend is gitignored but must ship in the wheel (CI builds it
 # into syft_station/ui before the wheel build).
-artifacts = ["syft_station/ui/**"]
+artifacts = ["syft_station/ui/**", "syft_station/k8s/**"]
 
 [tool.ruff]
 line-length = 88
