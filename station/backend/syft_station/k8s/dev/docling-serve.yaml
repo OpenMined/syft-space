@@ -1,0 +1,54 @@
+# Shared docling-serve — document conversion every space calls out to. DEV
+# ONLY: single replica, CPU image. Service name/port match the station config
+# default (docling_url=http://docling-serve:5001).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docling-serve
+  namespace: syft-spaces
+  labels:
+    app.kubernetes.io/name: docling-serve
+    app.kubernetes.io/managed-by: syft-station
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: docling-serve
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: docling-serve
+    spec:
+      containers:
+        - name: docling-serve
+          image: ghcr.io/docling-project/docling-serve-cpu:v1.26.0
+          ports:
+            - containerPort: 5001
+          env:
+            - name: DOCLING_SERVE_ENABLE_UI
+              value: "false"
+          readinessProbe:
+            tcpSocket:
+              port: 5001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docling-serve
+  namespace: syft-spaces
+  labels:
+    app.kubernetes.io/name: docling-serve
+    app.kubernetes.io/managed-by: syft-station
+spec:
+  selector:
+    app.kubernetes.io/name: docling-serve
+  ports:
+    - port: 5001
+      targetPort: 5001
+      protocol: TCP

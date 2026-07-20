@@ -1,0 +1,52 @@
+# Shared ChromaDB — one instance every space connects to (each space gets its
+# own Chroma *database*, named after its subdomain). DEV ONLY: single replica,
+# ephemeral storage. Service name/port match the station config defaults
+# (chromadb_host=chromadb, chromadb_port=8100). Chroma listens on 8000.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chromadb
+  namespace: syft-spaces
+  labels:
+    app.kubernetes.io/name: chromadb
+    app.kubernetes.io/managed-by: syft-station
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chromadb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chromadb
+    spec:
+      containers:
+        - name: chromadb
+          image: chromadb/chroma:1.5.9
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chromadb
+  namespace: syft-spaces
+  labels:
+    app.kubernetes.io/name: chromadb
+    app.kubernetes.io/managed-by: syft-station
+spec:
+  selector:
+    app.kubernetes.io/name: chromadb
+  ports:
+    - port: 8100
+      targetPort: 8000
+      protocol: TCP

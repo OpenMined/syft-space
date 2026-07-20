@@ -91,10 +91,23 @@ bun run lint && bun run typecheck && bun run format
 
 ### Kubernetes dev environment
 
-k3d is the local cluster (prod parity with the k3s install story). A
-`station/justfile` will carry the cluster/dev recipes — it gets created when
-the k8s provisioner work (C2) starts. Until then the backend runs host-side
-with `DevProvisioner`; no cluster is needed.
+k3d is the local cluster (prod parity with the k3s install story). The
+`station/justfile` carries the cluster/dev recipes:
+
+```bash
+just cluster        # create k3d + deploy shared infra (ChromaDB, docling)
+just backend        # run the station on the host, provisioning into k3d
+just space-image    # build + import the openmined/syft-space image
+just cluster-down   # tear it all down
+```
+
+Spaces resolve at `<subdomain>.spaces.localhost` (via the k3d loadbalancer on
+:80; `*.localhost` → 127.0.0.1 in browsers, no DNS setup). Set the station
+domain to `spaces.localhost` during first-run setup. Dev shared-infra
+manifests live in `syft_station/k8s/dev/`; the per-space bundle templates the
+provisioner renders live in `syft_station/k8s/space/`. Without a cluster, the
+backend still runs host-side with `DevProvisioner` (`SYFT_STATION_PROVISIONER`
+defaults to `dev`); `just backend` sets it to `k8s`.
 
 ## Development Patterns
 

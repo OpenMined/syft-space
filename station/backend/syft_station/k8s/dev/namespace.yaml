@@ -1,0 +1,9 @@
+# The namespace all per-space bundles are created in. Applied once by
+# `just cluster` when the local k3d cluster comes up. In production the Helm
+# chart (C5) owns this instead.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: syft-spaces
+  labels:
+    app.kubernetes.io/managed-by: syft-station
