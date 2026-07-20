@@ -67,7 +67,7 @@ libs = [
     "docling>=2.75.0",
     "docling-core>=2.74.1",
     "chromadb>=0.5.0",
-    "torch>=2.10.0",
+    "torch>=2.13.0",
     "torchvision>=0.25.0",
 ]
 
