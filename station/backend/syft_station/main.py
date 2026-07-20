@@ -15,6 +15,7 @@ from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.routes import build_auth_routes
 from syft_station.components.auth.syfthub import SyftHubIdentityClient
 from syft_station.components.provision.dev import DevProvisioner
+from syft_station.components.provision.interfaces import Provisioner
 from syft_station.components.requests.handlers import RequestHandler
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.requests.routes import build_request_routes
@@ -36,7 +37,24 @@ request_repository = RequestRepository(database)
 space_repository = SpaceRepository(database)
 
 syfthub_client = SyftHubIdentityClient(str(app_settings.syfthub_url))
-provisioner = DevProvisioner()
+
+
+def _build_provisioner() -> Provisioner:
+    """Pick the provisioner from config: real Kubernetes or the dev fake."""
+    if app_settings.provisioner == "k8s":
+        # Imported lazily so dev/test runs never need a cluster or its client.
+        from syft_station.components.provision.k8s import K8sProvisioner
+        from syft_station.components.provision.kube import KubeClient
+
+        logger.info("Using the Kubernetes provisioner")
+        kube = KubeClient.from_env(app_settings.kubeconfig)
+        return K8sProvisioner(kube, app_settings)
+
+    logger.info("Using the dev provisioner (no Kubernetes)")
+    return DevProvisioner()
+
+
+provisioner = _build_provisioner()
 
 auth_handler = AuthHandler(syfthub_client)
 setup_handler = SetupHandler(setup_repository)
@@ -60,6 +78,17 @@ async def lifespan(app: FastAPI):
             "SYFT_STATION_ADMIN_EMAIL is unset — every sign-in gets the "
             "member role; no one can administer this station"
         )
+
+    # Probe the cluster once at startup (k8s provisioner only). A failure is
+    # logged, not fatal — the station still serves; provisioning shows the
+    # error when attempted.
+    check_connection = getattr(provisioner, "check_connection", None)
+    if check_connection is not None:
+        try:
+            cluster_version = await check_connection()
+            logger.info(f"Connected to Kubernetes {cluster_version}")
+        except Exception as e:
+            logger.error(f"Kubernetes cluster is not reachable at startup: {e}")
 
     yield
 

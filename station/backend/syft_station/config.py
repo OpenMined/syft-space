@@ -80,9 +80,21 @@ class AppSettings(BaseSettings):
     )
 
     # Kubernetes settings
+    provisioner: str = Field(
+        default="dev",
+        description="Which provisioner to use: 'dev' (fake) or 'k8s' (real).",
+    )
     namespace: str = Field(
         default="syft-spaces",
         description="Kubernetes namespace that per-space resources are created in",
+    )
+    provision_timeout_seconds: int = Field(
+        default=300,
+        description="How long to wait for a space Deployment to become available",
+    )
+    provision_poll_interval_seconds: float = Field(
+        default=3.0,
+        description="Interval between Deployment-readiness checks while provisioning",
     )
     kubeconfig: str = Field(
         default="",
