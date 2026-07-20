@@ -79,6 +79,19 @@ class AppSettings(BaseSettings):
         description="Default syft-space version offered during first-run setup",
     )
 
+    # Kubernetes settings
+    namespace: str = Field(
+        default="syft-spaces",
+        description="Kubernetes namespace that per-space resources are created in",
+    )
+    kubeconfig: str = Field(
+        default="",
+        description=(
+            "Path to a kubeconfig file. Ignored in-cluster (a ServiceAccount "
+            "is used). Empty off-cluster falls back to the default kubeconfig."
+        ),
+    )
+
 
 # Global settings instance
 app_settings = AppSettings()
