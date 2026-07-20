@@ -1,7 +1,9 @@
 # Shared ChromaDB — one instance every space connects to (each space gets its
-# own Chroma *database*, named after its subdomain). DEV ONLY: single replica,
-# ephemeral storage. Service name/port match the station config defaults
-# (chromadb_host=chromadb, chromadb_port=8100). Chroma listens on 8000.
+# own Chroma *database*, named after its subdomain). DEV FLAVOR: single
+# replica, EPHEMERAL storage (data is lost if the pod restarts). Production
+# needs a PVC + resource tuning — that lives in the Helm chart (C5), not here.
+# Service name/port match the station config defaults (chromadb_host=chromadb,
+# chromadb_port=8100). Chroma listens on 8000.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

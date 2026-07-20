@@ -1,8 +1,8 @@
 """Provisioner seam — the station's only contact with the substrate.
 
-C1 ships DevProvisioner; the Kubernetes implementation (C2) replaces it
-behind the same protocol. The contract with syft-space is the container
-image + SYFT_* env vars + health endpoint — nothing else.
+MockProvisioner runs without a cluster (fast dev + tests); K8sProvisioner is
+the real one, behind the same protocol. The contract with syft-space is the
+container image + SYFT_* env vars + health endpoint — nothing else.
 """
 
 from typing import Protocol

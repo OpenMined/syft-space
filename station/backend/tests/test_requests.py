@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from syft_station.components.provision.dev import DevProvisioner
+from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.entities import RequestStatus
 from syft_station.components.requests.handlers import RequestHandler
 from syft_station.components.requests.schemas import (
@@ -23,7 +23,7 @@ def handler(request_repository, space_repository, setup_repository) -> RequestHa
         repository=request_repository,
         space_repository=space_repository,
         setup_repository=setup_repository,
-        provisioner=DevProvisioner(),
+        provisioner=MockProvisioner(),
     )
 
 

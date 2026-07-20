@@ -47,9 +47,9 @@ Design doc: `station.md` at the repo root (uncommitted, kept current).
   - `spaces/` — provisioned-space registry + space admin-token lifecycle
     (one-time reveal, regenerate). Runtime status is NOT stored — Kubernetes
     is the source of truth for it.
-  - `provision/` — the `Provisioner` protocol. `DevProvisioner` fakes it for
-    local dev (subdomain containing "fail" → FAILED, to exercise retry);
-    the real k8s implementation is ticket C2.
+  - `provision/` — the `Provisioner` protocol. `MockProvisioner` fakes it
+    without a cluster (subdomain containing "fail" → FAILED, to exercise
+    retry); `K8sProvisioner` is the real one.
   - `shared/` — `database.py` (AsyncDatabase + AsyncBaseRepository, WAL
     pragmas), logging.
 - Routes are built with the `build_*_routes(handler) -> APIRouter` factory
@@ -104,10 +104,10 @@ just cluster-down   # tear it all down
 Spaces resolve at `<subdomain>.spaces.localhost` (via the k3d loadbalancer on
 :80; `*.localhost` → 127.0.0.1 in browsers, no DNS setup). Set the station
 domain to `spaces.localhost` during first-run setup. Dev shared-infra
-manifests live in `syft_station/k8s/dev/`; the per-space bundle templates the
+manifests live in `syft_station/k8s/deps/`; the per-space bundle templates the
 provisioner renders live in `syft_station/k8s/space/`. Without a cluster, the
-backend still runs host-side with `DevProvisioner` (`SYFT_STATION_PROVISIONER`
-defaults to `dev`); `just backend` sets it to `k8s`.
+backend still runs host-side with `MockProvisioner` (`SYFT_STATION_PROVISIONER`
+defaults to `mock`); `just backend` sets it to `k8s`.
 
 ## Development Patterns
 

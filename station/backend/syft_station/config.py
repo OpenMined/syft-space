@@ -81,8 +81,8 @@ class AppSettings(BaseSettings):
 
     # Kubernetes settings
     provisioner: str = Field(
-        default="dev",
-        description="Which provisioner to use: 'dev' (fake) or 'k8s' (real).",
+        default="mock",
+        description="Which provisioner to use: 'mock' (no cluster) or 'k8s' (real).",
     )
     namespace: str = Field(
         default="syft-spaces",

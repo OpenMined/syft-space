@@ -11,7 +11,7 @@
 
 cluster_name := "syft-station"
 namespace := "syft-spaces"
-dev_manifests := "backend/syft_station/k8s/dev"
+deps_manifests := "backend/syft_station/k8s/deps"
 image := "openmined/syft-space:latest"
 
 # List available recipes.
@@ -39,9 +39,9 @@ cluster: bootstrap
             --registry-create {{cluster_name}}-registry:0.0.0.0:5111 \
             -p "80:80@loadbalancer" -p "443:443@loadbalancer"
     fi
-    kubectl apply -f {{dev_manifests}}/namespace.yaml
-    kubectl apply -f {{dev_manifests}}/chromadb.yaml
-    kubectl apply -f {{dev_manifests}}/docling-serve.yaml
+    kubectl apply -f {{deps_manifests}}/namespace.yaml
+    kubectl apply -f {{deps_manifests}}/chromadb.yaml
+    kubectl apply -f {{deps_manifests}}/docling-serve.yaml
     echo "Waiting for shared infra to become ready..."
     kubectl -n {{namespace}} rollout status deploy/chromadb --timeout=120s
     kubectl -n {{namespace}} rollout status deploy/docling-serve --timeout=300s

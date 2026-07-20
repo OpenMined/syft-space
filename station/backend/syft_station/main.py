@@ -14,8 +14,8 @@ import syft_station.components.shared.logging_config  # noqa: F401, I001
 from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.routes import build_auth_routes
 from syft_station.components.auth.syfthub import SyftHubIdentityClient
-from syft_station.components.provision.dev import DevProvisioner
 from syft_station.components.provision.interfaces import Provisioner
+from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.handlers import RequestHandler
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.requests.routes import build_request_routes
@@ -40,9 +40,9 @@ syfthub_client = SyftHubIdentityClient(str(app_settings.syfthub_url))
 
 
 def _build_provisioner() -> Provisioner:
-    """Pick the provisioner from config: real Kubernetes or the dev fake."""
+    """Pick the provisioner from config: real Kubernetes or the mock."""
     if app_settings.provisioner == "k8s":
-        # Imported lazily so dev/test runs never need a cluster or its client.
+        # Imported lazily so mock/test runs never need a cluster or its client.
         from syft_station.components.provision.k8s import K8sProvisioner
         from syft_station.components.provision.kube import KubeClient
 
@@ -50,8 +50,8 @@ def _build_provisioner() -> Provisioner:
         kube = KubeClient.from_env(app_settings.kubeconfig)
         return K8sProvisioner(kube, app_settings)
 
-    logger.info("Using the dev provisioner (no Kubernetes)")
-    return DevProvisioner()
+    logger.info("Using the mock provisioner (no Kubernetes)")
+    return MockProvisioner()
 
 
 provisioner = _build_provisioner()
