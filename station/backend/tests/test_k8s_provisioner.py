@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import pytest
 from kubernetes.client.rest import ApiException
 
-from syft_station.components.provision.interfaces import ProvisionError, SpaceSpec
+from syft_station.components.provision.interfaces import (
+    ProvisionError,
+    SpaceRuntimeStatus,
+    SpaceSpec,
+)
 from syft_station.components.provision.k8s import K8sProvisioner
 
 SETTINGS = SimpleNamespace(
@@ -45,6 +49,10 @@ class FakeKube:
         self.notfound_delete: set[str] = set()  # kinds that 404 on delete
         self.available_after_reads = 0  # reads that report 0 before ready
         self.status_read_count = 0
+        self.scaled_to: int | None = None  # last replica count set
+        self.spec_replicas = 1  # what read_namespaced_deployment reports
+        self.available_replicas = 1
+        self.deployment_missing = False  # read raises 404
         self.core = self.apps = self.networking = self
 
     def check_connection(self) -> str:
@@ -111,6 +119,19 @@ class FakeKube:
         ready = self.status_read_count > self.available_after_reads
         return SimpleNamespace(
             status=SimpleNamespace(available_replicas=1 if ready else 0)
+        )
+
+    # -- scale / runtime status --
+    def patch_namespaced_deployment_scale(self, name, namespace, body):
+        self.calls.append(("scale", "deployment", name))
+        self.scaled_to = body["spec"]["replicas"]
+
+    def read_namespaced_deployment(self, name, namespace):
+        if self.deployment_missing:
+            raise ApiException(status=404, reason="Not Found")
+        return SimpleNamespace(
+            spec=SimpleNamespace(replicas=self.spec_replicas),
+            status=SimpleNamespace(available_replicas=self.available_replicas),
         )
 
 
@@ -202,6 +223,40 @@ async def test_deprovision_ignores_missing_resources(provisioner, kube):
     kube.notfound_delete = {"ingress", "service", "deployment", "secret"}
     # Should not raise despite every delete 404-ing.
     await provisioner.deprovision("alpha", purge=False)
+
+
+# ============== pause / resume / status ==============
+
+
+async def test_pause_scales_to_zero(provisioner, kube):
+    await provisioner.pause("alpha")
+    assert ("scale", "deployment", "space-alpha") in kube.calls
+    assert kube.scaled_to == 0
+
+
+async def test_resume_scales_to_one(provisioner, kube):
+    await provisioner.resume("alpha")
+    assert kube.scaled_to == 1
+
+
+async def test_status_running(provisioner, kube):
+    kube.spec_replicas, kube.available_replicas = 1, 1
+    assert await provisioner.get_status("alpha") == SpaceRuntimeStatus.RUNNING
+
+
+async def test_status_paused_when_scaled_to_zero(provisioner, kube):
+    kube.spec_replicas, kube.available_replicas = 0, 0
+    assert await provisioner.get_status("alpha") == SpaceRuntimeStatus.PAUSED
+
+
+async def test_status_unavailable_when_desired_but_no_pod(provisioner, kube):
+    kube.spec_replicas, kube.available_replicas = 1, 0
+    assert await provisioner.get_status("alpha") == SpaceRuntimeStatus.UNAVAILABLE
+
+
+async def test_status_not_found_when_deployment_missing(provisioner, kube):
+    kube.deployment_missing = True
+    assert await provisioner.get_status("alpha") == SpaceRuntimeStatus.NOT_FOUND
 
 
 # ============== check_connection ==============

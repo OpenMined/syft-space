@@ -68,6 +68,7 @@ def build_request_routes(handler: RequestHandler) -> APIRouter:
         user: SessionUser = Depends(require_admin),
         handler: RequestHandler = Depends(get_handler),
     ) -> RequestResponse:
+        """Reject a pending request with a reason (admin)."""
         return await handler.reject(request_id, body.reason)
 
     @router.post("/{request_id}/retry", response_model=RequestResponse)

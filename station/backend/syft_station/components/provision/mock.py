@@ -8,7 +8,11 @@ import asyncio
 
 from loguru import logger
 
-from syft_station.components.provision.interfaces import ProvisionError, SpaceSpec
+from syft_station.components.provision.interfaces import (
+    ProvisionError,
+    SpaceRuntimeStatus,
+    SpaceSpec,
+)
 
 _PROVISION_DELAY_SECONDS = 1.0
 
@@ -16,7 +20,11 @@ _PROVISION_DELAY_SECONDS = 1.0
 class MockProvisioner:
     """Pretends to provision. Subdomains containing "fail" fail, so the
     FAILED → retry path stays exercisable without a cluster (same trigger
-    the frontend prototype uses)."""
+    the frontend prototype uses). Pause state is tracked in-memory so the
+    runtime-status read behaves plausibly for UI development."""
+
+    def __init__(self):
+        self._paused: set[str] = set()
 
     async def provision(self, spec: SpaceSpec) -> str:
         logger.info(f"[mock] provisioning space '{spec.subdomain}'")
@@ -27,4 +35,17 @@ class MockProvisioner:
 
     async def deprovision(self, subdomain: str, purge: bool) -> None:
         logger.info(f"[mock] deprovisioning space '{subdomain}' (purge={purge})")
-        await asyncio.sleep(0)
+        self._paused.discard(subdomain)
+
+    async def pause(self, subdomain: str) -> None:
+        logger.info(f"[mock] pausing space '{subdomain}'")
+        self._paused.add(subdomain)
+
+    async def resume(self, subdomain: str) -> None:
+        logger.info(f"[mock] resuming space '{subdomain}'")
+        self._paused.discard(subdomain)
+
+    async def get_status(self, subdomain: str) -> SpaceRuntimeStatus:
+        if subdomain in self._paused:
+            return SpaceRuntimeStatus.PAUSED
+        return SpaceRuntimeStatus.RUNNING

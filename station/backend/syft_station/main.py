@@ -58,7 +58,7 @@ provisioner = _build_provisioner()
 
 auth_handler = AuthHandler(syfthub_client)
 setup_handler = SetupHandler(setup_repository)
-space_handler = SpaceHandler(space_repository)
+space_handler = SpaceHandler(space_repository, provisioner)
 request_handler = RequestHandler(
     repository=request_repository,
     space_repository=space_repository,

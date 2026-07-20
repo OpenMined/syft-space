@@ -3,6 +3,7 @@
 import pytest
 from fastapi import HTTPException
 
+from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.setup.handlers import SetupHandler
 from syft_station.components.setup.schemas import UpdateSetupRequest
 from syft_station.components.spaces.entities import Space
@@ -54,7 +55,7 @@ def test_setup_rejects_invalid_domain():
 
 @pytest.fixture
 def space_handler(space_repository) -> SpaceHandler:
-    return SpaceHandler(space_repository)
+    return SpaceHandler(space_repository, MockProvisioner())
 
 
 async def make_space(space_repository, owner_email: str = MEMBER.email) -> Space:
@@ -118,3 +119,43 @@ async def test_regenerate_creates_fresh_unrevealed_token(
 
     revealed = await space_handler.reveal_token(space.id, MEMBER)
     assert revealed.token.startswith("sst_")
+
+
+# ============== Runtime ops (pause / resume / status) ==============
+
+
+async def test_status_starts_running(space_handler, space_repository):
+    space = await make_space(space_repository)
+    result = await space_handler.runtime_status(space.id, MEMBER)
+    assert result.status == "running"
+
+
+async def test_pause_then_resume_round_trips(space_handler, space_repository):
+    space = await make_space(space_repository)
+
+    paused = await space_handler.pause(space.id, MEMBER)
+    assert paused.status == "paused"
+
+    resumed = await space_handler.resume(space.id, MEMBER)
+    assert resumed.status == "running"
+
+
+async def test_pause_denied_for_non_owner(space_handler, space_repository):
+    space = await make_space(space_repository, MEMBER.email)
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.pause(space.id, OTHER_MEMBER)
+    assert exc.value.status_code == 403
+
+
+async def test_admin_can_pause_any_space(space_handler, space_repository):
+    space = await make_space(space_repository, MEMBER.email)
+    paused = await space_handler.pause(space.id, ADMIN)
+    assert paused.status == "paused"
+
+
+async def test_status_unknown_space_404(space_handler):
+    from uuid import uuid4
+
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.runtime_status(uuid4(), MEMBER)
+    assert exc.value.status_code == 404

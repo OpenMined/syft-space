@@ -16,7 +16,11 @@ from typing import Protocol
 from kubernetes.client.rest import ApiException
 from loguru import logger
 
-from syft_station.components.provision.interfaces import ProvisionError, SpaceSpec
+from syft_station.components.provision.interfaces import (
+    ProvisionError,
+    SpaceRuntimeStatus,
+    SpaceSpec,
+)
 from syft_station.components.provision.kube import KubeClient
 from syft_station.components.provision.manifests import (
     RenderSettings,
@@ -46,6 +50,12 @@ class K8sProvisioner:
     # ── Provisioner protocol ────────────────────────────────────────────────
 
     async def provision(self, spec: SpaceSpec) -> str:
+        """Apply the space's resource bundle and block until it's live.
+
+        Returns the space URL once the Deployment reports an available
+        replica. Any Kubernetes error or the readiness timeout surfaces as a
+        ProvisionError (which the request handler turns into a FAILED state).
+        """
         manifests = render_space_manifests(spec, self.settings)
         name = resource_name(spec.subdomain)
         try:
@@ -65,7 +75,24 @@ class K8sProvisioner:
         return f"https://{spec.subdomain}.{spec.domain}"
 
     async def deprovision(self, subdomain: str, purge: bool) -> None:
+        """Delete the space's resource bundle.
+
+        Keeps the data volume unless purge=True. Already-missing resources
+        are ignored, so calling this twice is safe.
+        """
         await asyncio.to_thread(self._delete_bundle, subdomain, purge)
+
+    async def pause(self, subdomain: str) -> None:
+        """Scale the space to zero replicas — frees compute, keeps data."""
+        await asyncio.to_thread(self._scale, subdomain, 0)
+
+    async def resume(self, subdomain: str) -> None:
+        """Scale a paused space back to one replica."""
+        await asyncio.to_thread(self._scale, subdomain, 1)
+
+    async def get_status(self, subdomain: str) -> SpaceRuntimeStatus:
+        """Read the space's live running state from its Deployment."""
+        return await asyncio.to_thread(self._read_status, subdomain)
 
     # ── Sync helpers (run via to_thread) ─────────────────────────────────────
 
@@ -129,6 +156,7 @@ class K8sProvisioner:
             logger.info(f"[k8s] pvc/{name} already exists — keeping its data")
 
     async def _wait_until_available(self, name: str) -> None:
+        """Poll the Deployment until a replica is ready, or time out."""
         ns = self.settings.namespace
         timeout = self.settings.provision_timeout_seconds
         interval = self.settings.provision_poll_interval_seconds
@@ -148,6 +176,40 @@ class K8sProvisioner:
                     f"{timeout}s"
                 )
             await asyncio.sleep(interval)
+
+    def _scale(self, subdomain: str, replicas: int) -> None:
+        name = resource_name(subdomain)
+        self.kube.apps.patch_namespaced_deployment_scale(
+            name=name,
+            namespace=self.settings.namespace,
+            body={"spec": {"replicas": replicas}},
+        )
+        logger.info(f"[k8s] scaled deployment/{name} to {replicas}")
+
+    def _read_status(self, subdomain: str) -> SpaceRuntimeStatus:
+        """Derive runtime status from the Deployment's desired vs ready pods.
+
+        desired 0 → PAUSED; a ready pod → RUNNING; desired but none ready
+        → UNAVAILABLE (starting or unhealthy); no Deployment → NOT_FOUND.
+        """
+        name = resource_name(subdomain)
+        try:
+            deployment = self.kube.apps.read_namespaced_deployment(
+                name, self.settings.namespace
+            )
+        except ApiException as e:
+            if e.status == 404:
+                return SpaceRuntimeStatus.NOT_FOUND
+            raise
+        spec = deployment.spec
+        desired = spec.replicas if spec and spec.replicas is not None else 0
+        status = deployment.status
+        available = (status.available_replicas or 0) if status else 0
+        if desired == 0:
+            return SpaceRuntimeStatus.PAUSED
+        if available >= 1:
+            return SpaceRuntimeStatus.RUNNING
+        return SpaceRuntimeStatus.UNAVAILABLE
 
     def _delete_bundle(self, subdomain: str, purge: bool) -> None:
         ns = self.settings.namespace

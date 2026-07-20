@@ -3,8 +3,10 @@
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from loguru import logger
 
 from syft_station.components.auth.session import ROLE_ADMIN, SessionUser
+from syft_station.components.provision.interfaces import Provisioner
 from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.repository import (
     SpaceRepository,
@@ -12,16 +14,18 @@ from syft_station.components.spaces.repository import (
 )
 from syft_station.components.spaces.schemas import (
     SpaceResponse,
+    SpaceStatusResponse,
     TokenRevealResponse,
     TokenStatusResponse,
 )
 
 
 class SpaceHandler:
-    """Space registry + one-time token reveal / regenerate."""
+    """Space registry + one-time token reveal / regenerate + runtime ops."""
 
-    def __init__(self, repository: SpaceRepository):
+    def __init__(self, repository: SpaceRepository, provisioner: Provisioner):
         self.repository = repository
+        self.provisioner = provisioner
 
     async def list_spaces(self) -> list[SpaceResponse]:
         spaces = await self.repository.get_all()
@@ -41,6 +45,48 @@ class SpaceHandler:
                 detail="Not your space",
             )
         return space
+
+    # --- Runtime ops (state lives in Kubernetes, never stored) ---
+
+    async def runtime_status(
+        self, space_id: UUID, user: SessionUser
+    ) -> SpaceStatusResponse:
+        space = await self._get_owned_space(space_id, user)
+        try:
+            status_ = await self.provisioner.get_status(space.subdomain)
+        except Exception as e:
+            logger.exception(f"Status read failed for '{space.subdomain}'")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not read the space status",
+            ) from e
+        return SpaceStatusResponse(status=str(status_))
+
+    async def pause(self, space_id: UUID, user: SessionUser) -> SpaceStatusResponse:
+        """Free the space's compute; its data volume is kept."""
+        space = await self._get_owned_space(space_id, user)
+        try:
+            await self.provisioner.pause(space.subdomain)
+        except Exception as e:
+            logger.exception(f"Pause failed for '{space.subdomain}'")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not pause the space — please try again",
+            ) from e
+        return await self.runtime_status(space_id, user)
+
+    async def resume(self, space_id: UUID, user: SessionUser) -> SpaceStatusResponse:
+        """Bring a paused space back online."""
+        space = await self._get_owned_space(space_id, user)
+        try:
+            await self.provisioner.resume(space.subdomain)
+        except Exception as e:
+            logger.exception(f"Resume failed for '{space.subdomain}'")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not resume the space — please try again",
+            ) from e
+        return await self.runtime_status(space_id, user)
 
     async def token_status(
         self, space_id: UUID, user: SessionUser
