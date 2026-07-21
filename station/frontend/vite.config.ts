@@ -10,6 +10,14 @@ export default defineConfig({
   plugins: [tailwindcss(), vue()],
   server: {
     port: 5174,
+    // Same-origin API in dev too: proxy to the station backend so the
+    // session cookie needs no CORS/SameSite special-casing.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8090',
+        changeOrigin: true,
+      },
+    },
   },
   resolve: {
     alias: {
