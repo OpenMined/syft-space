@@ -145,12 +145,15 @@ function openDelete(space: Space) {
   deleteOpen.value = true
 }
 
-function confirmDelete(purge: boolean) {
+async function confirmDelete() {
   if (!deleteTarget.value) return
-  station.deleteSpace(deleteTarget.value.id, purge)
-  toast(purge ? 'Space deleted and data purged' : 'Space deleted (data retained)', {
-    description: deleteTarget.value.name,
-  })
+  const name = deleteTarget.value.name
+  try {
+    await station.deleteSpace(deleteTarget.value.id)
+    toast('Space deleted, along with its data', { description: name })
+  } catch {
+    toast.error('Deleting the space failed')
+  }
   deleteOpen.value = false
 }
 
@@ -630,7 +633,7 @@ function formatDate(iso: string): string {
 
       <DialogFooter>
         <Button variant="outline" @click="deleteOpen = false">Cancel</Button>
-        <Button variant="destructive" @click="confirmDelete(purgeConfirm)">
+        <Button variant="destructive" @click="confirmDelete()">
           {{ purgeConfirm ? 'Delete & purge data' : 'Delete (retain data)' }}
         </Button>
       </DialogFooter>

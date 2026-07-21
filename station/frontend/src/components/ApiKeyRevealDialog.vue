@@ -11,6 +11,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { toast } from 'vue-sonner'
+import { ApiError } from '@/api/client'
+import { spacesApi } from '@/api/endpoints/spaces'
 import type { Space } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
 
@@ -22,10 +25,28 @@ const open = ref(false)
 const revealedKey = ref<string | null>(null)
 const copied = ref(false)
 
-function reveal() {
-  // Claiming is one-time: once this dialog has been opened, the key is gone
-  revealedKey.value = station.claimApiKey(props.space.id)
-  open.value = true
+function markClaimed() {
+  const space = station.spaceById(props.space.id)
+  if (space) space.apiKeyClaimed = true
+}
+
+async function reveal() {
+  // Claiming is one-time: the backend clears the key after this reveal
+  try {
+    const response = await spacesApi.revealToken(props.space.id)
+    revealedKey.value = response.token
+    open.value = true
+    markClaimed()
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 410) {
+      markClaimed()
+      toast.error('This key was already revealed', {
+        description: 'Ask the station admin to issue a new one.',
+      })
+    } else {
+      toast.error(error instanceof ApiError ? error.message : 'Revealing the key failed')
+    }
+  }
 }
 
 async function copyKey() {

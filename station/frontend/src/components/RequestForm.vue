@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { ApiError } from '@/api/client'
 import { slugify } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
 import { useSessionStore } from '@/stores/session'
@@ -18,28 +19,34 @@ const session = useSessionStore()
 
 const spaceName = ref('')
 const purpose = ref('')
+const submitting = ref(false)
 
 const subdomain = computed(() => slugify(spaceName.value))
 
-function submit() {
-  const profile = session.profile
-  if (!profile) return
+async function submit() {
+  if (!session.profile) return
   if (!subdomain.value) {
     toast.error('Give your space a name')
     return
   }
-  station.submitRequest({
-    spaceName: spaceName.value.trim(),
-    requesterEmail: profile.email,
-    requesterName: profile.fullName,
-    purpose: purpose.value.trim(),
-  })
-  toast.success('Request submitted', {
-    description: 'The station admin will review it. Track the status here.',
-  })
-  spaceName.value = ''
-  purpose.value = ''
-  emit('submitted')
+  submitting.value = true
+  try {
+    await station.submitRequest({
+      spaceName: spaceName.value.trim(),
+      purpose: purpose.value.trim(),
+    })
+    toast.success('Request submitted', {
+      description: 'The station admin will review it. Track the status here.',
+    })
+    spaceName.value = ''
+    purpose.value = ''
+    emit('submitted')
+  } catch (error) {
+    // 409 = subdomain already taken; anything else is unexpected
+    toast.error(error instanceof ApiError ? error.message : 'Submitting the request failed')
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 
@@ -95,7 +102,7 @@ function submit() {
           </ul>
         </div>
 
-        <Button type="submit" class="w-full">
+        <Button type="submit" class="w-full" :disabled="submitting">
           <Send class="mr-2 h-4 w-4" />
           Submit request
         </Button>

@@ -36,6 +36,11 @@ const config: Record<RequestStatus, { label: string; classes: string; dot: strin
     classes: 'bg-muted text-muted-foreground border-transparent',
     dot: 'bg-muted-foreground',
   },
+  withdrawn: {
+    label: 'Withdrawn',
+    classes: 'bg-muted text-muted-foreground border-transparent',
+    dot: 'bg-muted-foreground',
+  },
 }
 </script>
 

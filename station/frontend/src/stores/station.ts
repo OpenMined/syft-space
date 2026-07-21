@@ -1,21 +1,25 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import { requestsApi } from '@/api/endpoints/requests'
 import { setupApi } from '@/api/endpoints/setup'
+import { spacesApi } from '@/api/endpoints/spaces'
+import type { RequestResponse, SpaceResponse, SpaceRuntimeStatus } from '@/api/types'
 import type {
   ApprovalConfig,
   CreditDebit,
   Payout,
   SharedWallet,
   Space,
+  SpaceHealth,
   SpaceRequest,
   TopUp,
   WalletProvider,
 } from '@/lib/types'
-import { STATION_DOMAIN, SPACE_INCLUDES, SUPPORTED_VERSION, slugify } from '@/lib/types'
+import { SPACE_INCLUDES, slugify } from '@/lib/types'
+import { useSessionStore } from '@/stores/session'
 
-/** Simulated provisioning delay (ms) so the PROVISIONING state is visible. */
-const PROVISION_DELAY = 6000
-const RESTART_DELAY = 3000
+/** How often a PROVISIONING request is polled for progress (ms). */
+const PROVISION_POLL_INTERVAL = 3000
 
 let idCounter = 0
 function nextId(prefix: string): string {
@@ -23,23 +27,14 @@ function nextId(prefix: string): string {
   return `${prefix}_${idCounter.toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
-function makeApiKey(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  let key = 'sk-space-'
-  for (let i = 0; i < 40; i++) key += chars[Math.floor(Math.random() * chars.length)]
-  return key
-}
-
 function daysAgo(n: number): string {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString()
 }
 
 /**
- * Mock station state: space requests + provisioned spaces.
- *
- * All transitions are simulated in-memory (reset on refresh). Approving a
- * request "provisions" after a delay; a subdomain containing "fail"
- * demonstrates the FAILED + retry path.
+ * Station state: space requests + provisioned spaces are server-backed;
+ * the wallet/earnings data is still mocked in-memory until the credits
+ * service lands.
  */
 export const useStationStore = defineStore('station', () => {
   const requests = ref<SpaceRequest[]>([])
@@ -81,6 +76,105 @@ export const useStationStore = defineStore('station', () => {
   async function setSupportedVersion(version: string): Promise<void> {
     const setup = await setupApi.update({ supported_version: version })
     supportedVersion.value = setup.supported_version
+  }
+
+  // ---- Requests & spaces (server-backed) ----
+
+  function mapRequest(r: RequestResponse): SpaceRequest {
+    return {
+      id: r.id,
+      spaceName: r.space_name,
+      subdomain: r.subdomain,
+      requesterEmail: r.owner_email,
+      purpose: r.reason,
+      createdAt: r.created_at,
+      status: r.status,
+      rejectReason: r.reject_reason ?? undefined,
+      spaceId: r.space_id ?? undefined,
+      origin: r.origin === 'admin' ? 'admin' : undefined,
+    }
+  }
+
+  function mapSpace(s: SpaceResponse): Space {
+    // Health and API-key state come from separate endpoints; keep whatever
+    // was already known while a refresh is in flight.
+    const existing = spaceById(s.id)
+    return {
+      id: s.id,
+      name: s.name,
+      url: s.url,
+      ownerEmail: s.owner_email,
+      health: existing?.health ?? 'healthy',
+      createdAt: s.created_at,
+      apiKeyClaimed: existing?.apiKeyClaimed ?? true,
+      version: s.version,
+      walletSeeded: existing?.walletSeeded ?? true,
+    }
+  }
+
+  /** Upsert one server request into the local list (newest first). */
+  function applyRequest(r: RequestResponse): SpaceRequest {
+    const mapped = mapRequest(r)
+    const index = requests.value.findIndex((existing) => existing.id === mapped.id)
+    if (index >= 0) requests.value[index] = mapped
+    else requests.value.unshift(mapped)
+    return mapped
+  }
+
+  async function loadRequests(): Promise<void> {
+    const list = await requestsApi.list() // scoped by role on the backend
+    requests.value = list.map(mapRequest)
+    // Resume progress tracking for anything still being provisioned
+    for (const request of requests.value) {
+      if (request.status === 'provisioning') trackProvisioning(request.id)
+    }
+  }
+
+  const statusToHealth: Record<SpaceRuntimeStatus, SpaceHealth> = {
+    running: 'healthy',
+    paused: 'paused',
+    unavailable: 'unhealthy',
+    not_found: 'unhealthy',
+  }
+
+  /** Refresh one space's live runtime status + API-key claim state. */
+  async function refreshSpaceState(spaceId: string): Promise<void> {
+    const space = spaceById(spaceId)
+    if (!space) return
+    const [status, token] = await Promise.all([
+      spacesApi.status(spaceId).catch(() => null),
+      spacesApi.tokenStatus(spaceId).catch(() => null),
+    ])
+    if (status) space.health = statusToHealth[status.status]
+    if (token) space.apiKeyClaimed = token.revealed
+  }
+
+  async function loadSpaces(): Promise<void> {
+    const session = useSessionStore()
+    const list = session.isAdmin ? await spacesApi.list() : await spacesApi.mine()
+    spaces.value = list.map(mapSpace)
+    await Promise.all(spaces.value.map((s) => refreshSpaceState(s.id)))
+  }
+
+  /** Poll a PROVISIONING request until it settles, then refresh spaces. */
+  const polling = new Set<string>()
+  function trackProvisioning(requestId: string): void {
+    if (polling.has(requestId)) return
+    polling.add(requestId)
+    const timer = setInterval(async () => {
+      try {
+        const updated = await requestsApi.get(requestId)
+        applyRequest(updated)
+        if (updated.status !== 'provisioning') {
+          clearInterval(timer)
+          polling.delete(requestId)
+          if (updated.status === 'active') await loadSpaces()
+        }
+      } catch {
+        clearInterval(timer)
+        polling.delete(requestId)
+      }
+    }, PROVISION_POLL_INTERVAL)
   }
 
   const pendingCount = computed(() => requests.value.filter((r) => r.status === 'pending').length)
@@ -199,7 +293,7 @@ export const useStationStore = defineStore('station', () => {
 
   function requestsFor(email: string): SpaceRequest[] {
     return requests.value
-      .filter((r) => r.requesterEmail === email)
+      .filter((r) => r.requesterEmail === email && r.status !== 'withdrawn')
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }
 
@@ -207,129 +301,16 @@ export const useStationStore = defineStore('station', () => {
     return spaces.value.find((s) => s.id === id)
   }
 
-  /** Seed demo data once per signed-in member so every state is visible. */
-  function seedForDemo(memberEmail: string, memberName: string) {
+  /**
+   * Seed the wallet/earnings demo data once per signed-in user. Payments
+   * stay mocked until the credits service lands; requests and spaces are
+   * server-backed and never seeded.
+   */
+  function seedForDemo(memberEmail: string, _memberName: string) {
     if (seededFor.value === memberEmail) return
     seededFor.value = memberEmail
-    requests.value = []
-    spaces.value = []
 
-    // Member-first demo: if the admin hasn't set a domain yet, fall back to
-    // the demo default so seeded URLs work (setup state itself is
-    // server-backed now and never touched here).
     const firstRun = !onboarded.value
-    const seedDomain = domain.value || STATION_DOMAIN
-
-    // A space of the member's that is already active, API key not yet claimed
-    const activeSpace: Space = {
-      id: nextId('spc'),
-      name: 'research-lab',
-      url: `https://research-lab.${seedDomain}`,
-      ownerEmail: memberEmail,
-      health: 'healthy',
-      createdAt: daysAgo(2),
-      apiKey: makeApiKey(),
-      apiKeyClaimed: false,
-      version: SUPPORTED_VERSION,
-      walletSeeded: true,
-    }
-    spaces.value.push(activeSpace)
-    requests.value.push({
-      id: nextId('req'),
-      spaceName: 'research-lab',
-      subdomain: 'research-lab',
-      requesterEmail: memberEmail,
-      requesterName: memberName,
-      purpose: 'RAG over our public health research corpus.',
-      createdAt: daysAgo(2),
-      status: 'active',
-      spaceId: activeSpace.id,
-    })
-
-    // A pending request of the member's
-    requests.value.push({
-      id: nextId('req'),
-      spaceName: 'genomics-pilot',
-      subdomain: 'genomics-pilot',
-      requesterEmail: memberEmail,
-      requesterName: memberName,
-      purpose: 'Pilot for the genomics team, mostly PDF ingestion.',
-      createdAt: daysAgo(0.2),
-      status: 'pending',
-    })
-
-    // A rejected request of the member's
-    requests.value.push({
-      id: nextId('req'),
-      spaceName: 'test-space',
-      subdomain: 'test-space',
-      requesterEmail: memberEmail,
-      requesterName: memberName,
-      purpose: 'Just trying things out.',
-      createdAt: daysAgo(5),
-      status: 'rejected',
-      rejectReason: 'Please use a descriptive space name tied to a project.',
-    })
-
-    // Other members' pending requests (admin queue)
-    requests.value.push({
-      id: nextId('req'),
-      spaceName: 'clinical-notes',
-      subdomain: 'clinical-notes',
-      requesterEmail: 'dana@hospital.org',
-      requesterName: 'Dana Reyes',
-      purpose: 'Private QA over anonymized clinical notes.',
-      createdAt: daysAgo(0.5),
-      status: 'pending',
-    })
-    requests.value.push({
-      id: nextId('req'),
-      spaceName: 'policy-briefs',
-      subdomain: 'policy-briefs',
-      requesterEmail: 'sam@thinktank.net',
-      requesterName: 'Sam Okafor',
-      purpose: 'Searchable archive of policy briefs for our analysts.',
-      createdAt: daysAgo(1.1),
-      status: 'pending',
-    })
-
-    // Other members' running spaces (admin Spaces tab)
-    spaces.value.push({
-      id: nextId('spc'),
-      name: 'econ-archive',
-      url: `https://econ-archive.${seedDomain}`,
-      ownerEmail: 'lee@university.edu',
-      health: 'healthy',
-      createdAt: daysAgo(12),
-      apiKey: makeApiKey(),
-      apiKeyClaimed: true,
-      version: '0.9.2',
-      walletSeeded: true,
-    })
-    spaces.value.push({
-      id: nextId('spc'),
-      name: 'legal-docs',
-      url: `https://legal-docs.${seedDomain}`,
-      ownerEmail: 'ana@lawfirm.com',
-      health: 'unhealthy',
-      createdAt: daysAgo(30),
-      apiKey: makeApiKey(),
-      apiKeyClaimed: true,
-      version: SUPPORTED_VERSION,
-      walletSeeded: true,
-    })
-    spaces.value.push({
-      id: nextId('spc'),
-      name: 'summer-workshop',
-      url: `https://summer-workshop.${seedDomain}`,
-      ownerEmail: 'lee@university.edu',
-      health: 'paused',
-      createdAt: daysAgo(45),
-      apiKey: makeApiKey(),
-      apiKeyClaimed: true,
-      version: '0.9.1',
-      walletSeeded: false,
-    })
 
     // Shared wallet pre-seeded so the Earnings tab has data — unless the
     // admin already completed setup (respect an explicit skip there).
@@ -406,178 +387,104 @@ export const useStationStore = defineStore('station', () => {
     ]
   }
 
-  function submitRequest(input: {
+  async function submitRequest(input: {
     spaceName: string
-    requesterEmail: string
-    requesterName: string
     purpose: string
-  }): SpaceRequest {
-    const request: SpaceRequest = {
-      id: nextId('req'),
-      spaceName: input.spaceName,
+  }): Promise<SpaceRequest> {
+    const created = await requestsApi.submit({
+      space_name: input.spaceName,
       subdomain: slugify(input.spaceName),
-      requesterEmail: input.requesterEmail,
-      requesterName: input.requesterName,
-      purpose: input.purpose,
-      createdAt: new Date().toISOString(),
-      status: 'pending',
-    }
-    requests.value.unshift(request)
-    return request
+      reason: input.purpose,
+    })
+    return applyRequest(created)
   }
 
-  /** Kick off provisioning for a request: PROVISIONING → (delay) → ACTIVE, or FAILED if subdomain contains "fail". */
-  function startProvisioning(request: SpaceRequest, config: ApprovalConfig) {
-    request.spaceName = config.spaceName
-    request.subdomain = config.subdomain
-    request.status = 'provisioning'
-    request.failureError = undefined
-
-    setTimeout(() => {
-      if (request.subdomain.includes('fail')) {
-        request.status = 'failed'
-        request.failureError =
-          'Pod failed readiness probe: ImagePullBackOff for syft-space:latest (simulated)'
-        return
-      }
-      const space: Space = {
-        id: nextId('spc'),
-        name: config.spaceName,
-        url: `https://${config.subdomain}.${domain.value}`,
-        ownerEmail: request.requesterEmail,
-        health: 'healthy',
-        createdAt: new Date().toISOString(),
-        apiKey: makeApiKey(),
-        apiKeyClaimed: false,
-        version: supportedVersion.value,
-        walletSeeded: wallet.value !== null,
-      }
-      spaces.value.unshift(space)
-      request.status = 'active'
-      request.spaceId = space.id
-    }, PROVISION_DELAY)
+  /** Approve (admin): the backend starts provisioning; we poll for progress. */
+  async function approveRequest(requestId: string, config: ApprovalConfig): Promise<void> {
+    const approved = await requestsApi.approve(requestId, {
+      space_name: config.spaceName,
+      subdomain: config.subdomain,
+    })
+    applyRequest(approved)
+    trackProvisioning(requestId)
   }
 
-  function approveRequest(requestId: string, config: ApprovalConfig) {
-    const request = requests.value.find((r) => r.id === requestId)
-    if (!request || (request.status !== 'pending' && request.status !== 'failed')) return
-    startProvisioning(request, config)
-  }
-
-  function retryProvision(requestId: string, config: ApprovalConfig) {
-    approveRequest(requestId, config)
+  /** Retry a FAILED request (admin) — same review-and-confirm as approve. */
+  async function retryProvision(requestId: string, _config: ApprovalConfig): Promise<void> {
+    const retried = await requestsApi.retry(requestId)
+    applyRequest(retried)
+    trackProvisioning(requestId)
   }
 
   /**
-   * Admin creates a space directly — no member request to approve. A request
-   * record is still created (origin: 'admin') so provisioning progress,
-   * failures/retry, and the owner's member-dashboard view all reuse the same
-   * machinery as approved requests.
+   * Admin creates a space directly — a request record is still created so
+   * provisioning progress, failures/retry, and the owner's member-dashboard
+   * view all reuse the same machinery as approved requests.
    */
-  function createSpace(input: {
+  async function createSpace(input: {
     spaceName: string
     subdomain: string
     ownerEmail: string
-  }): SpaceRequest {
-    const request: SpaceRequest = {
-      id: nextId('req'),
-      spaceName: input.spaceName,
+  }): Promise<SpaceRequest> {
+    const created = await requestsApi.submit({
+      space_name: input.spaceName,
       subdomain: input.subdomain,
-      requesterEmail: input.ownerEmail,
-      requesterName: input.ownerEmail.split('@')[0] ?? input.ownerEmail,
-      purpose: '',
-      createdAt: new Date().toISOString(),
-      status: 'pending',
-      origin: 'admin',
-    }
-    requests.value.unshift(request)
-    startProvisioning(request, { spaceName: input.spaceName, subdomain: input.subdomain })
+    })
+    const approved = await requestsApi.approve(created.id, {})
+    const request = applyRequest(approved)
+    trackProvisioning(request.id)
     return request
   }
 
-  /** Reject a pending request, or abandon a failed provisioning attempt. */
-  function rejectRequest(requestId: string, reason: string) {
-    const request = requests.value.find((r) => r.id === requestId)
-    if (!request || (request.status !== 'pending' && request.status !== 'failed')) return
-    request.status = 'rejected'
-    request.rejectReason = reason
+  /** Reject a pending request with a reason (admin). */
+  async function rejectRequest(requestId: string, reason: string): Promise<void> {
+    applyRequest(await requestsApi.reject(requestId, { reason }))
   }
 
   /** Member withdraws their own pending request. */
-  function withdrawRequest(requestId: string) {
-    const request = requests.value.find((r) => r.id === requestId)
-    if (!request || request.status !== 'pending') return
-    requests.value = requests.value.filter((r) => r.id !== requestId)
+  async function withdrawRequest(requestId: string): Promise<void> {
+    applyRequest(await requestsApi.withdraw(requestId))
   }
 
-  /** One-time API key reveal: returns the key and marks it claimed. */
-  function claimApiKey(spaceId: string): string | null {
-    const space = spaceById(spaceId)
-    if (!space || space.apiKeyClaimed) return null
-    space.apiKeyClaimed = true
-    return space.apiKey
-  }
-
-  function restartSpace(spaceId: string) {
-    const space = spaceById(spaceId)
-    if (!space || space.health === 'paused') return
-    space.health = 'restarting'
-    setTimeout(() => {
-      space.health = 'healthy'
-      if (wallet.value) space.walletSeeded = true
-    }, RESTART_DELAY)
-  }
+  /** Restart is not wired to the backend yet. */
+  function restartSpace(_spaceId: string) {}
 
   /** Pause = scale the space's deployment to 0; data (volume + vector db) stays. */
-  function pauseSpace(spaceId: string) {
+  async function pauseSpace(spaceId: string): Promise<void> {
+    const status = await spacesApi.pause(spaceId)
     const space = spaceById(spaceId)
-    if (!space) return
-    space.health = 'paused'
+    if (space) space.health = statusToHealth[status.status]
   }
 
-  /** Start = scale back to 1; pod takes a moment to become ready. */
-  function startSpace(spaceId: string) {
+  /** Start = scale back to 1; the pod takes a moment to become ready. */
+  async function startSpace(spaceId: string): Promise<void> {
     const space = spaceById(spaceId)
     if (!space || space.health !== 'paused') return
+    await spacesApi.resume(spaceId)
     space.health = 'starting'
-    setTimeout(() => {
-      space.health = 'healthy'
-      if (wallet.value) space.walletSeeded = true
-    }, RESTART_DELAY)
+    // Poll until the pod reports ready (or give up and show live state)
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await new Promise((r) => setTimeout(r, PROVISION_POLL_INTERVAL))
+      const status = await spacesApi.status(spaceId).catch(() => null)
+      if (status?.status === 'running') {
+        space.health = 'healthy'
+        return
+      }
+    }
+    await refreshSpaceState(spaceId)
   }
 
-  /**
-   * Update = patch the deployment's image tag to the supported version.
-   * Running space: pod is recreated (brief downtime). Paused space: spec
-   * updates instantly and the new version applies at the next start.
-   */
-  function updateSpace(spaceId: string) {
-    const space = spaceById(spaceId)
-    if (!space || space.version === supportedVersion.value) return
-    if (space.health === 'paused') {
-      space.version = supportedVersion.value
-      return
-    }
-    space.health = 'restarting'
-    setTimeout(() => {
-      space.version = supportedVersion.value
-      space.health = 'healthy'
-      if (wallet.value) space.walletSeeded = true
-    }, RESTART_DELAY)
-  }
+  /** Per-space update is not wired to the backend yet. */
+  function updateSpace(_spaceId: string) {}
 
-  function updateAllSpaces() {
-    for (const space of spaces.value) {
-      if (space.version !== supportedVersion.value) updateSpace(space.id)
-    }
-  }
+  /** Update-all is not wired to the backend yet. */
+  function updateAllSpaces() {}
 
   /** Issue a fresh API key; the owner claims it from their dashboard again. */
-  function regenerateApiKey(spaceId: string) {
+  async function regenerateApiKey(spaceId: string): Promise<void> {
+    const status = await spacesApi.regenerateToken(spaceId)
     const space = spaceById(spaceId)
-    if (!space) return
-    space.apiKey = makeApiKey()
-    space.apiKeyClaimed = false
+    if (space) space.apiKeyClaimed = status.revealed
   }
 
   /** Record a manual payout to a member against their space's collected total. */
@@ -608,19 +515,16 @@ export const useStationStore = defineStore('station', () => {
     for (const space of spaces.value) space.walletSeeded = false
   }
 
-  /** Delete removes the running space; data (PVC + Chroma database) is retained unless purged. */
-  function deleteSpace(spaceId: string, purge = false) {
-    const space = spaceById(spaceId)
-    if (!space) return
-    spaces.value = spaces.value.filter((s) => s.id !== spaceId)
+  /**
+   * Delete tears the space down completely — deployment, volume and vector
+   * database included (a freed subdomain must never surface another owner's
+   * data). Keyed by the space's request, which is marked DELETED.
+   */
+  async function deleteSpace(spaceId: string): Promise<void> {
     const request = requests.value.find((r) => r.spaceId === spaceId)
-    if (request) {
-      request.status = 'deleted'
-      request.rejectReason = purge
-        ? 'Space and all of its data were removed by the station admin.'
-        : 'Space was removed by the station admin. Its data (volume and vector database) is retained and can be reattached.'
-      request.spaceId = undefined
-    }
+    if (!request) return
+    applyRequest(await requestsApi.deleteSpace(request.id))
+    spaces.value = spaces.value.filter((s) => s.id !== spaceId)
   }
 
   return {
@@ -650,13 +554,15 @@ export const useStationStore = defineStore('station', () => {
     requestsFor,
     spaceById,
     seedForDemo,
+    loadRequests,
+    loadSpaces,
+    refreshSpaceState,
     submitRequest,
     approveRequest,
     createSpace,
     retryProvision,
     rejectRequest,
     withdrawRequest,
-    claimApiKey,
     regenerateApiKey,
     recordPayout,
     restartSpace,

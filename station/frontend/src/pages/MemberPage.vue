@@ -18,9 +18,12 @@ const station = useStationStore()
 const session = useSessionStore()
 const router = useRouter()
 
-// The domain (for space URLs) comes from the station setup
-onMounted(() => {
+// Setup (for the domain in URLs) + this member's requests and spaces
+onMounted(async () => {
   station.loadSetup().catch(() => {})
+  await Promise.all([station.loadRequests(), station.loadSpaces()]).catch(() => {})
+  // Land returning members on their requests once real data is in
+  if (myRequestCount.value > 0) activeSection.value = 'requests'
 })
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----

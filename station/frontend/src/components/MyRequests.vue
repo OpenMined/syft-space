@@ -50,9 +50,13 @@ function openLogs(request: SpaceRequest) {
   logsOpen.value = true
 }
 
-function withdraw(request: SpaceRequest) {
-  station.withdrawRequest(request.id)
-  toast('Request withdrawn', { description: request.spaceName })
+async function withdraw(request: SpaceRequest) {
+  try {
+    await station.withdrawRequest(request.id)
+    toast('Request withdrawn', { description: request.spaceName })
+  } catch {
+    toast.error('Withdrawing the request failed')
+  }
 }
 
 function formatDate(iso: string): string {
@@ -133,10 +137,7 @@ function formatDate(iso: string): string {
           v-else-if="request.status === 'deleted'"
           class="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground"
         >
-          {{
-            request.rejectReason ||
-            'This space was removed by the station admin. Its data is retained.'
-          }}
+          This space was removed, along with its data.
         </div>
 
         <div

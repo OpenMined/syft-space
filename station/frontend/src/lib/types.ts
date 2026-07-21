@@ -5,6 +5,7 @@ export type RequestStatus =
   | 'rejected'
   | 'failed'
   | 'deleted'
+  | 'withdrawn'
 
 export type SpaceHealth = 'healthy' | 'unhealthy' | 'restarting' | 'paused' | 'starting'
 
@@ -20,7 +21,7 @@ export interface SpaceRequest {
   spaceName: string
   subdomain: string
   requesterEmail: string
-  requesterName: string
+  requesterName?: string
   purpose: string
   createdAt: string
   status: RequestStatus
@@ -38,16 +39,13 @@ export interface Space {
   ownerEmail: string
   health: SpaceHealth
   createdAt: string
-  apiKey: string
+  /** Whether the one-time API key reveal has been used (from the token endpoint). */
   apiKeyClaimed: boolean
   /** Image tag this space's deployment currently runs. */
   version: string
   /** Whether the current shared-wallet config has been seeded (applies on pod restart). */
   walletSeeded: boolean
 }
-
-/** Initial supported syft-space version — the reactive value lives in the store (Settings). */
-export const SUPPORTED_VERSION = '0.9.4'
 
 // ---- Shared wallet & earnings ----
 
