@@ -1,8 +1,9 @@
 """Internal CLI — container ENTRYPOINT and migration runner.
 
 Not a user-facing tool: the station is installed with Helm. This exists so
-the image has a clean entrypoint (`syft-station server`) and migrations run
-as an explicit step (`syft-station upgrade-db`), never silently on boot.
+the image has a clean entrypoint (`syft-station server`). The server runs
+pending migrations itself at startup; `syft-station upgrade-db` runs them
+as a standalone step (useful for debugging or pre-flight checks).
 """
 
 import asyncio
