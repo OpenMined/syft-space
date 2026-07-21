@@ -76,6 +76,23 @@ async def test_admin_submission_gets_admin_origin(handler):
     assert request.origin == "admin"
 
 
+async def test_admin_can_submit_on_behalf_of_member(handler):
+    body = SubmitRequestBody(
+        space_name="For Bob", subdomain="for-bob", owner_email="bob@test.com"
+    )
+    request = await handler.submit(body, ADMIN)
+    assert request.owner_email == "bob@test.com"
+    assert request.origin == "admin"
+
+
+async def test_member_cannot_set_another_owner(handler):
+    body = SubmitRequestBody(
+        space_name="Sneaky", subdomain="sneaky", owner_email="victim@test.com"
+    )
+    request = await handler.submit(body, MEMBER)
+    assert request.owner_email == MEMBER.email  # override ignored for members
+
+
 async def test_submit_duplicate_subdomain_conflicts(handler):
     await handler.submit(submit_body("alpha"), MEMBER)
     with pytest.raises(HTTPException) as exc:
@@ -199,6 +216,8 @@ async def test_failing_provision_marks_failed_then_retry_succeeds(
 
     failed = (await handler.list_requests(MEMBER))[0]
     assert failed.status == RequestStatus.FAILED.value
+    # The admin sees why it failed
+    assert failed.reject_reason
 
     # Fix the subdomain via re-approve? No — retry re-runs as-is; flip the
     # stored subdomain first to simulate the underlying cause being fixed.
@@ -209,11 +228,14 @@ async def test_failing_provision_marks_failed_then_retry_succeeds(
     space.subdomain = "now-fine"
     await handler.space_repository.update(space)
 
-    await handler.retry(request.id)
+    retried = await handler.retry(request.id)
+    assert retried.reject_reason is None  # stale failure cleared
+
     await handler.wait_for_provisioning()
 
     final = (await handler.list_requests(MEMBER))[0]
     assert final.status == RequestStatus.ACTIVE.value
+    assert final.reject_reason is None
 
 
 async def test_retry_only_from_failed(handler, setup_repository):

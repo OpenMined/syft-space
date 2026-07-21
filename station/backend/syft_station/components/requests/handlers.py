@@ -93,11 +93,16 @@ class RequestHandler:
         origin = (
             RequestOrigin.ADMIN if user.role == ROLE_ADMIN else RequestOrigin.MEMBER
         )
+        # The admin can create a space on a member's behalf; members always
+        # own their own requests.
+        owner_email = user.email
+        if user.role == ROLE_ADMIN and body.owner_email:
+            owner_email = body.owner_email
         request = await self.repository.create(
             SpaceRequest(
                 space_name=body.space_name,
                 subdomain=body.subdomain,
-                owner_email=user.email,
+                owner_email=owner_email,
                 reason=body.reason,
                 origin=origin.value,
             )
@@ -239,6 +244,7 @@ class RequestHandler:
             )
             await self.space_repository.create_token(space.id, generate_space_token())
 
+        request.reject_reason = None  # clear a previous attempt's failure
         request = await self.repository.set_status(
             request, RequestStatus.PROVISIONING, space_id=space.id
         )
@@ -271,11 +277,16 @@ class RequestHandler:
             url = await self.provisioner.provision(spec)
         except ProvisionError as e:
             logger.warning(f"Provisioning failed for '{space.subdomain}': {e}")
-            await self.repository.set_status(request, RequestStatus.FAILED)
+            # Keep the error on the request so the admin sees why it failed
+            await self.repository.set_status(
+                request, RequestStatus.FAILED, reject_reason=str(e)
+            )
             return
-        except Exception:
+        except Exception as e:
             logger.exception(f"Provisioning crashed for '{space.subdomain}'")
-            await self.repository.set_status(request, RequestStatus.FAILED)
+            await self.repository.set_status(
+                request, RequestStatus.FAILED, reject_reason=f"Unexpected error: {e}"
+            )
             return
 
         space.url = url
