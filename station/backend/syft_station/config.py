@@ -109,6 +109,13 @@ class AppSettings(BaseSettings):
         default="openmined/syft-space",
         description="Container image (repo only) each space is deployed from",
     )
+    image_registry: str = Field(
+        default="ghcr.io",
+        description=(
+            "Registry hosting the space image; used to list the available "
+            "tags shown in the version picker"
+        ),
+    )
     ingress_class: str = Field(
         default="traefik",
         description="IngressClass routing <subdomain>.<domain> to the space",

@@ -50,6 +50,10 @@ Design doc: `station.md` at the repo root (uncommitted, kept current).
   - `provision/` — the `Provisioner` protocol. `MockProvisioner` fakes it
     without a cluster (subdomain containing "fail" → FAILED, to exercise
     retry); `K8sProvisioner` is the real one.
+  - `images/` — lists available syft-space image tags from the container
+    registry (anonymous GHCR pull flow) for the admin's version picker.
+    Newest-first with created dates; `latest` resolved by digest match;
+    cached in memory (immutable per-tag memo + short list TTL).
   - `shared/` — `database.py` (AsyncDatabase + AsyncBaseRepository, WAL
     pragmas), logging.
 - Routes are built with the `build_*_routes(handler) -> APIRouter` factory

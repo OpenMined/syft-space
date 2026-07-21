@@ -14,6 +14,9 @@ import syft_station.components.shared.logging_config  # noqa: F401, I001
 from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.routes import build_auth_routes
 from syft_station.components.auth.syfthub import SyftHubIdentityClient
+from syft_station.components.images.handlers import ImageHandler
+from syft_station.components.images.registry import ImageRegistryClient
+from syft_station.components.images.routes import build_image_routes
 from syft_station.components.provision.interfaces import Provisioner
 from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.handlers import RequestHandler
@@ -56,7 +59,12 @@ def _build_provisioner() -> Provisioner:
 
 provisioner = _build_provisioner()
 
+registry_client = ImageRegistryClient(
+    app_settings.image_registry, app_settings.space_image
+)
+
 auth_handler = AuthHandler(syfthub_client)
+image_handler = ImageHandler(registry_client)
 setup_handler = SetupHandler(setup_repository)
 space_handler = SpaceHandler(space_repository, provisioner)
 request_handler = RequestHandler(
@@ -110,6 +118,7 @@ app.include_router(build_auth_routes(auth_handler), prefix="/api/v1")
 app.include_router(build_setup_routes(setup_handler), prefix="/api/v1")
 app.include_router(build_request_routes(request_handler), prefix="/api/v1")
 app.include_router(build_space_routes(space_handler), prefix="/api/v1")
+app.include_router(build_image_routes(image_handler), prefix="/api/v1")
 
 
 @app.get("/healthz", tags=["health"])

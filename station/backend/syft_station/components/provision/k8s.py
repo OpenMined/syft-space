@@ -69,9 +69,7 @@ class K8sProvisioner:
                 f"{e.status} {e.reason}"
             ) from e
         except Exception as e:
-            raise ProvisionError(
-                f"Failed to provision '{spec.subdomain}': {e}"
-            ) from e
+            raise ProvisionError(f"Failed to provision '{spec.subdomain}': {e}") from e
         return f"https://{spec.subdomain}.{spec.domain}"
 
     async def deprovision(self, subdomain: str, purge: bool) -> None:
@@ -172,8 +170,7 @@ class K8sProvisioner:
                 return
             if time.monotonic() >= deadline:
                 raise ProvisionError(
-                    f"Deployment '{name}' did not become available within "
-                    f"{timeout}s"
+                    f"Deployment '{name}' did not become available within {timeout}s"
                 )
             await asyncio.sleep(interval)
 
