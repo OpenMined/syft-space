@@ -116,7 +116,9 @@ The station UI is at `http://station.localhost`; spaces resolve at
 to `spaces.localhost` during first-run setup. The `admin` argument seeds
 `SYFT_STATION_ADMIN_EMAIL` (via the `syft-station-env` Secret, which also
 holds a session secret that survives redeploys) — without it every sign-in
-gets the member role. Spaces pull the published image
+gets the member role. An optional `hub=https://…` argument sets
+`SYFT_STATION_SYFTHUB_URL` the same way (omitted → the production SyftHub
+default applies). Spaces pull the published image
 (`ghcr.io/openmined/syft-space`) at whatever tag the admin picks; nothing is
 baked in.
 

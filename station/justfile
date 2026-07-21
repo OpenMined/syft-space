@@ -57,28 +57,38 @@ station-image:
     k3d image import {{station_image}} -c {{cluster_name}}
 
 # Everything up: cluster + shared infra + the station pod. Pass your
-# SyftHub email so your sign-in gets the admin role:
-#   just up you@org.com     (or: just up admin=you@org.com)
-up admin="": cluster station-image
+# SyftHub email so your sign-in gets the admin role; optionally point at a
+# different SyftHub (default: https://syfthub.openmined.org):
+#   just up you@org.com
+#   just up admin=you@org.com hub=https://syfthub.staging.org
+up admin="" hub="": cluster station-image
     #!/usr/bin/env bash
     set -euo pipefail
     # just binds `admin=x` positionally as the literal string — accept both
-    # `just up x` and `just up admin=x` by stripping the prefix.
+    # `just up x` and `just up admin=x` by stripping the prefixes.
     admin_email="{{admin}}"
     admin_email="${admin_email#admin=}"
+    hub_url="{{hub}}"
+    hub_url="${hub_url#hub=}"
     if [ -z "$admin_email" ]; then
         echo "WARNING: no admin email set — every sign-in gets the member role."
         echo "         Use: just up you@org.com"
     fi
     # Session secret survives redeploys so cookies stay valid; the admin
-    # email is refreshed from the argument on every `up`.
+    # email (and hub URL, when given) are refreshed on every `up`.
     existing=$(kubectl -n {{namespace}} get secret syft-station-env \
         -o jsonpath='{.data.SYFT_STATION_SESSION_SECRET}' 2>/dev/null | base64 -d || true)
     session_secret="${existing:-$(openssl rand -hex 32)}"
+    secret_args=(
+        --from-literal=SYFT_STATION_ADMIN_EMAIL="$admin_email"
+        --from-literal=SYFT_STATION_SESSION_SECRET="$session_secret"
+    )
+    # Omitted entirely when unset so the config default applies
+    if [ -n "$hub_url" ]; then
+        secret_args+=(--from-literal=SYFT_STATION_SYFTHUB_URL="$hub_url")
+    fi
     kubectl -n {{namespace}} create secret generic syft-station-env \
-        --from-literal=SYFT_STATION_ADMIN_EMAIL="$admin_email" \
-        --from-literal=SYFT_STATION_SESSION_SECRET="$session_secret" \
-        --dry-run=client -o yaml | kubectl apply -f -
+        "${secret_args[@]}" --dry-run=client -o yaml | kubectl apply -f -
     kubectl apply -f {{station_manifests}}/rbac.yaml
     kubectl apply -f {{station_manifests}}/station.yaml
     # Restart so a rebuilt image / changed secret always takes effect
