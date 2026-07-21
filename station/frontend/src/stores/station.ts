@@ -313,11 +313,8 @@ export const useStationStore = defineStore('station', () => {
     if (seededFor.value === memberEmail) return
     seededFor.value = memberEmail
 
-    const firstRun = !onboarded.value
-
-    // Shared wallet pre-seeded so the Earnings tab has data — unless the
-    // admin already completed setup (respect an explicit skip there).
-    if (!wallet.value && firstRun) {
+    // Demo wallet pre-seeded so the Earnings tab always has data to show
+    if (!wallet.value) {
       wallet.value = {
         provider: 'xendit',
         currency: 'USD',
@@ -325,7 +322,6 @@ export const useStationStore = defineStore('station', () => {
         createdAt: daysAgo(20),
       }
     }
-    if (!wallet.value) return
 
     // Credits model: users top up once at the station checkout…
     // (the member has their own balance too — they query other spaces)

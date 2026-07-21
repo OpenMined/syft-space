@@ -69,8 +69,12 @@ Design doc: `station.md` at the repo root (uncommitted, kept current).
 Vue 3 + TypeScript + Tailwind + shadcn/ui + Pinia — identical stack and
 conventions to the root `frontend/` (its CLAUDE.md applies: shadcn/ui
 components, lucide-vue-next icons, `<script setup>`, bun not npm).
-State currently lives in the mocked `stores/station.ts`; ticket C4 wires it
-to the backend API. Dev server runs on :5174.
+`stores/station.ts` is server-backed via the typed client in `src/api/`
+(fetch wrapper + endpoint modules mirroring the backend schemas); the Vite
+dev server (:5174) proxies `/api` to the backend on :8090 so the session
+cookie stays same-origin. Still mocked pending their backends: the
+wallet/earnings data (seeded in `seedForDemo` until the credits service
+lands) and the log tail; restart / update-all buttons are inert.
 
 ## Development Commands
 

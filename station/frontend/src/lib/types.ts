@@ -9,13 +9,6 @@ export type RequestStatus =
 
 export type SpaceHealth = 'healthy' | 'unhealthy' | 'restarting' | 'paused' | 'starting'
 
-export interface HubProfile {
-  email: string
-  username: string
-  fullName: string
-  domain: string
-}
-
 export interface SpaceRequest {
   id: string
   spaceName: string
@@ -122,17 +115,6 @@ export const SPACE_INCLUDES = [
   'Automatic document processing (PDFs and more)',
   'Your own private storage',
 ] as const
-
-/** Demo fallback domain — used if a member signs in before the admin completes setup (store `domain`). */
-export const STATION_DOMAIN = 'spaces.demo-station.org'
-
-/**
- * Demo role routing: the station stores who the admin is (seeded at deploy
- * time via env — a valid SyftHub account) and routes each sign-in to the
- * right view. Hardcoded for the prototype.
- */
-export const ADMIN_EMAIL = 'admin@openmined.org'
-export const DEMO_MEMBER_EMAIL = 'user@test.com'
 
 /** DNS-1123 label: lowercase alphanumeric + hyphens, no leading/trailing hyphen, ≤63 chars. */
 export function slugify(name: string): string {
