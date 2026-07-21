@@ -137,12 +137,7 @@ onUnmounted(() => {
 
     <!-- Outer orbit: spaces + spokes, rotating clockwise -->
     <g v-if="!mini" class="orbit orbit-outer">
-      <g
-        v-for="node in outerNodes"
-        :key="node.id"
-        class="node-g"
-        :class="node.state"
-      >
+      <g v-for="node in outerNodes" :key="node.id" class="node-g" :class="node.state">
         <line
           x1="100"
           y1="100"
@@ -168,12 +163,7 @@ onUnmounted(() => {
 
     <!-- Inner orbit: spaces + spokes, rotating counter-clockwise -->
     <g class="orbit orbit-inner">
-      <g
-        v-for="node in innerNodes"
-        :key="node.id"
-        class="node-g"
-        :class="node.state"
-      >
+      <g v-for="node in innerNodes" :key="node.id" class="node-g" :class="node.state">
         <line
           x1="100"
           y1="100"

@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import { setupApi } from '@/api/endpoints/setup'
 import type {
   ApprovalConfig,
   CreditDebit,
@@ -47,13 +48,40 @@ export const useStationStore = defineStore('station', () => {
   const topUps = ref<TopUp[]>([])
   const debits = ref<CreditDebit[]>([])
   const payouts = ref<Payout[]>([])
-  /** Syft-space version the station deploys — set at onboarding, editable in Settings. */
-  const supportedVersion = ref(SUPPORTED_VERSION)
+  /** Syft-space version (image tag) the station deploys — set at onboarding, editable in Settings. */
+  const supportedVersion = ref('')
   /** Public domain spaces get subdomains on — empty until the admin sets it. */
   const domain = ref('')
   /** Setup done ⇔ the domain is set. The admin dashboard shows the setup dialog until then. */
   const onboarded = computed(() => domain.value !== '')
+  /** True once the backend's setup has been fetched (gates the setup dialog). */
+  const setupLoaded = ref(false)
   const seededFor = ref<string | null>(null)
+
+  // ---- Setup (server-backed) ----
+
+  async function loadSetup(): Promise<void> {
+    const setup = await setupApi.get()
+    domain.value = setup.domain
+    supportedVersion.value = setup.supported_version
+    setupLoaded.value = true
+  }
+
+  /** First-run setup: domain + version. Setting the domain is what marks setup done. */
+  async function completeOnboarding(input: { domain: string; version: string }): Promise<void> {
+    const setup = await setupApi.update({
+      domain: input.domain,
+      supported_version: input.version,
+    })
+    domain.value = setup.domain
+    supportedVersion.value = setup.supported_version
+  }
+
+  /** Settings: bump the version the station deploys ("update all" applies it). */
+  async function setSupportedVersion(version: string): Promise<void> {
+    const setup = await setupApi.update({ supported_version: version })
+    supportedVersion.value = setup.supported_version
+  }
 
   const pendingCount = computed(() => requests.value.filter((r) => r.status === 'pending').length)
 
@@ -187,15 +215,16 @@ export const useStationStore = defineStore('station', () => {
     spaces.value = []
 
     // Member-first demo: if the admin hasn't set a domain yet, fall back to
-    // the demo default so seeded URLs work (this also marks setup as done).
+    // the demo default so seeded URLs work (setup state itself is
+    // server-backed now and never touched here).
     const firstRun = !onboarded.value
-    if (firstRun) domain.value = STATION_DOMAIN
+    const seedDomain = domain.value || STATION_DOMAIN
 
     // A space of the member's that is already active, API key not yet claimed
     const activeSpace: Space = {
       id: nextId('spc'),
       name: 'research-lab',
-      url: `https://research-lab.${domain.value}`,
+      url: `https://research-lab.${seedDomain}`,
       ownerEmail: memberEmail,
       health: 'healthy',
       createdAt: daysAgo(2),
@@ -268,7 +297,7 @@ export const useStationStore = defineStore('station', () => {
     spaces.value.push({
       id: nextId('spc'),
       name: 'econ-archive',
-      url: `https://econ-archive.${domain.value}`,
+      url: `https://econ-archive.${seedDomain}`,
       ownerEmail: 'lee@university.edu',
       health: 'healthy',
       createdAt: daysAgo(12),
@@ -280,7 +309,7 @@ export const useStationStore = defineStore('station', () => {
     spaces.value.push({
       id: nextId('spc'),
       name: 'legal-docs',
-      url: `https://legal-docs.${domain.value}`,
+      url: `https://legal-docs.${seedDomain}`,
       ownerEmail: 'ana@lawfirm.com',
       health: 'unhealthy',
       createdAt: daysAgo(30),
@@ -292,7 +321,7 @@ export const useStationStore = defineStore('station', () => {
     spaces.value.push({
       id: nextId('spc'),
       name: 'summer-workshop',
-      url: `https://summer-workshop.${domain.value}`,
+      url: `https://summer-workshop.${seedDomain}`,
       ownerEmail: 'lee@university.edu',
       health: 'paused',
       createdAt: daysAgo(45),
@@ -543,11 +572,6 @@ export const useStationStore = defineStore('station', () => {
     }
   }
 
-  /** Settings: bump the version the station deploys ("update all" applies it). */
-  function setSupportedVersion(version: string) {
-    supportedVersion.value = version
-  }
-
   /** Issue a fresh API key; the owner claims it from their dashboard again. */
   function regenerateApiKey(spaceId: string) {
     const space = spaceById(spaceId)
@@ -584,12 +608,6 @@ export const useStationStore = defineStore('station', () => {
     for (const space of spaces.value) space.walletSeeded = false
   }
 
-  /** First-run setup: domain + version (wallet is handled by configureWallet). Setting the domain is what marks setup done. */
-  function completeOnboarding(input: { domain: string; version: string }) {
-    domain.value = input.domain
-    supportedVersion.value = input.version
-  }
-
   /** Delete removes the running space; data (PVC + Chroma database) is retained unless purged. */
   function deleteSpace(spaceId: string, purge = false) {
     const space = spaceById(spaceId)
@@ -615,6 +633,8 @@ export const useStationStore = defineStore('station', () => {
     supportedVersion,
     domain,
     onboarded,
+    setupLoaded,
+    loadSetup,
     completeOnboarding,
     pendingCount,
     totalCollected,

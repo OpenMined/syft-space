@@ -70,8 +70,8 @@ function save() {
           station.wallet ? 'Replace shared wallet' : 'Add shared wallet'
         }}</DialogTitle>
         <DialogDescription>
-          One shared wallet per station, and it's optional. Users buy credits at the station
-          and spend them at any space; you pay members from Earnings for what users spend.
+          One shared wallet per station, and it's optional. Users buy credits at the station and
+          spend them at any space; you pay members from Earnings for what users spend.
         </DialogDescription>
       </DialogHeader>
 
@@ -111,8 +111,8 @@ function save() {
             :placeholder="provider === 'xendit' ? 'xnd_prod_…' : 'sk_live_…'"
           />
           <p class="text-xs text-muted-foreground">
-            Stays at the station — spaces never see it; they only check credits with the
-            station before serving a paid query.
+            Stays at the station — spaces never see it; they only check credits with the station
+            before serving a paid query.
           </p>
         </div>
       </div>

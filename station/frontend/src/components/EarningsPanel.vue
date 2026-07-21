@@ -270,8 +270,8 @@ function formatDay(iso: string): string {
         <CardHeader>
           <CardTitle class="text-sm">User credit</CardTitle>
           <p class="text-xs text-muted-foreground">
-            Unspent credit is money the station holds for users — it isn't payable to members
-            until it's spent on queries.
+            Unspent credit is money the station holds for users — it isn't payable to members until
+            it's spent on queries.
           </p>
         </CardHeader>
         <CardContent class="divide-y p-0">
@@ -299,8 +299,8 @@ function formatDay(iso: string): string {
         <CardHeader>
           <CardTitle class="text-sm">Recent top-ups</CardTitle>
           <p class="text-xs text-muted-foreground">
-            Credits bought at the station checkout. The gateway notifies the station directly
-            — spaces are never involved in payments.
+            Credits bought at the station checkout. The gateway notifies the station directly —
+            spaces are never involved in payments.
           </p>
         </CardHeader>
         <CardContent class="divide-y p-0">

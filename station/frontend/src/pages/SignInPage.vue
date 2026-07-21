@@ -30,6 +30,8 @@ async function submit() {
   try {
     const profile = await session.signIn(email.value, password.value)
     toast.success(`Signed in as ${profile.email}`)
+    // The seeding decisions below need the real setup state (domain/onboarded)
+    await station.loadSetup().catch(() => {})
     if (session.isAdmin) {
       // Wallet/earnings demo data is still mocked (real credits land with
       // the credits service) — seed it after first-run setup is done so the

@@ -19,8 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import VersionSelect from '@/components/VersionSelect.vue'
+import { ApiError } from '@/api/client'
 import type { WalletProvider } from '@/lib/types'
-import { DEMO_MEMBER_EMAIL, SUPPORTED_VERSION } from '@/lib/types'
+import { useSessionStore } from '@/stores/session'
 import { useStationStore } from '@/stores/station'
 
 /**
@@ -30,6 +32,7 @@ import { useStationStore } from '@/stores/station'
 defineProps<{ open: boolean }>()
 
 const station = useStationStore()
+const session = useSessionStore()
 
 const STEPS = [
   { title: 'Domain', icon: Globe },
@@ -53,9 +56,9 @@ const walletCurrency = ref('USD')
 const walletKey = ref('')
 const CURRENCIES = ['USD', 'IDR', 'PHP', 'SGD', 'EUR']
 
-// Step 3 — Syft Space version
-const versionInput = ref(SUPPORTED_VERSION)
-const versionValid = computed(() => /^\d+\.\d+\.\d+$/.test(versionInput.value.trim()))
+// Step 3 — Syft Space version (image tag from the registry)
+const versionInput = ref('')
+const finishing = ref(false)
 
 function nextFromDomain() {
   if (!domainValid.value) {
@@ -80,21 +83,30 @@ function nextFromWallet(withWallet: boolean) {
   step.value = 2
 }
 
-function finish() {
-  if (!versionValid.value) {
-    toast.error('Enter a version like 0.9.4')
+async function finish() {
+  if (!versionInput.value.trim()) {
+    toast.error('Pick or enter the version to deploy')
     return
   }
-  // Setting the domain marks setup done, which closes this dialog
-  station.completeOnboarding({
-    domain: domainInput.value.trim().toLowerCase(),
-    version: versionInput.value.trim(),
-  })
-  // Seed the demo data now so the dashboard reflects the setup choices
-  // (chosen domain; wallet only if one was added)
-  station.seedForDemo(DEMO_MEMBER_EMAIL, 'Demo User')
+  finishing.value = true
+  try {
+    // Setting the domain marks setup done, which closes this dialog
+    await station.completeOnboarding({
+      domain: domainInput.value.trim().toLowerCase(),
+      version: versionInput.value.trim(),
+    })
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'Saving setup failed')
+    return
+  } finally {
+    finishing.value = false
+  }
+  // Wallet/earnings demo data is still mocked — seed it now so the
+  // dashboard reflects the setup choices (chosen domain; wallet only if
+  // one was added)
+  if (session.profile) station.seedForDemo(session.profile.email, session.profile.fullName)
   toast.success('Station is ready', {
-    description: `Spaces will live on *.${station.domain} running v${station.supportedVersion}.`,
+    description: `Spaces will live on *.${station.domain} running ${station.supportedVersion}.`,
   })
 }
 </script>
@@ -220,19 +232,19 @@ function finish() {
       <!-- Step 3: version -->
       <div v-else class="space-y-4">
         <p class="text-xs text-muted-foreground">
-          The image version every space runs. You can bump it later in Settings and roll it out with
-          "Update all" — downgrades are not supported.
+          The image version every space runs, straight from the registry. You can bump it later in
+          Settings and roll it out with "Update all" — downgrades are not supported.
         </p>
         <div class="space-y-1.5">
-          <Label for="setup-version">Version</Label>
-          <Input id="setup-version" v-model="versionInput" placeholder="0.9.4" />
+          <Label>Version</Label>
+          <VersionSelect v-model="versionInput" />
         </div>
         <div class="flex items-center justify-between">
           <Button variant="ghost" size="sm" @click="step = 1">
             <ArrowLeft class="mr-1.5 h-3.5 w-3.5" />
             Back
           </Button>
-          <Button @click="finish">
+          <Button :disabled="finishing" @click="finish">
             <Rocket class="mr-1.5 h-4 w-4" />
             Finish setup
           </Button>

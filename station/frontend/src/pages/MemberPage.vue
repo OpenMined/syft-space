@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { HandCoins, Inbox, LogOut, Plus, User } from 'lucide-vue-next'
 import AppHeader from '@/components/AppHeader.vue'
@@ -17,6 +17,11 @@ import { useSessionStore } from '@/stores/session'
 const station = useStationStore()
 const session = useSessionStore()
 const router = useRouter()
+
+// The domain (for space URLs) comes from the station setup
+onMounted(() => {
+  station.loadSetup().catch(() => {})
+})
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
 type MemberSection = 'requests' | 'new'
@@ -120,8 +125,8 @@ const currency = computed(() => station.wallet?.currency ?? 'USD')
               </p>
               <p class="mt-0.5 text-xs text-muted-foreground">
                 {{ formatMoney(totalEarned, currency) }} earned across
-                {{ myEarnings.length }} space{{ myEarnings.length === 1 ? '' : 's' }} — the
-                station admin pays out manually.
+                {{ myEarnings.length }} space{{ myEarnings.length === 1 ? '' : 's' }} — the station
+                admin pays out manually.
               </p>
             </CardContent>
           </Card>

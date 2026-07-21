@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowUpCircle,
@@ -33,6 +33,7 @@ import RejectRequestDialog from '@/components/RejectRequestDialog.vue'
 import StationAnimation from '@/components/StationAnimation.vue'
 import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
 import SetupStationDialog from '@/components/SetupStationDialog.vue'
+import VersionSelect from '@/components/VersionSelect.vue'
 import ViewLogsSheet from '@/components/ViewLogsSheet.vue'
 import HealthBadge from '@/components/HealthBadge.vue'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -56,8 +57,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { ApiError } from '@/api/client'
 import type { Space, SpaceRequest } from '@/lib/types'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useStationStore } from '@/stores/station'
 import { useSessionStore } from '@/stores/session'
@@ -65,6 +66,10 @@ import { useSessionStore } from '@/stores/session'
 const station = useStationStore()
 const session = useSessionStore()
 const router = useRouter()
+
+onMounted(() => {
+  station.loadSetup().catch(() => toast.error('Could not load the station setup'))
+})
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
 type AdminSection = 'requests' | 'spaces' | 'earnings' | 'settings'
@@ -157,24 +162,28 @@ function updateAll() {
   const count = outdatedCount.value
   station.updateAllSpaces()
   toast('Updating all outdated spaces', {
-    description: `${count} space(s) → v${station.supportedVersion}`,
+    description: `${count} space(s) → ${station.supportedVersion}`,
   })
 }
 
 // ---- Settings ----
 const versionInput = ref('')
+const savingVersion = ref(false)
 
-function saveVersion() {
-  const version = versionInput.value.trim().replace(/^v/, '')
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
-    toast.error('Enter a version like 0.9.5')
-    return
+async function saveVersion() {
+  const version = versionInput.value.trim()
+  if (!version || version === station.supportedVersion) return
+  savingVersion.value = true
+  try {
+    await station.setSupportedVersion(version)
+    toast.success(`Supported version set to ${version}`, {
+      description: 'Use "Update all" on Spaces to roll it out.',
+    })
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'Saving the version failed')
+  } finally {
+    savingVersion.value = false
   }
-  station.setSupportedVersion(version)
-  toast.success(`Supported version set to v${version}`, {
-    description: 'Use "Update all" on Spaces to roll it out.',
-  })
-  versionInput.value = ''
 }
 
 function regenerateKey(space: Space) {
@@ -399,7 +408,9 @@ function formatDate(iso: string): string {
               <p class="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Tag class="h-3.5 w-3.5" />
                 Supported Syft Space version:
-                <span class="font-medium text-foreground">v{{ station.supportedVersion }}</span>
+                <span class="font-mono font-medium text-foreground">{{
+                  station.supportedVersion
+                }}</span>
               </p>
               <Button v-if="outdatedCount > 0" size="sm" variant="outline" @click="updateAll">
                 <ArrowUpCircle class="mr-1.5 h-3.5 w-3.5" />
@@ -533,18 +544,25 @@ function formatDate(iso: string): string {
                 </div>
                 <div class="flex items-end gap-2">
                   <div class="flex-1 space-y-1.5">
-                    <Label for="settings-version">Version</Label>
-                    <Input
-                      id="settings-version"
-                      v-model="versionInput"
-                      :placeholder="`current: v${station.supportedVersion}`"
-                    />
+                    <Label>Version</Label>
+                    <VersionSelect v-model="versionInput" />
                   </div>
-                  <Button :disabled="!versionInput.trim()" @click="saveVersion">
+                  <Button
+                    :disabled="
+                      savingVersion ||
+                      !versionInput.trim() ||
+                      versionInput === station.supportedVersion
+                    "
+                    @click="saveVersion"
+                  >
                     <Save class="mr-1.5 h-3.5 w-3.5" />
                     Save
                   </Button>
                 </div>
+                <p class="text-xs text-muted-foreground">
+                  Currently deploying:
+                  <span class="font-mono">{{ station.supportedVersion || '—' }}</span>
+                </p>
               </CardContent>
             </Card>
 
@@ -579,7 +597,7 @@ function formatDate(iso: string): string {
   </div>
 
   <!-- First-run setup — shown until the admin sets the station domain -->
-  <SetupStationDialog :open="!station.onboarded" />
+  <SetupStationDialog :open="station.setupLoaded && !station.onboarded" />
 
   <ApproveSpaceModal v-model:open="approveOpen" :request="approveTarget" />
   <ViewLogsSheet v-model:open="logsOpen" :space="logsTarget" />
