@@ -1,45 +1,64 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import type { HubProfile } from '@/lib/types'
-import { ADMIN_EMAIL } from '@/lib/types'
+import { ApiError } from '@/api/client'
+import { authApi } from '@/api/endpoints/auth'
+import type { MeResponse, Role } from '@/api/types'
+
+export interface SessionProfile {
+  email: string
+  username: string
+  fullName: string
+  role: Role
+}
+
+function toProfile(me: MeResponse): SessionProfile {
+  return { email: me.email, username: me.username, fullName: me.name, role: me.role }
+}
 
 /**
- * Mock SyftHub session.
+ * The station session.
  *
- * Real flow (v1): station backend proxies email+password to SyftHub
- * /auth/login, fetches /users/me, discards credentials, issues its own
- * session cookie. Here we fabricate the profile from the email.
+ * Sign-in proxies SyftHub credentials to the backend, which verifies them
+ * with the hub and answers with an HTTP-only session cookie. The profile
+ * (including the role — the backend decides who the admin is) is restored
+ * from that cookie on reload via /auth/me.
  */
 export const useSessionStore = defineStore('session', () => {
-  const profile = ref<HubProfile | null>(null)
+  const profile = ref<SessionProfile | null>(null)
 
   const isSignedIn = computed(() => profile.value !== null)
+  const isAdmin = computed(() => profile.value?.role === 'admin')
+
+  async function signIn(email: string, password: string): Promise<SessionProfile> {
+    profile.value = toProfile(await authApi.login({ email, password }))
+    return profile.value
+  }
 
   /**
-   * One sign-in for everyone: the station knows which SyftHub account is
-   * the admin (seeded at deploy time) and routes to the right view.
+   * Restore the session from the cookie, once per app load (the router
+   * guard awaits this before deciding where to send the user). Signed out
+   * or unreachable backend both simply mean "no session".
    */
-  const isAdmin = computed(() => profile.value?.email === ADMIN_EMAIL)
-
-  async function signIn(email: string, _password: string): Promise<HubProfile> {
-    // Simulate the hub round-trip
-    await new Promise((r) => setTimeout(r, 600))
-    const username = email.split('@')[0] || 'user'
-    profile.value = {
-      email,
-      username,
-      fullName: username
-        .split(/[._-]/)
-        .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-        .join(' '),
-      domain: `${username}.syfthub.openmined.org`,
-    }
-    return profile.value
+  let restoration: Promise<void> | null = null
+  function restore(): Promise<void> {
+    restoration ??= (async () => {
+      if (profile.value) return
+      try {
+        profile.value = toProfile(await authApi.me())
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 401)) {
+          console.warn('Session restore failed:', error)
+        }
+      }
+    })()
+    return restoration
   }
 
   function signOut() {
     profile.value = null
+    // Best-effort cookie clear; the UI state is already signed out.
+    authApi.logout().catch(() => {})
   }
 
-  return { profile, isSignedIn, isAdmin, signIn, signOut }
+  return { profile, isSignedIn, isAdmin, signIn, restore, signOut }
 })

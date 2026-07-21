@@ -18,8 +18,9 @@ const router = createRouter({
  * the admin, so routing is by role: admin → dashboard (first-run setup is a
  * dialog there); everyone else → member view.
  */
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const session = useSessionStore()
+  await session.restore() // no-op after the first navigation
 
   if (!session.isSignedIn) {
     return to.name === 'signin' ? true : { name: 'signin' }

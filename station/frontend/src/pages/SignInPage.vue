@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { DEMO_MEMBER_EMAIL } from '@/lib/types'
+import { ApiError } from '@/api/client'
 import { useSessionStore } from '@/stores/session'
 import { useStationStore } from '@/stores/station'
 
@@ -31,15 +31,17 @@ async function submit() {
     const profile = await session.signIn(email.value, password.value)
     toast.success(`Signed in as ${profile.email}`)
     if (session.isAdmin) {
-      // Admin's demo data is seeded after first-run setup (the dialog on the
-      // dashboard), so setup choices (domain, skipped wallet) are respected
-      if (station.onboarded) station.seedForDemo(DEMO_MEMBER_EMAIL, 'Demo User')
+      // Wallet/earnings demo data is still mocked (real credits land with
+      // the credits service) — seed it after first-run setup is done so the
+      // setup choices are respected
+      if (station.onboarded) station.seedForDemo(profile.email, profile.fullName)
       router.push({ name: 'admin' })
     } else {
-      // Demo data always belongs to the fixed demo member
-      station.seedForDemo(DEMO_MEMBER_EMAIL, 'Demo User')
+      station.seedForDemo(profile.email, profile.fullName)
       router.push({ name: 'member' })
     }
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'Sign-in failed — is the station up?')
   } finally {
     signingIn.value = false
   }
@@ -78,45 +80,40 @@ async function submit() {
           </div>
 
           <Card>
-          <CardHeader>
-            <CardTitle class="text-base">Sign in with SyftHub</CardTitle>
-            <CardDescription>
-              Your identity is verified against SyftHub; your password is never stored.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form class="space-y-4" @submit.prevent="submit">
-              <div class="space-y-1.5">
-                <Label for="email">SyftHub email</Label>
-                <Input
-                  id="email"
-                  v-model="email"
-                  type="email"
-                  placeholder="you@example.org"
-                  autocomplete="email"
-                />
-              </div>
-              <div class="space-y-1.5">
-                <Label for="password">Password</Label>
-                <Input
-                  id="password"
-                  v-model="password"
-                  type="password"
-                  placeholder="••••••••"
-                  autocomplete="current-password"
-                />
-              </div>
-              <Button type="submit" class="w-full" :disabled="signingIn">
-                <Loader2 v-if="signingIn" class="mr-2 h-4 w-4 animate-spin" />
-                Sign in
-              </Button>
-              <p class="text-center text-xs text-muted-foreground">
-                Prototype: sign in as <span class="font-mono">admin@openmined.org</span> for the
-                admin view or <span class="font-mono">user@test.com</span> as a member — any
-                password works.
-              </p>
-            </form>
-          </CardContent>
+            <CardHeader>
+              <CardTitle class="text-base">Sign in with SyftHub</CardTitle>
+              <CardDescription>
+                Your identity is verified against SyftHub; your password is never stored.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form class="space-y-4" @submit.prevent="submit">
+                <div class="space-y-1.5">
+                  <Label for="email">SyftHub email</Label>
+                  <Input
+                    id="email"
+                    v-model="email"
+                    type="email"
+                    placeholder="you@example.org"
+                    autocomplete="email"
+                  />
+                </div>
+                <div class="space-y-1.5">
+                  <Label for="password">Password</Label>
+                  <Input
+                    id="password"
+                    v-model="password"
+                    type="password"
+                    placeholder="••••••••"
+                    autocomplete="current-password"
+                  />
+                </div>
+                <Button type="submit" class="w-full" :disabled="signingIn">
+                  <Loader2 v-if="signingIn" class="mr-2 h-4 w-4 animate-spin" />
+                  Sign in
+                </Button>
+              </form>
+            </CardContent>
           </Card>
         </div>
       </div>
