@@ -1,18 +1,23 @@
 # Syft Station — dev workflow.
 #
-# Local Kubernetes is k3d (prod-parity with k3s: bundled Traefik ingress).
-# Spaces resolve at <subdomain>.spaces.localhost via the loadbalancer on :80
-# (*.localhost points at 127.0.0.1 in browsers — no DNS setup needed).
+# Dev is a miniature of production: ONE k3d cluster (prod-parity with k3s:
+# bundled Traefik ingress) runs the station pod, the shared infra it
+# depends on, and every member space it provisions. Nothing runs on the
+# host. The station serves its built frontend statically.
 #
-#   just cluster      # create k3d + deploy shared infra (ChromaDB, docling)
-#   just backend      # run the station on the host, provisioning into k3d
-#   just frontend     # run the station UI
-#   just cluster-down # tear it all down
+#   just up admin=you@org.com   # cluster + shared infra + station pod
+#   just down                   # tear it all down
+#
+# Station UI: http://station.localhost — spaces resolve at
+# <subdomain>.spaces.localhost via the loadbalancer on :80 (*.localhost
+# points at 127.0.0.1 in browsers — no DNS setup needed). Use
+# `spaces.localhost` as the domain during first-run setup.
 
 cluster_name := "syft-station"
 namespace := "syft-spaces"
 deps_manifests := "backend/syft_station/k8s/deps"
-image := "openmined/syft-space:latest"
+station_manifests := "backend/syft_station/k8s/station"
+station_image := "syft-station:dev"
 
 # List available recipes.
 default:
@@ -46,30 +51,52 @@ cluster: bootstrap
     kubectl -n {{namespace}} rollout status deploy/chromadb --timeout=120s
     kubectl -n {{namespace}} rollout status deploy/docling-serve --timeout=300s
 
-# Delete the k3d cluster.
-cluster-down:
+# Build the station image (frontend included) and import it into k3d.
+station-image:
+    docker build -t {{station_image}} .
+    k3d image import {{station_image}} -c {{cluster_name}}
+
+# Everything up: cluster + shared infra + the station pod. Pass your
+# SyftHub email so your sign-in gets the admin role.
+up admin="": cluster station-image
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{admin}}" ]; then
+        echo "WARNING: no admin email set — every sign-in gets the member role."
+        echo "         Use: just up admin=you@org.com"
+    fi
+    # Session secret survives redeploys so cookies stay valid; the admin
+    # email is refreshed from the argument on every `up`.
+    existing=$(kubectl -n {{namespace}} get secret syft-station-env \
+        -o jsonpath='{.data.SYFT_STATION_SESSION_SECRET}' 2>/dev/null | base64 -d || true)
+    session_secret="${existing:-$(openssl rand -hex 32)}"
+    kubectl -n {{namespace}} create secret generic syft-station-env \
+        --from-literal=SYFT_STATION_ADMIN_EMAIL="{{admin}}" \
+        --from-literal=SYFT_STATION_SESSION_SECRET="$session_secret" \
+        --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -f {{station_manifests}}/rbac.yaml
+    kubectl apply -f {{station_manifests}}/station.yaml
+    # Restart so a rebuilt image / changed secret always takes effect
+    kubectl -n {{namespace}} rollout restart deploy/syft-station
+    kubectl -n {{namespace}} rollout status deploy/syft-station --timeout=180s
+    echo ""
+    echo "Syft Station is up: http://station.localhost"
+    echo "First-run setup domain: spaces.localhost"
+
+# Tear the whole cluster down (station, spaces, and all data).
+down:
     k3d cluster delete {{cluster_name}}
 
-# Build the syft-space image from the repo root and import it into k3d.
-space-image tag="latest":
+# Build a syft-space image from this repo and import it into k3d — for
+# testing UNPUBLISHED syft-space builds. Normally spaces pull the published
+# image (ghcr.io/openmined/syft-space) at whatever tag the admin picks.
+space-image tag:
     #!/usr/bin/env bash
     set -euo pipefail
     cd ..
     (cd frontend && bun install && bun run build)
-    docker build -t openmined/syft-space:{{tag}} .
-    k3d image import openmined/syft-space:{{tag}} -c {{cluster_name}}
-
-# Run the station backend on the host, provisioning into k3d.
-backend:
-    cd backend && \
-        SYFT_STATION_PROVISIONER=k8s \
-        SYFT_STATION_KUBECONFIG="$(k3d kubeconfig write {{cluster_name}})" \
-        SYFT_STATION_DEBUG=true \
-        uv run uvicorn syft_station.main:app --reload --port 8090
-
-# Run the station frontend (Vite dev server, :5174).
-frontend:
-    cd frontend && bun install && bun dev
+    docker build -t ghcr.io/openmined/syft-space:{{tag}} .
+    k3d image import ghcr.io/openmined/syft-space:{{tag}} -c {{cluster_name}}
 
 # Backend tests.
 test:

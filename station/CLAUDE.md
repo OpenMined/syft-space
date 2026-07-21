@@ -99,23 +99,33 @@ bun run lint && bun run typecheck && bun run format
 
 ### Kubernetes dev environment
 
-k3d is the local cluster (prod parity with the k3s install story). The
-`station/justfile` carries the cluster/dev recipes:
+Dev is a miniature of production: ONE k3d cluster (prod parity with the k3s
+install story) runs the station pod — built from `station/Dockerfile`,
+serving its frontend statically — plus the shared infra and every member
+space it provisions. Nothing runs on the host:
 
 ```bash
-just cluster        # create k3d + deploy shared infra (ChromaDB, docling)
-just backend        # run the station on the host, provisioning into k3d
-just space-image    # build + import the openmined/syft-space image
-just cluster-down   # tear it all down
+just up admin=you@org.com   # cluster + shared infra + station pod
+just down                   # tear it all down
+just space-image tag=x      # build + import an UNPUBLISHED syft-space build
 ```
 
-Spaces resolve at `<subdomain>.spaces.localhost` (via the k3d loadbalancer on
-:80; `*.localhost` → 127.0.0.1 in browsers, no DNS setup). Set the station
-domain to `spaces.localhost` during first-run setup. Dev shared-infra
-manifests live in `syft_station/k8s/deps/`; the per-space bundle templates the
-provisioner renders live in `syft_station/k8s/space/`. Without a cluster, the
-backend still runs host-side with `MockProvisioner` (`SYFT_STATION_PROVISIONER`
-defaults to `mock`); `just backend` sets it to `k8s`.
+The station UI is at `http://station.localhost`; spaces resolve at
+`<subdomain>.spaces.localhost` (via the k3d loadbalancer on :80;
+`*.localhost` → 127.0.0.1 in browsers, no DNS setup). Set the station domain
+to `spaces.localhost` during first-run setup. The `admin` argument seeds
+`SYFT_STATION_ADMIN_EMAIL` (via the `syft-station-env` Secret, which also
+holds a session secret that survives redeploys) — without it every sign-in
+gets the member role. Spaces pull the published image
+(`ghcr.io/openmined/syft-space`) at whatever tag the admin picks; nothing is
+baked in.
+
+Manifest layout under `syft_station/k8s/`: `station/` = the station's own
+RBAC + Deployment/Service/Ingress/PVC (dev flavor; Helm carries prod),
+`deps/` = shared infra (ChromaDB, docling), `space/` = the per-space bundle
+templates the provisioner renders at runtime. For quick host-side hacking
+without a cluster, the backend still runs directly with `MockProvisioner`
+(`SYFT_STATION_PROVISIONER` defaults to `mock`; see Development Commands).
 
 ## Development Patterns
 

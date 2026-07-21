@@ -1,0 +1,119 @@
+# Syft Station — the control-plane pod itself.
+#
+# DEV FLAVOR: locally built image (imported by `just up`), small resources,
+# 1Gi data volume. The Helm chart carries the production version of this
+# (pulled image, real resources, TLS on the ingress).
+#
+# Deploy-time configuration (admin email, session secret) comes from the
+# `syft-station-env` Secret the justfile creates — everything else is either
+# baked into the image or a config default that matches the deps manifests.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syft-station-data
+  namespace: syft-spaces
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syft-station
+  namespace: syft-spaces
+  labels:
+    app: syft-station
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # SQLite on an RWO volume — never two pods at once
+  selector:
+    matchLabels:
+      app: syft-station
+  template:
+    metadata:
+      labels:
+        app: syft-station
+    spec:
+      serviceAccountName: syft-station
+      # Without this, kubelet injects SYFT_STATION_PORT=tcp://... (a legacy
+      # Docker-link var derived from the Service name) which collides with
+      # the SYFT_STATION_ env prefix and breaks settings parsing.
+      enableServiceLinks: false
+      containers:
+        - name: syft-station
+          image: syft-station:dev
+          imagePullPolicy: IfNotPresent # imported into k3d, never pulled
+          ports:
+            - containerPort: 8090
+          env:
+            - name: SYFT_STATION_PROVISIONER
+              value: "k8s"
+            - name: SYFT_STATION_NAMESPACE
+              value: "syft-spaces"
+            # Spaces run the published image; the tag is chosen by the admin
+            # at runtime from the registry version picker.
+            - name: SYFT_STATION_SPACE_IMAGE
+              value: "ghcr.io/openmined/syft-space"
+          envFrom:
+            - secretRef:
+                name: syft-station-env
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: syft-station-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: syft-station
+  namespace: syft-spaces
+spec:
+  selector:
+    app: syft-station
+  ports:
+    - port: 8090
+      targetPort: 8090
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: syft-station
+  namespace: syft-spaces
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: station.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: syft-station
+                port:
+                  number: 8090
