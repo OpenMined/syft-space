@@ -47,6 +47,7 @@ class RenderSettings(Protocol):
     chromadb_port: int
     docling_url: str
     managed_by_name: str
+    syfthub_url: object  # str | pydantic HttpUrl — rendered via str()
 
 
 def resource_name(subdomain: str) -> str:
@@ -66,6 +67,7 @@ def _substitutions(spec: SpaceSpec, settings: RenderSettings) -> dict[str, str]:
         "CHROMADB_PORT": str(settings.chromadb_port),
         "DOCLING_URL": settings.docling_url,
         "MANAGED_BY": settings.managed_by_name,
+        "SYFTHUB_URL": str(settings.syfthub_url).rstrip("/"),
         "PUBLIC_URL": f"https://{spec.subdomain}.{spec.domain}",
         "HOST": f"{spec.subdomain}.{spec.domain}",
         "INGRESS_CLASS": settings.ingress_class,

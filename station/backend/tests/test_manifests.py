@@ -23,6 +23,7 @@ SETTINGS = SimpleNamespace(
     chromadb_port=8100,
     docling_url="http://docling-serve:5001",
     managed_by_name="Syft Station",
+    syfthub_url="https://hub.test/",
 )
 
 SPEC = SpaceSpec(
@@ -117,6 +118,12 @@ def test_deployment_docling_and_branding(manifests):
     assert env["SYFT_DOCLING_SERVE_URL"]["value"] == "http://docling-serve:5001"
     assert env["SYFT_CLUSTER_MANAGED_BY"]["value"] == "Syft Station"
     assert env["SYFT_PUBLIC_URL"]["value"] == "https://alpha.spaces.test.org"
+
+
+def test_deployment_points_spaces_at_the_station_syfthub(manifests):
+    env = _env(manifests["deployment"])
+    # Trailing slash (pydantic HttpUrl str()) is stripped
+    assert env["SYFT_DEFAULT_MARKETPLACE_URL"]["value"] == "https://hub.test"
 
 
 def test_deployment_mounts_pvc_at_data(manifests):
