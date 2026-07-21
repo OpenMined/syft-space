@@ -35,10 +35,29 @@ async def onboard(setup_repository) -> None:
 
 
 def submit_body(subdomain: str = "alpha") -> SubmitRequestBody:
-    return SubmitRequestBody(space_name="Alpha Lab", subdomain=subdomain)
+    return SubmitRequestBody(
+        space_name="Alpha Lab",
+        subdomain=subdomain,
+        reason="RAG over our research corpus.",
+    )
 
 
 # ============== Submit / list ==============
+
+
+async def test_submit_stores_reason(handler):
+    request = await handler.submit(submit_body("alpha"), MEMBER)
+    assert request.reason == "RAG over our research corpus."
+
+    fetched = await handler.get_request(request.id, MEMBER)
+    assert fetched.reason == "RAG over our research corpus."
+
+
+async def test_submit_reason_is_optional(handler):
+    request = await handler.submit(
+        SubmitRequestBody(space_name="Alpha Lab", subdomain="alpha"), MEMBER
+    )
+    assert request.reason == ""
 
 
 async def test_submit_and_owner_scoped_listing(handler):

@@ -31,6 +31,7 @@ def validate_slug(v: str) -> str:
 class SubmitRequestBody(BaseModel):
     space_name: str
     subdomain: str
+    reason: str = ""
 
     @field_validator("space_name")
     @classmethod
@@ -39,6 +40,11 @@ class SubmitRequestBody(BaseModel):
         if not v:
             raise ValueError("Space name is required")
         return v
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, v: str) -> str:
+        return v.strip()
 
     @field_validator("subdomain")
     @classmethod
@@ -69,6 +75,7 @@ class RequestResponse(BaseModel):
     space_name: str
     subdomain: str
     owner_email: str
+    reason: str
     origin: str
     status: str
     reject_reason: str | None

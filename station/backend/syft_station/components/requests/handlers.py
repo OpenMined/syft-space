@@ -98,6 +98,7 @@ class RequestHandler:
                 space_name=body.space_name,
                 subdomain=body.subdomain,
                 owner_email=user.email,
+                reason=body.reason,
                 origin=origin.value,
             )
         )

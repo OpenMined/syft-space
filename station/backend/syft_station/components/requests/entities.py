@@ -47,6 +47,7 @@ class SpaceRequest(SQLModel, table=True):
     space_name: str = Field(description="Requested display name")
     subdomain: str = Field(index=True, description="Requested DNS-1123 slug")
     owner_email: str = Field(index=True)
+    reason: str = Field(default="", description="Member's stated purpose for the space")
     origin: str = Field(default=RequestOrigin.MEMBER.value)
     status: str = Field(default=RequestStatus.PENDING.value, index=True)
     reject_reason: str | None = Field(default=None)
