@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ApiError } from '@/api/client'
 import { slugify } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
 
@@ -49,7 +50,9 @@ const subdomainTaken = computed(() => station.subdomainInUse(slugify(subdomain.v
 
 const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail.value.trim()))
 
-function create() {
+const creating = ref(false)
+
+async function create() {
   if (!spaceName.value.trim()) {
     toast.error('Space name is required')
     return
@@ -66,15 +69,22 @@ function create() {
     toast.error('A valid owner email is required')
     return
   }
-  station.createSpace({
-    spaceName: spaceName.value.trim(),
-    subdomain: slugify(subdomain.value),
-    ownerEmail: ownerEmail.value.trim(),
-  })
-  toast.success('Setting up the space', {
-    description: `${slugify(subdomain.value)}.${station.domain}`,
-  })
-  emit('update:open', false)
+  creating.value = true
+  try {
+    await station.createSpace({
+      spaceName: spaceName.value.trim(),
+      subdomain: slugify(subdomain.value),
+      ownerEmail: ownerEmail.value.trim(),
+    })
+    toast.success('Setting up the space', {
+      description: `${slugify(subdomain.value)}.${station.domain}`,
+    })
+    emit('update:open', false)
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'Creating the space failed')
+  } finally {
+    creating.value = false
+  }
 }
 </script>
 
@@ -133,7 +143,7 @@ function create() {
 
       <DialogFooter>
         <Button variant="outline" @click="emit('update:open', false)">Cancel</Button>
-        <Button @click="create">
+        <Button :disabled="creating" @click="create">
           <Rocket class="mr-1.5 h-4 w-4" />
           Create space
         </Button>

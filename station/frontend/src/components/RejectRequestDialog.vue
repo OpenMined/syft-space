@@ -32,11 +32,15 @@ watch(
   },
 )
 
-function reject() {
+async function reject() {
   if (!props.request) return
-  station.rejectRequest(props.request.id, reason.value.trim() || 'No reason given.')
-  toast('Request rejected', { description: props.request.spaceName })
-  emit('update:open', false)
+  try {
+    await station.rejectRequest(props.request.id, reason.value.trim() || 'No reason given.')
+    toast('Request rejected', { description: props.request.spaceName })
+    emit('update:open', false)
+  } catch {
+    toast.error('Rejecting the request failed')
+  }
 }
 </script>
 

@@ -89,7 +89,10 @@ export const useStationStore = defineStore('station', () => {
       purpose: r.reason,
       createdAt: r.created_at,
       status: r.status,
-      rejectReason: r.reject_reason ?? undefined,
+      // The backend keeps one note per request: a rejection note when
+      // rejected, the provisioning error when failed.
+      rejectReason: r.status === 'rejected' ? (r.reject_reason ?? undefined) : undefined,
+      failureError: r.status === 'failed' ? (r.reject_reason ?? undefined) : undefined,
       spaceId: r.space_id ?? undefined,
       origin: r.origin === 'admin' ? 'admin' : undefined,
     }
@@ -429,6 +432,7 @@ export const useStationStore = defineStore('station', () => {
     const created = await requestsApi.submit({
       space_name: input.spaceName,
       subdomain: input.subdomain,
+      owner_email: input.ownerEmail,
     })
     const approved = await requestsApi.approve(created.id, {})
     const request = applyRequest(approved)

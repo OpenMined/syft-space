@@ -69,6 +69,8 @@ const router = useRouter()
 
 onMounted(() => {
   station.loadSetup().catch(() => toast.error('Could not load the station setup'))
+  station.loadRequests().catch(() => toast.error('Could not load requests'))
+  station.loadSpaces().catch(() => toast.error('Could not load spaces'))
 })
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
@@ -137,24 +139,33 @@ function openLogs(space: Space) {
   logsTarget.value = space
   logsOpen.value = true
 }
-const purgeConfirm = ref(false)
+const deleting = ref(false)
 
 function openDelete(space: Space) {
   deleteTarget.value = space
-  purgeConfirm.value = false
   deleteOpen.value = true
+}
+
+/** A FAILED request's leftover resources are torn down via the same dialog. */
+function openDeleteFailed(request: SpaceRequest) {
+  const space = request.spaceId ? station.spaceById(request.spaceId) : undefined
+  if (space) openDelete(space)
+  else toast.error('Could not find the space for this request')
 }
 
 async function confirmDelete() {
   if (!deleteTarget.value) return
   const name = deleteTarget.value.name
+  deleting.value = true
   try {
     await station.deleteSpace(deleteTarget.value.id)
     toast('Space deleted, along with its data', { description: name })
+    deleteOpen.value = false
   } catch {
     toast.error('Deleting the space failed')
+  } finally {
+    deleting.value = false
   }
-  deleteOpen.value = false
 }
 
 const outdatedCount = computed(
@@ -162,10 +173,8 @@ const outdatedCount = computed(
 )
 
 function updateAll() {
-  const count = outdatedCount.value
-  station.updateAllSpaces()
-  toast('Updating all outdated spaces', {
-    description: `${count} space(s) → ${station.supportedVersion}`,
+  toast('Update all is not available yet', {
+    description: `${outdatedCount.value} space(s) behind ${station.supportedVersion}`,
   })
 }
 
@@ -189,26 +198,33 @@ async function saveVersion() {
   }
 }
 
-function regenerateKey(space: Space) {
-  station.regenerateApiKey(space.id)
-  toast('New API key issued', {
-    description: `${space.ownerEmail} can claim it from their dashboard.`,
-  })
+async function regenerateKey(space: Space) {
+  try {
+    await station.regenerateApiKey(space.id)
+    toast('New API key issued', {
+      description: `${space.ownerEmail} can claim it from their dashboard.`,
+    })
+  } catch {
+    toast.error('Regenerating the key failed')
+  }
 }
 
 function restart(space: Space) {
-  station.restartSpace(space.id)
-  toast('Restart requested', { description: space.name })
+  toast('Restart is not available yet', { description: space.name })
 }
 
-function pause(space: Space) {
-  station.pauseSpace(space.id)
-  toast('Space paused — data retained, no compute used', { description: space.name })
+async function pause(space: Space) {
+  try {
+    await station.pauseSpace(space.id)
+    toast('Space paused — data retained, no compute used', { description: space.name })
+  } catch {
+    toast.error('Pausing the space failed')
+  }
 }
 
-function start(space: Space) {
-  station.startSpace(space.id)
+async function start(space: Space) {
   toast('Starting space', { description: space.name })
+  await station.startSpace(space.id).catch(() => toast.error('Starting the space failed'))
 }
 
 function formatDate(iso: string): string {
@@ -337,7 +353,6 @@ function formatDate(iso: string): string {
                     </div>
                     <div class="mt-0.5 text-xs text-muted-foreground">
                       <template v-if="request.origin === 'admin'">Created by admin for</template>
-                      <template v-else>{{ request.requesterName }} ·</template>
                       {{ request.requesterEmail }} · {{ formatDate(request.createdAt) }}
                     </div>
                     <p v-if="request.purpose" class="mt-1.5 text-sm text-muted-foreground">
@@ -364,9 +379,9 @@ function formatDate(iso: string): string {
                       </Button>
                     </template>
                     <template v-else-if="request.status === 'failed'">
-                      <Button size="sm" variant="outline" @click="openReject(request)">
-                        <X class="mr-1 h-3.5 w-3.5" />
-                        Reject
+                      <Button size="sm" variant="outline" @click="openDeleteFailed(request)">
+                        <Trash2 class="mr-1 h-3.5 w-3.5" />
+                        Delete
                       </Button>
                       <Button size="sm" @click="openApprove(request)">
                         <RotateCw class="mr-1 h-3.5 w-3.5" />
@@ -449,7 +464,7 @@ function formatDate(iso: string): string {
                   >
                     <span>{{ space.ownerEmail }}</span>
                     <span>since {{ formatDate(space.createdAt) }}</span>
-                    <span class="font-mono">v{{ space.version }}</span>
+                    <span class="font-mono">{{ space.version }}</span>
                     <Badge
                       v-if="space.version !== station.supportedVersion"
                       variant="outline"
@@ -607,34 +622,24 @@ function formatDate(iso: string): string {
   <RejectRequestDialog v-model:open="rejectOpen" :request="rejectTarget" />
   <CreateSpaceDialog v-model:open="createOpen" />
 
-  <!-- Delete / purge confirm -->
+  <!-- Delete confirm — teardown removes the data too -->
   <Dialog v-model:open="deleteOpen">
     <DialogContent v-if="deleteTarget">
       <DialogHeader>
         <DialogTitle>Delete “{{ deleteTarget.name }}”?</DialogTitle>
         <DialogDescription>
-          The space stops running and its URL is released. By default its data — files and search
-          index — is <span class="font-medium text-foreground">kept</span> and can be reattached
-          later.
+          The space stops running and its URL is released.
+          <span class="font-medium text-destructive">
+            All of its data — files and search index — is deleted permanently.
+          </span>
+          This cannot be undone.
         </DialogDescription>
       </DialogHeader>
 
-      <label
-        class="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm"
-      >
-        <input v-model="purgeConfirm" type="checkbox" class="mt-0.5" />
-        <span>
-          <span class="font-medium text-destructive">Also purge all data.</span>
-          <span class="text-muted-foreground">
-            Deletes its files and search index permanently. Cannot be undone.
-          </span>
-        </span>
-      </label>
-
       <DialogFooter>
         <Button variant="outline" @click="deleteOpen = false">Cancel</Button>
-        <Button variant="destructive" @click="confirmDelete()">
-          {{ purgeConfirm ? 'Delete & purge data' : 'Delete (retain data)' }}
+        <Button variant="destructive" :disabled="deleting" @click="confirmDelete()">
+          Delete space and data
         </Button>
       </DialogFooter>
     </DialogContent>

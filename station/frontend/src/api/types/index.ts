@@ -57,6 +57,8 @@ export interface SubmitRequestBody {
   space_name: string
   subdomain: string
   reason?: string
+  /** Admin only: create the space for this member (ignored for members). */
+  owner_email?: string
 }
 
 /** Admin review-and-confirm: name/subdomain editable for conflicts. */
