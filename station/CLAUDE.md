@@ -109,7 +109,8 @@ story), driven by the `justfile`:
 just cluster                # k3d + shared deps (ChromaDB, docling) only
 just dev admin=you@org.com  # station on the HOST (uvicorn --reload),
                             #   spaces provisioned into k3d over kubeconfig
-just dev-ui                 # Vite HMR for the station frontend (2nd terminal)
+just build-ui               # build frontend/dist -> served by just dev at :8090/ui
+just dev-ui                 # OR: Vite HMR for the frontend (2nd terminal)
 just up  admin=you@org.com  # FULL in-cluster: the station pod via Helm
 just down                   # tear the cluster down
 just space-image tag=x      # build + import an UNPUBLISHED syft-space build
@@ -117,8 +118,14 @@ just space-image tag=x      # build + import an UNPUBLISHED syft-space build
 
 `just dev` is the everyday loop — edit backend code, uvicorn reloads, no
 image rebuild; the host station talks to k3d via `~/.kube/config` and
-provisions space pods *into* the cluster. `just up` is the parity check
-(in-cluster DNS, RBAC, the real deployed pod, frontend served statically).
+provisions space pods *into* the cluster. For the UI, the backend serves the
+packaged `syft_station/ui` if present (the image), else the sibling
+`frontend/dist` (main.py) — same in-place pattern as syft-space. So
+`just build-ui` (plain `vite build` → `frontend/dist`) makes `just dev` serve
+the UI at `:8090/ui`; re-run it after frontend edits (uvicorn --reload watches
+only `.py`), or use `just dev-ui` for live HMR. `just up` is the parity check
+(in-cluster DNS, RBAC, the real deployed pod, frontend served statically from
+the image).
 
 The station UI is at `http://station.localhost`; spaces resolve at
 `<subdomain>.spaces.localhost` (via the k3d loadbalancer on :80;

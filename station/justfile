@@ -108,8 +108,18 @@ dev admin="" hub="": cluster
     [ -n "$hub_url" ] && export SYFT_STATION_SYFTHUB_URL="$hub_url"
     # Fixed dev secret so sessions survive reloads/restarts (never used in prod).
     export SYFT_STATION_SESSION_SECRET="dev-not-secret-session-key"
-    echo "Station API on http://localhost:8090 (hot-reload). Frontend: just dev-ui"
+    echo "Station on http://localhost:8090 (backend hot-reloads on .py changes)."
+    echo "Frontend: run 'just build-ui' once -> served at :8090/ui (or 'just dev-ui' for HMR)."
     cd backend && uv run syft-station server --reload
+
+# Builds to frontend/dist, which `just dev` serves in place (like syft-space).
+# Re-run after frontend changes — uvicorn --reload only watches .py, so it does
+# NOT rebuild the frontend. build-only skips vue-tsc (CI's job, and slow
+# per-rebuild), like the image build. For live HMR, use `just dev-ui`.
+
+# Build the station frontend so `just dev` serves it at /ui.
+build-ui:
+    bun run --cwd frontend build-only
 
 # API is proxied to the host backend on :8090. Run in a second terminal.
 

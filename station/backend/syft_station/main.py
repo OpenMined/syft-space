@@ -132,9 +132,14 @@ async def get_version() -> dict[str, str]:
     return {"version": pkg_version("syft-station")}
 
 
-# ── Static frontend (built UI shipped in the image/wheel) ───────────────────
-
-UI_DIR = Path(__file__).parent / "ui"
+# ── Static frontend ─────────────────────────────────────────────────────────
+# Prod ships the built UI inside the package (syft_station/ui — the Dockerfile
+# copies it there). Dev builds to the sibling frontend/dist and serves it in
+# place, the same way syft-space does (`just build-ui` = plain `vite build`, no
+# relocation). Packaged copy wins when present.
+_PACKAGED_UI = Path(__file__).parent / "ui"
+_DEV_UI = Path(__file__).parent.parent.parent / "frontend" / "dist"
+UI_DIR = _PACKAGED_UI if _PACKAGED_UI.is_dir() else _DEV_UI
 
 if UI_DIR.is_dir():
     app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
