@@ -99,35 +99,44 @@ bun run lint && bun run typecheck && bun run format
 
 ### Kubernetes dev environment
 
-Dev is a miniature of production: ONE k3d cluster (prod parity with the k3s
-install story) runs the station pod — built from `station/Dockerfile`,
-serving its frontend statically — plus the shared infra and every member
-space it provisions. Nothing runs on the host:
+ONE Helm chart (`station/chart/`) is the source of truth for every
+deployment — dev is that same chart with `values-dev.yaml` (ephemeral
+ChromaDB, locally-built `:dev` image, `*.localhost` hosts, no NetworkPolicy/
+HPA/TLS). Two inner loops on a k3d cluster (prod parity with the k3s install
+story), driven by the `justfile`:
 
 ```bash
-just up admin=you@org.com   # cluster + shared infra + station pod
-just down                   # tear it all down
+just cluster                # k3d + shared deps (ChromaDB, docling) only
+just dev admin=you@org.com  # station on the HOST (uvicorn --reload),
+                            #   spaces provisioned into k3d over kubeconfig
+just dev-ui                 # Vite HMR for the station frontend (2nd terminal)
+just up  admin=you@org.com  # FULL in-cluster: the station pod via Helm
+just down                   # tear the cluster down
 just space-image tag=x      # build + import an UNPUBLISHED syft-space build
 ```
+
+`just dev` is the everyday loop — edit backend code, uvicorn reloads, no
+image rebuild; the host station talks to k3d via `~/.kube/config` and
+provisions space pods *into* the cluster. `just up` is the parity check
+(in-cluster DNS, RBAC, the real deployed pod, frontend served statically).
 
 The station UI is at `http://station.localhost`; spaces resolve at
 `<subdomain>.spaces.localhost` (via the k3d loadbalancer on :80;
 `*.localhost` → 127.0.0.1 in browsers, no DNS setup). Set the station domain
-to `spaces.localhost` during first-run setup. The `admin` argument seeds
-`SYFT_STATION_ADMIN_EMAIL` (via the `syft-station-env` Secret, which also
-holds a session secret that survives redeploys) — without it every sign-in
-gets the member role. An optional `hub=https://…` argument sets
-`SYFT_STATION_SYFTHUB_URL` the same way (omitted → the production SyftHub
-default applies). Spaces pull the published image
-(`ghcr.io/openmined/syft-space`) at whatever tag the admin picks; nothing is
-baked in.
+to `spaces.localhost` during first-run setup. The `admin` argument sets
+`SYFT_STATION_ADMIN_EMAIL` — without it every sign-in gets the member role.
+An optional `hub=https://…` argument sets `SYFT_STATION_SYFTHUB_URL` (omitted
+→ the production SyftHub default). The chart preserves the session secret
+across `helm upgrade` (via a live `lookup`), so cookies survive redeploys.
+Spaces pull the published image (`ghcr.io/openmined/syft-space`) at whatever
+tag the admin picks; nothing is baked in.
 
-Manifest layout under `syft_station/k8s/`: `station/` = the station's own
-RBAC + Deployment/Service/Ingress/PVC (dev flavor; Helm carries prod),
-`deps/` = shared infra (ChromaDB, docling), `space/` = the per-space bundle
-templates the provisioner renders at runtime. For quick host-side hacking
-without a cluster, the backend still runs directly with `MockProvisioner`
-(`SYFT_STATION_PROVISIONER` defaults to `mock`; see Development Commands).
+Layout: `station/chart/` — the Helm chart (station + shared ChromaDB/docling,
+RBAC, NetworkPolicy; values drive dev↔prod). `syft_station/k8s/space/` — the
+per-space bundle templates the provisioner renders at runtime (NOT part of
+the chart). For quick host-side hacking without a cluster, the backend runs
+directly with `MockProvisioner` (`SYFT_STATION_PROVISIONER` defaults to
+`mock`; see Development Commands).
 
 ## Development Patterns
 
