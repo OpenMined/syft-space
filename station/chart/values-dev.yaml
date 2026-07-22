@@ -1,0 +1,49 @@
+# Dev overlay for k3d — `helm ... -f values-dev.yaml`.
+#
+# Same chart as prod, different values: locally-built station image (imported
+# into k3d, never pulled), ephemeral ChromaDB (a pod restart wipes embeddings —
+# fine for dev), *.localhost hosts, no TLS, no NetworkPolicy (flannel doesn't
+# enforce it). adminEmail / syfthubUrl come from the justfile via --set.
+
+station:
+  image:
+    repository: syft-station
+    tag: dev
+    pullPolicy: IfNotPresent
+  persistence:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  ingress:
+    host: station.localhost
+    tls:
+      enabled: false
+
+spaces:
+  image: ghcr.io/openmined/syft-space
+
+chromadb:
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits: {}
+
+docling:
+  autoscaling:
+    enabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits: {}
+
+networkPolicy:
+  enabled: false
