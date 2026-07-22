@@ -3,13 +3,12 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.4
     hooks:
-      # Run the linter
+      # Run the linter on all Python (each backend resolves its own
+      # [tool.ruff] config per-file: backend/, station/backend/, scripts).
       - id: ruff
         args: [--fix]
-        files: ^backend/
-      # Run the formatter
+      # Run the formatter on all Python.
       - id: ruff-format
-        files: ^backend/
 
   # # mypy - Static type checking
   # - repo: https://github.com/pre-commit/mirrors-mypy
