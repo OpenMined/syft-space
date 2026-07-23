@@ -20,17 +20,20 @@ own-session repositories.
 """
 
 from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import case, func, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from syft_station.components.credits.entities import (
+    EntryType,
     Invoice,
     InvoiceStatus,
     LedgerEntry,
+    Payout,
     SpaceCreditToken,
     UserBalance,
     Wallet,
@@ -97,6 +100,44 @@ class UserBalanceRepository:
         )
         await self.session.exec(stmt)
 
+    async def list_nonzero(self) -> list[UserBalance]:
+        """Outstanding credit per user — the station's liability list."""
+        statement = (
+            select(UserBalance)
+            .where(UserBalance.balance > 0)
+            .order_by(UserBalance.balance.desc())  # type: ignore[attr-defined]
+        )
+        result = await self.session.exec(statement)
+        return list(result.all())
+
+    async def total_outstanding(self) -> float:
+        statement = select(func.coalesce(func.sum(UserBalance.balance), 0.0))
+        result = await self.session.exec(statement)
+        return float(result.one())
+
+
+@dataclass(frozen=True)
+class EarningsRow:
+    """One aggregation bucket over the spend ledger.
+
+    ``earned`` and ``query_count`` are net of reversals: a CANCELLED row
+    subtracts what its DEBIT added, so fully refunded queries count as zero.
+    """
+
+    space_id: UUID
+    earned: float
+    query_count: int
+    endpoint: str = ""
+    day: str = ""
+
+
+# CANCELLED rows negate their DEBIT in every aggregate.
+_SIGNED_AMOUNT = case(
+    (LedgerEntry.type == EntryType.DEBIT.value, LedgerEntry.amount),
+    else_=-LedgerEntry.amount,
+)
+_SIGNED_COUNT = case((LedgerEntry.type == EntryType.DEBIT.value, 1), else_=-1)
+
 
 class LedgerEntryRepository:
     """Session-bound access to the append-only spend ledger."""
@@ -130,6 +171,65 @@ class LedgerEntryRepository:
         result = await self.session.exec(statement)
         return list(result.all())
 
+    # --- Earnings aggregates (all plain GROUP BYs, no joins) ---
+
+    async def earnings_by_space(self) -> list[EarningsRow]:
+        statement = select(
+            LedgerEntry.space_id,
+            func.sum(_SIGNED_AMOUNT),
+            func.sum(_SIGNED_COUNT),
+        ).group_by(LedgerEntry.space_id)
+        result = await self.session.exec(statement)
+        return [
+            EarningsRow(space_id=sid, earned=earned or 0.0, query_count=count or 0)
+            for sid, earned, count in result.all()
+        ]
+
+    async def earned_for_space(self, space_id: UUID) -> float:
+        statement = select(func.coalesce(func.sum(_SIGNED_AMOUNT), 0.0)).where(
+            LedgerEntry.space_id == space_id
+        )
+        result = await self.session.exec(statement)
+        return float(result.one())
+
+    async def earnings_by_endpoint(self) -> list[EarningsRow]:
+        statement = select(
+            LedgerEntry.space_id,
+            LedgerEntry.endpoint,
+            func.sum(_SIGNED_AMOUNT),
+            func.sum(_SIGNED_COUNT),
+        ).group_by(LedgerEntry.space_id, LedgerEntry.endpoint)
+        result = await self.session.exec(statement)
+        return [
+            EarningsRow(
+                space_id=sid,
+                endpoint=endpoint,
+                earned=earned or 0.0,
+                query_count=count or 0,
+            )
+            for sid, endpoint, earned, count in result.all()
+        ]
+
+    async def earnings_by_day(self) -> list[EarningsRow]:
+        day = func.date(LedgerEntry.created_at)
+        statement = (
+            select(
+                LedgerEntry.space_id,
+                day,
+                func.sum(_SIGNED_AMOUNT),
+                func.sum(_SIGNED_COUNT),
+            )
+            .group_by(LedgerEntry.space_id, day)
+            .order_by(day)
+        )
+        result = await self.session.exec(statement)
+        return [
+            EarningsRow(
+                space_id=sid, day=d, earned=earned or 0.0, query_count=count or 0
+            )
+            for sid, d, earned, count in result.all()
+        ]
+
 
 class InvoiceRepository:
     """Session-bound invoice access with status-guarded transitions."""
@@ -148,6 +248,24 @@ class InvoiceRepository:
         statement = select(Invoice).where(Invoice.client_reference == client_reference)
         result = await self.session.exec(statement)
         return result.first()
+
+    async def list_for_user(self, user_email: str, limit: int = 50) -> list[Invoice]:
+        statement = (
+            select(Invoice)
+            .where(Invoice.user_email == user_email)
+            .order_by(Invoice.created_at.desc())  # type: ignore[attr-defined]
+            .limit(limit)
+        )
+        result = await self.session.exec(statement)
+        return list(result.all())
+
+    async def total_paid(self) -> float:
+        """Credits sold — the sum of every settled top-up."""
+        statement = select(func.coalesce(func.sum(Invoice.amount), 0.0)).where(
+            Invoice.status == InvoiceStatus.PAID.value
+        )
+        result = await self.session.exec(statement)
+        return float(result.one())
 
     async def mark_paid(
         self,
@@ -237,6 +355,39 @@ class CreditsLedger:
         if exc_type is not None:
             await self.session.rollback()
         await self._session_ctx.__aexit__(exc_type, exc, tb)
+
+
+class PayoutRepository(AsyncBaseRepository[Payout]):
+    """Payout records — appended by the admin, summed for payables."""
+
+    def __init__(self, db: AsyncDatabase):
+        super().__init__(db, Payout)
+
+    async def totals_by_space(self) -> dict[UUID, float]:
+        async with self.db.get_session() as session:
+            statement = select(
+                Payout.space_id, func.coalesce(func.sum(Payout.amount), 0.0)
+            ).group_by(Payout.space_id)
+            result = await session.exec(statement)
+            return {space_id: float(total) for space_id, total in result.all()}
+
+    async def total_for_space(self, space_id: UUID) -> float:
+        async with self.db.get_session() as session:
+            statement = select(func.coalesce(func.sum(Payout.amount), 0.0)).where(
+                Payout.space_id == space_id
+            )
+            result = await session.exec(statement)
+            return float(result.one())
+
+    async def list_for_space(self, space_id: UUID) -> list[Payout]:
+        async with self.db.get_session() as session:
+            statement = (
+                select(Payout)
+                .where(Payout.space_id == space_id)
+                .order_by(Payout.created_at.desc())  # type: ignore[attr-defined]
+            )
+            result = await session.exec(statement)
+            return list(result.all())
 
 
 class WalletRepository(AsyncBaseRepository[Wallet]):

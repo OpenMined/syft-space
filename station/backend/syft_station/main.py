@@ -18,6 +18,7 @@ from syft_station.components.credits.gateway.xendit import XenditGateway
 from syft_station.components.credits.handlers import (
     CheckoutHandler,
     CreditsHandler,
+    EarningsHandler,
     WalletAdminHandler,
     WebhookHandler,
 )
@@ -26,6 +27,7 @@ from syft_station.components.credits.provisioning import (
     WalletRollout,
 )
 from syft_station.components.credits.repository import (
+    PayoutRepository,
     SpaceCreditTokenRepository,
     WalletRepository,
 )
@@ -56,6 +58,7 @@ request_repository = RequestRepository(database)
 space_repository = SpaceRepository(database)
 wallet_repository = WalletRepository(database)
 credit_token_repository = SpaceCreditTokenRepository(database)
+payout_repository = PayoutRepository(database)
 
 syfthub_client = SyftHubIdentityClient(str(app_settings.syfthub_url))
 
@@ -97,6 +100,7 @@ wallet_admin_handler = WalletAdminHandler(
 )
 checkout_handler = CheckoutHandler(database, wallet_repository, payment_gateways)
 webhook_handler = WebhookHandler(database, wallet_repository, payment_gateways)
+earnings_handler = EarningsHandler(database, wallet_repository, payout_repository)
 setup_handler = SetupHandler(setup_repository)
 space_handler = SpaceHandler(space_repository, provisioner)
 request_handler = RequestHandler(
@@ -154,7 +158,11 @@ app.include_router(build_space_routes(space_handler), prefix="/api/v1")
 app.include_router(build_image_routes(image_handler), prefix="/api/v1")
 app.include_router(
     build_credits_routes(
-        credits_handler, wallet_admin_handler, checkout_handler, webhook_handler
+        credits_handler,
+        wallet_admin_handler,
+        checkout_handler,
+        webhook_handler,
+        earnings_handler,
     ),
     prefix="/api/v1",
 )

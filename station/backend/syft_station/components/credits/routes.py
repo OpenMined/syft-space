@@ -7,6 +7,7 @@ directly. See schemas.py for the compatibility rules.
 
 import json
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -21,6 +22,7 @@ from syft_station.components.credits.handlers import (
     AuthedSpace,
     CheckoutHandler,
     CreditsHandler,
+    EarningsHandler,
     InsufficientBalanceError,
     WalletAdminHandler,
     WebhookHandler,
@@ -31,8 +33,14 @@ from syft_station.components.credits.schemas import (
     CheckoutResponse,
     DebitRequest,
     DebitResponse,
+    EarningsResponse,
+    MyCreditsResponse,
+    OutstandingBalancesResponse,
+    PayoutRequest,
+    PayoutResponse,
     RefundRequest,
     RefundResponse,
+    ReversalResponse,
     WalletSetupRequest,
     WalletSetupResponse,
     WalletStatusResponse,
@@ -44,6 +52,7 @@ def build_credits_routes(
     admin_handler: WalletAdminHandler,
     checkout_handler: CheckoutHandler,
     webhook_handler: WebhookHandler,
+    earnings_handler: EarningsHandler,
 ) -> APIRouter:
     """Build the credits routes: space-facing, buyer, admin, and webhooks."""
     router = APIRouter(prefix="/credits", tags=["credits"])
@@ -111,6 +120,13 @@ def build_credits_routes(
         """Start a hosted checkout for a bundle; redirect to checkout_url."""
         return await checkout_handler.create_checkout(user.email, body.bundle_name)
 
+    @router.get("/me", response_model=MyCreditsResponse)
+    async def my_credits(
+        user: SessionUser = Depends(get_current_user),
+    ) -> MyCreditsResponse:
+        """The signed-in user's balance, purchases, and spend history."""
+        return await checkout_handler.my_credits(user.email)
+
     # ── Admin (wallet setup) ────────────────────────────────────────────────
 
     @router.get("/admin/wallet", response_model=WalletStatusResponse)
@@ -127,6 +143,38 @@ def build_credits_routes(
     ) -> WalletSetupResponse:
         """Create or replace the station wallet; attaches unbound spaces."""
         return await admin_handler.setup(body)
+
+    @router.get("/admin/earnings", response_model=EarningsResponse)
+    async def earnings(
+        user: SessionUser = Depends(require_admin),
+    ) -> EarningsResponse:
+        """Ledger-derived money dashboard: totals, per-space, per-endpoint, daily."""
+        return await earnings_handler.earnings()
+
+    @router.get("/admin/balances", response_model=OutstandingBalancesResponse)
+    async def outstanding_balances(
+        user: SessionUser = Depends(require_admin),
+    ) -> OutstandingBalancesResponse:
+        """Unspent user credit — the station's liability."""
+        return await earnings_handler.outstanding_balances()
+
+    @router.post("/admin/payouts", response_model=PayoutResponse)
+    async def record_payout(
+        body: PayoutRequest,
+        user: SessionUser = Depends(require_admin),
+    ) -> PayoutResponse:
+        """Record a payout made out-of-band; capped at the space's payable."""
+        return await earnings_handler.record_payout(body)
+
+    @router.post(
+        "/admin/debits/{transaction_id}/reverse", response_model=ReversalResponse
+    )
+    async def reverse_debit(
+        transaction_id: UUID,
+        user: SessionUser = Depends(require_admin),
+    ) -> ReversalResponse:
+        """Dispute path: refund a debit to the user (idempotent)."""
+        return await earnings_handler.reverse_debit(transaction_id)
 
     # ── Provider webhooks (verified inside the gateway, no session) ─────────
 

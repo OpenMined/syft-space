@@ -182,6 +182,23 @@ class LedgerEntry(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class Payout(SQLModel, table=True):
+    """A recorded payout to a space owner.
+
+    Money moves out-of-band (bank transfer, whatever the admin uses); this
+    row is the ledger's acknowledgment. Payable per space is always derived:
+    earned (DEBIT − CANCELLED attributed to the space) − Σ(payouts).
+    """
+
+    __tablename__ = "payouts"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    space_id: UUID = Field(index=True, description="Space paid out (soft ref)")
+    amount: float = Field(description="Amount paid, in the station currency")
+    note: str = Field(default="", description="Free-text memo (e.g. transfer ref)")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class SpaceCreditToken(SQLModel, table=True):
     """A space's credits service token — and its binding to a wallet.
 

@@ -23,6 +23,7 @@ from syft_station.components.credits.entities import (
 from syft_station.components.credits.handlers import (
     CheckoutHandler,
     CreditsHandler,
+    EarningsHandler,
     WalletAdminHandler,
     WebhookHandler,
 )
@@ -32,6 +33,7 @@ from syft_station.components.credits.provisioning import (
 )
 from syft_station.components.credits.repository import (
     CreditsLedger,
+    PayoutRepository,
     SpaceCreditTokenRepository,
     WalletRepository,
 )
@@ -122,6 +124,7 @@ async def testbed(db: AsyncDatabase) -> CreditsTestbed:
             WalletAdminHandler(wallets, gateways, rollout),
             CheckoutHandler(db, wallets, gateways),
             WebhookHandler(db, wallets, gateways),
+            EarningsHandler(db, wallets, PayoutRepository(db)),
         ),
         prefix="/api/v1",
     )

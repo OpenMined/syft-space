@@ -6,6 +6,7 @@ assumed to update in lockstep with the station, so field names, status
 codes, and body shapes must stay backward compatible.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -94,3 +95,110 @@ class CheckoutResponse(BaseModel):
     checkout_url: str
     amount: float
     currency: str
+
+
+class TopUpInfo(BaseModel):
+    """One purchase in the buyer's history."""
+
+    invoice_id: UUID
+    bundle_name: str
+    amount: float
+    currency: str
+    status: str
+    created_at: datetime
+    paid_at: datetime | None
+
+
+class SpendEntry(BaseModel):
+    """One ledger movement in the buyer's history."""
+
+    transaction_id: UUID
+    type: str  # debit | cancelled
+    space_id: UUID
+    endpoint: str
+    amount: float
+    created_at: datetime
+
+
+class MyCreditsResponse(BaseModel):
+    """The signed-in user's balance and history."""
+
+    balance: float
+    currency: str
+    top_ups: list[TopUpInfo]
+    spend: list[SpendEntry]
+
+
+# ── Earnings + payouts (station admin) ──────────────────────────────────────
+
+
+class EarningsTotals(BaseModel):
+    credits_sold: float = Field(description="Σ settled top-ups")
+    earned: float = Field(description="Σ debits − reversals, all spaces")
+    paid_out: float = Field(description="Σ recorded payouts")
+    outstanding_balance: float = Field(description="Σ unspent user credit")
+
+
+class SpaceEarnings(BaseModel):
+    space_id: UUID
+    earned: float
+    query_count: int = Field(description="Paid queries net of reversals")
+    paid_out: float
+    payable: float = Field(description="earned − paid_out")
+
+
+class EndpointEarnings(BaseModel):
+    space_id: UUID
+    endpoint: str
+    earned: float
+    query_count: int
+
+
+class DailyEarnings(BaseModel):
+    day: str = Field(description="YYYY-MM-DD")
+    space_id: UUID
+    earned: float
+    query_count: int
+
+
+class EarningsResponse(BaseModel):
+    """Everything the Earnings dashboard renders, derived from the ledger.
+
+    Rows carry space_id only — the admin UI already holds the spaces list
+    and joins names client-side.
+    """
+
+    currency: str
+    totals: EarningsTotals
+    spaces: list[SpaceEarnings]
+    endpoints: list[EndpointEarnings]
+    daily: list[DailyEarnings]
+
+
+class OutstandingBalance(BaseModel):
+    user_email: str
+    balance: float
+
+
+class OutstandingBalancesResponse(BaseModel):
+    total: float
+    balances: list[OutstandingBalance]
+
+
+class PayoutRequest(BaseModel):
+    space_id: UUID
+    amount: float = Field(gt=0)
+    note: str = ""
+
+
+class PayoutResponse(BaseModel):
+    id: UUID
+    space_id: UUID
+    amount: float
+    note: str
+    created_at: datetime
+    payable_after: float = Field(description="What the space is still owed")
+
+
+class ReversalResponse(BaseModel):
+    reversed: bool = True

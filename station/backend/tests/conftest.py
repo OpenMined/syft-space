@@ -12,6 +12,7 @@ from syft_station.components.auth.session import ROLE_ADMIN, ROLE_MEMBER, Sessio
 from syft_station.components.credits.entities import (  # noqa: F401
     Invoice,
     LedgerEntry,
+    Payout,
     SpaceCreditToken,
     UserBalance,
     Wallet,

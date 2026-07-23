@@ -23,6 +23,7 @@ from syft_station.components.credits.entities import (
     Invoice,
     InvoiceStatus,
     LedgerEntry,
+    Payout,
     Wallet,
 )
 from syft_station.components.credits.gateway.interfaces import (
@@ -32,15 +33,29 @@ from syft_station.components.credits.gateway.interfaces import (
 from syft_station.components.credits.provisioning import WalletRollout
 from syft_station.components.credits.repository import (
     CreditsLedger,
+    PayoutRepository,
     SpaceCreditTokenRepository,
     WalletRepository,
 )
 from syft_station.components.credits.schemas import (
     BalanceResponse,
     CheckoutResponse,
+    DailyEarnings,
     DebitRequest,
     DebitResponse,
+    EarningsResponse,
+    EarningsTotals,
+    EndpointEarnings,
+    MyCreditsResponse,
+    OutstandingBalance,
+    OutstandingBalancesResponse,
+    PayoutRequest,
+    PayoutResponse,
     RefundResponse,
+    ReversalResponse,
+    SpaceEarnings,
+    SpendEntry,
+    TopUpInfo,
     WalletSetupRequest,
     WalletSetupResponse,
     WalletStatusResponse,
@@ -311,6 +326,41 @@ class CheckoutHandler:
     async def wallet_info(self) -> WalletStatusResponse:
         return _wallet_status(await self.wallets.get_active(), self.gateways)
 
+    async def my_credits(self, user_email: str) -> MyCreditsResponse:
+        """The signed-in user's balance, purchases, and spend history."""
+        wallet = await self.wallets.get_active()
+        async with CreditsLedger(self.db) as ledger:
+            row = await ledger.balances.get(user_email)
+            invoices = await ledger.invoices.list_for_user(user_email)
+            entries = await ledger.entries.list_for_user(user_email)
+            return MyCreditsResponse(
+                balance=row.balance if row else 0.0,
+                currency=wallet.currency if wallet else "",
+                top_ups=[
+                    TopUpInfo(
+                        invoice_id=i.id,
+                        bundle_name=i.bundle_name,
+                        amount=i.amount,
+                        currency=i.currency,
+                        status=i.status,
+                        created_at=i.created_at,
+                        paid_at=i.paid_at,
+                    )
+                    for i in invoices
+                ],
+                spend=[
+                    SpendEntry(
+                        transaction_id=e.transaction_id,
+                        type=e.type,
+                        space_id=e.space_id,
+                        endpoint=e.endpoint,
+                        amount=e.amount,
+                        created_at=e.created_at,
+                    )
+                    for e in entries
+                ],
+            )
+
     async def create_checkout(
         self, user_email: str, bundle_name: str
     ) -> CheckoutResponse:
@@ -439,3 +489,151 @@ class WebhookHandler:
             moved = await ledger.invoices.update_status(invoice.id, result.status)
             await ledger.commit()
             return {"status": "ok" if moved else "already_processed"}
+
+
+class EarningsHandler:
+    """Admin money views + payout recording + debit reversal.
+
+    Every figure is derived from the ledger (never stored), so the numbers
+    always reconcile: earned = Σ(DEBIT) − Σ(CANCELLED) per space, payable =
+    earned − Σ(payouts).
+    """
+
+    # Float-sum tolerance for "payout exceeds payable" checks.
+    _EPSILON = 1e-9
+
+    def __init__(
+        self,
+        db: AsyncDatabase,
+        wallets: WalletRepository,
+        payouts: PayoutRepository,
+    ):
+        self.db = db
+        self.wallets = wallets
+        self.payouts = payouts
+
+    async def earnings(self) -> EarningsResponse:
+        wallet = await self.wallets.get_active()
+        paid_out_by_space = await self.payouts.totals_by_space()
+
+        async with CreditsLedger(self.db) as ledger:
+            by_space = await ledger.entries.earnings_by_space()
+            by_endpoint = await ledger.entries.earnings_by_endpoint()
+            by_day = await ledger.entries.earnings_by_day()
+            credits_sold = await ledger.invoices.total_paid()
+            outstanding = await ledger.balances.total_outstanding()
+
+        spaces = [
+            SpaceEarnings(
+                space_id=row.space_id,
+                earned=row.earned,
+                query_count=row.query_count,
+                paid_out=paid_out_by_space.get(row.space_id, 0.0),
+                payable=row.earned - paid_out_by_space.get(row.space_id, 0.0),
+            )
+            for row in by_space
+        ]
+        return EarningsResponse(
+            currency=wallet.currency if wallet else "",
+            totals=EarningsTotals(
+                credits_sold=credits_sold,
+                earned=sum(s.earned for s in spaces),
+                paid_out=sum(s.paid_out for s in spaces),
+                outstanding_balance=outstanding,
+            ),
+            spaces=spaces,
+            endpoints=[
+                EndpointEarnings(
+                    space_id=row.space_id,
+                    endpoint=row.endpoint,
+                    earned=row.earned,
+                    query_count=row.query_count,
+                )
+                for row in by_endpoint
+            ],
+            daily=[
+                DailyEarnings(
+                    day=row.day,
+                    space_id=row.space_id,
+                    earned=row.earned,
+                    query_count=row.query_count,
+                )
+                for row in by_day
+            ],
+        )
+
+    async def outstanding_balances(self) -> OutstandingBalancesResponse:
+        async with CreditsLedger(self.db) as ledger:
+            rows = await ledger.balances.list_nonzero()
+            total = await ledger.balances.total_outstanding()
+        return OutstandingBalancesResponse(
+            total=total,
+            balances=[
+                OutstandingBalance(user_email=r.user_email, balance=r.balance)
+                for r in rows
+            ],
+        )
+
+    async def record_payout(self, body: PayoutRequest) -> PayoutResponse:
+        """Record money already moved out-of-band. Capped at the payable —
+        overpaying a space is a bookkeeping error, not a feature."""
+        async with CreditsLedger(self.db) as ledger:
+            earned = await ledger.entries.earned_for_space(body.space_id)
+        paid_out = await self.payouts.total_for_space(body.space_id)
+        payable = earned - paid_out
+        if body.amount > payable + self._EPSILON:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Payout {body.amount} exceeds the space's payable {payable}",
+            )
+
+        payout = await self.payouts.create(
+            Payout(space_id=body.space_id, amount=body.amount, note=body.note)
+        )
+        return PayoutResponse(
+            id=payout.id,
+            space_id=payout.space_id,
+            amount=payout.amount,
+            note=payout.note,
+            created_at=payout.created_at,
+            payable_after=payable - body.amount,
+        )
+
+    async def reverse_debit(self, transaction_id: UUID) -> ReversalResponse:
+        """Admin dispute path: undo a debit regardless of which space made
+        it. Same CANCELLED mechanism as a space refund — the user gets the
+        money back and the space's earned/payable drops. Idempotent."""
+        async with CreditsLedger(self.db) as ledger:
+            debit = await ledger.entries.get(transaction_id, EntryType.DEBIT.value)
+            if debit is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Unknown transaction",
+                )
+            already = await ledger.entries.get(
+                transaction_id, EntryType.CANCELLED.value
+            )
+            if already is not None:
+                return ReversalResponse()
+
+            ledger.entries.insert(
+                LedgerEntry(
+                    user_email=debit.user_email,
+                    transaction_id=transaction_id,
+                    type=EntryType.CANCELLED.value,
+                    space_id=debit.space_id,
+                    endpoint=debit.endpoint,
+                    amount=debit.amount,
+                    currency=debit.currency,
+                    charge_unit=debit.charge_unit,
+                    charge_quantity=debit.charge_quantity,
+                )
+            )
+            await ledger.balances.atomic_restore(debit.user_email, debit.amount)
+            try:
+                await ledger.commit()
+            except IntegrityError:
+                # Raced a concurrent refund of the same debit — one of the
+                # two restored; the other rolled back whole.
+                await ledger.session.rollback()
+            return ReversalResponse()
