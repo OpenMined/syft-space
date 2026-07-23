@@ -9,6 +9,7 @@ import {
   ShoppingCart,
   TrendingUp,
   Wallet,
+  Webhook,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import ConfigureWalletDialog from '@/components/ConfigureWalletDialog.vue'
@@ -52,6 +53,16 @@ const CHART_DAYS = 14
 
 /** Where users buy credits that work at every space in the station. */
 const checkoutUrl = computed(() => `${window.location.origin}${window.location.pathname}#/credits`)
+
+/** Where the payment provider must deliver its events. */
+const webhookUrl = computed(() => `${window.location.origin}/api/v1/credits/webhooks/xendit`)
+
+function copyWebhookUrl() {
+  navigator.clipboard.writeText(webhookUrl.value)
+  toast('Webhook URL copied', {
+    description: 'Paste it in the Xendit dashboard: Settings → Developers → Webhooks.',
+  })
+}
 
 const chart = computed(() => {
   const days = station.earnedByDay(CHART_DAYS)
@@ -98,9 +109,19 @@ function formatDay(iso: string): string {
             {{ checkoutUrl }}
             <Copy class="h-3 w-3" />
           </button>
+          <button
+            class="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
+            title="Xendit delivers payment events here — set it under Settings → Developers → Webhooks"
+            @click="copyWebhookUrl"
+          >
+            <Webhook class="h-3 w-3" />
+            {{ webhookUrl }}
+            <Copy class="h-3 w-3" />
+          </button>
           <p class="mt-1 text-xs text-muted-foreground">
-            Users buy credits here once and spend them at any space. The gateway key stays at the
-            station — spaces only check credits before serving a paid query.
+            Users buy credits at the first link; Xendit reports payments to the second (set it in
+            the Xendit dashboard under Settings → Developers → Webhooks, with the callback token
+            from the same page). The gateway key stays at the station.
           </p>
         </div>
         <Button size="sm" variant="outline" @click="walletOpen = true">

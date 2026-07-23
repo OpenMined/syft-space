@@ -232,7 +232,7 @@ async function finish() {
             placeholder="From the Xendit dashboard → Webhooks"
           />
           <p class="text-xs text-muted-foreground">
-            Point the Xendit webhook at
+            In the Xendit dashboard (Settings → Developers → Webhooks), point the webhook at
             <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
           </p>
         </div>

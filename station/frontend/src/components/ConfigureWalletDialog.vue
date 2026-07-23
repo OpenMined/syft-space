@@ -149,9 +149,9 @@ async function save() {
             placeholder="From the Xendit dashboard → Webhooks"
           />
           <p class="text-xs text-muted-foreground">
-            Set the webhook URL in your Xendit dashboard to
+            In the Xendit dashboard (Settings → Developers → Webhooks), set the webhook URL to
             <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
-            — the token verifies its deliveries.
+            and copy its verification token here.
           </p>
         </div>
       </div>
