@@ -37,6 +37,9 @@ class MockProvisioner:
         logger.info(f"[mock] deprovisioning space '{subdomain}' (purge={purge})")
         self._paused.discard(subdomain)
 
+    async def update_space_secret(self, subdomain: str, data: dict[str, str]) -> None:
+        logger.info(f"[mock] updating secret of '{subdomain}': {sorted(data)}")
+
     async def pause(self, subdomain: str) -> None:
         logger.info(f"[mock] pausing space '{subdomain}'")
         self._paused.add(subdomain)

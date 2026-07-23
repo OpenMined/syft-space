@@ -30,6 +30,12 @@ class Space(SQLModel, table=True):
         "pick at approval; None = no managed credits). The minted "
         "SpaceCreditToken rows are the materialized binding.",
     )
+    wallet_opt_out: bool = Field(
+        default=False,
+        description="Admin explicitly declined the wallet at approval. "
+        "Distinguishes 'no wallet existed yet' (backfilled when one is "
+        "added) from 'keep this space unbilled' (left alone).",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

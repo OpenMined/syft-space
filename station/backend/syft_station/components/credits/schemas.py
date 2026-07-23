@@ -41,3 +41,56 @@ class RefundResponse(BaseModel):
 class BalanceResponse(BaseModel):
     balance: float
     currency: str
+
+
+# ── Wallet admin (station admin session) ────────────────────────────────────
+
+
+class WalletSetupRequest(BaseModel):
+    """Create or replace the station wallet.
+
+    Credentials are provider-specific and validated by the matching
+    gateway. On replace, the currency must stay the same — user balances
+    are denominated in it.
+    """
+
+    provider: str = Field(description="Payment provider: xendit")
+    currency: str = Field(min_length=3, max_length=3)
+    credentials: dict = Field(
+        description="Provider credentials, e.g. {api_key, callback_token}"
+    )
+
+
+class BundleInfo(BaseModel):
+    name: str
+    amount: float
+
+
+class WalletStatusResponse(BaseModel):
+    """Wallet state without secrets — served to admin and buyers alike."""
+
+    configured: bool
+    provider: str | None = None
+    currency: str | None = None
+    bundles: list[BundleInfo] = []
+
+
+class WalletSetupResponse(WalletStatusResponse):
+    """Setup result, including the rollout to pre-existing spaces."""
+
+    spaces_attached: int = 0
+    spaces_failed: int = 0
+
+
+# ── Buyer checkout (any signed-in session) ──────────────────────────────────
+
+
+class CheckoutRequest(BaseModel):
+    bundle_name: str
+
+
+class CheckoutResponse(BaseModel):
+    invoice_id: UUID
+    checkout_url: str
+    amount: float
+    currency: str

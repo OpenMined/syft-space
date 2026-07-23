@@ -14,8 +14,17 @@ import syft_station.components.shared.logging_config  # noqa: F401, I001
 from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.routes import build_auth_routes
 from syft_station.components.auth.syfthub import SyftHubIdentityClient
-from syft_station.components.credits.handlers import CreditsHandler
-from syft_station.components.credits.provisioning import SpaceCreditsService
+from syft_station.components.credits.gateway.xendit import XenditGateway
+from syft_station.components.credits.handlers import (
+    CheckoutHandler,
+    CreditsHandler,
+    WalletAdminHandler,
+    WebhookHandler,
+)
+from syft_station.components.credits.provisioning import (
+    SpaceCreditsService,
+    WalletRollout,
+)
 from syft_station.components.credits.repository import (
     SpaceCreditTokenRepository,
     WalletRepository,
@@ -74,10 +83,20 @@ registry_client = ImageRegistryClient(
 
 auth_handler = AuthHandler(syfthub_client)
 image_handler = ImageHandler(registry_client)
+payment_gateways = {
+    XenditGateway.PROVIDER_NAME: XenditGateway(app_settings.xendit_api_url),
+}
+
 credits_handler = CreditsHandler(database, wallet_repository, credit_token_repository)
 space_credits_service = SpaceCreditsService(
     wallet_repository, credit_token_repository, app_settings.credits_url
 )
+wallet_rollout = WalletRollout(space_repository, provisioner, space_credits_service)
+wallet_admin_handler = WalletAdminHandler(
+    wallet_repository, payment_gateways, wallet_rollout
+)
+checkout_handler = CheckoutHandler(database, wallet_repository, payment_gateways)
+webhook_handler = WebhookHandler(database, wallet_repository, payment_gateways)
 setup_handler = SetupHandler(setup_repository)
 space_handler = SpaceHandler(space_repository, provisioner)
 request_handler = RequestHandler(
@@ -133,7 +152,12 @@ app.include_router(build_setup_routes(setup_handler), prefix="/api/v1")
 app.include_router(build_request_routes(request_handler), prefix="/api/v1")
 app.include_router(build_space_routes(space_handler), prefix="/api/v1")
 app.include_router(build_image_routes(image_handler), prefix="/api/v1")
-app.include_router(build_credits_routes(credits_handler), prefix="/api/v1")
+app.include_router(
+    build_credits_routes(
+        credits_handler, wallet_admin_handler, checkout_handler, webhook_handler
+    ),
+    prefix="/api/v1",
+)
 
 
 @app.get("/healthz", tags=["health"])

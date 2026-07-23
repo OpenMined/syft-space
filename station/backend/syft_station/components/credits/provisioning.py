@@ -20,6 +20,7 @@ from fastapi import HTTPException, status
 from loguru import logger
 
 from syft_station.components.credits.entities import SpaceCreditToken
+from syft_station.components.credits.interfaces import SecretPatcher, SpaceDirectory
 from syft_station.components.credits.repository import (
     SpaceCreditTokenRepository,
     WalletRepository,
@@ -101,3 +102,52 @@ class SpaceCreditsService:
         revoked = await self.credit_tokens.revoke_for_space(space_id)
         if revoked:
             logger.info(f"Revoked {revoked} credits token(s) for space {space_id}")
+
+
+class WalletRollout:
+    """Attach a newly configured wallet to spaces that predate it.
+
+    Runs after the admin creates (or replaces) the wallet: every space that
+    is neither attached nor opted out gets a token minted and its Secret
+    patched with the credits keys. The running pod keeps its old env — the
+    wallet takes effect when the space restarts.
+    """
+
+    def __init__(
+        self,
+        spaces: SpaceDirectory,
+        provisioner: SecretPatcher,
+        credits: SpaceCreditsService,
+    ):
+        self.spaces = spaces
+        self.provisioner = provisioner
+        self.credits = credits
+
+    async def attach_unbound_spaces(self, wallet_id: UUID) -> tuple[int, int]:
+        """Returns (attached, failed). Failures are logged per space and
+        never abort the sweep — the admin re-runs by saving the wallet again."""
+        attached = failed = 0
+        for space in await self.spaces.get_all():
+            if space.wallet_id is not None or space.wallet_opt_out:
+                continue
+            try:
+                grant = await self.credits.grant_for_space(space.id, wallet_id)
+                if grant is None:  # wallet vanished mid-sweep
+                    break
+                await self.provisioner.update_space_secret(
+                    space.subdomain,
+                    {
+                        "SYFT_CLUSTER_CREDITS_URL": grant.url,
+                        "SYFT_CLUSTER_CREDITS_TOKEN": grant.token,
+                        "SYFT_CLUSTER_CREDITS_CURRENCY": grant.currency,
+                    },
+                )
+                space.wallet_id = wallet_id
+                await self.spaces.update(space)
+                attached += 1
+            except Exception:
+                logger.exception(f"Wallet attach failed for space '{space.subdomain}'")
+                failed += 1
+        if attached or failed:
+            logger.info(f"Wallet rollout: attached {attached}, failed {failed}")
+        return attached, failed

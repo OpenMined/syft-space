@@ -143,7 +143,9 @@ class RequestHandler:
         if body.attach_wallet:
             wallet_id = await self.credits.choose_wallet(body.wallet_id)
 
-        return await self._start_provisioning(request, wallet_id=wallet_id)
+        return await self._start_provisioning(
+            request, wallet_id=wallet_id, wallet_opt_out=not body.attach_wallet
+        )
 
     async def reject(self, request_id: UUID, reason: str) -> RequestResponse:
         request = await self._get_request(request_id)
@@ -236,6 +238,7 @@ class RequestHandler:
         self,
         request: SpaceRequest,
         wallet_id: UUID | None = None,
+        wallet_opt_out: bool = False,
         set_wallet: bool = True,
     ) -> RequestResponse:
         """set_wallet=False (retry) keeps the space's existing wallet intent."""
@@ -259,11 +262,15 @@ class RequestHandler:
                     owner_email=request.owner_email,
                     version=config.supported_version,
                     wallet_id=wallet_id if set_wallet else None,
+                    wallet_opt_out=wallet_opt_out if set_wallet else False,
                 )
             )
             await self.space_repository.create_token(space.id, generate_space_token())
-        elif set_wallet and space.wallet_id != wallet_id:
+        elif set_wallet and (
+            space.wallet_id != wallet_id or space.wallet_opt_out != wallet_opt_out
+        ):
             space.wallet_id = wallet_id
+            space.wallet_opt_out = wallet_opt_out
             space = await self.space_repository.update(space)
 
         request.reject_reason = None  # clear a previous attempt's failure

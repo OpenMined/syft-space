@@ -80,6 +80,21 @@ class K8sProvisioner:
         """
         await asyncio.to_thread(self._delete_bundle, subdomain, purge)
 
+    async def update_space_secret(self, subdomain: str, data: dict[str, str]) -> None:
+        """Merge keys into the space's Secret (strategic-merge patch).
+
+        The running pod keeps its current env — Secret env vars are read at
+        container start — so changes apply on the next restart.
+        """
+        name = resource_name(subdomain)
+        await asyncio.to_thread(
+            self.kube.core.patch_namespaced_secret,
+            name,
+            self.settings.namespace,
+            {"stringData": data},
+        )
+        logger.info(f"[k8s] patched secret/{name}: {sorted(data)}")
+
     async def pause(self, subdomain: str) -> None:
         """Scale the space to zero replicas — frees compute, keeps data."""
         await asyncio.to_thread(self._scale, subdomain, 0)

@@ -20,7 +20,16 @@ from syft_station.components.credits.entities import (
     SpaceCreditToken,
     Wallet,
 )
-from syft_station.components.credits.handlers import CreditsHandler
+from syft_station.components.credits.handlers import (
+    CheckoutHandler,
+    CreditsHandler,
+    WalletAdminHandler,
+    WebhookHandler,
+)
+from syft_station.components.credits.provisioning import (
+    SpaceCreditsService,
+    WalletRollout,
+)
 from syft_station.components.credits.repository import (
     CreditsLedger,
     SpaceCreditTokenRepository,
@@ -31,7 +40,9 @@ from syft_station.components.credits.tokens import (
     generate_credit_token,
     hash_credit_token,
 )
+from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.shared.database import AsyncDatabase
+from syft_station.components.spaces.repository import SpaceRepository
 
 USER = "enduser@test.com"
 SPACE_A = uuid4()
@@ -97,7 +108,23 @@ async def testbed(db: AsyncDatabase) -> CreditsTestbed:
 
     app = FastAPI()
     handler = CreditsHandler(db, wallets, tokens)
-    app.include_router(build_credits_routes(handler), prefix="/api/v1")
+    # The buyer/admin/webhook handlers are exercised in test_credits_checkout;
+    # here they only satisfy the router signature.
+    gateways: dict = {}
+    rollout = WalletRollout(
+        SpaceRepository(db),
+        MockProvisioner(),
+        SpaceCreditsService(wallets, tokens, "http://station.test"),
+    )
+    app.include_router(
+        build_credits_routes(
+            handler,
+            WalletAdminHandler(wallets, gateways, rollout),
+            CheckoutHandler(db, wallets, gateways),
+            WebhookHandler(db, wallets, gateways),
+        ),
+        prefix="/api/v1",
+    )
     return CreditsTestbed(db, app, token_a, token_b)
 
 

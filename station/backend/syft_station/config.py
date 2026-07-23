@@ -155,6 +155,12 @@ class AppSettings(BaseSettings):
         ),
     )
 
+    # Payment providers
+    xendit_api_url: str = Field(
+        default="https://api.xendit.co",
+        description="Xendit API base URL (overridable for tests)",
+    )
+
 
 # Global settings instance
 app_settings = AppSettings()

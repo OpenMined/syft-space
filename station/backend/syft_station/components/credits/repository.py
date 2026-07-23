@@ -149,11 +149,18 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return result.first()
 
-    async def mark_paid(self, invoice_id: UUID, webhook_payload: dict) -> bool:
+    async def mark_paid(
+        self,
+        invoice_id: UUID,
+        webhook_payload: dict,
+        paid_at: datetime | None = None,
+    ) -> bool:
         """Settle an invoice. False ⇒ already settled (duplicate webhook).
 
         Conditional UPDATE from a settlable status makes duplicate webhook
         deliveries no-ops — the caller must credit the balance only on True.
+        ``paid_at`` defaults to now; pass the provider's settlement
+        timestamp when the webhook carries one.
         """
         now = datetime.now(UTC)
         stmt = (
@@ -162,7 +169,7 @@ class InvoiceRepository:
             .values(
                 status=InvoiceStatus.PAID.value,
                 webhook_payload=webhook_payload,
-                paid_at=now,
+                paid_at=paid_at or now,
                 updated_at=now,
             )
         )

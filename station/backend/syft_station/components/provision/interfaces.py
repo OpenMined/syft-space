@@ -71,6 +71,11 @@ class Provisioner(Protocol):
         """Tear down the space; purge=False retains its data volume."""
         ...
 
+    async def update_space_secret(self, subdomain: str, data: dict[str, str]) -> None:
+        """Merge keys into the space's Secret (no restart — the running pod
+        keeps its env until the space is restarted)."""
+        ...
+
     async def pause(self, subdomain: str) -> None:
         """Free the space's compute (scale to 0); keep its data."""
         ...
