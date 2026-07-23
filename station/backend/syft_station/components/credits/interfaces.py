@@ -11,20 +11,24 @@ from uuid import UUID
 
 
 class SpaceRecord(Protocol):
-    """The slice of a space the wallet rollout reads and writes."""
+    """The slice of a space the credits component reads and writes."""
 
     id: UUID
+    name: str
     subdomain: str
+    owner_email: str
     wallet_id: UUID | None
     wallet_opt_out: bool
 
 
 class SpaceDirectory(Protocol):
-    """Registry access for the wallet rollout."""
+    """Registry access for the wallet rollout and member earnings."""
 
     async def get_all(self) -> list[SpaceRecord]: ...
 
     async def update(self, space: SpaceRecord) -> SpaceRecord: ...
+
+    async def list_by_owner(self, owner_email: str) -> list[SpaceRecord]: ...
 
 
 class SecretPatcher(Protocol):

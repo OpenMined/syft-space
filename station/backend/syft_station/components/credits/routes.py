@@ -34,6 +34,7 @@ from syft_station.components.credits.schemas import (
     DebitRequest,
     DebitResponse,
     EarningsResponse,
+    MemberEarningsResponse,
     MyCreditsResponse,
     OutstandingBalancesResponse,
     PayoutRequest,
@@ -126,6 +127,13 @@ def build_credits_routes(
     ) -> MyCreditsResponse:
         """The signed-in user's balance, purchases, and spend history."""
         return await checkout_handler.my_credits(user.email)
+
+    @router.get("/earnings/mine", response_model=MemberEarningsResponse)
+    async def my_earnings(
+        user: SessionUser = Depends(get_current_user),
+    ) -> MemberEarningsResponse:
+        """What the member's own spaces earned and are still owed."""
+        return await earnings_handler.earnings_mine(user.email)
 
     # ── Admin (wallet setup) ────────────────────────────────────────────────
 

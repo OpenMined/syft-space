@@ -30,6 +30,7 @@ from syft_station.components.credits.gateway.interfaces import (
     PaymentGateway,
     WebhookEnvelope,
 )
+from syft_station.components.credits.interfaces import SpaceDirectory
 from syft_station.components.credits.provisioning import WalletRollout
 from syft_station.components.credits.repository import (
     CreditsLedger,
@@ -46,9 +47,12 @@ from syft_station.components.credits.schemas import (
     EarningsResponse,
     EarningsTotals,
     EndpointEarnings,
+    MemberEarningsResponse,
+    MemberSpaceEarnings,
     MyCreditsResponse,
     OutstandingBalance,
     OutstandingBalancesResponse,
+    PayoutInfo,
     PayoutRequest,
     PayoutResponse,
     RefundResponse,
@@ -339,6 +343,7 @@ class CheckoutHandler:
                 top_ups=[
                     TopUpInfo(
                         invoice_id=i.id,
+                        user_email=i.user_email,
                         bundle_name=i.bundle_name,
                         amount=i.amount,
                         currency=i.currency,
@@ -507,14 +512,17 @@ class EarningsHandler:
         db: AsyncDatabase,
         wallets: WalletRepository,
         payouts: PayoutRepository,
+        spaces: SpaceDirectory,
     ):
         self.db = db
         self.wallets = wallets
         self.payouts = payouts
+        self.spaces = spaces
 
     async def earnings(self) -> EarningsResponse:
         wallet = await self.wallets.get_active()
         paid_out_by_space = await self.payouts.totals_by_space()
+        recent_payouts = await self.payouts.list_recent()
 
         async with CreditsLedger(self.db) as ledger:
             by_space = await ledger.entries.earnings_by_space()
@@ -522,6 +530,7 @@ class EarningsHandler:
             by_day = await ledger.entries.earnings_by_day()
             credits_sold = await ledger.invoices.total_paid()
             outstanding = await ledger.balances.total_outstanding()
+            recent_top_ups = await ledger.invoices.list_recent_paid()
 
         spaces = [
             SpaceEarnings(
@@ -560,16 +569,83 @@ class EarningsHandler:
                 )
                 for row in by_day
             ],
+            recent_top_ups=[
+                TopUpInfo(
+                    invoice_id=i.id,
+                    user_email=i.user_email,
+                    bundle_name=i.bundle_name,
+                    amount=i.amount,
+                    currency=i.currency,
+                    status=i.status,
+                    created_at=i.created_at,
+                    paid_at=i.paid_at,
+                )
+                for i in recent_top_ups
+            ],
+            payouts=[
+                PayoutInfo(
+                    id=p.id,
+                    space_id=p.space_id,
+                    amount=p.amount,
+                    note=p.note,
+                    created_at=p.created_at,
+                )
+                for p in recent_payouts
+            ],
+        )
+
+    async def earnings_mine(self, owner_email: str) -> MemberEarningsResponse:
+        """Money view for a member's own spaces. The headline is payable —
+        what the station admin still owes them (earned − paid out)."""
+        wallet = await self.wallets.get_active()
+        owned = await self.spaces.list_by_owner(owner_email)
+        paid_out_by_space = await self.payouts.totals_by_space()
+
+        async with CreditsLedger(self.db) as ledger:
+            earned_rows = {
+                row.space_id: row for row in await ledger.entries.earnings_by_space()
+            }
+
+        spaces = []
+        for space in owned:
+            row = earned_rows.get(space.id)
+            if row is None:
+                continue  # never earned — no money line for it
+            paid_out = paid_out_by_space.get(space.id, 0.0)
+            spaces.append(
+                MemberSpaceEarnings(
+                    space_id=space.id,
+                    name=space.name,
+                    subdomain=space.subdomain,
+                    earned=row.earned,
+                    query_count=row.query_count,
+                    paid_out=paid_out,
+                    payable=row.earned - paid_out,
+                )
+            )
+        return MemberEarningsResponse(
+            currency=wallet.currency if wallet else "",
+            spaces=spaces,
+            total_earned=sum(s.earned for s in spaces),
+            total_paid_out=sum(s.paid_out for s in spaces),
+            total_payable=sum(s.payable for s in spaces),
         )
 
     async def outstanding_balances(self) -> OutstandingBalancesResponse:
         async with CreditsLedger(self.db) as ledger:
             rows = await ledger.balances.list_nonzero()
             total = await ledger.balances.total_outstanding()
+            topped_up = await ledger.invoices.paid_totals_by_user()
+            spent = await ledger.entries.net_spend_by_user()
         return OutstandingBalancesResponse(
             total=total,
             balances=[
-                OutstandingBalance(user_email=r.user_email, balance=r.balance)
+                OutstandingBalance(
+                    user_email=r.user_email,
+                    topped_up=topped_up.get(r.user_email, 0.0),
+                    spent=spent.get(r.user_email, 0.0),
+                    balance=r.balance,
+                )
                 for r in rows
             ],
         )

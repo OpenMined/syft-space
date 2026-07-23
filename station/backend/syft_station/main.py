@@ -100,7 +100,9 @@ wallet_admin_handler = WalletAdminHandler(
 )
 checkout_handler = CheckoutHandler(database, wallet_repository, payment_gateways)
 webhook_handler = WebhookHandler(database, wallet_repository, payment_gateways)
-earnings_handler = EarningsHandler(database, wallet_repository, payout_repository)
+earnings_handler = EarningsHandler(
+    database, wallet_repository, payout_repository, space_repository
+)
 setup_handler = SetupHandler(setup_repository)
 space_handler = SpaceHandler(space_repository, provisioner)
 request_handler = RequestHandler(

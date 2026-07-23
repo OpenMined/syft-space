@@ -210,6 +210,14 @@ class LedgerEntryRepository:
             for sid, endpoint, earned, count in result.all()
         ]
 
+    async def net_spend_by_user(self) -> dict[str, float]:
+        """Σ debits − reversals per user — the 'spent' column."""
+        statement = select(LedgerEntry.user_email, func.sum(_SIGNED_AMOUNT)).group_by(
+            LedgerEntry.user_email
+        )
+        result = await self.session.exec(statement)
+        return {email: float(total or 0.0) for email, total in result.all()}
+
     async def earnings_by_day(self) -> list[EarningsRow]:
         day = func.date(LedgerEntry.created_at)
         statement = (
@@ -266,6 +274,27 @@ class InvoiceRepository:
         )
         result = await self.session.exec(statement)
         return float(result.one())
+
+    async def list_recent_paid(self, limit: int = 20) -> list[Invoice]:
+        """The freshest settled top-ups — the admin dashboard's feed."""
+        statement = (
+            select(Invoice)
+            .where(Invoice.status == InvoiceStatus.PAID.value)
+            .order_by(Invoice.paid_at.desc())  # type: ignore[attr-defined]
+            .limit(limit)
+        )
+        result = await self.session.exec(statement)
+        return list(result.all())
+
+    async def paid_totals_by_user(self) -> dict[str, float]:
+        """Σ settled top-ups per user — the 'bought' column."""
+        statement = (
+            select(Invoice.user_email, func.sum(Invoice.amount))
+            .where(Invoice.status == InvoiceStatus.PAID.value)
+            .group_by(Invoice.user_email)
+        )
+        result = await self.session.exec(statement)
+        return {email: float(total) for email, total in result.all()}
 
     async def mark_paid(
         self,
@@ -385,6 +414,16 @@ class PayoutRepository(AsyncBaseRepository[Payout]):
                 select(Payout)
                 .where(Payout.space_id == space_id)
                 .order_by(Payout.created_at.desc())  # type: ignore[attr-defined]
+            )
+            result = await session.exec(statement)
+            return list(result.all())
+
+    async def list_recent(self, limit: int = 20) -> list[Payout]:
+        async with self.db.get_session() as session:
+            statement = (
+                select(Payout)
+                .order_by(Payout.created_at.desc())  # type: ignore[attr-defined]
+                .limit(limit)
             )
             result = await session.exec(statement)
             return list(result.all())

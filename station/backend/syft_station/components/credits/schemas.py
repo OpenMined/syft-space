@@ -98,9 +98,10 @@ class CheckoutResponse(BaseModel):
 
 
 class TopUpInfo(BaseModel):
-    """One purchase in the buyer's history."""
+    """One purchase — the buyer's own history and the admin feed."""
 
     invoice_id: UUID
+    user_email: str
     bundle_name: str
     amount: float
     currency: str
@@ -161,6 +162,14 @@ class DailyEarnings(BaseModel):
     query_count: int
 
 
+class PayoutInfo(BaseModel):
+    id: UUID
+    space_id: UUID
+    amount: float
+    note: str
+    created_at: datetime
+
+
 class EarningsResponse(BaseModel):
     """Everything the Earnings dashboard renders, derived from the ledger.
 
@@ -173,10 +182,35 @@ class EarningsResponse(BaseModel):
     spaces: list[SpaceEarnings]
     endpoints: list[EndpointEarnings]
     daily: list[DailyEarnings]
+    recent_top_ups: list[TopUpInfo]
+    payouts: list[PayoutInfo]
+
+
+class MemberSpaceEarnings(BaseModel):
+    """One of the member's spaces, money-wise. The headline number for
+    members is payable — what the admin still owes them."""
+
+    space_id: UUID
+    name: str
+    subdomain: str
+    earned: float
+    query_count: int
+    paid_out: float
+    payable: float
+
+
+class MemberEarningsResponse(BaseModel):
+    currency: str
+    spaces: list[MemberSpaceEarnings]
+    total_earned: float
+    total_paid_out: float
+    total_payable: float
 
 
 class OutstandingBalance(BaseModel):
     user_email: str
+    topped_up: float
+    spent: float
     balance: float
 
 

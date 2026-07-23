@@ -124,7 +124,7 @@ async def testbed(db: AsyncDatabase) -> CreditsTestbed:
             WalletAdminHandler(wallets, gateways, rollout),
             CheckoutHandler(db, wallets, gateways),
             WebhookHandler(db, wallets, gateways),
-            EarningsHandler(db, wallets, PayoutRepository(db)),
+            EarningsHandler(db, wallets, PayoutRepository(db), SpaceRepository(db)),
         ),
         prefix="/api/v1",
     )

@@ -43,6 +43,7 @@ from syft_station.components.credits.repository import (
 from syft_station.components.credits.routes import build_credits_routes
 from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.shared.database import AsyncDatabase
+from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.repository import SpaceRepository
 from tests.conftest import ADMIN, MEMBER
 
@@ -137,7 +138,7 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
             WalletAdminHandler(wallets, {}, rollout),
             CheckoutHandler(db, wallets, {}),
             WebhookHandler(db, wallets, {}),
-            EarningsHandler(db, wallets, PayoutRepository(db)),
+            EarningsHandler(db, wallets, PayoutRepository(db), SpaceRepository(db)),
         ),
         prefix="/api/v1",
     )
@@ -295,11 +296,28 @@ async def test_outstanding_balances_lists_liability(testbed: EarningsTestbed):
     await testbed.seed_paid_invoice(500.0, user="rich@test.com")
     await testbed.seed_paid_invoice(100.0, user=USER)
 
+    # rich@ bought 500 and spent nothing; USER bought 100 and spent 30.
+    await testbed.seed_movement(space_id=SPACE_A, amount=30.0, user=USER)
+    async with CreditsLedger(testbed.db) as ledger:
+        assert await ledger.balances.atomic_deduct(USER, 30.0)
+        await ledger.commit()
+
     async with testbed.client() as client:
         body = (await client.get("/api/v1/credits/admin/balances")).json()
 
-    assert body["total"] == 600.0
-    assert body["balances"][0] == {"user_email": "rich@test.com", "balance": 500.0}
+    assert body["total"] == 570.0
+    assert body["balances"][0] == {
+        "user_email": "rich@test.com",
+        "topped_up": 500.0,
+        "spent": 0.0,
+        "balance": 500.0,
+    }
+    assert body["balances"][1] == {
+        "user_email": USER,
+        "topped_up": 100.0,
+        "spent": 30.0,
+        "balance": 70.0,
+    }
 
 
 # ============== Buyer /me ==============
@@ -329,3 +347,63 @@ async def test_my_credits_fresh_user_is_empty(testbed: EarningsTestbed):
     async with testbed.client() as client:
         body = (await client.get("/api/v1/credits/me")).json()
     assert body == {"balance": 0.0, "currency": "PHP", "top_ups": [], "spend": []}
+
+
+# ============== Feeds + member earnings ==============
+
+
+async def test_earnings_includes_topup_and_payout_feeds(testbed: EarningsTestbed):
+    await testbed.seed_paid_invoice(500.0)
+    await testbed.seed_movement(space_id=SPACE_A, amount=10.0)
+    async with testbed.client() as client:
+        await client.post(
+            "/api/v1/credits/admin/payouts",
+            json={"space_id": str(SPACE_A), "amount": 4.0, "note": "wire #1"},
+        )
+        body = (await client.get("/api/v1/credits/admin/earnings")).json()
+
+    assert len(body["recent_top_ups"]) == 1
+    assert body["recent_top_ups"][0]["amount"] == 500.0
+    assert body["recent_top_ups"][0]["status"] == "paid"
+    assert len(body["payouts"]) == 1
+    assert body["payouts"][0]["space_id"] == str(SPACE_A)
+    assert body["payouts"][0]["note"] == "wire #1"
+
+
+async def test_member_earnings_mine_scoped_to_owned_spaces(testbed: EarningsTestbed):
+    """The member headline is payable — earned minus what was already paid."""
+    spaces = SpaceRepository(testbed.db)
+    await spaces.create(
+        Space(id=SPACE_A, name="My Lab", subdomain="my-lab", owner_email=MEMBER.email)
+    )
+    await spaces.create(
+        Space(id=SPACE_B, name="Other", subdomain="other", owner_email="x@test.com")
+    )
+    await testbed.seed_movement(space_id=SPACE_A, amount=10.0)
+    await testbed.seed_movement(space_id=SPACE_B, amount=99.0)  # not mine
+
+    async with testbed.client() as client:
+        await client.post(
+            "/api/v1/credits/admin/payouts",
+            json={"space_id": str(SPACE_A), "amount": 4.0},
+        )
+        body = (await client.get("/api/v1/credits/earnings/mine")).json()
+
+    assert body["currency"] == "PHP"
+    assert len(body["spaces"]) == 1  # the other member's space is invisible
+    mine = body["spaces"][0]
+    assert mine["name"] == "My Lab" and mine["subdomain"] == "my-lab"
+    assert mine["earned"] == 10.0
+    assert mine["paid_out"] == 4.0
+    assert mine["payable"] == 6.0
+    assert body["total_payable"] == 6.0 and body["total_earned"] == 10.0
+
+
+async def test_member_earnings_empty_without_activity(testbed: EarningsTestbed):
+    spaces = SpaceRepository(testbed.db)
+    await spaces.create(
+        Space(name="Quiet", subdomain="quiet", owner_email=MEMBER.email)
+    )
+    async with testbed.client() as client:
+        body = (await client.get("/api/v1/credits/earnings/mine")).json()
+    assert body["spaces"] == [] and body["total_payable"] == 0.0
