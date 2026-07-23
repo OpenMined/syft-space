@@ -91,14 +91,9 @@ export interface SpaceStatusResponse {
   status: SpaceRuntimeStatus
 }
 
-export interface TokenStatusResponse {
-  revealed: boolean
-  created_at: string
-}
-
-/** One-time reveal of the space admin API key. */
-export interface TokenRevealResponse {
-  token: string
+/** The space URL with the admin key attached as authToken. */
+export interface AdminUrlResponse {
+  url: string
 }
 
 export interface ImageTagResponse {

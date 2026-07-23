@@ -33,8 +33,8 @@ export interface Space {
   ownerEmail: string
   health: SpaceHealth
   createdAt: string
-  /** Whether the one-time API key reveal has been used (from the token endpoint). */
-  apiKeyClaimed: boolean
+  /** Space URL with the admin key as authToken — opens the space signed in (owner/admin only). */
+  adminUrl?: string
   /** Image tag this space's deployment currently runs. */
   version: string
 }

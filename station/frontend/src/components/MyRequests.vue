@@ -13,7 +13,6 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import ApiKeyRevealDialog from '@/components/ApiKeyRevealDialog.vue'
 import StationAnimation from '@/components/StationAnimation.vue'
 import HealthBadge from '@/components/HealthBadge.vue'
 import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
@@ -177,8 +176,10 @@ function formatDate(iso: string): string {
             v-else
             class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-success/10 px-3 py-2"
           >
+            <!-- Opens the space signed in — the admin key rides along as
+                 authToken, so there is no separate key to copy. -->
             <a
-              :href="spaceFor(request)!.url"
+              :href="spaceFor(request)!.adminUrl ?? spaceFor(request)!.url"
               target="_blank"
               rel="noopener"
               class="flex items-center gap-1.5 text-sm font-medium underline-offset-2 hover:underline"
@@ -191,7 +192,6 @@ function formatDate(iso: string): string {
                 <ScrollText class="mr-1 h-3 w-3" />
                 Logs
               </Button>
-              <ApiKeyRevealDialog :space="spaceFor(request)!" />
             </div>
           </div>
 

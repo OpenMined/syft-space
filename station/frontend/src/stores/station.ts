@@ -108,7 +108,7 @@ export const useStationStore = defineStore('station', () => {
       ownerEmail: s.owner_email,
       health: existing?.health ?? 'healthy',
       createdAt: s.created_at,
-      apiKeyClaimed: existing?.apiKeyClaimed ?? true,
+      adminUrl: existing?.adminUrl,
       version: s.version,
     }
   }
@@ -138,16 +138,16 @@ export const useStationStore = defineStore('station', () => {
     not_found: 'unhealthy',
   }
 
-  /** Refresh one space's live runtime status + API-key claim state. */
+  /** Refresh one space's live runtime status + signed-in admin URL. */
   async function refreshSpaceState(spaceId: string): Promise<void> {
     const space = spaceById(spaceId)
     if (!space) return
-    const [status, token] = await Promise.all([
+    const [status, adminUrl] = await Promise.all([
       spacesApi.status(spaceId).catch(() => null),
-      spacesApi.tokenStatus(spaceId).catch(() => null),
+      spacesApi.adminUrl(spaceId).catch(() => null),
     ])
     if (status) space.health = statusToHealth[status.status]
-    if (token) space.apiKeyClaimed = token.revealed
+    if (adminUrl) space.adminUrl = adminUrl.url
   }
 
   async function loadSpaces(): Promise<void> {
@@ -433,11 +433,11 @@ export const useStationStore = defineStore('station', () => {
   /** Update-all is not wired to the backend yet. */
   function updateAllSpaces() {}
 
-  /** Issue a fresh API key; the owner claims it from their dashboard again. */
+  /** Issue a fresh API key; the space applies it on its next restart. */
   async function regenerateApiKey(spaceId: string): Promise<void> {
-    const status = await spacesApi.regenerateToken(spaceId)
+    const rotated = await spacesApi.regenerateToken(spaceId)
     const space = spaceById(spaceId)
-    if (space) space.apiKeyClaimed = status.revealed
+    if (space) space.adminUrl = rotated.url
   }
 
   /** Record a manual payout (server-capped at the space's payable). */

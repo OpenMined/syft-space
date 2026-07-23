@@ -1,10 +1,5 @@
 import { apiClient } from '@/api/client'
-import type {
-  SpaceResponse,
-  SpaceStatusResponse,
-  TokenRevealResponse,
-  TokenStatusResponse,
-} from '@/api/types'
+import type { AdminUrlResponse, SpaceResponse, SpaceStatusResponse } from '@/api/types'
 
 export const spacesApi = {
   /** Admin: all spaces on the station. */
@@ -21,13 +16,10 @@ export const spacesApi = {
 
   resume: (id: string): Promise<SpaceStatusResponse> => apiClient.post(`/spaces/${id}/resume`),
 
-  tokenStatus: (id: string): Promise<TokenStatusResponse> => apiClient.get(`/spaces/${id}/token`),
+  /** The space URL with the admin key attached — opens the space signed in. */
+  adminUrl: (id: string): Promise<AdminUrlResponse> => apiClient.get(`/spaces/${id}/admin-url`),
 
-  /** One-time reveal of the space admin API key (410 once already revealed). */
-  revealToken: (id: string): Promise<TokenRevealResponse> =>
-    apiClient.post(`/spaces/${id}/token/reveal`),
-
-  /** Replace the space admin API key with a fresh unrevealed one. */
-  regenerateToken: (id: string): Promise<TokenStatusResponse> =>
+  /** Replace the space admin API key (the space applies it on restart). */
+  regenerateToken: (id: string): Promise<AdminUrlResponse> =>
     apiClient.post(`/spaces/${id}/token/regenerate`),
 }

@@ -60,7 +60,12 @@ def space_handler(space_repository) -> SpaceHandler:
 
 async def make_space(space_repository, owner_email: str = MEMBER.email) -> Space:
     space = await space_repository.create(
-        Space(name="Alpha", subdomain="alpha", owner_email=owner_email)
+        Space(
+            name="Alpha",
+            subdomain="alpha",
+            owner_email=owner_email,
+            url="https://alpha.spaces.test.org",
+        )
     )
     await space_repository.create_token(space.id, generate_space_token())
     return space
@@ -77,48 +82,43 @@ async def test_list_mine_is_owner_scoped(space_handler, space_repository):
     assert len(all_spaces) == 2
 
 
-async def test_token_reveal_is_one_time(space_handler, space_repository):
+async def test_admin_url_is_repeatable(space_handler, space_repository):
     space = await make_space(space_repository)
 
-    status = await space_handler.token_status(space.id, MEMBER)
-    assert status.revealed is False
+    first = await space_handler.admin_url(space.id, MEMBER)
+    again = await space_handler.admin_url(space.id, MEMBER)
 
-    revealed = await space_handler.reveal_token(space.id, MEMBER)
-    assert revealed.token.startswith("sst_")
-
-    # Plaintext is gone after the reveal.
-    with pytest.raises(HTTPException) as exc:
-        await space_handler.reveal_token(space.id, MEMBER)
-    assert exc.value.status_code == 410
-
-    status = await space_handler.token_status(space.id, MEMBER)
-    assert status.revealed is True
+    # The space URL with the key attached — clicking opens the space
+    # signed in. Stable across calls (no one-time semantics).
+    assert first.url.startswith(
+        "https://alpha.spaces.test.org/frontend/#/?authToken=sst_"
+    )
+    assert again.url == first.url
 
 
-async def test_token_reveal_denied_for_non_owner(space_handler, space_repository):
+async def test_admin_url_denied_for_non_owner(space_handler, space_repository):
     space = await make_space(space_repository, MEMBER.email)
     with pytest.raises(HTTPException) as exc:
-        await space_handler.reveal_token(space.id, OTHER_MEMBER)
+        await space_handler.admin_url(space.id, OTHER_MEMBER)
     assert exc.value.status_code == 403
 
 
-async def test_admin_can_access_any_space_token(space_handler, space_repository):
+async def test_admin_can_access_any_space_admin_url(space_handler, space_repository):
     space = await make_space(space_repository, MEMBER.email)
-    revealed = await space_handler.reveal_token(space.id, ADMIN)
-    assert revealed.token.startswith("sst_")
+    result = await space_handler.admin_url(space.id, ADMIN)
+    assert "authToken=sst_" in result.url
 
 
-async def test_regenerate_creates_fresh_unrevealed_token(
-    space_handler, space_repository
-):
+async def test_regenerate_rotates_the_key_and_url(space_handler, space_repository):
     space = await make_space(space_repository)
-    await space_handler.reveal_token(space.id, MEMBER)
+    before = await space_handler.admin_url(space.id, MEMBER)
 
-    status = await space_handler.regenerate_token(space.id, MEMBER)
-    assert status.revealed is False
+    rotated = await space_handler.regenerate_token(space.id, MEMBER)
 
-    revealed = await space_handler.reveal_token(space.id, MEMBER)
-    assert revealed.token.startswith("sst_")
+    assert "authToken=sst_" in rotated.url
+    assert rotated.url != before.url  # fresh key
+    after = await space_handler.admin_url(space.id, MEMBER)
+    assert after.url == rotated.url
 
 
 # ============== Runtime ops (pause / resume / status) ==============

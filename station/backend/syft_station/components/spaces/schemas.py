@@ -17,15 +17,11 @@ class SpaceResponse(BaseModel):
     created_at: datetime
 
 
-class TokenRevealResponse(BaseModel):
-    """One-time reveal of the space admin API key."""
+class AdminUrlResponse(BaseModel):
+    """The space URL with the admin API key attached as authToken —
+    clicking it opens the space already signed in as its admin."""
 
-    token: str
-
-
-class TokenStatusResponse(BaseModel):
-    revealed: bool
-    created_at: datetime
+    url: str
 
 
 class SpaceStatusResponse(BaseModel):

@@ -13,10 +13,9 @@ from syft_station.components.spaces.repository import (
     generate_space_token,
 )
 from syft_station.components.spaces.schemas import (
+    AdminUrlResponse,
     SpaceResponse,
     SpaceStatusResponse,
-    TokenRevealResponse,
-    TokenStatusResponse,
 )
 
 
@@ -88,39 +87,40 @@ class SpaceHandler:
             ) from e
         return await self.runtime_status(space_id, user)
 
-    async def token_status(
-        self, space_id: UUID, user: SessionUser
-    ) -> TokenStatusResponse:
-        space = await self._get_owned_space(space_id, user)
-        token_row = await self.repository.get_token(space.id)
-        if not token_row:
-            raise HTTPException(status_code=404, detail="No token for this space")
-        return TokenStatusResponse(
-            revealed=token_row.revealed_at is not None,
-            created_at=token_row.created_at,
-        )
+    async def admin_url(self, space_id: UUID, user: SessionUser) -> AdminUrlResponse:
+        """The space URL with the admin key as authToken (owner or admin).
 
-    async def reveal_token(
-        self, space_id: UUID, user: SessionUser
-    ) -> TokenRevealResponse:
-        """One-time reveal: returns the plaintext once, then clears it."""
+        Repeatable by design: the station holds the key anyway (it minted it
+        into the space's Secret), so a one-time reveal added no protection.
+        """
         space = await self._get_owned_space(space_id, user)
         token_row = await self.repository.get_token(space.id)
-        if not token_row:
+        if not token_row or not token_row.token:
             raise HTTPException(status_code=404, detail="No token for this space")
-        if token_row.token is None:
-            raise HTTPException(
-                status_code=status.HTTP_410_GONE,
-                detail="Token already revealed — regenerate to get a new one",
-            )
-        plaintext = token_row.token
-        await self.repository.mark_token_revealed(token_row)
-        return TokenRevealResponse(token=plaintext)
+        return AdminUrlResponse(url=self._admin_url(space.url, token_row.token))
 
     async def regenerate_token(
         self, space_id: UUID, user: SessionUser
-    ) -> TokenStatusResponse:
-        """Mint a fresh unrevealed token (re-provision applies it in C2)."""
+    ) -> AdminUrlResponse:
+        """Mint a fresh admin key and patch it into the space's Secret.
+
+        The running pod keeps the old key until the space restarts.
+        """
         space = await self._get_owned_space(space_id, user)
         fresh = await self.repository.replace_token(space.id, generate_space_token())
-        return TokenStatusResponse(revealed=False, created_at=fresh.created_at)
+        try:
+            await self.provisioner.update_space_secret(
+                space.subdomain, {"SYFT_ADMIN_API_KEY": fresh.token or ""}
+            )
+        except Exception as e:
+            logger.exception(f"Secret patch failed for '{space.subdomain}'")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not apply the new key to the space — try again",
+            ) from e
+        return AdminUrlResponse(url=self._admin_url(space.url, fresh.token or ""))
+
+    @staticmethod
+    def _admin_url(space_url: str, token: str) -> str:
+        """Same shape syft-space itself links with: /frontend/#/?authToken=…"""
+        return f"{space_url.rstrip('/')}/frontend/#/?authToken={token}"

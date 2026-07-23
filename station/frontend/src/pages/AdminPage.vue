@@ -204,7 +204,7 @@ async function regenerateKey(space: Space) {
   try {
     await station.regenerateApiKey(space.id)
     toast('New API key issued', {
-      description: `${space.ownerEmail} can claim it from their dashboard.`,
+      description: 'The space applies it on its next restart; the owner link is updated.',
     })
   } catch {
     toast.error('Regenerating the key failed')
