@@ -1,0 +1,96 @@
+{{- if .Values.station.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "syft-station.fullname" . }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: station
+spec:
+  replicas: 1
+  strategy:
+    # SQLite on an RWO volume — never two writers at once.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "station") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "station") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "syft-station.fullname" . }}
+      # Without this, kubelet injects SYFT_STATION_PORT=tcp://... (a legacy
+      # Docker-link var from the Service name) which collides with the
+      # SYFT_STATION_ env prefix and breaks settings parsing.
+      enableServiceLinks: false
+      containers:
+        - name: station
+          image: "{{ .Values.station.image.repository }}:{{ .Values.station.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.station.image.pullPolicy }}
+          ports:
+            - containerPort: 8090
+          env:
+            - name: SYFT_STATION_PROVISIONER
+              value: "k8s"
+            - name: SYFT_STATION_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: SYFT_STATION_SQLITE_DB_PATH
+              value: "/data/app.db"
+            - name: SYFT_STATION_ADMIN_EMAIL
+              value: {{ .Values.station.adminEmail | quote }}
+            - name: SYFT_STATION_SYFTHUB_URL
+              value: {{ .Values.station.syfthubUrl | quote }}
+            # Spaces run the published image; the tag is chosen by the admin at
+            # runtime from the registry version picker.
+            - name: SYFT_STATION_SPACE_IMAGE
+              value: {{ .Values.spaces.image | quote }}
+            - name: SYFT_STATION_INGRESS_CLASS
+              value: {{ .Values.spaces.ingressClass | quote }}
+            - name: SYFT_STATION_SPACE_PVC_SIZE
+              value: {{ .Values.spaces.pvcSize | quote }}
+            - name: SYFT_STATION_SPACE_CPU_REQUEST
+              value: {{ .Values.spaces.cpuRequest | quote }}
+            - name: SYFT_STATION_SPACE_CPU_LIMIT
+              value: {{ .Values.spaces.cpuLimit | quote }}
+            - name: SYFT_STATION_SPACE_MEMORY_REQUEST
+              value: {{ .Values.spaces.memoryRequest | quote }}
+            - name: SYFT_STATION_SPACE_MEMORY_LIMIT
+              value: {{ .Values.spaces.memoryLimit | quote }}
+            - name: SYFT_STATION_MANAGED_BY_NAME
+              value: {{ .Values.spaces.managedByName | quote }}
+            - name: SYFT_STATION_CHROMADB_HOST
+              value: {{ .Values.chromadb.service.name | quote }}
+            - name: SYFT_STATION_CHROMADB_PORT
+              value: {{ .Values.chromadb.service.port | quote }}
+            - name: SYFT_STATION_DOCLING_URL
+              value: {{ include "syft-station.doclingUrl" . | quote }}
+            {{- range $k, $v := .Values.station.extraEnv }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "syft-station.envSecretName" . }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.station.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "syft-station.fullname" . }}-data
+{{- end }}

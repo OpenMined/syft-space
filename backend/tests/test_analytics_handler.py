@@ -40,8 +40,8 @@ class TestGetSummaryStats:
         # month: USD 200 + IDR 100k revenue
         event_repo.get_summary_counts.side_effect = [
             (100, [("USD", 50.0), ("IDR", 25000.0)], 10),  # current
-            (80, [("USD", 30.0)], 8),                       # previous
-            (200, [("USD", 200.0), ("IDR", 100000.0)], 15), # this month
+            (80, [("USD", 30.0)], 8),  # previous
+            (200, [("USD", 200.0), ("IDR", 100000.0)], 15),  # this month
         ]
 
         handler = AnalyticsHandler(event_repo, endpoint_repo)
@@ -54,7 +54,9 @@ class TestGetSummaryStats:
         # Revenue: per-currency breakdown for current and month windows
         breakdown = {ca.currency: ca.amount for ca in result.total_revenue.breakdown}
         assert breakdown == {"USD": 50.0, "IDR": 25000.0}
-        change = {ca.currency: ca.amount for ca in result.total_revenue.change_breakdown}
+        change = {
+            ca.currency: ca.amount for ca in result.total_revenue.change_breakdown
+        }
         assert change == {"USD": 200.0, "IDR": 100000.0}
         assert result.active_users.value == 10.0
 

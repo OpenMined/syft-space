@@ -1,0 +1,27 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+Lock the shared backends down to space pods only: nothing outside the spaces
+(which carry the syftcluster.openmined.org/space label) may reach ChromaDB or
+docling-serve. Requires a policy-enforcing CNI — k3d's flannel is not one, so
+dev disables this.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "syft-station.fullname" . }}-backends
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [chromadb, docling]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: syftcluster.openmined.org/space
+                operator: Exists
+{{- end }}

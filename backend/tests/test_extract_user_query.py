@@ -100,9 +100,7 @@ class TestExtractUserQuery:
             "---"
         )
         msgs = [ChatMessageRequest(role="user", content=wrapped)]
-        assert (
-            extract_user_query(msgs) == "Give me an essay about existentialism"
-        )
+        assert extract_user_query(msgs) == "Give me an essay about existentialism"
 
     def test_empty_context_template_unwrapped(self):
         wrapped = (
@@ -118,7 +116,7 @@ class TestExtractUserQuery:
             "Your goal is to answer the user's question using information from the provided documents...\n"
             "DOCUMENT FORMAT: ...\n"
             "HOW TO ANSWER: ...\n"
-            "\n<documents>\n<document index=\"1\"><source>x/y</source>...</document>\n</documents>\n"
+            '\n<documents>\n<document index="1"><source>x/y</source>...</document>\n</documents>\n'
             "\n---\nUSER QUESTION:\nHow do I deploy?\n---"
         )
         msgs = [ChatMessageRequest(role="user", content=wrapped)]
@@ -137,9 +135,7 @@ class TestExtractUserQuery:
 
     def test_string_messages_with_wrapper_also_unwrapped(self):
         # Defense-in-depth: same logic on string-typed messages.
-        wrapped = (
-            "Some preamble.\n---\nUSER QUESTION:\nactual q\n---"
-        )
+        wrapped = "Some preamble.\n---\nUSER QUESTION:\nactual q\n---"
         assert extract_user_query(wrapped) == "actual q"
 
     def test_question_without_wrapper_passes_through(self):

@@ -1,0 +1,49 @@
+{{- if .Values.chromadb.enabled }}
+{{/*
+Shared ChromaDB — one instance every space connects to, each space getting its
+own Chroma *database* (named after its subdomain). Recreate + a PVC when
+persistence is on (RWO volume, single writer); ephemeral otherwise.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.chromadb.service.name }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: chromadb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "chromadb") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "chromadb") | nindent 8 }}
+    spec:
+      containers:
+        - name: chromadb
+          image: {{ .Values.chromadb.image | quote }}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.chromadb.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.chromadb.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.chromadb.service.name }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

@@ -1,0 +1,24 @@
+# Per-space Ingress — routes https://<subdomain>.<domain> to the space Service.
+# TLS is terminated by the ingress controller / cluster issuer (out of scope here).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${RESOURCE_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: syft-space
+    app.kubernetes.io/managed-by: syft-station
+    syftcluster.openmined.org/space: "${SUBDOMAIN}"
+spec:
+  ingressClassName: ${INGRESS_CLASS}
+  rules:
+    - host: ${HOST}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${RESOURCE_NAME}
+                port:
+                  number: 80

@@ -83,9 +83,7 @@ class TestGetQueryTexts:
             [],
         )
         await event_repository.create_with_lines(
-            make_event(
-                endpoint_id=ep2, query_text="image recognition", timestamp=now
-            ),
+            make_event(endpoint_id=ep2, query_text="image recognition", timestamp=now),
             [],
         )
 
