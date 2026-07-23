@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   Banknote,
   Coins,
@@ -24,21 +24,34 @@ const walletOpen = ref(false)
 
 const payoutOpen = ref(false)
 const payoutTarget = ref<{
+  spaceId: string
   slug: string
   spaceName: string
   ownerEmail: string
   payable: number
 } | null>(null)
 
-function openPayout(row: { slug: string; spaceName: string; ownerEmail: string; payable: number }) {
+function openPayout(row: {
+  spaceId: string
+  slug: string
+  spaceName: string
+  ownerEmail: string
+  payable: number
+}) {
   payoutTarget.value = row
   payoutOpen.value = true
 }
 
+onMounted(() => {
+  Promise.all([station.loadWallet(), station.loadEarnings()]).catch(() =>
+    toast.error('Could not load earnings'),
+  )
+})
+
 const CHART_DAYS = 14
 
 /** Where users buy credits that work at every space in the station. */
-const checkoutUrl = computed(() => `https://station.${station.domain}/credits`)
+const checkoutUrl = computed(() => `${window.location.origin}${window.location.pathname}#/credits`)
 
 const chart = computed(() => {
   const days = station.earnedByDay(CHART_DAYS)
@@ -52,9 +65,7 @@ const chart = computed(() => {
 
 const earningSpaceCount = computed(() => station.earnedBySpace.length)
 
-const recentTopUps = computed(() =>
-  [...station.topUps].sort((a, b) => b.paidAt.localeCompare(a.paidAt)).slice(0, 6),
-)
+const recentTopUps = computed(() => station.topUps.slice(0, 6))
 
 const currency = computed(() => station.wallet?.currency ?? 'USD')
 
@@ -78,9 +89,6 @@ function formatDay(iso: string): string {
             <Wallet class="h-4 w-4 text-muted-foreground" />
             <span class="font-medium capitalize">{{ station.wallet.provider }}</span>
             <Badge variant="secondary">{{ station.wallet.currency }}</Badge>
-            <span class="font-mono text-xs text-muted-foreground">
-              {{ station.wallet.maskedKey }}
-            </span>
           </div>
           <button
             class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
@@ -253,9 +261,11 @@ function formatDay(iso: string): string {
           >
             <div class="min-w-0">
               <span class="font-medium tabular-nums">
-                {{ formatMoney(payout.amount, payout.currency) }}
+                {{ formatMoney(payout.amount, currency) }}
               </span>
-              <span class="text-muted-foreground"> → {{ payout.spaceSlug }}</span>
+              <span class="text-muted-foreground">
+                → {{ station.spaceById(payout.spaceId)?.name ?? 'Deleted space' }}</span
+              >
               <span v-if="payout.note" class="text-xs text-muted-foreground">
                 · {{ payout.note }}</span
               >

@@ -65,6 +65,8 @@ export interface SubmitRequestBody {
 export interface ApproveRequestBody {
   space_name?: string
   subdomain?: string
+  /** false → provision without the station wallet (default true). */
+  attach_wallet?: boolean
 }
 
 export interface RejectRequestBody {
@@ -104,4 +106,157 @@ export interface ImageTagResponse {
   created: string
   revision: string | null
   is_latest: boolean
+}
+
+// ---- Credits ----
+
+export interface BundleInfo {
+  name: string
+  amount: number
+}
+
+/** Wallet state without secrets — served to admin and buyers alike. */
+export interface WalletStatusResponse {
+  configured: boolean
+  provider: string | null
+  currency: string | null
+  bundles: BundleInfo[]
+}
+
+export interface WalletSetupBody {
+  provider: string
+  currency: string
+  /** Provider credentials, e.g. { api_key, callback_token } for Xendit. */
+  credentials: Record<string, string>
+}
+
+export interface WalletSetupResponse extends WalletStatusResponse {
+  spaces_attached: number
+  spaces_failed: number
+}
+
+export interface CheckoutResponse {
+  invoice_id: string
+  checkout_url: string
+  amount: number
+  currency: string
+}
+
+export interface TopUpResponse {
+  invoice_id: string
+  user_email: string
+  bundle_name: string
+  amount: number
+  currency: string
+  status: string
+  created_at: string
+  paid_at: string | null
+}
+
+export interface SpendEntryResponse {
+  transaction_id: string
+  type: 'debit' | 'cancelled'
+  space_id: string
+  endpoint: string
+  amount: number
+  created_at: string
+}
+
+export interface MyCreditsResponse {
+  balance: number
+  currency: string
+  top_ups: TopUpResponse[]
+  spend: SpendEntryResponse[]
+}
+
+export interface EarningsTotalsResponse {
+  credits_sold: number
+  earned: number
+  paid_out: number
+  outstanding_balance: number
+}
+
+export interface SpaceEarningsResponse {
+  space_id: string
+  earned: number
+  query_count: number
+  paid_out: number
+  payable: number
+}
+
+export interface EndpointEarningsResponse {
+  space_id: string
+  endpoint: string
+  earned: number
+  query_count: number
+}
+
+export interface DailyEarningsResponse {
+  day: string
+  space_id: string
+  earned: number
+  query_count: number
+}
+
+export interface PayoutInfoResponse {
+  id: string
+  space_id: string
+  amount: number
+  note: string
+  created_at: string
+}
+
+export interface EarningsResponse {
+  currency: string
+  totals: EarningsTotalsResponse
+  spaces: SpaceEarningsResponse[]
+  endpoints: EndpointEarningsResponse[]
+  daily: DailyEarningsResponse[]
+  recent_top_ups: TopUpResponse[]
+  payouts: PayoutInfoResponse[]
+}
+
+export interface MemberSpaceEarningsResponse {
+  space_id: string
+  name: string
+  subdomain: string
+  earned: number
+  query_count: number
+  paid_out: number
+  payable: number
+}
+
+export interface MemberEarningsResponse {
+  currency: string
+  spaces: MemberSpaceEarningsResponse[]
+  total_earned: number
+  total_paid_out: number
+  total_payable: number
+}
+
+export interface OutstandingBalanceResponse {
+  user_email: string
+  topped_up: number
+  spent: number
+  balance: number
+}
+
+export interface OutstandingBalancesResponse {
+  total: number
+  balances: OutstandingBalanceResponse[]
+}
+
+export interface PayoutBody {
+  space_id: string
+  amount: number
+  note?: string
+}
+
+export interface PayoutRecordedResponse {
+  id: string
+  space_id: string
+  amount: number
+  note: string
+  created_at: string
+  payable_after: number
 }

@@ -37,7 +37,7 @@ function spaceFor(request: SpaceRequest) {
 }
 
 function earningsFor(request: SpaceRequest) {
-  return station.earnedBySpace.find((row) => row.slug === request.subdomain)
+  return station.memberEarnings?.spaces.find((row) => row.subdomain === request.subdomain)
 }
 
 const logsTarget = ref<Space | null>(null)
@@ -202,8 +202,8 @@ function formatDate(iso: string): string {
           >
             <Banknote class="h-3.5 w-3.5" />
             Earned {{ formatMoney(earningsFor(request)!.earned, currency) }} from
-            {{ earningsFor(request)!.queries.toLocaleString() }} paid queries ·
-            {{ formatMoney(earningsFor(request)!.paidOut, currency) }} paid out to you ·
+            {{ earningsFor(request)!.query_count.toLocaleString() }} paid queries ·
+            {{ formatMoney(earningsFor(request)!.paid_out, currency) }} paid out to you ·
             {{ formatMoney(earningsFor(request)!.payable, currency) }} owed
           </p>
         </template>

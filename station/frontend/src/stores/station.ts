@@ -1,12 +1,20 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import { creditsApi } from '@/api/endpoints/credits'
 import { requestsApi } from '@/api/endpoints/requests'
 import { setupApi } from '@/api/endpoints/setup'
 import { spacesApi } from '@/api/endpoints/spaces'
-import type { RequestResponse, SpaceResponse, SpaceRuntimeStatus } from '@/api/types'
+import type {
+  EarningsResponse,
+  MemberEarningsResponse,
+  OutstandingBalanceResponse,
+  RequestResponse,
+  SpaceResponse,
+  SpaceRuntimeStatus,
+  WalletStatusResponse,
+} from '@/api/types'
 import type {
   ApprovalConfig,
-  CreditDebit,
   Payout,
   SharedWallet,
   Space,
@@ -21,28 +29,19 @@ import { useSessionStore } from '@/stores/session'
 /** How often a PROVISIONING request is polled for progress (ms). */
 const PROVISION_POLL_INTERVAL = 3000
 
-let idCounter = 0
-function nextId(prefix: string): string {
-  idCounter += 1
-  return `${prefix}_${idCounter.toString(36)}${Math.random().toString(36).slice(2, 6)}`
-}
-
-function daysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString()
-}
-
 /**
- * Station state: space requests + provisioned spaces are server-backed;
- * the wallet/earnings data is still mocked in-memory until the credits
- * service lands.
+ * Station state — fully server-backed: requests/spaces via their endpoints,
+ * wallet/earnings/balances via /credits.
  */
 export const useStationStore = defineStore('station', () => {
   const requests = ref<SpaceRequest[]>([])
   const spaces = ref<Space[]>([])
   const wallet = ref<SharedWallet | null>(null)
-  const topUps = ref<TopUp[]>([])
-  const debits = ref<CreditDebit[]>([])
-  const payouts = ref<Payout[]>([])
+  /** Raw admin earnings payload — getters below derive every view from it. */
+  const earnings = ref<EarningsResponse | null>(null)
+  const balances = ref<OutstandingBalanceResponse[]>([])
+  /** The member's own money view (payable is the headline number). */
+  const memberEarnings = ref<MemberEarningsResponse | null>(null)
   /** Syft-space version (image tag) the station deploys — set at onboarding, editable in Settings. */
   const supportedVersion = ref('')
   /** Public domain spaces get subdomains on — empty until the admin sets it. */
@@ -51,7 +50,6 @@ export const useStationStore = defineStore('station', () => {
   const onboarded = computed(() => domain.value !== '')
   /** True once the backend's setup has been fetched (gates the setup dialog). */
   const setupLoaded = ref(false)
-  const seededFor = ref<string | null>(null)
 
   // ---- Setup (server-backed) ----
 
@@ -105,13 +103,13 @@ export const useStationStore = defineStore('station', () => {
     return {
       id: s.id,
       name: s.name,
+      subdomain: s.subdomain,
       url: s.url,
       ownerEmail: s.owner_email,
       health: existing?.health ?? 'healthy',
       createdAt: s.created_at,
       apiKeyClaimed: existing?.apiKeyClaimed ?? true,
       version: s.version,
-      walletSeeded: existing?.walletSeeded ?? true,
     }
   }
 
@@ -195,51 +193,76 @@ export const useStationStore = defineStore('station', () => {
       : [...SPACE_INCLUDES],
   )
 
-  // ---- Earnings (credits model: the station's own ledger) ----
+  // ---- Earnings (credits model: derived from the station's ledger API) ----
+
+  function mapWallet(w: WalletStatusResponse): SharedWallet | null {
+    if (!w.configured || !w.provider || !w.currency) return null
+    return {
+      provider: w.provider as WalletProvider,
+      currency: w.currency,
+      bundles: w.bundles,
+    }
+  }
 
   /** Cash collected at the gateway = credits users bought at the station. */
-  const totalCollected = computed(() => topUps.value.reduce((sum, t) => sum + t.amount, 0))
+  const totalCollected = computed(() => earnings.value?.totals.credits_sold ?? 0)
 
-  /** What spaces earned = per-query price × queries, from the debit ledger. */
-  const totalEarned = computed(() => debits.value.reduce((sum, d) => sum + d.amount, 0))
+  /** What spaces earned, net of refunds — from the station's spend ledger. */
+  const totalEarned = computed(() => earnings.value?.totals.earned ?? 0)
 
   /** Unspent user credit — a liability the station holds, never paid to members. */
-  const totalUserCredit = computed(() => totalCollected.value - totalEarned.value)
+  const totalUserCredit = computed(() => earnings.value?.totals.outstanding_balance ?? 0)
 
-  /** Per-space rollup for the payout table, sorted by payable desc. */
+  /** Recent settled top-ups (the admin feed). */
+  const topUps = computed<TopUp[]>(() =>
+    (earnings.value?.recent_top_ups ?? []).map((t) => ({
+      id: t.invoice_id,
+      userEmail: t.user_email,
+      bundleName: t.bundle_name,
+      amount: t.amount,
+      currency: t.currency,
+      paidAt: t.paid_at ?? t.created_at,
+    })),
+  )
+
+  /** Recorded payouts, newest first. */
+  const payouts = computed<Payout[]>(() =>
+    (earnings.value?.payouts ?? []).map((p) => ({
+      id: p.id,
+      spaceId: p.space_id,
+      amount: p.amount,
+      paidAt: p.created_at,
+      note: p.note || undefined,
+    })),
+  )
+
+  /**
+   * Per-space rollup for the payout table, sorted by payable desc. Earnings
+   * rows carry space_id; names/owners are joined from the spaces registry
+   * (a deleted space keeps earning history but loses its name).
+   */
   const earnedBySpace = computed(() => {
-    const rollup = new Map<
-      string,
-      {
-        spaceName: string
-        ownerEmail: string
-        earned: number
-        queries: number
-        lastActiveAt: string
-      }
-    >()
-    for (const d of debits.value) {
-      const row = rollup.get(d.spaceSlug)
-      if (row) {
-        row.earned += d.amount
-        row.queries += d.queries
-        if (d.day > row.lastActiveAt) row.lastActiveAt = d.day
-      } else {
-        rollup.set(d.spaceSlug, {
-          spaceName: d.spaceName,
-          ownerEmail: d.ownerEmail,
-          earned: d.amount,
-          queries: d.queries,
-          lastActiveAt: d.day,
-        })
-      }
+    if (!earnings.value) return []
+    // Last day each space earned anything, from the daily series.
+    const lastDay = new Map<string, string>()
+    for (const d of earnings.value.daily) {
+      const prev = lastDay.get(d.space_id)
+      if (!prev || d.day > prev) lastDay.set(d.space_id, d.day)
     }
-    return [...rollup.entries()]
-      .map(([slug, row]) => {
-        const paidOut = payouts.value
-          .filter((p) => p.spaceSlug === slug)
-          .reduce((sum, p) => sum + p.amount, 0)
-        return { slug, ...row, paidOut, payable: row.earned - paidOut }
+    return earnings.value.spaces
+      .map((row) => {
+        const space = spaces.value.find((s) => s.id === row.space_id)
+        return {
+          spaceId: row.space_id,
+          slug: space?.subdomain ?? row.space_id.slice(0, 8),
+          spaceName: space?.name ?? 'Deleted space',
+          ownerEmail: space?.ownerEmail ?? '—',
+          earned: row.earned,
+          queries: row.query_count,
+          lastActiveAt: lastDay.get(row.space_id) ?? '',
+          paidOut: row.paid_out,
+          payable: row.payable,
+        }
       })
       .sort((a, b) => b.payable - a.payable)
   })
@@ -248,23 +271,15 @@ export const useStationStore = defineStore('station', () => {
     earnedBySpace.value.reduce((sum, row) => sum + row.payable, 0),
   )
 
-  /** Per-user credit balances (topped up − spent), sorted by balance desc. */
-  const userBalances = computed(() => {
-    const map = new Map<string, { toppedUp: number; spent: number }>()
-    for (const t of topUps.value) {
-      const row = map.get(t.userEmail) ?? { toppedUp: 0, spent: 0 }
-      row.toppedUp += t.amount
-      map.set(t.userEmail, row)
-    }
-    for (const d of debits.value) {
-      const row = map.get(d.userEmail) ?? { toppedUp: 0, spent: 0 }
-      row.spent += d.amount
-      map.set(d.userEmail, row)
-    }
-    return [...map.entries()]
-      .map(([email, row]) => ({ email, ...row, balance: row.toppedUp - row.spent }))
-      .sort((a, b) => b.balance - a.balance)
-  })
+  /** Per-user credit balances (topped up / spent / remaining). */
+  const userBalances = computed(() =>
+    balances.value.map((b) => ({
+      email: b.user_email,
+      toppedUp: b.topped_up,
+      spent: b.spent,
+      balance: b.balance,
+    })),
+  )
 
   /**
    * A subdomain is reserved by a running space or an in-flight provisioning
@@ -287,9 +302,9 @@ export const useStationStore = defineStore('station', () => {
       buckets.push({ date: d.toISOString().slice(0, 10), total: 0 })
     }
     const byDate = new Map(buckets.map((b) => [b.date, b]))
-    for (const d of debits.value) {
-      const bucket = byDate.get(d.day.slice(0, 10))
-      if (bucket) bucket.total += d.amount
+    for (const row of earnings.value?.daily ?? []) {
+      const bucket = byDate.get(row.day)
+      if (bucket) bucket.total += row.earned
     }
     return buckets
   }
@@ -304,86 +319,23 @@ export const useStationStore = defineStore('station', () => {
     return spaces.value.find((s) => s.id === id)
   }
 
-  /**
-   * Seed the wallet/earnings demo data once per signed-in user. Payments
-   * stay mocked until the credits service lands; requests and spaces are
-   * server-backed and never seeded.
-   */
-  function seedForDemo(memberEmail: string, _memberName: string) {
-    if (seededFor.value === memberEmail) return
-    seededFor.value = memberEmail
+  // ---- Credits loads (server-backed) ----
 
-    // Demo wallet pre-seeded so the Earnings tab always has data to show
-    if (!wallet.value) {
-      wallet.value = {
-        provider: 'xendit',
-        currency: 'USD',
-        maskedKey: 'xnd_prod_••••3kf9',
-        createdAt: daysAgo(20),
-      }
-    }
+  /** Wallet presence + bundle catalog (any signed-in user). */
+  async function loadWallet(): Promise<void> {
+    wallet.value = mapWallet(await creditsApi.wallet())
+  }
 
-    // Credits model: users top up once at the station checkout…
-    // (the member has their own balance too — they query other spaces)
-    const seedTopUps: Array<[user: string, amount: number, ago: number]> = [
-      [memberEmail, 30, 4.4],
-      ['kim@labmate.org', 20, 3.2],
-      ['kim@labmate.org', 50, 9.1],
-      ['ravi@labmate.org', 10, 6.4],
-      ['pat@student.edu', 25, 8.3],
-      ['jo@student.edu', 40, 7.6],
-      ['counsel@client.com', 60, 10.2],
-      ['paralegal@lawfirm.com', 5, 9.8],
-    ]
-    topUps.value = seedTopUps.map(([user, amount, ago]) => ({
-      id: nextId('top'),
-      userEmail: user,
-      amount,
-      currency: 'USD',
-      paidAt: daysAgo(ago),
-    }))
+  /** Admin: the full money dashboard (earnings + outstanding balances). */
+  async function loadEarnings(): Promise<void> {
+    const [earned, outstanding] = await Promise.all([creditsApi.earnings(), creditsApi.balances()])
+    earnings.value = earned
+    balances.value = outstanding.balances
+  }
 
-    // …and spend per query at any space (daily aggregates: price × queries,
-    // attributed to the space whose token authorized them). kim and pat also
-    // spend at spaces run by other members — credits work station-wide.
-    const seedDebits: Array<
-      [slug: string, owner: string, user: string, amount: number, queries: number, ago: number]
-    > = [
-      ['research-lab', memberEmail, 'kim@labmate.org', 12, 120, 2.1],
-      ['research-lab', memberEmail, 'kim@labmate.org', 8, 80, 5.3],
-      ['research-lab', memberEmail, 'ravi@labmate.org', 4, 40, 4.2],
-      ['econ-archive', 'lee@university.edu', memberEmail, 6, 120, 1.8],
-      ['legal-docs', 'ana@lawfirm.com', memberEmail, 4, 16, 0.5],
-      ['econ-archive', 'lee@university.edu', 'pat@student.edu', 10, 200, 1.2],
-      ['econ-archive', 'lee@university.edu', 'jo@student.edu', 15, 300, 6.1],
-      ['econ-archive', 'lee@university.edu', 'jo@student.edu', 7, 140, 3.4],
-      ['legal-docs', 'ana@lawfirm.com', 'counsel@client.com', 25, 100, 2.6],
-      ['legal-docs', 'ana@lawfirm.com', 'paralegal@lawfirm.com', 3, 12, 8.1],
-      ['legal-docs', 'ana@lawfirm.com', 'kim@labmate.org', 5, 20, 0.9],
-      ['summer-workshop', 'lee@university.edu', 'pat@student.edu', 2, 40, 12.4],
-    ]
-    debits.value = seedDebits.map(([slug, owner, user, amount, queries, ago]) => ({
-      id: nextId('deb'),
-      spaceSlug: slug,
-      spaceName: slug,
-      ownerEmail: owner,
-      userEmail: user,
-      amount,
-      queries,
-      day: daysAgo(ago),
-    }))
-
-    // One payout already recorded so the payable column has variety
-    payouts.value = [
-      {
-        id: nextId('out'),
-        spaceSlug: 'econ-archive',
-        amount: 20,
-        currency: 'USD',
-        paidAt: daysAgo(6),
-        note: 'June payout — bank transfer',
-      },
-    ]
+  /** Member: what their spaces earned and are still owed. */
+  async function loadMemberEarnings(): Promise<void> {
+    memberEarnings.value = await creditsApi.myEarnings()
   }
 
   async function submitRequest(input: {
@@ -403,6 +355,7 @@ export const useStationStore = defineStore('station', () => {
     const approved = await requestsApi.approve(requestId, {
       space_name: config.spaceName,
       subdomain: config.subdomain,
+      attach_wallet: config.attachWallet ?? true,
     })
     applyRequest(approved)
     trackProvisioning(requestId)
@@ -487,32 +440,33 @@ export const useStationStore = defineStore('station', () => {
     if (space) space.apiKeyClaimed = status.revealed
   }
 
-  /** Record a manual payout to a member against their space's collected total. */
-  function recordPayout(input: { spaceSlug: string; amount: number; note?: string }) {
-    payouts.value.unshift({
-      id: nextId('out'),
-      spaceSlug: input.spaceSlug,
+  /** Record a manual payout (server-capped at the space's payable). */
+  async function recordPayout(input: {
+    spaceId: string
+    amount: number
+    note?: string
+  }): Promise<void> {
+    await creditsApi.recordPayout({
+      space_id: input.spaceId,
       amount: input.amount,
-      currency: wallet.value?.currency ?? 'USD',
-      paidAt: new Date().toISOString(),
       note: input.note?.trim() || undefined,
     })
+    await loadEarnings() // payable/paid-out columns come from the server
   }
 
   /**
-   * Configure (or replace) the station's shared gateway wallet. New
-   * credentials reach each space's Secret on its next pod restart, so every
-   * existing space flips to "wallet pending restart".
+   * Configure (or replace) the station's shared gateway wallet. Spaces
+   * approved before the wallet existed are attached in the same call; their
+   * Secrets apply on the next pod restart.
    */
-  function configureWallet(input: { provider: WalletProvider; apiKey: string; currency: string }) {
-    const prefix = input.provider === 'xendit' ? 'xnd_prod_' : 'sk_live_'
-    wallet.value = {
-      provider: input.provider,
-      currency: input.currency,
-      maskedKey: `${prefix}••••${input.apiKey.slice(-4)}`,
-      createdAt: new Date().toISOString(),
-    }
-    for (const space of spaces.value) space.walletSeeded = false
+  async function setupWallet(input: {
+    provider: WalletProvider
+    currency: string
+    credentials: Record<string, string>
+  }): Promise<{ spacesAttached: number; spacesFailed: number }> {
+    const result = await creditsApi.setupWallet(input)
+    wallet.value = mapWallet(result)
+    return { spacesAttached: result.spaces_attached, spacesFailed: result.spaces_failed }
   }
 
   /**
@@ -531,8 +485,8 @@ export const useStationStore = defineStore('station', () => {
     requests,
     spaces,
     wallet,
+    memberEarnings,
     topUps,
-    debits,
     payouts,
     supportedVersion,
     domain,
@@ -550,12 +504,14 @@ export const useStationStore = defineStore('station', () => {
     earnedByDay,
     subdomainInUse,
     spaceIncludes,
-    configureWallet,
+    setupWallet,
     requestsFor,
     spaceById,
-    seedForDemo,
     loadRequests,
     loadSpaces,
+    loadWallet,
+    loadEarnings,
+    loadMemberEarnings,
     refreshSpaceState,
     submitRequest,
     approveRequest,

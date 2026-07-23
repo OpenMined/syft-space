@@ -18,9 +18,11 @@ const station = useStationStore()
 const session = useSessionStore()
 const router = useRouter()
 
-// Setup (for the domain in URLs) + this member's requests and spaces
+// Setup (for the domain in URLs) + this member's requests, spaces and earnings
 onMounted(async () => {
   station.loadSetup().catch(() => {})
+  station.loadWallet().catch(() => {})
+  station.loadMemberEarnings().catch(() => {})
   await Promise.all([station.loadRequests(), station.loadSpaces()]).catch(() => {})
   // Land returning members on their requests once real data is in
   if (myRequestCount.value > 0) activeSection.value = 'requests'
@@ -52,12 +54,10 @@ function signOut() {
 }
 
 // ---- What this member's spaces have earned but not yet been paid ----
-const myEarnings = computed(() => {
-  const email = session.profile?.email
-  return email ? station.earnedBySpace.filter((r) => r.ownerEmail === email) : []
-})
-const totalOwed = computed(() => myEarnings.value.reduce((sum, r) => sum + r.payable, 0))
-const totalEarned = computed(() => myEarnings.value.reduce((sum, r) => sum + r.earned, 0))
+// The headline is payable (earned − already paid out); earned is context.
+const myEarnings = computed(() => station.memberEarnings?.spaces ?? [])
+const totalOwed = computed(() => station.memberEarnings?.total_payable ?? 0)
+const totalEarned = computed(() => station.memberEarnings?.total_earned ?? 0)
 const currency = computed(() => station.wallet?.currency ?? 'USD')
 </script>
 

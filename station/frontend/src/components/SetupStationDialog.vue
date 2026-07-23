@@ -22,7 +22,6 @@ import {
 import VersionSelect from '@/components/VersionSelect.vue'
 import { ApiError } from '@/api/client'
 import type { WalletProvider } from '@/lib/types'
-import { useSessionStore } from '@/stores/session'
 import { useStationStore } from '@/stores/station'
 
 /**
@@ -32,7 +31,6 @@ import { useStationStore } from '@/stores/station'
 defineProps<{ open: boolean }>()
 
 const station = useStationStore()
-const session = useSessionStore()
 
 const STEPS = [
   { title: 'Domain', icon: Globe },
@@ -50,11 +48,16 @@ const domainValid = computed(() =>
   ),
 )
 
-// Step 2 — optional shared wallet
+// Step 2 — optional shared wallet (Xendit's currencies; USD arrives with Stripe)
 const walletProvider = ref<WalletProvider>('xendit')
-const walletCurrency = ref('USD')
+const walletCurrency = ref('PHP')
 const walletKey = ref('')
-const CURRENCIES = ['USD', 'IDR', 'PHP', 'SGD', 'EUR']
+const walletCallbackToken = ref('')
+const savingWallet = ref(false)
+const CURRENCIES = ['IDR', 'PHP', 'SGD', 'MYR', 'VND', 'THB']
+
+/** Where the gateway must deliver payment events (shown for the dashboard setup). */
+const webhookUrl = computed(() => `${window.location.origin}/api/v1/credits/webhooks/xendit`)
 
 // Step 3 — Syft Space version (image tag from the registry)
 const versionInput = ref('')
@@ -68,17 +71,32 @@ function nextFromDomain() {
   step.value = 1
 }
 
-function nextFromWallet(withWallet: boolean) {
+async function nextFromWallet(withWallet: boolean) {
   if (withWallet) {
     if (walletKey.value.trim().length < 8) {
       toast.error('A valid secret API key is required')
       return
     }
-    station.configureWallet({
-      provider: walletProvider.value,
-      apiKey: walletKey.value.trim(),
-      currency: walletCurrency.value,
-    })
+    if (!walletCallbackToken.value.trim()) {
+      toast.error('The webhook callback token is required')
+      return
+    }
+    savingWallet.value = true
+    try {
+      await station.setupWallet({
+        provider: walletProvider.value,
+        currency: walletCurrency.value,
+        credentials: {
+          api_key: walletKey.value.trim(),
+          callback_token: walletCallbackToken.value.trim(),
+        },
+      })
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Could not save the wallet')
+      return
+    } finally {
+      savingWallet.value = false
+    }
   }
   step.value = 2
 }
@@ -101,10 +119,6 @@ async function finish() {
   } finally {
     finishing.value = false
   }
-  // Wallet/earnings demo data is still mocked — seed it now so the
-  // dashboard reflects the setup choices (chosen domain; wallet only if
-  // one was added)
-  if (session.profile) station.seedForDemo(session.profile.email, session.profile.fullName)
   toast.success('Station is ready', {
     description: `Spaces will live on *.${station.domain} running ${station.supportedVersion}.`,
   })
@@ -189,7 +203,7 @@ async function finish() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="xendit">Xendit</SelectItem>
-                <SelectItem value="stripe">Stripe</SelectItem>
+                <SelectItem value="stripe" disabled>Stripe — coming soon</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -207,12 +221,20 @@ async function finish() {
         </div>
         <div class="space-y-1.5">
           <Label for="setup-wallet-key">Secret API key</Label>
+          <Input id="setup-wallet-key" v-model="walletKey" type="password" placeholder="xnd_…" />
+        </div>
+        <div class="space-y-1.5">
+          <Label for="setup-wallet-callback">Webhook callback token</Label>
           <Input
-            id="setup-wallet-key"
-            v-model="walletKey"
+            id="setup-wallet-callback"
+            v-model="walletCallbackToken"
             type="password"
-            :placeholder="walletProvider === 'xendit' ? 'xnd_prod_…' : 'sk_live_…'"
+            placeholder="From the Xendit dashboard → Webhooks"
           />
+          <p class="text-xs text-muted-foreground">
+            Point the Xendit webhook at
+            <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
+          </p>
         </div>
         <div class="flex items-center justify-between">
           <Button variant="ghost" size="sm" @click="step = 0">
@@ -221,7 +243,7 @@ async function finish() {
           </Button>
           <div class="flex gap-2">
             <Button variant="outline" @click="nextFromWallet(false)">Skip for now</Button>
-            <Button @click="nextFromWallet(true)">
+            <Button :disabled="savingWallet" @click="nextFromWallet(true)">
               Add wallet
               <ArrowRight class="ml-1.5 h-3.5 w-3.5" />
             </Button>

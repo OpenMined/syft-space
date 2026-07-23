@@ -71,6 +71,8 @@ onMounted(() => {
   station.loadSetup().catch(() => toast.error('Could not load the station setup'))
   station.loadRequests().catch(() => toast.error('Could not load requests'))
   station.loadSpaces().catch(() => toast.error('Could not load spaces'))
+  // Wallet presence drives the approve dialog's picker + "space includes".
+  station.loadWallet().catch(() => {})
 })
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
@@ -472,14 +474,6 @@ function formatDate(iso: string): string {
                     >
                       <ArrowUpCircle class="h-3 w-3" />
                       update available
-                    </Badge>
-                    <Badge
-                      v-if="station.wallet && !space.walletSeeded"
-                      variant="outline"
-                      class="gap-1 border-warning/50 bg-warning/10 px-1.5 py-0 text-[11px] font-normal"
-                    >
-                      <Wallet class="h-3 w-3" />
-                      wallet applies on restart
                     </Badge>
                   </div>
                 </div>

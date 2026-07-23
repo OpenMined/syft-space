@@ -39,9 +39,6 @@ function seedLines(space: Space): string[] {
     [93, `INFO   syft.vector  connected to shared ChromaDB (database: ${slug})`],
     [92, 'INFO   syft.docling using remote docling-serve'],
   ]
-  if (space.walletSeeded) {
-    seeded.push([91, 'INFO   syft.wallet  default wallet present — seed skipped (idempotent)'])
-  }
   seeded.push([90, 'INFO   uvicorn      Application startup complete'])
   seeded.push([45, 'INFO   syft.hub     heartbeat ok (next in 60s)'])
   seeded.push([12, 'INFO   uvicorn      GET /healthcheck 200 2ms'])
