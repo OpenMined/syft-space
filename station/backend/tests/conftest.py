@@ -9,6 +9,13 @@ import pytest_asyncio
 from sqlmodel import SQLModel
 
 from syft_station.components.auth.session import ROLE_ADMIN, ROLE_MEMBER, SessionUser
+from syft_station.components.credits.entities import (  # noqa: F401
+    Invoice,
+    LedgerEntry,
+    SpaceCreditToken,
+    UserBalance,
+    Wallet,
+)
 from syft_station.components.requests.entities import SpaceRequest  # noqa: F401
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.setup.entities import StationConfig  # noqa: F401

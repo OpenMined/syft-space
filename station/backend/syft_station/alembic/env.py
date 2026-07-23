@@ -9,6 +9,13 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
+from syft_station.components.credits.entities import (  # noqa: F401
+    Invoice,
+    LedgerEntry,
+    SpaceCreditToken,
+    UserBalance,
+    Wallet,
+)
 from syft_station.components.requests.entities import SpaceRequest  # noqa: F401
 from syft_station.components.setup.entities import StationConfig  # noqa: F401
 from syft_station.components.shared.database import SQLiteConfig
