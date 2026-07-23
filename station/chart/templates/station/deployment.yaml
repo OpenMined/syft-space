@@ -65,6 +65,11 @@ spec:
               value: {{ .Values.chromadb.service.port | quote }}
             - name: SYFT_STATION_DOCLING_URL
               value: {{ include "syft-station.doclingUrl" . | quote }}
+            # In-cluster URL minted into each space Secret as
+            # SYFT_CLUSTER_CREDITS_URL — spaces reach the credits API via the
+            # station Service, no ingress round-trip.
+            - name: SYFT_STATION_CREDITS_URL
+              value: "http://{{ include "syft-station.fullname" . }}:8090"
             {{- range $k, $v := .Values.station.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}

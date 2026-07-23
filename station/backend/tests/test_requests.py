@@ -6,6 +6,11 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
+from syft_station.components.credits.provisioning import SpaceCreditsService
+from syft_station.components.credits.repository import (
+    SpaceCreditTokenRepository,
+    WalletRepository,
+)
 from syft_station.components.provision.interfaces import ProvisionError, SpaceSpec
 from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.entities import RequestStatus
@@ -19,12 +24,23 @@ from tests.conftest import ADMIN, MEMBER, OTHER_MEMBER
 
 
 @pytest.fixture
-def handler(request_repository, space_repository, setup_repository) -> RequestHandler:
+def credits_service(db) -> SpaceCreditsService:
+    """Real service over an empty wallets table — the no-wallet station."""
+    return SpaceCreditsService(
+        WalletRepository(db), SpaceCreditTokenRepository(db), "http://station.test"
+    )
+
+
+@pytest.fixture
+def handler(
+    request_repository, space_repository, setup_repository, credits_service
+) -> RequestHandler:
     return RequestHandler(
         repository=request_repository,
         space_repository=space_repository,
         setup_repository=setup_repository,
         provisioner=MockProvisioner(),
+        credits=credits_service,
     )
 
 
@@ -323,13 +339,18 @@ def rec_provisioner() -> RecordingProvisioner:
 
 @pytest.fixture
 def rec_handler(
-    request_repository, space_repository, setup_repository, rec_provisioner
+    request_repository,
+    space_repository,
+    setup_repository,
+    rec_provisioner,
+    credits_service,
 ) -> RequestHandler:
     return RequestHandler(
         repository=request_repository,
         space_repository=space_repository,
         setup_repository=setup_repository,
         provisioner=rec_provisioner,
+        credits=credits_service,
     )
 
 

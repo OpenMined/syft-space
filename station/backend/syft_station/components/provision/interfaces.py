@@ -5,6 +5,7 @@ the real one, behind the same protocol. The contract with syft-space is the
 container image + SYFT_* env vars + health endpoint — nothing else.
 """
 
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
@@ -13,6 +14,19 @@ from pydantic import BaseModel
 
 class ProvisionError(Exception):
     """Provisioning failed; the request should move to FAILED."""
+
+
+@dataclass(frozen=True)
+class CreditsGrant:
+    """What a space needs to use the station as its accounting service.
+
+    Produced by the credits component, consumed into SpaceSpec — lives here
+    (next to the spec it feeds) so neither side needs the other's internals.
+    """
+
+    url: str
+    token: str  # plaintext — destined for the space's k8s Secret only
+    currency: str
 
 
 class SpaceRuntimeStatus(StrEnum):
@@ -38,6 +52,11 @@ class SpaceSpec(BaseModel):
     version: str
     domain: str
     admin_token: str
+    # Managed credits (all-or-nothing; empty token = space has no wallet).
+    # Rendered into the space Secret as SYFT_CLUSTER_CREDITS_{URL,TOKEN,CURRENCY}.
+    credits_url: str = ""
+    credits_token: str = ""
+    credits_currency: str = ""
 
 
 class Provisioner(Protocol):

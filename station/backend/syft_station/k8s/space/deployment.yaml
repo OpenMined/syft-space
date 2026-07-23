@@ -61,6 +61,27 @@ spec:
               value: "${DOCLING_URL}"
             - name: SYFT_CLUSTER_MANAGED_BY
               value: "${MANAGED_BY}"
+            # Managed credits — keys exist in the Secret only when the space
+            # is attached to a station wallet; optional refs leave the env
+            # unset otherwise (seed-on-boot then does nothing).
+            - name: SYFT_CLUSTER_CREDITS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ${RESOURCE_NAME}
+                  key: SYFT_CLUSTER_CREDITS_URL
+                  optional: true
+            - name: SYFT_CLUSTER_CREDITS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ${RESOURCE_NAME}
+                  key: SYFT_CLUSTER_CREDITS_TOKEN
+                  optional: true
+            - name: SYFT_CLUSTER_CREDITS_CURRENCY
+              valueFrom:
+                secretKeyRef:
+                  name: ${RESOURCE_NAME}
+                  key: SYFT_CLUSTER_CREDITS_CURRENCY
+                  optional: true
             # Same SyftHub the station authenticates against
             - name: SYFT_DEFAULT_MARKETPLACE_URL
               value: "${SYFTHUB_URL}"

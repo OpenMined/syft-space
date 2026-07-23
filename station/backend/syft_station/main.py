@@ -15,6 +15,7 @@ from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.routes import build_auth_routes
 from syft_station.components.auth.syfthub import SyftHubIdentityClient
 from syft_station.components.credits.handlers import CreditsHandler
+from syft_station.components.credits.provisioning import SpaceCreditsService
 from syft_station.components.credits.repository import (
     SpaceCreditTokenRepository,
     WalletRepository,
@@ -74,6 +75,9 @@ registry_client = ImageRegistryClient(
 auth_handler = AuthHandler(syfthub_client)
 image_handler = ImageHandler(registry_client)
 credits_handler = CreditsHandler(database, wallet_repository, credit_token_repository)
+space_credits_service = SpaceCreditsService(
+    wallet_repository, credit_token_repository, app_settings.credits_url
+)
 setup_handler = SetupHandler(setup_repository)
 space_handler = SpaceHandler(space_repository, provisioner)
 request_handler = RequestHandler(
@@ -81,6 +85,7 @@ request_handler = RequestHandler(
     space_repository=space_repository,
     setup_repository=setup_repository,
     provisioner=provisioner,
+    credits=space_credits_service,
 )
 
 

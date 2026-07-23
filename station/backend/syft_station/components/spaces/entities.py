@@ -24,6 +24,12 @@ class Space(SQLModel, table=True):
     owner_email: str = Field(index=True)
     url: str = Field(default="", description="Public URL once provisioned")
     version: str = Field(default="", description="syft-space version deployed")
+    wallet_id: UUID | None = Field(
+        default=None,
+        description="Station wallet this space is attached to (the admin's "
+        "pick at approval; None = no managed credits). The minted "
+        "SpaceCreditToken rows are the materialized binding.",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

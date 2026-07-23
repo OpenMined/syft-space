@@ -1,9 +1,10 @@
-"""Space-facing credits API — the pinned contract, tested on the wire (C3.2).
+"""Space-facing credits API, tested on the wire.
 
 Exercised over ASGI (not handler calls) because the consumer is a machine:
-syft-space's ClusterCreditsClient parses these exact shapes — top-level 402
-body, {"balance": …} reads, 200-on-replay semantics. Status codes and field
-names here are frozen by that client.
+the credits client inside each space parses these exact shapes — top-level
+402 body, {"balance": …} reads, 200-on-replay semantics. Every assertion
+on a status code or field name here is backward-compatibility coverage;
+see credits/schemas.py.
 """
 
 from __future__ import annotations
@@ -186,7 +187,7 @@ async def test_debit_402_top_level_body(testbed: CreditsTestbed):
         )
 
     assert response.status_code == 402
-    # Top-level shape — ClusterCreditsClient reads .json()["balance"] directly.
+    # Top-level shape — space clients read .json()["balance"] directly.
     assert response.json() == {
         "error": "insufficient_balance",
         "balance": 0.01,

@@ -146,6 +146,14 @@ class AppSettings(BaseSettings):
         default="Syft Station",
         description="Display name injected as SYFT_CLUSTER_MANAGED_BY into spaces",
     )
+    credits_url: str = Field(
+        default="http://syft-station:8090",
+        description=(
+            "URL spaces use to reach the station credits API (their Secret's "
+            "SYFT_CLUSTER_CREDITS_URL). Default = the in-cluster Service; "
+            "host-run dev overrides it (e.g. http://host.k3d.internal:8090)."
+        ),
+    )
 
 
 # Global settings instance

@@ -90,4 +90,16 @@ def render_space_manifests(
 ) -> dict[str, dict]:
     """Render all per-space manifests as apply-ordered dicts, keyed by kind."""
     values = _substitutions(spec, settings)
-    return {key: _render_one(filename, values) for key, filename in MANIFEST_FILES}
+    manifests = {key: _render_one(filename, values) for key, filename in MANIFEST_FILES}
+    # Managed-credits keys are conditional (a space may have no wallet), so
+    # they're injected here rather than templated — the Deployment reads them
+    # via optional secretKeyRefs, absent keys simply leave the env unset.
+    if spec.credits_token:
+        manifests["secret"]["stringData"].update(
+            {
+                "SYFT_CLUSTER_CREDITS_URL": spec.credits_url,
+                "SYFT_CLUSTER_CREDITS_TOKEN": spec.credits_token,
+                "SYFT_CLUSTER_CREDITS_CURRENCY": spec.credits_currency,
+            }
+        )
+    return manifests

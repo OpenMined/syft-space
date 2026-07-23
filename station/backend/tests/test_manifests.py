@@ -184,3 +184,40 @@ def test_real_config_satisfies_render_settings():
     assert manifests["deployment"]["spec"]["template"]["spec"]["containers"][0][
         "image"
     ].startswith("openmined/syft-space:")
+
+
+# ============== Managed credits (conditional Secret keys) ==============
+
+_CREDITS_KEYS = (
+    "SYFT_CLUSTER_CREDITS_URL",
+    "SYFT_CLUSTER_CREDITS_TOKEN",
+    "SYFT_CLUSTER_CREDITS_CURRENCY",
+)
+
+
+def test_secret_without_wallet_has_no_credits_keys(manifests):
+    for key in _CREDITS_KEYS:
+        assert key not in manifests["secret"]["stringData"]
+
+
+def test_secret_with_wallet_carries_the_grant():
+    spec = SPEC.model_copy(
+        update={
+            "credits_url": "http://syft-station:8090",
+            "credits_token": "sct_granttoken",
+            "credits_currency": "PHP",
+        }
+    )
+    secret = render_space_manifests(spec, SETTINGS)["secret"]["stringData"]
+    assert secret["SYFT_CLUSTER_CREDITS_URL"] == "http://syft-station:8090"
+    assert secret["SYFT_CLUSTER_CREDITS_TOKEN"] == "sct_granttoken"
+    assert secret["SYFT_CLUSTER_CREDITS_CURRENCY"] == "PHP"
+
+
+def test_deployment_credits_env_is_optional_secret_refs(manifests):
+    """The Deployment is static: credits env comes from optional secretKeyRefs,
+    so a wallet-less space simply has the vars unset (seed-on-boot no-ops)."""
+    env = _env(manifests["deployment"])
+    for key in _CREDITS_KEYS:
+        ref = env[key]["valueFrom"]["secretKeyRef"]
+        assert ref == {"name": "space-alpha", "key": key, "optional": True}

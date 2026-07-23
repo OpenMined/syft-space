@@ -1,8 +1,8 @@
 """Credits API routes — space-facing (Bearer space credits token).
 
-The 402 body is written at the TOP level (not FastAPI's {"detail": …})
-because syft-space's ClusterCreditsClient reads response.json()["balance"]
-directly — the shape is frozen by the pinned contract.
+The 402 body is written at the TOP level, not inside FastAPI's usual
+``{"detail": …}`` wrapper: space clients read ``response.json()["balance"]``
+directly. See schemas.py for the compatibility rules.
 """
 
 from typing import Annotated

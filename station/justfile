@@ -74,6 +74,10 @@ cluster: ensure-cluster
 cluster-dns:
     #!/usr/bin/env bash
     set -euo pipefail
+    # k3s deploys Traefik asynchronously — on a fresh cluster its Service
+    # appears some seconds after the API server is up.
+    echo "Waiting for Traefik..."
+    until kubectl -n kube-system get svc traefik >/dev/null 2>&1; do sleep 2; done
     traefik_ip=$(kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}')
     kubectl -n kube-system create configmap coredns-custom \
         --from-literal=station.server="station.localhost:53 {
@@ -105,6 +109,9 @@ dev admin="" hub="": cluster
     export SYFT_STATION_NAMESPACE={{namespace}}
     export SYFT_STATION_SPACE_IMAGE=ghcr.io/openmined/syft-space
     export SYFT_STATION_ADMIN_EMAIL="$admin_email"
+    # Spaces run inside k3d; the station is on the host — they reach the
+    # credits API through k3d's host alias.
+    export SYFT_STATION_CREDITS_URL=http://host.k3d.internal:8090
     [ -n "$hub_url" ] && export SYFT_STATION_SYFTHUB_URL="$hub_url"
     # Fixed dev secret so sessions survive reloads/restarts (never used in prod).
     export SYFT_STATION_SESSION_SECRET="dev-not-secret-session-key"
@@ -174,10 +181,12 @@ down:
 space-image tag:
     #!/usr/bin/env bash
     set -euo pipefail
+    # Accept both `just space-image x` and `just space-image tag=x`.
+    tag="{{tag}}"; tag="${tag#tag=}"
     cd ..
     (cd frontend && bun install && bun run build)
-    docker build -t ghcr.io/openmined/syft-space:{{tag}} .
-    k3d image import ghcr.io/openmined/syft-space:{{tag}} -c {{cluster_name}}
+    docker build -t ghcr.io/openmined/syft-space:$tag .
+    k3d image import ghcr.io/openmined/syft-space:$tag -c {{cluster_name}}
 
 # Render the chart with prod values (sanity check before shipping).
 template:

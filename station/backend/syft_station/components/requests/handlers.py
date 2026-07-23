@@ -17,6 +17,7 @@ from syft_station.components.requests.entities import (
     RequestStatus,
     SpaceRequest,
 )
+from syft_station.components.requests.interfaces import WalletAttachments
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.requests.schemas import (
     ApproveRequestBody,
@@ -48,11 +49,15 @@ class RequestHandler:
         space_repository: SpaceRepository,
         setup_repository: SetupRepository,
         provisioner: Provisioner,
+        credits: WalletAttachments,
     ):
         self.repository = repository
         self.space_repository = space_repository
         self.setup_repository = setup_repository
         self.provisioner = provisioner
+        # A station with no wallet is just an empty wallets table — the
+        # service then resolves no wallet, grants nothing, revokes nothing.
+        self.credits = credits
         # Keep strong references so provisioning tasks aren't GC'd mid-run.
         self._tasks: set[asyncio.Task] = set()
 
@@ -132,7 +137,13 @@ class RequestHandler:
                 detail=f"Subdomain '{request.subdomain}' is already taken",
             )
 
-        return await self._start_provisioning(request)
+        # Resolve the wallet pick now so a bad id fails the approve, not the
+        # background provisioning task.
+        wallet_id = None
+        if body.attach_wallet:
+            wallet_id = await self.credits.choose_wallet(body.wallet_id)
+
+        return await self._start_provisioning(request, wallet_id=wallet_id)
 
     async def reject(self, request_id: UUID, reason: str) -> RequestResponse:
         request = await self._get_request(request_id)
@@ -153,7 +164,7 @@ class RequestHandler:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Only failed requests can be retried",
             )
-        return await self._start_provisioning(request)
+        return await self._start_provisioning(request, set_wallet=False)
 
     async def delete_space(
         self, request_id: UUID, user: SessionUser
@@ -193,6 +204,7 @@ class RequestHandler:
             ) from e
 
         if space:
+            await self.credits.revoke_space(space.id)
             await self.space_repository.delete_space(space.id)
         request = await self.repository.set_status(request, RequestStatus.DELETED)
         return _to_response(request)
@@ -220,7 +232,13 @@ class RequestHandler:
             return True
         return await self.space_repository.get_by_subdomain(subdomain) is not None
 
-    async def _start_provisioning(self, request: SpaceRequest) -> RequestResponse:
+    async def _start_provisioning(
+        self,
+        request: SpaceRequest,
+        wallet_id: UUID | None = None,
+        set_wallet: bool = True,
+    ) -> RequestResponse:
+        """set_wallet=False (retry) keeps the space's existing wallet intent."""
         config = await self.setup_repository.get_config()
         if not config.domain:
             raise HTTPException(
@@ -240,9 +258,13 @@ class RequestHandler:
                     subdomain=request.subdomain,
                     owner_email=request.owner_email,
                     version=config.supported_version,
+                    wallet_id=wallet_id if set_wallet else None,
                 )
             )
             await self.space_repository.create_token(space.id, generate_space_token())
+        elif set_wallet and space.wallet_id != wallet_id:
+            space.wallet_id = wallet_id
+            space = await self.space_repository.update(space)
 
         request.reject_reason = None  # clear a previous attempt's failure
         request = await self.repository.set_status(
@@ -264,6 +286,14 @@ class RequestHandler:
 
         config = await self.setup_repository.get_config()
         token_row = await self.space_repository.get_token(space.id)
+
+        # Every attempt mints a FRESH credits token (the previous plaintext
+        # is unrecoverable by design); a failed attempt leaves no live grant
+        # behind that this retry would still be using.
+        grant = None
+        if space.wallet_id:
+            grant = await self.credits.grant_for_space(space.id, space.wallet_id)
+
         spec = SpaceSpec(
             subdomain=space.subdomain,
             space_name=space.name,
@@ -271,6 +301,9 @@ class RequestHandler:
             version=config.supported_version,
             domain=config.domain,
             admin_token=token_row.token or "" if token_row else "",
+            credits_url=grant.url if grant else "",
+            credits_token=grant.token if grant else "",
+            credits_currency=grant.currency if grant else "",
         )
 
         try:

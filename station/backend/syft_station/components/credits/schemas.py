@@ -1,8 +1,9 @@
 """Credits API request/response schemas.
 
-The space-facing shapes implement the pinned credits contract (station.md,
-2026-07-16) that syft-space's ClusterCreditsClient is already built
-against — field names and status semantics are frozen by that client.
+These shapes are a wire contract: every provisioned space ships a credits
+client that bills paid queries against this API. Deployed spaces cannot be
+assumed to update in lockstep with the station, so field names, status
+codes, and body shapes must stay backward compatible.
 """
 
 from uuid import UUID

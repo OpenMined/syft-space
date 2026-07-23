@@ -1,6 +1,6 @@
 """Credits database entities.
 
-Money model (ported from syft-space's payments component, single-tenant):
+Money model — three tables, each holding one kind of fact:
 - Invoice: top-ups. A credit exists iff an invoice reached PAID.
 - UserBalance: materialized per-user balance — the hot path for debits.
 - LedgerEntry: append-only spend ledger (debits + their reversals).

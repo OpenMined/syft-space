@@ -1,7 +1,7 @@
-"""Credits ledger core — atomicity, idempotency, and token tests (step C3.1).
+"""Credits ledger core — atomicity, idempotency, and token tests.
 
 These exercise the repository primitives composed exactly the way the
-credits handlers will compose them in C3.2/C3.4:
+credits handlers compose them:
 
     debit  = atomic_deduct + insert DEBIT      (one transaction)
     refund = insert CANCELLED + atomic_restore (one transaction)
@@ -63,7 +63,7 @@ async def get_balance(db: AsyncDatabase, email: str) -> float:
 async def debit(
     db: AsyncDatabase, email: str, amount: float, transaction_id: UUID
 ) -> bool:
-    """The C3.2 debit shape: conditional deduct + DEBIT row, one transaction."""
+    """The handler's debit shape: conditional deduct + DEBIT row, one transaction."""
     async with CreditsLedger(db) as ledger:
         ok = await ledger.balances.atomic_deduct(email, amount)
         if not ok:
@@ -86,7 +86,7 @@ async def debit(
 
 
 async def refund(db: AsyncDatabase, email: str, amount: float, transaction_id: UUID):
-    """The C3.2 refund shape: CANCELLED row + restore, one transaction."""
+    """The handler's refund shape: CANCELLED row + restore, one transaction."""
     async with CreditsLedger(db) as ledger:
         ledger.entries.insert(
             LedgerEntry(
@@ -203,7 +203,7 @@ def _invoice() -> Invoice:
 
 
 async def test_mark_paid_credits_once(db: AsyncDatabase):
-    """The C3.4 settle shape: duplicate webhook ⇒ mark_paid returns False
+    """The webhook settle shape: duplicate delivery ⇒ mark_paid returns False
     and the caller never credits a second time."""
     invoice = _invoice()
     invoice_id, amount = invoice.id, invoice.amount  # before commit expires them
