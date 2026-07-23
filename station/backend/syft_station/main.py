@@ -14,6 +14,12 @@ import syft_station.components.shared.logging_config  # noqa: F401, I001
 from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.routes import build_auth_routes
 from syft_station.components.auth.syfthub import SyftHubIdentityClient
+from syft_station.components.credits.handlers import CreditsHandler
+from syft_station.components.credits.repository import (
+    SpaceCreditTokenRepository,
+    WalletRepository,
+)
+from syft_station.components.credits.routes import build_credits_routes
 from syft_station.components.images.handlers import ImageHandler
 from syft_station.components.images.registry import ImageRegistryClient
 from syft_station.components.images.routes import build_image_routes
@@ -38,6 +44,8 @@ database = AsyncDatabase(SQLiteConfig(app_settings.sqlite_db_path))
 setup_repository = SetupRepository(database)
 request_repository = RequestRepository(database)
 space_repository = SpaceRepository(database)
+wallet_repository = WalletRepository(database)
+credit_token_repository = SpaceCreditTokenRepository(database)
 
 syfthub_client = SyftHubIdentityClient(str(app_settings.syfthub_url))
 
@@ -65,6 +73,7 @@ registry_client = ImageRegistryClient(
 
 auth_handler = AuthHandler(syfthub_client)
 image_handler = ImageHandler(registry_client)
+credits_handler = CreditsHandler(database, wallet_repository, credit_token_repository)
 setup_handler = SetupHandler(setup_repository)
 space_handler = SpaceHandler(space_repository, provisioner)
 request_handler = RequestHandler(
@@ -119,6 +128,7 @@ app.include_router(build_setup_routes(setup_handler), prefix="/api/v1")
 app.include_router(build_request_routes(request_handler), prefix="/api/v1")
 app.include_router(build_space_routes(space_handler), prefix="/api/v1")
 app.include_router(build_image_routes(image_handler), prefix="/api/v1")
+app.include_router(build_credits_routes(credits_handler), prefix="/api/v1")
 
 
 @app.get("/healthz", tags=["health"])
