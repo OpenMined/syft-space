@@ -61,10 +61,11 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{/*
-Public base URL of the station, derived from its own ingress host (the single
-source of truth for where it's publicly reachable). Minted into each space
-Secret as SYFT_CLUSTER_PUBLIC_URL so buyers reach checkout/balance. Empty when
-the ingress is disabled — no public address, so buyer URLs are simply omitted.
+The station's own public base URL, from its ingress host (scheme tracks TLS).
+Minted into each space Secret as SYFT_CLUSTER_PUBLIC_URL — buyers reach the
+station's checkout/balance here. Always the station host, NOT the spaces'
+parent (they differ when spaces use a subdomain prefix). Empty when the
+ingress is disabled — endpoints then publish bundles but no buyer URLs.
 */}}
 {{- define "syft-station.publicUrl" -}}
 {{- if .Values.station.ingress.enabled -}}

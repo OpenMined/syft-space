@@ -40,13 +40,40 @@ const STEPS = [
 
 const step = ref(0)
 
-// Step 1 — public domain
-const domainInput = ref('')
-const domainValid = computed(() =>
-  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(
-    domainInput.value.trim().toLowerCase(),
-  ),
-)
+// Step 1 — where spaces live.
+// The station already knows its own public host (from its ingress); we SHOW it
+// and hang spaces off it, so the admin only picks an optional subdomain prefix
+// rather than retyping the domain. Host-run dev has no known host → free-text.
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/
+const LABELS_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/
+
+const stationHost = computed(() => station.stationHost)
+// Escape hatch: type a different domain even when a host is known (dev/edge).
+const manualDomain = ref(false)
+const useHost = computed(() => !!stationHost.value && !manualDomain.value)
+
+const prefixInput = ref('') // optional label(s) between the space and the host
+const domainInput = ref('') // free-text fallback
+
+// The spaces' parent domain we actually submit.
+const effectiveDomain = computed(() => {
+  if (useHost.value) {
+    const prefix = prefixInput.value.trim().toLowerCase().replace(/\.$/, '')
+    return prefix ? `${prefix}.${stationHost.value}` : stationHost.value
+  }
+  return domainInput.value.trim().toLowerCase()
+})
+
+const domainValid = computed(() => {
+  if (
+    useHost.value &&
+    prefixInput.value.trim() &&
+    !LABELS_RE.test(prefixInput.value.trim().toLowerCase())
+  ) {
+    return false
+  }
+  return DOMAIN_RE.test(effectiveDomain.value)
+})
 
 // Step 2 — optional shared wallet (Xendit's currencies; USD arrives with Stripe)
 const walletProvider = ref<WalletProvider>('xendit')
@@ -65,7 +92,11 @@ const finishing = ref(false)
 
 function nextFromDomain() {
   if (!domainValid.value) {
-    toast.error('Enter a valid domain, e.g. spaces.my-station.org')
+    toast.error(
+      useHost.value
+        ? 'Enter a valid subdomain prefix, or leave it blank'
+        : 'Enter a valid domain, e.g. spaces.my-station.org',
+    )
     return
   }
   step.value = 1
@@ -110,7 +141,7 @@ async function finish() {
   try {
     // Setting the domain marks setup done, which closes this dialog
     await station.completeOnboarding({
-      domain: domainInput.value.trim().toLowerCase(),
+      domain: effectiveDomain.value,
       version: versionInput.value.trim(),
     })
   } catch (error) {
@@ -165,26 +196,89 @@ async function finish() {
         </template>
       </div>
 
-      <!-- Step 1: domain -->
+      <!-- Step 1: where spaces live -->
       <div v-if="step === 0" class="space-y-4">
-        <p class="text-xs text-muted-foreground">
-          Every space gets its own subdomain on this domain. Point a wildcard DNS record
-          (*.your-domain) at the machines running this station.
-        </p>
-        <div class="space-y-1.5">
-          <Label for="setup-domain">Domain</Label>
-          <Input id="setup-domain" v-model="domainInput" placeholder="spaces.my-station.org" />
-        </div>
-        <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Globe class="h-3 w-3" />
-          Spaces will look like: research-lab.{{ domainInput.trim() || '…' }}
-        </p>
-        <div class="flex justify-end">
-          <Button @click="nextFromDomain">
-            Next
-            <ArrowRight class="ml-1.5 h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <!-- Host known: show it, ask only for an optional subdomain prefix -->
+        <template v-if="useHost">
+          <p class="text-xs text-muted-foreground">
+            Your station is reachable here, and every space is a subdomain of it. Point a wildcard
+            DNS record at this cluster so spaces resolve.
+          </p>
+          <div class="space-y-1.5">
+            <Label>Station</Label>
+            <div
+              class="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium"
+            >
+              <Globe class="h-3.5 w-3.5 text-muted-foreground" />
+              {{ stationHost }}
+            </div>
+          </div>
+          <div class="space-y-1.5">
+            <Label for="setup-prefix">Subdomain for spaces (optional)</Label>
+            <div class="flex items-center gap-1.5 text-sm">
+              <span class="text-muted-foreground">research-lab.</span>
+              <Input
+                id="setup-prefix"
+                v-model="prefixInput"
+                placeholder="spaces"
+                class="max-w-[8rem]"
+              />
+              <span class="text-muted-foreground">.{{ stationHost }}</span>
+            </div>
+            <p class="text-xs text-muted-foreground">
+              Blank → spaces sit directly under the station ({{ '*' }}.{{ stationHost }}). A prefix
+              sandboxes them under its own <code>*</code> wildcard.
+            </p>
+          </div>
+          <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Globe class="h-3 w-3" />
+            Spaces will look like: research-lab.{{ effectiveDomain }}
+          </p>
+          <div class="flex items-center justify-between">
+            <button
+              type="button"
+              class="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              @click="manualDomain = true"
+            >
+              Use a different domain
+            </button>
+            <Button @click="nextFromDomain">
+              Next
+              <ArrowRight class="ml-1.5 h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </template>
+
+        <!-- Host unknown (or overridden): type the domain -->
+        <template v-else>
+          <p class="text-xs text-muted-foreground">
+            Every space gets its own subdomain on this domain. Point a wildcard DNS record
+            (*.your-domain) at the machines running this station.
+          </p>
+          <div class="space-y-1.5">
+            <Label for="setup-domain">Domain</Label>
+            <Input id="setup-domain" v-model="domainInput" placeholder="spaces.my-station.org" />
+          </div>
+          <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Globe class="h-3 w-3" />
+            Spaces will look like: research-lab.{{ domainInput.trim() || '…' }}
+          </p>
+          <div class="flex items-center justify-between">
+            <button
+              v-if="stationHost"
+              type="button"
+              class="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              @click="manualDomain = false"
+            >
+              Use the station host
+            </button>
+            <span v-else />
+            <Button @click="nextFromDomain">
+              Next
+              <ArrowRight class="ml-1.5 h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </template>
       </div>
 
       <!-- Step 2: optional shared wallet -->

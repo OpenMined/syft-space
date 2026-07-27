@@ -46,6 +46,9 @@ export const useStationStore = defineStore('station', () => {
   const supportedVersion = ref('')
   /** Public domain spaces get subdomains on — empty until the admin sets it. */
   const domain = ref('')
+  /** The station's own public host, surfaced at onboarding so the admin
+   *  confirms it and hangs spaces off it. Empty in host-run dev. */
+  const stationHost = ref('')
   /** Setup done ⇔ the domain is set. The admin dashboard shows the setup dialog until then. */
   const onboarded = computed(() => domain.value !== '')
   /** True once the backend's setup has been fetched (gates the setup dialog). */
@@ -56,6 +59,7 @@ export const useStationStore = defineStore('station', () => {
   async function loadSetup(): Promise<void> {
     const setup = await setupApi.get()
     domain.value = setup.domain
+    stationHost.value = setup.station_host
     supportedVersion.value = setup.supported_version
     setupLoaded.value = true
   }
@@ -489,6 +493,7 @@ export const useStationStore = defineStore('station', () => {
     payouts,
     supportedVersion,
     domain,
+    stationHost,
     onboarded,
     setupLoaded,
     loadSetup,

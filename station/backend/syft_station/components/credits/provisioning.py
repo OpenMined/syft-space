@@ -49,6 +49,10 @@ class SpaceCreditsService:
         self.wallets = wallets
         self.credit_tokens = credit_tokens
         self.credits_url = credits_url
+        # The station's own public host, minted into spaces as the buyer URL.
+        # Always the station's address (where checkout lives) — never the
+        # spaces' parent domain, which differs when spaces use a subdomain
+        # prefix. Injected from the chart's ingress host (config.public_url).
         self.public_url = public_url
 
     async def choose_wallet(self, requested_id: UUID | None) -> UUID | None:

@@ -127,10 +127,11 @@ only `.py`), or use `just dev-ui` for live HMR. `just up` is the parity check
 (in-cluster DNS, RBAC, the real deployed pod, frontend served statically from
 the image).
 
-The station UI is at `http://station.localhost`; spaces resolve at
-`<subdomain>.spaces.localhost` (via the k3d loadbalancer on :80;
-`*.localhost` → 127.0.0.1 in browsers, no DNS setup). Set the station domain
-to `spaces.localhost` during first-run setup. The `admin` argument sets
+The station UI is at `http://station.localhost`. The station is the PARENT of
+its spaces, so set the domain to `station.localhost` during first-run setup;
+spaces then resolve at `<subdomain>.station.localhost` (via the k3d
+loadbalancer on :80; `*.localhost` → 127.0.0.1 in browsers, no DNS setup).
+The `admin` argument sets
 `SYFT_STATION_ADMIN_EMAIL` — without it every sign-in gets the member role.
 An optional `hub=https://…` argument sets `SYFT_STATION_SYFTHUB_URL` (omitted
 → the production SyftHub default). The chart preserves the session secret

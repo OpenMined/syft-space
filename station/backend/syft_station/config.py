@@ -157,10 +157,13 @@ class AppSettings(BaseSettings):
     public_url: str = Field(
         default="",
         description=(
-            "Public base URL of the station (their Secret's "
-            "SYFT_CLUSTER_PUBLIC_URL). Published on managed endpoints so buyers "
-            "reach the station's checkout/balance routes. Distinct from "
-            "credits_url, which is the internal space→station debit path. Empty "
+            "The station's public base URL — its own ingress host (their "
+            "Secret's SYFT_CLUSTER_PUBLIC_URL), minted into every space so "
+            "buyers reach the station's checkout/balance routes. This is the "
+            "station's host, NOT the spaces' parent domain: the two differ "
+            "when spaces use a subdomain prefix. Injected from the chart's "
+            "ingress host; the dev loops set it to the host-run address. "
+            "Distinct from credits_url, the internal space→station path. Empty "
             "→ endpoints publish bundles but no buyer URLs."
         ),
     )

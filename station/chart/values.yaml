@@ -55,6 +55,11 @@ station:
   ingress:
     enabled: true
     className: traefik
+    # The station is the PARENT of its spaces. This host is the single source
+    # of truth: it's the station's public URL AND the base spaces hang off.
+    # Onboarding SHOWS it (no retyping) and spaces resolve at <subdomain>.<host>
+    # — or <subdomain>.<prefix>.<host> if the admin picks a subdomain prefix.
+    # Point wildcard DNS at the cluster: *.<host> (flat) or *.<prefix>.<host>.
     host: station.example.com
     annotations: {}
     tls:

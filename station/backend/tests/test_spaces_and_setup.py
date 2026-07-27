@@ -50,6 +50,27 @@ def test_setup_rejects_invalid_domain():
         UpdateSetupRequest(domain="not a domain")
 
 
+async def test_setup_exposes_station_host_from_public_url(setup_handler, monkeypatch):
+    """Onboarding surfaces the station's own host (parsed from its public URL,
+    scheme/port stripped) so the admin confirms it and hangs spaces off it."""
+    from syft_station.components.setup import handlers as setup_handlers
+
+    monkeypatch.setattr(
+        setup_handlers.app_settings, "public_url", "https://station.example.com"
+    )
+    setup = await setup_handler.get_setup()
+    assert setup.station_host == "station.example.com"
+
+
+async def test_setup_station_host_empty_without_public_url(setup_handler, monkeypatch):
+    """Host-run dev has no public URL — the admin then types the domain freely."""
+    from syft_station.components.setup import handlers as setup_handlers
+
+    monkeypatch.setattr(setup_handlers.app_settings, "public_url", "")
+    setup = await setup_handler.get_setup()
+    assert setup.station_host == ""
+
+
 # ============== Spaces + tokens ==============
 
 

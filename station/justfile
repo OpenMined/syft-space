@@ -12,9 +12,10 @@
 #
 # `just dev` is the everyday loop — edit backend code, uvicorn reloads, no
 # image rebuild. `just up` is the parity check (in-cluster DNS, RBAC, the real
-# deployed pod). Station UI: http://station.localhost. Spaces resolve at
-# <subdomain>.spaces.localhost via Traefik on :80 (*.localhost → 127.0.0.1 in
-# browsers — no DNS setup). Use `spaces.localhost` as the domain during setup.
+# deployed pod). Station UI: http://station.localhost. The station is the
+# PARENT of its spaces, so use `station.localhost` as the domain during setup
+# and spaces resolve at <subdomain>.station.localhost via Traefik on :80
+# (*.localhost → 127.0.0.1 in browsers — no DNS setup).
 
 cluster_name := "syft-station"
 namespace := "syft-spaces"
@@ -110,9 +111,10 @@ dev admin="" hub="": cluster
     export SYFT_STATION_SPACE_IMAGE=ghcr.io/openmined/syft-space
     export SYFT_STATION_ADMIN_EMAIL="$admin_email"
     # Spaces run inside k3d; the station is on the host — they reach the
-    # credits API through k3d's host alias. No ingress in this loop, so the
-    # public URL (minted into spaces as SYFT_CLUSTER_PUBLIC_URL for buyer-facing
-    # links) is that same host alias.
+    # credits API through k3d's host alias. The station is off its own domain
+    # here, so we can't derive its public URL from the setup domain — override
+    # both the internal credits URL and the buyer-facing public URL (minted
+    # into spaces as SYFT_CLUSTER_PUBLIC_URL) to that same host alias.
     export SYFT_STATION_CREDITS_URL=http://host.k3d.internal:8090
     export SYFT_STATION_PUBLIC_URL=http://host.k3d.internal:8090
     [ -n "$hub_url" ] && export SYFT_STATION_SYFTHUB_URL="$hub_url"
@@ -171,7 +173,7 @@ up admin="" hub="": ensure-cluster station-image
     kubectl -n {{namespace}} rollout status deploy/{{release}} --timeout=180s
     echo ""
     echo "Syft Station is up: http://station.localhost"
-    echo "First-run setup domain: spaces.localhost"
+    echo "First-run setup domain: station.localhost"
 
 # Tear the whole cluster down (station, spaces, and all data).
 down:

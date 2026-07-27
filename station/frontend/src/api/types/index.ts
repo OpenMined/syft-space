@@ -21,6 +21,9 @@ export interface SetupResponse {
   domain: string
   supported_version: string
   onboarded: boolean
+  /** The station's own public host, shown at onboarding so the admin confirms
+   *  it and hangs spaces off it. Empty in host-run dev (type the domain). */
+  station_host: string
 }
 
 export interface UpdateSetupBody {

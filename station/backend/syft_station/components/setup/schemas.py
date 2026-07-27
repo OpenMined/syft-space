@@ -13,6 +13,11 @@ class SetupResponse(BaseModel):
     domain: str
     supported_version: str
     onboarded: bool
+    station_host: str = ""
+    """The station's own public host (from its ingress), shown at onboarding so
+    the admin confirms rather than retypes it — spaces live at <subdomain> of
+    it, optionally under a prefix. Empty when the station doesn't know its
+    public URL (host-run dev), where the admin types the domain freely."""
 
 
 class UpdateSetupRequest(BaseModel):
