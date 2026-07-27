@@ -113,22 +113,24 @@ def build_credits_routes(
         """Whether credits can be bought, and the bundle catalog."""
         return await checkout_handler.wallet_info()
 
-    @router.post("/checkout", response_model=CheckoutResponse)
+    @router.post("/{wallet_id}/checkout", response_model=CheckoutResponse)
     async def create_checkout(
+        wallet_id: UUID,
         body: CheckoutRequest,
         user: SessionUser = Depends(get_current_user),
     ) -> CheckoutResponse:
         """Start a hosted checkout for an amount; redirect to checkout_url."""
         return await checkout_handler.create_checkout(
-            user.email, body.amount, body.label
+            wallet_id, user.email, body.amount, body.label
         )
 
-    @router.get("/me", response_model=MyCreditsResponse)
+    @router.get("/{wallet_id}/me", response_model=MyCreditsResponse)
     async def my_credits(
+        wallet_id: UUID,
         user: SessionUser = Depends(get_current_user),
     ) -> MyCreditsResponse:
         """The signed-in user's balance, purchases, and spend history."""
-        return await checkout_handler.my_credits(user.email)
+        return await checkout_handler.my_credits(wallet_id, user.email)
 
     @router.get("/earnings/mine", response_model=MemberEarningsResponse)
     async def my_earnings(

@@ -8,7 +8,7 @@ payload shape, error handling, and session parsing included.
 from __future__ import annotations
 
 import json
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest_asyncio
@@ -273,10 +273,12 @@ async def test_wallet_info_unconfigured_and_configured(testbed: CheckoutTestbed)
 
 async def test_checkout_creates_invoice_then_session(testbed: CheckoutTestbed):
     await testbed.setup_wallet()
+    wallet = await testbed.wallets.get_active()
 
     async with testbed.client() as client:
         response = await client.post(
-            "/api/v1/credits/checkout", json={"amount": 500, "label": "Basic"}
+            f"/api/v1/credits/{wallet.id}/checkout",
+            json={"amount": 500, "label": "Basic"},
         )
 
     assert response.status_code == 200, response.text
@@ -293,16 +295,22 @@ async def test_checkout_creates_invoice_then_session(testbed: CheckoutTestbed):
     assert invoice.provider_session_id == "ps-123"
 
 
-async def test_checkout_without_wallet_409_and_bad_amount_422(
+async def test_checkout_unknown_wallet_404_and_bad_amount_422(
     testbed: CheckoutTestbed,
 ):
+    # Buyer routes are wallet-scoped: an unknown wallet id is a 404.
     async with testbed.client() as client:
-        no_wallet = await client.post("/api/v1/credits/checkout", json={"amount": 500})
-    assert no_wallet.status_code == 409
+        unknown = await client.post(
+            f"/api/v1/credits/{uuid4()}/checkout", json={"amount": 500}
+        )
+    assert unknown.status_code == 404
 
     await testbed.setup_wallet()
+    wallet = await testbed.wallets.get_active()
     async with testbed.client() as client:
-        bad_amount = await client.post("/api/v1/credits/checkout", json={"amount": 0})
+        bad_amount = await client.post(
+            f"/api/v1/credits/{wallet.id}/checkout", json={"amount": 0}
+        )
     assert bad_amount.status_code == 422  # amount must be > 0
 
 
@@ -310,11 +318,13 @@ async def test_checkout_provider_failure_leaves_invoice_pending(
     testbed: CheckoutTestbed,
 ):
     await testbed.setup_wallet()
+    wallet = await testbed.wallets.get_active()
     testbed.stub = xendit_down
 
     async with testbed.client() as client:
         response = await client.post(
-            "/api/v1/credits/checkout", json={"amount": 500, "label": "Basic"}
+            f"/api/v1/credits/{wallet.id}/checkout",
+            json={"amount": 500, "label": "Basic"},
         )
     assert response.status_code == 502
 
@@ -344,9 +354,11 @@ def paid_event(reference: str) -> dict:
 async def checkout(
     testbed: CheckoutTestbed, amount: float = 500.0, label: str = "Basic"
 ) -> dict:
+    wallet = await testbed.wallets.get_active()
     async with testbed.client() as client:
         response = await client.post(
-            "/api/v1/credits/checkout", json={"amount": amount, "label": label}
+            f"/api/v1/credits/{wallet.id}/checkout",
+            json={"amount": amount, "label": label},
         )
         assert response.status_code == 200
         return response.json()

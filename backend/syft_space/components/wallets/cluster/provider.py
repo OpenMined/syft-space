@@ -51,7 +51,10 @@ class ClusterWalletProvider:
         if not app_settings.cluster.public_url:
             return PaymentInfo(bundles, None, None, None, managed=True)
         base = str(app_settings.cluster.public_url).rstrip("/")
-        prefix = f"{base}/api/v1/credits"
+        # Scope the buyer routes by wallet id — symmetric with the self-hosted
+        # gateway routes (/payments/gateway/wallets/{id}/…) and stable if the
+        # station ever hosts more than one wallet.
+        prefix = f"{base}/api/v1/credits/{wallet_id}"
         return PaymentInfo(
             bundles=bundles,
             payment_url=f"{prefix}/checkout",

@@ -330,8 +330,9 @@ async def test_my_credits_shows_balance_topups_and_spend(testbed: EarningsTestbe
         assert await ledger.balances.atomic_deduct(USER, 2.5)
         await ledger.commit()
 
+    wallet = await WalletRepository(testbed.db).get_active()
     async with testbed.client() as client:
-        body = (await client.get("/api/v1/credits/me")).json()
+        body = (await client.get(f"/api/v1/credits/{wallet.id}/me")).json()
 
     assert body["balance"] == 497.5
     assert body["currency"] == "PHP"
@@ -344,8 +345,9 @@ async def test_my_credits_shows_balance_topups_and_spend(testbed: EarningsTestbe
 
 
 async def test_my_credits_fresh_user_is_empty(testbed: EarningsTestbed):
+    wallet = await WalletRepository(testbed.db).get_active()
     async with testbed.client() as client:
-        body = (await client.get("/api/v1/credits/me")).json()
+        body = (await client.get(f"/api/v1/credits/{wallet.id}/me")).json()
     assert body == {"balance": 0.0, "currency": "PHP", "top_ups": [], "spend": []}
 
 

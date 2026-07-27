@@ -325,16 +325,27 @@ class CheckoutHandler:
     async def wallet_info(self) -> WalletStatusResponse:
         return _wallet_status(await self.wallets.get_active())
 
-    async def my_credits(self, user_email: str) -> MyCreditsResponse:
+    async def _resolve_wallet(self, wallet_id: UUID) -> Wallet:
+        """The wallet a buyer URL names, or 404. Buyer routes are scoped by
+        wallet id (published that way), so the balance/checkout they hit is
+        explicit rather than 'whichever wallet is active'."""
+        wallet = await self.wallets.get_by_id(wallet_id)
+        if wallet is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found"
+            )
+        return wallet
+
+    async def my_credits(self, wallet_id: UUID, user_email: str) -> MyCreditsResponse:
         """The signed-in user's balance, purchases, and spend history."""
-        wallet = await self.wallets.get_active()
+        wallet = await self._resolve_wallet(wallet_id)
         async with CreditsLedger(self.db) as ledger:
             row = await ledger.balances.get(user_email)
             invoices = await ledger.invoices.list_for_user(user_email)
             entries = await ledger.entries.list_for_user(user_email)
             return MyCreditsResponse(
                 balance=row.balance if row else 0.0,
-                currency=wallet.currency if wallet else "",
+                currency=wallet.currency,
                 top_ups=[
                     TopUpInfo(
                         invoice_id=i.id,
@@ -362,7 +373,7 @@ class CheckoutHandler:
             )
 
     async def create_checkout(
-        self, user_email: str, amount: float, label: str | None = None
+        self, wallet_id: UUID, user_email: str, amount: float, label: str | None = None
     ) -> CheckoutResponse:
         """Create a PENDING invoice, then the provider session for it.
 
@@ -375,12 +386,7 @@ class CheckoutHandler:
         call fails, the invoice stays PENDING — harmless, and a webhook can
         still settle it if the session actually went through.
         """
-        wallet = await self.wallets.get_active()
-        if wallet is None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="The station has no payment wallet configured",
-            )
+        wallet = await self._resolve_wallet(wallet_id)
         gateway = self.gateways.get(wallet.provider)
         if gateway is None:
             raise HTTPException(

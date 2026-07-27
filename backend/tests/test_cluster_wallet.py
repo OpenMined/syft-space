@@ -378,14 +378,16 @@ def test_cluster_payment_info_points_at_station(monkeypatch):
     monkeypatch.setattr(
         app_settings.cluster, "public_url", "https://station.example.com"
     )
-    info = ClusterWalletProvider().payment_info(_cluster_config("PHP"), uuid4())
+    wallet_id = uuid4()
+    info = ClusterWalletProvider().payment_info(_cluster_config("PHP"), wallet_id)
 
     # Bundles come from the per-currency catalog...
     assert {"name": "Starter", "amount": 100} in info.bundles
-    # ...and every URL targets the station, not this space.
-    assert info.payment_url == "https://station.example.com/api/v1/credits/checkout"
-    assert info.invoices_url == "https://station.example.com/api/v1/credits/me"
-    assert info.credits_url == "https://station.example.com/api/v1/credits/me"
+    # ...and every URL targets the station, scoped to this wallet id.
+    base = f"https://station.example.com/api/v1/credits/{wallet_id}"
+    assert info.payment_url == f"{base}/checkout"
+    assert info.invoices_url == f"{base}/me"
+    assert info.credits_url == f"{base}/me"
     # ...and it's flagged managed with the station's URL for the marketplace.
     assert info.managed is True
     assert info.station_url == "https://station.example.com"
