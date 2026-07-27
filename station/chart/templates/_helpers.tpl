@@ -59,3 +59,16 @@ app.kubernetes.io/component: {{ .component }}
 {{- define "syft-station.doclingUrl" -}}
 {{- printf "http://%s:%v" .Values.docling.service.name .Values.docling.service.port -}}
 {{- end -}}
+
+{{/*
+Public base URL of the station, derived from its own ingress host (the single
+source of truth for where it's publicly reachable). Minted into each space
+Secret as SYFT_CLUSTER_PUBLIC_URL so buyers reach checkout/balance. Empty when
+the ingress is disabled — no public address, so buyer URLs are simply omitted.
+*/}}
+{{- define "syft-station.publicUrl" -}}
+{{- if .Values.station.ingress.enabled -}}
+{{- $scheme := ternary "https" "http" .Values.station.ingress.tls.enabled -}}
+{{- printf "%s://%s" $scheme .Values.station.ingress.host -}}
+{{- end -}}
+{{- end -}}

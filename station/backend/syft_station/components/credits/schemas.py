@@ -62,18 +62,17 @@ class WalletSetupRequest(BaseModel):
     )
 
 
-class BundleInfo(BaseModel):
-    name: str
-    amount: float
-
-
 class WalletStatusResponse(BaseModel):
-    """Wallet state without secrets — served to admin and buyers alike."""
+    """Wallet state without secrets — served to admin and buyers alike.
+
+    Bundles are intentionally absent: the purchase catalog lives with the
+    spaces (per-currency, published on their endpoints). The station only
+    moves money — it charges whatever amount a checkout names.
+    """
 
     configured: bool
     provider: str | None = None
     currency: str | None = None
-    bundles: list[BundleInfo] = []
 
 
 class WalletSetupResponse(WalletStatusResponse):
@@ -87,7 +86,10 @@ class WalletSetupResponse(WalletStatusResponse):
 
 
 class CheckoutRequest(BaseModel):
-    bundle_name: str
+    amount: float = Field(gt=0, description="Top-up amount in the wallet currency")
+    label: str | None = Field(
+        default=None, description="Optional display label (e.g. the bundle name)"
+    )
 
 
 class CheckoutResponse(BaseModel):

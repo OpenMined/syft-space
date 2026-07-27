@@ -110,8 +110,11 @@ dev admin="" hub="": cluster
     export SYFT_STATION_SPACE_IMAGE=ghcr.io/openmined/syft-space
     export SYFT_STATION_ADMIN_EMAIL="$admin_email"
     # Spaces run inside k3d; the station is on the host — they reach the
-    # credits API through k3d's host alias.
+    # credits API through k3d's host alias. No ingress in this loop, so the
+    # public URL (minted into spaces as SYFT_CLUSTER_PUBLIC_URL for buyer-facing
+    # links) is that same host alias.
     export SYFT_STATION_CREDITS_URL=http://host.k3d.internal:8090
+    export SYFT_STATION_PUBLIC_URL=http://host.k3d.internal:8090
     [ -n "$hub_url" ] && export SYFT_STATION_SYFTHUB_URL="$hub_url"
     # Fixed dev secret so sessions survive reloads/restarts (never used in prod).
     export SYFT_STATION_SESSION_SECRET="dev-not-secret-session-key"

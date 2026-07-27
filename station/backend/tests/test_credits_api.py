@@ -116,7 +116,7 @@ async def testbed(db: AsyncDatabase) -> CreditsTestbed:
     rollout = WalletRollout(
         SpaceRepository(db),
         MockProvisioner(),
-        SpaceCreditsService(wallets, tokens, "http://station.test"),
+        SpaceCreditsService(wallets, tokens, "http://station.test", "http://pub.test"),
     )
     app.include_router(
         build_credits_routes(

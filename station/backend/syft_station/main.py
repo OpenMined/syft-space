@@ -92,7 +92,10 @@ payment_gateways = {
 
 credits_handler = CreditsHandler(database, wallet_repository, credit_token_repository)
 space_credits_service = SpaceCreditsService(
-    wallet_repository, credit_token_repository, app_settings.credits_url
+    wallet_repository,
+    credit_token_repository,
+    app_settings.credits_url,
+    app_settings.public_url,
 )
 wallet_rollout = WalletRollout(space_repository, provisioner, space_credits_service)
 wallet_admin_handler = WalletAdminHandler(

@@ -1,9 +1,7 @@
 import { apiClient } from '@/api/client'
 import type {
-  CheckoutResponse,
   EarningsResponse,
   MemberEarningsResponse,
-  MyCreditsResponse,
   OutstandingBalancesResponse,
   PayoutBody,
   PayoutRecordedResponse,
@@ -13,13 +11,8 @@ import type {
 } from '@/api/types'
 
 export const creditsApi = {
-  /** Any signed-in user: is a wallet configured, currency + bundle catalog. */
+  /** Any signed-in user: whether a wallet is configured, plus its currency. */
   wallet: (): Promise<WalletStatusResponse> => apiClient.get('/credits/wallet'),
-  /** Start a hosted checkout; redirect the buyer to checkout_url. */
-  checkout: (bundleName: string): Promise<CheckoutResponse> =>
-    apiClient.post('/credits/checkout', { bundle_name: bundleName }),
-  /** The signed-in user's balance, purchases, and spend history. */
-  me: (): Promise<MyCreditsResponse> => apiClient.get('/credits/me'),
   /** What the member's own spaces earned and are still owed. */
   myEarnings: (): Promise<MemberEarningsResponse> => apiClient.get('/credits/earnings/mine'),
   /** Admin: wallet state, never credentials. */

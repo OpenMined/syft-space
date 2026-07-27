@@ -70,6 +70,11 @@ spec:
             # station Service, no ingress round-trip.
             - name: SYFT_STATION_CREDITS_URL
               value: "http://{{ include "syft-station.fullname" . }}:8090"
+            # Public base URL minted into each space Secret as
+            # SYFT_CLUSTER_PUBLIC_URL — where buyers reach checkout/balance.
+            # Derived from the station's own ingress host so it never drifts.
+            - name: SYFT_STATION_PUBLIC_URL
+              value: {{ include "syft-station.publicUrl" . | quote }}
             {{- range $k, $v := .Values.station.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}

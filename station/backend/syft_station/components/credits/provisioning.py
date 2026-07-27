@@ -44,10 +44,12 @@ class SpaceCreditsService:
         wallets: WalletRepository,
         credit_tokens: SpaceCreditTokenRepository,
         credits_url: str,
+        public_url: str,
     ):
         self.wallets = wallets
         self.credit_tokens = credit_tokens
         self.credits_url = credits_url
+        self.public_url = public_url
 
     async def choose_wallet(self, requested_id: UUID | None) -> UUID | None:
         """Resolve the approve-dialog wallet pick.
@@ -94,7 +96,11 @@ class SpaceCreditsService:
             )
         )
         return CreditsGrant(
-            url=self.credits_url, token=plaintext, currency=wallet.currency
+            url=self.credits_url,
+            token=plaintext,
+            currency=wallet.currency,
+            wallet_id=str(wallet.id),
+            public_url=self.public_url,
         )
 
     async def revoke_space(self, space_id: UUID) -> None:
@@ -140,6 +146,8 @@ class WalletRollout:
                         "SYFT_CLUSTER_CREDITS_URL": grant.url,
                         "SYFT_CLUSTER_CREDITS_TOKEN": grant.token,
                         "SYFT_CLUSTER_CREDITS_CURRENCY": grant.currency,
+                        "SYFT_CLUSTER_CREDITS_WALLET_ID": grant.wallet_id,
+                        "SYFT_CLUSTER_PUBLIC_URL": grant.public_url,
                     },
                 )
                 space.wallet_id = wallet_id

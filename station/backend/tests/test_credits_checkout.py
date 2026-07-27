@@ -44,6 +44,7 @@ from tests.conftest import ADMIN, MEMBER
 
 XENDIT_URL = "https://xendit.test"
 CREDITS_URL = "http://station.test:8090"
+PUBLIC_URL = "http://station.public"
 
 SETUP_BODY = {
     "provider": "xendit",
@@ -118,7 +119,7 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
     wallets = WalletRepository(db)
     tokens = SpaceCreditTokenRepository(db)
     patcher = RecordingPatcher()
-    credits_service = SpaceCreditsService(wallets, tokens, CREDITS_URL)
+    credits_service = SpaceCreditsService(wallets, tokens, CREDITS_URL, PUBLIC_URL)
     rollout = WalletRollout(SpaceRepository(db), patcher, credits_service)
 
     gateway = XenditGateway(XENDIT_URL)
@@ -160,7 +161,7 @@ async def test_setup_wallet_and_read_back_without_secrets(testbed: CheckoutTestb
     created = await testbed.setup_wallet()
     assert created["configured"] is True
     assert created["provider"] == "xendit" and created["currency"] == "PHP"
-    assert [b["name"] for b in created["bundles"]][:2] == ["Starter", "Basic"]
+    assert "bundles" not in created  # the catalog lives with the spaces now
     assert "credentials" not in json.dumps(created)
     assert "xnd_test_key" not in json.dumps(created)
 
@@ -259,7 +260,6 @@ async def test_wallet_info_unconfigured_and_configured(testbed: CheckoutTestbed)
         "configured": False,
         "provider": None,
         "currency": None,
-        "bundles": [],
     }
 
     await testbed.setup_wallet()
@@ -267,7 +267,8 @@ async def test_wallet_info_unconfigured_and_configured(testbed: CheckoutTestbed)
         after = await client.get("/api/v1/credits/wallet")
     body = after.json()
     assert body["configured"] is True
-    assert {"name": "Starter", "amount": 100.0} in body["bundles"]
+    assert body["currency"] == "PHP"
+    assert "bundles" not in body
 
 
 async def test_checkout_creates_invoice_then_session(testbed: CheckoutTestbed):
@@ -275,7 +276,7 @@ async def test_checkout_creates_invoice_then_session(testbed: CheckoutTestbed):
 
     async with testbed.client() as client:
         response = await client.post(
-            "/api/v1/credits/checkout", json={"bundle_name": "Basic"}
+            "/api/v1/credits/checkout", json={"amount": 500, "label": "Basic"}
         )
 
     assert response.status_code == 200, response.text
@@ -286,27 +287,23 @@ async def test_checkout_creates_invoice_then_session(testbed: CheckoutTestbed):
     invoice = await testbed.get_invoice(body["invoice_id"])
     assert invoice.status == InvoiceStatus.PENDING.value
     assert invoice.user_email == MEMBER.email
+    assert invoice.bundle_name == "Basic"  # label stored for display
     assert invoice.client_reference == f"syft-{body['invoice_id']}"
     assert invoice.checkout_url == body["checkout_url"]
     assert invoice.provider_session_id == "ps-123"
 
 
-async def test_checkout_without_wallet_409_and_unknown_bundle_400(
+async def test_checkout_without_wallet_409_and_bad_amount_422(
     testbed: CheckoutTestbed,
 ):
     async with testbed.client() as client:
-        no_wallet = await client.post(
-            "/api/v1/credits/checkout", json={"bundle_name": "Basic"}
-        )
+        no_wallet = await client.post("/api/v1/credits/checkout", json={"amount": 500})
     assert no_wallet.status_code == 409
 
     await testbed.setup_wallet()
     async with testbed.client() as client:
-        bad_bundle = await client.post(
-            "/api/v1/credits/checkout", json={"bundle_name": "Galactic"}
-        )
-    assert bad_bundle.status_code == 400
-    assert "Starter" in bad_bundle.json()["detail"]
+        bad_amount = await client.post("/api/v1/credits/checkout", json={"amount": 0})
+    assert bad_amount.status_code == 422  # amount must be > 0
 
 
 async def test_checkout_provider_failure_leaves_invoice_pending(
@@ -317,7 +314,7 @@ async def test_checkout_provider_failure_leaves_invoice_pending(
 
     async with testbed.client() as client:
         response = await client.post(
-            "/api/v1/credits/checkout", json={"bundle_name": "Basic"}
+            "/api/v1/credits/checkout", json={"amount": 500, "label": "Basic"}
         )
     assert response.status_code == 502
 
@@ -344,10 +341,12 @@ def paid_event(reference: str) -> dict:
     }
 
 
-async def checkout(testbed: CheckoutTestbed, bundle: str = "Basic") -> dict:
+async def checkout(
+    testbed: CheckoutTestbed, amount: float = 500.0, label: str = "Basic"
+) -> dict:
     async with testbed.client() as client:
         response = await client.post(
-            "/api/v1/credits/checkout", json={"bundle_name": bundle}
+            "/api/v1/credits/checkout", json={"amount": amount, "label": label}
         )
         assert response.status_code == 200
         return response.json()

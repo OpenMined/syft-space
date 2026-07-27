@@ -29,7 +29,6 @@ from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.interfaces import WalletProvider
 from syft_space.components.wallets.repository import WalletRepository
-from syft_space.config import app_settings
 
 
 class PublishEndpointHandler:
@@ -476,29 +475,31 @@ class PublishEndpointHandler:
                 policy_data["config"]["currency"] = wallet.currency
                 if wallet.country:
                     policy_data["config"]["country"] = wallet.country
-                # Prepaid-balance providers surface bundles + wallet-scoped
-                # URLs via the same fields so the SyftHub marketplace renders
-                # them uniformly. Each provider knows how to parse its own
-                # config; non-prepaid providers (MPP) return None.
+                # Prepaid-balance wallets publish payment info: bundles,
+                # a stable wallet id, and the URLs where buyers top up and read
+                # their balance. Each provider builds its own URLs so they point
+                # at wherever the balance lives — this space, or a managing
+                # station. Non-prepaid providers (MPP) return None.
                 provider = self.wallet_providers.get(wallet.wallet_type)
-                bundles = (
-                    provider.extract_bundles(wallet.configuration)
+                info = (
+                    provider.payment_info(wallet.configuration, wallet.id)
                     if provider is not None
                     else None
                 )
-                if bundles is not None:
-                    policy_data["config"]["bundles"] = bundles
-                    if app_settings.public_url:
-                        base = str(app_settings.public_url).rstrip("/")
-                        policy_data["config"]["payment_url"] = (
-                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices"
-                        )
-                        policy_data["config"]["invoices_url"] = (
-                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/invoices/me"
-                        )
-                        policy_data["config"]["credits_url"] = (
-                            f"{base}/api/v1/payments/gateway/wallets/{wallet.id}/balance"
-                        )
+                if info is not None:
+                    # Identical across every space sharing this wallet, so a
+                    # marketplace groups them as one fungible balance; the
+                    # managed flag + station URL let it recognize and link a
+                    # station-hosted space.
+                    policy_data["config"]["wallet_id"] = str(wallet.id)
+                    policy_data["config"]["managed"] = info.managed
+                    if info.station_url:
+                        policy_data["config"]["station_url"] = info.station_url
+                    policy_data["config"]["bundles"] = info.bundles
+                    if info.payment_url:
+                        policy_data["config"]["payment_url"] = info.payment_url
+                        policy_data["config"]["invoices_url"] = info.invoices_url
+                        policy_data["config"]["credits_url"] = info.credits_url
 
             policies.append(policy_data)
 

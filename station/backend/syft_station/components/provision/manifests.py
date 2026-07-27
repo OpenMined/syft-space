@@ -100,6 +100,8 @@ def render_space_manifests(
                 "SYFT_CLUSTER_CREDITS_URL": spec.credits_url,
                 "SYFT_CLUSTER_CREDITS_TOKEN": spec.credits_token,
                 "SYFT_CLUSTER_CREDITS_CURRENCY": spec.credits_currency,
+                "SYFT_CLUSTER_CREDITS_WALLET_ID": spec.credits_wallet_id,
+                "SYFT_CLUSTER_PUBLIC_URL": spec.credits_public_url,
             }
         )
     return manifests

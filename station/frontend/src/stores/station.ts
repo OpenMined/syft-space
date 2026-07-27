@@ -200,7 +200,6 @@ export const useStationStore = defineStore('station', () => {
     return {
       provider: w.provider as WalletProvider,
       currency: w.currency,
-      bundles: w.bundles,
     }
   }
 

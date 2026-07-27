@@ -118,8 +118,10 @@ def build_credits_routes(
         body: CheckoutRequest,
         user: SessionUser = Depends(get_current_user),
     ) -> CheckoutResponse:
-        """Start a hosted checkout for a bundle; redirect to checkout_url."""
-        return await checkout_handler.create_checkout(user.email, body.bundle_name)
+        """Start a hosted checkout for an amount; redirect to checkout_url."""
+        return await checkout_handler.create_checkout(
+            user.email, body.amount, body.label
+        )
 
     @router.get("/me", response_model=MyCreditsResponse)
     async def my_credits(

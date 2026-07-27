@@ -6,7 +6,6 @@ import {
   Copy,
   HandCoins,
   Pencil,
-  ShoppingCart,
   TrendingUp,
   Wallet,
   Webhook,
@@ -51,9 +50,6 @@ onMounted(() => {
 
 const CHART_DAYS = 14
 
-/** Where users buy credits that work at every space in the station. */
-const checkoutUrl = computed(() => `${window.location.origin}${window.location.pathname}#/credits`)
-
 /** Where the payment provider must deliver its events. */
 const webhookUrl = computed(() => `${window.location.origin}/api/v1/credits/webhooks/xendit`)
 
@@ -80,11 +76,6 @@ const recentTopUps = computed(() => station.topUps.slice(0, 6))
 
 const currency = computed(() => station.wallet?.currency ?? 'USD')
 
-function copyCheckoutUrl() {
-  navigator.clipboard.writeText(checkoutUrl.value)
-  toast('Checkout link copied', { description: 'Share it with anyone who needs credits.' })
-}
-
 function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
@@ -103,14 +94,6 @@ function formatDay(iso: string): string {
           </div>
           <button
             class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
-            @click="copyCheckoutUrl"
-          >
-            <ShoppingCart class="h-3 w-3" />
-            {{ checkoutUrl }}
-            <Copy class="h-3 w-3" />
-          </button>
-          <button
-            class="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
             title="Xendit delivers payment events here — set it under Settings → Developers → Webhooks"
             @click="copyWebhookUrl"
           >

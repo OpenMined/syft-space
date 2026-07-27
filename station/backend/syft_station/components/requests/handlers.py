@@ -311,6 +311,8 @@ class RequestHandler:
             credits_url=grant.url if grant else "",
             credits_token=grant.token if grant else "",
             credits_currency=grant.currency if grant else "",
+            credits_wallet_id=grant.wallet_id if grant else "",
+            credits_public_url=grant.public_url if grant else "",
         )
 
         try:

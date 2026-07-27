@@ -27,6 +27,8 @@ class CreditsGrant:
     url: str
     token: str  # plaintext — destined for the space's k8s Secret only
     currency: str
+    wallet_id: str  # the space adopts this so all spaces on the wallet share one id
+    public_url: str  # station's public base URL, published on paid endpoints
 
 
 class SpaceRuntimeStatus(StrEnum):
@@ -53,10 +55,13 @@ class SpaceSpec(BaseModel):
     domain: str
     admin_token: str
     # Managed credits (all-or-nothing; empty token = space has no wallet).
-    # Rendered into the space Secret as SYFT_CLUSTER_CREDITS_{URL,TOKEN,CURRENCY}.
+    # Rendered into the space Secret as SYFT_CLUSTER_CREDITS_{URL,TOKEN,CURRENCY,
+    # WALLET_ID} and SYFT_CLUSTER_PUBLIC_URL.
     credits_url: str = ""
     credits_token: str = ""
     credits_currency: str = ""
+    credits_wallet_id: str = ""
+    credits_public_url: str = ""
 
 
 class Provisioner(Protocol):

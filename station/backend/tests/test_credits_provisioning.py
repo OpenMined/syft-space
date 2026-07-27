@@ -27,6 +27,7 @@ from syft_station.components.requests.schemas import (
 from tests.conftest import ADMIN, MEMBER
 
 CREDITS_URL = "http://station.test:8090"
+PUBLIC_URL = "http://station.public"
 
 
 class SpecRecordingProvisioner:
@@ -58,7 +59,7 @@ def credit_tokens(db) -> SpaceCreditTokenRepository:
 
 @pytest.fixture
 def credits_service(wallets, credit_tokens) -> SpaceCreditsService:
-    return SpaceCreditsService(wallets, credit_tokens, CREDITS_URL)
+    return SpaceCreditsService(wallets, credit_tokens, CREDITS_URL, PUBLIC_URL)
 
 
 @pytest.fixture
@@ -119,6 +120,10 @@ async def test_approve_attaches_station_wallet_by_default(
     assert spec.credits_url == CREDITS_URL
     assert spec.credits_currency == "PHP"
     assert spec.credits_token.startswith("sct_")
+    # Station wallet id + public URL flow down so the space adopts one id and
+    # publishes station-hosted buyer URLs.
+    assert spec.credits_wallet_id == str(wallet.id)
+    assert spec.credits_public_url == PUBLIC_URL
 
     # The minted plaintext in the Secret verifies back to this space+wallet.
     binding = await credit_tokens.get_active_by_hash(

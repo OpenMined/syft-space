@@ -27,7 +27,10 @@ from tests.conftest import ADMIN, MEMBER, OTHER_MEMBER
 def credits_service(db) -> SpaceCreditsService:
     """Real service over an empty wallets table — the no-wallet station."""
     return SpaceCreditsService(
-        WalletRepository(db), SpaceCreditTokenRepository(db), "http://station.test"
+        WalletRepository(db),
+        SpaceCreditTokenRepository(db),
+        "http://station.test",
+        "http://station.public",
     )
 
 

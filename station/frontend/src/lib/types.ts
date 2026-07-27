@@ -44,17 +44,10 @@ export interface Space {
 /** Gateway providers only — MPP is explicitly outside the shared-wallet flow. */
 export type WalletProvider = 'xendit' | 'stripe'
 
-/** A purchasable credits bundle from the wallet's static catalog. */
-export interface MoneyBundle {
-  name: string
-  amount: number
-}
-
 /** The station's shared gateway wallet (credentials never leave the server). */
 export interface SharedWallet {
   provider: WalletProvider
   currency: string
-  bundles: MoneyBundle[]
 }
 
 /** A settled credits purchase (the admin feed and the buyer's history). */

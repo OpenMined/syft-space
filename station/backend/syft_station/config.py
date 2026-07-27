@@ -154,6 +154,16 @@ class AppSettings(BaseSettings):
             "host-run dev overrides it (e.g. http://host.k3d.internal:8090)."
         ),
     )
+    public_url: str = Field(
+        default="",
+        description=(
+            "Public base URL of the station (their Secret's "
+            "SYFT_CLUSTER_PUBLIC_URL). Published on managed endpoints so buyers "
+            "reach the station's checkout/balance routes. Distinct from "
+            "credits_url, which is the internal space→station debit path. Empty "
+            "→ endpoints publish bundles but no buyer URLs."
+        ),
+    )
 
     # Payment providers
     xendit_api_url: str = Field(

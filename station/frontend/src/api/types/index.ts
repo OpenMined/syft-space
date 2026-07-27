@@ -105,17 +105,13 @@ export interface ImageTagResponse {
 
 // ---- Credits ----
 
-export interface BundleInfo {
-  name: string
-  amount: number
-}
-
-/** Wallet state without secrets — served to admin and buyers alike. */
+/** Wallet state without secrets. The purchasable bundle catalog lives with
+ *  the spaces (published on their endpoints), not here — the station only
+ *  moves money. */
 export interface WalletStatusResponse {
   configured: boolean
   provider: string | null
   currency: string | null
-  bundles: BundleInfo[]
 }
 
 export interface WalletSetupBody {
@@ -130,13 +126,6 @@ export interface WalletSetupResponse extends WalletStatusResponse {
   spaces_failed: number
 }
 
-export interface CheckoutResponse {
-  invoice_id: string
-  checkout_url: string
-  amount: number
-  currency: string
-}
-
 export interface TopUpResponse {
   invoice_id: string
   user_email: string
@@ -146,22 +135,6 @@ export interface TopUpResponse {
   status: string
   created_at: string
   paid_at: string | null
-}
-
-export interface SpendEntryResponse {
-  transaction_id: string
-  type: 'debit' | 'cancelled'
-  space_id: string
-  endpoint: string
-  amount: number
-  created_at: string
-}
-
-export interface MyCreditsResponse {
-  balance: number
-  currency: string
-  top_ups: TopUpResponse[]
-  spend: SpendEntryResponse[]
 }
 
 export interface EarningsTotalsResponse {

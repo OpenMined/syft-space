@@ -235,19 +235,14 @@ class CreditsHandler:
         )
 
 
-def _wallet_status(
-    wallet: Wallet | None, gateways: dict[str, PaymentGateway]
-) -> WalletStatusResponse:
+def _wallet_status(wallet: Wallet | None) -> WalletStatusResponse:
     """Wallet state without secrets — shared by the admin and buyer views."""
     if wallet is None:
         return WalletStatusResponse(configured=False)
-    gateway = gateways.get(wallet.provider)
-    bundles = gateway.bundles(wallet.currency) if gateway else []
     return WalletStatusResponse(
         configured=True,
         provider=wallet.provider,
         currency=wallet.currency,
-        bundles=[{"name": b.name, "amount": b.amount} for b in bundles],
     )
 
 
@@ -265,7 +260,7 @@ class WalletAdminHandler:
         self.rollout = rollout
 
     async def get(self) -> WalletStatusResponse:
-        return _wallet_status(await self.wallets.get_active(), self.gateways)
+        return _wallet_status(await self.wallets.get_active())
 
     async def setup(self, body: WalletSetupRequest) -> WalletSetupResponse:
         """Create the wallet, or replace its provider/credentials in place.
@@ -308,7 +303,7 @@ class WalletAdminHandler:
         # attached now; their Secrets apply on restart.
         attached, failed = await self.rollout.attach_unbound_spaces(wallet.id)
 
-        response = _wallet_status(wallet, self.gateways)
+        response = _wallet_status(wallet)
         return WalletSetupResponse(
             **response.model_dump(), spaces_attached=attached, spaces_failed=failed
         )
@@ -328,7 +323,7 @@ class CheckoutHandler:
         self.gateways = gateways
 
     async def wallet_info(self) -> WalletStatusResponse:
-        return _wallet_status(await self.wallets.get_active(), self.gateways)
+        return _wallet_status(await self.wallets.get_active())
 
     async def my_credits(self, user_email: str) -> MyCreditsResponse:
         """The signed-in user's balance, purchases, and spend history."""
@@ -367,9 +362,13 @@ class CheckoutHandler:
             )
 
     async def create_checkout(
-        self, user_email: str, bundle_name: str
+        self, user_email: str, amount: float, label: str | None = None
     ) -> CheckoutResponse:
         """Create a PENDING invoice, then the provider session for it.
+
+        The amount is charged as-is — credits are 1:1 with the wallet
+        currency, so there's nothing to validate against a catalog (the
+        spaces own the purchasable bundles). ``label`` is display-only.
 
         Order matters: the invoice exists before the provider call, so a
         provider session can never outlive the local row. If the provider
@@ -387,16 +386,7 @@ class CheckoutHandler:
             raise HTTPException(
                 status_code=500, detail=f"No gateway for provider '{wallet.provider}'"
             )
-        bundle = next(
-            (b for b in gateway.bundles(wallet.currency) if b.name == bundle_name),
-            None,
-        )
-        if bundle is None:
-            available = [b.name for b in gateway.bundles(wallet.currency)]
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Bundle '{bundle_name}' not found. Available: {available}",
-            )
+        display = label or "Credits top-up"
 
         invoice_id = uuid4()
         invoice = Invoice(
@@ -404,8 +394,8 @@ class CheckoutHandler:
             user_email=user_email,
             provider=wallet.provider,
             client_reference=f"syft-{invoice_id}",
-            bundle_name=bundle.name,
-            amount=bundle.amount,
+            bundle_name=display,
+            amount=amount,
             currency=wallet.currency,
         )
         async with CreditsLedger(self.db) as ledger:
@@ -414,10 +404,10 @@ class CheckoutHandler:
 
         payment = await gateway.create_payment(
             reference_id=f"syft-{invoice_id}",
-            amount=bundle.amount,
+            amount=amount,
             currency=wallet.currency,
             payer_email=user_email,
-            description=f"Syft Station credits — {bundle.name}",
+            description=f"Syft Station credits — {display}",
             credentials=wallet.credentials,
         )
 
@@ -430,7 +420,7 @@ class CheckoutHandler:
         return CheckoutResponse(
             invoice_id=invoice_id,
             checkout_url=payment.checkout_url,
-            amount=bundle.amount,
+            amount=amount,
             currency=wallet.currency,
         )
 

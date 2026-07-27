@@ -129,7 +129,7 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
     rollout = WalletRollout(
         SpaceRepository(db),
         MockProvisioner(),
-        SpaceCreditsService(wallets, tokens, "http://station.test"),
+        SpaceCreditsService(wallets, tokens, "http://station.test", "http://pub.test"),
     )
     app = FastAPI()
     app.include_router(

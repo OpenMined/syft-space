@@ -1,24 +1,15 @@
 """Payment gateway seam — one protocol per payment provider.
 
-A gateway owns everything provider-specific: credential validation, the
-bundle catalog, hosted-checkout session creation, and webhook verification
-+ normalization. Handlers stay provider-agnostic and dispatch by the
-wallet's ``provider`` string; adding a provider means implementing this
-protocol and registering it in main.py — no handler changes.
+A gateway owns everything provider-specific: credential validation,
+hosted-checkout session creation, and webhook verification + normalization.
+Handlers stay provider-agnostic and dispatch by the wallet's ``provider``
+string; adding a provider means implementing this protocol and registering
+it in main.py — no handler changes.
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
-
-from pydantic import BaseModel, Field
-
-
-class MoneyBundle(BaseModel):
-    """A purchasable credits bundle (display name + price)."""
-
-    name: str = Field(description="Display name (e.g. 'Starter', 'Pro')")
-    amount: float = Field(gt=0, description="Price in the wallet currency")
 
 
 @dataclass(frozen=True)
@@ -60,10 +51,6 @@ class PaymentGateway(Protocol):
     def validate_credentials(self, credentials: dict, currency: str) -> dict:
         """Check credential shape + currency support; return the dict to
         store on the wallet. Raises HTTPException on invalid input."""
-        ...
-
-    def bundles(self, currency: str) -> list[MoneyBundle]:
-        """The static purchase catalog for a currency."""
         ...
 
     async def create_payment(

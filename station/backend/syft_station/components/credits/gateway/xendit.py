@@ -21,7 +21,6 @@ from pydantic import BaseModel, ConfigDict
 from syft_station.components.credits.entities import InvoiceStatus
 from syft_station.components.credits.gateway.interfaces import (
     CreatePaymentResult,
-    MoneyBundle,
     WebhookEnvelope,
     WebhookResult,
 )
@@ -35,47 +34,6 @@ CURRENCY_TO_COUNTRY: dict[str, str] = {
     "MYR": "MY",
     "VND": "VN",
     "THB": "TH",
-}
-
-# Purchase catalog per currency. Static by design — admins pick a currency,
-# not prices.
-BUNDLES: dict[str, list[MoneyBundle]] = {
-    "IDR": [
-        MoneyBundle(name="Starter", amount=10_000),
-        MoneyBundle(name="Basic", amount=50_000),
-        MoneyBundle(name="Pro", amount=100_000),
-        MoneyBundle(name="Enterprise", amount=500_000),
-    ],
-    "PHP": [
-        MoneyBundle(name="Starter", amount=100),
-        MoneyBundle(name="Basic", amount=500),
-        MoneyBundle(name="Pro", amount=1_000),
-        MoneyBundle(name="Enterprise", amount=5_000),
-    ],
-    "SGD": [
-        MoneyBundle(name="Starter", amount=1),
-        MoneyBundle(name="Basic", amount=5),
-        MoneyBundle(name="Pro", amount=10),
-        MoneyBundle(name="Enterprise", amount=50),
-    ],
-    "MYR": [
-        MoneyBundle(name="Starter", amount=5),
-        MoneyBundle(name="Basic", amount=20),
-        MoneyBundle(name="Pro", amount=50),
-        MoneyBundle(name="Enterprise", amount=200),
-    ],
-    "VND": [
-        MoneyBundle(name="Starter", amount=25_000),
-        MoneyBundle(name="Basic", amount=100_000),
-        MoneyBundle(name="Pro", amount=250_000),
-        MoneyBundle(name="Enterprise", amount=1_000_000),
-    ],
-    "THB": [
-        MoneyBundle(name="Starter", amount=35),
-        MoneyBundle(name="Basic", amount=150),
-        MoneyBundle(name="Pro", amount=350),
-        MoneyBundle(name="Enterprise", amount=1_500),
-    ],
 }
 
 
@@ -190,9 +148,6 @@ class XenditGateway:
                 detail="Xendit needs both api_key and callback_token",
             )
         return {"api_key": api_key, "callback_token": callback_token}
-
-    def bundles(self, currency: str) -> list[MoneyBundle]:
-        return BUNDLES.get(currency, [])
 
     async def create_payment(
         self,
