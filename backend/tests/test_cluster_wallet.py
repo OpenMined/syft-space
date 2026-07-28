@@ -378,10 +378,12 @@ def test_cluster_payment_info_points_at_station(monkeypatch):
     monkeypatch.setattr(
         app_settings.cluster, "public_url", "https://station.example.com"
     )
+    monkeypatch.setattr(app_settings.cluster, "wallet_owner", 42)
+    monkeypatch.setattr(app_settings.cluster, "bundles", None)
     wallet_id = uuid4()
     info = ClusterWalletProvider().payment_info(_cluster_config("PHP"), wallet_id)
 
-    # Bundles come from the per-currency catalog...
+    # Bundles fall back to the per-currency catalog (no injected catalog)...
     assert {"name": "Starter", "amount": 100} in info.bundles
     # ...and every URL targets the station, scoped to this wallet id, with
     # the same suffixes as the self-hosted gateway routes.
@@ -389,15 +391,32 @@ def test_cluster_payment_info_points_at_station(monkeypatch):
     assert info.payment_url == f"{base}/invoices"
     assert info.invoices_url == f"{base}/invoices/me"
     assert info.credits_url == f"{base}/balance"
-    # ...and it's flagged managed with the station's URL for the marketplace.
-    assert info.managed is True
-    assert info.station_url == "https://station.example.com"
+    # ...owned by the station admin's hub user id — the presence of an
+    # owner is what marks the wallet as managed.
+    assert info.owner == 42
+
+
+def test_cluster_payment_info_prefers_injected_bundles(monkeypatch):
+    """A station-injected catalog wins over the static table — spaces then
+    advertise exactly what the station will price."""
+    from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
+
+    injected = [{"name": "Custom", "amount": 250}]
+    monkeypatch.setattr(
+        app_settings.cluster, "public_url", "https://station.example.com"
+    )
+    monkeypatch.setattr(app_settings.cluster, "bundles", injected)
+    info = ClusterWalletProvider().payment_info(_cluster_config("PHP"), uuid4())
+
+    assert info.bundles == injected
 
 
 def test_cluster_payment_info_without_public_url(monkeypatch):
     from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
 
     monkeypatch.setattr(app_settings.cluster, "public_url", None)
+    monkeypatch.setattr(app_settings.cluster, "wallet_owner", 42)
+    monkeypatch.setattr(app_settings.cluster, "bundles", None)
     info = ClusterWalletProvider().payment_info(_cluster_config("PHP"), uuid4())
 
     # Bundles still ship so a marketplace can render them; URLs are withheld.
@@ -405,9 +424,8 @@ def test_cluster_payment_info_without_public_url(monkeypatch):
     assert info.payment_url is None
     assert info.invoices_url is None
     assert info.credits_url is None
-    # Still recognizably managed, just without a link.
-    assert info.managed is True
-    assert info.station_url is None
+    # Still recognizably managed (owner present), just without a link.
+    assert info.owner == 42
 
 
 # ============== Exclusivity guards ==============

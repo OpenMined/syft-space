@@ -1,8 +1,9 @@
 """Cluster wallet provider.
 
-Exists for display/config plumbing only — cluster wallets are seeded
-from env at startup (see ``wallets/seed.py``), never created through
-the wallet API.
+Cluster wallets are seeded from env at startup (see ``wallets/seed.py``),
+never created through the wallet API. This provider covers display/config
+plumbing plus the payment surface published on paid endpoints — which for
+a managed wallet points buyers at the station, not this space.
 """
 
 from typing import Any
@@ -42,15 +43,18 @@ class ClusterWalletProvider:
         """Point buyers at the managing station rather than this space.
 
         Balance, top-ups, and checkout all live on the station (which owns
-        the wallet); the space only ever debits against it. Bundles come
-        from the currency-keyed catalog — the same across every space on
-        this wallet, so a marketplace renders one consistent set.
+        the wallet); the space only ever debits against it. Bundles prefer
+        the station-injected catalog (``SYFT_CLUSTER_BUNDLES`` — the exact
+        set the station will price); the static per-currency table is the
+        fallback for spaces started before their station injected one.
         """
         config = ClusterWalletConfig(**configuration)
-        bundles = prepaid_bundles_for(config.currency)
-        if not app_settings.cluster.public_url:
-            return PaymentInfo(bundles, None, None, None, managed=True)
-        base = str(app_settings.cluster.public_url).rstrip("/")
+        cluster = app_settings.cluster
+        bundles = cluster.bundles or prepaid_bundles_for(config.currency)
+        owner = cluster.wallet_owner
+        if not cluster.public_url:
+            return PaymentInfo(bundles, None, None, None, owner=owner)
+        base = str(cluster.public_url).rstrip("/")
         # Wallet-id-scoped, with the same suffixes as the self-hosted gateway
         # (/payments/gateway/wallets/{id}/…): a marketplace buys, dedups, and
         # reads balances through one client regardless of who hosts the wallet.
@@ -60,6 +64,5 @@ class ClusterWalletProvider:
             payment_url=f"{prefix}/invoices",
             invoices_url=f"{prefix}/invoices/me",
             credits_url=f"{prefix}/balance",
-            managed=True,
-            station_url=base,
+            owner=owner,
         )

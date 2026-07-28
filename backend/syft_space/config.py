@@ -54,6 +54,24 @@ class ClusterSettings(BaseSettings):
             "is for space→station debits only)."
         ),
     )
+    wallet_owner: int | None = Field(
+        default=None,
+        description=(
+            "SyftHub user id of the station wallet's owner. Published on "
+            "paid endpoints (as wallet_owner) so the hub mints buyer tokens "
+            "for this user's audience and attributes/groups the station's "
+            "spaces."
+        ),
+    )
+    bundles: list[dict] | None = Field(
+        default=None,
+        description=(
+            "Purchase catalog for the managed wallet, as JSON "
+            '[{"name": …, "amount": …}, …]. Injected by the station (which '
+            "prices bundle purchases from the same table); when absent the "
+            "static per-currency catalog is published instead."
+        ),
+    )
     managed_by: str = Field(
         default="Syft Space Host",
         description=(

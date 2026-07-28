@@ -488,13 +488,15 @@ class PublishEndpointHandler:
                 )
                 if info is not None:
                     # Identical across every space sharing this wallet, so a
-                    # marketplace groups them as one fungible balance; the
-                    # managed flag + station URL let it recognize and link a
-                    # station-hosted space.
+                    # marketplace groups them as one fungible balance.
+                    # wallet_owner (a hub user id) appears only when someone
+                    # other than the publishing user owns the wallet — its
+                    # presence is the "managed" signal, and it tells the hub
+                    # whose audience to mint buyer tokens for and who to
+                    # credit as the host. Absent = the publishing user.
                     policy_data["config"]["wallet_id"] = str(wallet.id)
-                    policy_data["config"]["managed"] = info.managed
-                    if info.station_url:
-                        policy_data["config"]["station_url"] = info.station_url
+                    if info.owner is not None:
+                        policy_data["config"]["wallet_owner"] = info.owner
                     policy_data["config"]["bundles"] = info.bundles
                     if info.payment_url:
                         policy_data["config"]["payment_url"] = info.payment_url

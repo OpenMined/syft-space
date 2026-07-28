@@ -42,13 +42,13 @@ class PaymentInfo:
     credits_url: str | None
     """Where a buyer reads their current balance."""
 
-    managed: bool = False
-    """True when a station owns the wallet — buyers share one balance across
-    every space on it, and the URLs point at the station, not this space."""
-
-    station_url: str | None = None
-    """Public base URL of the managing station (managed wallets only), so a
-    marketplace can recognize and link the space to its station."""
+    owner: int | None = None
+    """SyftHub user id of the wallet's owner — set only when that owner is
+    not the account this space publishes under (i.e. a managing station's
+    admin), so its presence is the "managed" signal. The hub resolves the id
+    to a username to mint buyer tokens with the right audience, shows the
+    space as hosted by that user, and groups every space on the wallet as
+    one shared balance. Absent: the publishing account owns the wallet."""
 
 
 @dataclass
