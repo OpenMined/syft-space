@@ -104,4 +104,14 @@ def render_space_manifests(
                 "SYFT_CLUSTER_PUBLIC_URL": spec.credits_public_url,
             }
         )
+        # These two are optional even with a wallet, and omitted rather than
+        # sent empty — the space parses them as int/JSON, and "" would crash.
+        if spec.credits_wallet_owner:
+            manifests["secret"]["stringData"]["SYFT_CLUSTER_WALLET_OWNER"] = (
+                spec.credits_wallet_owner
+            )
+        if spec.credits_bundles:
+            manifests["secret"]["stringData"]["SYFT_CLUSTER_BUNDLES"] = (
+                spec.credits_bundles
+            )
     return manifests

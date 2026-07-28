@@ -6,11 +6,13 @@ SpaceSpec, retry keeping the attachment intent, and revocation on delete.
 
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 
+from syft_station.components.credits.bundles import PREPAID_BUNDLES
 from syft_station.components.credits.entities import Wallet
 from syft_station.components.credits.provisioning import SpaceCreditsService
 from syft_station.components.credits.repository import (
@@ -92,7 +94,13 @@ async def onboard(setup_repository) -> None:
 
 async def make_wallet(wallets: WalletRepository, currency: str = "PHP") -> Wallet:
     return await wallets.create(
-        Wallet(provider="xendit", currency=currency, credentials={"api_key": "x"})
+        Wallet(
+            provider="xendit",
+            currency=currency,
+            credentials={"api_key": "x"},
+            hub_user_id=42,
+            hub_pat="syft_pat_stub",
+        )
     )
 
 
@@ -124,6 +132,10 @@ async def test_approve_attaches_station_wallet_by_default(
     # publishes station-hosted buyer URLs.
     assert spec.credits_wallet_id == str(wallet.id)
     assert spec.credits_public_url == PUBLIC_URL
+    # Hub owner + the station's own catalog flow down too, so the space
+    # publishes who owns the wallet and exactly what a purchase will cost.
+    assert spec.credits_wallet_owner == "42"
+    assert json.loads(spec.credits_bundles) == PREPAID_BUNDLES["PHP"]
 
     # The minted plaintext in the Secret verifies back to this space+wallet.
     binding = await credit_tokens.get_active_by_hash(
@@ -136,6 +148,23 @@ async def test_approve_attaches_station_wallet_by_default(
     # Intent persisted on the space registry.
     space = await handler.space_repository.get_by_id(approved.space_id)
     assert space.wallet_id == wallet.id
+
+
+async def test_wallet_without_hub_identity_grants_empty_owner(
+    handler, provisioner, wallets, setup_repository
+):
+    """A wallet with no hub identity still provisions; the optional owner
+    stays empty (and is then omitted from the Secret, never sent as "")."""
+    await onboard(setup_repository)
+    await wallets.create(
+        Wallet(provider="xendit", currency="PHP", credentials={"api_key": "x"})
+    )
+
+    await approve_space(handler)
+
+    spec = provisioner.specs[0]
+    assert spec.credits_token.startswith("sct_")
+    assert spec.credits_wallet_owner == ""
 
 
 async def test_approve_without_station_wallet_provisions_bare(

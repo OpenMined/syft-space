@@ -313,6 +313,8 @@ class RequestHandler:
             credits_currency=grant.currency if grant else "",
             credits_wallet_id=grant.wallet_id if grant else "",
             credits_public_url=grant.public_url if grant else "",
+            credits_wallet_owner=grant.wallet_owner if grant else "",
+            credits_bundles=grant.bundles if grant else "",
         )
 
         try:

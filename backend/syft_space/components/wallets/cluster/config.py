@@ -10,10 +10,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-# Prepaid top-up catalog for the managed wallet, keyed by currency — what a
-# marketplace advertises on a managed endpoint. CONTRACT MIRROR: the managing
-# station prices bundle purchases from its own copy of this table; if the two
-# drift, buyers are offered bundles the station won't sell.
+# Prepaid top-up catalog for the managed wallet, keyed by currency — the
+# FALLBACK when the managing station hasn't injected its own catalog
+# (SYFT_CLUSTER_BUNDLES). The station's table is the source of truth (it
+# prices bundle purchases); this copy only covers spaces started before
+# their station injected one.
 CLUSTER_PREPAID_BUNDLES: dict[str, list[dict[str, Any]]] = {
     "IDR": [
         {"name": "Starter", "amount": 10_000},

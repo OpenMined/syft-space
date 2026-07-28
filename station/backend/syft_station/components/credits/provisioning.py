@@ -4,7 +4,8 @@ The request lifecycle calls in at three points, through the
 WalletAttachments Protocol it owns (requests/interfaces.py):
 
     approve   → choose_wallet    resolve the admin's wallet pick
-    provision → grant_for_space  mint the token for the space's Secret
+    provision → grant_for_space  mint the token + wallet facts (currency,
+                                 owner, catalog) for the space's Secret
     delete    → revoke_space     kill the space's credits access
 
 Token invariant: the plaintext exists only in memory between minting and
@@ -14,11 +15,13 @@ plaintext cannot be recovered, and a failed attempt must not leave a live
 credential behind.
 """
 
+import json
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from loguru import logger
 
+from syft_station.components.credits.bundles import PREPAID_BUNDLES
 from syft_station.components.credits.entities import SpaceCreditToken
 from syft_station.components.credits.interfaces import SecretPatcher, SpaceDirectory
 from syft_station.components.credits.repository import (
@@ -99,12 +102,19 @@ class SpaceCreditsService:
                 token_hash=hash_credit_token(plaintext),
             )
         )
+        # The station's catalog is the source of truth for bundle pricing —
+        # inject it so the space publishes exactly what a purchase will cost.
+        bundles = PREPAID_BUNDLES.get(wallet.currency, [])
         return CreditsGrant(
             url=self.credits_url,
             token=plaintext,
             currency=wallet.currency,
             wallet_id=str(wallet.id),
             public_url=self.public_url,
+            wallet_owner=(
+                str(wallet.hub_user_id) if wallet.hub_user_id is not None else ""
+            ),
+            bundles=json.dumps(bundles) if bundles else "",
         )
 
     async def revoke_space(self, space_id: UUID) -> None:
@@ -144,16 +154,20 @@ class WalletRollout:
                 grant = await self.credits.grant_for_space(space.id, wallet_id)
                 if grant is None:  # wallet vanished mid-sweep
                     break
-                await self.provisioner.update_space_secret(
-                    space.subdomain,
-                    {
-                        "SYFT_CLUSTER_CREDITS_URL": grant.url,
-                        "SYFT_CLUSTER_CREDITS_TOKEN": grant.token,
-                        "SYFT_CLUSTER_CREDITS_CURRENCY": grant.currency,
-                        "SYFT_CLUSTER_CREDITS_WALLET_ID": grant.wallet_id,
-                        "SYFT_CLUSTER_PUBLIC_URL": grant.public_url,
-                    },
-                )
+                data = {
+                    "SYFT_CLUSTER_CREDITS_URL": grant.url,
+                    "SYFT_CLUSTER_CREDITS_TOKEN": grant.token,
+                    "SYFT_CLUSTER_CREDITS_CURRENCY": grant.currency,
+                    "SYFT_CLUSTER_CREDITS_WALLET_ID": grant.wallet_id,
+                    "SYFT_CLUSTER_PUBLIC_URL": grant.public_url,
+                }
+                # Optional keys are omitted rather than sent empty — the
+                # space parses them as int/JSON, and "" would crash it.
+                if grant.wallet_owner:
+                    data["SYFT_CLUSTER_WALLET_OWNER"] = grant.wallet_owner
+                if grant.bundles:
+                    data["SYFT_CLUSTER_BUNDLES"] = grant.bundles
+                await self.provisioner.update_space_secret(space.subdomain, data)
                 space.wallet_id = wallet_id
                 await self.spaces.update(space)
                 attached += 1

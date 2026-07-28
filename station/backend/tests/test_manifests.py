@@ -192,6 +192,8 @@ _CREDITS_KEYS = (
     "SYFT_CLUSTER_CREDITS_URL",
     "SYFT_CLUSTER_CREDITS_TOKEN",
     "SYFT_CLUSTER_CREDITS_CURRENCY",
+    "SYFT_CLUSTER_WALLET_OWNER",
+    "SYFT_CLUSTER_BUNDLES",
 )
 
 
@@ -206,12 +208,31 @@ def test_secret_with_wallet_carries_the_grant():
             "credits_url": "http://syft-station:8090",
             "credits_token": "sct_granttoken",
             "credits_currency": "PHP",
+            "credits_wallet_owner": "42",
+            "credits_bundles": '[{"name": "Starter", "amount": 100}]',
         }
     )
     secret = render_space_manifests(spec, SETTINGS)["secret"]["stringData"]
     assert secret["SYFT_CLUSTER_CREDITS_URL"] == "http://syft-station:8090"
     assert secret["SYFT_CLUSTER_CREDITS_TOKEN"] == "sct_granttoken"
     assert secret["SYFT_CLUSTER_CREDITS_CURRENCY"] == "PHP"
+    assert secret["SYFT_CLUSTER_WALLET_OWNER"] == "42"
+    assert secret["SYFT_CLUSTER_BUNDLES"] == '[{"name": "Starter", "amount": 100}]'
+
+
+def test_secret_omits_empty_owner_and_bundles():
+    """The space parses these as int/JSON, so an empty string would crash it
+    at boot — with-wallet-but-without-them means the keys are absent."""
+    spec = SPEC.model_copy(
+        update={
+            "credits_url": "http://syft-station:8090",
+            "credits_token": "sct_granttoken",
+            "credits_currency": "PHP",
+        }
+    )
+    secret = render_space_manifests(spec, SETTINGS)["secret"]["stringData"]
+    assert "SYFT_CLUSTER_WALLET_OWNER" not in secret
+    assert "SYFT_CLUSTER_BUNDLES" not in secret
 
 
 def test_deployment_credits_env_is_optional_secret_refs(manifests):

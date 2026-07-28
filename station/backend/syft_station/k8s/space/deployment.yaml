@@ -94,6 +94,18 @@ spec:
                   name: ${RESOURCE_NAME}
                   key: SYFT_CLUSTER_PUBLIC_URL
                   optional: true
+            - name: SYFT_CLUSTER_WALLET_OWNER
+              valueFrom:
+                secretKeyRef:
+                  name: ${RESOURCE_NAME}
+                  key: SYFT_CLUSTER_WALLET_OWNER
+                  optional: true
+            - name: SYFT_CLUSTER_BUNDLES
+              valueFrom:
+                secretKeyRef:
+                  name: ${RESOURCE_NAME}
+                  key: SYFT_CLUSTER_BUNDLES
+                  optional: true
             # Same SyftHub the station authenticates against
             - name: SYFT_DEFAULT_MARKETPLACE_URL
               value: "${SYFTHUB_URL}"

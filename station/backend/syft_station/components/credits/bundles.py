@@ -1,10 +1,15 @@
 """Prepaid bundle catalog — the station's price list for bundle purchases.
 
-CONTRACT MIRROR: this table must match syft-space's ``CLUSTER_PREPAID_BUNDLES``
-(``components/wallets/cluster/config.py``). Spaces publish that catalog on
-their paid endpoints; SyftHub then buys by bundle *name* against the station's
-``POST /credits/{wallet_id}/invoices`` — this table is what prices the name.
-If the two drift, the hub offers bundles the station won't sell.
+SOURCE OF TRUTH: at provisioning the station injects the wallet currency's
+slice of this table (as JSON) into every managed space as
+``SYFT_CLUSTER_BUNDLES``, and spaces publish it on their paid endpoints.
+SyftHub then buys by bundle *name* against
+``POST /credits/{wallet_id}/invoices``, which prices the name from this
+same table — so buyers are only ever offered what a purchase will
+actually cost.
+
+syft-space keeps a static copy (``CLUSTER_PREPAID_BUNDLES``) purely as a
+fallback for spaces started before their station injected a catalog.
 """
 
 PREPAID_BUNDLES: dict[str, list[dict]] = {

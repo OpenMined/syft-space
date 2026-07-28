@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from sqlmodel import select
 
 from syft_station.components.auth.session import get_current_user, require_admin
+from syft_station.components.credits.bundles import PREPAID_BUNDLES
 from syft_station.components.credits.entities import Invoice, InvoiceStatus, Wallet
 from syft_station.components.credits.gateway.xendit import XenditClient, XenditGateway
 from syft_station.components.credits.handlers import (
@@ -304,11 +305,14 @@ async def test_setup_attaches_unbound_spaces(testbed: CheckoutTestbed):
     assert (await testbed.spaces.get_by_id(unbound.id)).wallet_id == wallet.id
     assert await testbed.credit_tokens.get_active_for_space(opted_out.id) is None
 
-    # The Secret was patched with the grant (token verifies to the binding).
+    # The Secret was patched with the grant (token verifies to the binding),
+    # including the hub owner and the station's own bundle catalog.
     [(subdomain, data)] = testbed.patcher.patched
     assert subdomain == "old-space"
     assert data["SYFT_CLUSTER_CREDITS_URL"] == CREDITS_URL
     assert data["SYFT_CLUSTER_CREDITS_CURRENCY"] == "PHP"
+    assert data["SYFT_CLUSTER_WALLET_OWNER"] == str(testbed.hub.user_id)
+    assert json.loads(data["SYFT_CLUSTER_BUNDLES"]) == PREPAID_BUNDLES["PHP"]
     hashed = hash_credit_token(data["SYFT_CLUSTER_CREDITS_TOKEN"])
     assert (await testbed.credit_tokens.get_active_by_hash(hashed)).id == binding.id
 

@@ -29,6 +29,8 @@ class CreditsGrant:
     currency: str
     wallet_id: str  # the space adopts this so all spaces on the wallet share one id
     public_url: str  # station's public base URL, published on paid endpoints
+    wallet_owner: str  # SyftHub user id of the wallet owner; "" if it has none
+    bundles: str  # JSON [{"name", "amount"}, …] price list; "" if none exists
 
 
 class SpaceRuntimeStatus(StrEnum):
@@ -56,12 +58,15 @@ class SpaceSpec(BaseModel):
     admin_token: str
     # Managed credits (all-or-nothing; empty token = space has no wallet).
     # Rendered into the space Secret as SYFT_CLUSTER_CREDITS_{URL,TOKEN,CURRENCY,
-    # WALLET_ID} and SYFT_CLUSTER_PUBLIC_URL.
+    # WALLET_ID}, SYFT_CLUSTER_PUBLIC_URL, SYFT_CLUSTER_WALLET_OWNER, and
+    # SYFT_CLUSTER_BUNDLES.
     credits_url: str = ""
     credits_token: str = ""
     credits_currency: str = ""
     credits_wallet_id: str = ""
     credits_public_url: str = ""
+    credits_wallet_owner: str = ""
+    credits_bundles: str = ""
 
 
 class Provisioner(Protocol):
