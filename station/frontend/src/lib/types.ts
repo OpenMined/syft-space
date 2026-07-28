@@ -48,6 +48,8 @@ export type WalletProvider = 'xendit' | 'stripe'
 export interface SharedWallet {
   provider: WalletProvider
   currency: string
+  /** Whether the wallet has a SyftHub identity (API token) to verify buyers with. */
+  hubConnected: boolean
 }
 
 /** A settled credits purchase (the admin feed and the buyer's history). */

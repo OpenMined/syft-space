@@ -215,7 +215,36 @@ async def test_setup_mints_hub_identity(testbed: CheckoutTestbed):
     assert fetched.json()["wallet_owner"] == testbed.hub.user_id
 
 
-async def test_setup_requires_hub_password_on_first_create(testbed: CheckoutTestbed):
+async def test_setup_adopts_pasted_token_over_password(testbed: CheckoutTestbed):
+    """A pasted API token is validated and stored as-is — no mint happens,
+    even when a password is also sent (the token wins)."""
+    async with testbed.client() as client:
+        response = await client.put(
+            "/api/v1/credits/admin/wallet",
+            json={**SETUP_BODY, "syfthub_api_token": "syft_pat_pasted"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["wallet_owner"] == testbed.hub.user_id
+
+    wallet = await testbed.wallets.get_active()
+    assert wallet.hub_pat == "syft_pat_pasted"
+    assert testbed.hub.minted == []  # password path never ran
+
+
+async def test_setup_bad_pasted_token_400_and_no_wallet(testbed: CheckoutTestbed):
+    body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
+    async with testbed.client() as client:
+        response = await client.put(
+            "/api/v1/credits/admin/wallet",
+            json={**body, "syfthub_api_token": "not-a-pat"},
+        )
+    assert response.status_code == 400
+    assert await testbed.wallets.get_active() is None
+
+
+async def test_setup_requires_hub_credential_on_first_create(
+    testbed: CheckoutTestbed,
+):
     body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
     async with testbed.client() as client:
         response = await client.put("/api/v1/credits/admin/wallet", json=body)

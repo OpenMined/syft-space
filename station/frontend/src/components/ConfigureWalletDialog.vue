@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -21,17 +22,22 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { WalletProvider } from '@/lib/types'
+import { useSessionStore } from '@/stores/session'
 import { useStationStore } from '@/stores/station'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const station = useStationStore()
+const session = useSessionStore()
 
 const provider = ref<WalletProvider>('xendit')
 const apiKey = ref('')
 const callbackToken = ref('')
 const currency = ref('PHP')
+/** Mints the wallet's SyftHub API token; the API also accepts a pasted
+ * token (syfthub_api_token) for scripted setups — the UI keeps one path. */
+const hubPassword = ref('')
 const saving = ref(false)
 
 /** Xendit's supported currencies (each locked to its home country). USD arrives with Stripe. */
@@ -50,6 +56,7 @@ watch(
       currency.value = station.wallet?.currency ?? 'PHP'
       apiKey.value = ''
       callbackToken.value = ''
+      hubPassword.value = ''
     }
   },
 )
@@ -63,6 +70,12 @@ async function save() {
     toast.error('The webhook callback token is required')
     return
   }
+  // A new wallet must connect SyftHub; a replace may leave the password
+  // blank to keep the identity it already has.
+  if (!station.wallet && !hubPassword.value) {
+    toast.error('Connect SyftHub — enter your password to create the API token')
+    return
+  }
   saving.value = true
   try {
     const result = await station.setupWallet({
@@ -72,6 +85,7 @@ async function save() {
         api_key: apiKey.value.trim(),
         callback_token: callbackToken.value.trim(),
       },
+      syfthubPassword: hubPassword.value || undefined,
     })
     toast.success('Shared wallet saved', {
       description:
@@ -152,6 +166,29 @@ async function save() {
             In the Xendit dashboard (Settings → Developers → Webhooks), set the webhook URL to
             <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
             and copy its verification token here.
+          </p>
+        </div>
+
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-2">
+            <Label for="wallet-hub-password">Connect SyftHub</Label>
+            <Badge v-if="station.wallet?.hubConnected" variant="secondary">Connected</Badge>
+          </div>
+          <Input
+            id="wallet-hub-password"
+            v-model="hubPassword"
+            type="password"
+            autocomplete="off"
+            placeholder="Your SyftHub password"
+          />
+          <p class="text-xs text-muted-foreground">
+            The station signs in to SyftHub once as
+            <span class="font-medium">{{ session.profile?.email }}</span
+            >, creates an API token to verify buyers' SyftHub sign-ins, and discards the password.
+            Revoke the token on SyftHub at any time.
+            <template v-if="station.wallet">
+              Leave blank to keep the current connection; fill it only to rotate the token.
+            </template>
           </p>
         </div>
       </div>

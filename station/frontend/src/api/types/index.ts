@@ -115,6 +115,8 @@ export interface WalletStatusResponse {
   configured: boolean
   provider: string | null
   currency: string | null
+  /** SyftHub user id the wallet's spaces publish as their owner; null = no hub identity yet. */
+  wallet_owner: number | null
 }
 
 export interface WalletSetupBody {
@@ -122,6 +124,10 @@ export interface WalletSetupBody {
   currency: string
   /** Provider credentials, e.g. { api_key, callback_token } for Xendit. */
   credentials: Record<string, string>
+  /** Existing SyftHub API token (syft_pat_…) to adopt; wins over the password. */
+  syfthub_api_token?: string
+  /** SyftHub password — used once to mint a fresh API token, then discarded. */
+  syfthub_password?: string
 }
 
 export interface WalletSetupResponse extends WalletStatusResponse {

@@ -298,6 +298,26 @@ class WalletAdminHandler:
             ) from e
         return pat, profile.id
 
+    async def _adopt_hub_token(self, api_token: str) -> tuple[str, int]:
+        """Validate a pasted API token and resolve its owner's user id.
+
+        The paste path never sees a password — the admin created the token
+        on the hub themselves (where they're already signed in) and can
+        reuse it across wallets.
+        """
+        try:
+            profile = await self.hub.whoami(api_token)
+        except SyftHubAuthError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SyftHub rejected the API token",
+            ) from e
+        except SyftHubUnavailableError as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
+            ) from e
+        return api_token, profile.id
+
     async def setup(
         self, body: WalletSetupRequest, admin_email: str
     ) -> WalletSetupResponse:
@@ -307,9 +327,11 @@ class WalletAdminHandler:
         bound. The currency is immutable — every user balance is
         denominated in it.
 
-        The hub identity travels with the wallet: first setup must carry
-        ``syfthub_password`` (buyer verification needs a PAT); a replace
-        without it keeps the stored PAT, with it mints a fresh one.
+        The hub identity travels with the wallet, and first setup must carry
+        a hub credential (buyer verification needs a PAT): either a pasted
+        ``syfthub_api_token`` (adopted as-is; reusable across wallets) or a
+        ``syfthub_password`` (mints a fresh token on the fly). A replace
+        with neither keeps the stored identity.
         """
         gateway = self.gateways.get(body.provider)
         if gateway is None:
@@ -323,15 +345,17 @@ class WalletAdminHandler:
         wallet = await self.wallets.get_active()
         hub_pat = wallet.hub_pat if wallet else None
         hub_user_id = wallet.hub_user_id if wallet else None
-        if body.syfthub_password:
+        if body.syfthub_api_token:
+            hub_pat, hub_user_id = await self._adopt_hub_token(body.syfthub_api_token)
+        elif body.syfthub_password:
             hub_pat, hub_user_id = await self._mint_hub_identity(
                 admin_email, body.syfthub_password
             )
         elif hub_pat is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="syfthub_password is required — the wallet needs a hub "
-                "identity to verify buyers' tokens",
+                detail="A SyftHub API token (or password to mint one) is "
+                "required — the wallet needs a hub identity to verify buyers",
             )
 
         if wallet is None:

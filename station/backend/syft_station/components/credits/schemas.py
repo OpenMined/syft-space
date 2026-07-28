@@ -52,7 +52,9 @@ class WalletSetupRequest(BaseModel):
 
     Credentials are provider-specific and validated by the matching
     gateway. On replace, the currency must stay the same — user balances
-    are denominated in it.
+    are denominated in it. First setup must also connect a SyftHub
+    identity (buyer verification needs it): paste an API token, or send a
+    password to mint one.
     """
 
     provider: str = Field(description="Payment provider: xendit")
@@ -60,11 +62,17 @@ class WalletSetupRequest(BaseModel):
     credentials: dict = Field(
         description="Provider credentials, e.g. {api_key, callback_token}"
     )
+    syfthub_api_token: str | None = Field(
+        default=None,
+        description="Existing SyftHub API token (syft_pat_…) to adopt as the "
+        "wallet's hub identity — validated against the hub, then stored. "
+        "Takes precedence over syfthub_password",
+    )
     syfthub_password: str | None = Field(
         default=None,
-        description="Admin's SyftHub password — used once to mint the wallet's "
-        "hub API token, then discarded. Required on first setup; omit on "
-        "replace to keep the existing hub identity",
+        description="Admin's SyftHub password — used once to mint a fresh "
+        "hub API token, then discarded. First setup needs one of the two "
+        "credentials; omit both on replace to keep the existing identity",
     )
 
 

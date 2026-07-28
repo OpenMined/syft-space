@@ -82,8 +82,9 @@ ADMIN = SessionUser(
 class StubHubIdentity:
     """SyftHubIdentityClient stand-in: PAT mint, whoami, buyer verification.
 
-    Buyer tokens are the literal string ``sat:<email>`` — anything else is
-    rejected the way the real hub would reject an invalid satellite token.
+    Valid PATs are anything starting ``syft_pat_``; buyer tokens are the
+    literal string ``sat:<email>`` — everything else is rejected the way
+    the real hub would reject an invalid credential.
     """
 
     HUB_PASSWORD = "hub-pw"
@@ -100,6 +101,8 @@ class StubHubIdentity:
         return f"syft_pat_stub_{len(self.minted)}"
 
     async def whoami(self, pat: str) -> SyftHubProfile:
+        if not pat.startswith("syft_pat_"):
+            raise SyftHubAuthError("SyftHub rejected the token")
         return SyftHubProfile(
             id=self.user_id,
             username=ADMIN.username,

@@ -91,6 +91,20 @@ function formatDay(iso: string): string {
             <Wallet class="h-4 w-4 text-muted-foreground" />
             <span class="font-medium capitalize">{{ station.wallet.provider }}</span>
             <Badge variant="secondary">{{ station.wallet.currency }}</Badge>
+            <Badge
+              v-if="station.wallet.hubConnected"
+              variant="secondary"
+              title="The wallet holds a SyftHub API token and can verify buyers' sign-ins"
+            >
+              SyftHub connected
+            </Badge>
+            <Badge
+              v-else
+              variant="destructive"
+              title="Buyers can't be verified — replace the wallet and connect SyftHub"
+            >
+              SyftHub not connected
+            </Badge>
           </div>
           <button
             class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"

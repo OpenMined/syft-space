@@ -204,6 +204,7 @@ export const useStationStore = defineStore('station', () => {
     return {
       provider: w.provider as WalletProvider,
       currency: w.currency,
+      hubConnected: w.wallet_owner !== null,
     }
   }
 
@@ -466,8 +467,17 @@ export const useStationStore = defineStore('station', () => {
     provider: WalletProvider
     currency: string
     credentials: Record<string, string>
+    /** Paste an existing SyftHub API token — or set syfthubPassword to mint one. */
+    syfthubApiToken?: string
+    syfthubPassword?: string
   }): Promise<{ spacesAttached: number; spacesFailed: number }> {
-    const result = await creditsApi.setupWallet(input)
+    const result = await creditsApi.setupWallet({
+      provider: input.provider,
+      currency: input.currency,
+      credentials: input.credentials,
+      ...(input.syfthubApiToken ? { syfthub_api_token: input.syfthubApiToken } : {}),
+      ...(input.syfthubPassword ? { syfthub_password: input.syfthubPassword } : {}),
+    })
     wallet.value = mapWallet(result)
     return { spacesAttached: result.spaces_attached, spacesFailed: result.spaces_failed }
   }

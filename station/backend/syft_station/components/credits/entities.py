@@ -81,7 +81,8 @@ class Wallet(SQLModel, table=True):
     hub_pat: str | None = Field(
         default=None,
         description="SyftHub API token (PAT) used to verify buyers' satellite "
-        "tokens server-side; minted one-shot from the admin's password",
+        "tokens server-side; pasted by the admin at wallet setup, or minted "
+        "one-shot from their password",
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
