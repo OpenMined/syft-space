@@ -99,9 +99,11 @@ space_credits_service = SpaceCreditsService(
 )
 wallet_rollout = WalletRollout(space_repository, provisioner, space_credits_service)
 wallet_admin_handler = WalletAdminHandler(
-    wallet_repository, payment_gateways, wallet_rollout
+    wallet_repository, payment_gateways, wallet_rollout, syfthub_client
 )
-checkout_handler = CheckoutHandler(database, wallet_repository, payment_gateways)
+checkout_handler = CheckoutHandler(
+    database, wallet_repository, payment_gateways, syfthub_client
+)
 webhook_handler = WebhookHandler(database, wallet_repository, payment_gateways)
 earnings_handler = EarningsHandler(
     database, wallet_repository, payout_repository, space_repository

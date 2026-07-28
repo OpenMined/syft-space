@@ -51,15 +51,15 @@ class ClusterWalletProvider:
         if not app_settings.cluster.public_url:
             return PaymentInfo(bundles, None, None, None, managed=True)
         base = str(app_settings.cluster.public_url).rstrip("/")
-        # Scope the buyer routes by wallet id — symmetric with the self-hosted
-        # gateway routes (/payments/gateway/wallets/{id}/…) and stable if the
-        # station ever hosts more than one wallet.
+        # Wallet-id-scoped, with the same suffixes as the self-hosted gateway
+        # (/payments/gateway/wallets/{id}/…): a marketplace buys, dedups, and
+        # reads balances through one client regardless of who hosts the wallet.
         prefix = f"{base}/api/v1/credits/{wallet_id}"
         return PaymentInfo(
             bundles=bundles,
-            payment_url=f"{prefix}/checkout",
-            invoices_url=f"{prefix}/me",
-            credits_url=f"{prefix}/me",
+            payment_url=f"{prefix}/invoices",
+            invoices_url=f"{prefix}/invoices/me",
+            credits_url=f"{prefix}/balance",
             managed=True,
             station_url=base,
         )

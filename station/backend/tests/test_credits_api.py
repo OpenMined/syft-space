@@ -45,6 +45,7 @@ from syft_station.components.credits.tokens import (
 from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.repository import SpaceRepository
+from tests.conftest import StubHubIdentity
 
 USER = "enduser@test.com"
 SPACE_A = uuid4()
@@ -121,8 +122,8 @@ async def testbed(db: AsyncDatabase) -> CreditsTestbed:
     app.include_router(
         build_credits_routes(
             handler,
-            WalletAdminHandler(wallets, gateways, rollout),
-            CheckoutHandler(db, wallets, gateways),
+            WalletAdminHandler(wallets, gateways, rollout, StubHubIdentity()),  # type: ignore[arg-type]
+            CheckoutHandler(db, wallets, gateways, StubHubIdentity()),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, gateways),
             EarningsHandler(db, wallets, PayoutRepository(db), SpaceRepository(db)),
         ),

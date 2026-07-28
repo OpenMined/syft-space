@@ -1,4 +1,4 @@
-"""Earnings aggregates, payout recording, admin reversal, and /credits/me.
+"""Earnings aggregates, payout recording, admin reversal, buyer balance.
 
 Every admin figure is derived from the ledger, so these tests seed raw
 movements (debits, reversals, settled invoices) and assert the derived
@@ -45,7 +45,7 @@ from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.repository import SpaceRepository
-from tests.conftest import ADMIN, MEMBER
+from tests.conftest import ADMIN, MEMBER, StubHubIdentity, buyer_auth
 
 SPACE_A = uuid4()
 SPACE_B = uuid4()
@@ -123,7 +123,13 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
     wallets = WalletRepository(db)
     tokens = SpaceCreditTokenRepository(db)
     await wallets.create(
-        Wallet(provider="xendit", currency="PHP", credentials={"api_key": "x"})
+        Wallet(
+            provider="xendit",
+            currency="PHP",
+            credentials={"api_key": "x"},
+            hub_user_id=42,
+            hub_pat="syft_pat_stub",
+        )
     )
 
     rollout = WalletRollout(
@@ -135,8 +141,8 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, {}, rollout),
-            CheckoutHandler(db, wallets, {}),
+            WalletAdminHandler(wallets, {}, rollout, StubHubIdentity()),  # type: ignore[arg-type]
+            CheckoutHandler(db, wallets, {}, StubHubIdentity()),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, {}),
             EarningsHandler(db, wallets, PayoutRepository(db), SpaceRepository(db)),
         ),
@@ -320,35 +326,41 @@ async def test_outstanding_balances_lists_liability(testbed: EarningsTestbed):
     }
 
 
-# ============== Buyer /me ==============
+# ============== Buyer balance (satellite token) ==============
 
 
-async def test_my_credits_shows_balance_topups_and_spend(testbed: EarningsTestbed):
+async def test_buyer_balance_reflects_topups_and_spend(testbed: EarningsTestbed):
     await testbed.seed_paid_invoice(500.0)
-    tx = await testbed.seed_movement(space_id=SPACE_A, amount=2.5, endpoint="ask")
+    await testbed.seed_movement(space_id=SPACE_A, amount=2.5, endpoint="ask")
     async with CreditsLedger(testbed.db) as ledger:
         assert await ledger.balances.atomic_deduct(USER, 2.5)
         await ledger.commit()
 
     wallet = await WalletRepository(testbed.db).get_active()
     async with testbed.client() as client:
-        body = (await client.get(f"/api/v1/credits/{wallet.id}/me")).json()
+        body = (
+            await client.get(
+                f"/api/v1/credits/{wallet.id}/balance", headers=buyer_auth(USER)
+            )
+        ).json()
 
-    assert body["balance"] == 497.5
-    assert body["currency"] == "PHP"
-    assert len(body["top_ups"]) == 1
-    assert body["top_ups"][0]["status"] == "paid"
-    assert body["top_ups"][0]["amount"] == 500.0
-    assert len(body["spend"]) == 1
-    assert body["spend"][0]["transaction_id"] == str(tx)
-    assert body["spend"][0]["endpoint"] == "ask"
+    assert body == {
+        "wallet_id": str(wallet.id),
+        "user_email": USER,
+        "balance": 497.5,
+        "currency": "PHP",
+    }
 
 
-async def test_my_credits_fresh_user_is_empty(testbed: EarningsTestbed):
+async def test_buyer_balance_fresh_user_is_zero(testbed: EarningsTestbed):
     wallet = await WalletRepository(testbed.db).get_active()
     async with testbed.client() as client:
-        body = (await client.get(f"/api/v1/credits/{wallet.id}/me")).json()
-    assert body == {"balance": 0.0, "currency": "PHP", "top_ups": [], "spend": []}
+        body = (
+            await client.get(
+                f"/api/v1/credits/{wallet.id}/balance", headers=buyer_auth(USER)
+            )
+        ).json()
+    assert body["balance"] == 0.0 and body["currency"] == "PHP"
 
 
 # ============== Feeds + member earnings ==============

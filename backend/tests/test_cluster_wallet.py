@@ -383,11 +383,12 @@ def test_cluster_payment_info_points_at_station(monkeypatch):
 
     # Bundles come from the per-currency catalog...
     assert {"name": "Starter", "amount": 100} in info.bundles
-    # ...and every URL targets the station, scoped to this wallet id.
+    # ...and every URL targets the station, scoped to this wallet id, with
+    # the same suffixes as the self-hosted gateway routes.
     base = f"https://station.example.com/api/v1/credits/{wallet_id}"
-    assert info.payment_url == f"{base}/checkout"
-    assert info.invoices_url == f"{base}/me"
-    assert info.credits_url == f"{base}/me"
+    assert info.payment_url == f"{base}/invoices"
+    assert info.invoices_url == f"{base}/invoices/me"
+    assert info.credits_url == f"{base}/balance"
     # ...and it's flagged managed with the station's URL for the marketplace.
     assert info.managed is True
     assert info.station_url == "https://station.example.com"

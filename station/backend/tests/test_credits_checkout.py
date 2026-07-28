@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from sqlmodel import select
 
 from syft_station.components.auth.session import get_current_user, require_admin
-from syft_station.components.credits.entities import Invoice, InvoiceStatus
+from syft_station.components.credits.entities import Invoice, InvoiceStatus, Wallet
 from syft_station.components.credits.gateway.xendit import XenditClient, XenditGateway
 from syft_station.components.credits.handlers import (
     CheckoutHandler,
@@ -40,7 +40,7 @@ from syft_station.components.credits.tokens import hash_credit_token
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.repository import SpaceRepository
-from tests.conftest import ADMIN, MEMBER
+from tests.conftest import ADMIN, MEMBER, OTHER_MEMBER, StubHubIdentity, buyer_auth
 
 XENDIT_URL = "https://xendit.test"
 CREDITS_URL = "http://station.test:8090"
@@ -50,6 +50,7 @@ SETUP_BODY = {
     "provider": "xendit",
     "currency": "PHP",
     "credentials": {"api_key": "xnd_test_key", "callback_token": "cb_secret"},
+    "syfthub_password": StubHubIdentity.HUB_PASSWORD,
 }
 
 
@@ -83,10 +84,17 @@ class RecordingPatcher:
 
 
 class CheckoutTestbed:
-    def __init__(self, db: AsyncDatabase, app: FastAPI, patcher: RecordingPatcher):
+    def __init__(
+        self,
+        db: AsyncDatabase,
+        app: FastAPI,
+        patcher: RecordingPatcher,
+        hub: StubHubIdentity,
+    ):
         self.db = db
         self.app = app
         self.patcher = patcher
+        self.hub = hub
         self.wallets = WalletRepository(db)
         self.credit_tokens = SpaceCreditTokenRepository(db)
         self.spaces = SpaceRepository(db)
@@ -134,13 +142,14 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
 
     gateway._build_client = build_client  # type: ignore[method-assign]
     gateways = {"xendit": gateway}
+    hub = StubHubIdentity()
 
     app = FastAPI()
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, gateways, rollout),
-            CheckoutHandler(db, wallets, gateways),
+            WalletAdminHandler(wallets, gateways, rollout, hub),  # type: ignore[arg-type]
+            CheckoutHandler(db, wallets, gateways, hub),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, gateways),
             EarningsHandler(db, wallets, PayoutRepository(db), SpaceRepository(db)),
         ),
@@ -150,7 +159,7 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
     app.dependency_overrides[get_current_user] = lambda: MEMBER
     app.dependency_overrides[require_admin] = lambda: ADMIN
 
-    bed = CheckoutTestbed(db, app, patcher)
+    bed = CheckoutTestbed(db, app, patcher, hub)
     return bed
 
 
@@ -186,6 +195,64 @@ async def test_setup_rejects_bad_input(testbed: CheckoutTestbed):
     assert unsupported.status_code == 422
     assert bad_currency.status_code == 422  # Xendit has no USD
     assert no_token.status_code == 422
+
+
+async def test_setup_mints_hub_identity(testbed: CheckoutTestbed):
+    """The admin's hub password is spent on a PAT + owner id, then discarded."""
+    created = await testbed.setup_wallet()
+    assert created["wallet_owner"] == testbed.hub.user_id
+    assert testbed.hub.minted == [ADMIN.email]
+
+    wallet = await testbed.wallets.get_active()
+    assert wallet.hub_user_id == testbed.hub.user_id
+    assert wallet.hub_pat == "syft_pat_stub_1"
+
+    # The PAT never leaves the backend.
+    async with testbed.client() as client:
+        fetched = await client.get("/api/v1/credits/admin/wallet")
+    assert "syft_pat" not in fetched.text
+    assert fetched.json()["wallet_owner"] == testbed.hub.user_id
+
+
+async def test_setup_requires_hub_password_on_first_create(testbed: CheckoutTestbed):
+    body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
+    async with testbed.client() as client:
+        response = await client.put("/api/v1/credits/admin/wallet", json=body)
+    assert response.status_code == 422
+    assert await testbed.wallets.get_active() is None
+
+
+async def test_setup_bad_hub_password_400_and_no_wallet(testbed: CheckoutTestbed):
+    async with testbed.client() as client:
+        response = await client.put(
+            "/api/v1/credits/admin/wallet",
+            json={**SETUP_BODY, "syfthub_password": "wrong"},
+        )
+    assert response.status_code == 400
+    assert await testbed.wallets.get_active() is None
+
+
+async def test_replace_without_password_keeps_hub_identity(testbed: CheckoutTestbed):
+    await testbed.setup_wallet()
+
+    body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
+    async with testbed.client() as client:
+        replaced = await client.put("/api/v1/credits/admin/wallet", json=body)
+    assert replaced.status_code == 200
+
+    wallet = await testbed.wallets.get_active()
+    assert wallet.hub_pat == "syft_pat_stub_1"  # untouched
+    assert wallet.hub_user_id == testbed.hub.user_id
+    assert testbed.hub.minted == [ADMIN.email]  # no second mint
+
+
+async def test_replace_with_password_rotates_pat(testbed: CheckoutTestbed):
+    await testbed.setup_wallet()
+    await testbed.setup_wallet()  # password present → fresh PAT
+
+    wallet = await testbed.wallets.get_active()
+    assert wallet.hub_pat == "syft_pat_stub_2"
+    assert len(testbed.hub.minted) == 2
 
 
 async def test_replace_keeps_id_and_currency(testbed: CheckoutTestbed):
@@ -250,7 +317,7 @@ async def test_setup_attaches_unbound_spaces(testbed: CheckoutTestbed):
     assert again["spaces_attached"] == 0
 
 
-# ============== Buyer checkout ==============
+# ============== Buyer purchase (SyftHub, satellite token) ==============
 
 
 async def test_wallet_info_unconfigured_and_configured(testbed: CheckoutTestbed):
@@ -260,6 +327,7 @@ async def test_wallet_info_unconfigured_and_configured(testbed: CheckoutTestbed)
         "configured": False,
         "provider": None,
         "currency": None,
+        "wallet_owner": None,
     }
 
     await testbed.setup_wallet()
@@ -271,50 +339,102 @@ async def test_wallet_info_unconfigured_and_configured(testbed: CheckoutTestbed)
     assert "bundles" not in body
 
 
-async def test_checkout_creates_invoice_then_session(testbed: CheckoutTestbed):
+async def test_buy_bundle_creates_invoice_then_session(testbed: CheckoutTestbed):
     await testbed.setup_wallet()
     wallet = await testbed.wallets.get_active()
 
     async with testbed.client() as client:
         response = await client.post(
-            f"/api/v1/credits/{wallet.id}/checkout",
-            json={"amount": 500, "label": "Basic"},
+            f"/api/v1/credits/{wallet.id}/invoices",
+            json={"bundle_name": "Basic"},
+            headers=buyer_auth(MEMBER.email),
         )
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == 201, response.text
     body = response.json()
+    # The catalog priced the bundle; the response is gateway-shaped.
     assert body["amount"] == 500.0 and body["currency"] == "PHP"
+    assert body["wallet_id"] == str(wallet.id)
+    assert body["user_email"] == MEMBER.email
+    assert body["bundle_name"] == "Basic"
+    assert body["status"] == InvoiceStatus.PENDING.value
     assert body["checkout_url"].startswith("https://checkout.xendit.test/syft-")
 
-    invoice = await testbed.get_invoice(body["invoice_id"])
-    assert invoice.status == InvoiceStatus.PENDING.value
-    assert invoice.user_email == MEMBER.email
-    assert invoice.bundle_name == "Basic"  # label stored for display
-    assert invoice.client_reference == f"syft-{body['invoice_id']}"
+    invoice = await testbed.get_invoice(body["id"])
+    assert invoice.client_reference == f"syft-{body['id']}"
     assert invoice.checkout_url == body["checkout_url"]
     assert invoice.provider_session_id == "ps-123"
 
 
-async def test_checkout_unknown_wallet_404_and_bad_amount_422(
+async def test_buy_unknown_wallet_404_and_unknown_bundle_422(
     testbed: CheckoutTestbed,
 ):
     # Buyer routes are wallet-scoped: an unknown wallet id is a 404.
     async with testbed.client() as client:
         unknown = await client.post(
-            f"/api/v1/credits/{uuid4()}/checkout", json={"amount": 500}
+            f"/api/v1/credits/{uuid4()}/invoices",
+            json={"bundle_name": "Basic"},
+            headers=buyer_auth(MEMBER.email),
         )
     assert unknown.status_code == 404
 
     await testbed.setup_wallet()
     wallet = await testbed.wallets.get_active()
     async with testbed.client() as client:
-        bad_amount = await client.post(
-            f"/api/v1/credits/{wallet.id}/checkout", json={"amount": 0}
+        off_catalog = await client.post(
+            f"/api/v1/credits/{wallet.id}/invoices",
+            json={"bundle_name": "Mega"},
+            headers=buyer_auth(MEMBER.email),
         )
-    assert bad_amount.status_code == 422  # amount must be > 0
+    assert off_catalog.status_code == 422  # only advertised bundles are priced
 
 
-async def test_checkout_provider_failure_leaves_invoice_pending(
+async def test_buyer_routes_require_valid_satellite_token(testbed: CheckoutTestbed):
+    await testbed.setup_wallet()
+    wallet = await testbed.wallets.get_active()
+
+    async with testbed.client() as client:
+        missing = await client.post(
+            f"/api/v1/credits/{wallet.id}/invoices", json={"bundle_name": "Basic"}
+        )
+        invalid = await client.get(
+            f"/api/v1/credits/{wallet.id}/balance",
+            headers={"Authorization": "Bearer not-a-token"},
+        )
+    assert missing.status_code == 401
+    assert invalid.status_code == 401
+    assert await testbed.wallets.get_active() is not None  # nothing side-effected
+
+
+async def test_buyer_verification_is_cached(testbed: CheckoutTestbed):
+    """/verify is on the read hot-path — one hub call serves repeat requests."""
+    await testbed.setup_wallet()
+    wallet = await testbed.wallets.get_active()
+
+    async with testbed.client() as client:
+        for _ in range(3):
+            response = await client.get(
+                f"/api/v1/credits/{wallet.id}/balance",
+                headers=buyer_auth(MEMBER.email),
+            )
+            assert response.status_code == 200
+    assert len(testbed.hub.verified) == 1
+
+
+async def test_wallet_without_hub_identity_502(testbed: CheckoutTestbed):
+    """A wallet with no PAT (pre-migration row) cannot verify buyers."""
+    wallet = await testbed.wallets.create(
+        Wallet(provider="xendit", currency="PHP", credentials={"api_key": "x"})
+    )
+    async with testbed.client() as client:
+        response = await client.get(
+            f"/api/v1/credits/{wallet.id}/balance",
+            headers=buyer_auth(MEMBER.email),
+        )
+    assert response.status_code == 502
+
+
+async def test_buy_provider_failure_leaves_invoice_pending(
     testbed: CheckoutTestbed,
 ):
     await testbed.setup_wallet()
@@ -323,8 +443,9 @@ async def test_checkout_provider_failure_leaves_invoice_pending(
 
     async with testbed.client() as client:
         response = await client.post(
-            f"/api/v1/credits/{wallet.id}/checkout",
-            json={"amount": 500, "label": "Basic"},
+            f"/api/v1/credits/{wallet.id}/invoices",
+            json={"bundle_name": "Basic"},
+            headers=buyer_auth(MEMBER.email),
         )
     assert response.status_code == 502
 
@@ -335,6 +456,55 @@ async def test_checkout_provider_failure_leaves_invoice_pending(
     assert len(rows) == 1
     assert rows[0].status == InvoiceStatus.PENDING.value
     assert rows[0].checkout_url == ""
+
+
+async def test_my_invoices_scoped_to_caller_with_status_filter(
+    testbed: CheckoutTestbed,
+):
+    """The hub's pending-dedup: list own invoices, filterable by status."""
+    await testbed.setup_wallet()
+    body = await buy(testbed)
+    await buy(testbed, bundle="Starter")
+    await post_webhook(testbed, paid_event(f"syft-{body['id']}"))
+
+    wallet = await testbed.wallets.get_active()
+    async with testbed.client() as client:
+        mine = await client.get(
+            f"/api/v1/credits/{wallet.id}/invoices/me",
+            headers=buyer_auth(MEMBER.email),
+        )
+        pending = await client.get(
+            f"/api/v1/credits/{wallet.id}/invoices/me",
+            params={"status": "pending"},
+            headers=buyer_auth(MEMBER.email),
+        )
+        other = await client.get(
+            f"/api/v1/credits/{wallet.id}/invoices/me",
+            headers=buyer_auth(OTHER_MEMBER.email),
+        )
+
+    assert len(mine.json()) == 2
+    assert [i["bundle_name"] for i in pending.json()] == ["Starter"]
+    assert other.json() == []
+
+
+async def test_buyer_balance_reflects_settled_topups(testbed: CheckoutTestbed):
+    await testbed.setup_wallet()
+    body = await buy(testbed)
+    await post_webhook(testbed, paid_event(f"syft-{body['id']}"))
+
+    wallet = await testbed.wallets.get_active()
+    async with testbed.client() as client:
+        response = await client.get(
+            f"/api/v1/credits/{wallet.id}/balance",
+            headers=buyer_auth(MEMBER.email),
+        )
+    assert response.json() == {
+        "wallet_id": str(wallet.id),
+        "user_email": MEMBER.email,
+        "balance": 500.0,
+        "currency": "PHP",
+    }
 
 
 # ============== Xendit webhook ==============
@@ -351,16 +521,15 @@ def paid_event(reference: str) -> dict:
     }
 
 
-async def checkout(
-    testbed: CheckoutTestbed, amount: float = 500.0, label: str = "Basic"
-) -> dict:
+async def buy(testbed: CheckoutTestbed, bundle: str = "Basic") -> dict:
     wallet = await testbed.wallets.get_active()
     async with testbed.client() as client:
         response = await client.post(
-            f"/api/v1/credits/{wallet.id}/checkout",
-            json={"amount": amount, "label": label},
+            f"/api/v1/credits/{wallet.id}/invoices",
+            json={"bundle_name": bundle},
+            headers=buyer_auth(MEMBER.email),
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         return response.json()
 
 
@@ -377,8 +546,8 @@ async def post_webhook(
 
 async def test_webhook_settles_and_credits_once(testbed: CheckoutTestbed):
     await testbed.setup_wallet()
-    body = await checkout(testbed)
-    reference = f"syft-{body['invoice_id']}"
+    body = await buy(testbed)
+    reference = f"syft-{body['id']}"
 
     first = await post_webhook(testbed, paid_event(reference))
     duplicate = await post_webhook(testbed, paid_event(reference))
@@ -387,7 +556,7 @@ async def test_webhook_settles_and_credits_once(testbed: CheckoutTestbed):
     assert duplicate.json() == {"status": "already_processed"}
     assert await testbed.get_balance(MEMBER.email) == 500.0  # credited once
 
-    invoice = await testbed.get_invoice(body["invoice_id"])
+    invoice = await testbed.get_invoice(body["id"])
     assert invoice.status == InvoiceStatus.PAID.value
     assert invoice.paid_at is not None
     assert invoice.webhook_payload["event"] == "payment_session.completed"
@@ -395,10 +564,10 @@ async def test_webhook_settles_and_credits_once(testbed: CheckoutTestbed):
 
 async def test_webhook_rejects_bad_token(testbed: CheckoutTestbed):
     await testbed.setup_wallet()
-    body = await checkout(testbed)
+    body = await buy(testbed)
 
     response = await post_webhook(
-        testbed, paid_event(f"syft-{body['invoice_id']}"), token="wrong"
+        testbed, paid_event(f"syft-{body['id']}"), token="wrong"
     )
     assert response.status_code == 403
     assert await testbed.get_balance(MEMBER.email) == 0.0
@@ -421,8 +590,8 @@ async def test_webhook_expiry_closes_invoice_but_never_reopens_paid(
     testbed: CheckoutTestbed,
 ):
     await testbed.setup_wallet()
-    body = await checkout(testbed)
-    reference = f"syft-{body['invoice_id']}"
+    body = await buy(testbed)
+    reference = f"syft-{body['id']}"
 
     await post_webhook(testbed, paid_event(reference))
     late_expiry = await post_webhook(
@@ -431,7 +600,7 @@ async def test_webhook_expiry_closes_invoice_but_never_reopens_paid(
     )
 
     assert late_expiry.json() == {"status": "already_processed"}
-    invoice = await testbed.get_invoice(body["invoice_id"])
+    invoice = await testbed.get_invoice(body["id"])
     assert invoice.status == InvoiceStatus.PAID.value
 
 

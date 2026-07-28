@@ -1,4 +1,9 @@
-"""Credits API routes — space-facing (Bearer space credits token).
+"""Credits API routes, grouped by caller:
+
+- space-facing (Bearer ``sct_…`` space credits token): debit / refund / balance
+- buyer (SyftHub satellite token): buy a bundle, own invoices, own balance
+- admin + member views (station session cookie)
+- provider webhooks (verified inside the gateway, no session)
 
 The 402 body is written at the TOP level, not inside FastAPI's usual
 ``{"detail": …}`` wrapper: space clients read ``response.json()["balance"]``
@@ -9,7 +14,7 @@ import json
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
 from syft_station.components.auth.session import (
@@ -17,6 +22,7 @@ from syft_station.components.auth.session import (
     get_current_user,
     require_admin,
 )
+from syft_station.components.credits.entities import InvoiceStatus
 from syft_station.components.credits.gateway.interfaces import WebhookEnvelope
 from syft_station.components.credits.handlers import (
     AuthedSpace,
@@ -29,13 +35,13 @@ from syft_station.components.credits.handlers import (
 )
 from syft_station.components.credits.schemas import (
     BalanceResponse,
-    CheckoutRequest,
-    CheckoutResponse,
+    BuyerBalanceResponse,
+    BuyerInvoiceResponse,
+    CreateInvoiceRequest,
     DebitRequest,
     DebitResponse,
     EarningsResponse,
     MemberEarningsResponse,
-    MyCreditsResponse,
     OutstandingBalancesResponse,
     PayoutRequest,
     PayoutResponse,
@@ -104,33 +110,62 @@ def build_credits_routes(
         """A user's spendable balance in the station currency."""
         return await handler.balance(caller, user_email)
 
-    # ── Buyer (any signed-in session) ───────────────────────────────────────
+    # ── Buyer (SyftHub, satellite token) ────────────────────────────────────
+    # Same paths and shapes as syft-space's self-hosted gateway
+    # (/payments/gateway/wallets/{id}/…), so the hub drives both with one
+    # client. Verification happens per-wallet in the handler — the wallet's
+    # PAT is what authenticates the /verify call to the hub.
+
+    async def get_buyer_token(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> str:
+        """Extract the satellite bearer token; the handler verifies it."""
+        scheme, _, token = (authorization or "").partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing bearer token",
+            )
+        return token.strip()
 
     @router.get("/wallet", response_model=WalletStatusResponse)
     async def wallet_info(
         user: SessionUser = Depends(get_current_user),
     ) -> WalletStatusResponse:
-        """Whether credits can be bought, and the bundle catalog."""
+        """Whether a wallet is configured — the station UI's own view."""
         return await checkout_handler.wallet_info()
 
-    @router.post("/{wallet_id}/checkout", response_model=CheckoutResponse)
-    async def create_checkout(
+    @router.post(
+        "/{wallet_id}/invoices",
+        response_model=BuyerInvoiceResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_invoice(
         wallet_id: UUID,
-        body: CheckoutRequest,
-        user: SessionUser = Depends(get_current_user),
-    ) -> CheckoutResponse:
-        """Start a hosted checkout for an amount; redirect to checkout_url."""
-        return await checkout_handler.create_checkout(
-            wallet_id, user.email, body.amount, body.label
+        body: CreateInvoiceRequest,
+        token: str = Depends(get_buyer_token),
+    ) -> BuyerInvoiceResponse:
+        """Buy a bundle by name: PENDING invoice + hosted checkout session."""
+        return await checkout_handler.create_invoice(wallet_id, token, body)
+
+    @router.get("/{wallet_id}/invoices/me", response_model=list[BuyerInvoiceResponse])
+    async def my_invoices(
+        wallet_id: UUID,
+        status_filter: Annotated[InvoiceStatus | None, Query(alias="status")] = None,
+        token: str = Depends(get_buyer_token),
+    ) -> list[BuyerInvoiceResponse]:
+        """The buyer's own invoices, filterable by status (pending-dedup)."""
+        return await checkout_handler.my_invoices(
+            wallet_id, token, status_filter.value if status_filter else None
         )
 
-    @router.get("/{wallet_id}/me", response_model=MyCreditsResponse)
-    async def my_credits(
+    @router.get("/{wallet_id}/balance", response_model=BuyerBalanceResponse)
+    async def buyer_balance(
         wallet_id: UUID,
-        user: SessionUser = Depends(get_current_user),
-    ) -> MyCreditsResponse:
-        """The signed-in user's balance, purchases, and spend history."""
-        return await checkout_handler.my_credits(wallet_id, user.email)
+        token: str = Depends(get_buyer_token),
+    ) -> BuyerBalanceResponse:
+        """The buyer's spendable balance in the wallet currency."""
+        return await checkout_handler.balance(wallet_id, token)
 
     @router.get("/earnings/mine", response_model=MemberEarningsResponse)
     async def my_earnings(
@@ -154,7 +189,7 @@ def build_credits_routes(
         user: SessionUser = Depends(require_admin),
     ) -> WalletSetupResponse:
         """Create or replace the station wallet; attaches unbound spaces."""
-        return await admin_handler.setup(body)
+        return await admin_handler.setup(body, user.email)
 
     @router.get("/admin/earnings", response_model=EarningsResponse)
     async def earnings(

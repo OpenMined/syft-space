@@ -257,13 +257,15 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return result.first()
 
-    async def list_for_user(self, user_email: str, limit: int = 50) -> list[Invoice]:
-        statement = (
-            select(Invoice)
-            .where(Invoice.user_email == user_email)
-            .order_by(Invoice.created_at.desc())  # type: ignore[attr-defined]
-            .limit(limit)
-        )
+    async def list_for_user(
+        self, user_email: str, limit: int = 50, status: str | None = None
+    ) -> list[Invoice]:
+        statement = select(Invoice).where(Invoice.user_email == user_email)
+        if status is not None:
+            statement = statement.where(Invoice.status == status)
+        statement = statement.order_by(
+            Invoice.created_at.desc()  # type: ignore[attr-defined]
+        ).limit(limit)
         result = await self.session.exec(statement)
         return list(result.all())
 

@@ -73,6 +73,16 @@ class Wallet(SQLModel, table=True):
         sa_column=Column(JSON),
         description="Provider credentials (API keys, webhook secret)",
     )
+    hub_user_id: int | None = Field(
+        default=None,
+        description="SyftHub user id of the wallet owner — published to the hub "
+        "as wallet_owner so it can mint buyer tokens with the right audience",
+    )
+    hub_pat: str | None = Field(
+        default=None,
+        description="SyftHub API token (PAT) used to verify buyers' satellite "
+        "tokens server-side; minted one-shot from the admin's password",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

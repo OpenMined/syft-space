@@ -1,23 +1,34 @@
-"""Credits handlers — the space-facing debit / refund / balance operations.
+"""Credits handlers, one class per caller: CreditsHandler (spaces),
+CheckoutHandler (buyers via SyftHub), WalletAdminHandler + EarningsHandler
+(station admin), WebhookHandler (payment providers).
 
-Auth model: every call carries a space credits token (Bearer). The token
-resolves to its SpaceCreditToken binding, which supplies both authorization
-and attribution — earnings follow the calling space, refunds are scoped to
-the caller's own debits.
+Space auth model: every space call carries a space credits token (Bearer).
+The token resolves to its SpaceCreditToken binding, which supplies both
+authorization and attribution — earnings follow the calling space, refunds
+are scoped to the caller's own debits.
 
 Idempotency: the space generates transaction_id. A replayed debit or a
 concurrent double-refund lands on UNIQUE(transaction_id, type) and is
 answered with the original outcome, never a second movement.
 """
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
 
+from syft_station.components.auth.syfthub import (
+    SyftHubAuthError,
+    SyftHubBuyerTokenError,
+    SyftHubIdentityClient,
+    SyftHubUnavailableError,
+)
+from syft_station.components.credits.bundles import bundle_amount
 from syft_station.components.credits.entities import (
     EntryType,
     Invoice,
@@ -40,7 +51,9 @@ from syft_station.components.credits.repository import (
 )
 from syft_station.components.credits.schemas import (
     BalanceResponse,
-    CheckoutResponse,
+    BuyerBalanceResponse,
+    BuyerInvoiceResponse,
+    CreateInvoiceRequest,
     DailyEarnings,
     DebitRequest,
     DebitResponse,
@@ -49,7 +62,6 @@ from syft_station.components.credits.schemas import (
     EndpointEarnings,
     MemberEarningsResponse,
     MemberSpaceEarnings,
-    MyCreditsResponse,
     OutstandingBalance,
     OutstandingBalancesResponse,
     PayoutInfo,
@@ -58,7 +70,6 @@ from syft_station.components.credits.schemas import (
     RefundResponse,
     ReversalResponse,
     SpaceEarnings,
-    SpendEntry,
     TopUpInfo,
     WalletSetupRequest,
     WalletSetupResponse,
@@ -243,6 +254,7 @@ def _wallet_status(wallet: Wallet | None) -> WalletStatusResponse:
         configured=True,
         provider=wallet.provider,
         currency=wallet.currency,
+        wallet_owner=wallet.hub_user_id,
     )
 
 
@@ -254,20 +266,50 @@ class WalletAdminHandler:
         wallets: WalletRepository,
         gateways: dict[str, PaymentGateway],
         rollout: WalletRollout,
+        hub: SyftHubIdentityClient,
     ):
         self.wallets = wallets
         self.gateways = gateways
         self.rollout = rollout
+        self.hub = hub
 
     async def get(self) -> WalletStatusResponse:
         return _wallet_status(await self.wallets.get_active())
 
-    async def setup(self, body: WalletSetupRequest) -> WalletSetupResponse:
+    async def _mint_hub_identity(
+        self, admin_email: str, password: str
+    ) -> tuple[str, int]:
+        """One-shot: mint the wallet's PAT and resolve its owner's user id.
+
+        The password never outlives this call. A newly minted PAT replaces
+        the stored one; the previous PAT stays valid hub-side until the
+        admin revokes it from the hub's token list.
+        """
+        try:
+            pat = await self.hub.mint_pat(admin_email, password)
+            profile = await self.hub.whoami(pat)
+        except SyftHubAuthError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+            ) from e
+        except SyftHubUnavailableError as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
+            ) from e
+        return pat, profile.id
+
+    async def setup(
+        self, body: WalletSetupRequest, admin_email: str
+    ) -> WalletSetupResponse:
         """Create the wallet, or replace its provider/credentials in place.
 
         Replacement keeps the wallet id, so existing space tokens stay
         bound. The currency is immutable — every user balance is
         denominated in it.
+
+        The hub identity travels with the wallet: first setup must carry
+        ``syfthub_password`` (buyer verification needs a PAT); a replace
+        without it keeps the stored PAT, with it mints a fresh one.
         """
         gateway = self.gateways.get(body.provider)
         if gateway is None:
@@ -279,12 +321,27 @@ class WalletAdminHandler:
         credentials = gateway.validate_credentials(body.credentials, body.currency)
 
         wallet = await self.wallets.get_active()
+        hub_pat = wallet.hub_pat if wallet else None
+        hub_user_id = wallet.hub_user_id if wallet else None
+        if body.syfthub_password:
+            hub_pat, hub_user_id = await self._mint_hub_identity(
+                admin_email, body.syfthub_password
+            )
+        elif hub_pat is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="syfthub_password is required — the wallet needs a hub "
+                "identity to verify buyers' tokens",
+            )
+
         if wallet is None:
             wallet = await self.wallets.create(
                 Wallet(
                     provider=body.provider,
                     currency=body.currency,
                     credentials=credentials,
+                    hub_user_id=hub_user_id,
+                    hub_pat=hub_pat,
                 )
             )
         else:
@@ -296,6 +353,8 @@ class WalletAdminHandler:
                 )
             wallet.provider = body.provider
             wallet.credentials = credentials
+            wallet.hub_user_id = hub_user_id
+            wallet.hub_pat = hub_pat
             wallet.updated_at = datetime.now(UTC)
             wallet = await self.wallets.update(wallet)
 
@@ -309,18 +368,55 @@ class WalletAdminHandler:
         )
 
 
+_BUYER_CACHE_TTL_SECONDS = 60.0
+_BUYER_CACHE_MAX_ENTRIES = 1024
+
+
+def _buyer_invoice(invoice: Invoice, wallet_id: UUID) -> BuyerInvoiceResponse:
+    """Shape one invoice the way the self-hosted gateway would."""
+    return BuyerInvoiceResponse(
+        id=invoice.id,
+        wallet_id=wallet_id,
+        user_email=invoice.user_email,
+        provider=invoice.provider,
+        client_reference=invoice.client_reference,
+        checkout_url=invoice.checkout_url,
+        provider_session_id=invoice.provider_session_id,
+        bundle_name=invoice.bundle_name,
+        amount=invoice.amount,
+        currency=invoice.currency,
+        status=invoice.status,
+        paid_at=invoice.paid_at,
+        created_at=invoice.created_at,
+        updated_at=invoice.updated_at,
+    )
+
+
 class CheckoutHandler:
-    """Buyer-facing: view the wallet's bundles, start a hosted checkout."""
+    """Buyer-facing, driven by SyftHub with satellite tokens.
+
+    Speaks the same contract as syft-space's self-hosted gateway (buy a
+    bundle by name, list own invoices, read balance) so the hub runs one
+    buyer flow against managed and self-hosted spaces alike. Every call is
+    authenticated by verifying the token against the hub with the wallet's
+    PAT — the hub derives the authorized audience from the PAT's owner.
+    """
 
     def __init__(
         self,
         db: AsyncDatabase,
         wallets: WalletRepository,
         gateways: dict[str, PaymentGateway],
+        hub: SyftHubIdentityClient,
     ):
         self.db = db
         self.wallets = wallets
         self.gateways = gateways
+        self.hub = hub
+        # token-hash → (email, absolute expiry). /verify is a network call on
+        # the buyer read hot-path; satellite tokens are short-lived, so cache
+        # verdicts until the token's own exp (capped at a short TTL).
+        self._buyer_cache: dict[str, tuple[str, float]] = {}
 
     async def wallet_info(self) -> WalletStatusResponse:
         return _wallet_status(await self.wallets.get_active())
@@ -336,50 +432,59 @@ class CheckoutHandler:
             )
         return wallet
 
-    async def my_credits(self, wallet_id: UUID, user_email: str) -> MyCreditsResponse:
-        """The signed-in user's balance, purchases, and spend history."""
-        wallet = await self._resolve_wallet(wallet_id)
-        async with CreditsLedger(self.db) as ledger:
-            row = await ledger.balances.get(user_email)
-            invoices = await ledger.invoices.list_for_user(user_email)
-            entries = await ledger.entries.list_for_user(user_email)
-            return MyCreditsResponse(
-                balance=row.balance if row else 0.0,
-                currency=wallet.currency,
-                top_ups=[
-                    TopUpInfo(
-                        invoice_id=i.id,
-                        user_email=i.user_email,
-                        bundle_name=i.bundle_name,
-                        amount=i.amount,
-                        currency=i.currency,
-                        status=i.status,
-                        created_at=i.created_at,
-                        paid_at=i.paid_at,
-                    )
-                    for i in invoices
-                ],
-                spend=[
-                    SpendEntry(
-                        transaction_id=e.transaction_id,
-                        type=e.type,
-                        space_id=e.space_id,
-                        endpoint=e.endpoint,
-                        amount=e.amount,
-                        created_at=e.created_at,
-                    )
-                    for e in entries
-                ],
+    async def _verify_buyer(self, wallet: Wallet, token: str) -> str:
+        """Resolve a satellite token to the buyer's billing email.
+
+        Raises 401 for a bad buyer token; 502 when the hub is unreachable
+        or the wallet's own PAT is rejected — station-side problems the
+        buyer can't fix.
+        """
+        if not wallet.hub_pat:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="The station wallet has no SyftHub identity — "
+                "ask the admin to reconnect it",
             )
+        key = sha256(token.encode()).hexdigest()
+        now = time.time()
+        cached = self._buyer_cache.get(key)
+        if cached and cached[1] > now:
+            return cached[0]
 
-    async def create_checkout(
-        self, wallet_id: UUID, user_email: str, amount: float, label: str | None = None
-    ) -> CheckoutResponse:
-        """Create a PENDING invoice, then the provider session for it.
+        try:
+            buyer = await self.hub.verify_buyer_token(wallet.hub_pat, token)
+        except SyftHubBuyerTokenError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)
+            ) from e
+        except SyftHubAuthError as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="SyftHub rejected the station's API token — "
+                "reconnect the wallet",
+            ) from e
+        except SyftHubUnavailableError as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
+            ) from e
 
-        The amount is charged as-is — credits are 1:1 with the wallet
-        currency, so there's nothing to validate against a catalog (the
-        spaces own the purchasable bundles). ``label`` is display-only.
+        expires = now + _BUYER_CACHE_TTL_SECONDS
+        if buyer.exp is not None:
+            expires = min(expires, float(buyer.exp))
+        if len(self._buyer_cache) >= _BUYER_CACHE_MAX_ENTRIES:
+            self._buyer_cache = {
+                k: v for k, v in self._buyer_cache.items() if v[1] > now
+            }
+        self._buyer_cache[key] = (buyer.email, expires)
+        return buyer.email
+
+    async def create_invoice(
+        self, wallet_id: UUID, token: str, body: CreateInvoiceRequest
+    ) -> BuyerInvoiceResponse:
+        """Buy a bundle: create a PENDING invoice, then the provider session.
+
+        The bundle name is priced from the station's catalog (the same table
+        the spaces publish), so the hub can only buy what was advertised.
 
         Order matters: the invoice exists before the provider call, so a
         provider session can never outlive the local row. If the provider
@@ -387,12 +492,19 @@ class CheckoutHandler:
         still settle it if the session actually went through.
         """
         wallet = await self._resolve_wallet(wallet_id)
+        user_email = await self._verify_buyer(wallet, token)
+        amount = bundle_amount(wallet.currency, body.bundle_name)
+        if amount is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Unknown bundle '{body.bundle_name}' "
+                f"for currency {wallet.currency}",
+            )
         gateway = self.gateways.get(wallet.provider)
         if gateway is None:
             raise HTTPException(
                 status_code=500, detail=f"No gateway for provider '{wallet.provider}'"
             )
-        display = label or "Credits top-up"
 
         invoice_id = uuid4()
         invoice = Invoice(
@@ -400,7 +512,7 @@ class CheckoutHandler:
             user_email=user_email,
             provider=wallet.provider,
             client_reference=f"syft-{invoice_id}",
-            bundle_name=display,
+            bundle_name=body.bundle_name,
             amount=amount,
             currency=wallet.currency,
         )
@@ -413,7 +525,7 @@ class CheckoutHandler:
             amount=amount,
             currency=wallet.currency,
             payer_email=user_email,
-            description=f"Syft Station credits — {display}",
+            description=f"Syft Station credits — {body.bundle_name}",
             credentials=wallet.credentials,
         )
 
@@ -422,11 +534,33 @@ class CheckoutHandler:
                 invoice_id, payment.checkout_url, payment.provider_session_id
             )
             await ledger.commit()
+            final = await ledger.invoices.get(invoice_id)
 
-        return CheckoutResponse(
-            invoice_id=invoice_id,
-            checkout_url=payment.checkout_url,
-            amount=amount,
+        assert final is not None  # inserted above
+        return _buyer_invoice(final, wallet.id)
+
+    async def my_invoices(
+        self, wallet_id: UUID, token: str, status_filter: str | None = None
+    ) -> list[BuyerInvoiceResponse]:
+        """The buyer's own invoices, newest first — the hub's pending-dedup."""
+        wallet = await self._resolve_wallet(wallet_id)
+        user_email = await self._verify_buyer(wallet, token)
+        async with CreditsLedger(self.db) as ledger:
+            invoices = await ledger.invoices.list_for_user(
+                user_email, status=status_filter
+            )
+        return [_buyer_invoice(i, wallet.id) for i in invoices]
+
+    async def balance(self, wallet_id: UUID, token: str) -> BuyerBalanceResponse:
+        """The buyer's spendable balance in the wallet currency."""
+        wallet = await self._resolve_wallet(wallet_id)
+        user_email = await self._verify_buyer(wallet, token)
+        async with CreditsLedger(self.db) as ledger:
+            row = await ledger.balances.get(user_email)
+        return BuyerBalanceResponse(
+            wallet_id=wallet.id,
+            user_email=user_email,
+            balance=row.balance if row else 0.0,
             currency=wallet.currency,
         )
 

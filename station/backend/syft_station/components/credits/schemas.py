@@ -60,6 +60,12 @@ class WalletSetupRequest(BaseModel):
     credentials: dict = Field(
         description="Provider credentials, e.g. {api_key, callback_token}"
     )
+    syfthub_password: str | None = Field(
+        default=None,
+        description="Admin's SyftHub password — used once to mint the wallet's "
+        "hub API token, then discarded. Required on first setup; omit on "
+        "replace to keep the existing hub identity",
+    )
 
 
 class WalletStatusResponse(BaseModel):
@@ -73,6 +79,10 @@ class WalletStatusResponse(BaseModel):
     configured: bool
     provider: str | None = None
     currency: str | None = None
+    wallet_owner: int | None = Field(
+        default=None,
+        description="SyftHub user id the wallet's spaces publish as their owner",
+    )
 
 
 class WalletSetupResponse(WalletStatusResponse):
@@ -85,17 +95,43 @@ class WalletSetupResponse(WalletStatusResponse):
 # ── Buyer checkout (any signed-in session) ──────────────────────────────────
 
 
-class CheckoutRequest(BaseModel):
-    amount: float = Field(gt=0, description="Top-up amount in the wallet currency")
-    label: str | None = Field(
-        default=None, description="Optional display label (e.g. the bundle name)"
+class CreateInvoiceRequest(BaseModel):
+    """SyftHub buys a bundle by name — same body as the self-hosted gateway."""
+
+    bundle_name: str = Field(description="Name of the bundle to purchase")
+    endpoint_slug: str | None = Field(
+        default=None,
+        description="Optional originating endpoint slug (analytics context)",
     )
 
 
-class CheckoutResponse(BaseModel):
-    invoice_id: UUID
+class BuyerInvoiceResponse(BaseModel):
+    """One invoice, shaped exactly like the self-hosted gateway's
+    InvoiceResponse — SyftHub reads managed and self-hosted with one client."""
+
+    id: UUID
+    wallet_id: UUID | None
+    endpoint_id: UUID | None = None
+    user_email: str
+    provider: str
+    client_reference: str
     checkout_url: str
+    provider_session_id: str | None = None
+    bundle_name: str
     amount: float
+    currency: str
+    status: str
+    paid_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BuyerBalanceResponse(BaseModel):
+    """Wallet-scoped balance — mirrors the gateway's UserBalanceResponse."""
+
+    wallet_id: UUID
+    user_email: str
+    balance: float
     currency: str
 
 
@@ -110,26 +146,6 @@ class TopUpInfo(BaseModel):
     status: str
     created_at: datetime
     paid_at: datetime | None
-
-
-class SpendEntry(BaseModel):
-    """One ledger movement in the buyer's history."""
-
-    transaction_id: UUID
-    type: str  # debit | cancelled
-    space_id: UUID
-    endpoint: str
-    amount: float
-    created_at: datetime
-
-
-class MyCreditsResponse(BaseModel):
-    """The signed-in user's balance and history."""
-
-    balance: float
-    currency: str
-    top_ups: list[TopUpInfo]
-    spend: list[SpendEntry]
 
 
 # ── Earnings + payouts (station admin) ──────────────────────────────────────
