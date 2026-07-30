@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 from importlib.metadata import version as pkg_version
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -150,9 +151,26 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Syft Station", lifespan=lifespan)
 
+
+def _cors_origins() -> list[str]:
+    """Browser origins allowed to call the API.
+
+    The Vite dev server is for the station's own UI. The SyftHub origin is
+    required in every deployment — the hub frontend drives the buyer
+    credits routes (invoices/balance) straight from the browser with a
+    satellite token. Extra origins come from SYFT_STATION_CORS_ORIGINS for
+    setups where the hub is browsed at a different address than the
+    station dials it (dev).
+    """
+    hub = urlparse(str(app_settings.syfthub_url))
+    origins = ["http://localhost:5174", f"{hub.scheme}://{hub.netloc}"]
+    origins += [o.strip() for o in app_settings.cors_origins.split(",") if o.strip()]
+    return list(dict.fromkeys(origins))
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

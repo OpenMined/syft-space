@@ -48,6 +48,17 @@ class AppSettings(BaseSettings):
         default="https://syfthub.openmined.org",
         description="SyftHub instance used for member sign-in",
     )
+    cors_origins: str = Field(
+        default="",
+        description=(
+            "Extra browser origins allowed by CORS, comma-separated. The "
+            "SyftHub origin is always allowed (its frontend calls the buyer "
+            "credits routes from the browser); use this when the hub is "
+            "browsed at a different address than the station dials it "
+            "(e.g. dev: hub configured as host.k3d.internal:8080 but "
+            "browsed at localhost:8080)."
+        ),
+    )
     admin_email: str = Field(
         default="",
         description=(
