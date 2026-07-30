@@ -100,6 +100,31 @@ class WalletSetupResponse(WalletStatusResponse):
     spaces_failed: int = 0
 
 
+class HubTokenMintRequest(BaseModel):
+    """Mint a SyftHub API token ahead of wallet setup.
+
+    The admin's password is forwarded to the hub once and never stored —
+    minting up front lets the UI confirm the hub credential before the
+    wallet form is submitted.
+    """
+
+    password: str = Field(min_length=1, description="Admin's SyftHub password")
+
+
+class HubTokenMintResponse(BaseModel):
+    """A freshly minted hub token, handed to the wallet form.
+
+    The client holds the token in memory only and submits it back as
+    ``syfthub_api_token`` on wallet save — displayed truncated, never
+    persisted browser-side. An abandoned form leaves an unused token on
+    the hub (revocable from its token list).
+    """
+
+    token: str = Field(description="The full API token (syft_pat_…)")
+    username: str = Field(description="Hub account the token belongs to")
+    email: str
+
+
 # ── Buyer checkout (any signed-in session) ──────────────────────────────────
 
 

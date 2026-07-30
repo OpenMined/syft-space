@@ -252,6 +252,54 @@ async def test_setup_requires_hub_credential_on_first_create(
     assert await testbed.wallets.get_active() is None
 
 
+async def test_mint_hub_token_returns_token_and_stores_nothing(
+    testbed: CheckoutTestbed,
+):
+    """The generate button's endpoint: mints on the hub, hands the token to
+    the client, and leaves no wallet state behind."""
+    async with testbed.client() as client:
+        response = await client.post(
+            "/api/v1/credits/admin/wallet/hub-token",
+            json={"password": StubHubIdentity.HUB_PASSWORD},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["token"] == "syft_pat_stub_1"
+    assert body["username"] == ADMIN.username
+    assert body["email"] == ADMIN.email
+    assert testbed.hub.minted == [ADMIN.email]
+    assert await testbed.wallets.get_active() is None  # mint alone saves nothing
+
+
+async def test_mint_hub_token_bad_password_400(testbed: CheckoutTestbed):
+    async with testbed.client() as client:
+        response = await client.post(
+            "/api/v1/credits/admin/wallet/hub-token", json={"password": "wrong"}
+        )
+    assert response.status_code == 400
+    assert testbed.hub.minted == []
+
+
+async def test_mint_then_setup_adopts_the_minted_token(testbed: CheckoutTestbed):
+    """The UI flow end to end: generate first, then wallet save submits the
+    minted token through the adopt path — no second mint."""
+    async with testbed.client() as client:
+        minted = await client.post(
+            "/api/v1/credits/admin/wallet/hub-token",
+            json={"password": StubHubIdentity.HUB_PASSWORD},
+        )
+        token = minted.json()["token"]
+        body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
+        created = await client.put(
+            "/api/v1/credits/admin/wallet",
+            json={**body, "syfthub_api_token": token},
+        )
+    assert created.status_code == 200, created.text
+    wallet = await testbed.wallets.get_active()
+    assert wallet.hub_pat == token
+    assert testbed.hub.minted == [ADMIN.email]  # exactly one mint: the button
+
+
 async def test_setup_bad_hub_password_400_and_no_wallet(testbed: CheckoutTestbed):
     async with testbed.client() as client:
         response = await client.put(

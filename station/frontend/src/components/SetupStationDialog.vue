@@ -12,16 +12,9 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import VersionSelect from '@/components/VersionSelect.vue'
+import WalletSetupForm from '@/components/WalletSetupForm.vue'
 import { ApiError } from '@/api/client'
-import type { WalletProvider } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
 
 /**
@@ -75,16 +68,11 @@ const domainValid = computed(() => {
   return DOMAIN_RE.test(effectiveDomain.value)
 })
 
-// Step 2 — optional shared wallet (Xendit's currencies; USD arrives with Stripe)
-const walletProvider = ref<WalletProvider>('xendit')
-const walletCurrency = ref('PHP')
-const walletKey = ref('')
-const walletCallbackToken = ref('')
+// Step 2 — optional shared wallet. The fields, validation, and save live in
+// WalletSetupForm (shared with the Earnings dialog); this wizard only owns
+// the skip/advance buttons.
+const walletForm = ref<InstanceType<typeof WalletSetupForm> | null>(null)
 const savingWallet = ref(false)
-const CURRENCIES = ['IDR', 'PHP', 'SGD', 'MYR', 'VND', 'THB']
-
-/** Where the gateway must deliver payment events (shown for the dashboard setup). */
-const webhookUrl = computed(() => `${window.location.origin}/api/v1/credits/webhooks/xendit`)
 
 // Step 3 — Syft Space version (image tag from the registry)
 const versionInput = ref('')
@@ -104,27 +92,11 @@ function nextFromDomain() {
 
 async function nextFromWallet(withWallet: boolean) {
   if (withWallet) {
-    if (walletKey.value.trim().length < 8) {
-      toast.error('A valid secret API key is required')
-      return
-    }
-    if (!walletCallbackToken.value.trim()) {
-      toast.error('The webhook callback token is required')
-      return
-    }
     savingWallet.value = true
     try {
-      await station.setupWallet({
-        provider: walletProvider.value,
-        currency: walletCurrency.value,
-        credentials: {
-          api_key: walletKey.value.trim(),
-          callback_token: walletCallbackToken.value.trim(),
-        },
-      })
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : 'Could not save the wallet')
-      return
+      // Validation and API errors are toasted by the form itself.
+      const result = await walletForm.value?.save()
+      if (!result) return
     } finally {
       savingWallet.value = false
     }
@@ -281,55 +253,15 @@ async function finish() {
         </template>
       </div>
 
-      <!-- Step 2: optional shared wallet -->
-      <div v-else-if="step === 1" class="space-y-4">
+      <!-- Step 2: optional shared wallet. v-show (not v-if) so the form's
+           state — including a minted hub token — survives Back/Next. -->
+      <div v-show="step === 1" class="space-y-4">
         <p class="text-xs text-muted-foreground">
           One gateway account for the whole station: users buy credits here and spend them at any
           space; you pay members for what users spend. Skip it to run without pooled payments — you
           can add it later from Earnings.
         </p>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div class="space-y-1.5">
-            <Label>Provider</Label>
-            <Select v-model="walletProvider">
-              <SelectTrigger class="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="xendit">Xendit</SelectItem>
-                <SelectItem value="stripe" disabled>Stripe — coming soon</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div class="space-y-1.5">
-            <Label>Currency</Label>
-            <Select v-model="walletCurrency">
-              <SelectTrigger class="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="c in CURRENCIES" :key="c" :value="c">{{ c }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div class="space-y-1.5">
-          <Label for="setup-wallet-key">Secret API key</Label>
-          <Input id="setup-wallet-key" v-model="walletKey" type="password" placeholder="xnd_…" />
-        </div>
-        <div class="space-y-1.5">
-          <Label for="setup-wallet-callback">Webhook callback token</Label>
-          <Input
-            id="setup-wallet-callback"
-            v-model="walletCallbackToken"
-            type="password"
-            placeholder="From the Xendit dashboard → Webhooks"
-          />
-          <p class="text-xs text-muted-foreground">
-            In the Xendit dashboard (Settings → Developers → Webhooks), point the webhook at
-            <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
-          </p>
-        </div>
+        <WalletSetupForm ref="walletForm" />
         <div class="flex items-center justify-between">
           <Button variant="ghost" size="sm" @click="step = 0">
             <ArrowLeft class="mr-1.5 h-3.5 w-3.5" />
@@ -346,7 +278,7 @@ async function finish() {
       </div>
 
       <!-- Step 3: version -->
-      <div v-else class="space-y-4">
+      <div v-if="step === 2" class="space-y-4">
         <p class="text-xs text-muted-foreground">
           The image version every space runs, straight from the registry. You can bump it later in
           Settings and roll it out with "Update all" — downgrades are not supported.

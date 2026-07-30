@@ -26,6 +26,7 @@ from syft_station.components.auth.syfthub import (
     SyftHubAuthError,
     SyftHubBuyerTokenError,
     SyftHubIdentityClient,
+    SyftHubProfile,
     SyftHubUnavailableError,
 )
 from syft_station.components.credits.bundles import bundle_amount
@@ -60,6 +61,7 @@ from syft_station.components.credits.schemas import (
     EarningsResponse,
     EarningsTotals,
     EndpointEarnings,
+    HubTokenMintResponse,
     MemberEarningsResponse,
     MemberSpaceEarnings,
     OutstandingBalance,
@@ -276,10 +278,10 @@ class WalletAdminHandler:
     async def get(self) -> WalletStatusResponse:
         return _wallet_status(await self.wallets.get_active())
 
-    async def _mint_hub_identity(
+    async def _mint(
         self, admin_email: str, password: str
-    ) -> tuple[str, int]:
-        """One-shot: mint the wallet's PAT and resolve its owner's user id.
+    ) -> tuple[str, SyftHubProfile]:
+        """Mint a PAT on the hub and resolve who it belongs to.
 
         The password never outlives this call. A newly minted PAT replaces
         the stored one; the previous PAT stays valid hub-side until the
@@ -296,7 +298,28 @@ class WalletAdminHandler:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
             ) from e
+        return pat, profile
+
+    async def _mint_hub_identity(
+        self, admin_email: str, password: str
+    ) -> tuple[str, int]:
+        """One-shot: mint the wallet's PAT and resolve its owner's user id."""
+        pat, profile = await self._mint(admin_email, password)
         return pat, profile.id
+
+    async def mint_hub_token(
+        self, admin_email: str, password: str
+    ) -> HubTokenMintResponse:
+        """Mint a hub token ahead of wallet setup (the UI's generate button).
+
+        Nothing is stored here — the token travels to the client, which
+        submits it back as ``syfthub_api_token`` on wallet save, where the
+        adopt path validates and persists it.
+        """
+        pat, profile = await self._mint(admin_email, password)
+        return HubTokenMintResponse(
+            token=pat, username=profile.username, email=profile.email
+        )
 
     async def _adopt_hub_token(self, api_token: str) -> tuple[str, int]:
         """Validate a pasted API token and resolve its owner's user id.

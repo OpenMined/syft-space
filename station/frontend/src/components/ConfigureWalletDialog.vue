@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { ApiError } from '@/api/client'
+import WalletSetupForm from '@/components/WalletSetupForm.vue'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,82 +11,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import type { WalletProvider } from '@/lib/types'
-import { useSessionStore } from '@/stores/session'
 import { useStationStore } from '@/stores/station'
 
-const props = defineProps<{ open: boolean }>()
+defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const station = useStationStore()
-const session = useSessionStore()
 
-const provider = ref<WalletProvider>('xendit')
-const apiKey = ref('')
-const callbackToken = ref('')
-const currency = ref('PHP')
-/** Mints the wallet's SyftHub API token; the API also accepts a pasted
- * token (syfthub_api_token) for scripted setups — the UI keeps one path. */
-const hubPassword = ref('')
+// The form remounts on every open (DialogContent unmounts when closed), so
+// its state resets without any bookkeeping here.
+const form = ref<InstanceType<typeof WalletSetupForm> | null>(null)
 const saving = ref(false)
 
-/** Xendit's supported currencies (each locked to its home country). USD arrives with Stripe. */
-const CURRENCIES = ['IDR', 'PHP', 'SGD', 'MYR', 'VND', 'THB']
-
-/** Where Xendit must deliver payment events — paste into the Xendit dashboard. */
-const webhookUrl = computed(() => `${window.location.origin}/api/v1/credits/webhooks/xendit`)
-
-// Prefill from the existing wallet when replacing. The currency is fixed
-// after creation — user balances are denominated in it.
-watch(
-  () => props.open,
-  (isOpen) => {
-    if (isOpen) {
-      provider.value = station.wallet?.provider ?? 'xendit'
-      currency.value = station.wallet?.currency ?? 'PHP'
-      apiKey.value = ''
-      callbackToken.value = ''
-      hubPassword.value = ''
-    }
-  },
-)
-
 async function save() {
-  if (apiKey.value.trim().length < 8) {
-    toast.error('A valid secret API key is required')
-    return
-  }
-  if (!callbackToken.value.trim()) {
-    toast.error('The webhook callback token is required')
-    return
-  }
-  // A new wallet must connect SyftHub; a replace may leave the password
-  // blank to keep the identity it already has.
-  if (!station.wallet && !hubPassword.value) {
-    toast.error('Connect SyftHub — enter your password to create the API token')
-    return
-  }
   saving.value = true
   try {
-    const result = await station.setupWallet({
-      provider: provider.value,
-      currency: currency.value,
-      credentials: {
-        api_key: apiKey.value.trim(),
-        callback_token: callbackToken.value.trim(),
-      },
-      syfthubPassword: hubPassword.value || undefined,
-    })
+    const result = await form.value?.save()
+    if (!result) return // validation/API errors already toasted by the form
     toast.success('Shared wallet saved', {
       description:
         result.spacesAttached > 0
@@ -94,8 +35,6 @@ async function save() {
           : 'New spaces get the shared wallet automatically.',
     })
     emit('update:open', false)
-  } catch (error) {
-    toast.error(error instanceof ApiError ? error.message : 'Could not save the wallet')
   } finally {
     saving.value = false
   }
@@ -115,83 +54,7 @@ async function save() {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="space-y-4">
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div class="space-y-1.5">
-            <Label>Provider</Label>
-            <Select v-model="provider">
-              <SelectTrigger class="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="xendit">Xendit</SelectItem>
-                <SelectItem value="stripe" disabled>Stripe — coming soon</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div class="space-y-1.5">
-            <Label>Currency</Label>
-            <Select v-model="currency" :disabled="station.wallet !== null">
-              <SelectTrigger class="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="c in CURRENCIES" :key="c" :value="c">{{ c }}</SelectItem>
-              </SelectContent>
-            </Select>
-            <p v-if="station.wallet" class="text-xs text-muted-foreground">
-              Fixed — user balances are held in this currency.
-            </p>
-          </div>
-        </div>
-
-        <div class="space-y-1.5">
-          <Label for="wallet-key">Secret API key</Label>
-          <Input id="wallet-key" v-model="apiKey" type="password" placeholder="xnd_…" />
-          <p class="text-xs text-muted-foreground">
-            Stays at the station — spaces never see it; they only check credits with the station
-            before serving a paid query.
-          </p>
-        </div>
-
-        <div class="space-y-1.5">
-          <Label for="wallet-callback">Webhook callback token</Label>
-          <Input
-            id="wallet-callback"
-            v-model="callbackToken"
-            type="password"
-            placeholder="From the Xendit dashboard → Webhooks"
-          />
-          <p class="text-xs text-muted-foreground">
-            In the Xendit dashboard (Settings → Developers → Webhooks), set the webhook URL to
-            <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
-            and copy its verification token here.
-          </p>
-        </div>
-
-        <div class="space-y-1.5">
-          <div class="flex items-center gap-2">
-            <Label for="wallet-hub-password">Connect SyftHub</Label>
-            <Badge v-if="station.wallet?.hubConnected" variant="secondary">Connected</Badge>
-          </div>
-          <Input
-            id="wallet-hub-password"
-            v-model="hubPassword"
-            type="password"
-            autocomplete="off"
-            placeholder="Your SyftHub password"
-          />
-          <p class="text-xs text-muted-foreground">
-            The station signs in to SyftHub once as
-            <span class="font-medium">{{ session.profile?.email }}</span
-            >, creates an API token to verify buyers' SyftHub sign-ins, and discards the password.
-            Revoke the token on SyftHub at any time.
-            <template v-if="station.wallet">
-              Leave blank to keep the current connection; fill it only to rotate the token.
-            </template>
-          </p>
-        </div>
-      </div>
+      <WalletSetupForm ref="form" />
 
       <DialogFooter>
         <Button variant="outline" @click="emit('update:open', false)">Cancel</Button>

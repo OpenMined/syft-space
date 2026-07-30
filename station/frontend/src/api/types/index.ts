@@ -135,6 +135,19 @@ export interface WalletSetupResponse extends WalletStatusResponse {
   spaces_failed: number
 }
 
+export interface HubTokenMintBody {
+  /** Admin's SyftHub password — forwarded to the hub once, never stored. */
+  password: string
+}
+
+/** A freshly minted SyftHub API token. Held in memory only and submitted
+ *  back as syfthub_api_token on wallet save; shown truncated, never persisted. */
+export interface HubTokenMintResponse {
+  token: string
+  username: string
+  email: string
+}
+
 export interface TopUpResponse {
   invoice_id: string
   user_email: string
