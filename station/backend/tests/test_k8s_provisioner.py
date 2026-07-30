@@ -15,6 +15,7 @@ from syft_station.components.provision.k8s import K8sProvisioner
 SETTINGS = SimpleNamespace(
     namespace="syft-spaces",
     space_image="openmined/syft-space",
+    space_scheme="https",
     ingress_class="traefik",
     space_pvc_size="2Gi",
     space_cpu_request="250m",

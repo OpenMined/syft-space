@@ -12,9 +12,12 @@
 #
 # `just dev` is the everyday loop — edit backend code, uvicorn reloads, no
 # image rebuild. `just up` is the parity check (in-cluster DNS, RBAC, the real
-# deployed pod). Station UI: http://station.localhost. The station is the
-# PARENT of its spaces, so use `station.localhost` as the domain during setup
-# and spaces resolve at <subdomain>.station.localhost via Traefik on :80
+# deployed pod). EITHER way the station is at http://station.localhost — in
+# `just dev` the chart's host-route (ExternalName Service + Ingress) proxies
+# that name through Traefik to the host process, so dev uses the same URLs
+# and the same onboarding as prod. The station is the PARENT of its spaces:
+# setup suggests `station.localhost` as the domain and spaces resolve at
+# <subdomain>.station.localhost via Traefik on :80
 # (*.localhost → 127.0.0.1 in browsers — no DNS setup).
 
 cluster_name := "syft-station"
@@ -51,6 +54,22 @@ ensure-cluster: bootstrap
             --registry-create {{cluster_name}}-registry:0.0.0.0:5111 \
             -p "80:80@loadbalancer" -p "443:443@loadbalancer"
     fi
+    # k3s ships Traefik with ExternalName backends disabled (an SSRF guard for
+    # shared clusters, irrelevant here). The chart's dev host-route needs them
+    # to proxy station.localhost to the host-run station. k3s's helm controller
+    # picks this up and restarts Traefik on first apply (idempotent after).
+    kubectl apply -f - <<'EOF'
+    apiVersion: helm.cattle.io/v1
+    kind: HelmChartConfig
+    metadata:
+      name: traefik
+      namespace: kube-system
+    spec:
+      valuesContent: |-
+        providers:
+          kubernetesIngress:
+            allowExternalNameServices: true
+    EOF
     just cluster-dns
 
 # The base the host-run loop builds on: the chart with the station OFF, so
@@ -80,10 +99,17 @@ cluster-dns:
     echo "Waiting for Traefik..."
     until kubectl -n kube-system get svc traefik >/dev/null 2>&1; do sleep 2; done
     traefik_ip=$(kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}')
+    # AAAA answers empty (NODATA) rather than falling through to SERVFAIL, so
+    # dual-stack resolvers cleanly fall back to the A record. Note musl-based
+    # (Alpine) containers never ask: musl hardcodes *.localhost to loopback.
+    # Space images are Debian/glibc, which resolves via CoreDNS as intended.
     kubectl -n kube-system create configmap coredns-custom \
         --from-literal=station.server="station.localhost:53 {
         template IN A {
             answer \"{{{{ .Name }} 60 IN A ${traefik_ip}\"
+        }
+        template IN AAAA {
+            rcode NOERROR
         }
     }" --dry-run=client -o yaml | kubectl apply -f -
     kubectl -n kube-system rollout restart deploy/coredns
@@ -91,37 +117,50 @@ cluster-dns:
     echo "In-cluster DNS: *.station.localhost -> ${traefik_ip} (Traefik)"
 
 # Provisions spaces into k3d over your kubeconfig. Pass your SyftHub email for
-# the admin role; optionally point at a different SyftHub:
+# the admin role; optionally point at a local SyftHub and/or a locally-built
+# syft-space image (built + imported + suggested by onboarding):
 #   just dev you@org.com
-#   just dev admin=you@org.com hub=http://host.k3d.internal:8080
+#   just dev admin=you@org.com hub=http://localhost:8080 space=dev
+#
+# The chart's dev host-route makes the host-run station reachable at the SAME
+# names prod uses — http://station.localhost from browsers (via Traefik) and
+# http://syft-station:8090 from space pods (ExternalName → the host) — so no
+# credits/CORS overrides are needed here.
 
 # Everyday loop: run the station on the HOST with hot-reload (spaces -> k3d).
-dev admin="" hub="": cluster
+dev admin="" hub="" space="": cluster
     #!/usr/bin/env bash
     set -euo pipefail
     # just binds `admin=x` positionally as the literal string — accept both
     # `just dev x` and `just dev admin=x` by stripping the prefixes.
     admin_email="{{admin}}"; admin_email="${admin_email#admin=}"
     hub_url="{{hub}}"; hub_url="${hub_url#hub=}"
+    space_tag="{{space}}"; space_tag="${space_tag#space=}"
     if [ -z "$admin_email" ]; then
         echo "WARNING: no admin email set — every sign-in gets the member role."
+    fi
+    if [ -n "$space_tag" ]; then
+        just space-image "$space_tag"
+        # Onboarding's version picker suggests this tag — no retyping it.
+        export SYFT_STATION_SPACE_VERSION="$space_tag"
     fi
     export SYFT_STATION_PROVISIONER=k8s
     export SYFT_STATION_NAMESPACE={{namespace}}
     export SYFT_STATION_SPACE_IMAGE=ghcr.io/openmined/syft-space
     export SYFT_STATION_ADMIN_EMAIL="$admin_email"
-    # Spaces run inside k3d; the station is on the host — they reach the
-    # credits API through k3d's host alias. The station is off its own domain
-    # here, so we can't derive its public URL from the setup domain — override
-    # both the internal credits URL and the buyer-facing public URL (minted
-    # into spaces as SYFT_CLUSTER_PUBLIC_URL) to that same host alias.
-    export SYFT_STATION_CREDITS_URL=http://host.k3d.internal:8090
-    export SYFT_STATION_PUBLIC_URL=http://host.k3d.internal:8090
-    [ -n "$hub_url" ] && export SYFT_STATION_SYFTHUB_URL="$hub_url"
+    # The station's public name, routed to this host process by the chart's
+    # dev host-route through Traefik. Onboarding derives the setup domain
+    # from it, exactly as prod derives it from the ingress host.
+    export SYFT_STATION_PUBLIC_URL=http://station.localhost
+    # No certs in dev — spaces are minted plain-http URLs.
+    export SYFT_STATION_SPACE_SCHEME=http
+    if [ -n "$hub_url" ]; then
+        export SYFT_STATION_SYFTHUB_URL="$hub_url"
+    fi
     # Fixed dev secret so sessions survive reloads/restarts (never used in prod).
     export SYFT_STATION_SESSION_SECRET="dev-not-secret-session-key"
-    echo "Station on http://localhost:8090 (backend hot-reloads on .py changes)."
-    echo "Frontend: run 'just build-ui' once -> served at :8090/ui (or 'just dev-ui' for HMR)."
+    echo "Station on http://station.localhost (backend hot-reloads on .py changes)."
+    echo "Frontend: run 'just build-ui' once -> served at /ui (or 'just dev-ui' for HMR)."
     cd backend && uv run syft-station server --reload
 
 # Builds to frontend/dist, which `just dev` serves in place (like syft-space).

@@ -37,6 +37,7 @@ class RenderSettings(Protocol):
 
     namespace: str
     space_image: str
+    space_scheme: str
     ingress_class: str
     space_pvc_size: str
     space_cpu_request: str
@@ -68,7 +69,7 @@ def _substitutions(spec: SpaceSpec, settings: RenderSettings) -> dict[str, str]:
         "DOCLING_URL": settings.docling_url,
         "MANAGED_BY": settings.managed_by_name,
         "SYFTHUB_URL": str(settings.syfthub_url).rstrip("/"),
-        "PUBLIC_URL": f"https://{spec.subdomain}.{spec.domain}",
+        "PUBLIC_URL": f"{settings.space_scheme}://{spec.subdomain}.{spec.domain}",
         "HOST": f"{spec.subdomain}.{spec.domain}",
         "INGRESS_CLASS": settings.ingress_class,
         "PVC_SIZE": settings.space_pvc_size,

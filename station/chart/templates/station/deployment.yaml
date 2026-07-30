@@ -57,6 +57,8 @@ spec:
               value: {{ .Values.spaces.memoryRequest | quote }}
             - name: SYFT_STATION_SPACE_MEMORY_LIMIT
               value: {{ .Values.spaces.memoryLimit | quote }}
+            - name: SYFT_STATION_SPACE_SCHEME
+              value: {{ .Values.spaces.scheme | quote }}
             - name: SYFT_STATION_MANAGED_BY_NAME
               value: {{ .Values.spaces.managedByName | quote }}
             - name: SYFT_STATION_CHROMADB_HOST

@@ -13,6 +13,7 @@ from syft_station.components.provision.manifests import (
 SETTINGS = SimpleNamespace(
     namespace="syft-spaces",
     space_image="openmined/syft-space",
+    space_scheme="https",
     ingress_class="traefik",
     space_pvc_size="2Gi",
     space_cpu_request="250m",
@@ -118,6 +119,13 @@ def test_deployment_docling_and_branding(manifests):
     assert env["SYFT_DOCLING_SERVE_URL"]["value"] == "http://docling-serve:5001"
     assert env["SYFT_CLUSTER_MANAGED_BY"]["value"] == "Syft Station"
     assert env["SYFT_PUBLIC_URL"]["value"] == "https://alpha.spaces.test.org"
+
+
+def test_space_scheme_flows_into_the_public_url():
+    # Dev has no certs: SYFT_STATION_SPACE_SCHEME=http mints http:// URLs.
+    settings = SimpleNamespace(**{**vars(SETTINGS), "space_scheme": "http"})
+    env = _env(render_space_manifests(SPEC, settings)["deployment"])
+    assert env["SYFT_PUBLIC_URL"]["value"] == "http://alpha.spaces.test.org"
 
 
 def test_deployment_points_spaces_at_the_station_syfthub(manifests):

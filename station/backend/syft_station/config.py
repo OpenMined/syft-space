@@ -120,6 +120,14 @@ class AppSettings(BaseSettings):
         default="openmined/syft-space",
         description="Container image (repo only) each space is deployed from",
     )
+    space_scheme: str = Field(
+        default="https",
+        description=(
+            "Scheme of the public space URLs the station mints "
+            "(<scheme>://<subdomain>.<domain>). Prod terminates TLS at the "
+            "ingress; dev has no certs and sets http."
+        ),
+    )
     image_registry: str = Field(
         default="ghcr.io",
         description=(

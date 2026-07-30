@@ -70,7 +70,7 @@ class K8sProvisioner:
             ) from e
         except Exception as e:
             raise ProvisionError(f"Failed to provision '{spec.subdomain}': {e}") from e
-        return f"https://{spec.subdomain}.{spec.domain}"
+        return f"{self.settings.space_scheme}://{spec.subdomain}.{spec.domain}"
 
     async def deprovision(self, subdomain: str, purge: bool) -> None:
         """Delete the space's resource bundle.

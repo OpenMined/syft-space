@@ -109,7 +109,7 @@ story), driven by the `justfile`:
 just cluster                # k3d + shared deps (ChromaDB, docling) only
 just dev admin=you@org.com  # station on the HOST (uvicorn --reload),
                             #   spaces provisioned into k3d over kubeconfig
-just build-ui               # build frontend/dist -> served by just dev at :8090/ui
+just build-ui               # build frontend/dist -> served by just dev at /ui
 just dev-ui                 # OR: Vite HMR for the frontend (2nd terminal)
 just up  admin=you@org.com  # FULL in-cluster: the station pod via Helm
 just down                   # tear the cluster down
@@ -127,17 +127,28 @@ only `.py`), or use `just dev-ui` for live HMR. `just up` is the parity check
 (in-cluster DNS, RBAC, the real deployed pod, frontend served statically from
 the image).
 
-The station UI is at `http://station.localhost`. The station is the PARENT of
-its spaces, so set the domain to `station.localhost` during first-run setup;
-spaces then resolve at `<subdomain>.station.localhost` (via the k3d
-loadbalancer on :80; `*.localhost` → 127.0.0.1 in browsers, no DNS setup).
+The station is at `http://station.localhost` in BOTH loops — in `just dev`
+the chart's dev host-route (an ExternalName Service named `syft-station` +
+an Ingress, `chart/templates/station/host-route.yaml`) proxies that name
+through Traefik to the host process, and makes the spaces' default
+in-cluster credits URL (`http://syft-station:8090`) resolve to the host.
+Dev therefore uses the same URLs and the same onboarding as prod: setup
+suggests `station.localhost` as the domain (derived from
+`SYFT_STATION_PUBLIC_URL`), and spaces resolve at
+`<subdomain>.station.localhost` (via the k3d loadbalancer on :80;
+`*.localhost` → 127.0.0.1 in browsers, no DNS setup). Space URLs are minted
+plain-http in dev (`SYFT_STATION_SPACE_SCHEME` / `spaces.scheme` — no certs).
 The `admin` argument sets
 `SYFT_STATION_ADMIN_EMAIL` — without it every sign-in gets the member role.
-An optional `hub=https://…` argument sets `SYFT_STATION_SYFTHUB_URL` (omitted
-→ the production SyftHub default). The chart preserves the session secret
+An optional `hub=http://localhost:8080` argument sets
+`SYFT_STATION_SYFTHUB_URL` (omitted → the production SyftHub default); use
+plain localhost for a local hub — CORS for the hub's browser origin is
+derived from it. An optional `space=tag` argument builds + imports a local
+syft-space image (`just space-image`) and sets `SYFT_STATION_SPACE_VERSION`
+so onboarding suggests that tag. The chart preserves the session secret
 across `helm upgrade` (via a live `lookup`), so cookies survive redeploys.
-Spaces pull the published image (`ghcr.io/openmined/syft-space`) at whatever
-tag the admin picks; nothing is baked in.
+Otherwise spaces pull the published image (`ghcr.io/openmined/syft-space`)
+at whatever tag the admin picks; nothing is baked in.
 
 Layout: `station/chart/` — the Helm chart (station + shared ChromaDB/docling,
 RBAC, NetworkPolicy; values drive dev↔prod). `syft_station/k8s/space/` — the
