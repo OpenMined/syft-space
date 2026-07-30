@@ -40,6 +40,13 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 RUN cd backend && uv sync --extra libs --no-install-project
 
+# Pre-bake Chroma's client-side embedding model (all-MiniLM-L6-v2, ~80 MB).
+# Chroma otherwise downloads it on first embed; on slow pod egress that
+# download can't finish inside an ingestion job's timeout, and every retry
+# restarts it from zero. The EF skips the download when these files exist.
+RUN /app/.venv/bin/python -c "from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2; ONNXMiniLM_L6_V2()._download_model_if_not_exists()" \
+    && rm /root/.cache/chroma/onnx_models/all-MiniLM-L6-v2/onnx.tar.gz
+
 # ============================================================================
 # Stage 2: Production
 # Minimal image with only Python runtime
@@ -69,6 +76,9 @@ COPY --from=backend-builder /usr/bin/uv /usr/bin/uv
 
 # Copy Python virtual environment
 COPY --from=backend-builder /app/.venv /app/.venv
+
+# Pre-baked embedding model (see builder stage) — pods never download it.
+COPY --from=backend-builder /root/.cache/chroma /root/.cache/chroma
 
 # Copy backend source
 COPY backend/ ./backend/
