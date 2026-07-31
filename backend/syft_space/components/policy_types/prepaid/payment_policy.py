@@ -116,7 +116,7 @@ class PrepaidBalancePaymentPolicyBase(PaymentMetadataMixin, BasePolicyType):
         if transaction_id is None:
             return None
         return TransactionRef(
-            rail=cast(Literal["xendit", "stripe"], wallet_type),
+            rail=cast(Literal["xendit", "stripe", "cluster"], wallet_type),
             id=str(transaction_id),
         )
 

@@ -55,7 +55,7 @@ class TransactionRef(BaseModel):
     Xendit/Stripe — disambiguated by `rail`.
     """
 
-    rail: Literal["mpp", "xendit", "stripe"] = Field(
+    rail: Literal["mpp", "xendit", "stripe", "cluster"] = Field(
         ..., description="Settlement rail that produced this transaction"
     )
     id: str = Field(
