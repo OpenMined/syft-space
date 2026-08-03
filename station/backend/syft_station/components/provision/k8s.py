@@ -3,6 +3,8 @@
 Renders the per-space manifests and applies them as a labeled bundle
 (Secret + PVC → Deployment → Service → Ingress), then waits for the
 Deployment to report an available replica before calling the space live.
+The wait is status-aware: terminally-stuck pods fail fast with a specific
+reason, while visible startup progress extends the deadline (capped).
 Teardown deletes the bundle in reverse, keeping the PVC unless purge=True.
 
 The ``kubernetes`` client is synchronous; every call goes through
@@ -11,7 +13,8 @@ The ``kubernetes`` client is synchronous; every call goes through
 
 import asyncio
 import time
-from typing import Protocol
+from datetime import UTC, datetime
+from typing import NamedTuple, Protocol
 
 from kubernetes.client.rest import ApiException
 from loguru import logger
@@ -23,10 +26,44 @@ from syft_station.components.provision.interfaces import (
 )
 from syft_station.components.provision.kube import KubeClient
 from syft_station.components.provision.manifests import (
+    LABEL_SPACE,
     RenderSettings,
     render_space_manifests,
     resource_name,
 )
+
+# Waiting reasons where the kubelet has already given up retrying, or the
+# config is provably invalid — more waiting can never fix these. Notably
+# absent: ErrImagePull (a registry blip gets natural grace until the kubelet
+# escalates it to ImagePullBackOff).
+_FATAL_WAITING_REASONS = frozenset(
+    {
+        "ImagePullBackOff",
+        "InvalidImageName",
+        "CreateContainerConfigError",
+        "CrashLoopBackOff",
+    }
+)
+# Waiting reasons that mean legitimate startup work is underway (e.g. a
+# multi-GB image pull on a fresh node) — these extend the readiness deadline.
+_PROGRESSING_REASONS = frozenset({"ContainerCreating", "PodInitializing"})
+
+# Visible progress may push the deadline out to at most this many times the
+# configured timeout; a hung start still terminates.
+_DEADLINE_CAP_FACTOR = 3
+
+_CRASH_LOG_LINES = 5
+_CRASH_LOG_MAX_CHARS = 300
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+class _PodInspection(NamedTuple):
+    """What the space's newest pod says about how startup is going."""
+
+    fatal: str | None  # admin-facing reason when the pod is terminally stuck
+    state: str  # short snapshot for the timeout message
+    progressing: bool  # visibly making startup progress (extends the deadline)
 
 
 class _ProvisionSettings(RenderSettings, Protocol):
@@ -60,7 +97,7 @@ class K8sProvisioner:
         name = resource_name(spec.subdomain)
         try:
             await asyncio.to_thread(self._apply_bundle, manifests)
-            await self._wait_until_available(name)
+            await self._wait_until_available(name, spec.subdomain)
         except ProvisionError:
             raise
         except ApiException as e:
@@ -168,12 +205,23 @@ class K8sProvisioner:
             # existing one on retry; just keep it.
             logger.info(f"[k8s] pvc/{name} already exists — keeping its data")
 
-    async def _wait_until_available(self, name: str) -> None:
-        """Poll the Deployment until a replica is ready, or time out."""
+    async def _wait_until_available(self, name: str, subdomain: str) -> None:
+        """Poll the Deployment until a replica is ready, or fail with a reason.
+
+        Each tick also inspects the space's pods: terminally-stuck states
+        (image can't be pulled, provably broken config, crash loop) fail
+        immediately with a specific message instead of burning the whole
+        timeout, while visible startup progress (image pull, container
+        creation) extends the deadline — capped so a hung start still
+        terminates.
+        """
         ns = self.settings.namespace
         timeout = self.settings.provision_timeout_seconds
         interval = self.settings.provision_poll_interval_seconds
-        deadline = time.monotonic() + timeout
+        start = time.monotonic()
+        deadline = start + timeout
+        hard_deadline = start + _DEADLINE_CAP_FACTOR * timeout
+        last_state = "no pods observed"
         while True:
             deployment = await asyncio.to_thread(
                 self.kube.apps.read_namespaced_deployment_status, name, ns
@@ -183,11 +231,90 @@ class K8sProvisioner:
             if available >= 1:
                 logger.info(f"[k8s] deployment/{name} is available")
                 return
-            if time.monotonic() >= deadline:
+            inspection = await asyncio.to_thread(self._inspect_pods, subdomain)
+            if inspection.fatal:
+                raise ProvisionError(inspection.fatal)
+            last_state = inspection.state
+            now = time.monotonic()
+            if inspection.progressing:
+                deadline = min(now + timeout, hard_deadline)
+            if now >= deadline:
                 raise ProvisionError(
-                    f"Deployment '{name}' did not become available within {timeout}s"
+                    f"Deployment '{name}' did not become available within "
+                    f"{round(now - start)}s (last state: {last_state})"
                 )
             await asyncio.sleep(interval)
+
+    def _inspect_pods(self, subdomain: str) -> _PodInspection:
+        """Classify the newest live pod's startup state (sync, via to_thread)."""
+        result = self.kube.core.list_namespaced_pod(
+            self.settings.namespace,
+            label_selector=f"{LABEL_SPACE}={subdomain}",
+        )
+        # A retry can overlap the previous attempt's dying pod — only the
+        # newest non-terminating pod reflects this attempt.
+        live = [p for p in result.items or [] if not p.metadata.deletion_timestamp]
+        if not live:
+            return _PodInspection(
+                fatal=None, state="no pods observed", progressing=False
+            )
+        pod = max(live, key=lambda p: p.metadata.creation_timestamp or _EPOCH)
+        statuses = list(pod.status.container_statuses or []) + list(
+            pod.status.init_container_statuses or []
+        )
+        for cs in statuses:
+            waiting = cs.state.waiting if cs.state else None
+            if waiting and waiting.reason in _FATAL_WAITING_REASONS:
+                return _PodInspection(
+                    fatal=self._fatal_message(pod.metadata.name, cs, waiting),
+                    state=waiting.reason,
+                    progressing=False,
+                )
+        state = self._state_snapshot(pod, statuses)
+        return _PodInspection(
+            fatal=None, state=state, progressing=state in _PROGRESSING_REASONS
+        )
+
+    @staticmethod
+    def _state_snapshot(pod, statuses) -> str:
+        """Short human label for what the pod is doing right now."""
+        for condition in pod.status.conditions or []:
+            if condition.type == "PodScheduled" and condition.status == "False":
+                return condition.reason or "Unschedulable"
+        for cs in statuses:
+            waiting = cs.state.waiting if cs.state else None
+            if waiting and waiting.reason:
+                return waiting.reason
+        return pod.status.phase or "Unknown"
+
+    def _fatal_message(self, pod_name: str, cs, waiting) -> str:
+        """Specific, admin-facing reason for a terminally-stuck container."""
+        if waiting.reason == "CrashLoopBackOff":
+            message = f"container '{cs.name}' keeps crashing (CrashLoopBackOff)"
+            tail = self._crash_log_tail(pod_name, cs.name)
+            return f"{message}: {tail}" if tail else message
+        if waiting.reason == "ImagePullBackOff":
+            detail = waiting.message or "image pull failed"
+            return f"image '{cs.image}' cannot be pulled (ImagePullBackOff): {detail}"
+        # InvalidImageName / CreateContainerConfigError — the kubelet's message
+        # already names the broken field (bad tag syntax, missing Secret/key).
+        return f"{waiting.reason}: {waiting.message or 'no detail from kubelet'}"
+
+    def _crash_log_tail(self, pod_name: str, container: str) -> str:
+        """Last few log lines of the crashed container, best-effort."""
+        try:
+            text = self.kube.core.read_namespaced_pod_log(
+                pod_name,
+                self.settings.namespace,
+                container=container,
+                previous=True,
+                tail_lines=_CRASH_LOG_LINES,
+            )
+        except Exception:
+            # Never let a log fetch mask the real failure reason.
+            return ""
+        lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+        return " | ".join(lines)[:_CRASH_LOG_MAX_CHARS]
 
     def _scale(self, subdomain: str, replicas: int) -> None:
         name = resource_name(subdomain)
