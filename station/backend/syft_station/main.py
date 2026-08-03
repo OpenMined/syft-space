@@ -46,6 +46,7 @@ from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.setup.routes import build_setup_routes
 from syft_station.components.shared.database import AsyncDatabase, SQLiteConfig
 from syft_station.components.spaces.handlers import SpaceHandler
+from syft_station.components.spaces.provisioning import SpaceConverger
 from syft_station.components.spaces.repository import SpaceRepository
 from syft_station.components.spaces.routes import build_space_routes
 from syft_station.config import app_settings
@@ -110,13 +111,19 @@ earnings_handler = EarningsHandler(
     database, wallet_repository, payout_repository, space_repository
 )
 setup_handler = SetupHandler(setup_repository)
-space_handler = SpaceHandler(space_repository, provisioner)
+space_converger = SpaceConverger(
+    space_repository, setup_repository, provisioner, space_credits_service
+)
+space_handler = SpaceHandler(
+    space_repository, provisioner, setup_repository, space_converger
+)
 request_handler = RequestHandler(
     repository=request_repository,
     space_repository=space_repository,
     setup_repository=setup_repository,
     provisioner=provisioner,
     credits=space_credits_service,
+    converger=space_converger,
 )
 
 

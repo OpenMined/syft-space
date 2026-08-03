@@ -84,7 +84,22 @@ export interface SpaceResponse {
   owner_email: string
   url: string
   version: string
+  /** A Secret patch is waiting for a restart the station couldn't do itself. */
+  restart_required: boolean
   created_at: string
+}
+
+/** One space's outcome in an update sweep. */
+export interface SpaceUpdateResult {
+  space_id: string
+  name: string
+  outcome: 'updated' | 'skipped' | 'failed'
+  detail: string
+}
+
+export interface UpdateAllResponse {
+  supported_version: string
+  results: SpaceUpdateResult[]
 }
 
 /** Live runtime status of a space, read from Kubernetes (never stored). */

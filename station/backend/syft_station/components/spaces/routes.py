@@ -14,6 +14,7 @@ from syft_station.components.spaces.schemas import (
     AdminUrlResponse,
     SpaceResponse,
     SpaceStatusResponse,
+    UpdateAllResponse,
 )
 
 
@@ -66,6 +67,33 @@ def build_space_routes(handler: SpaceHandler) -> APIRouter:
     ) -> SpaceStatusResponse:
         """Bring a paused space back online (owner or admin)."""
         return await handler.resume(space_id, user)
+
+    @router.post("/{space_id}/restart", response_model=SpaceStatusResponse)
+    async def restart_space(
+        space_id: UUID,
+        user: SessionUser = Depends(get_current_user),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> SpaceStatusResponse:
+        """Roll the space's pods so they start with the current Secret
+        (owner or admin)."""
+        return await handler.restart(space_id, user)
+
+    @router.post("/{space_id}/update", response_model=SpaceResponse)
+    async def update_space(
+        space_id: UUID,
+        user: SessionUser = Depends(require_admin),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> SpaceResponse:
+        """Redeploy the space at the supported version, data kept (admin)."""
+        return await handler.update_space(space_id)
+
+    @router.post("/update-all", response_model=UpdateAllResponse)
+    async def update_all(
+        user: SessionUser = Depends(require_admin),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> UpdateAllResponse:
+        """Redeploy every outdated space sequentially (admin)."""
+        return await handler.update_all()
 
     @router.get("/{space_id}/admin-url", response_model=AdminUrlResponse)
     async def admin_url(

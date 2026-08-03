@@ -20,6 +20,7 @@ from syft_station.components.requests.schemas import (
     SubmitRequestBody,
     slugify,
 )
+from syft_station.components.spaces.provisioning import SpaceConverger
 from tests.conftest import ADMIN, MEMBER, OTHER_MEMBER
 
 
@@ -38,12 +39,16 @@ def credits_service(db) -> SpaceCreditsService:
 def handler(
     request_repository, space_repository, setup_repository, credits_service
 ) -> RequestHandler:
+    provisioner = MockProvisioner()
     return RequestHandler(
         repository=request_repository,
         space_repository=space_repository,
         setup_repository=setup_repository,
-        provisioner=MockProvisioner(),
+        provisioner=provisioner,
         credits=credits_service,
+        converger=SpaceConverger(
+            space_repository, setup_repository, provisioner, credits_service
+        ),
     )
 
 
@@ -354,6 +359,9 @@ def rec_handler(
         setup_repository=setup_repository,
         provisioner=rec_provisioner,
         credits=credits_service,
+        converger=SpaceConverger(
+            space_repository, setup_repository, rec_provisioner, credits_service
+        ),
     )
 
 

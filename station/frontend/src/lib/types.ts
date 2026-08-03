@@ -37,6 +37,8 @@ export interface Space {
   adminUrl?: string
   /** Image tag this space's deployment currently runs. */
   version: string
+  /** A Secret patch is waiting for a restart the station couldn't do itself. */
+  restartRequired: boolean
 }
 
 // ---- Shared wallet & earnings (server-backed via /credits) ----

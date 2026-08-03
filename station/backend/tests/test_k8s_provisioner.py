@@ -57,6 +57,7 @@ class FakeKube:
         self.spec_replicas = 1  # what read_namespaced_deployment reports
         self.available_replicas = 1
         self.deployment_missing = False  # read raises 404
+        self.deployment_patches: list[dict] = []  # bodies passed to patch
         self.pods: list = []  # returned by list_namespaced_pod
         self.pod_list_selectors: list[str] = []
         self.pod_log = ""  # returned by read_namespaced_pod_log
@@ -94,6 +95,7 @@ class FakeKube:
 
     def patch_namespaced_deployment(self, name, namespace, body):
         self.calls.append(("patch", "deployment", name))
+        self.deployment_patches.append(body)
 
     def patch_namespaced_service(self, name, namespace, body):
         self.calls.append(("patch", "service", name))
@@ -439,6 +441,18 @@ async def test_deprovision_ignores_missing_resources(provisioner, kube):
     kube.notfound_delete = {"ingress", "service", "deployment", "secret"}
     # Should not raise despite every delete 404-ing.
     await provisioner.deprovision("alpha", purge=False)
+
+
+# ============== restart ==============
+
+
+async def test_restart_bumps_pod_template_annotation(provisioner, kube):
+    await provisioner.restart("alpha")
+
+    assert ("patch", "deployment", "space-alpha") in kube.calls
+    (body,) = kube.deployment_patches
+    annotations = body["spec"]["template"]["metadata"]["annotations"]
+    assert "syftcluster.openmined.org/restartedAt" in annotations
 
 
 # ============== pause / resume / status ==============

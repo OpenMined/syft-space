@@ -14,6 +14,7 @@ class SpaceResponse(BaseModel):
     owner_email: str
     url: str
     version: str
+    restart_required: bool
     created_at: datetime
 
 
@@ -28,3 +29,17 @@ class SpaceStatusResponse(BaseModel):
     """Live runtime status of a space (read from Kubernetes, never stored)."""
 
     status: str
+
+
+class SpaceUpdateResult(BaseModel):
+    """One space's outcome in an update sweep."""
+
+    space_id: UUID
+    name: str
+    outcome: str  # "updated" | "skipped" | "failed"
+    detail: str = ""
+
+
+class UpdateAllResponse(BaseModel):
+    supported_version: str
+    results: list[SpaceUpdateResult]

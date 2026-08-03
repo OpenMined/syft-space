@@ -1,5 +1,10 @@
 import { apiClient } from '@/api/client'
-import type { AdminUrlResponse, SpaceResponse, SpaceStatusResponse } from '@/api/types'
+import type {
+  AdminUrlResponse,
+  SpaceResponse,
+  SpaceStatusResponse,
+  UpdateAllResponse,
+} from '@/api/types'
 
 export const spacesApi = {
   /** Admin: all spaces on the station. */
@@ -15,6 +20,15 @@ export const spacesApi = {
   pause: (id: string): Promise<SpaceStatusResponse> => apiClient.post(`/spaces/${id}/pause`),
 
   resume: (id: string): Promise<SpaceStatusResponse> => apiClient.post(`/spaces/${id}/resume`),
+
+  /** Roll the space's pods so they start with the current Secret. */
+  restart: (id: string): Promise<SpaceStatusResponse> => apiClient.post(`/spaces/${id}/restart`),
+
+  /** Admin: redeploy the space at the supported version, data kept. */
+  update: (id: string): Promise<SpaceResponse> => apiClient.post(`/spaces/${id}/update`),
+
+  /** Admin: redeploy every outdated space sequentially. */
+  updateAll: (): Promise<UpdateAllResponse> => apiClient.post('/spaces/update-all'),
 
   /** The space URL with the admin key attached — opens the space signed in. */
   adminUrl: (id: string): Promise<AdminUrlResponse> => apiClient.get(`/spaces/${id}/admin-url`),

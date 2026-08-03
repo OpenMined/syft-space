@@ -75,13 +75,20 @@ def xendit_down(request: httpx.Request) -> httpx.Response:
 
 
 class RecordingPatcher:
-    """SecretPatcher stub recording (subdomain, keys) per patch."""
+    """SecretPatcher stub recording patches and restarts."""
 
     def __init__(self):
         self.patched: list[tuple[str, dict[str, str]]] = []
+        self.restarted: list[str] = []
+        self.fail_restart = False
 
     async def update_space_secret(self, subdomain: str, data: dict[str, str]) -> None:
         self.patched.append((subdomain, data))
+
+    async def restart(self, subdomain: str) -> None:
+        if self.fail_restart:
+            raise RuntimeError("substrate says no")
+        self.restarted.append(subdomain)
 
 
 class CheckoutTestbed:
@@ -393,9 +400,29 @@ async def test_setup_attaches_unbound_spaces(testbed: CheckoutTestbed):
     hashed = hash_credit_token(data["SYFT_CLUSTER_CREDITS_TOKEN"])
     assert (await testbed.credit_tokens.get_active_by_hash(hashed)).id == binding.id
 
+    # The space was restarted so the wallet takes effect immediately.
+    assert testbed.patcher.restarted == ["old-space"]
+    assert (await testbed.spaces.get_by_id(unbound.id)).restart_required is False
+
     # Re-saving the wallet is a no-op sweep — everyone is already attached.
     again = await testbed.setup_wallet()
     assert again["spaces_attached"] == 0
+
+
+async def test_setup_flags_space_when_auto_restart_fails(testbed: CheckoutTestbed):
+    """A failed restart still counts as attached (the Secret is in place)
+    but the space is flagged so the UI can show 'restart required'."""
+    space = await testbed.spaces.create(
+        Space(name="Old", subdomain="old-space", owner_email="a@test.com")
+    )
+    testbed.patcher.fail_restart = True
+
+    result = await testbed.setup_wallet()
+
+    assert result["spaces_attached"] == 1 and result["spaces_failed"] == 0
+    refreshed = await testbed.spaces.get_by_id(space.id)
+    assert refreshed.wallet_id is not None
+    assert refreshed.restart_required is True
 
 
 # ============== Buyer purchase (SyftHub, satellite token) ==============

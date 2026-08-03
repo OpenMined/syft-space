@@ -86,6 +86,14 @@ class Provisioner(Protocol):
         keeps its env until the space is restarted)."""
         ...
 
+    async def restart(self, subdomain: str) -> None:
+        """Roll the space's pods so they start with the current Secret.
+
+        Fire-and-forget: returns once the roll is triggered; progress is
+        visible through get_status.
+        """
+        ...
+
     async def pause(self, subdomain: str) -> None:
         """Free the space's compute (scale to 0); keep its data."""
         ...

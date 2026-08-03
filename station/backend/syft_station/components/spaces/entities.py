@@ -36,6 +36,12 @@ class Space(SQLModel, table=True):
         "Distinguishes 'no wallet existed yet' (backfilled when one is "
         "added) from 'keep this space unbilled' (left alone).",
     )
+    restart_required: bool = Field(
+        default=False,
+        description="The space's Secret was patched but the automatic "
+        "restart failed — the running pod still has the old env. Cleared "
+        "by any successful restart, update, or re-provision.",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

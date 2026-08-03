@@ -128,9 +128,10 @@ class WalletRollout:
     """Attach a newly configured wallet to spaces that predate it.
 
     Runs after the admin creates (or replaces) the wallet: every space that
-    is neither attached nor opted out gets a token minted and its Secret
-    patched with the credits keys. The running pod keeps its old env — the
-    wallet takes effect when the space restarts.
+    is neither attached nor opted out gets a token minted, its Secret
+    patched with the credits keys, and an automatic restart so the wallet
+    takes effect immediately. A space whose restart fails is flagged
+    restart_required — never silently left running on the old env.
     """
 
     def __init__(
@@ -169,6 +170,15 @@ class WalletRollout:
                     data["SYFT_CLUSTER_BUNDLES"] = grant.bundles
                 await self.provisioner.update_space_secret(space.subdomain, data)
                 space.wallet_id = wallet_id
+                # The pod reads its Secret at start — restart so the wallet
+                # takes effect now. A restart failure still counts as
+                # attached (the Secret is in place); the flag tells the UI.
+                try:
+                    await self.provisioner.restart(space.subdomain)
+                    space.restart_required = False
+                except Exception:
+                    logger.exception(f"Auto-restart failed for '{space.subdomain}'")
+                    space.restart_required = True
                 await self.spaces.update(space)
                 attached += 1
             except Exception:

@@ -55,6 +55,9 @@ _DEADLINE_CAP_FACTOR = 3
 _CRASH_LOG_LINES = 5
 _CRASH_LOG_MAX_CHARS = 300
 
+# Pod-template annotation bumped to trigger a rolling restart.
+_RESTARTED_AT_ANNOTATION = "syftcluster.openmined.org/restartedAt"
+
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
@@ -131,6 +134,33 @@ class K8sProvisioner:
             {"stringData": data},
         )
         logger.info(f"[k8s] patched secret/{name}: {sorted(data)}")
+
+    async def restart(self, subdomain: str) -> None:
+        """Roll the space's pods so they start with the current Secret.
+
+        Same mechanism as ``kubectl rollout restart``: bump a pod-template
+        annotation and let the Deployment roll. A paused (0-replica) space
+        just gets the new template — its pod picks it up on resume.
+        """
+        name = resource_name(subdomain)
+        patch = {
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            _RESTARTED_AT_ANNOTATION: datetime.now(UTC).isoformat()
+                        }
+                    }
+                }
+            }
+        }
+        await asyncio.to_thread(
+            self.kube.apps.patch_namespaced_deployment,
+            name,
+            self.settings.namespace,
+            patch,
+        )
+        logger.info(f"[k8s] restarting deployment/{name}")
 
     async def pause(self, subdomain: str) -> None:
         """Scale the space to zero replicas — frees compute, keeps data."""

@@ -11,6 +11,7 @@ import type {
   RequestResponse,
   SpaceResponse,
   SpaceRuntimeStatus,
+  UpdateAllResponse,
   WalletStatusResponse,
 } from '@/api/types'
 import type {
@@ -114,6 +115,7 @@ export const useStationStore = defineStore('station', () => {
       createdAt: s.created_at,
       adminUrl: existing?.adminUrl,
       version: s.version,
+      restartRequired: s.restart_required,
     }
   }
 
@@ -403,8 +405,30 @@ export const useStationStore = defineStore('station', () => {
     applyRequest(await requestsApi.withdraw(requestId))
   }
 
-  /** Restart is not wired to the backend yet. */
-  function restartSpace(_spaceId: string) {}
+  /** Poll until the pod reports ready (or give up and show live state). */
+  async function waitUntilRunning(spaceId: string): Promise<void> {
+    const space = spaceById(spaceId)
+    if (!space) return
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await new Promise((r) => setTimeout(r, PROVISION_POLL_INTERVAL))
+      const status = await spacesApi.status(spaceId).catch(() => null)
+      if (status?.status === 'running') {
+        space.health = 'healthy'
+        return
+      }
+    }
+    await refreshSpaceState(spaceId)
+  }
+
+  /** Roll the space's pods so they start with the current Secret. */
+  async function restartSpace(spaceId: string): Promise<void> {
+    const space = spaceById(spaceId)
+    if (!space) return
+    await spacesApi.restart(spaceId)
+    space.restartRequired = false
+    space.health = 'restarting'
+    await waitUntilRunning(spaceId)
+  }
 
   /** Pause = scale the space's deployment to 0; data (volume + vector db) stays. */
   async function pauseSpace(spaceId: string): Promise<void> {
@@ -418,24 +442,45 @@ export const useStationStore = defineStore('station', () => {
     const space = spaceById(spaceId)
     if (!space || space.health !== 'paused') return
     await spacesApi.resume(spaceId)
+    space.restartRequired = false // the fresh pod starts with the current Secret
     space.health = 'starting'
-    // Poll until the pod reports ready (or give up and show live state)
-    for (let attempt = 0; attempt < 20; attempt++) {
-      await new Promise((r) => setTimeout(r, PROVISION_POLL_INTERVAL))
-      const status = await spacesApi.status(spaceId).catch(() => null)
-      if (status?.status === 'running') {
-        space.health = 'healthy'
-        return
-      }
-    }
-    await refreshSpaceState(spaceId)
+    await waitUntilRunning(spaceId)
   }
 
-  /** Per-space update is not wired to the backend yet. */
-  function updateSpace(_spaceId: string) {}
+  /**
+   * Redeploy the space at the station's supported version; data is kept
+   * (admin). The call blocks until the space is available again.
+   */
+  async function updateSpace(spaceId: string): Promise<void> {
+    const space = spaceById(spaceId)
+    if (!space) return
+    space.health = 'restarting'
+    try {
+      const updated = await spacesApi.update(spaceId)
+      space.version = updated.version
+      space.url = updated.url
+      space.restartRequired = updated.restart_required
+      space.health = 'healthy'
+    } catch (error) {
+      await refreshSpaceState(spaceId)
+      throw error
+    }
+  }
 
-  /** Update-all is not wired to the backend yet. */
-  function updateAllSpaces() {}
+  /**
+   * Redeploy every outdated space (the server goes one at a time); returns
+   * the per-space outcomes for the UI to report.
+   */
+  async function updateAllSpaces(): Promise<UpdateAllResponse> {
+    for (const space of spaces.value) {
+      if (space.version !== supportedVersion.value) space.health = 'restarting'
+    }
+    try {
+      return await spacesApi.updateAll()
+    } finally {
+      await loadSpaces() // re-sync versions + live health, whatever happened
+    }
+  }
 
   /** Issue a fresh API key; the space applies it on its next restart. */
   async function regenerateApiKey(spaceId: string): Promise<void> {
@@ -460,8 +505,9 @@ export const useStationStore = defineStore('station', () => {
 
   /**
    * Configure (or replace) the station's shared gateway wallet. Spaces
-   * approved before the wallet existed are attached in the same call; their
-   * Secrets apply on the next pod restart.
+   * approved before the wallet existed are attached in the same call and
+   * restarted so the wallet takes effect; any space whose restart failed
+   * comes back flagged restart_required.
    */
   async function setupWallet(input: {
     provider: WalletProvider

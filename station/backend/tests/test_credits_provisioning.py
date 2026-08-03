@@ -26,6 +26,7 @@ from syft_station.components.requests.schemas import (
     ApproveRequestBody,
     SubmitRequestBody,
 )
+from syft_station.components.spaces.provisioning import SpaceConverger
 from tests.conftest import ADMIN, MEMBER
 
 CREDITS_URL = "http://station.test:8090"
@@ -83,6 +84,9 @@ def handler(
         setup_repository=setup_repository,
         provisioner=provisioner,
         credits=credits_service,
+        converger=SpaceConverger(
+            space_repository, setup_repository, provisioner, credits_service
+        ),
     )
 
 

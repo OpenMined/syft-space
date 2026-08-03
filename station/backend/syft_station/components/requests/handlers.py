@@ -10,7 +10,6 @@ from syft_station.components.auth.session import ROLE_ADMIN, SessionUser
 from syft_station.components.provision.interfaces import (
     Provisioner,
     ProvisionError,
-    SpaceSpec,
 )
 from syft_station.components.requests.entities import (
     RequestOrigin,
@@ -26,6 +25,7 @@ from syft_station.components.requests.schemas import (
 )
 from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.spaces.entities import Space
+from syft_station.components.spaces.provisioning import SpaceConverger
 from syft_station.components.spaces.repository import (
     SpaceRepository,
     generate_space_token,
@@ -50,6 +50,7 @@ class RequestHandler:
         setup_repository: SetupRepository,
         provisioner: Provisioner,
         credits: WalletAttachments,
+        converger: SpaceConverger,
     ):
         self.repository = repository
         self.space_repository = space_repository
@@ -58,6 +59,7 @@ class RequestHandler:
         # A station with no wallet is just an empty wallets table — the
         # service then resolves no wallet, grants nothing, revokes nothing.
         self.credits = credits
+        self.converger = converger
         # Keep strong references so provisioning tasks aren't GC'd mid-run.
         self._tasks: set[asyncio.Task] = set()
 
@@ -291,34 +293,8 @@ class RequestHandler:
             logger.error(f"Provisioning lost its request/space ({request_id})")
             return
 
-        config = await self.setup_repository.get_config()
-        token_row = await self.space_repository.get_token(space.id)
-
-        # Every attempt mints a FRESH credits token (the previous plaintext
-        # is unrecoverable by design); a failed attempt leaves no live grant
-        # behind that this retry would still be using.
-        grant = None
-        if space.wallet_id:
-            grant = await self.credits.grant_for_space(space.id, space.wallet_id)
-
-        spec = SpaceSpec(
-            subdomain=space.subdomain,
-            space_name=space.name,
-            owner_email=space.owner_email,
-            version=config.supported_version,
-            domain=config.domain,
-            admin_token=token_row.token or "" if token_row else "",
-            credits_url=grant.url if grant else "",
-            credits_token=grant.token if grant else "",
-            credits_currency=grant.currency if grant else "",
-            credits_wallet_id=grant.wallet_id if grant else "",
-            credits_public_url=grant.public_url if grant else "",
-            credits_wallet_owner=grant.wallet_owner if grant else "",
-            credits_bundles=grant.bundles if grant else "",
-        )
-
         try:
-            url = await self.provisioner.provision(spec)
+            url = await self.converger.converge(space)
         except ProvisionError as e:
             logger.warning(f"Provisioning failed for '{space.subdomain}': {e}")
             # Keep the error on the request so the admin sees why it failed
@@ -333,9 +309,6 @@ class RequestHandler:
             )
             return
 
-        space.url = url
-        space.version = config.supported_version
-        await self.space_repository.update(space)
         await self.repository.set_status(request, RequestStatus.ACTIVE)
         logger.info(f"Space '{space.subdomain}' active at {url}")
 

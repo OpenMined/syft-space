@@ -19,6 +19,7 @@ class SpaceRecord(Protocol):
     owner_email: str
     wallet_id: UUID | None
     wallet_opt_out: bool
+    restart_required: bool
 
 
 class SpaceDirectory(Protocol):
@@ -32,8 +33,13 @@ class SpaceDirectory(Protocol):
 
 
 class SecretPatcher(Protocol):
-    """The one provisioner capability the rollout needs."""
+    """The provisioner slice the rollout needs: patch the Secret, then
+    restart the space so the patch takes effect."""
 
     async def update_space_secret(self, subdomain: str, data: dict[str, str]) -> None:
         """Merge keys into the space's Secret (applies on restart)."""
+        ...
+
+    async def restart(self, subdomain: str) -> None:
+        """Roll the space's pods so they start with the current Secret."""
         ...

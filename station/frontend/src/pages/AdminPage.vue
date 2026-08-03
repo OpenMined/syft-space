@@ -174,10 +174,37 @@ const outdatedCount = computed(
   () => station.spaces.filter((s) => s.version !== station.supportedVersion).length,
 )
 
-function updateAll() {
-  toast('Update all is not available yet', {
+const updatingAll = ref(false)
+
+async function updateAll() {
+  updatingAll.value = true
+  toast('Updating spaces one at a time — this can take a few minutes', {
     description: `${outdatedCount.value} space(s) behind ${station.supportedVersion}`,
   })
+  try {
+    const { results } = await station.updateAllSpaces()
+    const failed = results.filter((r) => r.outcome === 'failed')
+    const skipped = results.filter((r) => r.outcome === 'skipped')
+    const updated = results.filter((r) => r.outcome === 'updated')
+    if (updated.length > 0)
+      toast.success(`Updated ${updated.length} space(s) to ${station.supportedVersion}`)
+    for (const r of skipped) toast(`${r.name} skipped`, { description: r.detail })
+    for (const r of failed) toast.error(`${r.name} failed to update`, { description: r.detail })
+  } catch {
+    toast.error('Update all failed — the spaces list shows the live state')
+  } finally {
+    updatingAll.value = false
+  }
+}
+
+async function updateOne(space: Space) {
+  toast('Updating space — this can take a few minutes', { description: space.name })
+  try {
+    await station.updateSpace(space.id)
+    toast.success(`${space.name} updated to ${station.supportedVersion}`)
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : `Updating ${space.name} failed`)
+  }
 }
 
 // ---- Settings ----
@@ -204,15 +231,16 @@ async function regenerateKey(space: Space) {
   try {
     await station.regenerateApiKey(space.id)
     toast('New API key issued', {
-      description: 'The space applies it on its next restart; the owner link is updated.',
+      description: 'The space is restarting to apply it; the owner link is updated.',
     })
   } catch {
     toast.error('Regenerating the key failed')
   }
 }
 
-function restart(space: Space) {
-  toast('Restart is not available yet', { description: space.name })
+async function restart(space: Space) {
+  toast('Restarting space', { description: space.name })
+  await station.restartSpace(space.id).catch(() => toast.error('Restarting the space failed'))
 }
 
 async function pause(space: Space) {
@@ -432,9 +460,15 @@ function formatDate(iso: string): string {
                   station.supportedVersion
                 }}</span>
               </p>
-              <Button v-if="outdatedCount > 0" size="sm" variant="outline" @click="updateAll">
+              <Button
+                v-if="outdatedCount > 0"
+                size="sm"
+                variant="outline"
+                :disabled="updatingAll"
+                @click="updateAll"
+              >
                 <ArrowUpCircle class="mr-1.5 h-3.5 w-3.5" />
-                Update all ({{ outdatedCount }} outdated)
+                {{ updatingAll ? 'Updating…' : `Update all (${outdatedCount} outdated)` }}
               </Button>
             </div>
 
@@ -451,6 +485,15 @@ function formatDate(iso: string): string {
                   <div class="flex items-center gap-2">
                     <span class="font-medium">{{ space.name }}</span>
                     <HealthBadge :health="space.health" />
+                    <Badge
+                      v-if="space.restartRequired"
+                      variant="outline"
+                      class="gap-1 border-warning/50 bg-warning/10 px-1.5 py-0 text-[11px] font-normal"
+                      title="A settings change is waiting for a restart"
+                    >
+                      <RotateCw class="h-3 w-3" />
+                      restart required
+                    </Badge>
                   </div>
                   <a
                     :href="space.url"
@@ -516,6 +559,19 @@ function formatDate(iso: string): string {
                       >
                         <RotateCw class="mr-2 h-3.5 w-3.5" />
                         Restart
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        v-if="space.version !== station.supportedVersion"
+                        :disabled="
+                          space.health === 'paused' ||
+                          space.health === 'restarting' ||
+                          space.health === 'starting' ||
+                          updatingAll
+                        "
+                        @click="updateOne(space)"
+                      >
+                        <ArrowUpCircle class="mr-2 h-3.5 w-3.5" />
+                        Update to {{ station.supportedVersion }}
                       </DropdownMenuItem>
                       <DropdownMenuItem @click="openLogs(space)">
                         <ScrollText class="mr-2 h-3.5 w-3.5" />

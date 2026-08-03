@@ -72,9 +72,7 @@ components, lucide-vue-next icons, `<script setup>`, bun not npm).
 `stores/station.ts` is server-backed via the typed client in `src/api/`
 (fetch wrapper + endpoint modules mirroring the backend schemas); the Vite
 dev server (:5174) proxies `/api` to the backend on :8090 so the session
-cookie stays same-origin. Still mocked pending their backends: the
-wallet/earnings data (seeded in `seedForDemo` until the credits service
-lands) and the log tail; restart / update-all buttons are inert.
+cookie stays same-origin. Still mocked pending its backend: the log tail.
 
 ## Development Commands
 
