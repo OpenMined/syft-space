@@ -102,8 +102,8 @@ export const useStationStore = defineStore('station', () => {
   }
 
   function mapSpace(s: SpaceResponse): Space {
-    // Health and API-key state come from separate endpoints; keep whatever
-    // was already known while a refresh is in flight.
+    // Health and the signed-in admin URL come from separate endpoints; keep
+    // whatever was already known while a refresh is in flight.
     const existing = spaceById(s.id)
     return {
       id: s.id,

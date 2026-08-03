@@ -18,6 +18,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
+// TODO: everything below fabricates a plausible log tail — the station has
+// no log endpoint yet. Replace seedLines/liveLine with a real stream (e.g.
+// read_namespaced_pod_log via the backend) when it lands.
 const lines = ref<string[]>([])
 const logBox = ref<HTMLElement | null>(null)
 let timer: ReturnType<typeof setInterval> | undefined

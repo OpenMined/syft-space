@@ -194,5 +194,4 @@ class AppSettings(BaseSettings):
     )
 
 
-# Global settings instance
 app_settings = AppSettings()

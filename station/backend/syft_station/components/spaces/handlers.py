@@ -1,4 +1,4 @@
-"""Spaces handler — registry reads + admin-token lifecycle."""
+"""Spaces handler — registry reads, admin-token lifecycle, runtime ops."""
 
 from uuid import UUID
 
@@ -27,7 +27,7 @@ from syft_station.components.spaces.schemas import (
 
 
 class SpaceHandler:
-    """Space registry + one-time token reveal / regenerate + runtime ops."""
+    """Space registry + admin-token lifecycle + runtime/update ops."""
 
     def __init__(
         self,

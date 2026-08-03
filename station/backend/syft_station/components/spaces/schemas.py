@@ -1,6 +1,7 @@
 """Spaces API schemas."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -36,7 +37,7 @@ class SpaceUpdateResult(BaseModel):
 
     space_id: UUID
     name: str
-    outcome: str  # "updated" | "skipped" | "failed"
+    outcome: Literal["updated", "skipped", "failed"]
     detail: str = ""
 
 

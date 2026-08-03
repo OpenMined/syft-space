@@ -406,7 +406,8 @@ class WalletAdminHandler:
             wallet = await self.wallets.update(wallet)
 
         # Spaces approved before the wallet existed (and not opted out) get
-        # attached now; their Secrets apply on restart.
+        # attached now; the rollout restarts each one so the wallet takes
+        # effect immediately.
         attached, failed = await self.rollout.attach_unbound_spaces(wallet.id)
 
         response = _wallet_status(wallet)

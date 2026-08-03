@@ -110,7 +110,7 @@ def build_space_routes(handler: SpaceHandler) -> APIRouter:
         user: SessionUser = Depends(get_current_user),
         handler: SpaceHandler = Depends(get_handler),
     ) -> AdminUrlResponse:
-        """Replace the space admin API key; applies on the next restart."""
+        """Replace the space admin API key; the space restarts to apply it."""
         return await handler.regenerate_token(space_id, user)
 
     return router

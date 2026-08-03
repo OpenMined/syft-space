@@ -50,8 +50,8 @@ class SpaceToken(SQLModel, table=True):
 
     Kept in plaintext: the station mints it into the space's k8s Secret and
     serves it to the owner as an authToken URL (open-the-space link), so
-    hiding it here would add no protection. Regenerate replaces it and
-    patches the Secret (applies on the space's next restart).
+    hiding it here would add no protection. Regenerate replaces it, patches
+    the Secret, and restarts the space to apply it.
 
     ``token`` is nullable only for rows from the retired one-time-reveal
     era, whose plaintext was cleared — regenerating heals them.
