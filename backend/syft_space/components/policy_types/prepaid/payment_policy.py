@@ -115,6 +115,10 @@ class PrepaidBalancePaymentPolicyBase(PaymentMetadataMixin, BasePolicyType):
         """
         if transaction_id is None:
             return None
+        # The cast silences mypy, so it can NOT catch a wallet type missing
+        # from TransactionRef.rail — pydantic raises at runtime instead,
+        # after the balance was already reserved (bit us live when "cluster"
+        # was absent). Adding a wallet type? Extend the rail Literal first.
         return TransactionRef(
             rail=cast(Literal["xendit", "stripe", "cluster"], wallet_type),
             id=str(transaction_id),
