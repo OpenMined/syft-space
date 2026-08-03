@@ -106,14 +106,16 @@ HPA/TLS). Two inner loops on a k3d cluster (prod parity with the k3s install
 story), driven by the `justfile`:
 
 ```bash
-just cluster                # k3d + shared deps (ChromaDB, docling) only
-just dev admin=you@org.com  # station on the HOST (uvicorn --reload),
-                            #   spaces provisioned into k3d over kubeconfig
-just build-ui               # build frontend/dist -> served by just dev at /ui
-just dev-ui                 # OR: Vite HMR for the frontend (2nd terminal)
-just up  admin=you@org.com  # FULL in-cluster: the station pod via Helm
-just down                   # tear the cluster down
-just space-image tag=x      # build + import an UNPUBLISHED syft-space build
+just cluster                   # k3d + shared deps (ChromaDB, docling) only
+just dev up admin=you@org.com  # station on the HOST (uvicorn --reload),
+                               #   spaces provisioned into k3d over kubeconfig
+                               #   (`just dev` alone defaults to `up`)
+just dev down                  # tear down cluster + host state (~/.syft-station)
+just build-ui                  # build frontend/dist -> served by just dev at /ui
+just dev-ui                    # OR: Vite HMR for the frontend (2nd terminal)
+just up  admin=you@org.com     # FULL in-cluster: the station pod via Helm
+just down                      # tear the cluster down (host state kept)
+just space-image tag=x         # build + import an UNPUBLISHED syft-space build
 ```
 
 `just dev` is the everyday loop — edit backend code, uvicorn reloads, no

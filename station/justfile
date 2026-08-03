@@ -4,11 +4,12 @@
 # that same chart with values-dev.yaml (ephemeral ChromaDB, locally-built
 # station image, *.localhost hosts). Two inner loops:
 #
-#   just cluster                  # k3d + shared deps (ChromaDB, docling) only
-#   just dev admin=you@org.com    # station on the HOST with hot-reload
-#                                 #   (spaces still provisioned into k3d)
-#   just up  admin=you@org.com    # FULL in-cluster: station pod via Helm
-#   just down                     # tear the cluster down
+#   just cluster                    # k3d + shared deps (ChromaDB, docling) only
+#   just dev up admin=you@org.com   # station on the HOST with hot-reload
+#                                   #   (spaces still provisioned into k3d)
+#   just dev down                   # tear down cluster + host station state
+#   just up  admin=you@org.com      # FULL in-cluster: station pod via Helm
+#   just down                       # tear the cluster down (host state kept)
 #
 # `just dev` is the everyday loop — edit backend code, uvicorn reloads, no
 # image rebuild. `just up` is the parity check (in-cluster DNS, RBAC, the real
@@ -83,7 +84,7 @@ cluster: ensure-cluster
         -n {{namespace}} --create-namespace \
         -f {{dev_values}} --set station.enabled=false \
         --wait --timeout 300s
-    echo "Shared deps are up. Run the station: just dev you@org.com"
+    echo "Shared deps are up. Run the station: just dev up you@org.com"
 
 # So space-to-space (and SyftHub-to-space) calls hit the same public URLs the
 # browser uses. Without this, in-cluster lookups of the .localhost hostnames
@@ -116,26 +117,45 @@ cluster-dns:
     kubectl -n kube-system rollout status deploy/coredns --timeout=60s
     echo "In-cluster DNS: *.station.localhost -> ${traefik_ip} (Traefik)"
 
-# Provisions spaces into k3d over your kubeconfig. Pass your SyftHub email for
-# the admin role; optionally point at a local SyftHub and/or a locally-built
-# syft-space image (built + imported + suggested by onboarding):
-#   just dev you@org.com
-#   just dev admin=you@org.com hub=http://localhost:8080 space=dev
+# `up` provisions spaces into k3d over your kubeconfig. Pass your SyftHub
+# email for the admin role; optionally point at a local SyftHub and/or a
+# locally-built syft-space image (built + imported + suggested by onboarding):
+#   just dev up you@org.com
+#   just dev up admin=you@org.com hub=http://localhost:8080 space=dev
+# `down` tears down the WHOLE dev loop: the k3d cluster AND the host-run
+# station's state (~/.syft-station) — the dev station's DB lives on the host,
+# so a plain `just down` would leave it behind, stale against a fresh cluster.
 #
 # The chart's dev host-route makes the host-run station reachable at the SAME
 # names prod uses — http://station.localhost from browsers (via Traefik) and
 # http://syft-station:8090 from space pods (ExternalName → the host) — so no
 # credits/CORS overrides are needed here.
 
-# Everyday loop: run the station on the HOST with hot-reload (spaces -> k3d).
-dev admin="" hub="" space="": cluster
+# Everyday loop: station on the HOST with hot-reload. `just dev up|down [...]`.
+dev *args="up":
     #!/usr/bin/env bash
     set -euo pipefail
-    # just binds `admin=x` positionally as the literal string — accept both
-    # `just dev x` and `just dev admin=x` by stripping the prefixes.
-    admin_email="{{admin}}"; admin_email="${admin_email#admin=}"
-    hub_url="{{hub}}"; hub_url="${hub_url#hub=}"
-    space_tag="{{space}}"; space_tag="${space_tag#space=}"
+    # Order-independent args: up|down, a bare email, or key=value pairs.
+    action="up"; admin_email=""; hub_url=""; space_tag=""
+    for arg in {{args}}; do
+        case "$arg" in
+            up|down) action="$arg" ;;
+            admin=*) admin_email="${arg#admin=}" ;;
+            hub=*)   hub_url="${arg#hub=}" ;;
+            space=*) space_tag="${arg#space=}" ;;
+            *@*)     admin_email="$arg" ;;
+            *) echo "unknown argument: $arg (expected up|down, admin=, hub=, space=)"; exit 1 ;;
+        esac
+    done
+    if [ "$action" = "down" ]; then
+        if k3d cluster list | grep -q "^{{cluster_name}} "; then
+            k3d cluster delete {{cluster_name}}
+        fi
+        rm -rf ~/.syft-station
+        echo "Dev loop torn down: cluster deleted, host station state (~/.syft-station) removed."
+        exit 0
+    fi
+    just cluster
     if [ -z "$admin_email" ]; then
         echo "WARNING: no admin email set — every sign-in gets the member role."
     fi
@@ -214,7 +234,10 @@ up admin="" hub="": ensure-cluster station-image
     echo "Syft Station is up: http://station.localhost"
     echo "First-run setup domain: station.localhost"
 
-# Tear the whole cluster down (station, spaces, and all data).
+# Host station state (~/.syft-station) survives this — `just dev down` is the
+# teardown that removes it too.
+
+# Tear the cluster down (station pod, spaces, and all in-cluster data).
 down:
     k3d cluster delete {{cluster_name}}
 
