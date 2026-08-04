@@ -17,6 +17,7 @@ import type {
 import type {
   ApprovalConfig,
   Payout,
+  RequestStatus,
   SharedWallet,
   Space,
   SpaceHealth,
@@ -321,6 +322,16 @@ export const useStationStore = defineStore('station', () => {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }
 
+  /**
+   * The request holding this owner's one-space slot, if any — SyftHub
+   * supports one space per user, so the backend 409s a second submit while
+   * one of these exists (mirrors OWNER_SLOT_STATUSES server-side).
+   */
+  function liveRequestFor(email: string): SpaceRequest | undefined {
+    const slotHolders: RequestStatus[] = ['pending', 'provisioning', 'active', 'failed']
+    return requests.value.find((r) => r.requesterEmail === email && slotHolders.includes(r.status))
+  }
+
   function spaceById(id: string): Space | undefined {
     return spaces.value.find((s) => s.id === id)
   }
@@ -566,6 +577,7 @@ export const useStationStore = defineStore('station', () => {
     spaceIncludes,
     setupWallet,
     requestsFor,
+    liveRequestFor,
     spaceById,
     loadRequests,
     loadSpaces,

@@ -2,13 +2,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { HandCoins, Inbox, LogOut, Plus, User } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import AppHeader from '@/components/AppHeader.vue'
 import MyRequests from '@/components/MyRequests.vue'
 import RequestForm from '@/components/RequestForm.vue'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatMoney } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
@@ -51,6 +52,36 @@ const navItems = computed(() => [
 function signOut() {
   session.signOut()
   router.push({ name: 'signin' })
+}
+
+// ---- One space per account (SyftHub limit) ----
+// While a request/space holds the slot, the form is replaced by an
+// explainer that names the blocker and the way out.
+const myLiveRequest = computed(() =>
+  session.profile ? station.liveRequestFor(session.profile.email) : undefined,
+)
+
+const slotExplanations: Record<string, string> = {
+  pending: 'is awaiting review. Withdraw it if you want to request a different space.',
+  provisioning: 'is being set up right now.',
+  active: 'is already running. Ask the station admin to delete it if you want to start over.',
+  failed: 'failed to provision and is with the station admin to retry or delete.',
+}
+
+const withdrawing = ref(false)
+
+async function withdrawLiveRequest() {
+  const request = myLiveRequest.value
+  if (!request) return
+  withdrawing.value = true
+  try {
+    await station.withdrawRequest(request.id)
+    toast('Request withdrawn', { description: request.spaceName })
+  } catch {
+    toast.error('Withdrawing the request failed')
+  } finally {
+    withdrawing.value = false
+  }
 }
 
 // ---- What this member's spaces have earned but not yet been paid ----
@@ -136,7 +167,32 @@ const currency = computed(() => station.wallet?.currency ?? 'USD')
 
           <MyRequests v-if="activeSection === 'requests'" />
           <div v-else class="max-w-xl">
-            <RequestForm @submitted="activeSection = 'requests'" />
+            <Card v-if="myLiveRequest">
+              <CardHeader>
+                <CardTitle class="text-base">One space per account</CardTitle>
+                <CardDescription>
+                  Your {{ myLiveRequest.status === 'active' ? 'space' : 'request' }} '{{
+                    myLiveRequest.spaceName
+                  }}'
+                  {{ slotExplanations[myLiveRequest.status] }}
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="flex gap-2">
+                <Button variant="outline" size="sm" @click="activeSection = 'requests'">
+                  View my requests
+                </Button>
+                <Button
+                  v-if="myLiveRequest.status === 'pending'"
+                  variant="destructive"
+                  size="sm"
+                  :disabled="withdrawing"
+                  @click="withdrawLiveRequest"
+                >
+                  Withdraw request
+                </Button>
+              </CardContent>
+            </Card>
+            <RequestForm v-else @submitted="activeSection = 'requests'" />
           </div>
         </div>
       </main>

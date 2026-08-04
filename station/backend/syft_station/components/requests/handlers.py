@@ -39,6 +39,16 @@ def _to_response(request: SpaceRequest) -> RequestResponse:
 # Only states that have provisioned k8s resources can be torn down.
 _DELETABLE_STATUSES = {RequestStatus.ACTIVE.value, RequestStatus.FAILED.value}
 
+# Names what already holds the owner's one-space slot in the submit 409, so
+# the member (or the admin submitting on their behalf) sees which path frees
+# it: withdraw a pending request, or have the admin resolve the rest.
+_SLOT_HOLDER_LABELS = {
+    RequestStatus.PENDING.value: "a pending space request",
+    RequestStatus.PROVISIONING.value: "a space being provisioned",
+    RequestStatus.ACTIVE.value: "a space",
+    RequestStatus.FAILED.value: "a failed request awaiting admin action",
+}
+
 
 class RequestHandler:
     """Submit / approve / reject / retry / withdraw, driving the provisioner."""
@@ -105,6 +115,13 @@ class RequestHandler:
         owner_email = user.email
         if user.role == ROLE_ADMIN and body.owner_email:
             owner_email = body.owner_email
+        existing = await self.repository.live_request_for_owner(owner_email)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"One space per account: {owner_email} already has "
+                f"{_SLOT_HOLDER_LABELS[existing.status]} ('{existing.space_name}')",
+            )
         request = await self.repository.create(
             SpaceRequest(
                 space_name=body.space_name,
