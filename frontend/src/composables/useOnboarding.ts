@@ -64,6 +64,25 @@ export function useOnboarding() {
   const networkMode: Ref<'subdomain' | 'custom' | ''> = ref('')
   const publicUrl = ref(window.location.origin)
 
+  // Managed mode: a station launched this space, so onboarding drops the
+  // SyftHub signup and the hub-generated tunnel URL — sign-in only, and the
+  // station-assigned public URL is pre-filled (still editable).
+  const managed = ref(false)
+
+  const loadManagedMode = async (): Promise<void> => {
+    try {
+      const response = await settingsApi.getManaged()
+      managed.value = response.managed
+      if (response.managed) {
+        authMode.value = 'signin'
+        networkMode.value = 'custom'
+        if (response.public_url) publicUrl.value = response.public_url
+      }
+    } catch {
+      // Treat as self-hosted if the check fails
+    }
+  }
+
   // Username availability checking
   const checkingUsername = ref(false)
   const usernameAvailable: Ref<boolean | null> = ref(null)
@@ -318,11 +337,11 @@ export function useOnboarding() {
     }
   }
 
-  // Reset all forms and state
+  // Reset all forms and state (managed spaces keep their sign-in-only modes)
   const reset = () => {
     currentStep.value = 1
     completedSteps.value.clear()
-    authMode.value = 'register'
+    authMode.value = managed.value ? 'signin' : 'register'
     registerForm.value = {
       username: '',
       email: '',
@@ -333,7 +352,7 @@ export function useOnboarding() {
       username: '',
       password: '',
     }
-    networkMode.value = ''
+    networkMode.value = managed.value ? 'custom' : ''
     publicUrl.value = window.location.origin
     usernameAvailable.value = null
     authError.value = ''
@@ -356,6 +375,8 @@ export function useOnboarding() {
     // Network state
     networkMode,
     publicUrl,
+    managed,
+    loadManagedMode,
 
     // Username checking
     checkingUsername,

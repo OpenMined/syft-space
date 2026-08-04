@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.schemas import (
     DiagnosticsResponse,
+    ManagedResponse,
     ProxyStatusResponse,
     PublicUrlResponse,
     UpdateDiagnosticsRequest,
@@ -50,6 +51,13 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
         Updates the local configuration and syncs to the marketplace.
         """
         return await handler.update_public_url(tenant, request.public_url)
+
+    @router.get("/managed", response_model=ManagedResponse)
+    async def get_managed(
+        handler: SettingsHandler = Depends(get_handler),
+    ) -> ManagedResponse:
+        """Whether a station manages this space, plus its public URL."""
+        return await handler.get_managed()
 
     @router.get("/diagnostics", response_model=DiagnosticsResponse)
     async def get_diagnostics(

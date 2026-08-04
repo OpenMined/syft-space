@@ -364,8 +364,7 @@ class RecordingPrepaidCharger:
                 logger.info(f"Rolled back charge {transaction_id}: query not delivered")
             except Exception:
                 logger.exception(
-                    f"Rollback failed for charge {transaction_id}; "
-                    "reverse it manually"
+                    f"Rollback failed for charge {transaction_id}; reverse it manually"
                 )
         self._uncommitted.clear()
 

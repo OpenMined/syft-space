@@ -348,7 +348,11 @@ def test_display_managed_by_from_env(monkeypatch):
         "managed_by": "Acme Research Station"
     }
 
-    assert ClusterSettings.model_fields["managed_by"].default == "Syft Space Host"
+    # Empty default = not station-managed; the display falls back at the
+    # use site instead of a truthy config default masking managed mode.
+    assert ClusterSettings.model_fields["managed_by"].default == ""
+    monkeypatch.setattr(app_settings.cluster, "managed_by", "")
+    assert provider.extract_display({}, uuid4()) == {"managed_by": "Syft Space Host"}
 
 
 async def test_seed_adopts_injected_wallet_id(monkeypatch):

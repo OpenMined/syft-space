@@ -35,7 +35,7 @@ class ClusterWalletProvider:
         self, configuration: dict[str, Any], wallet_id: UUID
     ) -> dict[str, Any]:
         """Safe display info — never the service token."""
-        return {"managed_by": app_settings.cluster.managed_by}
+        return {"managed_by": app_settings.cluster.managed_by or "Syft Space Host"}
 
     def payment_info(
         self, configuration: dict[str, Any], wallet_id: UUID

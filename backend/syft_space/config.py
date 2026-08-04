@@ -73,10 +73,13 @@ class ClusterSettings(BaseSettings):
         ),
     )
     managed_by: str = Field(
-        default="Syft Space Host",
+        default="",
         description=(
-            "Display name of whoever manages the credits wallet, shown to "
-            "members as 'Managed by <name>'."
+            "Display name of the managing station, injected as "
+            "SYFT_CLUSTER_MANAGED_BY into every station-launched space. "
+            "Non-empty means this space runs in managed mode (self-hosted "
+            "onboarding affordances are trimmed); display fallbacks apply "
+            "at the use site."
         ),
     )
 
