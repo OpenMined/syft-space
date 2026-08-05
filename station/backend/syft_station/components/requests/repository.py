@@ -1,5 +1,6 @@
 """Space request repository."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -14,11 +15,46 @@ from syft_station.components.requests.entities import (
 from syft_station.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
+@dataclass
+class SpaceAttribution:
+    """Name/owner of a space as recorded on its request row."""
+
+    name: str
+    subdomain: str
+    owner_email: str
+    deleted: bool
+
+
 class RequestRepository(AsyncBaseRepository[SpaceRequest]):
     """Repository for SpaceRequest operations."""
 
     def __init__(self, db: AsyncDatabase):
         super().__init__(db, SpaceRequest)
+
+    async def space_identities(self) -> dict[UUID, SpaceAttribution]:
+        """Attribution for every space ever provisioned, keyed by space id.
+
+        Request rows are the durable identity record: every space is born
+        from one (admin-created spaces included), approve-time name edits
+        are written back to it, and deletion only flips its status — so
+        money views resolve deleted spaces here after the registry row is
+        gone.
+        """
+        async with self.db.get_session() as session:
+            statement = select(SpaceRequest).where(
+                SpaceRequest.space_id.is_not(None)  # type: ignore[union-attr]
+            )
+            result = await session.exec(statement)
+            return {
+                row.space_id: SpaceAttribution(
+                    name=row.space_name,
+                    subdomain=row.subdomain,
+                    owner_email=row.owner_email,
+                    deleted=row.status == RequestStatus.DELETED.value,
+                )
+                for row in result.all()
+                if row.space_id is not None
+            }
 
     async def list_by_owner(self, owner_email: str) -> list[SpaceRequest]:
         async with self.db.get_session() as session:

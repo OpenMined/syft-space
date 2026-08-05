@@ -108,7 +108,7 @@ checkout_handler = CheckoutHandler(
 )
 webhook_handler = WebhookHandler(database, wallet_repository, payment_gateways)
 earnings_handler = EarningsHandler(
-    database, wallet_repository, payout_repository, space_repository
+    database, wallet_repository, payout_repository, request_repository
 )
 setup_handler = SetupHandler(setup_repository)
 space_converger = SpaceConverger(

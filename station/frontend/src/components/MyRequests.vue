@@ -36,7 +36,9 @@ function spaceFor(request: SpaceRequest) {
 }
 
 function earningsFor(request: SpaceRequest) {
-  return station.memberEarnings?.spaces.find((row) => row.subdomain === request.subdomain)
+  // By space id, not subdomain — a freed subdomain can be re-taken by a
+  // new space while the deleted one still has money attached.
+  return station.memberEarnings?.spaces.find((row) => row.space_id === request.spaceId)
 }
 
 const logsTarget = ref<Space | null>(null)

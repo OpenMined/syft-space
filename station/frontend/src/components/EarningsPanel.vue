@@ -235,6 +235,7 @@ function formatDay(iso: string): string {
           >
             <div class="min-w-0">
               <span class="text-sm font-medium">{{ row.spaceName }}</span>
+              <Badge v-if="row.deleted" variant="outline" class="ml-2 text-xs">deleted</Badge>
               <span class="ml-2 text-xs text-muted-foreground">{{ row.ownerEmail }}</span>
               <div class="mt-0.5 text-xs text-muted-foreground">
                 {{ row.queries.toLocaleString() }} paid quer{{ row.queries === 1 ? 'y' : 'ies' }} ·

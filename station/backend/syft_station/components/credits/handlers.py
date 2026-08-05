@@ -42,7 +42,7 @@ from syft_station.components.credits.gateway.interfaces import (
     PaymentGateway,
     WebhookEnvelope,
 )
-from syft_station.components.credits.interfaces import SpaceDirectory
+from syft_station.components.credits.interfaces import SpaceIdentities
 from syft_station.components.credits.provisioning import WalletRollout
 from syft_station.components.credits.repository import (
     CreditsLedger,
@@ -690,17 +690,18 @@ class EarningsHandler:
         db: AsyncDatabase,
         wallets: WalletRepository,
         payouts: PayoutRepository,
-        spaces: SpaceDirectory,
+        identities: SpaceIdentities,
     ):
         self.db = db
         self.wallets = wallets
         self.payouts = payouts
-        self.spaces = spaces
+        self.identities = identities
 
     async def earnings(self) -> EarningsResponse:
         wallet = await self.wallets.get_active()
         paid_out_by_space = await self.payouts.totals_by_space()
         recent_payouts = await self.payouts.list_recent()
+        identities = await self.identities.space_identities()
 
         async with CreditsLedger(self.db) as ledger:
             by_space = await ledger.entries.earnings_by_space()
@@ -710,16 +711,25 @@ class EarningsHandler:
             outstanding = await ledger.balances.total_outstanding()
             recent_top_ups = await ledger.invoices.list_recent_paid()
 
-        spaces = [
-            SpaceEarnings(
-                space_id=row.space_id,
-                earned=row.earned,
-                query_count=row.query_count,
-                paid_out=paid_out_by_space.get(row.space_id, 0.0),
-                payable=row.earned - paid_out_by_space.get(row.space_id, 0.0),
+        spaces = []
+        for row in by_space:
+            # A ledger row without a request row should not happen (every
+            # space is born from a request); degrade to an id stub rather
+            # than hide the money.
+            identity = identities.get(row.space_id)
+            spaces.append(
+                SpaceEarnings(
+                    space_id=row.space_id,
+                    name=identity.name if identity else str(row.space_id)[:8],
+                    subdomain=identity.subdomain if identity else "",
+                    owner_email=identity.owner_email if identity else "",
+                    deleted=identity.deleted if identity else True,
+                    earned=row.earned,
+                    query_count=row.query_count,
+                    paid_out=paid_out_by_space.get(row.space_id, 0.0),
+                    payable=row.earned - paid_out_by_space.get(row.space_id, 0.0),
+                )
             )
-            for row in by_space
-        ]
         return EarningsResponse(
             currency=wallet.currency if wallet else "",
             totals=EarningsTotals(
@@ -774,9 +784,13 @@ class EarningsHandler:
 
     async def earnings_mine(self, owner_email: str) -> MemberEarningsResponse:
         """Money view for a member's own spaces. The headline is payable —
-        what the station admin still owes them (earned − paid out)."""
+        what the station admin still owes them (earned − paid out).
+
+        Deleted spaces stay in the list while money is attached: the member
+        must keep seeing what they're owed after a teardown.
+        """
         wallet = await self.wallets.get_active()
-        owned = await self.spaces.list_by_owner(owner_email)
+        identities = await self.identities.space_identities()
         paid_out_by_space = await self.payouts.totals_by_space()
 
         async with CreditsLedger(self.db) as ledger:
@@ -785,16 +799,19 @@ class EarningsHandler:
             }
 
         spaces = []
-        for space in owned:
-            row = earned_rows.get(space.id)
+        for space_id, identity in identities.items():
+            if identity.owner_email != owner_email:
+                continue
+            row = earned_rows.get(space_id)
             if row is None:
                 continue  # never earned — no money line for it
-            paid_out = paid_out_by_space.get(space.id, 0.0)
+            paid_out = paid_out_by_space.get(space_id, 0.0)
             spaces.append(
                 MemberSpaceEarnings(
-                    space_id=space.id,
-                    name=space.name,
-                    subdomain=space.subdomain,
+                    space_id=space_id,
+                    name=identity.name,
+                    subdomain=identity.subdomain,
+                    deleted=identity.deleted,
                     earned=row.earned,
                     query_count=row.query_count,
                     paid_out=paid_out,

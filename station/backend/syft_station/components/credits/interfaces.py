@@ -23,13 +23,31 @@ class SpaceRecord(Protocol):
 
 
 class SpaceDirectory(Protocol):
-    """Registry access for the wallet rollout and member earnings."""
+    """Registry access for the wallet rollout."""
 
     async def get_all(self) -> list[SpaceRecord]: ...
 
     async def update(self, space: SpaceRecord) -> SpaceRecord: ...
 
-    async def list_by_owner(self, owner_email: str) -> list[SpaceRecord]: ...
+
+class SpaceIdentity(Protocol):
+    """Who a space is (or was): the attribution money views render."""
+
+    name: str
+    subdomain: str
+    owner_email: str
+    deleted: bool
+
+
+class SpaceIdentities(Protocol):
+    """Attribution lookup for money views, keyed by space id.
+
+    Deleting a space removes only its registry row — the ledger keeps
+    earning in the space's name, so this lookup must also resolve deleted
+    spaces (the request rows they were born from are never deleted).
+    """
+
+    async def space_identities(self) -> dict[UUID, SpaceIdentity]: ...
 
 
 class SecretPatcher(Protocol):

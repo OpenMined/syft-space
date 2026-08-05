@@ -58,6 +58,7 @@ import {
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ApiError } from '@/api/client'
+import { formatMoney } from '@/lib/types'
 import type { Space, SpaceRequest } from '@/lib/types'
 import { Label } from '@/components/ui/label'
 import { useStationStore } from '@/stores/station'
@@ -73,6 +74,8 @@ onMounted(() => {
   station.loadSpaces().catch(() => toast.error('Could not load spaces'))
   // Wallet presence drives the approve dialog's picker + "space includes".
   station.loadWallet().catch(() => {})
+  // Earnings feed the delete dialog's unpaid-payable warning.
+  station.loadEarnings().catch(() => {})
 })
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
@@ -154,6 +157,16 @@ function openDeleteFailed(request: SpaceRequest) {
   if (space) openDelete(space)
   else toast.error('Could not find the space for this request')
 }
+
+const currency = computed(() => station.wallet?.currency ?? 'USD')
+
+// What the station still owes this space's owner. Deletion never blocks on
+// it — the money stays payable from the surviving ledger attribution.
+const deletePayable = computed(() => {
+  if (!deleteTarget.value) return 0
+  const row = station.earnedBySpace.find((r) => r.spaceId === deleteTarget.value!.id)
+  return row?.payable ?? 0
+})
 
 async function confirmDelete() {
   if (!deleteTarget.value) return
@@ -683,6 +696,11 @@ function formatDate(iso: string): string {
             All of its data — files and search index — is deleted permanently.
           </span>
           This cannot be undone.
+          <span v-if="deletePayable > 0" class="mt-2 block">
+            {{ deleteTarget.ownerEmail }} is still owed
+            <span class="font-medium">{{ formatMoney(deletePayable, currency) }}</span>
+            from this space — it stays payable after deletion.
+          </span>
         </DialogDescription>
       </DialogHeader>
 

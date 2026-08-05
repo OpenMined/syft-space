@@ -193,6 +193,10 @@ class EarningsTotals(BaseModel):
 
 class SpaceEarnings(BaseModel):
     space_id: UUID
+    name: str
+    subdomain: str
+    owner_email: str
+    deleted: bool = Field(description="Space was torn down; money stays payable")
     earned: float
     query_count: int = Field(description="Paid queries net of reversals")
     paid_out: float
@@ -224,8 +228,9 @@ class PayoutInfo(BaseModel):
 class EarningsResponse(BaseModel):
     """Everything the Earnings dashboard renders, derived from the ledger.
 
-    Rows carry space_id only — the admin UI already holds the spaces list
-    and joins names client-side.
+    Space rows carry their own name/owner attribution (resolved from the
+    request rows, which survive deletion) — endpoint/daily rows carry
+    space_id only and group under them.
     """
 
     currency: str
@@ -244,6 +249,7 @@ class MemberSpaceEarnings(BaseModel):
     space_id: UUID
     name: str
     subdomain: str
+    deleted: bool = Field(description="Space was torn down; money stays payable")
     earned: float
     query_count: int
     paid_out: float

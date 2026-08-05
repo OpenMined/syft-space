@@ -183,6 +183,11 @@ export interface EarningsTotalsResponse {
 
 export interface SpaceEarningsResponse {
   space_id: string
+  name: string
+  subdomain: string
+  owner_email: string
+  /** Space was torn down; money stays payable. */
+  deleted: boolean
   earned: number
   query_count: number
   paid_out: number
@@ -225,6 +230,8 @@ export interface MemberSpaceEarningsResponse {
   space_id: string
   name: string
   subdomain: string
+  /** Space was torn down; money stays payable. */
+  deleted: boolean
   earned: number
   query_count: number
   paid_out: number

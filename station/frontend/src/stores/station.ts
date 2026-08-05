@@ -244,9 +244,9 @@ export const useStationStore = defineStore('station', () => {
   )
 
   /**
-   * Per-space rollup for the payout table, sorted by payable desc. Earnings
-   * rows carry space_id; names/owners are joined from the spaces registry
-   * (a deleted space keeps earning history but loses its name).
+   * Per-space rollup for the payout table, sorted by payable desc. Rows
+   * carry their own attribution from the backend (resolved from request
+   * rows), so a deleted space keeps its real name and owner.
    */
   const earnedBySpace = computed(() => {
     if (!earnings.value) return []
@@ -257,20 +257,18 @@ export const useStationStore = defineStore('station', () => {
       if (!prev || d.day > prev) lastDay.set(d.space_id, d.day)
     }
     return earnings.value.spaces
-      .map((row) => {
-        const space = spaces.value.find((s) => s.id === row.space_id)
-        return {
-          spaceId: row.space_id,
-          slug: space?.subdomain ?? row.space_id.slice(0, 8),
-          spaceName: space?.name ?? 'Deleted space',
-          ownerEmail: space?.ownerEmail ?? '—',
-          earned: row.earned,
-          queries: row.query_count,
-          lastActiveAt: lastDay.get(row.space_id) ?? '',
-          paidOut: row.paid_out,
-          payable: row.payable,
-        }
-      })
+      .map((row) => ({
+        spaceId: row.space_id,
+        slug: row.subdomain || row.space_id.slice(0, 8),
+        spaceName: row.name,
+        ownerEmail: row.owner_email || '—',
+        deleted: row.deleted,
+        earned: row.earned,
+        queries: row.query_count,
+        lastActiveAt: lastDay.get(row.space_id) ?? '',
+        paidOut: row.paid_out,
+        payable: row.payable,
+      }))
       .sort((a, b) => b.payable - a.payable)
   })
 

@@ -42,8 +42,9 @@ from syft_station.components.credits.repository import (
 )
 from syft_station.components.credits.routes import build_credits_routes
 from syft_station.components.provision.mock import MockProvisioner
+from syft_station.components.requests.entities import RequestStatus, SpaceRequest
+from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.shared.database import AsyncDatabase
-from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.repository import SpaceRepository
 from tests.conftest import ADMIN, MEMBER, StubHubIdentity, buyer_auth
 
@@ -117,6 +118,27 @@ class EarningsTestbed:
             row = await ledger.balances.get(email)
             return row.balance if row else 0.0
 
+    async def seed_request(
+        self,
+        *,
+        space_id: UUID,
+        name: str,
+        subdomain: str,
+        owner: str = USER,
+        status: str = RequestStatus.ACTIVE.value,
+    ) -> None:
+        """The request row a space was born from — money views resolve
+        name/owner here, so deleted spaces keep their attribution."""
+        await RequestRepository(self.db).create(
+            SpaceRequest(
+                space_name=name,
+                subdomain=subdomain,
+                owner_email=owner,
+                status=status,
+                space_id=space_id,
+            )
+        )
+
 
 @pytest_asyncio.fixture
 async def testbed(db: AsyncDatabase) -> EarningsTestbed:
@@ -144,7 +166,7 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
             WalletAdminHandler(wallets, {}, rollout, StubHubIdentity()),  # type: ignore[arg-type]
             CheckoutHandler(db, wallets, {}, StubHubIdentity()),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, {}),
-            EarningsHandler(db, wallets, PayoutRepository(db), SpaceRepository(db)),
+            EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),
         ),
         prefix="/api/v1",
     )
@@ -386,12 +408,9 @@ async def test_earnings_includes_topup_and_payout_feeds(testbed: EarningsTestbed
 
 async def test_member_earnings_mine_scoped_to_owned_spaces(testbed: EarningsTestbed):
     """The member headline is payable — earned minus what was already paid."""
-    spaces = SpaceRepository(testbed.db)
-    await spaces.create(
-        Space(id=SPACE_A, name="My Lab", subdomain="my-lab", owner_email=MEMBER.email)
-    )
-    await spaces.create(
-        Space(id=SPACE_B, name="Other", subdomain="other", owner_email="x@test.com")
+    await testbed.seed_request(space_id=SPACE_A, name="My Lab", subdomain="my-lab")
+    await testbed.seed_request(
+        space_id=SPACE_B, name="Other", subdomain="other", owner="x@test.com"
     )
     await testbed.seed_movement(space_id=SPACE_A, amount=10.0)
     await testbed.seed_movement(space_id=SPACE_B, amount=99.0)  # not mine
@@ -414,10 +433,77 @@ async def test_member_earnings_mine_scoped_to_owned_spaces(testbed: EarningsTest
 
 
 async def test_member_earnings_empty_without_activity(testbed: EarningsTestbed):
-    spaces = SpaceRepository(testbed.db)
-    await spaces.create(
-        Space(name="Quiet", subdomain="quiet", owner_email=MEMBER.email)
-    )
+    await testbed.seed_request(space_id=uuid4(), name="Quiet", subdomain="quiet")
     async with testbed.client() as client:
         body = (await client.get("/api/v1/credits/earnings/mine")).json()
     assert body["spaces"] == [] and body["total_payable"] == 0.0
+
+
+# ============== Attribution survives deletion ==============
+
+
+async def test_admin_earnings_attribute_live_spaces(testbed: EarningsTestbed):
+    await testbed.seed_request(space_id=SPACE_A, name="Webbing", subdomain="webbing")
+    await testbed.seed_movement(space_id=SPACE_A, amount=15.0)
+
+    async with testbed.client() as client:
+        body = (await client.get("/api/v1/credits/admin/earnings")).json()
+
+    row = body["spaces"][0]
+    assert row["name"] == "Webbing"
+    assert row["owner_email"] == USER
+    assert row["deleted"] is False
+
+
+async def test_deleted_space_keeps_name_owner_and_flag(testbed: EarningsTestbed):
+    await testbed.seed_request(
+        space_id=SPACE_A,
+        name="Webbing",
+        subdomain="webbing",
+        status=RequestStatus.DELETED.value,
+    )
+    await testbed.seed_movement(space_id=SPACE_A, amount=15.0)
+
+    async with testbed.client() as client:
+        body = (await client.get("/api/v1/credits/admin/earnings")).json()
+
+    row = body["spaces"][0]
+    assert row["name"] == "Webbing"
+    assert row["subdomain"] == "webbing"
+    assert row["owner_email"] == USER
+    assert row["deleted"] is True
+    assert row["payable"] == 15.0
+
+
+async def test_member_mine_keeps_deleted_space_money(testbed: EarningsTestbed):
+    """The member must keep seeing what they're owed after a teardown."""
+    await testbed.seed_request(
+        space_id=SPACE_A,
+        name="Webbing",
+        subdomain="webbing",
+        status=RequestStatus.DELETED.value,
+    )
+    await testbed.seed_movement(space_id=SPACE_A, amount=15.0)
+
+    async with testbed.client() as client:
+        body = (await client.get("/api/v1/credits/earnings/mine")).json()
+
+    assert len(body["spaces"]) == 1
+    mine = body["spaces"][0]
+    assert mine["name"] == "Webbing" and mine["deleted"] is True
+    assert body["total_payable"] == 15.0
+
+
+async def test_earnings_without_request_row_degrade_to_id_stub(
+    testbed: EarningsTestbed,
+):
+    # Should never happen (every space is born from a request) — the money
+    # must still show rather than hide behind a join miss.
+    await testbed.seed_movement(space_id=SPACE_A, amount=5.0)
+
+    async with testbed.client() as client:
+        body = (await client.get("/api/v1/credits/admin/earnings")).json()
+
+    row = body["spaces"][0]
+    assert row["name"] == str(SPACE_A)[:8]
+    assert row["deleted"] is True
