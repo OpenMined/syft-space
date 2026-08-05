@@ -139,7 +139,7 @@ async def test_approve_attaches_station_wallet_by_default(
     # Hub owner + the station's own catalog flow down too, so the space
     # publishes who owns the wallet and exactly what a purchase will cost.
     assert spec.credits_wallet_owner == "42"
-    assert json.loads(spec.credits_bundles) == PREPAID_BUNDLES["PHP"]
+    assert json.loads(spec.credits_bundles) == PREPAID_BUNDLES["xendit"]["PHP"]
 
     # The minted plaintext in the Secret verifies back to this space+wallet.
     binding = await credit_tokens.get_active_by_hash(

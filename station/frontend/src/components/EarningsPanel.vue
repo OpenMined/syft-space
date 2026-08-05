@@ -51,12 +51,23 @@ onMounted(() => {
 const CHART_DAYS = 14
 
 /** Where the payment provider must deliver its events. */
-const webhookUrl = computed(() => `${window.location.origin}/api/v1/credits/webhooks/xendit`)
+const webhookUrl = computed(
+  () => `${window.location.origin}/api/v1/credits/webhooks/${station.wallet?.provider ?? 'xendit'}`,
+)
+
+const isStripe = computed(() => station.wallet?.provider === 'stripe')
+
+/** The provider's dashboard page where the webhook endpoint is set up. */
+const webhookDashboard = computed(() =>
+  isStripe.value
+    ? 'the Stripe Dashboard under Developers → Webhooks'
+    : 'the Xendit dashboard under Settings → Developers → Webhooks',
+)
 
 function copyWebhookUrl() {
   navigator.clipboard.writeText(webhookUrl.value)
   toast('Webhook URL copied', {
-    description: 'Paste it in the Xendit dashboard: Settings → Developers → Webhooks.',
+    description: `Paste it in ${webhookDashboard.value}.`,
   })
 }
 
@@ -108,7 +119,7 @@ function formatDay(iso: string): string {
           </div>
           <button
             class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
-            title="Xendit delivers payment events here — set it under Settings → Developers → Webhooks"
+            :title="`Payment events are delivered here — set it in ${webhookDashboard}`"
             @click="copyWebhookUrl"
           >
             <Webhook class="h-3 w-3" />
@@ -116,9 +127,11 @@ function formatDay(iso: string): string {
             <Copy class="h-3 w-3" />
           </button>
           <p class="mt-1 text-xs text-muted-foreground">
-            Users buy credits at the first link; Xendit reports payments to the second (set it in
-            the Xendit dashboard under Settings → Developers → Webhooks, with the callback token
-            from the same page). The gateway key stays at the station.
+            Users buy credits at the first link;
+            {{ isStripe ? 'Stripe' : 'Xendit' }} reports payments to the second (set it in
+            {{ webhookDashboard }}, with the
+            {{ isStripe ? 'signing secret' : 'callback token' }} from the same page). The gateway
+            key stays at the station.
           </p>
         </div>
         <Button size="sm" variant="outline" @click="walletOpen = true">

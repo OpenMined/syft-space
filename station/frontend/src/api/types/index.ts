@@ -137,7 +137,7 @@ export interface WalletStatusResponse {
 export interface WalletSetupBody {
   provider: string
   currency: string
-  /** Provider credentials, e.g. { api_key, callback_token } for Xendit. */
+  /** { api_key, callback_token } for Xendit; { secret_key, webhook_secret } for Stripe. */
   credentials: Record<string, string>
   /** Existing SyftHub API token (syft_pat_…) to adopt; wins over the password. */
   syfthub_api_token?: string

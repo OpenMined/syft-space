@@ -104,7 +104,7 @@ class SpaceCreditsService:
         )
         # The station's catalog is the source of truth for bundle pricing —
         # inject it so the space publishes exactly what a purchase will cost.
-        bundles = PREPAID_BUNDLES.get(wallet.currency, [])
+        bundles = PREPAID_BUNDLES.get(wallet.provider, {}).get(wallet.currency, [])
         return CreditsGrant(
             url=self.credits_url,
             token=plaintext,

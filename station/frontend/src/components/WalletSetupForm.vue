@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { KeyRound } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { ApiError } from '@/api/client'
@@ -34,14 +34,39 @@ const station = useStationStore()
 const provider = ref<WalletProvider>(station.wallet?.provider ?? 'xendit')
 const currency = ref(station.wallet?.currency ?? 'PHP')
 const apiKey = ref('')
-const callbackToken = ref('')
+const webhookSecret = ref('')
 const saving = ref(false)
 
-/** Xendit's supported currencies (each locked to its home country). USD arrives with Stripe. */
-const CURRENCIES = ['IDR', 'PHP', 'SGD', 'MYR', 'VND', 'THB']
+/**
+ * Per-provider currency menus — mirrors the backend's provider-split bundle
+ * catalog (a gateway's supported currencies ARE its catalog keys). Xendit's
+ * set is locked to its home countries; Stripe's is the catalog launch set.
+ */
+const PROVIDER_CURRENCIES: Record<WalletProvider, string[]> = {
+  xendit: ['IDR', 'PHP', 'SGD', 'MYR', 'VND', 'THB'],
+  stripe: ['USD', 'EUR', 'GBP', 'SGD', 'AUD', 'CAD', 'JPY', 'BRL'],
+}
+const DEFAULT_CURRENCY: Record<WalletProvider, string> = { xendit: 'PHP', stripe: 'USD' }
 
-/** Where Xendit must deliver payment events — paste into the Xendit dashboard. */
-const webhookUrl = computed(() => `${window.location.origin}/api/v1/credits/webhooks/xendit`)
+const currencies = computed(() => PROVIDER_CURRENCIES[provider.value])
+
+// Replace mode locks the currency (balances are denominated in it), so a
+// provider that doesn't support it can't be selected — the save would 422.
+const lockedCurrency = computed(() => station.wallet?.currency ?? null)
+function providerUnavailable(p: WalletProvider): boolean {
+  return lockedCurrency.value !== null && !PROVIDER_CURRENCIES[p].includes(lockedCurrency.value)
+}
+
+watch(provider, () => {
+  if (!lockedCurrency.value && !currencies.value.includes(currency.value)) {
+    currency.value = DEFAULT_CURRENCY[provider.value]
+  }
+})
+
+/** Where the provider must deliver payment events — paste into its dashboard. */
+const webhookUrl = computed(
+  () => `${window.location.origin}/api/v1/credits/webhooks/${provider.value}`,
+)
 
 // SyftHub connection — two ways to provide the wallet's API token:
 //   generate: the admin's password mints one up front (shown truncated);
@@ -90,8 +115,12 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
     toast.error('A valid secret API key is required')
     return null
   }
-  if (!callbackToken.value.trim()) {
-    toast.error('The webhook callback token is required')
+  if (!webhookSecret.value.trim()) {
+    toast.error(
+      provider.value === 'stripe'
+        ? 'The webhook signing secret is required'
+        : 'The webhook callback token is required',
+    )
     return null
   }
   // A new wallet must connect SyftHub; a replace may skip the token to
@@ -100,15 +129,17 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
     toast.error('Provide a SyftHub API token — generate one or paste an existing token')
     return null
   }
+  // Credential keys are provider-specific; each gateway validates its own.
+  const credentials: Record<string, string> =
+    provider.value === 'stripe'
+      ? { secret_key: apiKey.value.trim(), webhook_secret: webhookSecret.value.trim() }
+      : { api_key: apiKey.value.trim(), callback_token: webhookSecret.value.trim() }
   saving.value = true
   try {
     return await station.setupWallet({
       provider: provider.value,
       currency: currency.value,
-      credentials: {
-        api_key: apiKey.value.trim(),
-        callback_token: callbackToken.value.trim(),
-      },
+      credentials,
       syfthubApiToken: tokenToSubmit.value || undefined,
     })
   } catch (error) {
@@ -132,8 +163,18 @@ defineExpose({ save, saving })
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="xendit">Xendit</SelectItem>
-            <SelectItem value="stripe" disabled>Stripe — coming soon</SelectItem>
+            <SelectItem value="xendit" :disabled="providerUnavailable('xendit')">
+              Xendit
+              <template v-if="providerUnavailable('xendit')">
+                — not available in {{ lockedCurrency }}</template
+              >
+            </SelectItem>
+            <SelectItem value="stripe" :disabled="providerUnavailable('stripe')">
+              Stripe
+              <template v-if="providerUnavailable('stripe')">
+                — not available in {{ lockedCurrency }}</template
+              >
+            </SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -144,7 +185,7 @@ defineExpose({ save, saving })
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem v-for="c in CURRENCIES" :key="c" :value="c">{{ c }}</SelectItem>
+            <SelectItem v-for="c in currencies" :key="c" :value="c">{{ c }}</SelectItem>
           </SelectContent>
         </Select>
         <p v-if="station.wallet" class="text-xs text-muted-foreground">
@@ -155,7 +196,12 @@ defineExpose({ save, saving })
 
     <div class="space-y-1.5">
       <Label for="wallet-key">Secret API key</Label>
-      <Input id="wallet-key" v-model="apiKey" type="password" placeholder="xnd_…" />
+      <Input
+        id="wallet-key"
+        v-model="apiKey"
+        type="password"
+        :placeholder="provider === 'stripe' ? 'sk_…' : 'xnd_…'"
+      />
       <p class="text-xs text-muted-foreground">
         Stays at the station — spaces never see it; they only check credits with the station before
         serving a paid query.
@@ -163,14 +209,22 @@ defineExpose({ save, saving })
     </div>
 
     <div class="space-y-1.5">
-      <Label for="wallet-callback">Webhook callback token</Label>
+      <Label for="wallet-webhook-secret">
+        {{ provider === 'stripe' ? 'Webhook signing secret' : 'Webhook callback token' }}
+      </Label>
       <Input
-        id="wallet-callback"
-        v-model="callbackToken"
+        id="wallet-webhook-secret"
+        v-model="webhookSecret"
         type="password"
-        placeholder="From the Xendit dashboard → Webhooks"
+        :placeholder="provider === 'stripe' ? 'whsec_…' : 'From the Xendit dashboard → Webhooks'"
       />
-      <p class="text-xs text-muted-foreground">
+      <p v-if="provider === 'stripe'" class="text-xs text-muted-foreground">
+        In the Stripe Dashboard (Developers → Webhooks), add an endpoint for
+        <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
+        listening to the <code class="font-mono text-[11px]">checkout.session.*</code> events, and
+        copy its signing secret here.
+      </p>
+      <p v-else class="text-xs text-muted-foreground">
         In the Xendit dashboard (Settings → Developers → Webhooks), set the webhook URL to
         <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
         and copy its verification token here.

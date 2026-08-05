@@ -15,6 +15,7 @@ import syft_station.components.shared.logging_config  # noqa: F401, I001
 from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.routes import build_auth_routes
 from syft_station.components.auth.syfthub import SyftHubIdentityClient
+from syft_station.components.credits.gateway.stripe import StripeGateway
 from syft_station.components.credits.gateway.xendit import XenditGateway
 from syft_station.components.credits.handlers import (
     CheckoutHandler,
@@ -90,6 +91,7 @@ auth_handler = AuthHandler(syfthub_client)
 image_handler = ImageHandler(registry_client)
 payment_gateways = {
     XenditGateway.PROVIDER_NAME: XenditGateway(app_settings.xendit_api_url),
+    StripeGateway.PROVIDER_NAME: StripeGateway(app_settings.stripe_api_url),
 }
 
 credits_handler = CreditsHandler(database, wallet_repository, credit_token_repository)

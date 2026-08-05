@@ -192,6 +192,10 @@ class AppSettings(BaseSettings):
         default="https://api.xendit.co",
         description="Xendit API base URL (overridable for tests)",
     )
+    stripe_api_url: str = Field(
+        default="https://api.stripe.com",
+        description="Stripe API base URL (overridable for tests)",
+    )
 
 
 app_settings = AppSettings()

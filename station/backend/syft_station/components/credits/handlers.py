@@ -541,7 +541,7 @@ class CheckoutHandler:
         """
         wallet = await self._resolve_wallet(wallet_id)
         user_email = await self._verify_buyer(wallet, token)
-        amount = bundle_amount(wallet.currency, body.bundle_name)
+        amount = bundle_amount(wallet.provider, wallet.currency, body.bundle_name)
         if amount is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

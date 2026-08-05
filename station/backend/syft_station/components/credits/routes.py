@@ -235,9 +235,14 @@ def build_credits_routes(
 
     # ── Provider webhooks (verified inside the gateway, no session) ─────────
 
-    @router.post("/webhooks/xendit")
-    async def xendit_webhook(request: Request) -> dict[str, str]:
-        """Xendit event delivery — settles invoices, credits balances."""
+    @router.post("/webhooks/{provider}")
+    async def provider_webhook(provider: str, request: Request) -> dict[str, str]:
+        """Provider event delivery — settles invoices, credits balances.
+
+        One route for every gateway; the handler 404s unless ``provider``
+        matches the active wallet, so an unknown path segment can't reach
+        a gateway.
+        """
         raw_body = await request.body()
         try:
             parsed = json.loads(raw_body)
@@ -248,6 +253,6 @@ def build_credits_routes(
             parsed=parsed,
             headers={k.lower(): v for k, v in request.headers.items()},
         )
-        return await webhook_handler.handle("xendit", envelope)
+        return await webhook_handler.handle(provider, envelope)
 
     return router

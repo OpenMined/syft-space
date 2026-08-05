@@ -38,6 +38,7 @@ from syft_station.components.credits.repository import (
 )
 from syft_station.components.credits.routes import build_credits_routes
 from syft_station.components.credits.tokens import hash_credit_token
+from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.repository import SpaceRepository
@@ -159,7 +160,7 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
             WalletAdminHandler(wallets, gateways, rollout, hub),  # type: ignore[arg-type]
             CheckoutHandler(db, wallets, gateways, hub),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, gateways),
-            EarningsHandler(db, wallets, PayoutRepository(db), SpaceRepository(db)),
+            EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),
         ),
         prefix="/api/v1",
     )
@@ -396,7 +397,7 @@ async def test_setup_attaches_unbound_spaces(testbed: CheckoutTestbed):
     assert data["SYFT_CLUSTER_CREDITS_URL"] == CREDITS_URL
     assert data["SYFT_CLUSTER_CREDITS_CURRENCY"] == "PHP"
     assert data["SYFT_CLUSTER_WALLET_OWNER"] == str(testbed.hub.user_id)
-    assert json.loads(data["SYFT_CLUSTER_BUNDLES"]) == PREPAID_BUNDLES["PHP"]
+    assert json.loads(data["SYFT_CLUSTER_BUNDLES"]) == PREPAID_BUNDLES["xendit"]["PHP"]
     hashed = hash_credit_token(data["SYFT_CLUSTER_CREDITS_TOKEN"])
     assert (await testbed.credit_tokens.get_active_by_hash(hashed)).id == binding.id
 

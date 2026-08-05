@@ -57,10 +57,11 @@ class WalletSetupRequest(BaseModel):
     password to mint one.
     """
 
-    provider: str = Field(description="Payment provider: xendit")
+    provider: str = Field(description="Payment provider: xendit | stripe")
     currency: str = Field(min_length=3, max_length=3)
     credentials: dict = Field(
-        description="Provider credentials, e.g. {api_key, callback_token}"
+        description="Provider credentials: {api_key, callback_token} for "
+        "Xendit, {secret_key, webhook_secret} for Stripe"
     )
     syfthub_api_token: str | None = Field(
         default=None,
