@@ -27,6 +27,9 @@ release := "syft-station"
 chart := "chart"
 dev_values := "chart/values-dev.yaml"
 station_image := "syft-station:dev"
+# Generous because a fresh cluster pulls the ~2GB docling image on first
+# install — helm --wait must outlast that, not just the pod start.
+helm_timeout := "1800s"
 
 # List available recipes.
 default:
@@ -83,7 +86,7 @@ cluster: ensure-cluster
     helm upgrade --install {{release}} {{chart}} \
         -n {{namespace}} --create-namespace \
         -f {{dev_values}} --set station.enabled=false \
-        --wait --timeout 300s
+        --wait --timeout {{helm_timeout}}
     echo "Shared deps are up. Run the station: just dev up you@org.com"
 
 # So space-to-space (and SyftHub-to-space) calls hit the same public URLs the
@@ -226,7 +229,7 @@ up admin="" hub="": ensure-cluster station-image
     helm upgrade --install {{release}} {{chart}} \
         -n {{namespace}} --create-namespace \
         -f {{dev_values}} "${helm_args[@]}" \
-        --wait --timeout 300s
+        --wait --timeout {{helm_timeout}}
     # Force a fresh pod even when the :dev tag is unchanged.
     kubectl -n {{namespace}} rollout restart deploy/{{release}}
     kubectl -n {{namespace}} rollout status deploy/{{release}} --timeout=180s

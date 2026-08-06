@@ -106,7 +106,10 @@ spaces:
 # ---------------------------------------------------------------------------
 chromadb:
   enabled: true
-  image: chromadb/chroma:1.5.9
+  # Digest-pinned (multi-arch index digest): tags are mutable, digests aren't.
+  # To upgrade, bump the tag AND the digest together:
+  #   curl -sI .../v2/chromadb/chroma/manifests/<tag> | grep -i docker-content-digest
+  image: chromadb/chroma:1.5.9@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
   service:
     name: chromadb
     # Service port the station points spaces at; the container listens on 8000.
@@ -128,7 +131,8 @@ chromadb:
 # ---------------------------------------------------------------------------
 docling:
   enabled: true
-  image: ghcr.io/docling-project/docling-serve-cpu:v1.26.0
+  # Digest-pinned like chromadb.image — bump tag and digest together.
+  image: ghcr.io/docling-project/docling-serve-cpu:v1.26.0@sha256:7e07522e0240c1db3ff5b837ffa969c2ecd5a71664c0e0369f5a69fc169e30ba
   service:
     name: docling-serve
     port: 5001
