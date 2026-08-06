@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { HandCoins, Inbox, LogOut, Plus, User } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
@@ -38,6 +38,24 @@ const myRequestCount = computed(() =>
 
 // Land newcomers on the request form, returning members on their spaces
 const activeSection = ref<MemberSection>(myRequestCount.value > 0 ? 'requests' : 'new')
+
+// The admin's decisions land from another session, so coming back to "My
+// requests" refetches, and a background poll moves pending → active (and the
+// space list) without a manual reload.
+watch(activeSection, (section) => {
+  if (section === 'requests') {
+    station.loadRequests().catch(() => {})
+    station.loadSpaces().catch(() => {})
+  }
+})
+
+const REFRESH_INTERVAL_MS = 30_000
+const refreshTimer = setInterval(() => {
+  if (document.hidden) return
+  station.loadRequests().catch(() => {})
+  if (activeSection.value === 'requests') station.loadSpaces().catch(() => {})
+}, REFRESH_INTERVAL_MS)
+onUnmounted(() => clearInterval(refreshTimer))
 
 const navItems = computed(() => [
   {

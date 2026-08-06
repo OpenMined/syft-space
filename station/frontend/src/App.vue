@@ -11,6 +11,6 @@ useTheme()
     <div class="min-h-0 flex-1 overflow-y-auto">
       <RouterView />
     </div>
-    <Toaster position="top-right" rich-colors />
+    <Toaster position="top-right" rich-colors close-button />
   </div>
 </template>

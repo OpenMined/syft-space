@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowUpCircle,
@@ -81,6 +81,23 @@ onMounted(() => {
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
 type AdminSection = 'requests' | 'spaces' | 'earnings' | 'settings'
 const activeSection = ref<AdminSection>('requests')
+
+// Requests and spaces change from OTHER sessions (a member submits, a space
+// settles), so switching to a section refetches it, and a background poll
+// keeps the visible list + sidebar badges live between clicks. Earnings needs
+// neither: EarningsPanel re-mounts on each switch and loads itself.
+watch(activeSection, (section) => {
+  if (section === 'requests') station.loadRequests().catch(() => {})
+  else if (section === 'spaces') station.loadSpaces().catch(() => {})
+})
+
+const REFRESH_INTERVAL_MS = 30_000
+const refreshTimer = setInterval(() => {
+  if (document.hidden) return
+  station.loadRequests().catch(() => {})
+  if (activeSection.value === 'spaces') station.loadSpaces().catch(() => {})
+}, REFRESH_INTERVAL_MS)
+onUnmounted(() => clearInterval(refreshTimer))
 
 const mainNav = computed(() => [
   {
