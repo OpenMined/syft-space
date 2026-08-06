@@ -1,0 +1,53 @@
+{{- /*
+Dev-only stand-in for a host-run station (`just dev`): the station process
+runs on the developer's machine, but keeps its two in-cluster names.
+
+  - The Service carries the SAME name the real station Service would, as an
+    ExternalName (a bare DNS CNAME to the host) — so the default in-cluster
+    credits URL spaces dial (http://syft-station:8090) resolves to the host
+    and dev exercises the same URL as prod.
+  - The Ingress keeps the station's public host routed through Traefik, so
+    browsers, spaces, and anything else reach the station at the same
+    address as prod. Routing an Ingress at an ExternalName Service requires
+    Traefik's allowExternalNameServices (the justfile enables it on the dev
+    cluster).
+
+Self-disables when the station pod is enabled — the real Service owns the
+name then. Never rendered by prod values (hostRoute.enabled defaults false).
+*/}}
+{{- if and .Values.station.hostRoute.enabled (not .Values.station.enabled) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "syft-station.fullname" . }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: station
+spec:
+  type: ExternalName
+  externalName: {{ .Values.station.hostRoute.externalName }}
+  ports:
+    - port: 8090
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "syft-station.fullname" . }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: station
+spec:
+  ingressClassName: {{ .Values.station.ingress.className }}
+  rules:
+    - host: {{ .Values.station.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "syft-station.fullname" . }}
+                port:
+                  number: 8090
+{{- end }}

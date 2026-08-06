@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 from importlib.metadata import version as pkg_version
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,25 @@ import syft_station.components.shared.logging_config  # noqa: F401, I001
 from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.routes import build_auth_routes
 from syft_station.components.auth.syfthub import SyftHubIdentityClient
+from syft_station.components.credits.gateway.stripe import StripeGateway
+from syft_station.components.credits.gateway.xendit import XenditGateway
+from syft_station.components.credits.handlers import (
+    CheckoutHandler,
+    CreditsHandler,
+    EarningsHandler,
+    WalletAdminHandler,
+    WebhookHandler,
+)
+from syft_station.components.credits.provisioning import (
+    SpaceCreditsService,
+    WalletRollout,
+)
+from syft_station.components.credits.repository import (
+    PayoutRepository,
+    SpaceCreditTokenRepository,
+    WalletRepository,
+)
+from syft_station.components.credits.routes import build_credits_routes
 from syft_station.components.images.handlers import ImageHandler
 from syft_station.components.images.registry import ImageRegistryClient
 from syft_station.components.images.routes import build_image_routes
@@ -27,6 +47,7 @@ from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.setup.routes import build_setup_routes
 from syft_station.components.shared.database import AsyncDatabase, SQLiteConfig
 from syft_station.components.spaces.handlers import SpaceHandler
+from syft_station.components.spaces.provisioning import SpaceConverger
 from syft_station.components.spaces.repository import SpaceRepository
 from syft_station.components.spaces.routes import build_space_routes
 from syft_station.config import app_settings
@@ -38,6 +59,9 @@ database = AsyncDatabase(SQLiteConfig(app_settings.sqlite_db_path))
 setup_repository = SetupRepository(database)
 request_repository = RequestRepository(database)
 space_repository = SpaceRepository(database)
+wallet_repository = WalletRepository(database)
+credit_token_repository = SpaceCreditTokenRepository(database)
+payout_repository = PayoutRepository(database)
 
 syfthub_client = SyftHubIdentityClient(str(app_settings.syfthub_url))
 
@@ -65,13 +89,43 @@ registry_client = ImageRegistryClient(
 
 auth_handler = AuthHandler(syfthub_client)
 image_handler = ImageHandler(registry_client)
+payment_gateways = {
+    XenditGateway.PROVIDER_NAME: XenditGateway(app_settings.xendit_api_url),
+    StripeGateway.PROVIDER_NAME: StripeGateway(app_settings.stripe_api_url),
+}
+
+credits_handler = CreditsHandler(database, wallet_repository, credit_token_repository)
+space_credits_service = SpaceCreditsService(
+    wallet_repository,
+    credit_token_repository,
+    app_settings.credits_url,
+    app_settings.public_url,
+)
+wallet_rollout = WalletRollout(space_repository, provisioner, space_credits_service)
+wallet_admin_handler = WalletAdminHandler(
+    wallet_repository, payment_gateways, wallet_rollout, syfthub_client
+)
+checkout_handler = CheckoutHandler(
+    database, wallet_repository, payment_gateways, syfthub_client
+)
+webhook_handler = WebhookHandler(database, wallet_repository, payment_gateways)
+earnings_handler = EarningsHandler(
+    database, wallet_repository, payout_repository, request_repository
+)
 setup_handler = SetupHandler(setup_repository)
-space_handler = SpaceHandler(space_repository, provisioner)
+space_converger = SpaceConverger(
+    space_repository, setup_repository, provisioner, space_credits_service
+)
+space_handler = SpaceHandler(
+    space_repository, provisioner, setup_repository, space_converger
+)
 request_handler = RequestHandler(
     repository=request_repository,
     space_repository=space_repository,
     setup_repository=setup_repository,
     provisioner=provisioner,
+    credits=space_credits_service,
+    converger=space_converger,
 )
 
 
@@ -106,9 +160,26 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Syft Station", lifespan=lifespan)
 
+
+def _cors_origins() -> list[str]:
+    """Browser origins allowed to call the API.
+
+    The Vite dev server is for the station's own UI. The SyftHub origin is
+    required in every deployment — the hub frontend drives the buyer
+    credits routes (invoices/balance) straight from the browser with a
+    satellite token. Extra origins come from SYFT_STATION_CORS_ORIGINS for
+    setups where the hub is browsed at a different address than the
+    station dials it (dev).
+    """
+    hub = urlparse(str(app_settings.syfthub_url))
+    origins = ["http://localhost:5174", f"{hub.scheme}://{hub.netloc}"]
+    origins += [o.strip() for o in app_settings.cors_origins.split(",") if o.strip()]
+    return list(dict.fromkeys(origins))
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -119,6 +190,16 @@ app.include_router(build_setup_routes(setup_handler), prefix="/api/v1")
 app.include_router(build_request_routes(request_handler), prefix="/api/v1")
 app.include_router(build_space_routes(space_handler), prefix="/api/v1")
 app.include_router(build_image_routes(image_handler), prefix="/api/v1")
+app.include_router(
+    build_credits_routes(
+        credits_handler,
+        wallet_admin_handler,
+        checkout_handler,
+        webhook_handler,
+        earnings_handler,
+    ),
+    prefix="/api/v1",
+)
 
 
 @app.get("/healthz", tags=["health"])

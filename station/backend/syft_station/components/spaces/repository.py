@@ -1,7 +1,6 @@
 """Space registry repository."""
 
 import secrets
-from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlmodel import select
@@ -62,18 +61,8 @@ class SpaceRepository(AsyncBaseRepository[Space]):
             result = await session.exec(statement)
             return result.first()
 
-    async def mark_token_revealed(self, token_row: SpaceToken) -> SpaceToken:
-        """Clear the plaintext after the one-time reveal."""
-        async with self.db.get_session() as session:
-            token_row.token = None
-            token_row.revealed_at = datetime.now(UTC)
-            session.add(token_row)
-            await session.commit()
-            await session.refresh(token_row)
-            return token_row
-
     async def replace_token(self, space_id: UUID, token: str) -> SpaceToken:
-        """Regenerate: replace any existing token row with a fresh unrevealed one."""
+        """Regenerate: replace any existing token row with a fresh one."""
         async with self.db.get_session() as session:
             statement = select(SpaceToken).where(SpaceToken.space_id == space_id)
             result = await session.exec(statement)

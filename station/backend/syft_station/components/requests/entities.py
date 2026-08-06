@@ -32,6 +32,19 @@ SUBDOMAIN_RESERVING_STATUSES = (
     RequestStatus.ACTIVE,
 )
 
+# SyftHub supports one space per user, so a request in any of these states
+# holds the owner's single slot and blocks a new submit. Unlike the subdomain
+# tuple, FAILED occupies: a failed request is admin-retryable, and a second
+# space must not appear mid-retry. The partial unique index
+# uq_owner_live_request backstops the submit-handler guard with this same set
+# — keep the two in sync.
+OWNER_SLOT_STATUSES = (
+    RequestStatus.PENDING,
+    RequestStatus.PROVISIONING,
+    RequestStatus.ACTIVE,
+    RequestStatus.FAILED,
+)
+
 
 class RequestOrigin(StrEnum):
     MEMBER = "member"

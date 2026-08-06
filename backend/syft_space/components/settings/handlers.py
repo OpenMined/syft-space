@@ -11,6 +11,7 @@ from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.schemas import (
     DiagnosticsResponse,
+    ManagedResponse,
     ProxyStatusResponse,
     PublicUrlResponse,
 )
@@ -48,6 +49,24 @@ class SettingsHandler:
         """
         settings = await self.settings_repository.get_settings()
         return PublicUrlResponse(public_url=settings.public_url)
+
+    async def get_managed(self) -> ManagedResponse:
+        """Whether this space runs in managed mode, plus its public URL.
+
+        Managed means a station launched this space (SYFT_CLUSTER_MANAGED_BY
+        injected): the frontend then drops self-hosted onboarding affordances
+        (SyftHub signup, hub-generated tunnel URL) and pre-fills the public
+        URL the station assigned. The URL stays editable — only the tunnel
+        flow is refused (see configure_proxy).
+
+        Returns:
+            Managed-mode response
+        """
+        settings = await self.settings_repository.get_settings()
+        return ManagedResponse(
+            managed=bool(app_settings.cluster.managed_by),
+            public_url=settings.public_url,
+        )
 
     async def update_public_url(
         self, tenant: Tenant, new_url: HttpUrl | str
@@ -107,11 +126,18 @@ class SettingsHandler:
             ) from e
 
     async def initialize_from_config(self, tenants: list[Tenant]) -> None:
-        """Initialize settings from config on startup.
+        """Seed the public URL from SYFT_PUBLIC_URL on first boot.
 
-        If SYFT_PUBLIC_URL env var is set, it overwrites the database value.
+        Seed-once, not override: the env only fills an empty database value.
+        Once set (seeded or edited by the user), the database wins across
+        restarts — otherwise a station-injected URL would silently revert
+        manual edits on every pod restart.
         """
         if not app_settings.public_url:
+            return
+
+        settings = await self.settings_repository.get_settings()
+        if settings.public_url:
             return
 
         for tenant in tenants:
@@ -169,8 +195,20 @@ class SettingsHandler:
             Proxy status response with connection status and public URL
 
         Raises:
-            HTTPException: If proxy service is not configured or connection fails
+            HTTPException: If the space is managed, the proxy service is not
+                configured, or the connection fails
         """
+        # A managed space already has its public URL from the station; a
+        # tunnel URL would be synced to the marketplace and overwrite the
+        # address buyers are routed through. Manual URL edits stay allowed —
+        # only this generated-URL path is refused.
+        if app_settings.cluster.managed_by:
+            raise HTTPException(
+                status_code=409,
+                detail="This space's public URL is managed for you — "
+                "set a URL directly instead of generating one",
+            )
+
         if self.proxy_service is None:
             raise HTTPException(
                 status_code=404,

@@ -52,9 +52,24 @@ station:
       cpu: "1"
       memory: 512Mi
 
+  # Dev-only: when the station runs on the HOST (station.enabled=false), render
+  # an ExternalName Service + Ingress under the station's own name so its
+  # ingress host still routes to it through Traefik, and the in-cluster
+  # Service DNS name spaces use for credits resolves to the host. Ignored
+  # whenever the station pod is enabled. Never used in prod.
+  hostRoute:
+    enabled: false
+    # Cluster-resolvable name of the host machine (k3d's built-in alias).
+    externalName: host.k3d.internal
+
   ingress:
     enabled: true
     className: traefik
+    # The station is the PARENT of its spaces. This host is the single source
+    # of truth: it's the station's public URL AND the base spaces hang off.
+    # Onboarding SHOWS it (no retyping) and spaces resolve at <subdomain>.<host>
+    # — or <subdomain>.<prefix>.<host> if the admin picks a subdomain prefix.
+    # Point wildcard DNS at the cluster: *.<host> (flat) or *.<prefix>.<host>.
     host: station.example.com
     annotations: {}
     tls:
@@ -72,6 +87,9 @@ spaces:
   # Repo only — the tag is chosen by the admin at runtime from the registry
   # version picker, never fixed here.
   image: ghcr.io/openmined/syft-space
+  # Scheme of the public space URLs the station mints (<scheme>://<sub>.<domain>).
+  # Prod terminates TLS at the ingress; dev has no certs and uses http.
+  scheme: https
   ingressClass: traefik
   pvcSize: 2Gi
   cpuRequest: 250m
@@ -88,7 +106,10 @@ spaces:
 # ---------------------------------------------------------------------------
 chromadb:
   enabled: true
-  image: chromadb/chroma:1.5.9
+  # Digest-pinned (multi-arch index digest): tags are mutable, digests aren't.
+  # To upgrade, bump the tag AND the digest together:
+  #   curl -sI .../v2/chromadb/chroma/manifests/<tag> | grep -i docker-content-digest
+  image: chromadb/chroma:1.5.9@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
   service:
     name: chromadb
     # Service port the station points spaces at; the container listens on 8000.
@@ -110,7 +131,8 @@ chromadb:
 # ---------------------------------------------------------------------------
 docling:
   enabled: true
-  image: ghcr.io/docling-project/docling-serve-cpu:v1.26.0
+  # Digest-pinned like chromadb.image — bump tag and digest together.
+  image: ghcr.io/docling-project/docling-serve-cpu:v1.26.0@sha256:7e07522e0240c1db3ff5b837ffa969c2ecd5a71664c0e0369f5a69fc169e30ba
   service:
     name: docling-serve
     port: 5001

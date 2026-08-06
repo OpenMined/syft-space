@@ -13,6 +13,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ApiError } from '@/api/client'
 import type { SpaceRequest } from '@/lib/types'
 import { slugify } from '@/lib/types'
@@ -29,6 +36,8 @@ const station = useStationStore()
 
 const spaceName = ref('')
 const subdomain = ref('')
+/** 'station' = attach the shared wallet (default); 'none' = unbilled space. */
+const walletChoice = ref<'station' | 'none'>('station')
 
 // Prefill from the request whenever the modal opens (review-and-tweak)
 watch(
@@ -37,6 +46,7 @@ watch(
     if (isOpen && props.request) {
       spaceName.value = props.request.spaceName
       subdomain.value = props.request.subdomain
+      walletChoice.value = 'station'
     }
   },
 )
@@ -60,6 +70,7 @@ async function approve() {
     const config = {
       spaceName: spaceName.value.trim(),
       subdomain: slugify(subdomain.value),
+      attachWallet: station.wallet !== null && walletChoice.value === 'station',
     }
     // Retry re-runs the failed request as-is; approve allows edits
     if (isRetry.value) await station.retryProvision(props.request.id, config)
@@ -108,6 +119,23 @@ async function approve() {
           {{ slugify(subdomain) || '—' }}.{{ station.domain }}
           <span v-if="!isRetry && subdomainTaken" class="text-destructive">— already in use</span>
         </p>
+
+        <!-- Wallet picker — only when the station has a wallet; retry keeps
+             the original choice -->
+        <div v-if="station.wallet && !isRetry" class="space-y-1.5">
+          <Label>Payments</Label>
+          <Select v-model="walletChoice">
+            <SelectTrigger class="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="station">
+                Station wallet — {{ station.wallet.provider }} · {{ station.wallet.currency }}
+              </SelectItem>
+              <SelectItem value="none">No wallet — space runs unbilled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         <div class="rounded-md border bg-muted/40 px-3 py-2.5">
           <p class="mb-1.5 text-xs font-medium text-muted-foreground">This space will get</p>

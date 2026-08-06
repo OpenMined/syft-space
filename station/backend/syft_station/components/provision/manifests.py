@@ -37,6 +37,7 @@ class RenderSettings(Protocol):
 
     namespace: str
     space_image: str
+    space_scheme: str
     ingress_class: str
     space_pvc_size: str
     space_cpu_request: str
@@ -68,7 +69,7 @@ def _substitutions(spec: SpaceSpec, settings: RenderSettings) -> dict[str, str]:
         "DOCLING_URL": settings.docling_url,
         "MANAGED_BY": settings.managed_by_name,
         "SYFTHUB_URL": str(settings.syfthub_url).rstrip("/"),
-        "PUBLIC_URL": f"https://{spec.subdomain}.{spec.domain}",
+        "PUBLIC_URL": f"{settings.space_scheme}://{spec.subdomain}.{spec.domain}",
         "HOST": f"{spec.subdomain}.{spec.domain}",
         "INGRESS_CLASS": settings.ingress_class,
         "PVC_SIZE": settings.space_pvc_size,
@@ -90,4 +91,28 @@ def render_space_manifests(
 ) -> dict[str, dict]:
     """Render all per-space manifests as apply-ordered dicts, keyed by kind."""
     values = _substitutions(spec, settings)
-    return {key: _render_one(filename, values) for key, filename in MANIFEST_FILES}
+    manifests = {key: _render_one(filename, values) for key, filename in MANIFEST_FILES}
+    # Managed-credits keys are conditional (a space may have no wallet), so
+    # they're injected here rather than templated — the Deployment reads them
+    # via optional secretKeyRefs, absent keys simply leave the env unset.
+    if spec.credits_token:
+        manifests["secret"]["stringData"].update(
+            {
+                "SYFT_CLUSTER_CREDITS_URL": spec.credits_url,
+                "SYFT_CLUSTER_CREDITS_TOKEN": spec.credits_token,
+                "SYFT_CLUSTER_CREDITS_CURRENCY": spec.credits_currency,
+                "SYFT_CLUSTER_CREDITS_WALLET_ID": spec.credits_wallet_id,
+                "SYFT_CLUSTER_PUBLIC_URL": spec.credits_public_url,
+            }
+        )
+        # These two are optional even with a wallet, and omitted rather than
+        # sent empty — the space parses them as int/JSON, and "" would crash.
+        if spec.credits_wallet_owner:
+            manifests["secret"]["stringData"]["SYFT_CLUSTER_WALLET_OWNER"] = (
+                spec.credits_wallet_owner
+            )
+        if spec.credits_bundles:
+            manifests["secret"]["stringData"]["SYFT_CLUSTER_BUNDLES"] = (
+                spec.credits_bundles
+            )
+    return manifests

@@ -48,6 +48,17 @@ class AppSettings(BaseSettings):
         default="https://syfthub.openmined.org",
         description="SyftHub instance used for member sign-in",
     )
+    cors_origins: str = Field(
+        default="",
+        description=(
+            "Extra browser origins allowed by CORS, comma-separated. The "
+            "SyftHub origin is always allowed (its frontend calls the buyer "
+            "credits routes from the browser); use this when the hub is "
+            "browsed at a different address than the station dials it "
+            "(e.g. dev: hub configured as host.k3d.internal:8080 but "
+            "browsed at localhost:8080)."
+        ),
+    )
     admin_email: str = Field(
         default="",
         description=(
@@ -109,6 +120,14 @@ class AppSettings(BaseSettings):
         default="openmined/syft-space",
         description="Container image (repo only) each space is deployed from",
     )
+    space_scheme: str = Field(
+        default="https",
+        description=(
+            "Scheme of the public space URLs the station mints "
+            "(<scheme>://<subdomain>.<domain>). Prod terminates TLS at the "
+            "ingress; dev has no certs and sets http."
+        ),
+    )
     image_registry: str = Field(
         default="ghcr.io",
         description=(
@@ -146,7 +165,37 @@ class AppSettings(BaseSettings):
         default="Syft Station",
         description="Display name injected as SYFT_CLUSTER_MANAGED_BY into spaces",
     )
+    credits_url: str = Field(
+        default="http://syft-station:8090",
+        description=(
+            "URL spaces use to reach the station credits API (their Secret's "
+            "SYFT_CLUSTER_CREDITS_URL). Default = the in-cluster Service; "
+            "host-run dev overrides it (e.g. http://host.k3d.internal:8090)."
+        ),
+    )
+    public_url: str = Field(
+        default="",
+        description=(
+            "The station's public base URL — its own ingress host (their "
+            "Secret's SYFT_CLUSTER_PUBLIC_URL), minted into every space so "
+            "buyers reach the station's checkout/balance routes. This is the "
+            "station's host, NOT the spaces' parent domain: the two differ "
+            "when spaces use a subdomain prefix. Injected from the chart's "
+            "ingress host; the dev loops set it to the host-run address. "
+            "Distinct from credits_url, the internal space→station path. Empty "
+            "→ endpoints publish bundles but no buyer URLs."
+        ),
+    )
+
+    # Payment providers
+    xendit_api_url: str = Field(
+        default="https://api.xendit.co",
+        description="Xendit API base URL (overridable for tests)",
+    )
+    stripe_api_url: str = Field(
+        default="https://api.stripe.com",
+        description="Stripe API base URL (overridable for tests)",
+    )
 
 
-# Global settings instance
 app_settings = AppSettings()
