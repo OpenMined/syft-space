@@ -9,6 +9,7 @@
 #                                   #   (spaces still provisioned into k3d)
 #   just dev down                   # tear down cluster + host station state
 #   just up  admin=you@org.com      # FULL in-cluster: station pod via Helm
+#   just pause                      # stop the cluster; volumes/images survive
 #   just down                       # tear the cluster down (host state kept)
 #
 # `just dev` is the everyday loop — edit backend code, uvicorn reloads, no
@@ -52,7 +53,15 @@ ensure-cluster: bootstrap
     #!/usr/bin/env bash
     set -euo pipefail
     if k3d cluster list | grep -q "^{{cluster_name}} "; then
-        echo "Cluster '{{cluster_name}}' already exists."
+        # A paused cluster (`just pause`) still lists — start it if its
+        # server count reads 0/1, and it resumes with volumes/images intact.
+        running=$(k3d cluster list {{cluster_name}} --no-headers | awk '{print $2}')
+        if [ "${running%%/*}" = "0" ]; then
+            echo "Cluster '{{cluster_name}}' is stopped — starting it."
+            k3d cluster start {{cluster_name}}
+        else
+            echo "Cluster '{{cluster_name}}' already exists."
+        fi
     else
         k3d cluster create {{cluster_name}} \
             --registry-create {{cluster_name}}-registry:0.0.0.0:5111 \
@@ -243,6 +252,15 @@ up admin="" hub="": ensure-cluster station-image
 # Tear the cluster down (station pod, spaces, and all in-cluster data).
 down:
     k3d cluster delete {{cluster_name}}
+
+# Stop the cluster WITHOUT deleting it: the node containers pause, so PVCs,
+# pulled images, and all in-cluster state survive. Frees CPU/RAM between dev
+# sessions. Resume with `just cluster`, `just dev`, or `just up` — they start
+# a stopped cluster automatically (ensure-cluster) and pick up where it left
+# off, no image re-pulls, no re-onboarding.
+pause:
+    k3d cluster stop {{cluster_name}}
+    @echo "Cluster stopped — data and images retained. Resume: just dev | just up"
 
 # For testing UNPUBLISHED syft-space builds. Normally spaces pull the published
 # image (ghcr.io/openmined/syft-space) at whatever tag the admin picks.
