@@ -143,9 +143,11 @@ The `admin` argument sets
 An optional `hub=http://localhost:8080` argument sets
 `SYFT_STATION_SYFTHUB_URL` (omitted → the production SyftHub default); use
 plain localhost for a local hub — CORS for the hub's browser origin is
-derived from it. An optional `space=tag` argument builds + imports a local
-syft-space image (`just space-image`) and sets `SYFT_STATION_SPACE_VERSION`
-so onboarding suggests that tag. The chart preserves the session secret
+derived from it. Both loops self-seed the syft-space `:dev`
+image — built + imported only when missing from the cluster node — and set
+`SYFT_STATION_SPACE_VERSION` so onboarding suggests it. An explicit
+`space=tag` argument force-rebuilds that tag (the flow after syft-space code
+changes); `space=none` runs on published images only. The chart preserves the session secret
 across `helm upgrade` (via a live `lookup`), so cookies survive redeploys.
 Otherwise spaces pull the published image (`ghcr.io/openmined/syft-space`)
 at whatever tag the admin picks; nothing is baked in.

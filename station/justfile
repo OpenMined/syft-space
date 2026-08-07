@@ -171,10 +171,16 @@ dev *args="up":
     if [ -z "$admin_email" ]; then
         echo "WARNING: no admin email set — every sign-in gets the member role."
     fi
-    if [ -n "$space_tag" ]; then
+    # Space image: default self-seeds :dev (build only if absent); an explicit
+    # space=TAG forces a rebuild; space=none runs on published images only.
+    if [ "$space_tag" = "none" ]; then
+        :
+    elif [ -n "$space_tag" ]; then
         just space-image "$space_tag"
-        # Onboarding's version picker suggests this tag — no retyping it.
         export SYFT_STATION_SPACE_VERSION="$space_tag"
+    else
+        just ensure-space-image dev
+        export SYFT_STATION_SPACE_VERSION=dev
     fi
     export SYFT_STATION_PROVISIONER=k8s
     export SYFT_STATION_NAMESPACE={{namespace}}
@@ -215,23 +221,59 @@ station-image:
     docker build -t {{station_image}} .
     k3d image import {{station_image}} -c {{cluster_name}}
 
+# Self-seed the syft-space image: build + import only when the tag is missing
+# from the cluster node, so `just dev`/`just up` are complete on a fresh
+# cluster without taxing every warm loop. Forcing a rebuild after syft-space
+# code changes stays explicit: `just space-image dev` (or `space=dev`).
+[private]
+ensure-space-image tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if docker exec k3d-{{cluster_name}}-server-0 \
+        crictl images -q ghcr.io/openmined/syft-space:{{tag}} | grep -q .; then
+        echo "syft-space:{{tag}} already on the cluster node."
+    else
+        just space-image {{tag}}
+    fi
+
 # Pass your SyftHub email for the admin role; optionally a different SyftHub:
 #   just up you@org.com
 #   just up admin=you@org.com hub=https://syfthub.staging.org
+#   just up you@org.com space=mytag   # force-build a local syft-space image
+#   just up you@org.com space=none    # published space images only
+
+# One command, everything included — cluster, deps, station image, and the
+# syft-space :dev image (self-seeded when missing, so fresh clusters need no
+# manual import).
 
 # FULL in-cluster: the station pod via Helm (parity with prod).
-up admin="" hub="": ensure-cluster station-image
+up admin="" hub="" space="": ensure-cluster station-image
     #!/usr/bin/env bash
     set -euo pipefail
     admin_email="{{admin}}"; admin_email="${admin_email#admin=}"
     hub_url="{{hub}}"; hub_url="${hub_url#hub=}"
+    space_tag="{{space}}"; space_tag="${space_tag#space=}"
     if [ -z "$admin_email" ]; then
         echo "WARNING: no admin email set — every sign-in gets the member role."
         echo "         Use: just up you@org.com"
     fi
+    # Space image: same policy as `just dev` — default self-seeds :dev,
+    # space=TAG force-rebuilds, space=none skips local images.
+    if [ "$space_tag" = "none" ]; then
+        space_tag=""
+    elif [ -n "$space_tag" ]; then
+        just space-image "$space_tag"
+    else
+        space_tag="dev"
+        just ensure-space-image dev
+    fi
     helm_args=(--set-string station.adminEmail="$admin_email")
     if [ -n "$hub_url" ]; then
         helm_args+=(--set-string station.syfthubUrl="$hub_url")
+    fi
+    if [ -n "$space_tag" ]; then
+        # Onboarding's version picker suggests this tag — no retyping it.
+        helm_args+=(--set-string station.extraEnv.SYFT_STATION_SPACE_VERSION="$space_tag")
     fi
     # One release, station ON — installs the deps and the station together. The
     # chart preserves the session secret across upgrades, so cookies stay valid.
@@ -253,11 +295,13 @@ up admin="" hub="": ensure-cluster station-image
 down:
     k3d cluster delete {{cluster_name}}
 
-# Stop the cluster WITHOUT deleting it: the node containers pause, so PVCs,
-# pulled images, and all in-cluster state survive. Frees CPU/RAM between dev
-# sessions. Resume with `just cluster`, `just dev`, or `just up` — they start
-# a stopped cluster automatically (ensure-cluster) and pick up where it left
-# off, no image re-pulls, no re-onboarding.
+# The node containers pause, so PVCs, pulled images, and all in-cluster state
+# survive — frees CPU/RAM between dev sessions. Resume with `just cluster`,
+# `just dev`, or `just up`: they start a stopped cluster automatically
+# (ensure-cluster) and pick up where it left off, no image re-pulls, no
+# re-onboarding.
+
+# Stop the cluster WITHOUT deleting it (volumes and images kept).
 pause:
     k3d cluster stop {{cluster_name}}
     @echo "Cluster stopped — data and images retained. Resume: just dev | just up"
