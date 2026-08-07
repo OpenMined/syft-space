@@ -29,9 +29,21 @@ rules:
   - apiGroups: [apps]
     resources: [deployments]
     verbs: [get, create, patch, delete]
-  # Live status derivation
+  # Live status derivation — the spaces list and the provisioning wait's poll
   - apiGroups: [apps]
     resources: [deployments/status]
+    verbs: [get]
+  # The provisioning wait also inspects the space's pods each poll tick (to
+  # fail fast on terminal states instead of burning the timeout) and tails a
+  # crashed container's logs for a specific failure message. Without these,
+  # the first in-cluster provision 403'd whenever the pod wasn't ready by the
+  # first tick — while a retry, finding the Deployment already available,
+  # never reached the pod inspection and "healed" it.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [pods/log]
     verbs: [get]
   # Pause/resume (scale to 0/1)
   - apiGroups: [apps]

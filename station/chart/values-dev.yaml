@@ -33,6 +33,9 @@ spaces:
   image: ghcr.io/openmined/syft-space
   # No certs in dev — spaces are plain http behind the k3d Traefik.
   scheme: http
+  # Spaces see the host's home directory read-only at ~/host-home (the k3d
+  # cluster maps $HOME to the node's /mnt/host-home at creation).
+  hostMount: true
 
 chromadb:
   persistence:

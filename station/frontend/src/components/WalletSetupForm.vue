@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import WalletSummaryCard from '@/components/WalletSummaryCard.vue'
 import type { WalletProvider } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
 
@@ -29,13 +30,25 @@ import { useStationStore } from '@/stores/station'
 
 const station = useStationStore()
 
-// Mounted fresh each time a host shows it, so initializers read the current
-// wallet (replace mode) or fall back to defaults (create mode).
-const provider = ref<WalletProvider>(station.wallet?.provider ?? 'xendit')
-const currency = ref(station.wallet?.currency ?? 'PHP')
+const provider = ref<WalletProvider>('xendit')
+const currency = ref('PHP')
 const apiKey = ref('')
 const webhookSecret = ref('')
 const saving = ref(false)
+
+// Replace mode mirrors the SAVED wallet. A watcher (not mount-time init):
+// the form can mount before loadWallet resolves — onboarding renders it with
+// the dialog — and a snapshot would lock the wrong currency into the save.
+watch(
+  () => station.wallet,
+  (wallet) => {
+    if (wallet) {
+      provider.value = wallet.provider
+      currency.value = wallet.currency
+    }
+  },
+  { immediate: true },
+)
 
 /**
  * Per-provider currency menus — mirrors the backend's provider-split bundle
@@ -155,6 +168,15 @@ defineExpose({ save, saving })
 
 <template>
   <div class="space-y-4">
+    <!-- Replace mode: show what's being replaced and what survives it. -->
+    <template v-if="station.wallet">
+      <WalletSummaryCard />
+      <p class="text-xs text-muted-foreground">
+        Replacing swaps the provider account behind this wallet — user balances and connected spaces
+        stay as they are.
+      </p>
+    </template>
+
     <div class="grid gap-4 sm:grid-cols-2">
       <div class="space-y-1.5">
         <Label>Provider</Label>

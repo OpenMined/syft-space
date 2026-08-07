@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import VersionSelect from '@/components/VersionSelect.vue'
 import WalletSetupForm from '@/components/WalletSetupForm.vue'
+import WalletSummaryCard from '@/components/WalletSummaryCard.vue'
 import { ApiError } from '@/api/client'
 import { useStationStore } from '@/stores/station'
 
@@ -70,9 +71,11 @@ const domainValid = computed(() => {
 
 // Step 2 — optional shared wallet. The fields, validation, and save live in
 // WalletSetupForm (shared with the Earnings dialog); this wizard only owns
-// the skip/advance buttons.
+// the skip/advance buttons. When a wallet is already saved (setup re-run),
+// the step offers it as-is and only unfolds the form to replace it.
 const walletForm = ref<InstanceType<typeof WalletSetupForm> | null>(null)
 const savingWallet = ref(false)
+const replacingWallet = ref(false)
 
 // Step 3 — Syft Space version (image tag from the registry)
 const versionInput = ref('')
@@ -256,25 +259,60 @@ async function finish() {
       <!-- Step 2: optional shared wallet. v-show (not v-if) so the form's
            state — including a minted hub token — survives Back/Next. -->
       <div v-show="step === 1" class="space-y-4">
-        <p class="text-xs text-muted-foreground">
-          One gateway account for the whole station: users buy credits here and spend them at any
-          space; you pay members for what users spend. Skip it to run without pooled payments — you
-          can add it later from Earnings.
-        </p>
-        <WalletSetupForm ref="walletForm" />
-        <div class="flex items-center justify-between">
-          <Button variant="ghost" size="sm" @click="step = 0">
-            <ArrowLeft class="mr-1.5 h-3.5 w-3.5" />
-            Back
-          </Button>
-          <div class="flex gap-2">
-            <Button variant="outline" @click="nextFromWallet(false)">Skip for now</Button>
-            <Button :disabled="savingWallet" @click="nextFromWallet(true)">
-              Add wallet
-              <ArrowRight class="ml-1.5 h-3.5 w-3.5" />
+        <!-- A wallet already exists: offer it as-is, unfold the form to replace. -->
+        <template v-if="station.wallet && !replacingWallet">
+          <p class="text-xs text-muted-foreground">
+            This station already has a shared wallet — users buy credits through it and spend them
+            at any space. Keep using it, or replace the provider account behind it.
+          </p>
+          <WalletSummaryCard />
+          <div class="flex items-center justify-between">
+            <Button variant="ghost" size="sm" @click="step = 0">
+              <ArrowLeft class="mr-1.5 h-3.5 w-3.5" />
+              Back
             </Button>
+            <div class="flex gap-2">
+              <Button variant="outline" @click="replacingWallet = true">Replace…</Button>
+              <Button @click="step = 2">
+                Use this wallet
+                <ArrowRight class="ml-1.5 h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
-        </div>
+        </template>
+
+        <template v-else>
+          <p v-if="!station.wallet" class="text-xs text-muted-foreground">
+            One gateway account for the whole station: users buy credits here and spend them at any
+            space; you pay members for what users spend. Skip it to run without pooled payments —
+            you can add it later from Earnings.
+          </p>
+          <WalletSetupForm ref="walletForm" />
+          <div class="flex items-center justify-between">
+            <Button
+              v-if="replacingWallet"
+              variant="ghost"
+              size="sm"
+              @click="replacingWallet = false"
+            >
+              <ArrowLeft class="mr-1.5 h-3.5 w-3.5" />
+              Keep existing
+            </Button>
+            <Button v-else variant="ghost" size="sm" @click="step = 0">
+              <ArrowLeft class="mr-1.5 h-3.5 w-3.5" />
+              Back
+            </Button>
+            <div class="flex gap-2">
+              <Button v-if="!station.wallet" variant="outline" @click="nextFromWallet(false)">
+                Skip for now
+              </Button>
+              <Button :disabled="savingWallet" @click="nextFromWallet(true)">
+                {{ station.wallet ? 'Replace wallet' : 'Add wallet' }}
+                <ArrowRight class="ml-1.5 h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- Step 3: version -->

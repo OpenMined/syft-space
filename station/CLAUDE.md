@@ -140,12 +140,22 @@ suggests `station.localhost` as the domain (derived from
 plain-http in dev (`SYFT_STATION_SPACE_SCHEME` / `spaces.scheme` — no certs).
 The `admin` argument sets
 `SYFT_STATION_ADMIN_EMAIL` — without it every sign-in gets the member role.
-An optional `hub=http://localhost:8080` argument sets
-`SYFT_STATION_SYFTHUB_URL` (omitted → the production SyftHub default); use
-plain localhost for a local hub — CORS for the hub's browser origin is
-derived from it. An optional `space=tag` argument builds + imports a local
-syft-space image (`just space-image`) and sets `SYFT_STATION_SPACE_VERSION`
-so onboarding suggests that tag. The chart preserves the session secret
+An optional `hub=http://syfthub.localhost:8080` argument sets
+`SYFT_STATION_SYFTHUB_URL` (omitted → the production SyftHub default).
+`syfthub.localhost` is the canonical name for a host-run local hub: browsers
+and host processes resolve it to loopback natively, and `cluster-dns` maps it
+to the host machine inside the cluster — the SAME hub URL works everywhere
+(never use `host.k3d.internal` or plain `localhost`, which only resolve in
+one of those worlds). CORS for the hub's browser origin is derived from it. Both loops self-seed the syft-space `:dev`
+image — built + imported only when missing from the cluster node — and set
+`SYFT_STATION_SPACE_VERSION` so onboarding suggests it. An explicit
+`space=tag` argument force-rebuilds that tag (the flow after syft-space code
+changes); `space=none` runs on published images only. Spaces in both loops
+see the host's home directory read-only at `~/host-home`: the flag
+(`spaces.hostMount` / `SYFT_STATION_SPACE_HOST_MOUNT`, default off) mounts
+the node's `/mnt/host-home` into every space inside the space's home (the
+dataset file browser is rooted at home and rejects paths outside it), and
+the dev cluster maps `$HOME` to that node path at creation. The chart preserves the session secret
 across `helm upgrade` (via a live `lookup`), so cookies survive redeploys.
 Otherwise spaces pull the published image (`ghcr.io/openmined/syft-space`)
 at whatever tag the admin picks; nothing is baked in.

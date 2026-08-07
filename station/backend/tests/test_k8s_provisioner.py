@@ -28,6 +28,7 @@ SETTINGS = SimpleNamespace(
     chromadb_port=8100,
     docling_url="http://docling-serve:5001",
     managed_by_name="Syft Station",
+    space_host_mount=False,
     syfthub_url="https://hub.test",
     provision_timeout_seconds=5,
     provision_poll_interval_seconds=0.01,

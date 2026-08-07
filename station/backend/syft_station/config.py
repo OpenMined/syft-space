@@ -53,10 +53,10 @@ class AppSettings(BaseSettings):
         description=(
             "Extra browser origins allowed by CORS, comma-separated. The "
             "SyftHub origin is always allowed (its frontend calls the buyer "
-            "credits routes from the browser); use this when the hub is "
-            "browsed at a different address than the station dials it "
-            "(e.g. dev: hub configured as host.k3d.internal:8080 but "
-            "browsed at localhost:8080)."
+            "credits routes from the browser); use this only when the hub is "
+            "browsed at a different address than the station dials it. The "
+            "k3d dev loop doesn't need it — syfthub.localhost resolves both "
+            "in browsers and in-cluster (justfile cluster-dns)."
         ),
     )
     admin_email: str = Field(
@@ -147,6 +147,16 @@ class AppSettings(BaseSettings):
     space_cpu_limit: str = Field(default="1")
     space_memory_request: str = Field(default="512Mi")
     space_memory_limit: str = Field(default="2Gi")
+    space_host_mount: bool = Field(
+        default=False,
+        description=(
+            "Mount the cluster node's /mnt/host-home directory into every "
+            "space, read-only at /root/host-home — inside the container's "
+            "home, where the space's dataset file browser is rooted. What "
+            "spaces see is whatever the cluster runtime maps to that node "
+            "path (the k3d dev cluster maps $HOME there at creation)."
+        ),
+    )
 
     # Shared infrastructure each space connects to (in-cluster service DNS)
     chromadb_host: str = Field(

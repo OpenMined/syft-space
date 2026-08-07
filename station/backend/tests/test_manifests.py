@@ -24,6 +24,7 @@ SETTINGS = SimpleNamespace(
     chromadb_port=8100,
     docling_url="http://docling-serve:5001",
     managed_by_name="Syft Station",
+    space_host_mount=False,
     syfthub_url="https://hub.test/",
 )
 
@@ -139,6 +140,37 @@ def test_deployment_mounts_pvc_at_data(manifests):
     container = pod["containers"][0]
     assert container["volumeMounts"][0]["mountPath"] == "/data"
     assert pod["volumes"][0]["persistentVolumeClaim"]["claimName"] == "space-alpha"
+
+
+def test_no_host_mount_by_default(manifests):
+    # Flag off: no hostPath volume reaches the pod at all.
+    pod = manifests["deployment"]["spec"]["template"]["spec"]
+    assert not any("hostPath" in v for v in pod["volumes"])
+    assert all(m["mountPath"] == "/data" for m in pod["containers"][0]["volumeMounts"])
+
+
+def test_host_mount_flag_adds_readonly_hostpath():
+    settings = SimpleNamespace(**{**vars(SETTINGS), "space_host_mount": True})
+    pod = render_space_manifests(SPEC, settings)["deployment"]["spec"]["template"][
+        "spec"
+    ]
+    volume = next(v for v in pod["volumes"] if "hostPath" in v)
+    # OrCreate: a node with nothing mapped at the path serves an empty dir
+    # rather than a pod stuck ContainerCreating.
+    assert volume["hostPath"] == {
+        "path": "/mnt/host-home",
+        "type": "DirectoryOrCreate",
+    }
+    mount = next(
+        m for m in pod["containers"][0]["volumeMounts"] if m["name"] == volume["name"]
+    )
+    # Inside the container's home — the space's file browser is rooted there
+    # and rejects paths outside it.
+    assert mount == {
+        "name": "host-home",
+        "mountPath": "/root/host-home",
+        "readOnly": True,
+    }
 
 
 def test_deployment_health_probes_hit_the_contract_path(manifests):
