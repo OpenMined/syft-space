@@ -100,10 +100,15 @@ cluster: ensure-cluster
 
 # So space-to-space (and SyftHub-to-space) calls hit the same public URLs the
 # browser uses. Without this, in-cluster lookups of the .localhost hostnames
-# fail (they only resolve to 127.0.0.1 in host browsers). ClusterIP is
-# re-derived live since it can change when the cluster is recreated.
+# fail (they only resolve to 127.0.0.1 in host browsers). The IPs are
+# re-derived live since they can change when the cluster is recreated.
+#
+# syfthub.localhost is the canonical name for a HOST-RUN dev hub: browsers and
+# host processes resolve it to 127.0.0.1 (RFC 6761), and this mapping makes
+# pods resolve it to the host machine — one hub URL that works everywhere,
+# instead of the pods-only host.k3d.internal.
 
-# Resolve *.station.localhost to Traefik inside the cluster (split-horizon DNS).
+# Map *.station.localhost -> Traefik and syfthub.localhost -> this host, in-cluster.
 cluster-dns:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -112,6 +117,14 @@ cluster-dns:
     echo "Waiting for Traefik..."
     until kubectl -n kube-system get svc traefik >/dev/null 2>&1; do sleep 2; done
     traefik_ip=$(kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}')
+    # The host machine's IP, exactly as k3d recorded it for host.k3d.internal
+    # (CoreDNS's NodeHosts file is where that alias lives).
+    host_ip=$(kubectl -n kube-system get cm coredns -o jsonpath='{.data.NodeHosts}' \
+        | awk '$2 == "host.k3d.internal" {print $1}')
+    if [ -z "$host_ip" ]; then
+        echo "host.k3d.internal missing from CoreDNS NodeHosts — is this a k3d cluster?"
+        exit 1
+    fi
     # AAAA answers empty (NODATA) rather than falling through to SERVFAIL, so
     # dual-stack resolvers cleanly fall back to the A record. Note musl-based
     # (Alpine) containers never ask: musl hardcodes *.localhost to loopback.
@@ -124,16 +137,27 @@ cluster-dns:
         template IN AAAA {
             rcode NOERROR
         }
+    }" \
+        --from-literal=syfthub.server="syfthub.localhost:53 {
+        template IN A {
+            answer \"{{{{ .Name }} 60 IN A ${host_ip}\"
+        }
+        template IN AAAA {
+            rcode NOERROR
+        }
     }" --dry-run=client -o yaml | kubectl apply -f -
     kubectl -n kube-system rollout restart deploy/coredns
     kubectl -n kube-system rollout status deploy/coredns --timeout=60s
     echo "In-cluster DNS: *.station.localhost -> ${traefik_ip} (Traefik)"
+    echo "In-cluster DNS: syfthub.localhost   -> ${host_ip} (this host)"
 
 # `up` provisions spaces into k3d over your kubeconfig. Pass your SyftHub
 # email for the admin role; optionally point at a local SyftHub and/or a
 # locally-built syft-space image (built + imported + suggested by onboarding):
 #   just dev up you@org.com
-#   just dev up admin=you@org.com hub=http://localhost:8080 space=dev
+#   just dev up admin=you@org.com hub=http://syfthub.localhost:8080 space=dev
+# syfthub.localhost is the canonical local-hub name — the same URL resolves in
+# browsers, in this host process, AND in space pods (via cluster-dns).
 # `down` tears down the WHOLE dev loop: the k3d cluster AND the host-run
 # station's state (~/.syft-station) — the dev station's DB lives on the host,
 # so a plain `just down` would leave it behind, stale against a fresh cluster.
@@ -236,7 +260,9 @@ ensure-space-image tag:
         just space-image {{tag}}
     fi
 
-# Pass your SyftHub email for the admin role; optionally a different SyftHub:
+# Pass your SyftHub email for the admin role; optionally a different SyftHub
+# (for a host-run local hub, use hub=http://syfthub.localhost:8080 — the one
+# name that resolves in browsers and in pods alike):
 #   just up you@org.com
 #   just up admin=you@org.com hub=https://syfthub.staging.org
 #   just up you@org.com space=mytag   # force-build a local syft-space image

@@ -140,10 +140,13 @@ suggests `station.localhost` as the domain (derived from
 plain-http in dev (`SYFT_STATION_SPACE_SCHEME` / `spaces.scheme` — no certs).
 The `admin` argument sets
 `SYFT_STATION_ADMIN_EMAIL` — without it every sign-in gets the member role.
-An optional `hub=http://localhost:8080` argument sets
-`SYFT_STATION_SYFTHUB_URL` (omitted → the production SyftHub default); use
-plain localhost for a local hub — CORS for the hub's browser origin is
-derived from it. Both loops self-seed the syft-space `:dev`
+An optional `hub=http://syfthub.localhost:8080` argument sets
+`SYFT_STATION_SYFTHUB_URL` (omitted → the production SyftHub default).
+`syfthub.localhost` is the canonical name for a host-run local hub: browsers
+and host processes resolve it to loopback natively, and `cluster-dns` maps it
+to the host machine inside the cluster — the SAME hub URL works everywhere
+(never use `host.k3d.internal` or plain `localhost`, which only resolve in
+one of those worlds). CORS for the hub's browser origin is derived from it. Both loops self-seed the syft-space `:dev`
 image — built + imported only when missing from the cluster node — and set
 `SYFT_STATION_SPACE_VERSION` so onboarding suggests it. An explicit
 `space=tag` argument force-rebuilds that tag (the flow after syft-space code
