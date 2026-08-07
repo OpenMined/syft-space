@@ -21,6 +21,14 @@ TEMPLATE_DIR = Path(__file__).parent.parent.parent / "k8s" / "space"
 # Label carrying the space slug; selects a space's whole resource bundle.
 LABEL_SPACE = "syftcluster.openmined.org/space"
 
+# Host-mount (space_host_mount): the node directory mounted into each space,
+# and the container path where the space sees it. The container path lives
+# INSIDE the container's home directory because syft-space's dataset file
+# browser is rooted at home and refuses paths outside it — anywhere else and
+# the mounted files would be invisible to the picker.
+HOST_MOUNT_NODE_PATH = "/mnt/host-home"
+HOST_MOUNT_PATH = "/root/host-home"
+
 # Rendered in a fixed apply order (Secret/PVC before the Deployment that
 # mounts them; Service before Ingress).
 MANIFEST_FILES: tuple[tuple[str, str], ...] = (
@@ -48,6 +56,7 @@ class RenderSettings(Protocol):
     chromadb_port: int
     docling_url: str
     managed_by_name: str
+    space_host_mount: bool
     syfthub_url: object  # str | pydantic HttpUrl — rendered via str()
 
 
@@ -115,4 +124,23 @@ def render_space_manifests(
             manifests["secret"]["stringData"]["SYFT_CLUSTER_BUNDLES"] = (
                 spec.credits_bundles
             )
+    # The host-mount is conditional structure like the credits keys —
+    # injected, not templated. Read-only: spaces read the mounted files as
+    # data sources; nothing under the mount is theirs to write.
+    if settings.space_host_mount:
+        pod = manifests["deployment"]["spec"]["template"]["spec"]
+        pod["volumes"].append(
+            {
+                "name": "host-home",
+                "hostPath": {
+                    "path": HOST_MOUNT_NODE_PATH,
+                    # OrCreate: a node with nothing mapped at the path serves
+                    # an empty dir instead of a pod stuck ContainerCreating.
+                    "type": "DirectoryOrCreate",
+                },
+            }
+        )
+        pod["containers"][0]["volumeMounts"].append(
+            {"name": "host-home", "mountPath": HOST_MOUNT_PATH, "readOnly": True}
+        )
     return manifests

@@ -147,6 +147,16 @@ class AppSettings(BaseSettings):
     space_cpu_limit: str = Field(default="1")
     space_memory_request: str = Field(default="512Mi")
     space_memory_limit: str = Field(default="2Gi")
+    space_host_mount: bool = Field(
+        default=False,
+        description=(
+            "Mount the cluster node's /mnt/host-home directory into every "
+            "space, read-only at /root/host-home — inside the container's "
+            "home, where the space's dataset file browser is rooted. What "
+            "spaces see is whatever the cluster runtime maps to that node "
+            "path (the k3d dev cluster maps $HOME there at creation)."
+        ),
+    )
 
     # Shared infrastructure each space connects to (in-cluster service DNS)
     chromadb_host: str = Field(

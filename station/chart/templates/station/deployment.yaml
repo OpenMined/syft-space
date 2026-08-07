@@ -59,6 +59,8 @@ spec:
               value: {{ .Values.spaces.memoryLimit | quote }}
             - name: SYFT_STATION_SPACE_SCHEME
               value: {{ .Values.spaces.scheme | quote }}
+            - name: SYFT_STATION_SPACE_HOST_MOUNT
+              value: {{ .Values.spaces.hostMount | quote }}
             - name: SYFT_STATION_MANAGED_BY_NAME
               value: {{ .Values.spaces.managedByName | quote }}
             - name: SYFT_STATION_CHROMADB_HOST

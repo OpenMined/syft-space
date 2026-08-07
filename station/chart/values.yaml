@@ -98,6 +98,12 @@ spaces:
   memoryLimit: 2Gi
   # Display name injected into spaces as SYFT_CLUSTER_MANAGED_BY.
   managedByName: Syft Station
+  # Mount the node's /mnt/host-home into every space, read-only at
+  # /root/host-home (inside the space's home, where its dataset file browser
+  # is rooted). Spaces see whatever the cluster runtime maps to that node
+  # path — enabled in values-dev.yaml, where the k3d cluster maps $HOME
+  # there at creation.
+  hostMount: false
 
 # ---------------------------------------------------------------------------
 # Shared ChromaDB — one instance, one Chroma *database* per space. Service

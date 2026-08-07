@@ -150,7 +150,12 @@ one of those worlds). CORS for the hub's browser origin is derived from it. Both
 image — built + imported only when missing from the cluster node — and set
 `SYFT_STATION_SPACE_VERSION` so onboarding suggests it. An explicit
 `space=tag` argument force-rebuilds that tag (the flow after syft-space code
-changes); `space=none` runs on published images only. The chart preserves the session secret
+changes); `space=none` runs on published images only. Spaces in both loops
+see the host's home directory read-only at `~/host-home`: the flag
+(`spaces.hostMount` / `SYFT_STATION_SPACE_HOST_MOUNT`, default off) mounts
+the node's `/mnt/host-home` into every space inside the space's home (the
+dataset file browser is rooted at home and rejects paths outside it), and
+the dev cluster maps `$HOME` to that node path at creation. The chart preserves the session secret
 across `helm upgrade` (via a live `lookup`), so cookies survive redeploys.
 Otherwise spaces pull the published image (`ghcr.io/openmined/syft-space`)
 at whatever tag the admin picks; nothing is baked in.

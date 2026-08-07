@@ -63,9 +63,20 @@ ensure-cluster: bootstrap
             echo "Cluster '{{cluster_name}}' already exists."
         fi
     else
+        # $HOME lands on the node at /mnt/host-home; spaces mount it read-only
+        # at ~/host-home (spaces.hostMount, on in values-dev). Create-time only.
         k3d cluster create {{cluster_name}} \
             --registry-create {{cluster_name}}-registry:0.0.0.0:5111 \
-            -p "80:80@loadbalancer" -p "443:443@loadbalancer"
+            -p "80:80@loadbalancer" -p "443:443@loadbalancer" \
+            --volume "$HOME:/mnt/host-home@server:0"
+    fi
+    # A cluster born before the $HOME mapping existed can't gain it in place —
+    # spaces would see an empty ~/host-home, so say it loudly instead of silently.
+    if ! docker inspect k3d-{{cluster_name}}-server-0 \
+        --format '{{{{range .Mounts}}{{{{println .Destination}}{{{{end}}' \
+        | grep -qx /mnt/host-home; then
+        echo "WARNING: this cluster predates the host-home mapping — spaces will"
+        echo "         see an EMPTY ~/host-home. Recreate to get it: just down, then re-up."
     fi
     # k3s ships Traefik with ExternalName backends disabled (an SSRF guard for
     # shared clusters, irrelevant here). The chart's dev host-route needs them
@@ -216,6 +227,9 @@ dev *args="up":
     export SYFT_STATION_PUBLIC_URL=http://station.localhost
     # No certs in dev — spaces are minted plain-http URLs.
     export SYFT_STATION_SPACE_SCHEME=http
+    # Spaces see the host's home dir read-only at ~/host-home (the cluster maps
+    # $HOME to the node's /mnt/host-home at creation; off by default in prod).
+    export SYFT_STATION_SPACE_HOST_MOUNT=true
     if [ -n "$hub_url" ]; then
         export SYFT_STATION_SYFTHUB_URL="$hub_url"
     fi
