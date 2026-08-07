@@ -129,9 +129,19 @@ cluster-dns:
     until kubectl -n kube-system get svc traefik >/dev/null 2>&1; do sleep 2; done
     traefik_ip=$(kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}')
     # The host machine's IP, exactly as k3d recorded it for host.k3d.internal
-    # (CoreDNS's NodeHosts file is where that alias lives).
-    host_ip=$(kubectl -n kube-system get cm coredns -o jsonpath='{.data.NodeHosts}' \
-        | awk '$2 == "host.k3d.internal" {print $1}')
+    # (CoreDNS's NodeHosts file is where that alias lives). k3d injects that
+    # record asynchronously after the API server is up — on a fresh cluster
+    # it can land AFTER Traefik's Service, so poll for it (bounded: a missing
+    # record on a non-k3d cluster should still fail, not hang).
+    echo "Waiting for the host.k3d.internal record..."
+    host_ip=""
+    for _ in $(seq 1 60); do
+        host_ip=$(kubectl -n kube-system get cm coredns \
+            -o jsonpath='{.data.NodeHosts}' 2>/dev/null \
+            | awk '$2 == "host.k3d.internal" {print $1}')
+        [ -n "$host_ip" ] && break
+        sleep 2
+    done
     if [ -z "$host_ip" ]; then
         echo "host.k3d.internal missing from CoreDNS NodeHosts — is this a k3d cluster?"
         exit 1
