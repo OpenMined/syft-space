@@ -24,7 +24,7 @@
 
 cluster_name := "syft-station"
 namespace := "syft-spaces"
-release := "syft-station"
+helm_release := "syft-station"
 chart := "chart"
 dev_values := "chart/values-dev.yaml"
 station_image := "syft-station:dev"
@@ -103,7 +103,7 @@ ensure-cluster: bootstrap
 cluster: ensure-cluster
     #!/usr/bin/env bash
     set -euo pipefail
-    helm upgrade --install {{release}} {{chart}} \
+    helm upgrade --install {{helm_release}} {{chart}} \
         -n {{namespace}} --create-namespace \
         -f {{dev_values}} --set station.enabled=false \
         --wait --timeout {{helm_timeout}}
@@ -327,13 +327,13 @@ up admin="" hub="" space="": ensure-cluster station-image
     fi
     # One release, station ON — installs the deps and the station together. The
     # chart preserves the session secret across upgrades, so cookies stay valid.
-    helm upgrade --install {{release}} {{chart}} \
+    helm upgrade --install {{helm_release}} {{chart}} \
         -n {{namespace}} --create-namespace \
         -f {{dev_values}} "${helm_args[@]}" \
         --wait --timeout {{helm_timeout}}
     # Force a fresh pod even when the :dev tag is unchanged.
-    kubectl -n {{namespace}} rollout restart deploy/{{release}}
-    kubectl -n {{namespace}} rollout status deploy/{{release}} --timeout=180s
+    kubectl -n {{namespace}} rollout restart deploy/{{helm_release}}
+    kubectl -n {{namespace}} rollout status deploy/{{helm_release}} --timeout=180s
     echo ""
     echo "Syft Station is up: http://station.localhost"
     echo "First-run setup domain: station.localhost"
@@ -372,7 +372,7 @@ space-image tag:
 
 # Render the chart with prod values (sanity check before shipping).
 template:
-    helm template {{release}} {{chart}} -n {{namespace}}
+    helm template {{helm_release}} {{chart}} -n {{namespace}}
 
 # Lint the chart (dev + prod values).
 lint-chart:
