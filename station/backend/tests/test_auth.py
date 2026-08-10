@@ -97,6 +97,27 @@ async def test_no_admin_email_means_no_admin(monkeypatch):
     assert user.role == ROLE_MEMBER
 
 
+async def test_login_lowercases_profile_email(monkeypatch):
+    monkeypatch.setattr(app_settings, "admin_email", "")
+
+    def hub(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/auth/login":
+            return httpx.Response(200, json={"access_token": "tok"})
+        return httpx.Response(
+            200,
+            json={
+                "id": 7,
+                "username": "alice",
+                "email": "Alice@Test.COM",
+                "full_name": "Alice",
+            },
+        )
+
+    handler = AuthHandler(make_hub_client(hub))
+    user = await handler.login("Alice@Test.COM", "pw")
+    assert user.email == "alice@test.com"
+
+
 # ── Credits identity: PAT mint / whoami / buyer-token verification ──────────
 
 
@@ -179,6 +200,16 @@ async def test_verify_buyer_token_returns_billing_claims():
     buyer = await client.verify_buyer_token("syft_pat_abc", "sat-token")
     assert buyer.email == "buyer@test.com"
     assert buyer.exp == 1700000000
+
+
+async def test_verify_buyer_token_lowercases_email():
+    client = make_hub_client(
+        verify_hub(
+            {"valid": True, "sub": "9", "email": "Buyer@Test.COM", "username": "buyer"}
+        )
+    )
+    buyer = await client.verify_buyer_token("syft_pat_abc", "sat-token")
+    assert buyer.email == "buyer@test.com"
 
 
 async def test_verify_buyer_token_invalid_raises_buyer_error():

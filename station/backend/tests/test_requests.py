@@ -197,6 +197,26 @@ async def test_admin_on_behalf_hits_the_owners_slot(handler):
     assert "bob@test.com" in exc.value.detail
 
 
+async def test_on_behalf_owner_email_is_lowercased(handler):
+    body = SubmitRequestBody(
+        space_name="For Bob", subdomain="for-bob", owner_email="Bob@Test.COM"
+    )
+    request = await handler.submit(body, ADMIN)
+    assert request.owner_email == "bob@test.com"
+
+    # A differently-cased spelling is the same owner — the slot guard sees it.
+    with pytest.raises(HTTPException) as exc:
+        await handler.submit(
+            SubmitRequestBody(
+                space_name="Bob Again",
+                subdomain="bob-again",
+                owner_email="BOB@test.com",
+            ),
+            ADMIN,
+        )
+    assert exc.value.status_code == 409
+
+
 async def test_admins_own_request_does_not_block_on_behalf_submits(handler):
     await handler.submit(submit_body("admins-own"), ADMIN)
 
