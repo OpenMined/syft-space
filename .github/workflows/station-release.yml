@@ -1,27 +1,51 @@
-# Syft Station release — one button derives everything.
+# Syft Station release — one button, one version, everything in lockstep.
 #
-# Run from the Actions tab (workflow_dispatch), choosing a bump type. The
-# release job bumps station/backend/pyproject.toml with `uv version` — the
-# version the running station reports at /version — commits it to main, tags
-# the commit station-<version> (a record, not a trigger), and the remaining
-# jobs publish, in lockstep under that one version:
-#   - the station image  ghcr.io/openmined/syft-station:<version> (+ latest),
-#     multi-arch (amd64 + arm64), built from station/Dockerfile — the
-#     frontend compiles inside the image, no separate build step
-#   - the Helm chart     oci://ghcr.io/openmined/charts/syft-station,
-#     packaged from station/chart with version AND appVersion stamped to
-#     <version> at package time — the repo's Chart.yaml stays a placeholder
+# HOW TO RUN IT
+#   Actions tab → "Station Release" → Run workflow → pick patch / minor / major.
+#   Only runnable from main; a second run queues rather than racing the first.
 #
-# Everything runs in ONE workflow because a tag pushed with the default
-# GITHUB_TOKEN cannot trigger another workflow (GitHub's recursion guard);
-# sequential jobs also mean a failed publish is re-run from the failed job
-# under the same version, never re-bumped.
+# WHAT HAPPENS
 #
-# The chart's image tag defaults to appVersion, so installing chart <version>
-# deploys image <version>:
-#   helm install syft-station oci://ghcr.io/openmined/charts/syft-station \
-#     --version <version> --namespace syft-spaces --create-namespace \
-#     --set station.adminEmail=... --set station.ingress.host=...
+#     ┌───────────────────────────────────────────────────────┐
+#     │ release   bump → <v>, commit to main, tag station-<v> │
+#     └───────────────────────────┬───────────────────────────┘
+#                     ┌───────────┴───────────┐
+#            ┌────────▼────────┐     ┌────────▼────────┐
+#            │ build  amd64    │     │ build  arm64    │
+#            └────────┬────────┘     └────────┬────────┘
+#                     └───────────┬───────────┘
+#                 ┌───────────────▼───────────────┐
+#                 │ manifest  :<v> + :latest      │
+#                 └───────────────┬───────────────┘
+#                 ┌───────────────▼───────────────┐
+#                 │ chart     helm push @ <v>     │
+#                 └───────────────────────────────┘
+#
+# WHAT SHIPS
+#   Version  `uv version --bump` on station/backend/pyproject.toml decides <v>.
+#            This is the version the running station reports at /version.
+#   Image    ghcr.io/openmined/syft-station:<v> (and :latest), amd64 + arm64.
+#            Built from station/Dockerfile — the frontend compiles inside the
+#            image, so there is no separate frontend build step.
+#   Chart    oci://ghcr.io/openmined/charts/syft-station, packaged from
+#            station/chart with version AND appVersion stamped to <v> at
+#            package time (the repo's Chart.yaml stays a placeholder).
+#   Git tag  station-<v> — a record of what shipped, not a trigger.
+#
+# INSTALLING WHAT IT PUBLISHED
+#   The chart's image tag defaults to appVersion, so chart <v> always deploys
+#   image <v>:
+#     helm install syft-station oci://ghcr.io/openmined/charts/syft-station \
+#       --version <v> --namespace syft-spaces --create-namespace \
+#       --set station.adminEmail=... --set station.ingress.host=...
+#
+# IF A JOB FAILS
+#   Re-run from the failed job — the version is already committed and tagged,
+#   so the release is never bumped twice.
+#
+# WHY ONE WORKFLOW
+#   A tag pushed with the default GITHUB_TOKEN cannot trigger another workflow
+#   (GitHub's recursion guard), so publishing has to live in these same jobs.
 name: Station Release
 
 on:
@@ -36,8 +60,7 @@ on:
           - minor
           - major
 
-# One release at a time — a second dispatch queues instead of racing the
-# version commit.
+# One release at a time, so two dispatches can't race the version commit.
 concurrency:
   group: station-release
   cancel-in-progress: false
@@ -46,6 +69,7 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # 1. Decide the version everything else is stamped with.
   release:
     timeout-minutes: 10
     runs-on: ubuntu-latest
@@ -84,6 +108,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  # 2. One image per architecture, tagged :<v>-amd64 / :<v>-arm64.
   build:
     timeout-minutes: 30
     needs: release
@@ -133,6 +158,7 @@ jobs:
           cache-from: type=gha,scope=station-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=station-${{ matrix.platform }}
 
+  # 3. Join the per-arch images into the tags users actually pull.
   manifest:
     timeout-minutes: 15
     needs: [release, build]
@@ -166,6 +192,7 @@ jobs:
             "${IMAGE}:${VERSION}-amd64" \
             "${IMAGE}:${VERSION}-arm64"
 
+  # 4. Publish the chart last, so it never points at an image that isn't there.
   chart:
     timeout-minutes: 10
     needs: [release, manifest]
