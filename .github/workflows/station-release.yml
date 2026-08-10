@@ -141,9 +141,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract platform suffix
+      # Docker requires a lowercase repository; the org is "OpenMined".
+      - name: Compute the image name and platform suffix
         id: platform
         run: |
+          image="${{ env.REGISTRY }}/${{ github.repository_owner }}/syft-station"
+          echo "image=${image,,}" >> "$GITHUB_OUTPUT"
           platform="${{ matrix.platform }}"
           echo "suffix=${platform#linux/}" >> "$GITHUB_OUTPUT"
 
@@ -154,7 +157,7 @@ jobs:
           file: station/Dockerfile
           push: true
           platforms: ${{ matrix.platform }}
-          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/syft-station:${{ needs.release.outputs.version }}-${{ steps.platform.outputs.suffix }}
+          tags: ${{ steps.platform.outputs.image }}:${{ needs.release.outputs.version }}-${{ steps.platform.outputs.suffix }}
           cache-from: type=gha,scope=station-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=station-${{ matrix.platform }}
 
