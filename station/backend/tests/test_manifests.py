@@ -25,6 +25,7 @@ SETTINGS = SimpleNamespace(
     docling_url="http://docling-serve:5001",
     managed_by_name="Syft Station",
     space_host_mount=False,
+    space_tls_secret="",
     syfthub_url="https://hub.test/",
 )
 
@@ -171,6 +172,18 @@ def test_host_mount_flag_adds_readonly_hostpath():
         "mountPath": "/root/host-home",
         "readOnly": True,
     }
+
+
+def test_no_ingress_tls_by_default(manifests):
+    assert "tls" not in manifests["ingress"]["spec"]
+
+
+def test_tls_secret_terminates_tls_at_the_space_ingress():
+    settings = SimpleNamespace(**{**vars(SETTINGS), "space_tls_secret": "spaces-tls"})
+    ingress = render_space_manifests(SPEC, settings)["ingress"]
+    assert ingress["spec"]["tls"] == [
+        {"hosts": ["alpha.spaces.test.org"], "secretName": "spaces-tls"}
+    ]
 
 
 def test_deployment_health_probes_hit_the_contract_path(manifests):

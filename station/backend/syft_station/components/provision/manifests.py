@@ -57,6 +57,7 @@ class RenderSettings(Protocol):
     docling_url: str
     managed_by_name: str
     space_host_mount: bool
+    space_tls_secret: str
     syfthub_url: object  # str | pydantic HttpUrl — rendered via str()
 
 
@@ -143,4 +144,14 @@ def render_space_manifests(
         pod["containers"][0]["volumeMounts"].append(
             {"name": "host-home", "mountPath": HOST_MOUNT_PATH, "readOnly": True}
         )
+    # TLS is conditional structure too: with a cert Secret configured (its
+    # certificate must cover this host — spaces share one wildcard cert),
+    # the Ingress terminates TLS; without one it stays plain http.
+    if settings.space_tls_secret:
+        manifests["ingress"]["spec"]["tls"] = [
+            {
+                "hosts": [values["HOST"]],
+                "secretName": settings.space_tls_secret,
+            }
+        ]
     return manifests

@@ -73,3 +73,17 @@ ingress is disabled — endpoints then publish bundles but no buyer URLs.
 {{- printf "%s://%s" $scheme .Values.station.ingress.host -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The cert Secret every space Ingress terminates TLS with. spaces.tlsSecret
+names it directly; left empty, spaces inherit the station's TLS Secret (one
+multi-SAN cert — station host + space wildcard — is the normal setup, so
+one Secret serves both). Empty result = space Ingresses stay plain http.
+*/}}
+{{- define "syft-station.spaceTlsSecret" -}}
+{{- if .Values.spaces.tlsSecret -}}
+{{- .Values.spaces.tlsSecret -}}
+{{- else if .Values.station.ingress.tls.enabled -}}
+{{- .Values.station.ingress.tls.secretName -}}
+{{- end -}}
+{{- end -}}
