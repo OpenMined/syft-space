@@ -1,74 +1,53 @@
-# Syft Station
+# <a href="https://github.com/OpenMined"><img src="https://avatars.githubusercontent.com/u/30185530?s=200&v=4" alt="OpenMined" width="32" align="center" style="border-radius: 8px;"></a> Syft Station
 
-> **Spin up your own Space, dock it to the Station.** Share the station, never your data.
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688)](https://fastapi.tiangolo.com/)
+[![Vue](https://img.shields.io/badge/Vue-3-4FC08D)](https://vuejs.org/)
+[![Helm](https://img.shields.io/badge/Helm-chart-0F1689)](https://helm.sh/)
+[![License](https://img.shields.io/github/license/OpenMined/syft-space)](../LICENSE)
 
-Syft Station is the control plane for running **member-owned [Syft Space](../README.md)
-instances on shared Kubernetes infrastructure**. One organization runs a
-station; its members sign in with their SyftHub account and request a space;
-the station admin reviews each request; approved spaces are provisioned onto
-the cluster, each at its own subdomain, each backed by shared services
-(ChromaDB, docling-serve) so members don't run their own.
+> **Spin up your own Space, dock it to the Station.** Share the infrastructure, never your data.
 
-Optionally, the station also runs a **shared wallet**: buyers purchase
-credits once (Xendit or Stripe) and spend them at any space on the station;
-the station tracks each space's earnings so the admin can pay members out.
+![Syft Station Architecture](docs/assets/architecture.png)
 
-## How it fits together
+## What is Syft Station?
 
-```mermaid
-flowchart LR
-    subgraph people [" "]
-        member["Member<br/>(space owner)"]
-        admin["Station admin"]
-        buyer["Buyer<br/>(via SyftHub)"]
-    end
+Syft Station lets one organization run **[Syft Spaces](../README.md) for all
+of its members on shared Kubernetes infrastructure**. Members sign in with
+their SyftHub account and request a space; the station admin approves; the
+station provisions each space at its own subdomain — backed by shared
+services (ChromaDB, docling-serve) so no member runs their own.
 
-    hub["SyftHub<br/>identity & marketplace"]
+Each space stays fully member-owned: the station manages the
+infrastructure, never the data.
 
-    subgraph cluster ["Kubernetes cluster"]
-        station["Syft Station<br/>(one pod: API + UI)"]
-        subgraph spaces ["Member spaces"]
-            s1["alice.station.example.com"]
-            s2["bob.station.example.com"]
-        end
-        chroma["ChromaDB<br/>(shared)"]
-        docling["docling-serve<br/>(shared)"]
-    end
+**Key benefits:**
 
-    member -- "sign in, request a space" --> station
-    admin -- "approve / manage / pay out" --> station
-    buyer -- "buy credits, view invoices" --> station
-    station -- "verifies identities" --> hub
-    station -- "provisions & converges" --> spaces
-    s1 & s2 -- "embeddings" --> chroma
-    s1 & s2 -- "document conversion" --> docling
-    s1 & s2 -- "debit credits per paid query" --> station
-```
+- **🚀 One-click spaces** — members get a running, publicly reachable space without touching Kubernetes
+- **🔒 Member-owned data** — the station provisions and manages; each space's data belongs to its owner
+- **📦 Shared heavy lifting** — one ChromaDB and one docling-serve serve every space
+- **💰 One wallet, many spaces** — buyers purchase credits once and spend them at any space on the station; the station tracks each member's earnings
+- **🛡️ Admin control** — review every request, pick the syft-space version, restart/update/pause any space from one dashboard
 
-The station never sees a space's data. Its contract with syft-space is
-deliberately thin: the container image, its `SYFT_*` environment variables,
-and its health endpoint — zero shared code.
+## How it works
 
-## The life of a space
+![The life of a space](docs/assets/lifecycle.png)
 
-```mermaid
-flowchart LR
-    A["Member submits<br/>name + subdomain"] --> B["Admin reviews<br/>(edit, pick wallet)"]
-    B -->|approve| C["Station provisions<br/>the k8s bundle"]
-    B -->|reject| X["Rejected<br/>(with reason)"]
-    C -->|healthy| D["ACTIVE<br/>space live at its subdomain"]
-    C -->|failed| R["FAILED<br/>admin retries"]
-    R --> C
-```
+- **Members** sign in with SyftHub, request a space by name and subdomain,
+  and track its status. Once live, they open it through a one-click admin
+  link, load their documents, and publish endpoints to SyftHub.
+- **The admin** reviews requests (tweak the name or subdomain, attach the
+  shared wallet, approve or reject with a reason), then manages the fleet:
+  restart, pause, update every space to a new syft-space version, and pay
+  members out for what their spaces earned.
+- **Buyers** never touch the station UI — they buy credits through
+  SyftHub (Xendit or Stripe checkout) and spend them at any space on the
+  station.
 
-Once active, the owner opens their space through a one-click admin URL, and
-the admin can restart, update (roll every space to a new syft-space
-version), pause, or delete spaces from the dashboard.
+## 🚀 Run a station
 
-## Run a station
-
-The Helm chart is the single source of truth for every deployment — the
-station pod, the shared backends, RBAC, and the per-space defaults:
+The Helm chart deploys everything — the station, the shared backends, and
+per-space defaults:
 
 ```bash
 helm install syft-station oci://ghcr.io/openmined/charts/syft-station \
@@ -78,41 +57,53 @@ helm install syft-station oci://ghcr.io/openmined/charts/syft-station \
   --set station.ingress.host=station.your-org.com
 ```
 
-Point DNS at the cluster (`station.your-org.com` plus a wildcard for the
-spaces), open the station in a browser, sign in with the admin email, and
-the first-run setup walks you through the spaces' domain, an optional
-shared wallet, and the syft-space version to deploy. For HTTPS, bring one
-certificate covering the station host and the space wildcard — see
-[docs/deployment.md](docs/deployment.md).
+Then:
+
+1. **Point DNS at the cluster** — the station host plus a wildcard for
+   the spaces (e.g. `*.station.your-org.com`).
+2. **Open the station** in a browser and sign in with the admin email
+   (a SyftHub account).
+3. **First-run setup** walks you through the spaces' domain, an optional
+   shared wallet, and the syft-space version to deploy.
+
+For HTTPS, bring one certificate covering the station host and the space
+wildcard — details in [docs/deployment.md](docs/deployment.md#tls).
 
 ### Local development
 
 ```bash
 just dev up admin=you@org.com   # station on the host with hot reload,
                                 # spaces provisioned into a local k3d cluster
-just up admin=you@org.com       # full in-cluster parity check
 ```
 
-Both loops serve the station at `http://station.localhost` with the same
-URLs and onboarding as production. The [justfile](justfile) is the tour
-guide; [CLAUDE.md](CLAUDE.md) documents the loops in detail.
+The station comes up at `http://station.localhost` with the same URLs and
+onboarding as production. See [docs/deployment.md](docs/deployment.md#the-dev-loops).
 
-## Layout
+## 📚 Documentation
 
-| Path | What it is |
-|---|---|
-| `backend/` | FastAPI control plane (`syft_station` package) |
-| `frontend/` | Vue 3 + TypeScript + shadcn/ui dashboard, served statically by the backend |
-| `chart/` | The Helm chart (station + shared backends; dev and prod are the same chart) |
-| `backend/syft_station/k8s/space/` | Per-space manifest templates the station renders at runtime |
-| `docs/` | Implementation documentation, per component |
+Implementation docs live in [`docs/`](docs/README.md) — one page per
+component: [architecture](docs/architecture.md), [auth](docs/auth.md),
+[requests & spaces](docs/requests-and-spaces.md),
+[provisioning](docs/provisioning.md), [credits](docs/credits.md), and
+[deployment](docs/deployment.md).
 
-## Documentation
+## 🌐 Part of the Syft Network
 
-- [docs/README.md](docs/README.md) — index and reading order
-- [docs/architecture.md](docs/architecture.md) — the big picture: one pod, six components, one chart
-- [docs/auth.md](docs/auth.md) — SyftHub sign-in, sessions, roles
-- [docs/requests-and-spaces.md](docs/requests-and-spaces.md) — the request lifecycle and space management
-- [docs/provisioning.md](docs/provisioning.md) — how a space becomes Kubernetes resources
-- [docs/credits.md](docs/credits.md) — the shared wallet, buyer flow, and earnings
-- [docs/deployment.md](docs/deployment.md) — the chart, dev loops, and the release pipeline
+A station is how an organization joins the network at scale: every space
+it hosts publishes its endpoints to
+**[SyftHub](https://syfthub.openmined.org)**, where knowledge seekers
+discover and query them — and pay in credits held by the station's shared
+wallet. The station verifies every identity (members and buyers) against
+SyftHub; it stores no passwords of its own.
+
+## 📄 License
+
+Part of the OpenMined ecosystem, licensed under Apache 2.0 — see
+[LICENSE](../LICENSE).
+
+---
+
+<div align="center">
+  <strong>Built with ❤️ by the <a href="https://github.com/OpenMined">OpenMined</a> community</strong><br>
+  <em>Making AI safer through privacy-preserving technology</em>
+</div>

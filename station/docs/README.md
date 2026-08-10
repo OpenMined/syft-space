@@ -4,6 +4,17 @@ Documentation of how the station is built, one page per area. The audience
 is someone working on the code; for what the station *is* and how to run
 one, start at the [station README](../README.md).
 
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| `backend/` | FastAPI control plane (`syft_station` package) |
+| `frontend/` | Vue 3 + TypeScript + shadcn/ui dashboard, served statically by the backend |
+| `chart/` | The Helm chart (station + shared backends; dev and prod are the same chart) |
+| `backend/syft_station/k8s/space/` | Per-space manifest templates the station renders at runtime |
+| `justfile` | The dev loops ([deployment.md](deployment.md#the-dev-loops)) |
+| `docs/` | These pages; diagram sources and renders in `docs/assets/` |
+
 ## Reading order
 
 1. **[architecture.md](architecture.md)** — the shape of the system: one
@@ -44,3 +55,19 @@ The station and syft-space share **zero code**. The entire contract is:
 
 The station backend never imports `syft_space`; where the two sides need a
 shape in common, each declares its own (Protocols on the station side).
+
+## Diagrams
+
+The README's images render from mermaid sources in
+[`assets/`](assets/) (`*.mmd`). To regenerate a PNG after editing a
+source:
+
+```bash
+cd station/docs/assets
+b64=$(python3 -c 'import json; print(json.dumps({"code": open("architecture.mmd").read(), "mermaid": {"theme": "base"}}))' \
+  | base64 | tr '+/' '-_' | tr -d '\n')
+curl -sf -o architecture.png "https://mermaid.ink/img/$b64?type=png&bgColor=ffffff&width=1400"
+```
+
+Diagrams inside these docs pages are inline mermaid — GitHub renders them
+natively, so they need no image files.
