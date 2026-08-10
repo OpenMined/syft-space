@@ -1,5 +1,6 @@
-# Per-space Ingress — routes https://<subdomain>.<domain> to the space Service.
-# TLS is terminated by the ingress controller / cluster issuer (out of scope here).
+# Per-space Ingress — routes <subdomain>.<domain> to the space Service.
+# A tls section is injected in render_space_manifests when a cert Secret is
+# configured (space_tls_secret); otherwise the space serves plain http.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

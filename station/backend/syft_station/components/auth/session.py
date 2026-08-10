@@ -12,6 +12,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from loguru import logger
 from pydantic import BaseModel
 
+from syft_station.components.shared.email import NormalizedEmail
 from syft_station.config import app_settings
 
 # The __Host- prefix binds the cookie to host-only + Secure + Path=/, which
@@ -30,9 +31,13 @@ ROLE_MEMBER = "member"
 
 
 class SessionUser(BaseModel):
-    """The signed session payload."""
+    """The signed session payload.
 
-    email: str
+    The email is normalized at parse time so a cookie minted before emails
+    were lowercased still compares equal to today's stored rows.
+    """
+
+    email: NormalizedEmail
     username: str
     name: str
     role: str

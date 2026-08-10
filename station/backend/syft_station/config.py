@@ -147,6 +147,15 @@ class AppSettings(BaseSettings):
     space_cpu_limit: str = Field(default="1")
     space_memory_request: str = Field(default="512Mi")
     space_memory_limit: str = Field(default="2Gi")
+    space_tls_secret: str = Field(
+        default="",
+        description=(
+            "Name of a kubernetes.io/tls Secret in the spaces' namespace "
+            "whose certificate covers <subdomain>.<domain> (a wildcard SAN); "
+            "each space Ingress terminates TLS with it. Empty renders the "
+            "Ingress without a tls section — plain http."
+        ),
+    )
     space_host_mount: bool = Field(
         default=False,
         description=(

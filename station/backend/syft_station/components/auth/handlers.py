@@ -34,7 +34,7 @@ class AuthHandler:
         role = (
             ROLE_ADMIN
             if app_settings.admin_email
-            and profile.email.lower() == app_settings.admin_email.lower()
+            and profile.email == app_settings.admin_email.lower()
             else ROLE_MEMBER
         )
         return SessionUser(
