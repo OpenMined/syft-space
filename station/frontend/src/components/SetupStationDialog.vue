@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowLeft, ArrowRight, Check, Globe, Rocket, Tag, Wallet } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Check, Globe, Lock, Rocket, Tag, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -209,6 +209,14 @@ async function finish() {
             <Globe class="h-3 w-3" />
             Spaces will look like: research-lab.{{ effectiveDomain }}
           </p>
+          <p class="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Lock class="mt-0.5 h-3 w-3 shrink-0" />
+            <span>
+              For HTTPS, one certificate with two names — <code>{{ stationHost }}</code> and
+              <code>*.{{ effectiveDomain }}</code> — serves the station and every space: a
+              certificate wildcard covers exactly one label, never the bare host.
+            </span>
+          </p>
           <div class="flex items-center justify-between">
             <button
               type="button"
@@ -237,6 +245,14 @@ async function finish() {
           <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Globe class="h-3 w-3" />
             Spaces will look like: research-lab.{{ domainInput.trim() || '…' }}
+          </p>
+          <p class="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Lock class="mt-0.5 h-3 w-3 shrink-0" />
+            <span>
+              For HTTPS, the spaces' certificate needs a
+              <code>*.{{ domainInput.trim() || 'your-domain' }}</code> wildcard name — a
+              certificate wildcard covers exactly one label.
+            </span>
           </p>
           <div class="flex items-center justify-between">
             <button

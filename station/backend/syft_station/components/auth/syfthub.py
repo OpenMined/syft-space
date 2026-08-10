@@ -13,6 +13,8 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from syft_station.components.shared.email import NormalizedEmail
+
 _HTTP_TIMEOUT_SECONDS = 15.0
 
 _GUEST_SUB = "guest"
@@ -35,14 +37,14 @@ class SyftHubProfile(BaseModel):
 
     id: int
     username: str
-    email: str
+    email: NormalizedEmail
     full_name: str
 
 
 class VerifiedBuyer(BaseModel):
     """Claims the station bills on, from ``POST /api/v1/verify``."""
 
-    email: str
+    email: NormalizedEmail
     exp: int | None = None
 
 
