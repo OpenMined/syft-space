@@ -93,6 +93,16 @@
           </div>
         </div>
 
+        <!-- Managed spaces: the station assigned the URL; it stays editable -->
+        <div v-else-if="managedMode" class="space-y-2">
+          <Label for="custom-domain">Your Public URL</Label>
+          <Input id="custom-domain" v-model="customUrl" type="url" />
+          <p class="text-sm text-muted-foreground">
+            Set up for you by your space host — edit it only if your space is reachable at a
+            different address
+          </p>
+        </div>
+
         <!-- Radio options -->
         <div v-else class="space-y-4">
           <!-- Subdomain option -->
@@ -186,7 +196,12 @@
               <p class="text-sm text-muted-foreground">Manage your payment wallets</p>
             </div>
           </div>
-          <Button variant="outline" size="sm" @click="addWalletDialogOpen = true">
+          <Button
+            v-if="!hasManagedWallet"
+            variant="outline"
+            size="sm"
+            @click="addWalletDialogOpen = true"
+          >
             <Plus class="h-4 w-4 mr-2" />
             Add Wallet
           </Button>
@@ -215,10 +230,11 @@
             <div class="flex items-center gap-3 min-w-0">
               <div
                 class="h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                :class="walletIconBgClass(wallet.wallet_type)"
+                :class="walletIconBgClass(wallet)"
               >
+                <Wallet v-if="wallet.managed" class="h-4 w-4 text-sky-600 dark:text-sky-400" />
                 <Zap
-                  v-if="wallet.wallet_type === 'mpp'"
+                  v-else-if="wallet.wallet_type === 'mpp'"
                   class="h-4 w-4 text-emerald-600 dark:text-emerald-400"
                 />
                 <CreditCard
@@ -242,8 +258,12 @@
                   >
                     {{ wallet.is_active ? 'Active' : 'Inactive' }}
                   </Badge>
+                  <Badge v-if="wallet.managed" variant="secondary" class="text-xs"> Managed </Badge>
                 </div>
-                <p class="text-xs text-muted-foreground font-mono truncate">
+                <p v-if="wallet.managed" class="text-xs text-muted-foreground truncate">
+                  Managed by {{ wallet.display.managed_by || 'Syft Space Host' }}
+                </p>
+                <p v-else class="text-xs text-muted-foreground font-mono truncate">
                   <template v-if="wallet.wallet_type === 'mpp'">
                     {{ wallet.display.wallet_address || 'No address' }}
                   </template>
@@ -273,6 +293,7 @@
                 Manage
               </Button>
               <Button
+                v-if="!wallet.managed"
                 variant="ghost"
                 size="sm"
                 class="text-destructive hover:text-destructive"
@@ -693,7 +714,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import {
   Settings,
   Globe,
@@ -748,12 +769,20 @@ const loadingNetwork = ref(true)
 const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
 const customUrl = ref(window.location.origin)
+// Managed spaces only edit their URL — the SyftHub tunnel option is gone
+// (the backend refuses the connect too).
+const managedMode = ref(false)
 const diagnosticsEnabled = ref(false)
 
 // Wallet state
 const loadingWallets = ref(true)
 const allWallets = ref<WalletListItem[]>([])
 const walletDialogOpen = ref(false)
+
+// A managed wallet is seeded from the environment and is the only wallet
+// the space may use — creation and deletion are disabled while it exists
+// (the backend enforces this too).
+const hasManagedWallet = computed(() => allWallets.value.some((w) => w.managed))
 
 const proxyStatus = reactive({
   connected: false,
@@ -782,16 +811,21 @@ const fetchDiagnostics = async () => {
 const fetchNetworkConfig = async () => {
   loadingNetwork.value = true
   try {
-    const [publicUrlRes, proxyRes] = await Promise.all([
+    const [publicUrlRes, proxyRes, managedRes] = await Promise.all([
       settingsApi.getPublicUrl(),
       settingsApi.getProxyStatus(),
+      settingsApi.getManaged(),
     ])
 
     proxyStatus.connected = proxyRes.connected
     proxyStatus.publicUrl = proxyRes.public_url
     proxyStatus.hasToken = proxyRes.has_token
+    managedMode.value = managedRes.managed
 
-    if (proxyRes.has_token) {
+    if (managedRes.managed) {
+      networkMode.value = 'custom'
+      if (publicUrlRes.public_url) customUrl.value = publicUrlRes.public_url
+    } else if (proxyRes.has_token) {
       networkMode.value = 'subdomain'
     } else if (publicUrlRes.public_url) {
       networkMode.value = 'custom'
@@ -924,11 +958,12 @@ watch(
   },
 )
 
-// Per-provider icon background. MPP → emerald; Xendit → violet; Stripe →
-// indigo (mirrors the inline picker in AddPricingRuleDialog and the SyftHub
-// credits-panel chip colours).
-const walletIconBgClass = (walletType: string): string => {
-  switch (walletType) {
+// Per-provider icon background. Managed → sky; MPP → emerald; Xendit →
+// violet; Stripe → indigo (mirrors the inline picker in AddPricingRuleDialog
+// and the SyftHub credits-panel chip colours).
+const walletIconBgClass = (wallet: WalletListItem): string => {
+  if (wallet.managed) return 'bg-sky-100 dark:bg-sky-900/30'
+  switch (wallet.wallet_type) {
     case 'mpp':
       return 'bg-emerald-100 dark:bg-emerald-900/30'
     case 'stripe':

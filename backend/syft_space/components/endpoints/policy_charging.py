@@ -9,6 +9,8 @@ retrieve the charger they need by mechanism.
 
 from uuid import UUID
 
+from syft_space.components.payments.cluster.charger import ClusterCreditsCharger
+from syft_space.components.payments.cluster.credits_client import ClusterCreditsClient
 from syft_space.components.payments.gateway.balance_charger import (
     WalletBalanceCharger,
 )
@@ -51,6 +53,19 @@ def build_payment_chargers(
                 secret_key=wallet.configuration.get("mpp_secret_key", ""),
                 realm=endpoint_slug,
                 x_payment=x_payment,
+            )
+        elif wallet.wallet_type == "cluster" and balance_service is not None:
+            prepaid = ClusterCreditsCharger(
+                client=ClusterCreditsClient(
+                    base_url=wallet.configuration.get("credits_url", ""),
+                    service_token=wallet.configuration.get("service_token", ""),
+                ),
+                balance_service=balance_service,
+                wallet_id=wallet.id,
+                currency=wallet.currency,
+                tenant_id=tenant_id,
+                endpoint_id=endpoint_id,
+                endpoint_slug=endpoint_slug,
             )
         elif (
             wallet.wallet_type in PREPAID_BALANCE_WALLET_TYPES

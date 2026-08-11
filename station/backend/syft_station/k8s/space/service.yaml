@@ -1,0 +1,17 @@
+# Per-space Service — ClusterIP fronting the space pod; the Ingress targets it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${RESOURCE_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: syft-space
+    app.kubernetes.io/managed-by: syft-station
+    syftcluster.openmined.org/space: "${SUBDOMAIN}"
+spec:
+  selector:
+    syftcluster.openmined.org/space: "${SUBDOMAIN}"
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP

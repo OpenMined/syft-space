@@ -505,6 +505,12 @@ export interface UpdatePublicUrlRequest {
   public_url: string
 }
 
+export interface ManagedResponse {
+  /** True when a station launched this space — self-hosted onboarding is trimmed. */
+  managed: boolean
+  public_url: string | null
+}
+
 export interface ProxyStatusResponse {
   connected: boolean
   public_url: string | null
@@ -581,6 +587,7 @@ export interface WalletResponse {
   currency: string
   country: string | null
   is_active: boolean
+  managed: boolean
   display: Record<string, string>
   created_at: string
   updated_at: string
@@ -593,6 +600,7 @@ export interface WalletListItem {
   currency: string
   country: string | null
   is_active: boolean
+  managed: boolean
   display: Record<string, string>
   created_at: string
 }

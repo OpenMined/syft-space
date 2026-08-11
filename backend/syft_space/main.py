@@ -150,12 +150,14 @@ from syft_space.components.tenants.routes import build_tenant_routes
 from syft_space.components.vector_stores import register_builtin_vector_stores
 
 # Import wallet components
+from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
 from syft_space.components.wallets.gateway.stripe.provider import StripeWalletProvider
 from syft_space.components.wallets.gateway.xendit.provider import XenditWalletProvider
 from syft_space.components.wallets.handlers import WalletHandler
 from syft_space.components.wallets.mpp.provider import MppWalletProvider
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.components.wallets.routes import build_wallet_routes
+from syft_space.components.wallets.seed import seed_cluster_wallet
 from syft_space.config import app_settings
 
 
@@ -291,6 +293,11 @@ async def lifespan(app: FastAPI):
         tenant_repository, settings_handler
     )
     app.state.default_tenant = default_tenant
+
+    # Seed the managed cluster wallet from SYFT_CLUSTER_CREDITS_* (no-op
+    # for standalone spaces)
+    if default_tenant:
+        await seed_cluster_wallet(wallet_repository, default_tenant.id)
 
     # 2.1. Load diagnostics preference for Sentry gating
     try:
@@ -476,6 +483,7 @@ wallet_providers = {
     "mpp": MppWalletProvider(),
     "xendit": XenditWalletProvider(),
     "stripe": StripeWalletProvider(),
+    "cluster": ClusterWalletProvider(),
 }
 
 # Initialize payment handlers

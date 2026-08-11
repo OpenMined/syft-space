@@ -1314,7 +1314,12 @@ import {
   generateRuleId,
   createEmptyPolicyRules,
 } from '@/config/policyTypes'
-import type { PolicyTypeId, PolicyRulesRecord, PolicyConfig } from '@/config/policyTypes'
+import type {
+  PaymentPolicyType,
+  PolicyTypeId,
+  PolicyRulesRecord,
+  PolicyConfig,
+} from '@/config/policyTypes'
 import { useProviderModels } from '@/composables/useProviderModels'
 import { useTheme } from '@/composables/useTheme'
 import { MdEditor, MdPreview } from 'md-editor-v3'
@@ -1812,13 +1817,7 @@ const handlePricingRuleCreated = (payload: {
   walletId: string
   walletType: string
   walletCurrency: string
-  policyType:
-    | 'mpp_per_request'
-    | 'xendit_per_request'
-    | 'stripe_per_request'
-    | 'mpp_per_document'
-    | 'xendit_per_document'
-    | 'stripe_per_document'
+  policyType: PaymentPolicyType
   name: string
   config: Record<string, unknown>
 }) => {

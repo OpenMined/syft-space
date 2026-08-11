@@ -1,0 +1,19 @@
+Syft Station ({{ .Chart.AppVersion }}) — release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+Shared backends:
+  ChromaDB:      {{ if .Values.chromadb.enabled }}{{ .Values.chromadb.service.name }}:{{ .Values.chromadb.service.port }}{{ if .Values.chromadb.persistence.enabled }} (persistent){{ else }} (EPHEMERAL — restarts wipe embeddings){{ end }}{{ else }}disabled{{ end }}
+  docling-serve: {{ if .Values.docling.enabled }}{{ include "syft-station.doclingUrl" . }}{{ else }}disabled{{ end }}
+
+{{- if .Values.station.enabled }}
+
+Station: http://{{ .Values.station.ingress.host }}
+{{- if not .Values.station.adminEmail }}
+
+  WARNING: station.adminEmail is unset — every sign-in gets the member role.
+           Reinstall with --set station.adminEmail=you@org.com
+{{- end }}
+{{- else }}
+
+Station pod is DISABLED (station.enabled=false) — shared backends only.
+Run the station on the host against this cluster:  just dev up
+{{- end }}

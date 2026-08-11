@@ -16,6 +16,10 @@ from typing import Any
 from loguru import logger
 from pydantic import ValidationError
 
+from syft_space.components.chunking import (
+    DocumentChunker,
+    build_image_urls,
+)
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
@@ -36,10 +40,6 @@ from syft_space.components.vector_stores.chromadb_local.provisioner import (
 )
 from syft_space.components.vector_stores.chromadb_local.schemas import (
     ChromaDBLocalVectorStoreConfiguration,
-)
-from syft_space.components.vector_stores.chunking import (
-    DocumentChunker,
-    build_image_urls,
 )
 from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
 from syft_space.config import app_settings

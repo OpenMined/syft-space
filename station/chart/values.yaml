@@ -1,0 +1,173 @@
+# Syft Station — production defaults.
+#
+# This chart is the single source of truth for a station deployment. Dev
+# (k3d) reuses it with values-dev.yaml, which flips persistence off, points at
+# a locally-built image, and uses *.localhost hosts. Nothing about the shape
+# differs between dev and prod — only these values.
+#
+# Per-space resources are NOT templated here: the station server renders them
+# per request (syft_station/k8s/space/*). This chart deploys the station and
+# the shared backends, and passes the per-space DEFAULTS to the station as
+# SYFT_STATION_* env.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# The station control plane.
+# ---------------------------------------------------------------------------
+station:
+  # Deploy-only toggle: `helm ... --set station.enabled=false` brings up the
+  # shared backends WITHOUT the station pod — the dev loop runs the station on
+  # the host (uvicorn --reload) against these in-cluster deps.
+  enabled: true
+
+  image:
+    repository: ghcr.io/openmined/syft-station
+    # Empty → Chart.appVersion. Dev overrides to a locally-imported tag.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # Deploy-time identity. adminEmail must be a real SyftHub account — sign-ins
+  # with it get the admin role. Both are non-secret and injected as plain env.
+  adminEmail: ""
+  syfthubUrl: "https://syfthub.openmined.org"
+
+  # Session cookie signing key. Left empty, the chart generates one on first
+  # install and PRESERVES it across `helm upgrade` (via a live lookup), so
+  # cookies survive redeploys. Set explicitly to pin it, or point
+  # existingEnvSecret at a pre-created Secret to manage it out of band.
+  sessionSecret: ""
+  existingEnvSecret: ""
+
+  persistence:
+    size: 5Gi
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+  # Dev-only: when the station runs on the HOST (station.enabled=false), render
+  # an ExternalName Service + Ingress under the station's own name so its
+  # ingress host still routes to it through Traefik, and the in-cluster
+  # Service DNS name spaces use for credits resolves to the host. Ignored
+  # whenever the station pod is enabled. Never used in prod.
+  hostRoute:
+    enabled: false
+    # Cluster-resolvable name of the host machine (k3d's built-in alias).
+    externalName: host.k3d.internal
+
+  ingress:
+    enabled: true
+    className: traefik
+    # The station is the PARENT of its spaces. This host is the single source
+    # of truth: it's the station's public URL AND the base spaces hang off.
+    # Onboarding SHOWS it (no retyping) and spaces resolve at <subdomain>.<host>
+    # — or <subdomain>.<prefix>.<host> if the admin picks a subdomain prefix.
+    # Point wildcard DNS at the cluster: *.<host> (flat) or *.<prefix>.<host>.
+    host: station.example.com
+    annotations: {}
+    tls:
+      enabled: false
+      secretName: ""
+
+  # Extra SYFT_STATION_* passthrough (name: value), applied as plain env.
+  extraEnv: {}
+
+# ---------------------------------------------------------------------------
+# Per-space provisioning DEFAULTS. The station reads these as SYFT_STATION_*
+# and bakes them into every space bundle it renders.
+# ---------------------------------------------------------------------------
+spaces:
+  # Repo only — the tag is chosen by the admin at runtime from the registry
+  # version picker, never fixed here.
+  image: ghcr.io/openmined/syft-space
+  # Scheme of the public space URLs the station mints (<scheme>://<sub>.<domain>).
+  # Independent of tlsSecret: TLS may also terminate upstream (a fronting
+  # proxy/CDN) with no in-cluster cert. Dev has no certs and uses http.
+  scheme: https
+  # kubernetes.io/tls Secret every space Ingress terminates TLS with. Its
+  # certificate must cover the space names — a wildcard SAN for *.<host>,
+  # or *.<prefix>.<host> if setup picks a subdomain prefix (a cert wildcard
+  # matches exactly one label and never the bare host). Left empty, spaces
+  # inherit station.ingress.tls.secretName: one multi-SAN cert (station host
+  # + space wildcard) in one Secret serves the station and every space. Set
+  # explicitly only when spaces need their own cert. No station TLS either
+  # = space Ingresses stay plain http.
+  tlsSecret: ""
+  ingressClass: traefik
+  pvcSize: 2Gi
+  cpuRequest: 250m
+  cpuLimit: "1"
+  memoryRequest: 512Mi
+  memoryLimit: 2Gi
+  # Display name injected into spaces as SYFT_CLUSTER_MANAGED_BY.
+  managedByName: Syft Station
+  # Mount the node's /mnt/host-home into every space, read-only at
+  # /root/host-home (inside the space's home, where its dataset file browser
+  # is rooted). Spaces see whatever the cluster runtime maps to that node
+  # path — enabled in values-dev.yaml, where the k3d cluster maps $HOME
+  # there at creation.
+  hostMount: false
+
+# ---------------------------------------------------------------------------
+# Shared ChromaDB — one instance, one Chroma *database* per space. Service
+# name/port are fixed to match the station config defaults so the host-run dev
+# station needs no extra wiring; override both together if you must rename.
+# ---------------------------------------------------------------------------
+chromadb:
+  enabled: true
+  # Digest-pinned (multi-arch index digest): tags are mutable, digests aren't.
+  # To upgrade, bump the tag AND the digest together:
+  #   curl -sI .../v2/chromadb/chroma/manifests/<tag> | grep -i docker-content-digest
+  image: chromadb/chroma:1.5.9@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
+  service:
+    name: chromadb
+    # Service port the station points spaces at; the container listens on 8000.
+    port: 8100
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+# ---------------------------------------------------------------------------
+# Shared docling-serve — document conversion every space calls out to.
+# ---------------------------------------------------------------------------
+docling:
+  enabled: true
+  # Digest-pinned like chromadb.image — bump tag and digest together.
+  image: ghcr.io/docling-project/docling-serve-cpu:v1.26.0@sha256:7e07522e0240c1db3ff5b837ffa969c2ecd5a71664c0e0369f5a69fc169e30ba
+  service:
+    name: docling-serve
+    port: 5001
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy restricting the shared backends to space pods only. Requires a
+# CNI that enforces policy (k3d's default flannel does NOT — dev leaves it off).
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true

@@ -16,6 +16,8 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     """
     # Import and register built-in policy types here as they're implemented
     from .access.access_type import EndpointAccessPolicy
+    from .cluster.cluster_per_document import ClusterPerDocumentPolicy
+    from .cluster.cluster_per_request import ClusterPerRequestPolicy
     from .mpp.mpp_per_document import MppPerDocumentPolicy
     from .mpp.mpp_per_request import MppPerRequestPolicy
     from .pii_filter.pii_filter_type import PiiFilterType
@@ -33,6 +35,8 @@ def register_builtin_types(registry: "PolicyTypeRegistry") -> None:
     registry.register_policy_type(XenditPerRequestPolicy)
     registry.register_policy_type(XenditPerDocumentPolicy)
     registry.register_policy_type(StripePerRequestPolicy)
+    registry.register_policy_type(ClusterPerRequestPolicy)
+    registry.register_policy_type(ClusterPerDocumentPolicy)
     registry.register_policy_type(StripePerDocumentPolicy)
 
 

@@ -350,6 +350,17 @@ class QueryEndpointHandler:
             outcome = QueryOutcome.INTERNAL_ERROR
             raise
         finally:
+            # The buyer never pays for an answer they didn't receive: any
+            # non-success exit rolls back this request's uncommitted charges
+            # (delivering the response is the implicit commit). Runs first
+            # in the cleanup — money before telemetry.
+            if (
+                outcome != QueryOutcome.SUCCESS
+                and policy_context is not None
+                and policy_context.payment_chargers is not None
+            ):
+                await policy_context.payment_chargers.rollback()
+
             # Close the per-request model instance's connection pool. Safe on
             # every path: it either succeeded (and post-hooks are done) or
             # failed after being handed back; idempotent if already closed.

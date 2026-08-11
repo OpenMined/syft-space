@@ -13,7 +13,7 @@ from eth_account import Account
 from mpp.methods.tempo import TempoAccount
 from pydantic import BaseModel
 
-from syft_space.components.wallets.interfaces import SetupResult
+from syft_space.components.wallets.interfaces import PaymentInfo, SetupResult
 from syft_space.components.wallets.mpp.config import MppWalletConfig
 
 
@@ -79,8 +79,8 @@ class MppWalletProvider:
         )
         return updated.model_dump()
 
-    def extract_bundles(
-        self, configuration: dict[str, Any]
-    ) -> list[dict[str, Any]] | None:
-        # MPP holds balance on-chain; no prepaid-bundle catalog applies.
+    def payment_info(
+        self, configuration: dict[str, Any], wallet_id: UUID
+    ) -> PaymentInfo | None:
+        # MPP holds balance on-chain; nothing to prepay or top up here.
         return None

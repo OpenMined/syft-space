@@ -685,7 +685,7 @@
               placeholder="Filter by email..."
               class="h-9 max-w-sm flex-1 min-w-[200px]"
             />
-            <Select v-if="lockedWallet?.wallet_type === 'xendit'" v-model="txnStatusFilter">
+            <Select v-if="walletUsesLedger" v-model="txnStatusFilter">
               <SelectTrigger class="h-9 w-40">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
@@ -768,22 +768,28 @@
             </CardContent>
           </Card>
 
-          <!-- Gateway (Xendit) payments -->
+          <!-- Ledger payments (gateway + managed wallets) -->
           <Card
-            v-else-if="lockedWallet?.wallet_type === 'xendit'"
+            v-else-if="walletUsesLedger"
             class="bg-card/80 backdrop-blur-sm border border-border shadow-sm"
           >
             <CardHeader class="pb-3">
               <CardTitle class="text-base flex items-center gap-2">
                 <CreditCard class="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                Gateway payments
+                {{ lockedWallet?.managed ? 'Credit payments' : 'Gateway payments' }}
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger as-child>
                       <Info class="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Real-money transactions processed via payment gateway</p>
+                      <p>
+                        {{
+                          lockedWallet?.managed
+                            ? 'Credits charged to users of this endpoint'
+                            : 'Real-money transactions processed via payment gateway'
+                        }}
+                      </p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -995,7 +1001,7 @@ import {
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 
-import type { PolicyTypeId } from '@/config/policyTypes'
+import type { PaymentPolicyType, PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { toast } from 'vue-sonner'
@@ -1259,13 +1265,7 @@ const ensureWallets = (): Promise<void> => {
 const getPricingPolicies = () => {
   return (
     endpoint.value?.policies?.filter(
-      (p) =>
-        p.policy_type === 'mpp_per_request' ||
-        p.policy_type === 'xendit_per_request' ||
-        p.policy_type === 'stripe_per_request' ||
-        p.policy_type === 'mpp_per_document' ||
-        p.policy_type === 'xendit_per_document' ||
-        p.policy_type === 'stripe_per_document',
+      (p) => p.policy_type.endsWith('_per_request') || p.policy_type.endsWith('_per_document'),
     ) || []
   )
 }
@@ -1279,6 +1279,13 @@ const lockedWallet = computed<WalletListItem | null>(() => {
 })
 
 const lockedWalletId = computed(() => lockedWallet.value?.id ?? null)
+
+// Every wallet except MPP settles through the local ledger — gateway wallets
+// via BalanceService, managed wallets via the recorded external journal.
+// MPP transactions live on-chain and come from the marketplace instead.
+const walletUsesLedger = computed(
+  () => !!lockedWallet.value && lockedWallet.value.wallet_type !== 'mpp',
+)
 
 const policyWallet = (policy: {
   policy_type: string
@@ -1310,11 +1317,7 @@ const getPricingPolicySummary = (policy: {
     return 'Pricing rule configured'
   }
 
-  const isPerDocument =
-    policy.policy_type === 'mpp_per_document' ||
-    policy.policy_type === 'xendit_per_document' ||
-    policy.policy_type === 'stripe_per_document'
-  const unit = isPerDocument ? 'document' : 'request'
+  const unit = policy.policy_type.endsWith('_per_document') ? 'document' : 'request'
   return `${config.price} ${currency} per ${unit} ${appliedLabel}`.trim()
 }
 
@@ -1360,7 +1363,7 @@ const filteredLedgerEntries = computed(() => {
 
 const statTransactionCount = computed(() => {
   if (lockedWallet.value?.wallet_type === 'mpp') return filteredMppTransactions.value.length
-  if (lockedWallet.value?.wallet_type === 'xendit') return filteredLedgerEntries.value.length
+  if (walletUsesLedger.value) return filteredLedgerEntries.value.length
   return 0
 })
 
@@ -1368,7 +1371,7 @@ const statUniqueUsers = computed(() => {
   if (lockedWallet.value?.wallet_type === 'mpp') {
     return new Set(filteredMppTransactions.value.map((t) => t.sender_email)).size
   }
-  if (lockedWallet.value?.wallet_type === 'xendit') {
+  if (walletUsesLedger.value) {
     return new Set(filteredLedgerEntries.value.map((e) => e.user_email)).size
   }
   return 0
@@ -1380,7 +1383,7 @@ const statTotalReceived = computed(() => {
     const currency = lockedWallet.value.currency ?? 'USD'
     return `$${formatPrice(total)} ${currency}`
   }
-  if (lockedWallet.value?.wallet_type === 'xendit') {
+  if (walletUsesLedger.value && lockedWallet.value) {
     const debits = filteredLedgerEntries.value.filter((e) => e.type === 'debit')
     const total = debits.reduce((sum, e) => sum + Number(e.amount || 0), 0)
     const currency =
@@ -1421,9 +1424,9 @@ const fetchTransactions = async () => {
         mppTransactions.value = []
       }
       ledgerEntries.value = []
-    } else if (wallet.wallet_type === 'xendit' || wallet.wallet_type === 'stripe') {
-      // Both gateway providers share the same ledger transactions endpoint
-      // — balance moves through BalanceService regardless of the top-up rail.
+    } else {
+      // Gateway and managed wallets share the same ledger transactions
+      // endpoint — every charge is journaled locally regardless of the rail.
       try {
         const page = await paymentsApi.listEndpointTransactions(endpoint.value.id)
         ledgerEntries.value = page.items
@@ -1549,13 +1552,7 @@ const confirmDeletePolicy = async () => {
 const handlePricingCreated = async (payload: {
   walletId: string
   walletType: string
-  policyType:
-    | 'mpp_per_request'
-    | 'xendit_per_request'
-    | 'stripe_per_request'
-    | 'mpp_per_document'
-    | 'xendit_per_document'
-    | 'stripe_per_document'
+  policyType: PaymentPolicyType
   name: string
   config: Record<string, unknown>
 }) => {
@@ -1566,7 +1563,9 @@ const handlePricingCreated = async (payload: {
     ? 'MPP'
     : payload.policyType.startsWith('stripe_')
       ? 'Stripe'
-      : 'Xendit'
+      : payload.policyType.startsWith('cluster_')
+        ? 'Credits'
+        : 'Xendit'
   const policyName = payload.name || `${endpoint.value.name} ${policyLabel} Rule #${ruleIndex}`
 
   try {

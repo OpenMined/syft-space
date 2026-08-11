@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
-import pytest
 import pytest_asyncio
 from sqlmodel import SQLModel
 
@@ -48,9 +47,7 @@ async def analytics_db(tmp_dir: Path) -> AsyncDatabase:
     db = AsyncDatabase(config)
 
     async with db.engine.begin() as conn:
-        await conn.run_sync(
-            lambda c: QueryEvent.__table__.create(c, checkfirst=True)
-        )
+        await conn.run_sync(lambda c: QueryEvent.__table__.create(c, checkfirst=True))
         await conn.run_sync(
             lambda c: QueryCostLine.__table__.create(c, checkfirst=True)
         )

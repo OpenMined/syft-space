@@ -1,0 +1,72 @@
+{{- if .Values.station.enabled }}
+{{/*
+Station identity + least-privilege access to manage spaces. In-cluster the
+station runs under this ServiceAccount (kube.py detects KUBERNETES_SERVICE_HOST
+and uses it). The Role grants only what the provisioner calls, in this
+namespace only — never cluster-admin.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "syft-station.fullname" . }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: station
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "syft-station.fullname" . }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: station
+rules:
+  # Per-space bundle: Secret, PVC, Service
+  - apiGroups: [""]
+    resources: [secrets, services, persistentvolumeclaims]
+    verbs: [get, create, patch, delete]
+  # Per-space Deployment
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, create, patch, delete]
+  # Live status derivation — the spaces list and the provisioning wait's poll
+  - apiGroups: [apps]
+    resources: [deployments/status]
+    verbs: [get]
+  # The provisioning wait also inspects the space's pods each poll tick (to
+  # fail fast on terminal states instead of burning the timeout) and tails a
+  # crashed container's logs for a specific failure message. Without these,
+  # the first in-cluster provision 403'd whenever the pod wasn't ready by the
+  # first tick — while a retry, finding the Deployment already available,
+  # never reached the pod inspection and "healed" it.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  # Pause/resume (scale to 0/1)
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [get, patch]
+  # Per-space Ingress
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, create, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "syft-station.fullname" . }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: station
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "syft-station.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "syft-station.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

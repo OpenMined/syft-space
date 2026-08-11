@@ -1,0 +1,17 @@
+# Per-space PersistentVolumeClaim — the space's /data (SQLite + page images +
+# logs). ReadWriteOnce, retained on deprovision unless purge=True.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${RESOURCE_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: syft-space
+    app.kubernetes.io/managed-by: syft-station
+    syftcluster.openmined.org/space: "${SUBDOMAIN}"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: ${PVC_SIZE}

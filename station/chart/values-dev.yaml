@@ -1,0 +1,59 @@
+# Dev overlay for k3d — `helm ... -f values-dev.yaml`.
+#
+# Same chart as prod, different values: locally-built station image (imported
+# into k3d, never pulled), ephemeral ChromaDB (a pod restart wipes embeddings —
+# fine for dev), *.localhost hosts, no TLS, no NetworkPolicy (flannel doesn't
+# enforce it). adminEmail / syfthubUrl come from the justfile via --set.
+
+station:
+  image:
+    repository: syft-station
+    tag: dev
+    pullPolicy: IfNotPresent
+  # Route station.localhost to a host-run station (`just dev`). The template
+  # self-disables when the station pod is enabled (`just up`), so this can
+  # stay on for every dev loop.
+  hostRoute:
+    enabled: true
+  persistence:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  ingress:
+    host: station.localhost
+    tls:
+      enabled: false
+
+spaces:
+  image: ghcr.io/openmined/syft-space
+  # No certs in dev — spaces are plain http behind the k3d Traefik.
+  scheme: http
+  # Spaces see the host's home directory read-only at ~/host-home (the k3d
+  # cluster maps $HOME to the node's /mnt/host-home at creation).
+  hostMount: true
+
+chromadb:
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits: {}
+
+docling:
+  autoscaling:
+    enabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits: {}
+
+networkPolicy:
+  enabled: false

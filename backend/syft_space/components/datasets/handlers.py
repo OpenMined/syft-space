@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from loguru import logger
 
+from syft_space.components.chunking import PAGE_IMAGES_BASE_DIR
 from syft_space.components.dataset_types.interfaces import (
     BaseDatasetType,
     IngestableDatasetType,
@@ -50,7 +51,6 @@ from syft_space.components.shared.ingest_types import IngestContext
 from syft_space.components.sources.errors import SourceError
 from syft_space.components.sources.registry import SOURCE_REGISTRY
 from syft_space.components.tenants.entities import Tenant
-from syft_space.components.vector_stores.chunking import PAGE_IMAGES_BASE_DIR
 from syft_space.components.vector_stores.interfaces import BaseVectorStoreProvisioner
 from syft_space.components.vector_stores.registry import VECTOR_STORE_REGISTRY
 

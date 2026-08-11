@@ -66,17 +66,24 @@ class WalletRepository(AsyncBaseRepository[Wallet]):
         currency: str,
         country: str | None,
         configuration: dict,
+        wallet_id: UUID | None = None,
     ) -> Wallet:
-        """Create a new wallet."""
-        wallet = Wallet(
-            tenant_id=tenant_id,
-            wallet_type=wallet_type,
-            name=name,
-            currency=currency,
-            country=country,
-            configuration=configuration,
-        )
-        return await self.create(wallet)
+        """Create a new wallet.
+
+        ``wallet_id`` pins the primary key (used to adopt an externally
+        assigned id, e.g. a managed wallet); otherwise one is generated.
+        """
+        fields: dict = {
+            "tenant_id": tenant_id,
+            "wallet_type": wallet_type,
+            "name": name,
+            "currency": currency,
+            "country": country,
+            "configuration": configuration,
+        }
+        if wallet_id is not None:
+            fields["id"] = wallet_id
+        return await self.create(Wallet(**fields))
 
     async def get_by_type_and_currency(
         self, wallet_type: str, currency: str, tenant_id: UUID
