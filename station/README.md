@@ -1,4 +1,4 @@
-# <a href="https://github.com/OpenMined"><img src="https://avatars.githubusercontent.com/u/30185530?s=200&v=4" alt="OpenMined" width="32" align="center" style="border-radius: 8px;"></a> Syft Station
+# <img src="docs/assets/syft-station-icon.svg" alt="Syft Station" width="40" align="center"> Syft Station
 
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688)](https://fastapi.tiangolo.com/)
@@ -86,6 +86,11 @@ component: [architecture](docs/architecture.md), [auth](docs/auth.md),
 [requests & spaces](docs/requests-and-spaces.md),
 [provisioning](docs/provisioning.md), [credits](docs/credits.md), and
 [deployment](docs/deployment.md).
+
+Deploying to production? Read the
+**[security guidelines](docs/security.md)** first — firewall rules, DNS
+and certificates (with a worked example), and the secrets an admin is
+responsible for.
 
 ## 🌐 Part of the Syft Network
 

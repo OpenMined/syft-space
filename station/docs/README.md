@@ -33,6 +33,9 @@ one, start at the [station README](../README.md).
    member earnings.
 6. **[deployment.md](deployment.md)** — the Helm chart, the dev loops, TLS,
    and the release pipeline.
+7. **[security.md](security.md)** — deployment security guidelines: what
+   the admin must ensure around firewalls, DNS, certificates, and secrets
+   at rest, with a worked example.
 
 ## Terminology (important)
 
