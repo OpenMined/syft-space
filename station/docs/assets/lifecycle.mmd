@@ -1,0 +1,16 @@
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor": "#eef2ff", "primaryBorderColor": "#4f46e5", "primaryTextColor": "#1e1b4b",
+  "lineColor": "#6366f1", "fontSize": "16px", "fontFamily": "Helvetica"
+}}}%%
+flowchart LR
+    A["📝 Member submits<br/>name + subdomain"] --> B{"🔎 Admin<br/>reviews"}
+    B -->|approve| C["⚙️ Station provisions<br/>the space"]
+    B -->|reject| X["❌ Rejected<br/>(with reason)"]
+    C -->|healthy| D["✅ Live at<br/>member.station.example.com"]
+    C -->|failed| R["🔁 Failed —<br/>admin retries"]
+    R --> C
+    D --> E["🔗 Owner adds data,<br/>publishes endpoints to SyftHub"]
+
+    style D fill:#ecfdf5,stroke:#10b981,stroke-width:2px
+    style X fill:#fef2f2,stroke:#ef4444
+    style R fill:#fffbeb,stroke:#f59e0b

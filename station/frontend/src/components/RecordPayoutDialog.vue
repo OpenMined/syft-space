@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { Banknote } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
+import { ApiError } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -19,6 +20,7 @@ import { useStationStore } from '@/stores/station'
 const props = defineProps<{
   open: boolean
   target: {
+    spaceId: string
     slug: string
     spaceName: string
     ownerEmail: string
@@ -45,7 +47,9 @@ watch(
   },
 )
 
-function record() {
+const recording = ref(false)
+
+async function record() {
   if (!props.target) return
   const value = Number(amount.value)
   if (!Number.isFinite(value) || value <= 0) {
@@ -58,11 +62,22 @@ function record() {
     )
     return
   }
-  station.recordPayout({ spaceSlug: props.target.slug, amount: value, note: note.value })
-  toast.success('Payout recorded', {
-    description: `${formatMoney(value, props.currency)} → ${props.target.ownerEmail}`,
-  })
-  emit('update:open', false)
+  recording.value = true
+  try {
+    await station.recordPayout({
+      spaceId: props.target.spaceId,
+      amount: value,
+      note: note.value,
+    })
+    toast.success('Payout recorded', {
+      description: `${formatMoney(value, props.currency)} → ${props.target.ownerEmail}`,
+    })
+    emit('update:open', false)
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'Could not record the payout')
+  } finally {
+    recording.value = false
+  }
 }
 </script>
 
@@ -90,7 +105,7 @@ function record() {
 
       <DialogFooter>
         <Button variant="outline" @click="emit('update:open', false)">Cancel</Button>
-        <Button @click="record">
+        <Button :disabled="recording" @click="record">
           <Banknote class="mr-1.5 h-4 w-4" />
           Record payout
         </Button>

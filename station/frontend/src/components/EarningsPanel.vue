@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   Banknote,
   Coins,
   Copy,
   HandCoins,
   Pencil,
-  ShoppingCart,
   TrendingUp,
   Wallet,
+  Webhook,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import ConfigureWalletDialog from '@/components/ConfigureWalletDialog.vue'
@@ -24,21 +24,52 @@ const walletOpen = ref(false)
 
 const payoutOpen = ref(false)
 const payoutTarget = ref<{
+  spaceId: string
   slug: string
   spaceName: string
   ownerEmail: string
   payable: number
 } | null>(null)
 
-function openPayout(row: { slug: string; spaceName: string; ownerEmail: string; payable: number }) {
+function openPayout(row: {
+  spaceId: string
+  slug: string
+  spaceName: string
+  ownerEmail: string
+  payable: number
+}) {
   payoutTarget.value = row
   payoutOpen.value = true
 }
 
+onMounted(() => {
+  Promise.all([station.loadWallet(), station.loadEarnings()]).catch(() =>
+    toast.error('Could not load earnings'),
+  )
+})
+
 const CHART_DAYS = 14
 
-/** Where users buy credits that work at every space in the station. */
-const checkoutUrl = computed(() => `https://station.${station.domain}/credits`)
+/** Where the payment provider must deliver its events. */
+const webhookUrl = computed(
+  () => `${window.location.origin}/api/v1/credits/webhooks/${station.wallet?.provider ?? 'xendit'}`,
+)
+
+const isStripe = computed(() => station.wallet?.provider === 'stripe')
+
+/** The provider's dashboard page where the webhook endpoint is set up. */
+const webhookDashboard = computed(() =>
+  isStripe.value
+    ? 'the Stripe Dashboard under Developers → Webhooks'
+    : 'the Xendit dashboard under Settings → Developers → Webhooks',
+)
+
+function copyWebhookUrl() {
+  navigator.clipboard.writeText(webhookUrl.value)
+  toast('Webhook URL copied', {
+    description: `Paste it in ${webhookDashboard.value}.`,
+  })
+}
 
 const chart = computed(() => {
   const days = station.earnedByDay(CHART_DAYS)
@@ -52,16 +83,9 @@ const chart = computed(() => {
 
 const earningSpaceCount = computed(() => station.earnedBySpace.length)
 
-const recentTopUps = computed(() =>
-  [...station.topUps].sort((a, b) => b.paidAt.localeCompare(a.paidAt)).slice(0, 6),
-)
+const recentTopUps = computed(() => station.topUps.slice(0, 6))
 
 const currency = computed(() => station.wallet?.currency ?? 'USD')
-
-function copyCheckoutUrl() {
-  navigator.clipboard.writeText(checkoutUrl.value)
-  toast('Checkout link copied', { description: 'Share it with anyone who needs credits.' })
-}
 
 function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -78,21 +102,36 @@ function formatDay(iso: string): string {
             <Wallet class="h-4 w-4 text-muted-foreground" />
             <span class="font-medium capitalize">{{ station.wallet.provider }}</span>
             <Badge variant="secondary">{{ station.wallet.currency }}</Badge>
-            <span class="font-mono text-xs text-muted-foreground">
-              {{ station.wallet.maskedKey }}
-            </span>
+            <Badge
+              v-if="station.wallet.hubConnected"
+              variant="secondary"
+              title="The wallet holds a SyftHub API token and can verify buyers' sign-ins"
+            >
+              SyftHub connected
+            </Badge>
+            <Badge
+              v-else
+              variant="destructive"
+              title="Buyers can't be verified — replace the wallet and connect SyftHub"
+            >
+              SyftHub not connected
+            </Badge>
           </div>
           <button
             class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
-            @click="copyCheckoutUrl"
+            :title="`Payment events are delivered here — set it in ${webhookDashboard}`"
+            @click="copyWebhookUrl"
           >
-            <ShoppingCart class="h-3 w-3" />
-            {{ checkoutUrl }}
+            <Webhook class="h-3 w-3" />
+            {{ webhookUrl }}
             <Copy class="h-3 w-3" />
           </button>
           <p class="mt-1 text-xs text-muted-foreground">
-            Users buy credits here once and spend them at any space. The gateway key stays at the
-            station — spaces only check credits before serving a paid query.
+            Users buy credits at the first link;
+            {{ isStripe ? 'Stripe' : 'Xendit' }} reports payments to the second (set it in
+            {{ webhookDashboard }}, with the
+            {{ isStripe ? 'signing secret' : 'callback token' }} from the same page). The gateway
+            key stays at the station.
           </p>
         </div>
         <Button size="sm" variant="outline" @click="walletOpen = true">
@@ -209,6 +248,7 @@ function formatDay(iso: string): string {
           >
             <div class="min-w-0">
               <span class="text-sm font-medium">{{ row.spaceName }}</span>
+              <Badge v-if="row.deleted" variant="outline" class="ml-2 text-xs">deleted</Badge>
               <span class="ml-2 text-xs text-muted-foreground">{{ row.ownerEmail }}</span>
               <div class="mt-0.5 text-xs text-muted-foreground">
                 {{ row.queries.toLocaleString() }} paid quer{{ row.queries === 1 ? 'y' : 'ies' }} ·
@@ -253,9 +293,11 @@ function formatDay(iso: string): string {
           >
             <div class="min-w-0">
               <span class="font-medium tabular-nums">
-                {{ formatMoney(payout.amount, payout.currency) }}
+                {{ formatMoney(payout.amount, currency) }}
               </span>
-              <span class="text-muted-foreground"> → {{ payout.spaceSlug }}</span>
+              <span class="text-muted-foreground">
+                → {{ station.spaceById(payout.spaceId)?.name ?? 'Deleted space' }}</span
+              >
               <span v-if="payout.note" class="text-xs text-muted-foreground">
                 · {{ payout.note }}</span
               >

@@ -4,7 +4,9 @@ import re
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
+
+from syft_station.components.shared.email import NormalizedEmail
 
 # DNS-1123 label: lowercase alphanumeric + hyphens, no leading/trailing
 # hyphen, ≤63 chars (same rule as the frontend's slugify).
@@ -33,7 +35,7 @@ class SubmitRequestBody(BaseModel):
     subdomain: str
     reason: str = ""
     # Admin only: create the space for this member (ignored for members).
-    owner_email: EmailStr | None = None
+    owner_email: NormalizedEmail | None = None
 
     @field_validator("space_name")
     @classmethod
@@ -59,6 +61,11 @@ class ApproveRequestBody(BaseModel):
 
     space_name: str | None = None
     subdomain: str | None = None
+    # Wallet picker: attach_wallet=False provisions without managed credits;
+    # wallet_id=None means "the station wallet, if any" (the default entry).
+    # An explicit id is validated — ready for multi-wallet later.
+    attach_wallet: bool = True
+    wallet_id: UUID | None = None
 
     @field_validator("subdomain")
     @classmethod

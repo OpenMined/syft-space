@@ -21,6 +21,14 @@ TEMPLATE_DIR = Path(__file__).parent.parent.parent / "k8s" / "space"
 # Label carrying the space slug; selects a space's whole resource bundle.
 LABEL_SPACE = "syftcluster.openmined.org/space"
 
+# Host-mount (space_host_mount): the node directory mounted into each space,
+# and the container path where the space sees it. The container path lives
+# INSIDE the container's home directory because syft-space's dataset file
+# browser is rooted at home and refuses paths outside it — anywhere else and
+# the mounted files would be invisible to the picker.
+HOST_MOUNT_NODE_PATH = "/mnt/host-home"
+HOST_MOUNT_PATH = "/root/host-home"
+
 # Rendered in a fixed apply order (Secret/PVC before the Deployment that
 # mounts them; Service before Ingress).
 MANIFEST_FILES: tuple[tuple[str, str], ...] = (
@@ -37,6 +45,7 @@ class RenderSettings(Protocol):
 
     namespace: str
     space_image: str
+    space_scheme: str
     ingress_class: str
     space_pvc_size: str
     space_cpu_request: str
@@ -47,6 +56,8 @@ class RenderSettings(Protocol):
     chromadb_port: int
     docling_url: str
     managed_by_name: str
+    space_host_mount: bool
+    space_tls_secret: str
     syfthub_url: object  # str | pydantic HttpUrl — rendered via str()
 
 
@@ -68,7 +79,7 @@ def _substitutions(spec: SpaceSpec, settings: RenderSettings) -> dict[str, str]:
         "DOCLING_URL": settings.docling_url,
         "MANAGED_BY": settings.managed_by_name,
         "SYFTHUB_URL": str(settings.syfthub_url).rstrip("/"),
-        "PUBLIC_URL": f"https://{spec.subdomain}.{spec.domain}",
+        "PUBLIC_URL": f"{settings.space_scheme}://{spec.subdomain}.{spec.domain}",
         "HOST": f"{spec.subdomain}.{spec.domain}",
         "INGRESS_CLASS": settings.ingress_class,
         "PVC_SIZE": settings.space_pvc_size,
@@ -90,4 +101,57 @@ def render_space_manifests(
 ) -> dict[str, dict]:
     """Render all per-space manifests as apply-ordered dicts, keyed by kind."""
     values = _substitutions(spec, settings)
-    return {key: _render_one(filename, values) for key, filename in MANIFEST_FILES}
+    manifests = {key: _render_one(filename, values) for key, filename in MANIFEST_FILES}
+    # Managed-credits keys are conditional (a space may have no wallet), so
+    # they're injected here rather than templated — the Deployment reads them
+    # via optional secretKeyRefs, absent keys simply leave the env unset.
+    if spec.credits_token:
+        manifests["secret"]["stringData"].update(
+            {
+                "SYFT_CLUSTER_CREDITS_URL": spec.credits_url,
+                "SYFT_CLUSTER_CREDITS_TOKEN": spec.credits_token,
+                "SYFT_CLUSTER_CREDITS_CURRENCY": spec.credits_currency,
+                "SYFT_CLUSTER_CREDITS_WALLET_ID": spec.credits_wallet_id,
+                "SYFT_CLUSTER_PUBLIC_URL": spec.credits_public_url,
+            }
+        )
+        # These two are optional even with a wallet, and omitted rather than
+        # sent empty — the space parses them as int/JSON, and "" would crash.
+        if spec.credits_wallet_owner:
+            manifests["secret"]["stringData"]["SYFT_CLUSTER_WALLET_OWNER"] = (
+                spec.credits_wallet_owner
+            )
+        if spec.credits_bundles:
+            manifests["secret"]["stringData"]["SYFT_CLUSTER_BUNDLES"] = (
+                spec.credits_bundles
+            )
+    # The host-mount is conditional structure like the credits keys —
+    # injected, not templated. Read-only: spaces read the mounted files as
+    # data sources; nothing under the mount is theirs to write.
+    if settings.space_host_mount:
+        pod = manifests["deployment"]["spec"]["template"]["spec"]
+        pod["volumes"].append(
+            {
+                "name": "host-home",
+                "hostPath": {
+                    "path": HOST_MOUNT_NODE_PATH,
+                    # OrCreate: a node with nothing mapped at the path serves
+                    # an empty dir instead of a pod stuck ContainerCreating.
+                    "type": "DirectoryOrCreate",
+                },
+            }
+        )
+        pod["containers"][0]["volumeMounts"].append(
+            {"name": "host-home", "mountPath": HOST_MOUNT_PATH, "readOnly": True}
+        )
+    # TLS is conditional structure too: with a cert Secret configured (its
+    # certificate must cover this host — spaces share one wildcard cert),
+    # the Ingress terminates TLS; without one it stays plain http.
+    if settings.space_tls_secret:
+        manifests["ingress"]["spec"]["tls"] = [
+            {
+                "hosts": [values["HOST"]],
+                "secretName": settings.space_tls_secret,
+            }
+        ]
+    return manifests

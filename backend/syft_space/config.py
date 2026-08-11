@@ -1,7 +1,96 @@
 from pathlib import Path
+from uuid import UUID
 
 from pydantic import Field, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ClusterSettings(BaseSettings):
+    """Managed-wallet settings, populated from the ``SYFT_CLUSTER_*`` env.
+
+    Injected into a space's Secret by the station it runs on. All grouped
+    here so the wallet config lives in one place: ``app_settings.cluster.*``.
+    Its own env prefix keeps each field a flat name (``credits_url``, not a
+    delimiter-split ``credits.url``).
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        env_prefix="SYFT_CLUSTER_",
+    )
+
+    credits_url: HttpUrl | None = Field(
+        default=None,
+        description=(
+            "Base URL of the cluster credits service. Set (with the token) "
+            "to seed the managed cluster wallet at startup. Internal "
+            "space→station debit path only."
+        ),
+    )
+    credits_token: str = Field(
+        default="",
+        description="Per-space service token for the cluster credits API",
+    )
+    credits_currency: str = Field(
+        default="USD",
+        description="Currency of the cluster credits wallet",
+    )
+    credits_wallet_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Id of the managed wallet on the station. Adopted as this space's "
+            "cluster wallet id so every space on the wallet shares one id — a "
+            "marketplace groups them as a single balance."
+        ),
+    )
+    public_url: HttpUrl | None = Field(
+        default=None,
+        description=(
+            "Public base URL of the station. Published on paid endpoints so "
+            "buyers reach the station's checkout/balance routes (credits_url "
+            "is for space→station debits only)."
+        ),
+    )
+    wallet_owner: int | None = Field(
+        default=None,
+        description=(
+            "SyftHub user id of the station wallet's owner. Published on "
+            "paid endpoints (as wallet_owner) so the hub mints buyer tokens "
+            "for this user's audience and attributes/groups the station's "
+            "spaces."
+        ),
+    )
+    bundles: list[dict] | None = Field(
+        default=None,
+        description=(
+            "Purchase catalog for the managed wallet, as JSON "
+            '[{"name": …, "amount": …}, …]. Injected by the station (which '
+            "prices bundle purchases from the same table); when absent the "
+            "static per-currency catalog is published instead."
+        ),
+    )
+    managed_by: str = Field(
+        default="",
+        description=(
+            "Display name of the managing station, injected as "
+            "SYFT_CLUSTER_MANAGED_BY into every station-launched space. "
+            "Non-empty means this space runs in managed mode (self-hosted "
+            "onboarding affordances are trimmed); display fallbacks apply "
+            "at the use site."
+        ),
+    )
+
+    @field_validator("credits_url", "public_url", mode="before")
+    @classmethod
+    def validate_optional_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
+        if not v:
+            return None
+        if not isinstance(v, HttpUrl):
+            v = HttpUrl(v)
+        return v
 
 
 class AppSettings(BaseSettings):
@@ -132,29 +221,9 @@ class AppSettings(BaseSettings):
         ),
     )
 
-    # Syft Cluster credits (managed wallet) settings
-    cluster_credits_url: HttpUrl | None = Field(
-        default=None,
-        description=(
-            "Base URL of the cluster credits service. Set (with the token) "
-            "to seed the managed cluster wallet at startup."
-        ),
-    )
-    cluster_credits_token: str = Field(
-        default="",
-        description="Per-space service token for the cluster credits API",
-    )
-    cluster_credits_currency: str = Field(
-        default="USD",
-        description="Currency of the cluster credits wallet",
-    )
-    cluster_managed_by: str = Field(
-        default="Syft Space Host",
-        description=(
-            "Display name of whoever manages the credits wallet, shown to "
-            "members as 'Managed by <name>'."
-        ),
-    )
+    # Syft Cluster credits (managed wallet) settings — grouped under one
+    # sub-model so all of it is reachable as app_settings.cluster.*
+    cluster: ClusterSettings = Field(default_factory=ClusterSettings)
 
     # Endpoint health check settings
     heartbeat_enabled: bool = Field(
@@ -172,9 +241,7 @@ class AppSettings(BaseSettings):
         description="Timeout in seconds for local chat model/dataset calls",
     )
 
-    @field_validator(
-        "public_url", "docling_serve_url", "cluster_credits_url", mode="before"
-    )
+    @field_validator("public_url", "docling_serve_url", mode="before")
     @classmethod
     def validate_optional_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
         if not v:

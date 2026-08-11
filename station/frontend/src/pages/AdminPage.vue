@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowUpCircle,
@@ -58,6 +58,7 @@ import {
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ApiError } from '@/api/client'
+import { formatMoney } from '@/lib/types'
 import type { Space, SpaceRequest } from '@/lib/types'
 import { Label } from '@/components/ui/label'
 import { useStationStore } from '@/stores/station'
@@ -71,11 +72,32 @@ onMounted(() => {
   station.loadSetup().catch(() => toast.error('Could not load the station setup'))
   station.loadRequests().catch(() => toast.error('Could not load requests'))
   station.loadSpaces().catch(() => toast.error('Could not load spaces'))
+  // Wallet presence drives the approve dialog's picker + "space includes".
+  station.loadWallet().catch(() => {})
+  // Earnings feed the delete dialog's unpaid-payable warning.
+  station.loadEarnings().catch(() => {})
 })
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
 type AdminSection = 'requests' | 'spaces' | 'earnings' | 'settings'
 const activeSection = ref<AdminSection>('requests')
+
+// Requests and spaces change from OTHER sessions (a member submits, a space
+// settles), so switching to a section refetches it, and a background poll
+// keeps the visible list + sidebar badges live between clicks. Earnings needs
+// neither: EarningsPanel re-mounts on each switch and loads itself.
+watch(activeSection, (section) => {
+  if (section === 'requests') station.loadRequests().catch(() => {})
+  else if (section === 'spaces') station.loadSpaces().catch(() => {})
+})
+
+const REFRESH_INTERVAL_MS = 30_000
+const refreshTimer = setInterval(() => {
+  if (document.hidden) return
+  station.loadRequests().catch(() => {})
+  if (activeSection.value === 'spaces') station.loadSpaces().catch(() => {})
+}, REFRESH_INTERVAL_MS)
+onUnmounted(() => clearInterval(refreshTimer))
 
 const mainNav = computed(() => [
   {
@@ -153,6 +175,16 @@ function openDeleteFailed(request: SpaceRequest) {
   else toast.error('Could not find the space for this request')
 }
 
+const currency = computed(() => station.wallet?.currency ?? 'USD')
+
+// What the station still owes this space's owner. Deletion never blocks on
+// it — the money stays payable from the surviving ledger attribution.
+const deletePayable = computed(() => {
+  if (!deleteTarget.value) return 0
+  const row = station.earnedBySpace.find((r) => r.spaceId === deleteTarget.value!.id)
+  return row?.payable ?? 0
+})
+
 async function confirmDelete() {
   if (!deleteTarget.value) return
   const name = deleteTarget.value.name
@@ -172,10 +204,37 @@ const outdatedCount = computed(
   () => station.spaces.filter((s) => s.version !== station.supportedVersion).length,
 )
 
-function updateAll() {
-  toast('Update all is not available yet', {
+const updatingAll = ref(false)
+
+async function updateAll() {
+  updatingAll.value = true
+  toast('Updating spaces one at a time — this can take a few minutes', {
     description: `${outdatedCount.value} space(s) behind ${station.supportedVersion}`,
   })
+  try {
+    const { results } = await station.updateAllSpaces()
+    const failed = results.filter((r) => r.outcome === 'failed')
+    const skipped = results.filter((r) => r.outcome === 'skipped')
+    const updated = results.filter((r) => r.outcome === 'updated')
+    if (updated.length > 0)
+      toast.success(`Updated ${updated.length} space(s) to ${station.supportedVersion}`)
+    for (const r of skipped) toast(`${r.name} skipped`, { description: r.detail })
+    for (const r of failed) toast.error(`${r.name} failed to update`, { description: r.detail })
+  } catch {
+    toast.error('Update all failed — the spaces list shows the live state')
+  } finally {
+    updatingAll.value = false
+  }
+}
+
+async function updateOne(space: Space) {
+  toast('Updating space — this can take a few minutes', { description: space.name })
+  try {
+    await station.updateSpace(space.id)
+    toast.success(`${space.name} updated to ${station.supportedVersion}`)
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : `Updating ${space.name} failed`)
+  }
 }
 
 // ---- Settings ----
@@ -202,15 +261,16 @@ async function regenerateKey(space: Space) {
   try {
     await station.regenerateApiKey(space.id)
     toast('New API key issued', {
-      description: `${space.ownerEmail} can claim it from their dashboard.`,
+      description: 'The space is restarting to apply it; the owner link is updated.',
     })
   } catch {
     toast.error('Regenerating the key failed')
   }
 }
 
-function restart(space: Space) {
-  toast('Restart is not available yet', { description: space.name })
+async function restart(space: Space) {
+  toast('Restarting space', { description: space.name })
+  await station.restartSpace(space.id).catch(() => toast.error('Restarting the space failed'))
 }
 
 async function pause(space: Space) {
@@ -430,9 +490,15 @@ function formatDate(iso: string): string {
                   station.supportedVersion
                 }}</span>
               </p>
-              <Button v-if="outdatedCount > 0" size="sm" variant="outline" @click="updateAll">
+              <Button
+                v-if="outdatedCount > 0"
+                size="sm"
+                variant="outline"
+                :disabled="updatingAll"
+                @click="updateAll"
+              >
                 <ArrowUpCircle class="mr-1.5 h-3.5 w-3.5" />
-                Update all ({{ outdatedCount }} outdated)
+                {{ updatingAll ? 'Updating…' : `Update all (${outdatedCount} outdated)` }}
               </Button>
             </div>
 
@@ -449,6 +515,15 @@ function formatDate(iso: string): string {
                   <div class="flex items-center gap-2">
                     <span class="font-medium">{{ space.name }}</span>
                     <HealthBadge :health="space.health" />
+                    <Badge
+                      v-if="space.restartRequired"
+                      variant="outline"
+                      class="gap-1 border-warning/50 bg-warning/10 px-1.5 py-0 text-[11px] font-normal"
+                      title="A settings change is waiting for a restart"
+                    >
+                      <RotateCw class="h-3 w-3" />
+                      restart required
+                    </Badge>
                   </div>
                   <a
                     :href="space.url"
@@ -472,14 +547,6 @@ function formatDate(iso: string): string {
                     >
                       <ArrowUpCircle class="h-3 w-3" />
                       update available
-                    </Badge>
-                    <Badge
-                      v-if="station.wallet && !space.walletSeeded"
-                      variant="outline"
-                      class="gap-1 border-warning/50 bg-warning/10 px-1.5 py-0 text-[11px] font-normal"
-                    >
-                      <Wallet class="h-3 w-3" />
-                      wallet applies on restart
                     </Badge>
                   </div>
                 </div>
@@ -522,6 +589,19 @@ function formatDate(iso: string): string {
                       >
                         <RotateCw class="mr-2 h-3.5 w-3.5" />
                         Restart
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        v-if="space.version !== station.supportedVersion"
+                        :disabled="
+                          space.health === 'paused' ||
+                          space.health === 'restarting' ||
+                          space.health === 'starting' ||
+                          updatingAll
+                        "
+                        @click="updateOne(space)"
+                      >
+                        <ArrowUpCircle class="mr-2 h-3.5 w-3.5" />
+                        Update to {{ station.supportedVersion }}
                       </DropdownMenuItem>
                       <DropdownMenuItem @click="openLogs(space)">
                         <ScrollText class="mr-2 h-3.5 w-3.5" />
@@ -633,6 +713,11 @@ function formatDate(iso: string): string {
             All of its data — files and search index — is deleted permanently.
           </span>
           This cannot be undone.
+          <span v-if="deletePayable > 0" class="mt-2 block">
+            {{ deleteTarget.ownerEmail }} is still owed
+            <span class="font-medium">{{ formatMoney(deletePayable, currency) }}</span>
+            from this space — it stays payable after deletion.
+          </span>
         </DialogDescription>
       </DialogHeader>
 

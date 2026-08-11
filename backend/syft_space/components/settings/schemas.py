@@ -24,6 +24,19 @@ class UpdatePublicUrlRequest(BaseModel):
         }
 
 
+class ManagedResponse(BaseModel):
+    """Response model for managed-mode status."""
+
+    managed: bool = Field(
+        ...,
+        description="True when this space is run by a station "
+        "(SYFT_CLUSTER_MANAGED_BY is set)",
+    )
+    public_url: str | None = Field(
+        None, description="Public URL for the server (same value as /public-url)"
+    )
+
+
 class DiagnosticsResponse(BaseModel):
     """Response model for diagnostics preference."""
 

@@ -18,6 +18,40 @@ from pydantic import BaseModel
 
 
 @dataclass
+class PaymentInfo:
+    """How buyers top up and read the balance for a prepaid-balance wallet.
+
+    Returned by ``WalletProvider.payment_info()`` and published on paid
+    endpoints so a marketplace can render purchase options and route buyers.
+
+    The three URLs point wherever the balance actually lives — the space's
+    own payment routes for a self-hosted wallet, or the managing station's
+    routes for a managed wallet — so callers never assemble them by hand.
+    ``None`` when the public base URL isn't configured (bundles still ship).
+    """
+
+    bundles: list[dict[str, Any]]
+    """Purchase catalog: ``{"name": str, "amount": float}`` per bundle."""
+
+    payment_url: str | None
+    """Where a buyer starts a hosted checkout."""
+
+    invoices_url: str | None
+    """Where a buyer lists their own purchases."""
+
+    credits_url: str | None
+    """Where a buyer reads their current balance."""
+
+    owner: int | None = None
+    """SyftHub user id of the wallet's owner — set only when that owner is
+    not the account this space publishes under (i.e. a managing station's
+    admin), so its presence is the "managed" signal. The hub resolves the id
+    to a username to mint buyer tokens with the right audience, shows the
+    space as hosted by that user, and groups every space on the wallet as
+    one shared balance. Absent: the publishing account owns the wallet."""
+
+
+@dataclass
 class SetupResult:
     """Result of a wallet setup operation.
 
@@ -98,15 +132,16 @@ class WalletProvider(Protocol):
         """
         ...
 
-    def extract_bundles(
-        self, configuration: dict[str, Any]
-    ) -> list[dict[str, Any]] | None:
-        """Return the prepaid-balance bundle catalog for this wallet.
+    def payment_info(
+        self, configuration: dict[str, Any], wallet_id: UUID
+    ) -> PaymentInfo | None:
+        """Return the buyer-facing payment info for this wallet.
 
-        Returns a list of ``{"name": str, "amount": float}`` dicts for
-        prepaid-balance providers (Stripe, Xendit) so SyftHub can render
-        purchase options. Returns ``None`` for wallet types that don't use
-        prepaid bundles (e.g., MPP blockchain wallets where balance is
-        held on-chain).
+        Bundles plus the URLs where buyers top up, list purchases, and read
+        their balance — each provider builds its own URLs so they point at
+        wherever the balance lives (this space, or a managing station).
+
+        Returns ``None`` for wallet types with no prepaid balance to buy
+        (e.g., MPP blockchain wallets where balance is held on-chain).
         """
         ...
