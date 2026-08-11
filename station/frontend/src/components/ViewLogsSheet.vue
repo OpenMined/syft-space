@@ -18,6 +18,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
+// TODO: everything below fabricates a plausible log tail — the station has
+// no log endpoint yet. Replace seedLines/liveLine with a real stream (e.g.
+// read_namespaced_pod_log via the backend) when it lands.
 const lines = ref<string[]>([])
 const logBox = ref<HTMLElement | null>(null)
 let timer: ReturnType<typeof setInterval> | undefined
@@ -39,9 +42,6 @@ function seedLines(space: Space): string[] {
     [93, `INFO   syft.vector  connected to shared ChromaDB (database: ${slug})`],
     [92, 'INFO   syft.docling using remote docling-serve'],
   ]
-  if (space.walletSeeded) {
-    seeded.push([91, 'INFO   syft.wallet  default wallet present — seed skipped (idempotent)'])
-  }
   seeded.push([90, 'INFO   uvicorn      Application startup complete'])
   seeded.push([45, 'INFO   syft.hub     heartbeat ok (next in 60s)'])
   seeded.push([12, 'INFO   uvicorn      GET /healthcheck 200 2ms'])

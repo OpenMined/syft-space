@@ -13,6 +13,7 @@ from syft_station.components.provision.manifests import (
 SETTINGS = SimpleNamespace(
     namespace="syft-spaces",
     space_image="openmined/syft-space",
+    space_scheme="https",
     ingress_class="traefik",
     space_pvc_size="2Gi",
     space_cpu_request="250m",
@@ -23,6 +24,8 @@ SETTINGS = SimpleNamespace(
     chromadb_port=8100,
     docling_url="http://docling-serve:5001",
     managed_by_name="Syft Station",
+    space_host_mount=False,
+    space_tls_secret="",
     syfthub_url="https://hub.test/",
 )
 
@@ -120,6 +123,13 @@ def test_deployment_docling_and_branding(manifests):
     assert env["SYFT_PUBLIC_URL"]["value"] == "https://alpha.spaces.test.org"
 
 
+def test_space_scheme_flows_into_the_public_url():
+    # Dev has no certs: SYFT_STATION_SPACE_SCHEME=http mints http:// URLs.
+    settings = SimpleNamespace(**{**vars(SETTINGS), "space_scheme": "http"})
+    env = _env(render_space_manifests(SPEC, settings)["deployment"])
+    assert env["SYFT_PUBLIC_URL"]["value"] == "http://alpha.spaces.test.org"
+
+
 def test_deployment_points_spaces_at_the_station_syfthub(manifests):
     env = _env(manifests["deployment"])
     # Trailing slash (pydantic HttpUrl str()) is stripped
@@ -131,6 +141,49 @@ def test_deployment_mounts_pvc_at_data(manifests):
     container = pod["containers"][0]
     assert container["volumeMounts"][0]["mountPath"] == "/data"
     assert pod["volumes"][0]["persistentVolumeClaim"]["claimName"] == "space-alpha"
+
+
+def test_no_host_mount_by_default(manifests):
+    # Flag off: no hostPath volume reaches the pod at all.
+    pod = manifests["deployment"]["spec"]["template"]["spec"]
+    assert not any("hostPath" in v for v in pod["volumes"])
+    assert all(m["mountPath"] == "/data" for m in pod["containers"][0]["volumeMounts"])
+
+
+def test_host_mount_flag_adds_readonly_hostpath():
+    settings = SimpleNamespace(**{**vars(SETTINGS), "space_host_mount": True})
+    pod = render_space_manifests(SPEC, settings)["deployment"]["spec"]["template"][
+        "spec"
+    ]
+    volume = next(v for v in pod["volumes"] if "hostPath" in v)
+    # OrCreate: a node with nothing mapped at the path serves an empty dir
+    # rather than a pod stuck ContainerCreating.
+    assert volume["hostPath"] == {
+        "path": "/mnt/host-home",
+        "type": "DirectoryOrCreate",
+    }
+    mount = next(
+        m for m in pod["containers"][0]["volumeMounts"] if m["name"] == volume["name"]
+    )
+    # Inside the container's home — the space's file browser is rooted there
+    # and rejects paths outside it.
+    assert mount == {
+        "name": "host-home",
+        "mountPath": "/root/host-home",
+        "readOnly": True,
+    }
+
+
+def test_no_ingress_tls_by_default(manifests):
+    assert "tls" not in manifests["ingress"]["spec"]
+
+
+def test_tls_secret_terminates_tls_at_the_space_ingress():
+    settings = SimpleNamespace(**{**vars(SETTINGS), "space_tls_secret": "spaces-tls"})
+    ingress = render_space_manifests(SPEC, settings)["ingress"]
+    assert ingress["spec"]["tls"] == [
+        {"hosts": ["alpha.spaces.test.org"], "secretName": "spaces-tls"}
+    ]
 
 
 def test_deployment_health_probes_hit_the_contract_path(manifests):
@@ -184,3 +237,61 @@ def test_real_config_satisfies_render_settings():
     assert manifests["deployment"]["spec"]["template"]["spec"]["containers"][0][
         "image"
     ].startswith("openmined/syft-space:")
+
+
+# ============== Managed credits (conditional Secret keys) ==============
+
+_CREDITS_KEYS = (
+    "SYFT_CLUSTER_CREDITS_URL",
+    "SYFT_CLUSTER_CREDITS_TOKEN",
+    "SYFT_CLUSTER_CREDITS_CURRENCY",
+    "SYFT_CLUSTER_WALLET_OWNER",
+    "SYFT_CLUSTER_BUNDLES",
+)
+
+
+def test_secret_without_wallet_has_no_credits_keys(manifests):
+    for key in _CREDITS_KEYS:
+        assert key not in manifests["secret"]["stringData"]
+
+
+def test_secret_with_wallet_carries_the_grant():
+    spec = SPEC.model_copy(
+        update={
+            "credits_url": "http://syft-station:8090",
+            "credits_token": "sct_granttoken",
+            "credits_currency": "PHP",
+            "credits_wallet_owner": "42",
+            "credits_bundles": '[{"name": "Starter", "amount": 100}]',
+        }
+    )
+    secret = render_space_manifests(spec, SETTINGS)["secret"]["stringData"]
+    assert secret["SYFT_CLUSTER_CREDITS_URL"] == "http://syft-station:8090"
+    assert secret["SYFT_CLUSTER_CREDITS_TOKEN"] == "sct_granttoken"
+    assert secret["SYFT_CLUSTER_CREDITS_CURRENCY"] == "PHP"
+    assert secret["SYFT_CLUSTER_WALLET_OWNER"] == "42"
+    assert secret["SYFT_CLUSTER_BUNDLES"] == '[{"name": "Starter", "amount": 100}]'
+
+
+def test_secret_omits_empty_owner_and_bundles():
+    """The space parses these as int/JSON, so an empty string would crash it
+    at boot — with-wallet-but-without-them means the keys are absent."""
+    spec = SPEC.model_copy(
+        update={
+            "credits_url": "http://syft-station:8090",
+            "credits_token": "sct_granttoken",
+            "credits_currency": "PHP",
+        }
+    )
+    secret = render_space_manifests(spec, SETTINGS)["secret"]["stringData"]
+    assert "SYFT_CLUSTER_WALLET_OWNER" not in secret
+    assert "SYFT_CLUSTER_BUNDLES" not in secret
+
+
+def test_deployment_credits_env_is_optional_secret_refs(manifests):
+    """The Deployment is static: credits env comes from optional secretKeyRefs,
+    so a wallet-less space simply has the vars unset (seed-on-boot no-ops)."""
+    env = _env(manifests["deployment"])
+    for key in _CREDITS_KEYS:
+        ref = env[key]["valueFrom"]["secretKeyRef"]
+        assert ref == {"name": "space-alpha", "key": key, "optional": True}

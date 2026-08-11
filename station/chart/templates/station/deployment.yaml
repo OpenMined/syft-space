@@ -57,6 +57,12 @@ spec:
               value: {{ .Values.spaces.memoryRequest | quote }}
             - name: SYFT_STATION_SPACE_MEMORY_LIMIT
               value: {{ .Values.spaces.memoryLimit | quote }}
+            - name: SYFT_STATION_SPACE_SCHEME
+              value: {{ .Values.spaces.scheme | quote }}
+            - name: SYFT_STATION_SPACE_TLS_SECRET
+              value: {{ include "syft-station.spaceTlsSecret" . | quote }}
+            - name: SYFT_STATION_SPACE_HOST_MOUNT
+              value: {{ .Values.spaces.hostMount | quote }}
             - name: SYFT_STATION_MANAGED_BY_NAME
               value: {{ .Values.spaces.managedByName | quote }}
             - name: SYFT_STATION_CHROMADB_HOST
@@ -65,6 +71,17 @@ spec:
               value: {{ .Values.chromadb.service.port | quote }}
             - name: SYFT_STATION_DOCLING_URL
               value: {{ include "syft-station.doclingUrl" . | quote }}
+            # In-cluster URL minted into each space Secret as
+            # SYFT_CLUSTER_CREDITS_URL — spaces reach the credits API via the
+            # station Service, no ingress round-trip.
+            - name: SYFT_STATION_CREDITS_URL
+              value: "http://{{ include "syft-station.fullname" . }}:8090"
+            # The station's own public base URL (its ingress host), minted into
+            # each space Secret as SYFT_CLUSTER_PUBLIC_URL — buyers reach
+            # checkout/balance here. Onboarding shows this host and hangs spaces
+            # off it (optionally under a prefix), so this is the single source.
+            - name: SYFT_STATION_PUBLIC_URL
+              value: {{ include "syft-station.publicUrl" . | quote }}
             {{- range $k, $v := .Values.station.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}

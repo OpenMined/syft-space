@@ -12,18 +12,32 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from loguru import logger
 from pydantic import BaseModel
 
+from syft_station.components.shared.email import NormalizedEmail
 from syft_station.config import app_settings
 
-SESSION_COOKIE = "syft_station_session"
+# The __Host- prefix binds the cookie to host-only + Secure + Path=/, which
+# browsers enforce: a space served on a sibling/child subdomain can then
+# neither read, set, nor shadow the station's session. Browsers only honor
+# __Host- on Secure cookies, so the dev loops (plain HTTP) fall back to the
+# bare name; the signed payload is the real forgery backstop in both cases.
+SESSION_COOKIE = (
+    "__Host-syft_station_session"
+    if app_settings.session_cookie_secure
+    else "syft_station_session"
+)
 
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
 
 
 class SessionUser(BaseModel):
-    """The signed session payload."""
+    """The signed session payload.
 
-    email: str
+    The email is normalized at parse time so a cookie minted before emails
+    were lowercased still compares equal to today's stored rows.
+    """
+
+    email: NormalizedEmail
     username: str
     name: str
     role: str
@@ -55,11 +69,19 @@ def set_session_cookie(response: Response, user: SessionUser) -> None:
         httponly=True,
         samesite="lax",
         secure=app_settings.session_cookie_secure,
+        path="/",  # required for the __Host- prefix
     )
 
 
 def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE)
+    # Match the set attributes so the browser clears the __Host- cookie.
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=app_settings.session_cookie_secure,
+    )
 
 
 def get_current_user(request: Request) -> SessionUser:

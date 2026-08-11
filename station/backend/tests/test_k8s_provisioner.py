@@ -1,10 +1,12 @@
 """K8sProvisioner apply/wait/delete — driven by a recording fake, no cluster."""
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
 from kubernetes.client.rest import ApiException
 
+from syft_station.components.provision import k8s as k8s_module
 from syft_station.components.provision.interfaces import (
     ProvisionError,
     SpaceRuntimeStatus,
@@ -15,6 +17,7 @@ from syft_station.components.provision.k8s import K8sProvisioner
 SETTINGS = SimpleNamespace(
     namespace="syft-spaces",
     space_image="openmined/syft-space",
+    space_scheme="https",
     ingress_class="traefik",
     space_pvc_size="2Gi",
     space_cpu_request="250m",
@@ -25,6 +28,8 @@ SETTINGS = SimpleNamespace(
     chromadb_port=8100,
     docling_url="http://docling-serve:5001",
     managed_by_name="Syft Station",
+    space_host_mount=False,
+    space_tls_secret="",
     syfthub_url="https://hub.test",
     provision_timeout_seconds=5,
     provision_poll_interval_seconds=0.01,
@@ -54,6 +59,12 @@ class FakeKube:
         self.spec_replicas = 1  # what read_namespaced_deployment reports
         self.available_replicas = 1
         self.deployment_missing = False  # read raises 404
+        self.deployment_patches: list[dict] = []  # bodies passed to patch
+        self.pods: list = []  # returned by list_namespaced_pod
+        self.pod_list_selectors: list[str] = []
+        self.pod_log = ""  # returned by read_namespaced_pod_log
+        self.pod_log_error = False  # log read raises
+        self.log_requests: list[dict] = []
         self.core = self.apps = self.networking = self
 
     def check_connection(self) -> str:
@@ -86,6 +97,7 @@ class FakeKube:
 
     def patch_namespaced_deployment(self, name, namespace, body):
         self.calls.append(("patch", "deployment", name))
+        self.deployment_patches.append(body)
 
     def patch_namespaced_service(self, name, namespace, body):
         self.calls.append(("patch", "service", name))
@@ -114,6 +126,26 @@ class FakeKube:
     def delete_namespaced_ingress(self, name, namespace):
         self._delete("ingress", name)
 
+    # -- pods --
+    def list_namespaced_pod(self, namespace, label_selector=None):
+        self.pod_list_selectors.append(label_selector)
+        return SimpleNamespace(items=self.pods)
+
+    def read_namespaced_pod_log(
+        self, name, namespace, container=None, previous=None, tail_lines=None
+    ):
+        self.log_requests.append(
+            {
+                "name": name,
+                "container": container,
+                "previous": previous,
+                "tail_lines": tail_lines,
+            }
+        )
+        if self.pod_log_error:
+            raise ApiException(status=400, reason="no previous container")
+        return self.pod_log
+
     # -- status --
     def read_namespaced_deployment_status(self, name, namespace):
         self.status_read_count += 1
@@ -138,6 +170,48 @@ class FakeKube:
 
 def verbs(calls, verb):
     return [(kind, name) for v, kind, name in calls if v == verb]
+
+
+def make_pod(
+    reason=None,
+    message=None,
+    image="ghcr.io/openmined/syft-space:dev",
+    phase="Pending",
+    unschedulable=False,
+    deleting=False,
+    created=None,
+    init=False,
+    name="space-alpha-abc123",
+):
+    """A pod SimpleNamespace with one container in the given waiting state."""
+    waiting = SimpleNamespace(reason=reason, message=message) if reason else None
+    cs = SimpleNamespace(
+        name="space", image=image, state=SimpleNamespace(waiting=waiting)
+    )
+    conditions = (
+        [SimpleNamespace(type="PodScheduled", status="False", reason="Unschedulable")]
+        if unschedulable
+        else []
+    )
+    return SimpleNamespace(
+        metadata=SimpleNamespace(
+            name=name,
+            deletion_timestamp="2026-01-01T00:00:00Z" if deleting else None,
+            creation_timestamp=created,
+        ),
+        status=SimpleNamespace(
+            phase=phase,
+            conditions=conditions,
+            container_statuses=None if init else [cs],
+            init_container_statuses=[cs] if init else None,
+        ),
+    )
+
+
+def with_timeout(seconds):
+    return SimpleNamespace(
+        **{**SETTINGS.__dict__, "provision_timeout_seconds": seconds}
+    )
 
 
 @pytest.fixture
@@ -174,8 +248,7 @@ async def test_provision_waits_until_deployment_available(provisioner, kube):
 
 async def test_provision_times_out_to_provision_error(kube):
     kube.available_after_reads = 999  # never becomes available
-    settings = SimpleNamespace(**{**SETTINGS.__dict__, "provision_timeout_seconds": 0})
-    provisioner = K8sProvisioner(kube, settings)
+    provisioner = K8sProvisioner(kube, with_timeout(0))
 
     with pytest.raises(ProvisionError, match="did not become available"):
         await provisioner.provision(SPEC)
@@ -202,6 +275,152 @@ async def test_api_error_on_create_becomes_provision_error(provisioner, kube):
         await provisioner.provision(SPEC)
 
 
+# ============== status-aware wait ==============
+
+
+async def test_image_pull_backoff_fails_fast_with_image_and_detail(provisioner, kube):
+    kube.available_after_reads = 999
+    kube.pods = [make_pod(reason="ImagePullBackOff", message="manifest not found")]
+
+    with pytest.raises(ProvisionError) as e:
+        await provisioner.provision(SPEC)
+
+    msg = str(e.value)
+    assert "ImagePullBackOff" in msg
+    assert "ghcr.io/openmined/syft-space:dev" in msg
+    assert "manifest not found" in msg
+    # Failed on the first tick — the 5s timeout was not burned.
+    assert kube.status_read_count == 1
+    assert kube.pod_list_selectors == ["syftcluster.openmined.org/space=alpha"]
+
+
+async def test_crash_loop_fails_fast_with_log_tail(provisioner, kube):
+    kube.available_after_reads = 999
+    kube.pods = [make_pod(reason="CrashLoopBackOff")]
+    kube.pod_log = "Traceback (most recent call last):\n  ValueError: boom\n"
+
+    with pytest.raises(ProvisionError, match="CrashLoopBackOff") as e:
+        await provisioner.provision(SPEC)
+
+    assert "ValueError: boom" in str(e.value)
+    (req,) = kube.log_requests
+    assert req["previous"] is True
+    assert req["tail_lines"] == 5
+    assert req["container"] == "space"
+
+
+async def test_crash_loop_log_fetch_failure_still_reports_crash(provisioner, kube):
+    kube.available_after_reads = 999
+    kube.pods = [make_pod(reason="CrashLoopBackOff")]
+    kube.pod_log_error = True
+
+    with pytest.raises(ProvisionError, match="CrashLoopBackOff"):
+        await provisioner.provision(SPEC)
+
+
+async def test_config_error_passes_kubelet_message_through(provisioner, kube):
+    kube.available_after_reads = 999
+    kube.pods = [
+        make_pod(
+            reason="CreateContainerConfigError",
+            message='secret "space-alpha" not found',
+        )
+    ]
+
+    with pytest.raises(ProvisionError, match='secret "space-alpha" not found'):
+        await provisioner.provision(SPEC)
+
+
+async def test_fatal_state_in_init_container_is_seen(provisioner, kube):
+    kube.available_after_reads = 999
+    kube.pods = [make_pod(reason="InvalidImageName", init=True)]
+
+    with pytest.raises(ProvisionError, match="InvalidImageName"):
+        await provisioner.provision(SPEC)
+
+
+async def test_err_image_pull_alone_keeps_waiting(provisioner, kube):
+    # A registry blip surfaces as ErrImagePull before the kubelet escalates
+    # to BackOff — it gets natural grace rather than an instant failure.
+    kube.available_after_reads = 3
+    kube.pods = [make_pod(reason="ErrImagePull", message="registry blip")]
+
+    await provisioner.provision(SPEC)
+
+
+async def test_container_creating_never_fails_early(provisioner, kube):
+    kube.available_after_reads = 3
+    kube.pods = [make_pod(reason="ContainerCreating")]
+
+    await provisioner.provision(SPEC)
+
+    assert kube.status_read_count == 4
+
+
+async def test_timeout_message_carries_last_observed_state(kube):
+    kube.available_after_reads = 999
+    kube.pods = [make_pod(unschedulable=True)]  # not fatal — kept waiting
+    provisioner = K8sProvisioner(kube, with_timeout(0))
+
+    with pytest.raises(ProvisionError, match=r"last state: Unschedulable"):
+        await provisioner.provision(SPEC)
+
+
+async def test_progress_extends_deadline_past_base_timeout(kube, monkeypatch):
+    # Uncap the extension so timing jitter can't hit the hard deadline.
+    monkeypatch.setattr(k8s_module, "_DEADLINE_CAP_FACTOR", 1000)
+    kube.available_after_reads = 10  # ~10 ticks of work vs a 0.02s timeout
+    kube.pods = [make_pod(reason="ContainerCreating")]
+    provisioner = K8sProvisioner(kube, with_timeout(0.02))
+
+    await provisioner.provision(SPEC)  # would time out without extension
+
+
+async def test_ambiguous_state_does_not_extend_deadline(kube):
+    kube.available_after_reads = 999
+    kube.pods = [make_pod(phase="Pending")]  # no waiting reason — ambiguous
+    provisioner = K8sProvisioner(kube, with_timeout(0.02))
+
+    with pytest.raises(ProvisionError, match="last state: Pending"):
+        await provisioner.provision(SPEC)
+
+    assert kube.status_read_count < 10
+
+
+async def test_hard_cap_bounds_even_continuous_progress(kube):
+    kube.available_after_reads = 999
+    kube.pods = [make_pod(reason="ContainerCreating")]
+    provisioner = K8sProvisioner(kube, with_timeout(0.02))
+
+    with pytest.raises(ProvisionError, match="did not become available"):
+        await provisioner.provision(SPEC)
+
+
+async def test_terminating_pods_are_ignored(kube):
+    kube.available_after_reads = 999
+    kube.pods = [make_pod(reason="ImagePullBackOff", deleting=True)]
+    provisioner = K8sProvisioner(kube, with_timeout(0))
+
+    with pytest.raises(ProvisionError, match="last state: no pods observed"):
+        await provisioner.provision(SPEC)
+
+
+async def test_newest_pod_wins_over_old_crashing_pod(provisioner, kube):
+    old = make_pod(
+        reason="CrashLoopBackOff",
+        created=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    new = make_pod(
+        reason="ContainerCreating",
+        created=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    kube.available_after_reads = 3
+    kube.pods = [old, new]
+
+    # The old attempt's crash is not this attempt's verdict.
+    await provisioner.provision(SPEC)
+
+
 # ============== deprovision ==============
 
 
@@ -224,6 +443,18 @@ async def test_deprovision_ignores_missing_resources(provisioner, kube):
     kube.notfound_delete = {"ingress", "service", "deployment", "secret"}
     # Should not raise despite every delete 404-ing.
     await provisioner.deprovision("alpha", purge=False)
+
+
+# ============== restart ==============
+
+
+async def test_restart_bumps_pod_template_annotation(provisioner, kube):
+    await provisioner.restart("alpha")
+
+    assert ("patch", "deployment", "space-alpha") in kube.calls
+    (body,) = kube.deployment_patches
+    annotations = body["spec"]["template"]["metadata"]["annotations"]
+    assert "syftcluster.openmined.org/restartedAt" in annotations
 
 
 # ============== pause / resume / status ==============

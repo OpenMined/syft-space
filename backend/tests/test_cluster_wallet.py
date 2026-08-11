@@ -283,8 +283,8 @@ async def test_seed_noop_without_env():
 
 
 async def test_seed_creates_wallet_from_env(monkeypatch):
-    monkeypatch.setattr(app_settings, "cluster_credits_url", "http://cluster:9000")
-    monkeypatch.setattr(app_settings, "cluster_credits_token", "tok-1")
+    monkeypatch.setattr(app_settings.cluster, "credits_url", "http://cluster:9000")
+    monkeypatch.setattr(app_settings.cluster, "credits_token", "tok-1")
     repo = _FakeWalletRepo()
 
     await seed_cluster_wallet(repo, TENANT)
@@ -296,8 +296,8 @@ async def test_seed_creates_wallet_from_env(monkeypatch):
 
 
 async def test_seed_upserts_rotated_token(monkeypatch):
-    monkeypatch.setattr(app_settings, "cluster_credits_url", "http://cluster:9000")
-    monkeypatch.setattr(app_settings, "cluster_credits_token", "tok-2")
+    monkeypatch.setattr(app_settings.cluster, "credits_url", "http://cluster:9000")
+    monkeypatch.setattr(app_settings.cluster, "credits_token", "tok-2")
 
     class _Existing:
         id = uuid4()
@@ -315,8 +315,8 @@ async def test_seed_upserts_rotated_token(monkeypatch):
 
 
 async def test_seed_noop_when_config_unchanged(monkeypatch):
-    monkeypatch.setattr(app_settings, "cluster_credits_url", "http://cluster:9000")
-    monkeypatch.setattr(app_settings, "cluster_credits_token", "tok-1")
+    monkeypatch.setattr(app_settings.cluster, "credits_url", "http://cluster:9000")
+    monkeypatch.setattr(app_settings.cluster, "credits_token", "tok-1")
 
     class _Existing:
         id = uuid4()
@@ -340,15 +340,96 @@ def test_seed_module_reads_settings_lazily():
 
 def test_display_managed_by_from_env(monkeypatch):
     from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
-    from syft_space.config import AppSettings
+    from syft_space.config import ClusterSettings
 
     provider = ClusterWalletProvider()
-    monkeypatch.setattr(app_settings, "cluster_managed_by", "Acme Research Station")
+    monkeypatch.setattr(app_settings.cluster, "managed_by", "Acme Research Station")
     assert provider.extract_display({}, uuid4()) == {
         "managed_by": "Acme Research Station"
     }
 
-    assert AppSettings.model_fields["cluster_managed_by"].default == "Syft Space Host"
+    # Empty default = not station-managed; the display falls back at the
+    # use site instead of a truthy config default masking managed mode.
+    assert ClusterSettings.model_fields["managed_by"].default == ""
+    monkeypatch.setattr(app_settings.cluster, "managed_by", "")
+    assert provider.extract_display({}, uuid4()) == {"managed_by": "Syft Space Host"}
+
+
+async def test_seed_adopts_injected_wallet_id(monkeypatch):
+    """The station's wallet id is used verbatim as the cluster wallet's id."""
+    station_wallet_id = uuid4()
+    monkeypatch.setattr(app_settings.cluster, "credits_url", "http://cluster:9000")
+    monkeypatch.setattr(app_settings.cluster, "credits_token", "tok-1")
+    monkeypatch.setattr(app_settings.cluster, "credits_wallet_id", station_wallet_id)
+    repo = _FakeWalletRepo()
+
+    await seed_cluster_wallet(repo, TENANT)
+
+    assert repo.created[0]["wallet_id"] == station_wallet_id
+
+
+def _cluster_config(currency: str = "PHP") -> dict[str, Any]:
+    return ClusterWalletConfig(
+        credits_url="http://cluster:9000",
+        service_token="sct_x",
+        currency=currency,
+    ).model_dump()
+
+
+def test_cluster_payment_info_points_at_station(monkeypatch):
+    from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
+
+    monkeypatch.setattr(
+        app_settings.cluster, "public_url", "https://station.example.com"
+    )
+    monkeypatch.setattr(app_settings.cluster, "wallet_owner", 42)
+    monkeypatch.setattr(app_settings.cluster, "bundles", None)
+    wallet_id = uuid4()
+    info = ClusterWalletProvider().payment_info(_cluster_config("PHP"), wallet_id)
+
+    # Bundles fall back to the per-currency catalog (no injected catalog)...
+    assert {"name": "Starter", "amount": 100} in info.bundles
+    # ...and every URL targets the station, scoped to this wallet id, with
+    # the same suffixes as the self-hosted gateway routes.
+    base = f"https://station.example.com/api/v1/credits/{wallet_id}"
+    assert info.payment_url == f"{base}/invoices"
+    assert info.invoices_url == f"{base}/invoices/me"
+    assert info.credits_url == f"{base}/balance"
+    # ...owned by the station admin's hub user id — the presence of an
+    # owner is what marks the wallet as managed.
+    assert info.owner == 42
+
+
+def test_cluster_payment_info_prefers_injected_bundles(monkeypatch):
+    """A station-injected catalog wins over the static table — spaces then
+    advertise exactly what the station will price."""
+    from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
+
+    injected = [{"name": "Custom", "amount": 250}]
+    monkeypatch.setattr(
+        app_settings.cluster, "public_url", "https://station.example.com"
+    )
+    monkeypatch.setattr(app_settings.cluster, "bundles", injected)
+    info = ClusterWalletProvider().payment_info(_cluster_config("PHP"), uuid4())
+
+    assert info.bundles == injected
+
+
+def test_cluster_payment_info_without_public_url(monkeypatch):
+    from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
+
+    monkeypatch.setattr(app_settings.cluster, "public_url", None)
+    monkeypatch.setattr(app_settings.cluster, "wallet_owner", 42)
+    monkeypatch.setattr(app_settings.cluster, "bundles", None)
+    info = ClusterWalletProvider().payment_info(_cluster_config("PHP"), uuid4())
+
+    # Bundles still ship so a marketplace can render them; URLs are withheld.
+    assert info.bundles
+    assert info.payment_url is None
+    assert info.invoices_url is None
+    assert info.credits_url is None
+    # Still recognizably managed (owner present), just without a link.
+    assert info.owner == 42
 
 
 # ============== Exclusivity guards ==============

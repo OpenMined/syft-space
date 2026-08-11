@@ -93,6 +93,16 @@
           </div>
         </div>
 
+        <!-- Managed spaces: the station assigned the URL; it stays editable -->
+        <div v-else-if="managedMode" class="space-y-2">
+          <Label for="custom-domain">Your Public URL</Label>
+          <Input id="custom-domain" v-model="customUrl" type="url" />
+          <p class="text-sm text-muted-foreground">
+            Set up for you by your space host — edit it only if your space is reachable at a
+            different address
+          </p>
+        </div>
+
         <!-- Radio options -->
         <div v-else class="space-y-4">
           <!-- Subdomain option -->
@@ -759,6 +769,9 @@ const loadingNetwork = ref(true)
 const saving = ref(false)
 const networkMode = ref<'subdomain' | 'custom'>('subdomain')
 const customUrl = ref(window.location.origin)
+// Managed spaces only edit their URL — the SyftHub tunnel option is gone
+// (the backend refuses the connect too).
+const managedMode = ref(false)
 const diagnosticsEnabled = ref(false)
 
 // Wallet state
@@ -798,16 +811,21 @@ const fetchDiagnostics = async () => {
 const fetchNetworkConfig = async () => {
   loadingNetwork.value = true
   try {
-    const [publicUrlRes, proxyRes] = await Promise.all([
+    const [publicUrlRes, proxyRes, managedRes] = await Promise.all([
       settingsApi.getPublicUrl(),
       settingsApi.getProxyStatus(),
+      settingsApi.getManaged(),
     ])
 
     proxyStatus.connected = proxyRes.connected
     proxyStatus.publicUrl = proxyRes.public_url
     proxyStatus.hasToken = proxyRes.has_token
+    managedMode.value = managedRes.managed
 
-    if (proxyRes.has_token) {
+    if (managedRes.managed) {
+      networkMode.value = 'custom'
+      if (publicUrlRes.public_url) customUrl.value = publicUrlRes.public_url
+    } else if (proxyRes.has_token) {
       networkMode.value = 'subdomain'
     } else if (publicUrlRes.public_url) {
       networkMode.value = 'custom'

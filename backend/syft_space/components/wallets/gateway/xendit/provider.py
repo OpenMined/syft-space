@@ -14,7 +14,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from syft_space.components.wallets.gateway.xendit.config import XenditWalletConfig
-from syft_space.components.wallets.interfaces import SetupResult
+from syft_space.components.wallets.interfaces import PaymentInfo, SetupResult
 from syft_space.config import app_settings
 
 
@@ -83,10 +83,22 @@ class XenditWalletProvider:
         updated = config.model_copy(update=updates)
         return updated.model_dump()
 
-    def extract_bundles(
-        self, configuration: dict[str, Any]
-    ) -> list[dict[str, Any]] | None:
+    def payment_info(
+        self, configuration: dict[str, Any], wallet_id: UUID
+    ) -> PaymentInfo | None:
         config = XenditWalletConfig(**configuration)
-        return [
+        bundles = [
             {"name": b.name, "amount": b.amount} for b in config.prepaid_balance_bundles
         ]
+        if not app_settings.public_url:
+            return PaymentInfo(bundles, None, None, None)
+        prefix = (
+            f"{str(app_settings.public_url).rstrip('/')}"
+            f"/api/v1/payments/gateway/wallets/{wallet_id}"
+        )
+        return PaymentInfo(
+            bundles=bundles,
+            payment_url=f"{prefix}/invoices",
+            invoices_url=f"{prefix}/invoices/me",
+            credits_url=f"{prefix}/balance",
+        )

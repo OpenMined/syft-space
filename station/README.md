@@ -1,47 +1,114 @@
-# Syft Station
+# <img src="docs/assets/syft-station-icon.svg" alt="Syft Station" width="40" align="center"> Syft Station
 
-> **Spin up your own Space, dock it to the Station.** Share the station, never your data.
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688)](https://fastapi.tiangolo.com/)
+[![Vue](https://img.shields.io/badge/Vue-3-4FC08D)](https://vuejs.org/)
+[![Helm](https://img.shields.io/badge/Helm-chart-0F1689)](https://helm.sh/)
+[![License](https://img.shields.io/github/license/OpenMined/syft-space)](../LICENSE)
 
-Control plane for running a Syft Station: shared infrastructure (ChromaDB +
-docling-serve) plus a signup/approval flow that provisions individual
-syft-space instances on Kubernetes. Design: see `station.md` at the repo
-root.
+> **Spin up your own Space, dock it to the Station.** Share the infrastructure, never your data.
 
-Independent of syft-space by design — the only contract between them is the
-syft-space container image, its `SYFT_*` env vars, and its health endpoint.
+![Syft Station Architecture](docs/assets/architecture.png)
 
-## Structure
+## What is Syft Station?
 
-- `backend/` — FastAPI control-plane server (scaffold; SyftHub sign-in proxy,
-  request queue, k8s provisioner to come)
-- `frontend/` — Vue 3 + TypeScript + Tailwind + shadcn/ui (same stack as
-  syft-space). Currently a **UX prototype with mocked data** for the member
-  signup flow and the admin dashboard.
+Syft Station lets one organization run **[Syft Spaces](../README.md) for all
+of its members on shared Kubernetes infrastructure**. Members sign in with
+their SyftHub account and request a space; the station admin approves; the
+station provisions each space at its own subdomain — backed by shared
+services (ChromaDB, docling-serve) so no member runs their own.
 
-## Frontend prototype
+Each space stays fully member-owned: the station manages the
+infrastructure, never the data.
+
+**Key benefits:**
+
+- **🚀 One-click spaces** — members get a running, publicly reachable space without touching Kubernetes
+- **🔒 Member-owned data** — the station provisions and manages; each space's data belongs to its owner
+- **📦 Shared heavy lifting** — one ChromaDB and one docling-serve serve every space
+- **💰 One wallet, many spaces** — buyers purchase credits once and spend them at any space on the station; the station tracks each member's earnings
+- **🛡️ Admin control** — review every request, pick the syft-space version, restart/update/pause any space from one dashboard
+
+## How it works
+
+![The life of a space](docs/assets/lifecycle.png)
+
+- **Members** sign in with SyftHub, request a space by name and subdomain,
+  and track its status. Once live, they open it through a one-click admin
+  link, load their documents, and publish endpoints to SyftHub.
+- **The admin** reviews requests (tweak the name or subdomain, attach the
+  shared wallet, approve or reject with a reason), then manages the fleet:
+  restart, pause, update every space to a new syft-space version, and pay
+  members out for what their spaces earned.
+- **Buyers** never touch the station UI — they buy credits through
+  SyftHub (Xendit or Stripe checkout) and spend them at any space on the
+  station.
+
+## 🚀 Run a station
+
+The Helm chart deploys everything — the station, the shared backends, and
+per-space defaults:
 
 ```bash
-cd frontend
-bun install
-bun dev          # http://localhost:5174
+helm install syft-station oci://ghcr.io/openmined/charts/syft-station \
+  --version <version> \
+  --namespace syft-spaces --create-namespace \
+  --set station.adminEmail=you@your-org.com \
+  --set station.ingress.host=station.your-org.com
 ```
 
-All data is in-memory and mocked (resets on refresh):
+Then:
 
-- Sign in with any email/password (mock SyftHub sign-in; profile is prefabbed
-  from the email).
-- Member view (`/`): request a space, track "My requests", one-time API key
-  reveal when a space goes active.
-- Admin view (`/admin`): pending request queue with the approve
-  (review-and-tweak) modal and reject flow; Spaces tab with health, restart,
-  delete, purge.
-- Approvals "provision" after a simulated delay, then appear under Spaces.
-  Name a space with `fail` in it to see the failure + retry path.
+1. **Point DNS at the cluster** — the station host plus a wildcard for
+   the spaces (e.g. `*.station.your-org.com`).
+2. **Open the station** in a browser and sign in with the admin email
+   (a SyftHub account).
+3. **First-run setup** walks you through the spaces' domain, an optional
+   shared wallet, and the syft-space version to deploy.
 
-## Backend
+For HTTPS, bring one certificate covering the station host and the space
+wildcard — details in [docs/deployment.md](docs/deployment.md#tls).
+
+### Local development
 
 ```bash
-cd backend
-uv venv -p 3.12 && uv pip install -e .
-uv run uvicorn syft_station.main:app --reload --port 8090
+just dev up admin=you@org.com   # station on the host with hot reload,
+                                # spaces provisioned into a local k3d cluster
 ```
+
+The station comes up at `http://station.localhost` with the same URLs and
+onboarding as production. See [docs/deployment.md](docs/deployment.md#the-dev-loops).
+
+## 📚 Documentation
+
+Implementation docs live in [`docs/`](docs/README.md) — one page per
+component: [architecture](docs/architecture.md), [auth](docs/auth.md),
+[requests & spaces](docs/requests-and-spaces.md),
+[provisioning](docs/provisioning.md), [credits](docs/credits.md), and
+[deployment](docs/deployment.md).
+
+Deploying to production? Read the
+**[security guidelines](docs/security.md)** first — firewall rules, DNS
+and certificates (with a worked example), and the secrets an admin is
+responsible for.
+
+## 🌐 Part of the Syft Network
+
+A station is how an organization joins the network at scale: every space
+it hosts publishes its endpoints to
+**[SyftHub](https://syfthub.openmined.org)**, where knowledge seekers
+discover and query them — and pay in credits held by the station's shared
+wallet. The station verifies every identity (members and buyers) against
+SyftHub; it stores no passwords of its own.
+
+## 📄 License
+
+Part of the OpenMined ecosystem, licensed under Apache 2.0 — see
+[LICENSE](../LICENSE).
+
+---
+
+<div align="center">
+  <strong>Built with ❤️ by the <a href="https://github.com/OpenMined">OpenMined</a> community</strong><br>
+  <em>Making AI safer through privacy-preserving technology</em>
+</div>

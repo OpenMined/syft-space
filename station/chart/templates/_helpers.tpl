@@ -59,3 +59,31 @@ app.kubernetes.io/component: {{ .component }}
 {{- define "syft-station.doclingUrl" -}}
 {{- printf "http://%s:%v" .Values.docling.service.name .Values.docling.service.port -}}
 {{- end -}}
+
+{{/*
+The station's own public base URL, from its ingress host (scheme tracks TLS).
+Minted into each space Secret as SYFT_CLUSTER_PUBLIC_URL — buyers reach the
+station's checkout/balance here. Always the station host, NOT the spaces'
+parent (they differ when spaces use a subdomain prefix). Empty when the
+ingress is disabled — endpoints then publish bundles but no buyer URLs.
+*/}}
+{{- define "syft-station.publicUrl" -}}
+{{- if .Values.station.ingress.enabled -}}
+{{- $scheme := ternary "https" "http" .Values.station.ingress.tls.enabled -}}
+{{- printf "%s://%s" $scheme .Values.station.ingress.host -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The cert Secret every space Ingress terminates TLS with. spaces.tlsSecret
+names it directly; left empty, spaces inherit the station's TLS Secret (one
+multi-SAN cert — station host + space wildcard — is the normal setup, so
+one Secret serves both). Empty result = space Ingresses stay plain http.
+*/}}
+{{- define "syft-station.spaceTlsSecret" -}}
+{{- if .Values.spaces.tlsSecret -}}
+{{- .Values.spaces.tlsSecret -}}
+{{- else if .Values.station.ingress.tls.enabled -}}
+{{- .Values.station.ingress.tls.secretName -}}
+{{- end -}}
+{{- end -}}
