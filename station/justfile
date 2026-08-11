@@ -78,6 +78,33 @@ ensure-cluster: bootstrap
         echo "WARNING: this cluster predates the host-home mapping — spaces will"
         echo "         see an EMPTY ~/host-home. Recreate to get it: just down, then re-up."
     fi
+    # The API can be dead while the containers sit "Up": k3s occasionally
+    # loses a bootstrap race (its cloud-controller-manager exits on RBAC the
+    # apiserver hasn't created yet) and shuts itself down, leaving kubectl
+    # with EOF. Wait for readiness; if the cluster is wedged, restart it
+    # through k3d once — a fresh k3s bootstrap normally wins the race.
+    api_ready() { kubectl get --raw /readyz >/dev/null 2>&1; }
+    echo "Waiting for the Kubernetes API..."
+    ready=""
+    for _ in $(seq 1 20); do
+        if api_ready; then ready=1; break; fi
+        sleep 3
+    done
+    if [ -z "$ready" ]; then
+        echo "API is not responding — restarting the cluster to retry the k3s bootstrap..."
+        k3d cluster stop {{cluster_name}}
+        k3d cluster start {{cluster_name}}
+        for _ in $(seq 1 40); do
+            if api_ready; then ready=1; break; fi
+            sleep 3
+        done
+    fi
+    if [ -z "$ready" ]; then
+        echo "Kubernetes API still unreachable after a restart. Inspect with:"
+        echo "  docker logs k3d-{{cluster_name}}-server-0 | tail -50"
+        echo "or recreate: just down, then re-up."
+        exit 1
+    fi
     # k3s ships Traefik with ExternalName backends disabled (an SSRF guard for
     # shared clusters, irrelevant here). The chart's dev host-route needs them
     # to proxy station.localhost to the host-run station. k3s's helm controller
