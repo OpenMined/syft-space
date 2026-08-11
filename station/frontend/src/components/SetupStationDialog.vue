@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight, Check, Globe, Lock, Rocket, Tag, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -16,6 +17,7 @@ import VersionSelect from '@/components/VersionSelect.vue'
 import WalletSetupForm from '@/components/WalletSetupForm.vue'
 import WalletSummaryCard from '@/components/WalletSummaryCard.vue'
 import { ApiError } from '@/api/client'
+import { useSessionStore } from '@/stores/session'
 import { useStationStore } from '@/stores/station'
 
 /**
@@ -25,6 +27,16 @@ import { useStationStore } from '@/stores/station'
 const props = defineProps<{ open: boolean }>()
 
 const station = useStationStore()
+const session = useSessionStore()
+const router = useRouter()
+
+// The dialog is not dismissable (setup is what closes it), so it must offer
+// its own way out of the SESSION — otherwise a wrong-account sign-in is
+// trapped behind the overlay with the header's sign-out unreachable.
+function signOut() {
+  session.signOut()
+  router.push({ name: 'signin' })
+}
 
 // Warm the image catalog the moment the wizard opens — the admin spends the
 // domain and wallet steps ahead of the version picker, so by step 3 the
@@ -363,6 +375,19 @@ async function finish() {
           </Button>
         </div>
       </div>
+
+      <!-- Identity escape hatch: setup is mandatory, the session is not. -->
+      <p class="border-t pt-3 text-center text-xs text-muted-foreground">
+        Signed in as <span class="font-medium">{{ session.profile?.email }}</span>
+        · Not you?
+        <button
+          type="button"
+          class="underline underline-offset-2 hover:text-foreground"
+          @click="signOut"
+        >
+          Sign out
+        </button>
+      </p>
     </DialogContent>
   </Dialog>
 </template>
