@@ -24,7 +24,8 @@ deploy: subdomain, owner, version, domain, admin token, credits grant) and
 ## Manifest rendering
 
 `provision/manifests.py` renders the per-space bundle from **real YAML
-templates** (`syft_station/k8s/space/*.yaml`) with `${VAR}` placeholders —
+templates** (`backend/syft_station/k8s/space/*.yaml`) with `${VAR}`
+placeholders —
 reviewable manifests that read like `kubectl get -o yaml` output, filled
 by a plain `string.Template` substitution. Every substituted value is a
 scalar; the env-var set is fixed.
