@@ -30,17 +30,13 @@ async function submit() {
   try {
     const profile = await session.signIn(email.value, password.value)
     toast.success(`Signed in as ${profile.email}`)
-    // The seeding decisions below need the real setup state (domain/onboarded)
     await station.loadSetup().catch(() => {})
-    if (session.isAdmin) {
-      // Wallet/earnings demo data is still mocked (real credits land with
-      // the credits service) — seed it after first-run setup is done so the
-      // setup choices are respected
-      if (station.onboarded) station.seedForDemo(profile.email, profile.fullName)
-      router.push({ name: 'admin' })
+    // Honor a post-sign-in destination (e.g. the /credits checkout link).
+    const redirect = router.currentRoute.value.query.redirect
+    if (typeof redirect === 'string' && redirect) {
+      router.push(redirect)
     } else {
-      station.seedForDemo(profile.email, profile.fullName)
-      router.push({ name: 'member' })
+      router.push({ name: session.isAdmin ? 'admin' : 'member' })
     }
   } catch (error) {
     toast.error(error instanceof ApiError ? error.message : 'Sign-in failed — is the station up?')

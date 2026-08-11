@@ -15,5 +15,5 @@ Station: http://{{ .Values.station.ingress.host }}
 {{- else }}
 
 Station pod is DISABLED (station.enabled=false) — shared backends only.
-Run the station on the host against this cluster:  just dev
+Run the station on the host against this cluster:  just dev up
 {{- end }}

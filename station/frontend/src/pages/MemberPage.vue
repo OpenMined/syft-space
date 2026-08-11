@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { HandCoins, Inbox, LogOut, Plus, User } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import AppHeader from '@/components/AppHeader.vue'
 import MyRequests from '@/components/MyRequests.vue'
 import RequestForm from '@/components/RequestForm.vue'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatMoney } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
@@ -18,9 +19,11 @@ const station = useStationStore()
 const session = useSessionStore()
 const router = useRouter()
 
-// Setup (for the domain in URLs) + this member's requests and spaces
+// Setup (for the domain in URLs) + this member's requests, spaces and earnings
 onMounted(async () => {
   station.loadSetup().catch(() => {})
+  station.loadWallet().catch(() => {})
+  station.loadMemberEarnings().catch(() => {})
   await Promise.all([station.loadRequests(), station.loadSpaces()]).catch(() => {})
   // Land returning members on their requests once real data is in
   if (myRequestCount.value > 0) activeSection.value = 'requests'
@@ -35,6 +38,24 @@ const myRequestCount = computed(() =>
 
 // Land newcomers on the request form, returning members on their spaces
 const activeSection = ref<MemberSection>(myRequestCount.value > 0 ? 'requests' : 'new')
+
+// The admin's decisions land from another session, so coming back to "My
+// requests" refetches, and a background poll moves pending → active (and the
+// space list) without a manual reload.
+watch(activeSection, (section) => {
+  if (section === 'requests') {
+    station.loadRequests().catch(() => {})
+    station.loadSpaces().catch(() => {})
+  }
+})
+
+const REFRESH_INTERVAL_MS = 30_000
+const refreshTimer = setInterval(() => {
+  if (document.hidden) return
+  station.loadRequests().catch(() => {})
+  if (activeSection.value === 'requests') station.loadSpaces().catch(() => {})
+}, REFRESH_INTERVAL_MS)
+onUnmounted(() => clearInterval(refreshTimer))
 
 const navItems = computed(() => [
   {
@@ -51,13 +72,41 @@ function signOut() {
   router.push({ name: 'signin' })
 }
 
+// ---- One space per account (SyftHub limit) ----
+// While a request/space holds the slot, the form is replaced by an
+// explainer that names the blocker and the way out.
+const myLiveRequest = computed(() =>
+  session.profile ? station.liveRequestFor(session.profile.email) : undefined,
+)
+
+const slotExplanations: Record<string, string> = {
+  pending: 'is awaiting review. Withdraw it if you want to request a different space.',
+  provisioning: 'is being set up right now.',
+  active: 'is already running. Ask the station admin to delete it if you want to start over.',
+  failed: 'failed to provision and is with the station admin to retry or delete.',
+}
+
+const withdrawing = ref(false)
+
+async function withdrawLiveRequest() {
+  const request = myLiveRequest.value
+  if (!request) return
+  withdrawing.value = true
+  try {
+    await station.withdrawRequest(request.id)
+    toast('Request withdrawn', { description: request.spaceName })
+  } catch {
+    toast.error('Withdrawing the request failed')
+  } finally {
+    withdrawing.value = false
+  }
+}
+
 // ---- What this member's spaces have earned but not yet been paid ----
-const myEarnings = computed(() => {
-  const email = session.profile?.email
-  return email ? station.earnedBySpace.filter((r) => r.ownerEmail === email) : []
-})
-const totalOwed = computed(() => myEarnings.value.reduce((sum, r) => sum + r.payable, 0))
-const totalEarned = computed(() => myEarnings.value.reduce((sum, r) => sum + r.earned, 0))
+// The headline is payable (earned − already paid out); earned is context.
+const myEarnings = computed(() => station.memberEarnings?.spaces ?? [])
+const totalOwed = computed(() => station.memberEarnings?.total_payable ?? 0)
+const totalEarned = computed(() => station.memberEarnings?.total_earned ?? 0)
 const currency = computed(() => station.wallet?.currency ?? 'USD')
 </script>
 
@@ -136,7 +185,32 @@ const currency = computed(() => station.wallet?.currency ?? 'USD')
 
           <MyRequests v-if="activeSection === 'requests'" />
           <div v-else class="max-w-xl">
-            <RequestForm @submitted="activeSection = 'requests'" />
+            <Card v-if="myLiveRequest">
+              <CardHeader>
+                <CardTitle class="text-base">One space per account</CardTitle>
+                <CardDescription>
+                  Your {{ myLiveRequest.status === 'active' ? 'space' : 'request' }} '{{
+                    myLiveRequest.spaceName
+                  }}'
+                  {{ slotExplanations[myLiveRequest.status] }}
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="flex gap-2">
+                <Button variant="outline" size="sm" @click="activeSection = 'requests'">
+                  View my requests
+                </Button>
+                <Button
+                  v-if="myLiveRequest.status === 'pending'"
+                  variant="destructive"
+                  size="sm"
+                  :disabled="withdrawing"
+                  @click="withdrawLiveRequest"
+                >
+                  Withdraw request
+                </Button>
+              </CardContent>
+            </Card>
+            <RequestForm v-else @submitted="activeSection = 'requests'" />
           </div>
         </div>
       </main>

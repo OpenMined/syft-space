@@ -24,23 +24,42 @@ class Space(SQLModel, table=True):
     owner_email: str = Field(index=True)
     url: str = Field(default="", description="Public URL once provisioned")
     version: str = Field(default="", description="syft-space version deployed")
+    wallet_id: UUID | None = Field(
+        default=None,
+        description="Station wallet this space is attached to (the admin's "
+        "pick at approval; None = no managed credits). The minted "
+        "SpaceCreditToken rows are the materialized binding.",
+    )
+    wallet_opt_out: bool = Field(
+        default=False,
+        description="Admin explicitly declined the wallet at approval. "
+        "Distinguishes 'no wallet existed yet' (backfilled when one is "
+        "added) from 'keep this space unbilled' (left alone).",
+    )
+    restart_required: bool = Field(
+        default=False,
+        description="The space's Secret was patched but the automatic "
+        "restart failed — the running pod still has the old env. Cleared "
+        "by any successful restart, update, or re-provision.",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SpaceToken(SQLModel, table=True):
-    """The space's admin API key, held for a one-time reveal to the owner.
+    """The space's admin API key.
 
-    Plaintext is kept only until the owner reveals it, then cleared. The
-    provisioner injects the token into the space's Secret at creation, so
-    the station never needs it again after reveal.
+    Kept in plaintext: the station mints it into the space's k8s Secret and
+    serves it to the owner as an authToken URL (open-the-space link), so
+    hiding it here would add no protection. Regenerate replaces it, patches
+    the Secret, and restarts the space to apply it.
+
+    ``token`` is nullable only for rows from the retired one-time-reveal
+    era, whose plaintext was cleared — regenerating heals them.
     """
 
     __tablename__ = "space_tokens"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     space_id: UUID = Field(index=True)
-    token: str | None = Field(
-        default=None, description="Plaintext, cleared after first reveal"
-    )
-    revealed_at: datetime | None = Field(default=None)
+    token: str | None = Field(default=None, description="Plaintext admin API key")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

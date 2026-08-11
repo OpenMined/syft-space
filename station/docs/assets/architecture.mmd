@@ -1,0 +1,34 @@
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor": "#eef2ff", "primaryBorderColor": "#4f46e5", "primaryTextColor": "#1e1b4b",
+  "lineColor": "#6366f1", "fontSize": "16px", "fontFamily": "Helvetica"
+}}}%%
+flowchart LR
+    hub["🌐 SyftHub<br/>identity & marketplace"]
+    member(["👤 Member<br/>(space owner)"])
+    admin(["🛠️ Station admin"])
+    buyer(["💳 Buyer"])
+    hub ~~~ member & admin & buyer
+
+    subgraph cluster ["☸️  Kubernetes cluster"]
+        direction LR
+        station["🚉 <b>Syft Station</b><br/>control plane<br/>(API + dashboard)"]
+        subgraph spaces ["Member spaces"]
+            direction TB
+            s1["alice.station.example.com"]
+            s2["bob.station.example.com"]
+        end
+        shared["📦 Shared services<br/>ChromaDB · docling-serve"]
+        station -->|"provisions<br/>& manages"| spaces
+        spaces --> shared
+    end
+
+    member -->|"sign in,<br/>request a space"| station
+    admin -->|"approve · manage<br/>· pay out"| station
+    buyer -->|"buy credits,<br/>spend at any space"| station
+    hub <-.->|"verify identities ·<br/>list endpoints"| station
+
+    style cluster fill:#f8fafc,stroke:#94a3b8
+    style spaces fill:#ecfdf5,stroke:#10b981
+    style station fill:#eef2ff,stroke:#4f46e5,stroke-width:2px
+    style hub fill:#fff7ed,stroke:#f97316
+    style shared fill:#f1f5f9,stroke:#64748b

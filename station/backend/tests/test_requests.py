@@ -6,6 +6,11 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
+from syft_station.components.credits.provisioning import SpaceCreditsService
+from syft_station.components.credits.repository import (
+    SpaceCreditTokenRepository,
+    WalletRepository,
+)
 from syft_station.components.provision.interfaces import ProvisionError, SpaceSpec
 from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.entities import RequestStatus
@@ -15,16 +20,35 @@ from syft_station.components.requests.schemas import (
     SubmitRequestBody,
     slugify,
 )
+from syft_station.components.spaces.provisioning import SpaceConverger
 from tests.conftest import ADMIN, MEMBER, OTHER_MEMBER
 
 
 @pytest.fixture
-def handler(request_repository, space_repository, setup_repository) -> RequestHandler:
+def credits_service(db) -> SpaceCreditsService:
+    """Real service over an empty wallets table — the no-wallet station."""
+    return SpaceCreditsService(
+        WalletRepository(db),
+        SpaceCreditTokenRepository(db),
+        "http://station.test",
+        "http://station.public",
+    )
+
+
+@pytest.fixture
+def handler(
+    request_repository, space_repository, setup_repository, credits_service
+) -> RequestHandler:
+    provisioner = MockProvisioner()
     return RequestHandler(
         repository=request_repository,
         space_repository=space_repository,
         setup_repository=setup_repository,
-        provisioner=MockProvisioner(),
+        provisioner=provisioner,
+        credits=credits_service,
+        converger=SpaceConverger(
+            space_repository, setup_repository, provisioner, credits_service
+        ),
     )
 
 
@@ -98,6 +122,111 @@ async def test_submit_duplicate_subdomain_conflicts(handler):
     with pytest.raises(HTTPException) as exc:
         await handler.submit(submit_body("alpha"), OTHER_MEMBER)
     assert exc.value.status_code == 409
+
+
+# ============== One space per owner ==============
+
+
+async def test_second_request_by_same_owner_409(handler):
+    await handler.submit(submit_body("alpha"), MEMBER)
+    with pytest.raises(HTTPException) as exc:
+        await handler.submit(submit_body("beta"), MEMBER)
+    assert exc.value.status_code == 409
+    assert "pending" in exc.value.detail
+
+
+async def test_active_space_blocks_a_new_request(handler, setup_repository):
+    await onboard(setup_repository)
+    request = await handler.submit(submit_body("alpha"), MEMBER)
+    await handler.approve(request.id, ApproveRequestBody())
+    await handler.wait_for_provisioning()
+
+    with pytest.raises(HTTPException) as exc:
+        await handler.submit(submit_body("beta"), MEMBER)
+    assert exc.value.status_code == 409
+    assert "already has a space" in exc.value.detail
+
+
+async def test_failed_request_still_holds_the_slot(handler, setup_repository):
+    # A failed request is admin-retryable: letting the member submit a second
+    # while the admin retries the first could yield two spaces.
+    await onboard(setup_repository)
+    request = await handler.submit(submit_body("fail-alpha"), MEMBER)
+    await handler.approve(request.id, ApproveRequestBody())
+    await handler.wait_for_provisioning()
+    assert (await handler.get_request(request.id, MEMBER)).status == "failed"
+
+    with pytest.raises(HTTPException) as exc:
+        await handler.submit(submit_body("beta"), MEMBER)
+    assert exc.value.status_code == 409
+    assert "failed" in exc.value.detail
+
+
+async def test_withdraw_frees_the_owner_slot(handler):
+    request = await handler.submit(submit_body("alpha"), MEMBER)
+    await handler.withdraw(request.id, MEMBER)
+
+    replacement = await handler.submit(submit_body("beta"), MEMBER)
+    assert replacement.status == "pending"
+
+
+async def test_reject_frees_the_owner_slot(handler):
+    request = await handler.submit(submit_body("alpha"), MEMBER)
+    await handler.reject(request.id, "not now")
+
+    replacement = await handler.submit(submit_body("beta"), MEMBER)
+    assert replacement.status == "pending"
+
+
+async def test_admin_on_behalf_hits_the_owners_slot(handler):
+    body = SubmitRequestBody(
+        space_name="For Bob", subdomain="for-bob", owner_email="bob@test.com"
+    )
+    await handler.submit(body, ADMIN)
+
+    with pytest.raises(HTTPException) as exc:
+        await handler.submit(
+            SubmitRequestBody(
+                space_name="Bob Again",
+                subdomain="bob-again",
+                owner_email="bob@test.com",
+            ),
+            ADMIN,
+        )
+    assert exc.value.status_code == 409
+    assert "bob@test.com" in exc.value.detail
+
+
+async def test_on_behalf_owner_email_is_lowercased(handler):
+    body = SubmitRequestBody(
+        space_name="For Bob", subdomain="for-bob", owner_email="Bob@Test.COM"
+    )
+    request = await handler.submit(body, ADMIN)
+    assert request.owner_email == "bob@test.com"
+
+    # A differently-cased spelling is the same owner — the slot guard sees it.
+    with pytest.raises(HTTPException) as exc:
+        await handler.submit(
+            SubmitRequestBody(
+                space_name="Bob Again",
+                subdomain="bob-again",
+                owner_email="BOB@test.com",
+            ),
+            ADMIN,
+        )
+    assert exc.value.status_code == 409
+
+
+async def test_admins_own_request_does_not_block_on_behalf_submits(handler):
+    await handler.submit(submit_body("admins-own"), ADMIN)
+
+    request = await handler.submit(
+        SubmitRequestBody(
+            space_name="For Bob", subdomain="for-bob", owner_email="bob@test.com"
+        ),
+        ADMIN,
+    )
+    assert request.owner_email == "bob@test.com"
 
 
 # ============== Get one (status polling) ==============
@@ -323,13 +452,21 @@ def rec_provisioner() -> RecordingProvisioner:
 
 @pytest.fixture
 def rec_handler(
-    request_repository, space_repository, setup_repository, rec_provisioner
+    request_repository,
+    space_repository,
+    setup_repository,
+    rec_provisioner,
+    credits_service,
 ) -> RequestHandler:
     return RequestHandler(
         repository=request_repository,
         space_repository=space_repository,
         setup_repository=setup_repository,
         provisioner=rec_provisioner,
+        credits=credits_service,
+        converger=SpaceConverger(
+            space_repository, setup_repository, rec_provisioner, credits_service
+        ),
     )
 
 
@@ -352,6 +489,9 @@ async def test_delete_active_space_tears_down_and_frees_subdomain(
     # ...and the subdomain is free to request again.
     again = await rec_handler.submit(submit_body("alpha"), OTHER_MEMBER)
     assert again.subdomain == "alpha"
+    # Deletion also freed the owner's one-space slot.
+    replacement = await rec_handler.submit(submit_body("beta"), MEMBER)
+    assert replacement.status == RequestStatus.PENDING.value
 
 
 async def test_delete_failed_space_cleans_up(

@@ -13,7 +13,6 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import ApiKeyRevealDialog from '@/components/ApiKeyRevealDialog.vue'
 import StationAnimation from '@/components/StationAnimation.vue'
 import HealthBadge from '@/components/HealthBadge.vue'
 import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
@@ -37,7 +36,9 @@ function spaceFor(request: SpaceRequest) {
 }
 
 function earningsFor(request: SpaceRequest) {
-  return station.earnedBySpace.find((row) => row.slug === request.subdomain)
+  // By space id, not subdomain — a freed subdomain can be re-taken by a
+  // new space while the deleted one still has money attached.
+  return station.memberEarnings?.spaces.find((row) => row.space_id === request.spaceId)
 }
 
 const logsTarget = ref<Space | null>(null)
@@ -177,8 +178,10 @@ function formatDate(iso: string): string {
             v-else
             class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-success/10 px-3 py-2"
           >
+            <!-- Opens the space signed in — the admin key rides along as
+                 authToken, so there is no separate key to copy. -->
             <a
-              :href="spaceFor(request)!.url"
+              :href="spaceFor(request)!.adminUrl ?? spaceFor(request)!.url"
               target="_blank"
               rel="noopener"
               class="flex items-center gap-1.5 text-sm font-medium underline-offset-2 hover:underline"
@@ -191,7 +194,6 @@ function formatDate(iso: string): string {
                 <ScrollText class="mr-1 h-3 w-3" />
                 Logs
               </Button>
-              <ApiKeyRevealDialog :space="spaceFor(request)!" />
             </div>
           </div>
 
@@ -202,8 +204,8 @@ function formatDate(iso: string): string {
           >
             <Banknote class="h-3.5 w-3.5" />
             Earned {{ formatMoney(earningsFor(request)!.earned, currency) }} from
-            {{ earningsFor(request)!.queries.toLocaleString() }} paid queries ·
-            {{ formatMoney(earningsFor(request)!.paidOut, currency) }} paid out to you ·
+            {{ earningsFor(request)!.query_count.toLocaleString() }} paid queries ·
+            {{ formatMoney(earningsFor(request)!.paid_out, currency) }} paid out to you ·
             {{ formatMoney(earningsFor(request)!.payable, currency) }} owed
           </p>
         </template>

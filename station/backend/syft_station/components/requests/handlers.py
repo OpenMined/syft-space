@@ -10,13 +10,13 @@ from syft_station.components.auth.session import ROLE_ADMIN, SessionUser
 from syft_station.components.provision.interfaces import (
     Provisioner,
     ProvisionError,
-    SpaceSpec,
 )
 from syft_station.components.requests.entities import (
     RequestOrigin,
     RequestStatus,
     SpaceRequest,
 )
+from syft_station.components.requests.interfaces import WalletAttachments
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.requests.schemas import (
     ApproveRequestBody,
@@ -25,6 +25,7 @@ from syft_station.components.requests.schemas import (
 )
 from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.spaces.entities import Space
+from syft_station.components.spaces.provisioning import SpaceConverger
 from syft_station.components.spaces.repository import (
     SpaceRepository,
     generate_space_token,
@@ -38,6 +39,16 @@ def _to_response(request: SpaceRequest) -> RequestResponse:
 # Only states that have provisioned k8s resources can be torn down.
 _DELETABLE_STATUSES = {RequestStatus.ACTIVE.value, RequestStatus.FAILED.value}
 
+# Names what already holds the owner's one-space slot in the submit 409, so
+# the member (or the admin submitting on their behalf) sees which path frees
+# it: withdraw a pending request, or have the admin resolve the rest.
+_SLOT_HOLDER_LABELS = {
+    RequestStatus.PENDING.value: "a pending space request",
+    RequestStatus.PROVISIONING.value: "a space being provisioned",
+    RequestStatus.ACTIVE.value: "a space",
+    RequestStatus.FAILED.value: "a failed request awaiting admin action",
+}
+
 
 class RequestHandler:
     """Submit / approve / reject / retry / withdraw, driving the provisioner."""
@@ -48,11 +59,17 @@ class RequestHandler:
         space_repository: SpaceRepository,
         setup_repository: SetupRepository,
         provisioner: Provisioner,
+        credits: WalletAttachments,
+        converger: SpaceConverger,
     ):
         self.repository = repository
         self.space_repository = space_repository
         self.setup_repository = setup_repository
         self.provisioner = provisioner
+        # A station with no wallet is just an empty wallets table — the
+        # service then resolves no wallet, grants nothing, revokes nothing.
+        self.credits = credits
+        self.converger = converger
         # Keep strong references so provisioning tasks aren't GC'd mid-run.
         self._tasks: set[asyncio.Task] = set()
 
@@ -98,6 +115,13 @@ class RequestHandler:
         owner_email = user.email
         if user.role == ROLE_ADMIN and body.owner_email:
             owner_email = body.owner_email
+        existing = await self.repository.live_request_for_owner(owner_email)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"One space per account: {owner_email} already has "
+                f"{_SLOT_HOLDER_LABELS[existing.status]} ('{existing.space_name}')",
+            )
         request = await self.repository.create(
             SpaceRequest(
                 space_name=body.space_name,
@@ -132,7 +156,15 @@ class RequestHandler:
                 detail=f"Subdomain '{request.subdomain}' is already taken",
             )
 
-        return await self._start_provisioning(request)
+        # Resolve the wallet pick now so a bad id fails the approve, not the
+        # background provisioning task.
+        wallet_id = None
+        if body.attach_wallet:
+            wallet_id = await self.credits.choose_wallet(body.wallet_id)
+
+        return await self._start_provisioning(
+            request, wallet_id=wallet_id, wallet_opt_out=not body.attach_wallet
+        )
 
     async def reject(self, request_id: UUID, reason: str) -> RequestResponse:
         request = await self._get_request(request_id)
@@ -153,7 +185,7 @@ class RequestHandler:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Only failed requests can be retried",
             )
-        return await self._start_provisioning(request)
+        return await self._start_provisioning(request, set_wallet=False)
 
     async def delete_space(
         self, request_id: UUID, user: SessionUser
@@ -193,6 +225,7 @@ class RequestHandler:
             ) from e
 
         if space:
+            await self.credits.revoke_space(space.id)
             await self.space_repository.delete_space(space.id)
         request = await self.repository.set_status(request, RequestStatus.DELETED)
         return _to_response(request)
@@ -220,7 +253,14 @@ class RequestHandler:
             return True
         return await self.space_repository.get_by_subdomain(subdomain) is not None
 
-    async def _start_provisioning(self, request: SpaceRequest) -> RequestResponse:
+    async def _start_provisioning(
+        self,
+        request: SpaceRequest,
+        wallet_id: UUID | None = None,
+        wallet_opt_out: bool = False,
+        set_wallet: bool = True,
+    ) -> RequestResponse:
+        """set_wallet=False (retry) keeps the space's existing wallet intent."""
         config = await self.setup_repository.get_config()
         if not config.domain:
             raise HTTPException(
@@ -240,9 +280,17 @@ class RequestHandler:
                     subdomain=request.subdomain,
                     owner_email=request.owner_email,
                     version=config.supported_version,
+                    wallet_id=wallet_id if set_wallet else None,
+                    wallet_opt_out=wallet_opt_out if set_wallet else False,
                 )
             )
             await self.space_repository.create_token(space.id, generate_space_token())
+        elif set_wallet and (
+            space.wallet_id != wallet_id or space.wallet_opt_out != wallet_opt_out
+        ):
+            space.wallet_id = wallet_id
+            space.wallet_opt_out = wallet_opt_out
+            space = await self.space_repository.update(space)
 
         request.reject_reason = None  # clear a previous attempt's failure
         request = await self.repository.set_status(
@@ -262,19 +310,8 @@ class RequestHandler:
             logger.error(f"Provisioning lost its request/space ({request_id})")
             return
 
-        config = await self.setup_repository.get_config()
-        token_row = await self.space_repository.get_token(space.id)
-        spec = SpaceSpec(
-            subdomain=space.subdomain,
-            space_name=space.name,
-            owner_email=space.owner_email,
-            version=config.supported_version,
-            domain=config.domain,
-            admin_token=token_row.token or "" if token_row else "",
-        )
-
         try:
-            url = await self.provisioner.provision(spec)
+            url = await self.converger.converge(space)
         except ProvisionError as e:
             logger.warning(f"Provisioning failed for '{space.subdomain}': {e}")
             # Keep the error on the request so the admin sees why it failed
@@ -289,9 +326,6 @@ class RequestHandler:
             )
             return
 
-        space.url = url
-        space.version = config.supported_version
-        await self.space_repository.update(space)
         await self.repository.set_status(request, RequestStatus.ACTIVE)
         logger.info(f"Space '{space.subdomain}' active at {url}")
 

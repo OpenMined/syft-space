@@ -11,10 +11,10 @@ from syft_station.components.auth.session import (
 )
 from syft_station.components.spaces.handlers import SpaceHandler
 from syft_station.components.spaces.schemas import (
+    AdminUrlResponse,
     SpaceResponse,
     SpaceStatusResponse,
-    TokenRevealResponse,
-    TokenStatusResponse,
+    UpdateAllResponse,
 )
 
 
@@ -68,31 +68,49 @@ def build_space_routes(handler: SpaceHandler) -> APIRouter:
         """Bring a paused space back online (owner or admin)."""
         return await handler.resume(space_id, user)
 
-    @router.get("/{space_id}/token", response_model=TokenStatusResponse)
-    async def token_status(
+    @router.post("/{space_id}/restart", response_model=SpaceStatusResponse)
+    async def restart_space(
         space_id: UUID,
         user: SessionUser = Depends(get_current_user),
         handler: SpaceHandler = Depends(get_handler),
-    ) -> TokenStatusResponse:
-        """Whether the space admin key has been revealed yet (owner or admin)."""
-        return await handler.token_status(space_id, user)
+    ) -> SpaceStatusResponse:
+        """Roll the space's pods so they start with the current Secret
+        (owner or admin)."""
+        return await handler.restart(space_id, user)
 
-    @router.post("/{space_id}/token/reveal", response_model=TokenRevealResponse)
-    async def reveal_token(
+    @router.post("/{space_id}/update", response_model=SpaceResponse)
+    async def update_space(
+        space_id: UUID,
+        user: SessionUser = Depends(require_admin),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> SpaceResponse:
+        """Redeploy the space at the supported version, data kept (admin)."""
+        return await handler.update_space(space_id)
+
+    @router.post("/update-all", response_model=UpdateAllResponse)
+    async def update_all(
+        user: SessionUser = Depends(require_admin),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> UpdateAllResponse:
+        """Redeploy every outdated space sequentially (admin)."""
+        return await handler.update_all()
+
+    @router.get("/{space_id}/admin-url", response_model=AdminUrlResponse)
+    async def admin_url(
         space_id: UUID,
         user: SessionUser = Depends(get_current_user),
         handler: SpaceHandler = Depends(get_handler),
-    ) -> TokenRevealResponse:
-        """One-time reveal of the space admin API key (owner or admin)."""
-        return await handler.reveal_token(space_id, user)
+    ) -> AdminUrlResponse:
+        """The space URL with the admin key as authToken (owner or admin)."""
+        return await handler.admin_url(space_id, user)
 
-    @router.post("/{space_id}/token/regenerate", response_model=TokenStatusResponse)
+    @router.post("/{space_id}/token/regenerate", response_model=AdminUrlResponse)
     async def regenerate_token(
         space_id: UUID,
         user: SessionUser = Depends(get_current_user),
         handler: SpaceHandler = Depends(get_handler),
-    ) -> TokenStatusResponse:
-        """Replace the space admin API key with a fresh unrevealed one."""
+    ) -> AdminUrlResponse:
+        """Replace the space admin API key; the space restarts to apply it."""
         return await handler.regenerate_token(space_id, user)
 
     return router

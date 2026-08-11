@@ -42,7 +42,7 @@ async function submit() {
     purpose.value = ''
     emit('submitted')
   } catch (error) {
-    // 409 = subdomain already taken; anything else is unexpected
+    // 409 = subdomain taken or owner already holds their one space slot
     toast.error(error instanceof ApiError ? error.message : 'Submitting the request failed')
   } finally {
     submitting.value = false
@@ -54,7 +54,9 @@ async function submit() {
   <Card>
     <CardHeader>
       <CardTitle class="text-base">Request a space</CardTitle>
-      <CardDescription> Your own hosted Syft Space — set up and run for you. </CardDescription>
+      <CardDescription>
+        Your own hosted Syft Space — set up and run for you. One space per email address.
+      </CardDescription>
     </CardHeader>
     <CardContent>
       <form class="space-y-4" @submit.prevent="submit">
