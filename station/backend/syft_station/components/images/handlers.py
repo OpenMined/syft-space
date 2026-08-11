@@ -30,15 +30,20 @@ class ImageHandler:
         self._expires_at = 0.0
         self._lock = asyncio.Lock()
 
-    async def list_images(self, limit: int) -> list[ImageTagResponse]:
+    async def list_images(
+        self, limit: int, refresh: bool = False
+    ) -> list[ImageTagResponse]:
         """The ``limit`` newest build tags, flagging the one ``latest`` matches.
 
-        Refreshes from the registry when the cache has expired. If a refresh
-        fails but an earlier one succeeded, the stale catalog is served; with
-        nothing cached at all the registry error surfaces as a 502.
+        Refreshes from the registry when the cache has expired — or on
+        ``refresh``, which bypasses the TTL (the per-tag memo makes that
+        cheap: only tags never seen before cost registry requests). If a
+        refresh fails but an earlier one succeeded, the stale catalog is
+        served; with nothing cached at all the registry error surfaces as
+        a 502.
         """
         async with self._lock:
-            if time.monotonic() >= self._expires_at:
+            if refresh or time.monotonic() >= self._expires_at:
                 await self._refresh()
         return [
             ImageTagResponse(

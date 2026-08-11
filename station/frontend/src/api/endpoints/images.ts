@@ -3,5 +3,6 @@ import type { ImageTagResponse } from '@/api/types'
 
 export const imagesApi = {
   /** Admin. Newest syft-space image tags from the registry, for the version picker. */
-  list: (limit = 5): Promise<ImageTagResponse[]> => apiClient.get(`/images?limit=${limit}`),
+  list: (limit = 5, refresh = false): Promise<ImageTagResponse[]> =>
+    apiClient.get(`/images?limit=${limit}${refresh ? '&refresh=true' : ''}`),
 }

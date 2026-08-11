@@ -70,6 +70,9 @@ const router = useRouter()
 
 onMounted(() => {
   station.loadSetup().catch(() => toast.error('Could not load the station setup'))
+  // Warm the image catalog so the Settings version picker opens instantly;
+  // the picker itself handles (and falls back on) a failure.
+  station.loadImageTags().catch(() => {})
   station.loadRequests().catch(() => toast.error('Could not load requests'))
   station.loadSpaces().catch(() => toast.error('Could not load spaces'))
   // Wallet presence drives the approve dialog's picker + "space includes".
@@ -239,6 +242,15 @@ async function updateOne(space: Space) {
 
 // ---- Settings ----
 const versionInput = ref('')
+// The picker starts from the CURRENT supported version — seeded when setup
+// arrives (async), never overwriting anything the admin already typed.
+watch(
+  () => station.supportedVersion,
+  (v) => {
+    if (v && !versionInput.value) versionInput.value = v
+  },
+  { immediate: true },
+)
 const savingVersion = ref(false)
 
 async function saveVersion() {

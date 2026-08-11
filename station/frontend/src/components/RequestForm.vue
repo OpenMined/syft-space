@@ -62,7 +62,7 @@ async function submit() {
       <form class="space-y-4" @submit.prevent="submit">
         <div class="space-y-1.5">
           <Label for="space-name">Space name</Label>
-          <Input id="space-name" v-model="spaceName" placeholder="e.g. research-lab" />
+          <Input id="space-name" v-model="spaceName" placeholder="e.g. Research Lab" />
           <p v-if="subdomain" class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Globe class="h-3 w-3" />
             {{ subdomain }}.{{ station.domain }}

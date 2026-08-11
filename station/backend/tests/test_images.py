@@ -145,6 +145,18 @@ async def test_second_call_is_served_from_cache():
     assert len(fake.requests) == request_count
 
 
+async def test_refresh_flag_bypasses_the_ttl():
+    fake = FakeRegistry(TAGS)
+    handler = make_handler(fake)
+    await handler.list_images(limit=5)
+    request_count = len(fake.requests)
+
+    # Within the TTL, refresh=True still consults the registry (the tag
+    # list is re-fetched; memoized tags cost no per-tag requests).
+    await handler.list_images(limit=5, refresh=True)
+    assert len(fake.requests) > request_count
+
+
 async def test_expired_refresh_only_resolves_new_tags():
     fake = FakeRegistry(TAGS)
     handler = make_handler(fake)

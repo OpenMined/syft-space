@@ -33,5 +33,9 @@ const forwardedProps = useForwardProps(delegatedProps)
     <SelectItemText>
       <slot />
     </SelectItemText>
+    <!-- Rendered in the dropdown only: SelectItemText is what the closed
+         trigger mirrors, so trailing decorations (dates, badges) must live
+         outside it or they concatenate into the selected-value display. -->
+    <slot name="trailing" />
   </SelectItem>
 </template>

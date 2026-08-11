@@ -103,11 +103,16 @@ async function create() {
         <div class="grid gap-4 sm:grid-cols-2">
           <div class="space-y-1.5">
             <Label for="create-name">Space name</Label>
-            <Input id="create-name" v-model="spaceName" placeholder="research-lab" />
+            <Input id="create-name" v-model="spaceName" placeholder="e.g. Research Lab" />
           </div>
           <div class="space-y-1.5">
             <Label for="create-subdomain">Subdomain</Label>
-            <Input id="create-subdomain" v-model="subdomain" @input="subdomainEdited = true" />
+            <Input
+              id="create-subdomain"
+              v-model="subdomain"
+              placeholder="research-lab"
+              @input="subdomainEdited = true"
+            />
           </div>
         </div>
         <p class="flex items-center gap-1.5 text-xs text-muted-foreground">

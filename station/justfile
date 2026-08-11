@@ -78,6 +78,33 @@ ensure-cluster: bootstrap
         echo "WARNING: this cluster predates the host-home mapping — spaces will"
         echo "         see an EMPTY ~/host-home. Recreate to get it: just down, then re-up."
     fi
+    # The API can be dead while the containers sit "Up": k3s occasionally
+    # loses a bootstrap race (its cloud-controller-manager exits on RBAC the
+    # apiserver hasn't created yet) and shuts itself down, leaving kubectl
+    # with EOF. Wait for readiness; if the cluster is wedged, restart it
+    # through k3d once — a fresh k3s bootstrap normally wins the race.
+    api_ready() { kubectl get --raw /readyz >/dev/null 2>&1; }
+    echo "Waiting for the Kubernetes API..."
+    ready=""
+    for _ in $(seq 1 20); do
+        if api_ready; then ready=1; break; fi
+        sleep 3
+    done
+    if [ -z "$ready" ]; then
+        echo "API is not responding — restarting the cluster to retry the k3s bootstrap..."
+        k3d cluster stop {{cluster_name}}
+        k3d cluster start {{cluster_name}}
+        for _ in $(seq 1 40); do
+            if api_ready; then ready=1; break; fi
+            sleep 3
+        done
+    fi
+    if [ -z "$ready" ]; then
+        echo "Kubernetes API still unreachable after a restart. Inspect with:"
+        echo "  docker logs k3d-{{cluster_name}}-server-0 | tail -50"
+        echo "or recreate: just down, then re-up."
+        exit 1
+    fi
     # k3s ships Traefik with ExternalName backends disabled (an SSRF guard for
     # shared clusters, irrelevant here). The chart's dev host-route needs them
     # to proxy station.localhost to the host-run station. k3s's helm controller
@@ -128,14 +155,16 @@ cluster-dns:
     echo "Waiting for Traefik..."
     until kubectl -n kube-system get svc traefik >/dev/null 2>&1; do sleep 2; done
     traefik_ip=$(kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}')
-    # The host machine's IP, exactly as k3d recorded it for host.k3d.internal
-    # (CoreDNS's NodeHosts file is where that alias lives). k3d injects that
-    # record asynchronously after the API server is up — on a fresh cluster
-    # it can land AFTER Traefik's Service, so poll for it (bounded: a missing
-    # record on a non-k3d cluster should still fail, not hang).
+    # The host machine's IP, as k3d records it for host.k3d.internal in
+    # CoreDNS's NodeHosts. The record can be absent two ways: on a fresh
+    # cluster k3d injects it asynchronously (it can land after Traefik's
+    # Service), and k3s REGENERATES NodeHosts from Node objects whenever it
+    # restarts — so a Docker restart outside `k3d cluster start` wipes the
+    # record and k3d never re-adds it. Poll briefly for k3d's injection,
+    # then re-derive the IP from Docker and put the record back ourselves.
     echo "Waiting for the host.k3d.internal record..."
     host_ip=""
-    for _ in $(seq 1 60); do
+    for _ in $(seq 1 10); do
         host_ip=$(kubectl -n kube-system get cm coredns \
             -o jsonpath='{.data.NodeHosts}' 2>/dev/null \
             | awk '$2 == "host.k3d.internal" {print $1}')
@@ -143,8 +172,24 @@ cluster-dns:
         sleep 2
     done
     if [ -z "$host_ip" ]; then
-        echo "host.k3d.internal missing from CoreDNS NodeHosts — is this a k3d cluster?"
-        exit 1
+        echo "Record missing (a Docker restart outside k3d wipes it) — re-deriving..."
+        # Docker Desktop: host.docker.internal resolves on the cluster network.
+        host_ip=$(docker run --rm --network k3d-{{cluster_name}} alpine:3 \
+            getent ahostsv4 host.docker.internal 2>/dev/null | awk 'NR==1 {print $1}')
+        if [ -z "$host_ip" ]; then
+            # Linux dockerd has no host.docker.internal — the bridge gateway is the host.
+            host_ip=$(docker network inspect k3d-{{cluster_name}} \
+                --format '{{{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null)
+        fi
+        if [ -z "$host_ip" ]; then
+            echo "Could not derive the host IP — is this a k3d cluster?"
+            exit 1
+        fi
+        hosts=$(kubectl -n kube-system get cm coredns -o jsonpath='{.data.NodeHosts}')
+        kubectl -n kube-system patch cm coredns --type merge -p \
+            "$(printf '%s\n%s host.k3d.internal' "$hosts" "$host_ip" \
+               | awk 'BEGIN {printf "{\"data\":{\"NodeHosts\":\""} {printf "%s\\n", $0} END {printf "\"}}"}')"
+        echo "Restored: $host_ip host.k3d.internal"
     fi
     # AAAA answers empty (NODATA) rather than falling through to SERVFAIL, so
     # dual-stack resolvers cleanly fall back to the A record. Note musl-based
