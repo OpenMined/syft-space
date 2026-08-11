@@ -24,10 +24,10 @@ unreachable → 502 ("SyftHub is unavailable — try again shortly").
 
 ## Sessions: stateless signed cookies
 
-`auth/session.py`. The session is an itsdangerous-signed payload in a
-cookie — no server-side session table, so sessions survive pod restarts as
-long as the signing key is stable (the chart preserves it across `helm
-upgrade`; see [deployment.md](deployment.md)).
+`auth/session.py`. The session lives entirely in a cryptographically
+signed cookie — there is no server-side session table, so sessions survive
+pod restarts as long as the signing key is stable (the chart preserves it
+across `helm upgrade`; see [deployment.md](deployment.md)).
 
 - Cookie name: `__Host-syft_station_session` when
   `session_cookie_secure` is on. The `__Host-` prefix binds the cookie to
