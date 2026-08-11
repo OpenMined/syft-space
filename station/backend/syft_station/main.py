@@ -1,5 +1,6 @@
 """Main FastAPI application."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -152,7 +153,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Kubernetes cluster is not reachable at startup: {e}")
 
+    # Warm the image catalog so the first version picker (onboarding hits it
+    # right after boot) finds a cache instead of the cold registry chain.
+    # Fire-and-forget: a failure only means the first UI call pays the cost.
+    async def _warm_image_catalog() -> None:
+        try:
+            await image_handler.list_images(limit=5)
+        except Exception as e:
+            logger.warning(f"Image catalog warmup failed: {e}")
+
+    warmup_task = asyncio.create_task(_warm_image_catalog())
+
     yield
+
+    warmup_task.cancel()
 
     await request_handler.wait_for_provisioning()
     await database.dispose()

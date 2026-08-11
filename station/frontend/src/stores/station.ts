@@ -1,11 +1,13 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { creditsApi } from '@/api/endpoints/credits'
+import { imagesApi } from '@/api/endpoints/images'
 import { requestsApi } from '@/api/endpoints/requests'
 import { setupApi } from '@/api/endpoints/setup'
 import { spacesApi } from '@/api/endpoints/spaces'
 import type {
   EarningsResponse,
+  ImageTagResponse,
   MemberEarningsResponse,
   OutstandingBalanceResponse,
   RequestResponse,
@@ -55,6 +57,36 @@ export const useStationStore = defineStore('station', () => {
   const onboarded = computed(() => domain.value !== '')
   /** True once the backend's setup has been fetched (gates the setup dialog). */
   const setupLoaded = ref(false)
+
+  // ---- Image catalog (server-backed, cached for the session) ----
+
+  /** Newest syft-space image tags, shared by every version picker. */
+  const imageTags = ref<ImageTagResponse[]>([])
+  const imageTagsLoaded = ref(false)
+  const imageTagsLoading = ref(false)
+  let imageTagsInflight: Promise<void> | null = null
+
+  /**
+   * Fetch the image catalog once per session; later callers get the cached
+   * list instantly. `refresh` forces a registry round-trip (bypassing the
+   * backend's TTL too) — the picker's refresh button. Throws on failure so
+   * the picker can fall back to manual tag entry.
+   */
+  async function loadImageTags(refresh = false): Promise<void> {
+    if (imageTagsLoaded.value && !refresh) return
+    if (imageTagsInflight && !refresh) return imageTagsInflight
+    imageTagsLoading.value = true
+    imageTagsInflight = (async () => {
+      try {
+        imageTags.value = await imagesApi.list(5, refresh)
+        imageTagsLoaded.value = true
+      } finally {
+        imageTagsLoading.value = false
+        imageTagsInflight = null
+      }
+    })()
+    return imageTagsInflight
+  }
 
   // ---- Setup (server-backed) ----
 
@@ -561,6 +593,9 @@ export const useStationStore = defineStore('station', () => {
     stationHost,
     onboarded,
     setupLoaded,
+    imageTags,
+    imageTagsLoading,
+    loadImageTags,
     loadSetup,
     completeOnboarding,
     pendingCount,

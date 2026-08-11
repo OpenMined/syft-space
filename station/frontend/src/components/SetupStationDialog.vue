@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, Check, Globe, Lock, Rocket, Tag, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -22,9 +22,20 @@ import { useStationStore } from '@/stores/station'
  * First-run setup, shown on the admin dashboard while the domain is not set.
  * Not dismissable — finishing setup (which sets the domain) is what closes it.
  */
-defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean }>()
 
 const station = useStationStore()
+
+// Warm the image catalog the moment the wizard opens — the admin spends the
+// domain and wallet steps ahead of the version picker, so by step 3 the
+// list renders instantly. The picker handles (and falls back on) a failure.
+watch(
+  () => props.open,
+  (open) => {
+    if (open) station.loadImageTags().catch(() => {})
+  },
+  { immediate: true },
+)
 
 const STEPS = [
   { title: 'Domain', icon: Globe },
