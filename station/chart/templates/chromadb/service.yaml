@@ -1,0 +1,16 @@
+{{- if .Values.chromadb.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.chromadb.service.name }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: chromadb
+spec:
+  selector:
+    {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "chromadb") | nindent 4 }}
+  ports:
+    - port: {{ .Values.chromadb.service.port }}
+      targetPort: 8000
+      protocol: TCP
+{{- end }}

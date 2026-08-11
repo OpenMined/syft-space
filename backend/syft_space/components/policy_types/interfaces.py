@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
+from loguru import logger
 from mpp import Challenge, Credential, Receipt
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -55,7 +56,7 @@ class TransactionRef(BaseModel):
     Xendit/Stripe — disambiguated by `rail`.
     """
 
-    rail: Literal["mpp", "xendit", "stripe"] = Field(
+    rail: Literal["mpp", "xendit", "stripe", "cluster"] = Field(
         ..., description="Settlement rail that produced this transaction"
     )
     id: str = Field(
@@ -300,6 +301,74 @@ class PrepaidBalanceCharger(Protocol):
         ...
 
 
+class RecordingPrepaidCharger:
+    """PrepaidBalanceCharger decorator that can roll a request's money back.
+
+    A reservation is *uncommitted* until the query's response is actually
+    delivered — delivery is the implicit commit. ``reserve()`` remembers
+    the transaction, ``cancel()`` forgets it (the policy already refunded,
+    e.g. an empty response), and ``rollback()`` refunds whatever the
+    request still holds uncommitted, so the buyer never pays for an answer
+    they did not receive.
+
+    Never constructed by policies: PaymentChargers wraps its prepaid
+    charger on construction, making the recording impossible to skip.
+    """
+
+    def __init__(self, inner: PrepaidBalanceCharger) -> None:
+        self._inner = inner
+        self._uncommitted: set[UUID] = set()
+
+    @property
+    def currency(self) -> str:
+        return self._inner.currency
+
+    @property
+    def wallet_type(self) -> str:
+        return self._inner.wallet_type
+
+    async def get_balance(self, user_email: str) -> float:
+        return await self._inner.get_balance(user_email)
+
+    async def reserve(
+        self,
+        *,
+        user_email: str,
+        amount: float,
+        charge_unit: str,
+        charge_quantity: int,
+    ) -> UUID:
+        transaction_id = await self._inner.reserve(
+            user_email=user_email,
+            amount=amount,
+            charge_unit=charge_unit,
+            charge_quantity=charge_quantity,
+        )
+        self._uncommitted.add(transaction_id)
+        return transaction_id
+
+    async def cancel(self, transaction_id: UUID) -> None:
+        await self._inner.cancel(transaction_id)
+        self._uncommitted.discard(transaction_id)
+
+    async def rollback(self) -> None:
+        """Refund every uncommitted reservation — the query died undelivered.
+
+        Refund failures are logged, never raised: the user-facing error
+        must surface, and the wallet's manual-reverse path remains the
+        escape hatch for a refund that could not be delivered.
+        """
+        for transaction_id in self._uncommitted:
+            try:
+                await self._inner.cancel(transaction_id)
+                logger.info(f"Rolled back charge {transaction_id}: query not delivered")
+            except Exception:
+                logger.exception(
+                    f"Rollback failed for charge {transaction_id}; reverse it manually"
+                )
+        self._uncommitted.clear()
+
+
 class PaymentChargers:
     """Per-request bag of payment chargers, accessed by mechanism.
 
@@ -309,6 +378,10 @@ class PaymentChargers:
     has already validated that any declared required_wallet_type has a
     matching wallet attached, so a missing charger indicates a framework
     bug rather than user input.
+
+    The bag must be built fresh per request: the prepaid charger is wrapped
+    in a RecordingPrepaidCharger whose uncommitted-charge memory is scoped
+    to exactly one query by the bag's own lifetime.
     """
 
     def __init__(
@@ -318,7 +391,7 @@ class PaymentChargers:
         prepaid: PrepaidBalanceCharger | None = None,
     ) -> None:
         self._mpp = mpp
-        self._prepaid = prepaid
+        self._prepaid = RecordingPrepaidCharger(prepaid) if prepaid else None
 
     def mpp(self) -> MppCharger:
         if self._mpp is None:
@@ -334,6 +407,15 @@ class PaymentChargers:
                 "(Xendit, Stripe, …) is attached to this endpoint"
             )
         return self._prepaid
+
+    async def rollback(self) -> None:
+        """Refund the request's uncommitted prepaid reservations.
+
+        No-op without a prepaid wallet. MPP is untouched by design: it
+        settles externally at pre_hook time and has no cancel.
+        """
+        if self._prepaid is not None:
+            await self._prepaid.rollback()
 
 
 class Capabilities(BaseModel):

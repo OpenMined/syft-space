@@ -1,0 +1,25 @@
+# Per-space Ingress — routes <subdomain>.<domain> to the space Service.
+# A tls section is injected in render_space_manifests when a cert Secret is
+# configured (space_tls_secret); otherwise the space serves plain http.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${RESOURCE_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: syft-space
+    app.kubernetes.io/managed-by: syft-station
+    syftcluster.openmined.org/space: "${SUBDOMAIN}"
+spec:
+  ingressClassName: ${INGRESS_CLASS}
+  rules:
+    - host: ${HOST}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${RESOURCE_NAME}
+                port:
+                  number: 80

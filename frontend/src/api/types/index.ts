@@ -505,6 +505,12 @@ export interface UpdatePublicUrlRequest {
   public_url: string
 }
 
+export interface ManagedResponse {
+  /** True when a station launched this space — self-hosted onboarding is trimmed. */
+  managed: boolean
+  public_url: string | null
+}
+
 export interface ProxyStatusResponse {
   connected: boolean
   public_url: string | null

@@ -2,6 +2,7 @@ import { apiClient } from '../client'
 import type {
   PublicUrlResponse,
   UpdatePublicUrlRequest,
+  ManagedResponse,
   ProxyStatusResponse,
   DiagnosticsResponse,
   UpdateDiagnosticsRequest,
@@ -11,6 +12,12 @@ export const settingsApi = {
   // Get current public URL
   getPublicUrl: async (): Promise<PublicUrlResponse> => {
     const response = await apiClient.get('/settings/public-url')
+    return response.data
+  },
+
+  // Whether a station manages this space (plus its assigned public URL)
+  getManaged: async (): Promise<ManagedResponse> => {
+    const response = await apiClient.get('/settings/managed')
     return response.data
   },
 

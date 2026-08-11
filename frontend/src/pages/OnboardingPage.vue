@@ -37,9 +37,15 @@
               </div>
             </div>
 
-            <!-- Account type toggle -->
+            <!-- Account type toggle (managed spaces are sign-in only) -->
             <template v-else>
-              <div class="space-y-4">
+              <div v-if="managed" class="space-y-1">
+                <h3 class="heading-4 text-foreground">Sign in to SyftHub</h3>
+                <p class="body-sm text-muted-foreground">
+                  This space is managed for you — sign in with your existing SyftHub account.
+                </p>
+              </div>
+              <div v-else class="space-y-4">
                 <h3 class="heading-4 text-foreground">Do you have a SyftHub account?</h3>
                 <div class="flex gap-3">
                   <Button
@@ -189,8 +195,18 @@
             <div class="space-y-4">
               <h3 class="heading-4 text-foreground">How should others access your space?</h3>
 
+              <!-- Managed spaces: the station assigned the URL; it stays editable -->
+              <div v-if="managed" class="space-y-2">
+                <Label for="custom-domain">Your Public URL</Label>
+                <Input id="custom-domain" v-model="publicUrl" type="url" />
+                <p class="body-sm text-muted-foreground">
+                  Set up for you by your space host — edit it only if your space is reachable at a
+                  different address
+                </p>
+              </div>
+
               <!-- Radio options -->
-              <div class="space-y-4">
+              <div v-else class="space-y-4">
                 <!-- Subdomain option -->
                 <div class="space-y-3">
                   <div class="flex items-start space-x-3">
@@ -345,7 +361,7 @@ onMounted(async () => {
   }
 
   // Not fully onboarded — check if registration already completed
-  await loadExistingState()
+  await Promise.all([loadExistingState(), loadManagedMode()])
 
   // Load current diagnostics preference
   try {
@@ -363,6 +379,8 @@ const {
   signinForm,
   networkMode,
   publicUrl,
+  managed,
+  loadManagedMode,
   checkingUsername,
   usernameAvailable,
   authError,

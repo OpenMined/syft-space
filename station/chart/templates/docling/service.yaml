@@ -1,0 +1,16 @@
+{{- if .Values.docling.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.docling.service.name }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: docling
+spec:
+  selector:
+    {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "docling") | nindent 4 }}
+  ports:
+    - port: {{ .Values.docling.service.port }}
+      targetPort: 5001
+      protocol: TCP
+{{- end }}

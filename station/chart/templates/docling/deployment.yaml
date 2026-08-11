@@ -1,0 +1,40 @@
+{{- if .Values.docling.enabled }}
+{{/*
+Shared docling-serve — document conversion every space calls out to. Stateless,
+so it can scale horizontally (HPA below when enabled).
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.docling.service.name }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: docling
+spec:
+  {{- if not .Values.docling.autoscaling.enabled }}
+  replicas: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "docling") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "docling") | nindent 8 }}
+    spec:
+      containers:
+        - name: docling-serve
+          image: {{ .Values.docling.image | quote }}
+          ports:
+            - containerPort: 5001
+          env:
+            - name: DOCLING_SERVE_ENABLE_UI
+              value: "false"
+          readinessProbe:
+            tcpSocket:
+              port: 5001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.docling.resources | nindent 12 }}
+{{- end }}
