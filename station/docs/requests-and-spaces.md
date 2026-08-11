@@ -21,9 +21,9 @@ stateDiagram-v2
     DELETED --> [*]
 ```
 
-Routes: `POST /api/v1/requests` (submit), then per-request `approve`,
-`reject`, `retry`, `delete`, `withdraw`. Members see their own requests
-(`GET /requests` is owner-scoped); the admin sees all. `WITHDRAWN` exists
+Routes (all under `/api/v1`): `POST /requests` (submit), then per-request
+`approve`, `reject`, `retry`, `delete`, `withdraw`. Members see their own
+requests (`GET /requests` is owner-scoped); the admin sees all. `WITHDRAWN` exists
 as a state (rather than row deletion) so the admin retains visibility of
 what members asked for and took back.
 

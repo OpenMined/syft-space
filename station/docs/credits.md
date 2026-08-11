@@ -131,6 +131,9 @@ payables but never blocks.
 
 ## Routes at a glance
 
+All paths are relative to the `/api/v1` prefix the app mounts every router
+under.
+
 | Caller | Routes |
 |---|---|
 | Space (`sct_` Bearer) | `POST /credits/debit`, `POST /credits/refund`, `GET /credits/balance` |

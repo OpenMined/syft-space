@@ -22,9 +22,14 @@ front of Traefik):
 | `station.acme.org` | A / CNAME | ingress LB | the station UI + API |
 | `*.spaces.station.acme.org` | A / CNAME | ingress LB | every member space |
 
-A DNS wildcard matches any depth, so one `*.station.acme.org` record would
-also work — it's the **certificate** wildcard that is one-level-strict
-(below), which is why the DNS and cert layouts should be chosen together.
+Unlike a certificate wildcard, a DNS wildcard *can* match more than one
+label (RFC 4592) — a lone `*.station.acme.org` record typically resolves
+`alice.spaces.station.acme.org` too, as long as no record exists at
+`spaces.station.acme.org` itself, which would shadow the wildcard for
+everything beneath it. The explicit records above avoid that trap and
+behave identically across DNS providers; the **certificate** wildcard is
+strictly one-level (below), which is why the DNS and cert layouts should
+be chosen together.
 
 ## Certificates
 
