@@ -55,6 +55,9 @@ _DEADLINE_CAP_FACTOR = 3
 _CRASH_LOG_LINES = 5
 _CRASH_LOG_MAX_CHARS = 300
 
+# The space's application container (k8s/space/deployment.yaml).
+SPACE_CONTAINER = "syft-space"
+
 # Pod-template annotation bumped to trigger a rolling restart.
 _RESTARTED_AT_ANNOTATION = "syftcluster.openmined.org/restartedAt"
 
@@ -174,7 +177,35 @@ class K8sProvisioner:
         """Read the space's live running state from its Deployment."""
         return await asyncio.to_thread(self._read_status, subdomain)
 
+    async def logs(self, subdomain: str, tail_lines: int) -> str:
+        """Snapshot of the space container's last ``tail_lines`` lines."""
+        return await asyncio.to_thread(self._read_logs, subdomain, tail_lines)
+
     # ── Sync helpers (run via to_thread) ─────────────────────────────────────
+
+    def _read_logs(self, subdomain: str, tail_lines: int) -> str:
+        """Tail the newest live pod's syft-space container (empty if none)."""
+        result = self.kube.core.list_namespaced_pod(
+            self.settings.namespace,
+            label_selector=f"{LABEL_SPACE}={subdomain}",
+        )
+        live = [p for p in result.items or [] if not p.metadata.deletion_timestamp]
+        if not live:
+            return ""
+        pod = max(live, key=lambda p: p.metadata.creation_timestamp or _EPOCH)
+        # _preload_content=False returns the raw HTTPResponse; decoding its
+        # bytes ourselves yields real newlines. (Letting the client
+        # "deserialize" a str hands back the repr of the bytes — one giant
+        # line with literal \n.) No timestamps=True: syft-space already
+        # prefixes its own timestamp, so the kubelet's would double up.
+        resp = self.kube.core.read_namespaced_pod_log(
+            pod.metadata.name,
+            self.settings.namespace,
+            container=SPACE_CONTAINER,
+            tail_lines=tail_lines,
+            _preload_content=False,
+        )
+        return resp.data.decode("utf-8", errors="replace")
 
     def _apply_bundle(self, manifests: dict[str, dict]) -> None:
         ns = self.settings.namespace

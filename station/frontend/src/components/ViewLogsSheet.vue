@@ -1,6 +1,17 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue'
-import { PauseCircle, ScrollText } from 'lucide-vue-next'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import {
+  Check,
+  Copy,
+  Maximize2,
+  Minimize2,
+  Pause,
+  PauseCircle,
+  Play,
+  RefreshCw,
+  ScrollText,
+  WrapText,
+} from 'lucide-vue-next'
 import {
   Sheet,
   SheetContent,
@@ -9,6 +20,9 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import HealthBadge from '@/components/HealthBadge.vue'
+import { Button } from '@/components/ui/button'
+import { spacesApi } from '@/api/endpoints/spaces'
+import { ApiError } from '@/api/client'
 import type { Space } from '@/lib/types'
 
 const props = defineProps<{
@@ -18,134 +32,252 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
-// TODO: everything below fabricates a plausible log tail — the station has
-// no log endpoint yet. Replace seedLines/liveLine with a real stream (e.g.
-// read_namespaced_pod_log via the backend) when it lands.
+const POLL_MS = 3000
+
+// A snapshot of the pod's last N log lines (GET /spaces/{id}/logs). "Follow"
+// re-fetches that snapshot every few seconds — a bounded poll, not a live
+// stream — replacing the tail each time. `live` = follow mode is on.
 const lines = ref<string[]>([])
+const loading = ref(false)
+const error = ref('')
+const live = ref(false)
+const wrap = ref(true)
+const expanded = ref(false)
+const copied = ref(false)
+const updatedAt = ref(0)
+const now = ref(0)
 const logBox = ref<HTMLElement | null>(null)
-let timer: ReturnType<typeof setInterval> | undefined
 
-function stamp(offsetSeconds = 0): string {
-  return new Date(Date.now() - offsetSeconds * 1000).toISOString().replace('T', ' ').slice(0, 19)
+let pollTimer: ReturnType<typeof setInterval> | undefined
+let clockTimer: ReturnType<typeof setInterval> | undefined
+
+const paused = computed(() => props.space?.health === 'paused')
+
+const updatedAgo = computed(() => {
+  if (!updatedAt.value) return ''
+  const s = Math.max(0, Math.round((now.value - updatedAt.value) / 1000))
+  return s < 2 ? 'just now' : `${s}s ago`
+})
+
+/** A log line split into its (dim) timestamp and level-colored remainder. */
+function parse(line: string): { time: string; rest: string; level: string } {
+  const m = line.match(/^(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(?:\.\d+)?Z?)\s*(.*)$/)
+  const time = m ? m[1]! : ''
+  const rest = m ? m[2]! : line
+  const lv = rest.match(/\b(CRITICAL|ERROR|WARNING|WARN|DEBUG|INFO)\b/)
+  return { time, rest, level: lv ? lv[1]! : '' }
 }
 
-function slugOf(space: Space): string {
-  return space.url.replace('https://', '').split('.')[0] ?? space.name
+function levelClass(level: string): string {
+  if (level === 'ERROR' || level === 'CRITICAL') return 'text-red-300'
+  if (level === 'WARNING' || level === 'WARN') return 'text-yellow-200'
+  if (level === 'DEBUG') return 'opacity-60'
+  return ''
 }
 
-/** Startup tail every pod shows, oldest first. */
-function seedLines(space: Space): string[] {
-  const slug = slugOf(space)
-  const seeded: [number, string][] = [
-    [95, 'INFO   uvicorn      Started server process [1]'],
-    [94, `INFO   syft         syft-space v${space.version} starting (mode: cluster)`],
-    [93, `INFO   syft.vector  connected to shared ChromaDB (database: ${slug})`],
-    [92, 'INFO   syft.docling using remote docling-serve'],
-  ]
-  seeded.push([90, 'INFO   uvicorn      Application startup complete'])
-  seeded.push([45, 'INFO   syft.hub     heartbeat ok (next in 60s)'])
-  seeded.push([12, 'INFO   uvicorn      GET /healthcheck 200 2ms'])
-  if (space.health === 'unhealthy') {
-    seeded.push([8, 'ERROR  syft.vector  connection to chroma-shared:8000 timed out (attempt 3)'])
-    seeded.push([4, 'WARN   readiness    probe failed (3/3) — pod marked unready'])
-  }
-  return seeded.map(([ago, msg]) => `${stamp(ago)}  ${msg}`)
+function atBottom(): boolean {
+  const el = logBox.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 40
 }
 
-const HEALTHY_POOL = [
-  'INFO   uvicorn      GET /healthcheck 200 2ms',
-  'INFO   syft.query   answered query for kim@labmate.org (top_k=8, 412ms)',
-  'INFO   syft.ingest  chunked report-q3.pdf → 182 chunks (docling remote)',
-  'DEBUG  chromadb     upserted 182 vectors',
-  'INFO   syft.hub     heartbeat ok (next in 60s)',
-  'INFO   uvicorn      POST /api/v1/query 200 388ms',
-]
-
-const UNHEALTHY_POOL = [
-  'ERROR  syft.vector  connection to chroma-shared:8000 timed out (retrying)',
-  'WARN   readiness    probe failed — pod marked unready',
-  'INFO   uvicorn      GET /healthcheck 503 1ms',
-]
-
-function appendLine() {
+async function load() {
   if (!props.space) return
-  const pool = props.space.health === 'unhealthy' ? UNHEALTHY_POOL : HEALTHY_POOL
-  const line = pool[Math.floor(Math.random() * pool.length)]
-  lines.value.push(`${stamp()}  ${line}`)
-  if (lines.value.length > 200) lines.value.shift()
-  void nextTick(() => {
-    if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
-  })
+  const stick = atBottom()
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await spacesApi.logs(props.space.id)
+    lines.value = res.lines
+    updatedAt.value = Date.now()
+    now.value = Date.now()
+    if (stick) {
+      void nextTick(() => {
+        if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
+      })
+    }
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : 'Could not read the logs'
+    lines.value = []
+    live.value = false
+  } finally {
+    loading.value = false
+  }
 }
 
-function stopStream() {
-  if (timer) clearInterval(timer)
-  timer = undefined
+function stopPoll() {
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = undefined
+}
+
+watch(live, (on) => {
+  stopPoll()
+  if (on) {
+    void load()
+    pollTimer = setInterval(load, POLL_MS)
+  }
+})
+
+async function copyLogs() {
+  try {
+    await navigator.clipboard.writeText(lines.value.join('\n'))
+    copied.value = true
+    setTimeout(() => (copied.value = false), 1500)
+  } catch {
+    /* clipboard blocked — no-op */
+  }
 }
 
 watch(
   () => props.open,
   (isOpen) => {
-    stopStream()
-    if (isOpen && props.space && props.space.health !== 'paused') {
-      lines.value = seedLines(props.space)
-      timer = setInterval(appendLine, 1800)
-      void nextTick(() => {
-        if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
-      })
+    stopPoll()
+    if (clockTimer) clearInterval(clockTimer)
+    live.value = false
+    if (isOpen && props.space && !paused.value) {
+      void load()
+      clockTimer = setInterval(() => (now.value = Date.now()), 1000)
     } else {
       lines.value = []
+      error.value = ''
     }
   },
 )
 
-onUnmounted(stopStream)
+onUnmounted(() => {
+  stopPoll()
+  if (clockTimer) clearInterval(clockTimer)
+})
 </script>
 
 <template>
   <Sheet :open="open" @update:open="(v: boolean) => emit('update:open', v)">
-    <SheetContent side="right" class="flex w-full flex-col gap-0 sm:max-w-2xl">
-      <SheetHeader v-if="space">
-        <SheetTitle class="flex items-center gap-2">
-          <ScrollText class="h-4 w-4" />
+    <SheetContent
+      side="right"
+      class="flex w-full flex-col gap-0 p-0 transition-[max-width] duration-200"
+      :class="expanded ? 'sm:max-w-5xl' : 'sm:max-w-2xl'"
+    >
+      <SheetHeader v-if="space" class="px-4 pt-4 pb-3">
+        <SheetTitle class="flex items-center gap-2 pr-8">
+          <ScrollText class="h-4 w-4 shrink-0" />
           Logs — {{ space.name }}
           <HealthBadge :health="space.health" />
         </SheetTitle>
         <SheetDescription>
-          Live logs from your space. Shown while it runs — not stored.
+          A snapshot of the space's most recent logs, read live from the pod — not stored.
         </SheetDescription>
       </SheetHeader>
 
-      <div v-if="space" class="min-h-0 flex-1 px-4 pb-4">
+      <!-- Control toolbar -->
+      <div
+        v-if="space && !paused"
+        class="flex items-center gap-1 border-y bg-muted/30 px-3 py-1.5"
+      >
+        <Button
+          :variant="live ? 'secondary' : 'ghost'"
+          size="sm"
+          class="h-7 gap-1.5"
+          @click="live = !live"
+        >
+          <span
+            v-if="live"
+            class="h-1.5 w-1.5 animate-pulse rounded-full bg-success"
+          />
+          <component :is="live ? Pause : Play" v-else class="h-3.5 w-3.5" />
+          {{ live ? 'Following' : 'Follow' }}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-7 gap-1.5"
+          title="Refresh"
+          :disabled="live || loading"
+          @click="load"
+        >
+          <RefreshCw class="h-3.5 w-3.5" :class="loading ? 'animate-spin' : ''" />
+          Refresh
+        </Button>
+        <div class="mx-1 h-4 w-px bg-border" />
+        <Button
+          :variant="wrap ? 'secondary' : 'ghost'"
+          size="sm"
+          class="h-7 gap-1.5"
+          title="Wrap long lines"
+          @click="wrap = !wrap"
+        >
+          <WrapText class="h-3.5 w-3.5" />
+          Wrap
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-7 gap-1.5"
+          title="Copy all"
+          @click="copyLogs"
+        >
+          <component :is="copied ? Check : Copy" class="h-3.5 w-3.5" />
+          {{ copied ? 'Copied' : 'Copy' }}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="ml-auto h-7 w-7"
+          :title="expanded ? 'Collapse' : 'Expand'"
+          @click="expanded = !expanded"
+        >
+          <component :is="expanded ? Minimize2 : Maximize2" class="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <!-- Body -->
+      <div v-if="space" class="min-h-0 flex-1 px-4 py-3">
         <div
-          v-if="space.health === 'paused'"
+          v-if="paused"
           class="flex h-full flex-col items-center justify-center gap-2 rounded-md border border-dashed text-center text-sm text-muted-foreground"
         >
           <PauseCircle class="h-6 w-6" />
           <p class="font-medium text-foreground">Space is paused — no logs to show</p>
           <p class="max-w-xs text-xs">
-            Logs are available while the space is running. Start the space to stream them again.
+            Logs are available while the space is running. Start the space to read them again.
           </p>
         </div>
 
         <div
           v-else
           ref="logBox"
-          class="h-full overflow-y-auto rounded-md bg-foreground/95 p-3 font-mono text-[11px] leading-relaxed text-background"
+          class="h-full overflow-auto rounded-md bg-foreground/95 p-3 font-mono text-[11px] leading-relaxed text-background"
         >
+          <p v-if="error" class="text-red-300">{{ error }}</p>
+          <p v-else-if="loading && !lines.length" class="text-background/60">Loading logs…</p>
+          <p v-else-if="!lines.length" class="text-background/60">No logs yet.</p>
           <div
             v-for="(line, i) in lines"
             :key="i"
-            class="whitespace-pre-wrap"
-            :class="{
-              'text-red-300': line.includes('ERROR'),
-              'text-yellow-200': line.includes('WARN'),
-              'opacity-70': line.includes('DEBUG'),
-            }"
+            :class="[
+              wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre',
+              levelClass(parse(line).level),
+            ]"
           >
-            {{ line }}
+            <template v-if="parse(line).time">
+              <span class="text-background/40">{{ parse(line).time }}</span>
+              {{ ' ' + parse(line).rest }}
+            </template>
+            <template v-else>{{ line }}</template>
           </div>
         </div>
+      </div>
+
+      <!-- Status footer -->
+      <div
+        v-if="space && !paused"
+        class="flex items-center gap-2 border-t px-4 py-1.5 text-xs text-muted-foreground"
+      >
+        <span v-if="live" class="flex items-center gap-1.5">
+          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
+          following
+        </span>
+        <span>{{ lines.length }} line{{ lines.length === 1 ? '' : 's' }}</span>
+        <span v-if="updatedAgo" class="ml-auto">updated {{ updatedAgo }}</span>
       </div>
     </SheetContent>
   </Sheet>

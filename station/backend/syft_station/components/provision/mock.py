@@ -55,3 +55,15 @@ class MockProvisioner:
         if subdomain in self._paused:
             return SpaceRuntimeStatus.PAUSED
         return SpaceRuntimeStatus.RUNNING
+
+    async def logs(self, subdomain: str, tail_lines: int) -> str:
+        """A few canned lines so the log viewer has something to show without
+        a cluster; empty while paused, like a pod that isn't running."""
+        if subdomain in self._paused:
+            return ""
+        sample = [
+            "2026-08-11T10:00:00Z INFO   uvicorn      Application startup complete",
+            f"2026-08-11T10:00:01Z INFO   syft         space '{subdomain}' ready",
+            "2026-08-11T10:00:12Z INFO   uvicorn      GET /api/v1/health 200 2ms",
+        ]
+        return "\n".join(sample[-tail_lines:])

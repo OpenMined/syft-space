@@ -32,6 +32,15 @@ class SpaceStatusResponse(BaseModel):
     status: str
 
 
+class SpaceLogsResponse(BaseModel):
+    """A snapshot of the space container's recent log lines (newest last).
+
+    Empty when the space has no running pod (paused or not yet up).
+    """
+
+    lines: list[str]
+
+
 class SpaceUpdateResult(BaseModel):
     """One space's outcome in an update sweep."""
 

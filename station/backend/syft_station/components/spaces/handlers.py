@@ -19,6 +19,7 @@ from syft_station.components.spaces.repository import (
 )
 from syft_station.components.spaces.schemas import (
     AdminUrlResponse,
+    SpaceLogsResponse,
     SpaceResponse,
     SpaceStatusResponse,
     SpaceUpdateResult,
@@ -75,6 +76,21 @@ class SpaceHandler:
                 detail="Could not read the space status",
             ) from e
         return SpaceStatusResponse(status=str(status_))
+
+    async def logs(
+        self, space_id: UUID, user: SessionUser, tail_lines: int
+    ) -> SpaceLogsResponse:
+        """A snapshot tail of the space's logs (admin or the space's owner)."""
+        space = await self._get_owned_space(space_id, user)
+        try:
+            text = await self.provisioner.logs(space.subdomain, tail_lines)
+        except Exception as e:
+            logger.exception(f"Log read failed for '{space.subdomain}'")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not read the space logs",
+            ) from e
+        return SpaceLogsResponse(lines=text.splitlines())
 
     async def pause(self, space_id: UUID, user: SessionUser) -> SpaceStatusResponse:
         """Free the space's compute; its data volume is kept."""
