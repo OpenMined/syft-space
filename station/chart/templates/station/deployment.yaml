@@ -59,6 +59,8 @@ spec:
               value: {{ .Values.spaces.memoryLimit | quote }}
             - name: SYFT_STATION_SPACE_SCHEME
               value: {{ .Values.spaces.scheme | quote }}
+            - name: SYFT_STATION_SPACE_IMAGE_PULL_POLICY
+              value: {{ .Values.spaces.imagePullPolicy | quote }}
             - name: SYFT_STATION_SPACE_TLS_SECRET
               value: {{ include "syft-station.spaceTlsSecret" . | quote }}
             - name: SYFT_STATION_SPACE_HOST_MOUNT

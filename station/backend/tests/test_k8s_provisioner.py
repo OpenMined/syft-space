@@ -18,6 +18,7 @@ SETTINGS = SimpleNamespace(
     namespace="syft-spaces",
     space_image="openmined/syft-space",
     space_scheme="https",
+    space_image_pull_policy="IfNotPresent",
     ingress_class="traefik",
     space_pvc_size="2Gi",
     space_cpu_request="250m",
