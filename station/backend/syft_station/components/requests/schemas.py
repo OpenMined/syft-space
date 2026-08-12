@@ -106,6 +106,28 @@ class RejectRequestBody(BaseModel):
     reason: str = ""
 
 
+class PatchRequestBody(BaseModel):
+    """Drive a request's lifecycle by setting its target status.
+
+    approved → admin approves (a failed create re-provisions; a pending
+    delete tears down); the create-approve options ride along. rejected →
+    admin declines with a reason. withdrawn → the owner cancels their own
+    pending request.
+    """
+
+    status: Literal["approved", "rejected", "withdrawn"]
+    reason: str = ""
+    space_name: str | None = None
+    subdomain: str | None = None
+    attach_wallet: bool = True
+    wallet_id: UUID | None = None
+
+    @field_validator("subdomain")
+    @classmethod
+    def validate_subdomain(cls, v: str | None) -> str | None:
+        return None if v is None else validate_slug(v)
+
+
 class RequestResponse(BaseModel):
     id: UUID
     type: str

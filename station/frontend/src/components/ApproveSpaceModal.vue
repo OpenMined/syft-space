@@ -98,10 +98,10 @@ async function approve() {
 
       <div class="space-y-4">
         <div
-          v-if="isRetry && request.failureError"
+          v-if="isRetry && request.resolutionNote"
           class="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive"
         >
-          {{ request.failureError }}
+          {{ request.resolutionNote }}
         </div>
 
         <div class="grid gap-4 sm:grid-cols-2">

@@ -20,6 +20,7 @@ from syft_station.components.requests.schemas import (
     ApproveRequestBody,
     CreateSpacePayload,
     DeleteSpacePayload,
+    PatchRequestBody,
     SubmitRequestBody,
 )
 from syft_station.components.spaces.provisioning import SpaceConverger
@@ -400,18 +401,77 @@ async def test_owner_withdraws_deletion_keeps_space(rec_handler, setup_repositor
     assert await rec_handler.space_repository.get_by_id(active.space_id) is not None
 
 
-async def test_admin_delete_space_directly(
+async def test_admin_housekeeping_delete_via_submit_then_approve(
     rec_handler, rec_provisioner, setup_repository
 ):
+    """Admin's direct delete is the honest REST sequence: submit a
+    delete_space request, then PATCH it approved."""
     active = await provision_active(rec_handler, setup_repository, sub="alpha")
-    done = await rec_handler.admin_delete_space(active.space_id, ADMIN)
-    assert done.type == RequestType.DELETE_SPACE.value
+    req = await rec_handler.submit(delete_body(active.space_id), ADMIN)
+    done = await rec_handler.transition(
+        req.id, PatchRequestBody(status="approved"), ADMIN
+    )
     assert done.status == RequestStatus.APPROVED.value
     assert rec_provisioner.deprovisioned == [("alpha", True)]
     assert await rec_handler.space_repository.get_by_id(active.space_id) is None
 
 
-async def test_admin_delete_unknown_space_404(rec_handler):
+# ============== transition() — the PATCH dispatcher ==============
+
+
+async def test_transition_approved_provisions_a_create(handler, setup_repository):
+    await onboard(setup_repository)
+    request = await handler.submit(create_body(), MEMBER)
+    await handler.transition(request.id, PatchRequestBody(status="approved"), ADMIN)
+    await handler.wait_for_provisioning()
+    settled = await handler.get_request(request.id, MEMBER)
+    assert settled.status == RequestStatus.APPROVED.value
+
+
+async def test_transition_approved_retries_a_failed_create(handler, setup_repository):
+    await onboard(setup_repository)
+    request = await handler.submit(create_body("fail-me"), MEMBER)
+    await handler.approve(request.id, ApproveRequestBody())
+    await handler.wait_for_provisioning()
+    failed = await handler.get_request(request.id, MEMBER)
+    assert failed.status == RequestStatus.FAILED.value
+    # A failed create approved again is a retry, not a 409.
+    retried = await handler.transition(
+        request.id, PatchRequestBody(status="approved"), ADMIN
+    )
+    assert retried.status == RequestStatus.PROVISIONING.value
+
+
+async def test_transition_rejected_records_reason(handler):
+    request = await handler.submit(create_body(), MEMBER)
+    rejected = await handler.transition(
+        request.id, PatchRequestBody(status="rejected", reason="no capacity"), ADMIN
+    )
+    assert rejected.status == RequestStatus.REJECTED.value
+    assert rejected.resolution_note == "no capacity"
+
+
+async def test_transition_withdrawn_is_the_owners(handler):
+    request = await handler.submit(create_body(), MEMBER)
+    withdrawn = await handler.transition(
+        request.id, PatchRequestBody(status="withdrawn"), MEMBER
+    )
+    assert withdrawn.status == RequestStatus.WITHDRAWN.value
+
+
+async def test_transition_approve_requires_admin(handler):
+    request = await handler.submit(create_body(), MEMBER)
     with pytest.raises(HTTPException) as exc:
-        await rec_handler.admin_delete_space(uuid4(), ADMIN)
-    assert exc.value.status_code == 404
+        await handler.transition(
+            request.id, PatchRequestBody(status="approved"), MEMBER
+        )
+    assert exc.value.status_code == 403
+
+
+async def test_transition_reject_requires_admin(handler):
+    request = await handler.submit(create_body(), MEMBER)
+    with pytest.raises(HTTPException) as exc:
+        await handler.transition(
+            request.id, PatchRequestBody(status="rejected"), MEMBER
+        )
+    assert exc.value.status_code == 403

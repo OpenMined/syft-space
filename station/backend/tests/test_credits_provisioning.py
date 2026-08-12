@@ -25,6 +25,8 @@ from syft_station.components.requests.handlers import RequestHandler
 from syft_station.components.requests.schemas import (
     ApproveRequestBody,
     CreateSpacePayload,
+    DeleteSpacePayload,
+    PatchRequestBody,
     SubmitRequestBody,
 )
 from syft_station.components.spaces.provisioning import SpaceConverger
@@ -309,6 +311,9 @@ async def test_delete_revokes_credit_tokens(
     space_id = approved.space_id
     assert await credit_tokens.get_active_for_space(space_id) is not None
 
-    await handler.admin_delete_space(space_id, ADMIN)
+    req = await handler.submit(
+        SubmitRequestBody(payload=DeleteSpacePayload(), space_id=space_id), ADMIN
+    )
+    await handler.transition(req.id, PatchRequestBody(status="approved"), ADMIN)
 
     assert await credit_tokens.get_active_for_space(space_id) is None

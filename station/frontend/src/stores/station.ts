@@ -119,18 +119,16 @@ export const useStationStore = defineStore('station', () => {
   function mapRequest(r: RequestResponse): SpaceRequest {
     return {
       id: r.id,
-      spaceName: r.space_name,
-      subdomain: r.subdomain,
-      requesterEmail: r.owner_email,
-      purpose: r.reason,
-      createdAt: r.created_at,
+      type: r.type,
       status: r.status,
-      // The backend keeps one note per request: a rejection note when
-      // rejected, the provisioning error when failed.
-      rejectReason: r.status === 'rejected' ? (r.reject_reason ?? undefined) : undefined,
-      failureError: r.status === 'failed' ? (r.reject_reason ?? undefined) : undefined,
+      requesterEmail: r.owner_email,
       spaceId: r.space_id ?? undefined,
+      spaceName: r.space_name ?? '',
+      subdomain: r.subdomain ?? '',
+      purpose: r.reason,
+      resolutionNote: r.resolution_note ?? undefined,
       origin: r.origin === 'admin' ? 'admin' : undefined,
+      createdAt: r.created_at,
     }
   }
 
@@ -208,7 +206,7 @@ export const useStationStore = defineStore('station', () => {
         if (updated.status !== 'provisioning') {
           clearInterval(timer)
           polling.delete(requestId)
-          if (updated.status === 'active') await loadSpaces()
+          if (updated.status === 'approved') await loadSpaces()
         }
       } catch {
         clearInterval(timer)
@@ -348,18 +346,43 @@ export const useStationStore = defineStore('station', () => {
 
   function requestsFor(email: string): SpaceRequest[] {
     return requests.value
-      .filter((r) => r.requesterEmail === email && r.status !== 'withdrawn')
+      .filter((r) => r.requesterEmail === email)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }
 
+  // Create requests that haven't produced a live space yet (or are retrying).
+  const _OPEN_CREATE: RequestStatus[] = ['pending', 'provisioning', 'failed']
+
+  /** In-flight create requests for a member — no space exists for these yet. */
+  function inflightCreatesFor(email: string): SpaceRequest[] {
+    return requestsFor(email).filter(
+      (r) => r.type === 'create_space' && _OPEN_CREATE.includes(r.status),
+    )
+  }
+
+  /** Terminal requests of every type — the member's "Past requests" history. */
+  function pastRequestsFor(email: string): SpaceRequest[] {
+    return requestsFor(email).filter((r) =>
+      r.type === 'create_space'
+        ? r.status === 'rejected' || r.status === 'withdrawn'
+        : r.status === 'approved' || r.status === 'rejected' || r.status === 'withdrawn',
+    )
+  }
+
+  /** The pending delete_space request for a space, if any (its "deletion pending"). */
+  function pendingDeletionFor(spaceId: string): SpaceRequest | undefined {
+    return requests.value.find(
+      (r) => r.type === 'delete_space' && r.status === 'pending' && r.spaceId === spaceId,
+    )
+  }
+
   /**
-   * The request holding this owner's one-space slot, if any — SyftHub
-   * supports one space per user, so the backend 409s a second submit while
-   * one of these exists (mirrors OWNER_SLOT_STATUSES server-side).
+   * One space per owner: they may request a new space only with no live
+   * space and no open create request (mirrors the server-side guard).
    */
-  function liveRequestFor(email: string): SpaceRequest | undefined {
-    const slotHolders: RequestStatus[] = ['pending', 'provisioning', 'active', 'failed']
-    return requests.value.find((r) => r.requesterEmail === email && slotHolders.includes(r.status))
+  function canRequestSpace(email: string): boolean {
+    const hasSpace = spaces.value.some((s) => s.ownerEmail === email)
+    return !hasSpace && inflightCreatesFor(email).length === 0
   }
 
   function spaceById(id: string): Space | undefined {
@@ -389,12 +412,15 @@ export const useStationStore = defineStore('station', () => {
     spaceName: string
     purpose: string
   }): Promise<SpaceRequest> {
-    const created = await requestsApi.submit({
-      space_name: input.spaceName,
-      subdomain: slugify(input.spaceName),
+    const created = await requestsApi.submitCreate(input.spaceName, slugify(input.spaceName), {
       reason: input.purpose,
     })
     return applyRequest(created)
+  }
+
+  /** Owner (or admin) asks to delete a space → a pending delete_space request. */
+  async function requestDeletion(spaceId: string, reason = ''): Promise<SpaceRequest> {
+    return applyRequest(await requestsApi.submitDelete(spaceId, reason))
   }
 
   /** Approve (admin): the backend starts provisioning; we poll for progress. */
@@ -425,10 +451,8 @@ export const useStationStore = defineStore('station', () => {
     subdomain: string
     ownerEmail: string
   }): Promise<SpaceRequest> {
-    const created = await requestsApi.submit({
-      space_name: input.spaceName,
-      subdomain: input.subdomain,
-      owner_email: input.ownerEmail,
+    const created = await requestsApi.submitCreate(input.spaceName, input.subdomain, {
+      ownerEmail: input.ownerEmail,
     })
     const approved = await requestsApi.approve(created.id, {})
     const request = applyRequest(approved)
@@ -436,9 +460,16 @@ export const useStationStore = defineStore('station', () => {
     return request
   }
 
-  /** Reject a pending request with a reason (admin). */
+  /** Reject a pending request with a reason (admin). Generic across types:
+   *  a rejected create, or a declined deletion. */
   async function rejectRequest(requestId: string, reason: string): Promise<void> {
-    applyRequest(await requestsApi.reject(requestId, { reason }))
+    applyRequest(await requestsApi.reject(requestId, reason))
+  }
+
+  /** Approve a pending delete_space request (admin) — tears the space down. */
+  async function approveDeletion(requestId: string): Promise<void> {
+    applyRequest(await requestsApi.approve(requestId, {}))
+    await loadSpaces()
   }
 
   /** Member withdraws their own pending request. */
@@ -572,12 +603,12 @@ export const useStationStore = defineStore('station', () => {
   /**
    * Delete tears the space down completely — deployment, volume and vector
    * database included (a freed subdomain must never surface another owner's
-   * data). Keyed by the space's request, which is marked DELETED.
+   * data). Admin housekeeping is the REST sequence: submit a delete_space
+   * request, then approve it — leaving an approved delete_space in history.
    */
   async function deleteSpace(spaceId: string): Promise<void> {
-    const request = requests.value.find((r) => r.spaceId === spaceId)
-    if (!request) return
-    applyRequest(await requestsApi.deleteSpace(request.id))
+    const request = await requestsApi.submitDelete(spaceId)
+    applyRequest(await requestsApi.approve(request.id))
     spaces.value = spaces.value.filter((s) => s.id !== spaceId)
   }
 
@@ -610,7 +641,10 @@ export const useStationStore = defineStore('station', () => {
     spaceIncludes,
     setupWallet,
     requestsFor,
-    liveRequestFor,
+    inflightCreatesFor,
+    pastRequestsFor,
+    pendingDeletionFor,
+    canRequestSpace,
     spaceById,
     loadRequests,
     loadSpaces,
@@ -619,10 +653,12 @@ export const useStationStore = defineStore('station', () => {
     loadMemberEarnings,
     refreshSpaceState,
     submitRequest,
+    requestDeletion,
     approveRequest,
     createSpace,
     retryProvision,
     rejectRequest,
+    approveDeletion,
     withdrawRequest,
     regenerateApiKey,
     recordPayout,

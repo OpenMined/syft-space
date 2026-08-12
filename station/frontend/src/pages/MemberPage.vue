@@ -75,21 +75,35 @@ function signOut() {
 // ---- One space per account (SyftHub limit) ----
 // While a request/space holds the slot, the form is replaced by an
 // explainer that names the blocker and the way out.
-const myLiveRequest = computed(() =>
-  session.profile ? station.liveRequestFor(session.profile.email) : undefined,
+// The slot is held by an in-flight create request or a live space; either
+// way the request form is replaced by an explainer naming the blocker.
+const myInflightCreate = computed(() =>
+  session.profile ? station.inflightCreatesFor(session.profile.email)[0] : undefined,
 )
-
-const slotExplanations: Record<string, string> = {
-  pending: 'is awaiting review. Withdraw it if you want to request a different space.',
-  provisioning: 'is being set up right now.',
-  active: 'is already running. Ask the station admin to delete it if you want to start over.',
-  failed: 'failed to provision and is with the station admin to retry or delete.',
-}
+const myLiveSpace = computed(() =>
+  session.profile
+    ? station.spaces.find((s) => s.ownerEmail === session.profile!.email)
+    : undefined,
+)
+const slotHeld = computed(() => !!(myInflightCreate.value || myLiveSpace.value))
+const slotName = computed(
+  () => myInflightCreate.value?.spaceName ?? myLiveSpace.value?.name ?? '',
+)
+const slotExplanation = computed(() => {
+  if (myLiveSpace.value)
+    return 'is already running. Request its deletion from "My requests" to start over.'
+  const byStatus: Record<string, string> = {
+    pending: 'is awaiting review. Withdraw it if you want to request a different space.',
+    provisioning: 'is being set up right now.',
+    failed: 'failed to provision and is with the station admin to retry or delete.',
+  }
+  return byStatus[myInflightCreate.value?.status ?? ''] ?? ''
+})
 
 const withdrawing = ref(false)
 
 async function withdrawLiveRequest() {
-  const request = myLiveRequest.value
+  const request = myInflightCreate.value
   if (!request) return
   withdrawing.value = true
   try {
@@ -185,14 +199,12 @@ const currency = computed(() => station.wallet?.currency ?? 'USD')
 
           <MyRequests v-if="activeSection === 'requests'" />
           <div v-else class="max-w-xl">
-            <Card v-if="myLiveRequest">
+            <Card v-if="slotHeld">
               <CardHeader>
                 <CardTitle class="text-base">One space per account</CardTitle>
                 <CardDescription>
-                  Your {{ myLiveRequest.status === 'active' ? 'space' : 'request' }} '{{
-                    myLiveRequest.spaceName
-                  }}'
-                  {{ slotExplanations[myLiveRequest.status] }}
+                  Your {{ myLiveSpace ? 'space' : 'request' }} '{{ slotName }}'
+                  {{ slotExplanation }}
                 </CardDescription>
               </CardHeader>
               <CardContent class="flex gap-2">
@@ -200,7 +212,7 @@ const currency = computed(() => station.wallet?.currency ?? 'USD')
                   View my requests
                 </Button>
                 <Button
-                  v-if="myLiveRequest.status === 'pending'"
+                  v-if="myInflightCreate?.status === 'pending'"
                   variant="destructive"
                   size="sm"
                   :disabled="withdrawing"

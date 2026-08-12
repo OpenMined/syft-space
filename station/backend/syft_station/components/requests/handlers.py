@@ -24,6 +24,7 @@ from syft_station.components.requests.interfaces import WalletAttachments
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.requests.schemas import (
     ApproveRequestBody,
+    PatchRequestBody,
     RequestResponse,
     SubmitRequestBody,
 )
@@ -247,29 +248,43 @@ class RequestHandler:
             )
         return await self._start_provisioning(request, set_wallet=False)
 
-    async def admin_delete_space(
-        self, space_id: UUID, user: SessionUser
+    async def transition(
+        self, request_id: UUID, body: PatchRequestBody, user: SessionUser
     ) -> RequestResponse:
-        """Admin housekeeping: tear a space down directly, recording an
-        approved delete_space request so it still shows in history."""
-        space = await self.space_repository.get_by_id(space_id)
-        if not space:
-            raise HTTPException(status_code=404, detail="Space not found")
-        request = await self.repository.create(
-            Request(
-                type=RequestType.DELETE_SPACE.value,
-                owner_email=space.owner_email,
-                space_id=space.id,
-                space_name=space.name,
-                subdomain=space.subdomain,
-                origin=RequestOrigin.ADMIN.value,
+        """Move a request to a target status (the PATCH entry point).
+
+        Dispatches to the tested lifecycle methods and enforces who may make
+        each transition: approve/reject are admin-only; withdraw is the
+        owner's (or admin's). A failed create approved again is a retry.
+        """
+        request = await self._get_request(request_id)
+        if body.status == RequestStatus.APPROVED.value:
+            self._require_admin(user)
+            if request.status == RequestStatus.FAILED.value:
+                return await self.retry(request_id)
+            return await self.approve(
+                request_id,
+                ApproveRequestBody(
+                    space_name=body.space_name,
+                    subdomain=body.subdomain,
+                    attach_wallet=body.attach_wallet,
+                    wallet_id=body.wallet_id,
+                ),
             )
-        )
-        await self._teardown(space, space.subdomain)
-        request = await self.repository.set_status(request, RequestStatus.APPROVED)
-        return _to_response(request)
+        if body.status == RequestStatus.REJECTED.value:
+            self._require_admin(user)
+            return await self.reject(request_id, body.reason)
+        if body.status == RequestStatus.WITHDRAWN.value:
+            return await self.withdraw(request_id, user)
+        raise HTTPException(status_code=422, detail="Unsupported target status")
 
     # --- Helpers ---
+
+    def _require_admin(self, user: SessionUser) -> None:
+        if user.role != ROLE_ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Admin only"
+            )
 
     def _require_owner_or_admin(self, request: Request, user: SessionUser) -> None:
         if user.role != ROLE_ADMIN and request.owner_email != user.email:
