@@ -23,7 +23,7 @@ from syft_station.components.credits.entities import (  # noqa: F401
     UserBalance,
     Wallet,
 )
-from syft_station.components.requests.entities import SpaceRequest  # noqa: F401
+from syft_station.components.requests.entities import Request  # noqa: F401
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.setup.entities import StationConfig  # noqa: F401
 from syft_station.components.setup.repository import SetupRepository

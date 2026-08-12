@@ -80,22 +80,23 @@ def build_request_routes(handler: RequestHandler) -> APIRouter:
         """Retry a FAILED request (admin)."""
         return await handler.retry(request_id)
 
-    @router.post("/{request_id}/delete", response_model=RequestResponse)
-    async def delete_space(
-        request_id: UUID,
-        user: SessionUser = Depends(get_current_user),
-        handler: RequestHandler = Depends(get_handler),
-    ) -> RequestResponse:
-        """Tear down an active/failed space (owner or admin); marks DELETED."""
-        return await handler.delete_space(request_id, user)
-
     @router.post("/{request_id}/withdraw", response_model=RequestResponse)
     async def withdraw_request(
         request_id: UUID,
         user: SessionUser = Depends(get_current_user),
         handler: RequestHandler = Depends(get_handler),
     ) -> RequestResponse:
-        """Withdraw own PENDING request (kept as a state for admin visibility)."""
+        """Owner (or admin) cancels their own PENDING request."""
         return await handler.withdraw(request_id, user)
+
+    @router.post("/delete-space/{space_id}", response_model=RequestResponse)
+    async def admin_delete_space(
+        space_id: UUID,
+        user: SessionUser = Depends(require_admin),
+        handler: RequestHandler = Depends(get_handler),
+    ) -> RequestResponse:
+        """Admin housekeeping: tear a space down now, recorded as an approved
+        delete_space request. (Owners instead submit a delete_space request.)"""
+        return await handler.admin_delete_space(space_id, user)
 
     return router

@@ -1,10 +1,16 @@
-"""Space request API schemas."""
+"""Request API schemas.
+
+Requests are typed: a submit carries a discriminated-union ``payload`` whose
+``type`` selects the shape (create a space, delete a space, …). The handler
+dispatches on that type. Approve/reject/withdraw are generic across types.
+"""
 
 import re
 from datetime import datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from syft_station.components.shared.email import NormalizedEmail
 
@@ -30,12 +36,13 @@ def validate_slug(v: str) -> str:
     return v
 
 
-class SubmitRequestBody(BaseModel):
+# ── Per-type submit payloads (discriminated on `type`) ──────────────────────
+
+
+class CreateSpacePayload(BaseModel):
+    type: Literal["create_space"] = "create_space"
     space_name: str
     subdomain: str
-    reason: str = ""
-    # Admin only: create the space for this member (ignored for members).
-    owner_email: NormalizedEmail | None = None
 
     @field_validator("space_name")
     @classmethod
@@ -45,34 +52,54 @@ class SubmitRequestBody(BaseModel):
             raise ValueError("Space name is required")
         return v
 
-    @field_validator("reason")
-    @classmethod
-    def strip_reason(cls, v: str) -> str:
-        return v.strip()
-
     @field_validator("subdomain")
     @classmethod
     def validate_subdomain(cls, v: str) -> str:
         return validate_slug(v)
 
 
+class DeleteSpacePayload(BaseModel):
+    type: Literal["delete_space"] = "delete_space"
+    # The target space is named by the envelope's space_id; nothing else.
+
+
+RequestPayload = Annotated[
+    CreateSpacePayload | DeleteSpacePayload,
+    Field(discriminator="type"),
+]
+
+
+class SubmitRequestBody(BaseModel):
+    """Submit any request type. `payload.type` selects the shape.
+
+    `space_id` targets an existing space (required by delete_space, ignored by
+    create_space). `owner_email` is admin-only — submit on a member's behalf.
+    """
+
+    payload: RequestPayload
+    reason: str = ""
+    space_id: UUID | None = None
+    owner_email: NormalizedEmail | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, v: str) -> str:
+        return v.strip()
+
+
 class ApproveRequestBody(BaseModel):
-    """Admin review-and-confirm: name/subdomain editable for conflicts."""
+    """Admin approve. For create_space, name/subdomain are editable (conflict
+    resolution) and the wallet is picked; ignored by other types."""
 
     space_name: str | None = None
     subdomain: str | None = None
-    # Wallet picker: attach_wallet=False provisions without managed credits;
-    # wallet_id=None means "the station wallet, if any" (the default entry).
-    # An explicit id is validated — ready for multi-wallet later.
     attach_wallet: bool = True
     wallet_id: UUID | None = None
 
     @field_validator("subdomain")
     @classmethod
     def validate_subdomain(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        return validate_slug(v)
+        return None if v is None else validate_slug(v)
 
 
 class RejectRequestBody(BaseModel):
@@ -81,13 +108,16 @@ class RejectRequestBody(BaseModel):
 
 class RequestResponse(BaseModel):
     id: UUID
-    space_name: str
-    subdomain: str
-    owner_email: str
-    reason: str
-    origin: str
+    type: str
     status: str
-    reject_reason: str | None
+    owner_email: str
     space_id: UUID | None
+    space_name: str | None
+    subdomain: str | None
+    reason: str
+    resolution_note: str | None
+    payload: dict
+    origin: str
     created_at: datetime
     updated_at: datetime
+    resolved_at: datetime | None

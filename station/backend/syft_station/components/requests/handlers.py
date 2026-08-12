@@ -1,4 +1,10 @@
-"""Space request handler — lifecycle + provisioning orchestration."""
+"""Request handler — typed submit/approve/reject/withdraw + provisioning.
+
+`submit` dispatches on the request's type. Approval runs the type's side
+effect: create_space provisions a space (async), delete_space tears one
+down. Reject (admin declines) and withdraw (owner cancels their own pending
+ask) are generic and terminal.
+"""
 
 import asyncio
 from uuid import UUID
@@ -7,14 +13,12 @@ from fastapi import HTTPException, status
 from loguru import logger
 
 from syft_station.components.auth.session import ROLE_ADMIN, SessionUser
-from syft_station.components.provision.interfaces import (
-    Provisioner,
-    ProvisionError,
-)
+from syft_station.components.provision.interfaces import Provisioner, ProvisionError
 from syft_station.components.requests.entities import (
+    Request,
     RequestOrigin,
     RequestStatus,
-    SpaceRequest,
+    RequestType,
 )
 from syft_station.components.requests.interfaces import WalletAttachments
 from syft_station.components.requests.repository import RequestRepository
@@ -32,26 +36,12 @@ from syft_station.components.spaces.repository import (
 )
 
 
-def _to_response(request: SpaceRequest) -> RequestResponse:
+def _to_response(request: Request) -> RequestResponse:
     return RequestResponse.model_validate(request.model_dump())
 
 
-# Only states that have provisioned k8s resources can be torn down.
-_DELETABLE_STATUSES = {RequestStatus.ACTIVE.value, RequestStatus.FAILED.value}
-
-# Names what already holds the owner's one-space slot in the submit 409, so
-# the member (or the admin submitting on their behalf) sees which path frees
-# it: withdraw a pending request, or have the admin resolve the rest.
-_SLOT_HOLDER_LABELS = {
-    RequestStatus.PENDING.value: "a pending space request",
-    RequestStatus.PROVISIONING.value: "a space being provisioned",
-    RequestStatus.ACTIVE.value: "a space",
-    RequestStatus.FAILED.value: "a failed request awaiting admin action",
-}
-
-
 class RequestHandler:
-    """Submit / approve / reject / retry / withdraw, driving the provisioner."""
+    """Typed request lifecycle, driving the provisioner for space side effects."""
 
     def __init__(
         self,
@@ -82,7 +72,7 @@ class RequestHandler:
             requests = await self.repository.list_by_owner(user.email)
         return [_to_response(r) for r in requests]
 
-    async def _get_request(self, request_id: UUID) -> SpaceRequest:
+    async def _get_request(self, request_id: UUID) -> Request:
         request = await self.repository.get_by_id(request_id)
         if not request:
             raise HTTPException(status_code=404, detail="Request not found")
@@ -91,47 +81,86 @@ class RequestHandler:
     async def get_request(self, request_id: UUID, user: SessionUser) -> RequestResponse:
         """One request, for status polling. Members see only their own."""
         request = await self._get_request(request_id)
-        if user.role != ROLE_ADMIN and request.owner_email != user.email:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Not your request"
-            )
+        self._require_owner_or_admin(request, user)
         return _to_response(request)
 
-    # --- Lifecycle ---
+    # --- Submit (dispatch on type) ---
 
     async def submit(
         self, body: SubmitRequestBody, user: SessionUser
     ) -> RequestResponse:
-        if await self._subdomain_taken(body.subdomain):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Subdomain '{body.subdomain}' is already taken",
-            )
         origin = (
             RequestOrigin.ADMIN if user.role == ROLE_ADMIN else RequestOrigin.MEMBER
         )
-        # The admin can create a space on a member's behalf; members always
-        # own their own requests.
+        if body.payload.type == RequestType.CREATE_SPACE.value:
+            return await self._submit_create(body, user, origin)
+        if body.payload.type == RequestType.DELETE_SPACE.value:
+            return await self._submit_delete(body, user, origin)
+        raise HTTPException(status_code=422, detail="Unknown request type")
+
+    async def _submit_create(
+        self, body: SubmitRequestBody, user: SessionUser, origin: RequestOrigin
+    ) -> RequestResponse:
+        payload = body.payload  # CreateSpacePayload
+        # Admin may create on a member's behalf; members own their own.
         owner_email = user.email
         if user.role == ROLE_ADMIN and body.owner_email:
             owner_email = body.owner_email
-        existing = await self.repository.live_request_for_owner(owner_email)
-        if existing:
+
+        if await self._subdomain_taken(payload.subdomain):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"One space per account: {owner_email} already has "
-                f"{_SLOT_HOLDER_LABELS[existing.status]} ('{existing.space_name}')",
+                detail=f"Subdomain '{payload.subdomain}' is already taken",
+            )
+        if await self._owner_has_space_or_pending(owner_email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"One space per account: {owner_email} already has a space "
+                "or an open request",
             )
         request = await self.repository.create(
-            SpaceRequest(
-                space_name=body.space_name,
-                subdomain=body.subdomain,
+            Request(
+                type=RequestType.CREATE_SPACE.value,
                 owner_email=owner_email,
+                space_name=payload.space_name,
+                subdomain=payload.subdomain,
                 reason=body.reason,
                 origin=origin.value,
             )
         )
         return _to_response(request)
+
+    async def _submit_delete(
+        self, body: SubmitRequestBody, user: SessionUser, origin: RequestOrigin
+    ) -> RequestResponse:
+        if not body.space_id:
+            raise HTTPException(status_code=422, detail="space_id is required")
+        space = await self.space_repository.get_by_id(body.space_id)
+        if not space:
+            raise HTTPException(status_code=404, detail="Space not found")
+        if user.role != ROLE_ADMIN and space.owner_email != user.email:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Not your space"
+            )
+        if await self.repository.open_delete_for_space(space.id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A deletion request for this space is already pending",
+            )
+        request = await self.repository.create(
+            Request(
+                type=RequestType.DELETE_SPACE.value,
+                owner_email=space.owner_email,
+                space_id=space.id,
+                space_name=space.name,
+                subdomain=space.subdomain,
+                reason=body.reason,
+                origin=origin.value,
+            )
+        )
+        return _to_response(request)
+
+    # --- Approve (dispatch on type) ---
 
     async def approve(
         self, request_id: UUID, body: ApproveRequestBody
@@ -143,30 +172,47 @@ class RequestHandler:
                 detail=f"Only pending requests can be approved "
                 f"(status: {request.status})",
             )
+        if request.type == RequestType.CREATE_SPACE.value:
+            return await self._approve_create(request, body)
+        if request.type == RequestType.DELETE_SPACE.value:
+            return await self._approve_delete(request)
+        raise HTTPException(status_code=422, detail="Unknown request type")
 
+    async def _approve_create(
+        self, request: Request, body: ApproveRequestBody
+    ) -> RequestResponse:
         # Review-and-confirm: the admin may adjust name/subdomain.
         if body.space_name:
             request.space_name = body.space_name
         if body.subdomain:
             request.subdomain = body.subdomain
-
         if await self._subdomain_taken(request.subdomain, exclude_id=request.id):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Subdomain '{request.subdomain}' is already taken",
             )
-
-        # Resolve the wallet pick now so a bad id fails the approve, not the
-        # background provisioning task.
+        # Resolve the wallet pick now so a bad id fails approve, not the task.
         wallet_id = None
         if body.attach_wallet:
             wallet_id = await self.credits.choose_wallet(body.wallet_id)
-
         return await self._start_provisioning(
             request, wallet_id=wallet_id, wallet_opt_out=not body.attach_wallet
         )
 
+    async def _approve_delete(self, request: Request) -> RequestResponse:
+        space = (
+            await self.space_repository.get_by_id(request.space_id)
+            if request.space_id
+            else None
+        )
+        await self._teardown(space, request.subdomain)
+        request = await self.repository.set_status(request, RequestStatus.APPROVED)
+        return _to_response(request)
+
+    # --- Reject / withdraw / retry ---
+
     async def reject(self, request_id: UUID, reason: str) -> RequestResponse:
+        """Admin declines a pending request (create or delete)."""
         request = await self._get_request(request_id)
         if request.status != RequestStatus.PENDING.value:
             raise HTTPException(
@@ -174,68 +220,14 @@ class RequestHandler:
                 detail="Only pending requests can be rejected",
             )
         request = await self.repository.set_status(
-            request, RequestStatus.REJECTED, reject_reason=reason
+            request, RequestStatus.REJECTED, resolution_note=reason
         )
         return _to_response(request)
 
-    async def retry(self, request_id: UUID) -> RequestResponse:
-        request = await self._get_request(request_id)
-        if request.status != RequestStatus.FAILED.value:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Only failed requests can be retried",
-            )
-        return await self._start_provisioning(request, set_wallet=False)
-
-    async def delete_space(
-        self, request_id: UUID, user: SessionUser
-    ) -> RequestResponse:
-        """Tear down a provisioned space and mark the request DELETED.
-
-        The only path that calls the provisioner's deprovision — deletion is
-        always an explicit user action (no implicit rollback on failure).
-        Full teardown (purge=True): the data volume goes too, so a freed
-        subdomain can't be re-provisioned onto another owner's leftover data.
-        DELETED is kept as a state for admin visibility.
-        """
-        request = await self._get_request(request_id)
-        if user.role != ROLE_ADMIN and request.owner_email != user.email:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Not your request"
-            )
-        if request.status not in _DELETABLE_STATUSES:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Only active or failed spaces can be deleted "
-                f"(status: {request.status})",
-            )
-
-        space = None
-        if request.space_id:
-            space = await self.space_repository.get_by_id(request.space_id)
-        subdomain = space.subdomain if space else request.subdomain
-
-        try:
-            await self.provisioner.deprovision(subdomain, purge=True)
-        except Exception as e:
-            logger.exception(f"Teardown failed for '{subdomain}'")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to tear down the space — please try again",
-            ) from e
-
-        if space:
-            await self.credits.revoke_space(space.id)
-            await self.space_repository.delete_space(space.id)
-        request = await self.repository.set_status(request, RequestStatus.DELETED)
-        return _to_response(request)
-
     async def withdraw(self, request_id: UUID, user: SessionUser) -> RequestResponse:
+        """Owner (or admin) cancels a pending request of their own."""
         request = await self._get_request(request_id)
-        if user.role != ROLE_ADMIN and request.owner_email != user.email:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Not your request"
-            )
+        self._require_owner_or_admin(request, user)
         if request.status != RequestStatus.PENDING.value:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -244,18 +236,81 @@ class RequestHandler:
         request = await self.repository.set_status(request, RequestStatus.WITHDRAWN)
         return _to_response(request)
 
-    # --- Provisioning ---
+    async def retry(self, request_id: UUID) -> RequestResponse:
+        request = await self._get_request(request_id)
+        if request.type != RequestType.CREATE_SPACE.value:
+            raise HTTPException(status_code=409, detail="Only create requests retry")
+        if request.status != RequestStatus.FAILED.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Only failed requests can be retried",
+            )
+        return await self._start_provisioning(request, set_wallet=False)
+
+    async def admin_delete_space(
+        self, space_id: UUID, user: SessionUser
+    ) -> RequestResponse:
+        """Admin housekeeping: tear a space down directly, recording an
+        approved delete_space request so it still shows in history."""
+        space = await self.space_repository.get_by_id(space_id)
+        if not space:
+            raise HTTPException(status_code=404, detail="Space not found")
+        request = await self.repository.create(
+            Request(
+                type=RequestType.DELETE_SPACE.value,
+                owner_email=space.owner_email,
+                space_id=space.id,
+                space_name=space.name,
+                subdomain=space.subdomain,
+                origin=RequestOrigin.ADMIN.value,
+            )
+        )
+        await self._teardown(space, space.subdomain)
+        request = await self.repository.set_status(request, RequestStatus.APPROVED)
+        return _to_response(request)
+
+    # --- Helpers ---
+
+    def _require_owner_or_admin(self, request: Request, user: SessionUser) -> None:
+        if user.role != ROLE_ADMIN and request.owner_email != user.email:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Not your request"
+            )
 
     async def _subdomain_taken(
         self, subdomain: str, exclude_id: UUID | None = None
     ) -> bool:
-        if await self.repository.subdomain_in_use(subdomain, exclude_id=exclude_id):
+        """Taken if an open create request reserves it, or a live space owns it."""
+        if await self.repository.subdomain_reserved(subdomain, exclude_id=exclude_id):
             return True
         return await self.space_repository.get_by_subdomain(subdomain) is not None
 
+    async def _owner_has_space_or_pending(self, owner_email: str) -> bool:
+        """One space per owner: a live space, or an unfinished create request."""
+        if await self.space_repository.list_by_owner(owner_email):
+            return True
+        return await self.repository.open_create_for_owner(owner_email) is not None
+
+    async def _teardown(self, space: Space | None, subdomain: str | None) -> None:
+        """Deprovision (purge) and remove the space's registry row + credits."""
+        target = space.subdomain if space else subdomain
+        if not target:
+            return
+        try:
+            await self.provisioner.deprovision(target, purge=True)
+        except Exception as e:
+            logger.exception(f"Teardown failed for '{target}'")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to tear down the space — please try again",
+            ) from e
+        if space:
+            await self.credits.revoke_space(space.id)
+            await self.space_repository.delete_space(space.id)
+
     async def _start_provisioning(
         self,
-        request: SpaceRequest,
+        request: Request,
         wallet_id: UUID | None = None,
         wallet_opt_out: bool = False,
         set_wallet: bool = True,
@@ -267,7 +322,6 @@ class RequestHandler:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Station is not set up yet — configure the domain first",
             )
-
         # Reuse the space + token from a failed attempt; create on first run.
         space = None
         if request.space_id:
@@ -292,15 +346,13 @@ class RequestHandler:
             space.wallet_opt_out = wallet_opt_out
             space = await self.space_repository.update(space)
 
-        request.reject_reason = None  # clear a previous attempt's failure
+        request.resolution_note = None  # clear a previous attempt's failure
         request = await self.repository.set_status(
             request, RequestStatus.PROVISIONING, space_id=space.id
         )
-
         task = asyncio.create_task(self._provision(request.id, space.id))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
-
         return _to_response(request)
 
     async def _provision(self, request_id: UUID, space_id: UUID) -> None:
@@ -309,27 +361,16 @@ class RequestHandler:
         if not request or not space:
             logger.error(f"Provisioning lost its request/space ({request_id})")
             return
-
         try:
-            url = await self.converger.converge(space)
+            await self.converger.converge(space)
+            await self.repository.set_status(request, RequestStatus.APPROVED)
         except ProvisionError as e:
             logger.warning(f"Provisioning failed for '{space.subdomain}': {e}")
-            # Keep the error on the request so the admin sees why it failed
             await self.repository.set_status(
-                request, RequestStatus.FAILED, reject_reason=str(e)
+                request, RequestStatus.FAILED, resolution_note=str(e)
             )
-            return
-        except Exception as e:
-            logger.exception(f"Provisioning crashed for '{space.subdomain}'")
-            await self.repository.set_status(
-                request, RequestStatus.FAILED, reject_reason=f"Unexpected error: {e}"
-            )
-            return
-
-        await self.repository.set_status(request, RequestStatus.ACTIVE)
-        logger.info(f"Space '{space.subdomain}' active at {url}")
 
     async def wait_for_provisioning(self) -> None:
-        """Wait for in-flight provisioning tasks (tests + shutdown)."""
+        """Await any in-flight provisioning tasks (used at shutdown / in tests)."""
         if self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
