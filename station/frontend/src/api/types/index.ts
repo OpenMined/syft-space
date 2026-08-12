@@ -109,6 +109,10 @@ export interface SpaceStatusResponse {
   status: SpaceRuntimeStatus
 }
 
+export interface SpaceLogsResponse {
+  lines: string[]
+}
+
 /** The space URL with the admin key attached as authToken. */
 export interface AdminUrlResponse {
   url: string

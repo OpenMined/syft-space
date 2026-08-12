@@ -105,3 +105,8 @@ class Provisioner(Protocol):
     async def get_status(self, subdomain: str) -> SpaceRuntimeStatus:
         """Read the space's live running state from the substrate."""
         ...
+
+    async def logs(self, subdomain: str, tail_lines: int) -> str:
+        """The space container's last ``tail_lines`` log lines (a snapshot,
+        newest last). Empty string when the space has no running pod."""
+        ...
