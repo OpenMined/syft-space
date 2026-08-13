@@ -5,10 +5,8 @@ import App from '@/App.vue'
 import router from '@/router'
 import '@/style.css'
 
-// Apply the system theme before first paint; useTheme takes over after mount
-if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-  document.documentElement.classList.add('dark')
-}
+// The flash-free page theme is set pre-paint by the inline script in index.html
+// (data-theme on <html>); useTheme takes over reactively after mount.
 
 const app = createApp(App)
 

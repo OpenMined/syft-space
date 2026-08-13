@@ -1,0 +1,61 @@
+OpenMined Design System — vendored brand source
+================================================
+
+Brand repo:  OpenMined/brand.openmined.org
+Commit:      af7d344318d4b0afb4493393c1b2ced52ac9facb  (main HEAD at sync)
+Synced:      2026-08-13
+Source:      https://design.openmined.org/tokens/{tokens,global,typography}.css
+
+Active in the build
+-------------------
+  src/brand/tokens/tokens.css   Imported by src/style.css. The canonical palette
+                                (--color-*-NNN ramps) + semantic surface/text
+                                tokens (--surface-*, --text-*), spacing, radius,
+                                shadows, grid, breakpoints. Responds to
+                                [data-theme="dark"].
+
+Reference only (vendored, NOT imported)
+---------------------------------------
+  src/brand/tokens/global.css       OMDS marketing-page global styles (bare
+                                    h1–h6 prose scale @ 61/47/36px, form/prose/
+                                    container skins). The station is a shadcn
+                                    dashboard, so its own element + type styles
+                                    are kept. Only the [data-section] override
+                                    rules were extracted from here into
+                                    src/style.css (attributed there).
+  src/brand/tokens/typography.css   OMDS prose type scale (marketing). The
+                                    dashboard keeps its compact type; Inter (the
+                                    brand body font) already matches.
+
+How the brand reaches components
+--------------------------------
+Page theme:  [data-theme="dark"] on <html> (set in index.html pre-paint +
+             src/composables/useTheme.ts). data-section overrides
+             (always-light / always-dark / invert) are supported.
+Adapter:     shadcn's semantic tokens (--background, --primary, …) are redefined
+             in src/style.css over the OMDS tokens — surfaces/text/border over
+             the *semantic* layer (so data-section flows through every shadcn
+             utility), accents over the *palette* ramps.
+
+Accent palette — teal brand + semantic action colors (all OMDS-canonical)
+-------------------------------------------------------------------------
+  --primary    teal-600  #388ca8   BRAND primary: neutral CTAs, accents, focus,
+                                    ring, sidebar (hover -> teal-700 #2a697e)
+  --success    lime-700  #429541   POSITIVE: the Approve button + healthy/approved
+                                    status (button variant "success"; hover lime-800)
+  --destructive red-600  #b73d56   NEGATIVE: Reject + delete + error (hover red-700)
+  --warning    gold-600  #f5a22e   caution / pending
+  --secondary  neutral             quiet grey chip (surface-foreground-low) — used
+                                    for info badges, NOT a second brand hue
+  --info       blue-500  #6976ae   optional accent (bg-info / text-info)
+  charts       teal-500 · green-500 · lime-600 · gold-500 · violet-500
+  neutrals     OMDS grayscale (warm violet-black), via the semantic surface/text layer
+
+  Semantic-colour model: teal = brand, green = yes/positive, red = no/negative.
+  Approve(create)=green, Reject(create)=red; Approve(delete)=red (destructive),
+  Decline(delete)=neutral outline (declining a deletion is the safe path).
+
+Reconciling drift later
+-----------------------
+Re-fetch the three files and diff against these vendored copies. The adapter and
+the extracted [data-section] rules live in src/style.css.

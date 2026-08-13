@@ -11,7 +11,9 @@ function getSystemTheme(): 'light' | 'dark' {
 }
 
 function applyTheme(resolved: 'light' | 'dark') {
-  document.documentElement.classList.toggle('dark', resolved === 'dark')
+  // OMDS page theme: [data-theme] on <html> ('light' simply doesn't match the
+  // dark selector). tokens.css and every `dark:` utility key off this.
+  document.documentElement.setAttribute('data-theme', resolved)
   isDark.value = resolved === 'dark'
 }
 

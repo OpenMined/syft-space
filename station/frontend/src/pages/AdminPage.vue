@@ -32,6 +32,7 @@ import EarningsPanel from '@/components/EarningsPanel.vue'
 import RejectRequestDialog from '@/components/RejectRequestDialog.vue'
 import StationAnimation from '@/components/StationAnimation.vue'
 import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
+import RequestHistoryList from '@/components/RequestHistoryList.vue'
 import { REQUEST_TYPE_META } from '@/lib/requestTypes'
 import SetupStationDialog from '@/components/SetupStationDialog.vue'
 import VersionSelect from '@/components/VersionSelect.vue'
@@ -139,17 +140,9 @@ const openRequests = computed(() =>
     .filter((r) => r.status === 'pending' || r.status === 'provisioning' || r.status === 'failed')
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
 )
-const settledRequests = computed(() =>
-  station.requests
-    // Terminal rows: rejected/withdrawn of any type, plus completed deletions.
-    // An approved create is a live space (shown on the Spaces tab), not history.
-    .filter((r) =>
-      r.type === 'create_space'
-        ? r.status === 'rejected' || r.status === 'withdrawn'
-        : r.status === 'approved' || r.status === 'rejected' || r.status === 'withdrawn',
-    )
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-)
+// Settled history (all members). An approved create is only listed once its
+// space is gone — a live space's create is represented by its Spaces-tab card.
+const settledRequests = computed(() => station.settledRequests)
 
 function openApprove(request: SpaceRequest) {
   approveTarget.value = request
@@ -468,13 +461,22 @@ function formatDate(iso: string): string {
 
                   <div class="flex shrink-0 items-center gap-2">
                     <template v-if="request.status === 'pending'">
-                      <Button size="sm" variant="outline" @click="openReject(request)">
+                      <!-- Reject a create → solid red (deny), deeper red on
+                           hover. Decline a deletion is the SAFE action (Approve
+                           is the red one there), so it stays a neutral outline. -->
+                      <Button
+                        size="sm"
+                        :variant="request.type === 'delete_space' ? 'outline' : 'destructive'"
+                        @click="openReject(request)"
+                      >
                         <X class="mr-1 h-3.5 w-3.5" />
                         {{ request.type === 'delete_space' ? 'Decline' : 'Reject' }}
                       </Button>
+                      <!-- Approve a create → green (positive). Approve a
+                           DELETION is destructive (removes the space) → red. -->
                       <Button
                         size="sm"
-                        :variant="request.type === 'delete_space' ? 'destructive' : 'default'"
+                        :variant="request.type === 'delete_space' ? 'destructive' : 'success'"
                         @click="onApprove(request)"
                       >
                         <component
@@ -506,28 +508,7 @@ function formatDate(iso: string): string {
 
             <section v-if="settledRequests.length > 0" class="space-y-3">
               <h2 class="text-sm font-medium text-muted-foreground">History</h2>
-              <Card>
-                <CardContent class="divide-y p-0">
-                  <div
-                    v-for="request in settledRequests"
-                    :key="request.id"
-                    class="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
-                  >
-                    <div class="flex min-w-0 items-center gap-2">
-                      <component
-                        :is="REQUEST_TYPE_META[request.type].icon"
-                        class="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                      />
-                      <span class="text-sm font-medium">{{ request.spaceName }}</span>
-                      <span class="truncate text-xs text-muted-foreground">
-                        {{ REQUEST_TYPE_META[request.type].label }} · {{ request.requesterEmail }} ·
-                        {{ formatDate(request.createdAt) }}
-                      </span>
-                    </div>
-                    <RequestStatusBadge :status="request.status" />
-                  </div>
-                </CardContent>
-              </Card>
+              <RequestHistoryList :requests="settledRequests" show-requester />
             </section>
           </div>
 

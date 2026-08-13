@@ -32,6 +32,8 @@ onMounted(async () => {
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
 type MemberSection = 'requests' | 'new'
 
+// Total requests the member has made. Every request is represented in the view
+// — active ones as cards, settled ones in History — so the raw count matches.
 const myRequestCount = computed(() =>
   session.profile ? station.requestsFor(session.profile.email).length : 0,
 )
