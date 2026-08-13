@@ -422,7 +422,7 @@ function formatDate(iso: string): string {
           <!-- ==================== Requests ==================== -->
           <div v-if="activeSection === 'requests'" class="space-y-8">
             <section class="space-y-3">
-              <h2 class="text-sm font-medium text-muted-foreground">Needs attention</h2>
+              <h2 class="text-sm font-medium text-muted-foreground">Review queue</h2>
 
               <EmptyState
                 v-if="openRequests.length === 0"

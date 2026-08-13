@@ -244,17 +244,25 @@ onUnmounted(() => {
           </p>
         </div>
 
-        <!-- always-dark: a terminal stays dark in both page themes (otherwise it
-             inverts to white in dark mode and the light level colours vanish). -->
+        <!-- A fixed-dark console: a terminal shouldn't flip to white in dark
+             mode (the light level colours would vanish and it would stop reading
+             as a console). Colours are explicit OMDS palette steps — black bg,
+             light text — so they don't depend on the page theme. -->
         <div
           v-else
           ref="logBox"
-          data-section="always-dark"
-          class="h-full overflow-auto rounded-md bg-muted p-3 font-mono text-[11px] leading-relaxed text-foreground"
+          class="h-full overflow-auto rounded-md bg-[color:var(--color-grayscale-1000)] p-3 font-mono text-[11px] leading-relaxed text-[color:var(--color-grayscale-100)]"
         >
           <p v-if="error" class="text-[color:var(--color-red-400)]">{{ error }}</p>
-          <p v-else-if="loading && !lines.length" class="text-foreground/60">Loading logs…</p>
-          <p v-else-if="!lines.length" class="text-foreground/60">No logs yet.</p>
+          <p
+            v-else-if="loading && !lines.length"
+            class="text-[color:var(--color-grayscale-500)]"
+          >
+            Loading logs…
+          </p>
+          <p v-else-if="!lines.length" class="text-[color:var(--color-grayscale-500)]">
+            No logs yet.
+          </p>
           <div
             v-for="(line, i) in lines"
             :key="i"
@@ -264,7 +272,7 @@ onUnmounted(() => {
             ]"
           >
             <template v-if="parse(line).time">
-              <span class="text-foreground/40">{{ parse(line).time }}</span>
+              <span class="text-[color:var(--color-grayscale-500)]">{{ parse(line).time }}</span>
               {{ ' ' + parse(line).rest }}
             </template>
             <template v-else>{{ line }}</template>
