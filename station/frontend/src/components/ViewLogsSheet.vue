@@ -21,9 +21,9 @@ import {
 } from '@/components/ui/sheet'
 import HealthBadge from '@/components/HealthBadge.vue'
 import { Button } from '@/components/ui/button'
-import { spacesApi } from '@/api/endpoints/spaces'
 import { ApiError } from '@/api/client'
 import type { Space } from '@/lib/types'
+import { useStationStore } from '@/stores/station'
 
 const props = defineProps<{
   space: Space | null
@@ -31,6 +31,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
+
+const station = useStationStore()
 
 const POLL_MS = 3000
 
@@ -89,7 +91,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await spacesApi.logs(props.space.id)
+    const res = await station.spaceLogs(props.space.id)
     lines.value = res.lines
     updatedAt.value = Date.now()
     now.value = Date.now()

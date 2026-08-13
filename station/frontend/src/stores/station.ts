@@ -7,10 +7,12 @@ import { setupApi } from '@/api/endpoints/setup'
 import { spacesApi } from '@/api/endpoints/spaces'
 import type {
   EarningsResponse,
+  HubTokenMintResponse,
   ImageTagResponse,
   MemberEarningsResponse,
   OutstandingBalanceResponse,
   RequestResponse,
+  SpaceLogsResponse,
   SpaceResponse,
   SpaceRuntimeStatus,
   UpdateAllResponse,
@@ -613,6 +615,18 @@ export const useStationStore = defineStore('station', () => {
     return { spacesAttached: result.spaces_attached, spacesFailed: result.spaces_failed }
   }
 
+  // Thin API pass-throughs so UI never imports @/api/endpoints directly (keeps
+  // the store the single seam onto the backend). Neither owns store state:
+  // mintHubToken returns an ephemeral token the wallet form submits with setup;
+  // spaceLogs returns a transient log snapshot the viewer renders.
+  function mintHubToken(password: string): Promise<HubTokenMintResponse> {
+    return creditsApi.mintHubToken({ password })
+  }
+
+  function spaceLogs(spaceId: string): Promise<SpaceLogsResponse> {
+    return spacesApi.logs(spaceId)
+  }
+
   /**
    * Delete tears the space down completely — deployment, volume and vector
    * database included (a freed subdomain must never surface another owner's
@@ -653,6 +667,8 @@ export const useStationStore = defineStore('station', () => {
     subdomainInUse,
     spaceIncludes,
     setupWallet,
+    mintHubToken,
+    spaceLogs,
     requestsFor,
     inflightCreatesFor,
     pastRequestsFor,

@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 import { KeyRound } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { ApiError } from '@/api/client'
-import { creditsApi } from '@/api/endpoints/credits'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -111,7 +110,7 @@ async function generateHubToken() {
   }
   minting.value = true
   try {
-    const result = await creditsApi.mintHubToken({ password: hubPassword.value })
+    const result = await station.mintHubToken(hubPassword.value)
     hubToken.value = result.token
     hubTokenOwner.value = result.email
     hubPassword.value = ''
