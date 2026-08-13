@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import AppHeader from '@/components/AppHeader.vue'
 import StationAnimation from '@/components/StationAnimation.vue'
+import AmbientBackground from '@/components/AmbientBackground.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -49,10 +50,11 @@ async function submit() {
 <template>
   <div class="flex h-full flex-col overflow-hidden bg-background">
     <AppHeader />
-    <main class="flex min-h-0 flex-1 overflow-hidden">
+    <main class="relative isolate flex min-h-0 flex-1 overflow-hidden">
+      <AmbientBackground />
       <!-- Brand panel: the station at full strength, form-free (lg+) -->
       <div
-        class="relative hidden min-w-0 flex-1 flex-col items-center justify-center gap-8 overflow-hidden border-r border-border/40 bg-muted/30 lg:flex"
+        class="relative z-10 hidden min-w-0 flex-1 flex-col items-center justify-center gap-8 overflow-hidden border-r border-border lg:flex"
       >
         <div class="max-w-md px-8 text-center">
           <h1 class="text-2xl font-semibold tracking-tight">Syft Station</h1>
@@ -65,7 +67,7 @@ async function submit() {
       </div>
 
       <!-- Form pane -->
-      <div class="flex min-w-0 flex-1 overflow-y-auto">
+      <div class="relative z-10 flex min-w-0 flex-1 overflow-y-auto">
         <div class="m-auto w-full max-w-sm px-4 py-8">
           <div class="mb-6 flex flex-col items-center gap-2 text-center lg:hidden">
             <h1 class="text-2xl font-semibold tracking-tight">Syft Station</h1>
