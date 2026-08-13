@@ -426,10 +426,13 @@ function formatDate(iso: string): string {
 
               <EmptyState
                 v-if="openRequests.length === 0"
-                :icon="Inbox"
                 title="Queue is clear"
                 description="New space requests will appear here for review."
-              />
+              >
+                <template #icon>
+                  <StationAnimation class="h-28 w-28" />
+                </template>
+              </EmptyState>
 
               <Card v-for="request in openRequests" :key="request.id">
                 <CardContent class="flex flex-wrap items-center justify-between gap-3">
