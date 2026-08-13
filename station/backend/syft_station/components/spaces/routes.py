@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from syft_station.components.auth.session import (
     SessionUser,
@@ -12,6 +12,7 @@ from syft_station.components.auth.session import (
 from syft_station.components.spaces.handlers import SpaceHandler
 from syft_station.components.spaces.schemas import (
     AdminUrlResponse,
+    SpaceLogsResponse,
     SpaceResponse,
     SpaceStatusResponse,
     UpdateAllResponse,
@@ -49,6 +50,16 @@ def build_space_routes(handler: SpaceHandler) -> APIRouter:
     ) -> SpaceStatusResponse:
         """Live running/paused/unavailable status, read from Kubernetes."""
         return await handler.runtime_status(space_id, user)
+
+    @router.get("/{space_id}/logs", response_model=SpaceLogsResponse)
+    async def space_logs(
+        space_id: UUID,
+        tail_lines: int = Query(default=200, ge=1, le=1000),
+        user: SessionUser = Depends(get_current_user),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> SpaceLogsResponse:
+        """Snapshot tail of the space's logs (admin or the space's owner)."""
+        return await handler.logs(space_id, user, tail_lines)
 
     @router.post("/{space_id}/pause", response_model=SpaceStatusResponse)
     async def pause_space(

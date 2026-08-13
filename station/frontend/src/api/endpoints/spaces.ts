@@ -1,6 +1,7 @@
 import { apiClient } from '@/api/client'
 import type {
   AdminUrlResponse,
+  SpaceLogsResponse,
   SpaceResponse,
   SpaceStatusResponse,
   UpdateAllResponse,
@@ -15,6 +16,10 @@ export const spacesApi = {
 
   /** Live running/paused/unavailable status, read from Kubernetes. */
   status: (id: string): Promise<SpaceStatusResponse> => apiClient.get(`/spaces/${id}/status`),
+
+  /** Snapshot tail of the space's logs (admin or the space's owner). */
+  logs: (id: string, tailLines = 200): Promise<SpaceLogsResponse> =>
+    apiClient.get(`/spaces/${id}/logs?tail_lines=${tailLines}`),
 
   /** Free the space's compute; data is kept. */
   pause: (id: string): Promise<SpaceStatusResponse> => apiClient.post(`/spaces/${id}/pause`),

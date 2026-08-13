@@ -216,6 +216,32 @@ async def test_admin_can_pause_any_space(space_handler, space_repository):
     assert paused.status == "paused"
 
 
+async def test_logs_returns_snapshot_lines(space_handler, space_repository):
+    space = await make_space(space_repository, MEMBER.email)
+    result = await space_handler.logs(space.id, MEMBER, tail_lines=200)
+    assert result.lines and all(isinstance(ln, str) for ln in result.lines)
+
+
+async def test_logs_denied_for_non_owner(space_handler, space_repository):
+    space = await make_space(space_repository, MEMBER.email)
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.logs(space.id, OTHER_MEMBER, tail_lines=200)
+    assert exc.value.status_code == 403
+
+
+async def test_admin_can_read_any_space_logs(space_handler, space_repository):
+    space = await make_space(space_repository, MEMBER.email)
+    result = await space_handler.logs(space.id, ADMIN, tail_lines=200)
+    assert result.lines
+
+
+async def test_logs_empty_when_paused(space_handler, space_repository):
+    space = await make_space(space_repository, MEMBER.email)
+    await space_handler.pause(space.id, MEMBER)
+    result = await space_handler.logs(space.id, MEMBER, tail_lines=200)
+    assert result.lines == []
+
+
 async def test_status_unknown_space_404(space_handler):
     from uuid import uuid4
 
