@@ -117,7 +117,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
     <div class="flex min-w-0 flex-1 items-center gap-2">
       <img :src="SyftLogo" alt="Syft Station" class="h-8 w-8 shrink-0" />
       <span class="truncate text-sm font-semibold tracking-tight">Syft Station</span>
-      <Badge v-if="props.variant === 'admin'" variant="secondary" class="gap-1">
+      <Badge v-if="props.variant === 'admin'" variant="contrast" class="gap-1">
         <ShieldCheck class="h-3 w-3" />
         Admin
       </Badge>

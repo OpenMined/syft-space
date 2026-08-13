@@ -14,6 +14,10 @@ export const badgeVariants = cva(
         destructive:
           'border-transparent bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60',
         outline: 'text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground',
+        // High-contrast chip: near-black on light, near-white on dark (flips
+        // with the theme via OMDS's --button-*-color pair).
+        contrast:
+          'border-transparent bg-[color:var(--button-dark-color)] text-[color:var(--button-light-color)]',
       },
     },
     defaultVariants: {

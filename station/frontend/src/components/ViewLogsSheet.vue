@@ -21,9 +21,9 @@ import {
 } from '@/components/ui/sheet'
 import HealthBadge from '@/components/HealthBadge.vue'
 import { Button } from '@/components/ui/button'
-import { spacesApi } from '@/api/endpoints/spaces'
 import { ApiError } from '@/api/client'
 import type { Space } from '@/lib/types'
+import { useStationStore } from '@/stores/station'
 
 const props = defineProps<{
   space: Space | null
@@ -31,6 +31,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
+
+const station = useStationStore()
 
 const POLL_MS = 3000
 
@@ -69,8 +71,10 @@ function parse(line: string): { time: string; rest: string; level: string } {
 }
 
 function levelClass(level: string): string {
-  if (level === 'ERROR' || level === 'CRITICAL') return 'text-red-300'
-  if (level === 'WARNING' || level === 'WARN') return 'text-yellow-200'
+  // OMDS palette, light steps for the always-dark terminal (error = red,
+  // warning = gold, matching the app's status semantics).
+  if (level === 'ERROR' || level === 'CRITICAL') return 'text-[color:var(--color-red-400)]'
+  if (level === 'WARNING' || level === 'WARN') return 'text-[color:var(--color-gold-400)]'
   if (level === 'DEBUG') return 'opacity-60'
   return ''
 }
@@ -87,7 +91,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await spacesApi.logs(props.space.id)
+    const res = await station.spaceLogs(props.space.id)
     lines.value = res.lines
     updatedAt.value = Date.now()
     now.value = Date.now()
@@ -174,7 +178,7 @@ onUnmounted(() => {
         class="flex items-center gap-1 border-y bg-muted/30 px-3 py-1.5"
       >
         <Button
-          :variant="live ? 'secondary' : 'ghost'"
+          :variant="live ? 'selected' : 'ghost'"
           size="sm"
           class="h-7 gap-1.5"
           @click="live = !live"
@@ -199,7 +203,7 @@ onUnmounted(() => {
         </Button>
         <div class="mx-1 h-4 w-px bg-border" />
         <Button
-          :variant="wrap ? 'secondary' : 'ghost'"
+          :variant="wrap ? 'selected' : 'ghost'"
           size="sm"
           class="h-7 gap-1.5"
           title="Wrap long lines"
@@ -242,14 +246,25 @@ onUnmounted(() => {
           </p>
         </div>
 
+        <!-- A fixed-dark console: a terminal shouldn't flip to white in dark
+             mode (the light level colours would vanish and it would stop reading
+             as a console). Colours are explicit OMDS palette steps — black bg,
+             light text — so they don't depend on the page theme. -->
         <div
           v-else
           ref="logBox"
-          class="h-full overflow-auto rounded-md bg-foreground/95 p-3 font-mono text-[11px] leading-relaxed text-background"
+          class="h-full overflow-auto rounded-md bg-[color:var(--color-grayscale-1000)] p-3 font-mono text-[11px] leading-relaxed text-[color:var(--color-grayscale-100)]"
         >
-          <p v-if="error" class="text-red-300">{{ error }}</p>
-          <p v-else-if="loading && !lines.length" class="text-background/60">Loading logs…</p>
-          <p v-else-if="!lines.length" class="text-background/60">No logs yet.</p>
+          <p v-if="error" class="text-[color:var(--color-red-400)]">{{ error }}</p>
+          <p
+            v-else-if="loading && !lines.length"
+            class="text-[color:var(--color-grayscale-500)]"
+          >
+            Loading logs…
+          </p>
+          <p v-else-if="!lines.length" class="text-[color:var(--color-grayscale-500)]">
+            No logs yet.
+          </p>
           <div
             v-for="(line, i) in lines"
             :key="i"
@@ -259,7 +274,7 @@ onUnmounted(() => {
             ]"
           >
             <template v-if="parse(line).time">
-              <span class="text-background/40">{{ parse(line).time }}</span>
+              <span class="text-[color:var(--color-grayscale-500)]">{{ parse(line).time }}</span>
               {{ ' ' + parse(line).rest }}
             </template>
             <template v-else>{{ line }}</template>

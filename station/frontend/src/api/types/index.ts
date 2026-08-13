@@ -83,10 +83,6 @@ export interface ApproveRequestBody {
   attach_wallet?: boolean
 }
 
-export interface RejectRequestBody {
-  reason?: string
-}
-
 /** PATCH /requests/{id}: drive the lifecycle by target status. approved/
  *  rejected are admin-only; withdrawn is the owner's. */
 export interface PatchRequestBody {

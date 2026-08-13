@@ -7,10 +7,12 @@ import { setupApi } from '@/api/endpoints/setup'
 import { spacesApi } from '@/api/endpoints/spaces'
 import type {
   EarningsResponse,
+  HubTokenMintResponse,
   ImageTagResponse,
   MemberEarningsResponse,
   OutstandingBalanceResponse,
   RequestResponse,
+  SpaceLogsResponse,
   SpaceResponse,
   SpaceRuntimeStatus,
   UpdateAllResponse,
@@ -360,14 +362,27 @@ export const useStationStore = defineStore('station', () => {
     )
   }
 
-  /** Terminal requests of every type — the member's "Past requests" history. */
-  function pastRequestsFor(email: string): SpaceRequest[] {
-    return requestsFor(email).filter((r) =>
-      r.type === 'create_space'
-        ? r.status === 'rejected' || r.status === 'withdrawn'
-        : r.status === 'approved' || r.status === 'rejected' || r.status === 'withdrawn',
-    )
+  const _TERMINAL: RequestStatus[] = ['approved', 'rejected', 'withdrawn']
+
+  /**
+   * History = every SETTLED request (approved / rejected / withdrawn), of every
+   * type — the record of actions taken. Active requests (pending/provisioning/
+   * failed creates, live spaces, pending deletions) are shown separately as
+   * their own cards, so history holds only the settled record.
+   */
+  function isHistory(r: SpaceRequest): boolean {
+    return _TERMINAL.includes(r.status)
   }
+
+  /** A member's settled request history (the "History" list). */
+  function pastRequestsFor(email: string): SpaceRequest[] {
+    return requestsFor(email).filter(isHistory)
+  }
+
+  /** Admin "History" — every member's settled requests, newest first. */
+  const settledRequests = computed(() =>
+    [...requests.value].filter(isHistory).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+  )
 
   /** The pending delete_space request for a space, if any (its "deletion pending"). */
   function pendingDeletionFor(spaceId: string): SpaceRequest | undefined {
@@ -600,6 +615,18 @@ export const useStationStore = defineStore('station', () => {
     return { spacesAttached: result.spaces_attached, spacesFailed: result.spaces_failed }
   }
 
+  // Thin API pass-throughs so UI never imports @/api/endpoints directly (keeps
+  // the store the single seam onto the backend). Neither owns store state:
+  // mintHubToken returns an ephemeral token the wallet form submits with setup;
+  // spaceLogs returns a transient log snapshot the viewer renders.
+  function mintHubToken(password: string): Promise<HubTokenMintResponse> {
+    return creditsApi.mintHubToken({ password })
+  }
+
+  function spaceLogs(spaceId: string): Promise<SpaceLogsResponse> {
+    return spacesApi.logs(spaceId)
+  }
+
   /**
    * Delete tears the space down completely — deployment, volume and vector
    * database included (a freed subdomain must never surface another owner's
@@ -640,9 +667,12 @@ export const useStationStore = defineStore('station', () => {
     subdomainInUse,
     spaceIncludes,
     setupWallet,
+    mintHubToken,
+    spaceLogs,
     requestsFor,
     inflightCreatesFor,
     pastRequestsFor,
+    settledRequests,
     pendingDeletionFor,
     canRequestSpace,
     spaceById,

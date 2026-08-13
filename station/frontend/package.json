@@ -14,6 +14,7 @@
     "typecheck": "vue-tsc --build",
     "lint:oxlint": "oxlint . --fix -D correctness --ignore-pattern=dist",
     "lint:eslint": "eslint . --fix",
+    "lint:stylelint": "stylelint \"src/**/*.{css,vue}\"",
     "lint": "run-s lint:*",
     "format": "prettier --write src/",
     "check": "run-s format lint typecheck"
@@ -47,7 +48,10 @@
     "jiti": "2.5.1",
     "npm-run-all2": "8.0.4",
     "oxlint": "1.16.0",
+    "postcss-html": "^2.0.0",
     "prettier": "3.6.2",
+    "stylelint": "^17.14.1",
+    "stylelint-declaration-strict-value": "^1.11.1",
     "typescript": "5.9.2",
     "vite": "npm:rolldown-vite@7.1.11",
     "vue-tsc": "3.0.7"

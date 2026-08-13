@@ -1,0 +1,42 @@
+OpenMined Design System — vendored brand source
+================================================
+
+Brand repo:  OpenMined/brand.openmined.org
+Commit:      af7d344318d4b0afb4493393c1b2ced52ac9facb  (main HEAD at sync)
+Synced:      2026-08-13
+Source:      https://design.openmined.org/tokens/tokens.css
+
+What's vendored
+---------------
+  src/brand/tokens/tokens.css   Imported by src/style.css. The canonical palette
+                                (--color-*-NNN ramps) + semantic surface/text
+                                tokens (--surface-*, --text-*), spacing, radius,
+                                shadows. Responds to [data-theme="dark"].
+
+  Only tokens.css is used. OMDS's global.css (marketing prose/reset/forms) and
+  typography.css (prose type scale) were NOT adopted — the station is a shadcn
+  dashboard with its own element + type styles — so they aren't vendored.
+
+How the brand reaches components
+--------------------------------
+  Theme:    [data-theme="dark"] on <html> (index.html pre-paint + useTheme).
+  Adapter:  shadcn's semantic tokens (--background, --primary, …) are redefined
+            in src/style.css over the OMDS tokens — surfaces/text/border over the
+            semantic layer, accents over the palette.
+  Note:     OMDS's data-section overrides were tried but don't reliably resolve
+            through the shadcn adapter, so they were removed. The one fixed-dark
+            surface (the logs console) uses explicit palette colours instead.
+
+Accent palette — teal brand + semantic action colours (all OMDS-canonical)
+--------------------------------------------------------------------------
+  --primary    teal-600  #388ca8   brand: CTAs, accents, focus (hover teal-700)
+  --success    lime-700  #429541   positive: Approve button + healthy/approved
+  --destructive red-600  #b73d56   negative: Reject + delete + error (hover red-700)
+  --warning    gold-600  #f5a22e   caution / pending
+  --secondary  neutral            quiet grey chip for info badges
+  --info       blue-500  #6976ae   optional accent (bg-info / text-info)
+
+Reconciling drift later
+-----------------------
+Re-fetch tokens.css and diff against the vendored copy. The adapter lives in
+src/style.css.

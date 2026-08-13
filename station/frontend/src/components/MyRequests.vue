@@ -34,10 +34,10 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import StationAnimation from '@/components/StationAnimation.vue'
 import HealthBadge from '@/components/HealthBadge.vue'
 import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
+import RequestHistoryList from '@/components/RequestHistoryList.vue'
 import ViewLogsSheet from '@/components/ViewLogsSheet.vue'
 import type { Space, SpaceRequest } from '@/lib/types'
 import { formatMoney } from '@/lib/types'
-import { REQUEST_TYPE_META } from '@/lib/requestTypes'
 import { useStationStore } from '@/stores/station'
 import { useSessionStore } from '@/stores/session'
 
@@ -282,25 +282,8 @@ function formatDate(iso: string): string {
 
     <!-- Past requests: terminal history of every type -->
     <template v-if="pastRequests.length">
-      <h3 class="pt-2 text-xs font-medium text-muted-foreground">Past requests</h3>
-      <div
-        v-for="request in pastRequests"
-        :key="request.id"
-        class="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2"
-      >
-        <component
-          :is="REQUEST_TYPE_META[request.type].icon"
-          class="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-        />
-        <span class="text-sm font-medium">{{ request.spaceName }}</span>
-        <RequestStatusBadge :status="request.status" />
-        <span class="text-xs text-muted-foreground">
-          {{ REQUEST_TYPE_META[request.type].label }} · {{ formatDate(request.createdAt) }}
-        </span>
-        <span v-if="request.resolutionNote" class="w-full text-xs text-muted-foreground">
-          <span class="font-medium text-foreground">Admin note:</span> {{ request.resolutionNote }}
-        </span>
-      </div>
+      <h3 class="pt-2 text-xs font-medium text-muted-foreground">History</h3>
+      <RequestHistoryList :requests="pastRequests" />
     </template>
   </div>
 
