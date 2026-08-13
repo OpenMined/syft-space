@@ -91,9 +91,8 @@
    shadcn's semantic token NAMES are kept (so ~all components + the shadcn ui
    library are untouched), but each resolves to an OpenMined token:
 
-   • surfaces / text / borders → OMDS *semantic* tokens (--surface-*, --text-*).
-     var() resolves lazily at use-site, so these follow [data-theme="dark"] AND
-     any [data-section] override automatically — no per-mode block needed here.
+   • surfaces / text / borders → OMDS *semantic* tokens (--surface-*, --text-*),
+     which flip with [data-theme="dark"] — no per-mode block needed here.
    • brand accents → OMDS *palette* ramps (constant across modes; legible on both).
    ──────────────────────────────────────────────────────────────────────────── */
 :root {
@@ -213,57 +212,6 @@
   --destructive-foreground: var(--color-red-400);
   /* lighter secondary text on dark surfaces (AA) */
   --muted-foreground: var(--color-grayscale-500);
-}
-
-/* ── data-section overrides ──────────────────────────────────────────────────
-   Extracted verbatim from OMDS global.css §"Section theming" (brand af7d344).
-   Because the shadcn adapter above references the semantic tokens these remap,
-   dropping data-section="always-light" (etc.) on any element makes its whole
-   shadcn subtree lock/flip surfaces + text — e.g. a card that must stay light
-   on a dark page. See brand/brand-version.txt. */
-[data-section='always-dark'] {
-  --surface-background-default: var(--color-grayscale-800);
-  --surface-background-bright: var(--color-grayscale-700);
-  --surface-background-dim: var(--color-grayscale-950);
-  --surface-foreground-lowest: var(--color-grayscale-900);
-  --surface-foreground-low: var(--color-grayscale-850);
-  --surface-foreground-default: var(--color-grayscale-750);
-  --surface-foreground-high: var(--color-grayscale-700);
-  --surface-foreground-highest: var(--color-grayscale-600);
-  --text-headline: var(--color-grayscale-50);
-  --text-body: var(--color-grayscale-400);
-  --text-headline-light: var(--color-grayscale-850);
-  --text-body-light: var(--color-grayscale-750);
-  color-scheme: dark;
-}
-
-[data-section='always-light'] {
-  --surface-background-default: var(--color-grayscale-50);
-  --surface-background-bright: var(--color-grayscale-00);
-  --surface-background-dim: var(--color-grayscale-150);
-  --surface-foreground-lowest: var(--color-grayscale-100);
-  --surface-foreground-low: var(--color-grayscale-200);
-  --surface-foreground-default: var(--color-grayscale-300);
-  --surface-foreground-high: var(--color-grayscale-400);
-  --surface-foreground-highest: var(--color-grayscale-500);
-  --text-headline: var(--color-grayscale-850);
-  --text-body: var(--color-grayscale-750);
-  --text-headline-light: var(--color-grayscale-50);
-  --text-body-light: var(--color-grayscale-400);
-  color-scheme: light;
-}
-
-[data-section='invert'] {
-  --surface-background-default: var(--dark-surface-background-default);
-  --surface-background-bright: var(--dark-surface-background-bright);
-  --surface-background-dim: var(--dark-surface-background-dim);
-  --surface-foreground-lowest: var(--dark-surface-foreground-lowest);
-  --surface-foreground-low: var(--dark-surface-foreground-low);
-  --surface-foreground-default: var(--dark-surface-foreground-default);
-  --surface-foreground-high: var(--dark-surface-foreground-high);
-  --surface-foreground-highest: var(--dark-surface-foreground-highest);
-  --text-headline: var(--text-headline-light);
-  --text-body: var(--text-body-light);
 }
 
 @layer base {
