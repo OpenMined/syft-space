@@ -1,0 +1,47 @@
+# Creates a draft issue in OpenMined/syft-space-hub-docs after a build or
+# release workflow completes successfully — the Docker image, desktop app, or
+# station release — so docs can be updated to match a shipped change. The
+# concurrency group collapses it to a single issue when more than one finishes
+# close together.
+#
+# Required secret:
+#   DOCS_REPO_PAT — GitHub Personal Access Token (classic) with `repo` scope,
+#                   belonging to a user with write access to OpenMined/syft-space-hub-docs.
+
+name: Notify Docs on Release
+
+on:
+  workflow_run:
+    workflows:
+      - "Build and Push Docker Image"
+      - "Build and Publish Desktop App"
+      - "Station Release"
+    types: [completed]
+
+concurrency:
+  group: notify-docs
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    # Only for successful runs — no docs churn on failed/cancelled builds.
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create draft issue in syft-space-hub-docs
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DOCS_REPO_PAT }}
+          script: |
+            const run = context.payload.workflow_run;
+            const sourceRepo = context.repo.repo;
+            const shortSha = run.head_sha.slice(0, 7);
+
+            await github.rest.issues.create({
+              owner: 'OpenMined',
+              repo: 'syft-space-hub-docs',
+              title: `[DRAFT] Update documentation for ${sourceRepo} — ${run.name} (${shortSha})`,
+              body: `## Documentation Update Required\n\nA build/release workflow ran in \`${sourceRepo}\` that may require documentation updates.\n\n**Workflow:** ${run.name}\n**Branch:** ${run.head_branch}\n**Commit:** ${run.head_sha}\n**Run:** ${run.html_url}\n\n---\n_This issue was automatically created by GitHub Actions._`,
+              assignees: ['callezenwaka'],
+            });
