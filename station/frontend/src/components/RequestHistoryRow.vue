@@ -5,8 +5,8 @@ import type { SpaceRequest } from '@/lib/types'
 
 // One row of the settled-request history. A divided-list row (no own border —
 // the list container draws the hairlines) with the status aligned to the right.
-// Rendered identically on member ("Past requests") and admin ("History"); the
-// admin also shows who made the request (showRequester).
+// Rendered identically on the member and admin "History" lists; the admin also
+// shows who made the request (showRequester).
 defineProps<{ request: SpaceRequest; showRequester?: boolean }>()
 
 function formatDate(iso: string): string {

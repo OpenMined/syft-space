@@ -372,7 +372,7 @@ export const useStationStore = defineStore('station', () => {
     return _TERMINAL.includes(r.status)
   }
 
-  /** Member's "Past requests" — their settled request history. */
+  /** A member's settled request history (the "History" list). */
   function pastRequestsFor(email: string): SpaceRequest[] {
     return requestsFor(email).filter(isHistory)
   }
