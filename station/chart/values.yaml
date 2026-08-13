@@ -91,6 +91,10 @@ spaces:
   # Independent of tlsSecret: TLS may also terminate upstream (a fronting
   # proxy/CDN) with no in-cluster cert. Dev has no certs and uses http.
   scheme: https
+  # imagePullPolicy for space pods. Prod pulls published tags from the
+  # registry; dev builds :dev locally and imports it into the node, so it
+  # overrides this to Never (the :dev tag is never published).
+  imagePullPolicy: IfNotPresent
   # kubernetes.io/tls Secret every space Ingress terminates TLS with. Its
   # certificate must cover the space names — a wildcard SAN for *.<host>,
   # or *.<prefix>.<host> if setup picks a subdomain prefix (a cert wildcard

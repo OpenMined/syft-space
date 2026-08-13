@@ -42,7 +42,11 @@ from syft_station.components.credits.repository import (
 )
 from syft_station.components.credits.routes import build_credits_routes
 from syft_station.components.provision.mock import MockProvisioner
-from syft_station.components.requests.entities import RequestStatus, SpaceRequest
+from syft_station.components.requests.entities import (
+    Request,
+    RequestStatus,
+    RequestType,
+)
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.repository import SpaceRepository
@@ -125,19 +129,33 @@ class EarningsTestbed:
         name: str,
         subdomain: str,
         owner: str = USER,
-        status: str = RequestStatus.ACTIVE.value,
+        deleted: bool = False,
     ) -> None:
-        """The request row a space was born from — money views resolve
-        name/owner here, so deleted spaces keep their attribution."""
-        await RequestRepository(self.db).create(
-            SpaceRequest(
+        """The create_space request a space was born from — money views
+        resolve name/owner here. `deleted` adds the approved delete_space
+        request that marks it torn down, so attribution survives deletion."""
+        repo = RequestRepository(self.db)
+        await repo.create(
+            Request(
+                type=RequestType.CREATE_SPACE.value,
+                status=RequestStatus.APPROVED.value,
+                owner_email=owner,
+                space_id=space_id,
                 space_name=name,
                 subdomain=subdomain,
-                owner_email=owner,
-                status=status,
-                space_id=space_id,
             )
         )
+        if deleted:
+            await repo.create(
+                Request(
+                    type=RequestType.DELETE_SPACE.value,
+                    status=RequestStatus.APPROVED.value,
+                    owner_email=owner,
+                    space_id=space_id,
+                    space_name=name,
+                    subdomain=subdomain,
+                )
+            )
 
 
 @pytest_asyncio.fixture
@@ -460,7 +478,7 @@ async def test_deleted_space_keeps_name_owner_and_flag(testbed: EarningsTestbed)
         space_id=SPACE_A,
         name="Webbing",
         subdomain="webbing",
-        status=RequestStatus.DELETED.value,
+        deleted=True,
     )
     await testbed.seed_movement(space_id=SPACE_A, amount=15.0)
 
@@ -481,7 +499,7 @@ async def test_member_mine_keeps_deleted_space_money(testbed: EarningsTestbed):
         space_id=SPACE_A,
         name="Webbing",
         subdomain="webbing",
-        status=RequestStatus.DELETED.value,
+        deleted=True,
     )
     await testbed.seed_movement(space_id=SPACE_A, amount=15.0)
 

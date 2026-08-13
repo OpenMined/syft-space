@@ -24,6 +24,9 @@ from syft_station.components.provision.interfaces import ProvisionError, SpaceSp
 from syft_station.components.requests.handlers import RequestHandler
 from syft_station.components.requests.schemas import (
     ApproveRequestBody,
+    CreateSpacePayload,
+    DeleteSpacePayload,
+    PatchRequestBody,
     SubmitRequestBody,
 )
 from syft_station.components.spaces.provisioning import SpaceConverger
@@ -110,7 +113,10 @@ async def make_wallet(wallets: WalletRepository, currency: str = "PHP") -> Walle
 
 async def approve_space(handler, subdomain: str = "alpha", body=None):
     request = await handler.submit(
-        SubmitRequestBody(space_name="Alpha Lab", subdomain=subdomain), MEMBER
+        SubmitRequestBody(
+            payload=CreateSpacePayload(space_name="Alpha Lab", subdomain=subdomain)
+        ),
+        MEMBER,
     )
     approved = await handler.approve(request.id, body or ApproveRequestBody())
     await handler.wait_for_provisioning()
@@ -205,7 +211,10 @@ async def test_approve_with_unknown_wallet_id_404(handler, wallets, setup_reposi
     await make_wallet(wallets)
 
     request = await handler.submit(
-        SubmitRequestBody(space_name="Alpha Lab", subdomain="alpha"), MEMBER
+        SubmitRequestBody(
+            payload=CreateSpacePayload(space_name="Alpha Lab", subdomain="alpha")
+        ),
+        MEMBER,
     )
     with pytest.raises(HTTPException) as exc:
         await handler.approve(request.id, ApproveRequestBody(wallet_id=uuid4()))
@@ -239,7 +248,10 @@ async def test_retry_remints_and_revokes_the_failed_attempts_token(
     await make_wallet(wallets)
 
     request = await handler.submit(
-        SubmitRequestBody(space_name="Fail Lab", subdomain="will-fail"), MEMBER
+        SubmitRequestBody(
+            payload=CreateSpacePayload(space_name="Fail Lab", subdomain="will-fail")
+        ),
+        MEMBER,
     )
     await handler.approve(request.id, ApproveRequestBody())
     await handler.wait_for_provisioning()
@@ -270,7 +282,10 @@ async def test_wallet_deleted_between_approve_and_provision_degrades_gracefully(
     wallet = await make_wallet(wallets)
 
     request = await handler.submit(
-        SubmitRequestBody(space_name="Fail Lab", subdomain="will-fail"), MEMBER
+        SubmitRequestBody(
+            payload=CreateSpacePayload(space_name="Fail Lab", subdomain="will-fail")
+        ),
+        MEMBER,
     )
     await handler.approve(request.id, ApproveRequestBody())
     await handler.wait_for_provisioning()
@@ -296,7 +311,9 @@ async def test_delete_revokes_credit_tokens(
     space_id = approved.space_id
     assert await credit_tokens.get_active_for_space(space_id) is not None
 
-    request = await handler.list_requests(MEMBER)
-    await handler.delete_space(request[0].id, MEMBER)
+    req = await handler.submit(
+        SubmitRequestBody(payload=DeleteSpacePayload(), space_id=space_id), ADMIN
+    )
+    await handler.transition(req.id, PatchRequestBody(status="approved"), ADMIN)
 
     assert await credit_tokens.get_active_for_space(space_id) is None

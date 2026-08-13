@@ -32,6 +32,7 @@ import EarningsPanel from '@/components/EarningsPanel.vue'
 import RejectRequestDialog from '@/components/RejectRequestDialog.vue'
 import StationAnimation from '@/components/StationAnimation.vue'
 import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
+import { REQUEST_TYPE_META } from '@/lib/requestTypes'
 import SetupStationDialog from '@/components/SetupStationDialog.vue'
 import VersionSelect from '@/components/VersionSelect.vue'
 import ViewLogsSheet from '@/components/ViewLogsSheet.vue'
@@ -140,13 +141,34 @@ const openRequests = computed(() =>
 )
 const settledRequests = computed(() =>
   station.requests
-    .filter((r) => r.status === 'active' || r.status === 'rejected' || r.status === 'deleted')
+    // Terminal rows: rejected/withdrawn of any type, plus completed deletions.
+    // An approved create is a live space (shown on the Spaces tab), not history.
+    .filter((r) =>
+      r.type === 'create_space'
+        ? r.status === 'rejected' || r.status === 'withdrawn'
+        : r.status === 'approved' || r.status === 'rejected' || r.status === 'withdrawn',
+    )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
 )
 
 function openApprove(request: SpaceRequest) {
   approveTarget.value = request
   approveOpen.value = true
+}
+
+/** Approve dispatch: a create opens the wallet-picker modal; a deletion is
+ *  torn down directly (nothing to configure). */
+async function onApprove(request: SpaceRequest) {
+  if (request.type === 'create_space') {
+    openApprove(request)
+    return
+  }
+  try {
+    await station.approveDeletion(request.id)
+    toast('Space deleted', { description: request.spaceName })
+  } catch {
+    toast.error('Approving the deletion failed')
+  }
 }
 
 function openReject(request: SpaceRequest) {
@@ -420,22 +442,27 @@ function formatDate(iso: string): string {
                 <CardContent class="flex flex-wrap items-center justify-between gap-3">
                   <div class="min-w-0">
                     <div class="flex items-center gap-2">
+                      <component
+                        :is="REQUEST_TYPE_META[request.type].icon"
+                        class="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                      />
                       <span class="font-medium">{{ request.spaceName }}</span>
                       <RequestStatusBadge :status="request.status" />
                     </div>
                     <div class="mt-0.5 text-xs text-muted-foreground">
-                      <template v-if="request.origin === 'admin'">Created by admin for</template>
+                      {{ REQUEST_TYPE_META[request.type].label }} ·
+                      <template v-if="request.origin === 'admin'">by admin for </template>
                       {{ request.requesterEmail }} · {{ formatDate(request.createdAt) }}
                     </div>
                     <p v-if="request.purpose" class="mt-1.5 text-sm text-muted-foreground">
                       {{ request.purpose }}
                     </p>
                     <p
-                      v-if="request.status === 'failed' && request.failureError"
+                      v-if="request.status === 'failed' && request.resolutionNote"
                       class="mt-1.5 flex items-center gap-1.5 text-xs text-destructive"
                     >
                       <TriangleAlert class="h-3.5 w-3.5 shrink-0" />
-                      {{ request.failureError }}
+                      {{ request.resolutionNote }}
                     </p>
                   </div>
 
@@ -443,11 +470,18 @@ function formatDate(iso: string): string {
                     <template v-if="request.status === 'pending'">
                       <Button size="sm" variant="outline" @click="openReject(request)">
                         <X class="mr-1 h-3.5 w-3.5" />
-                        Reject
+                        {{ request.type === 'delete_space' ? 'Decline' : 'Reject' }}
                       </Button>
-                      <Button size="sm" @click="openApprove(request)">
-                        <Check class="mr-1 h-3.5 w-3.5" />
-                        Approve
+                      <Button
+                        size="sm"
+                        :variant="request.type === 'delete_space' ? 'destructive' : 'default'"
+                        @click="onApprove(request)"
+                      >
+                        <component
+                          :is="request.type === 'delete_space' ? Trash2 : Check"
+                          class="mr-1 h-3.5 w-3.5"
+                        />
+                        {{ request.type === 'delete_space' ? 'Approve deletion' : 'Approve' }}
                       </Button>
                     </template>
                     <template v-else-if="request.status === 'failed'">
@@ -479,10 +513,15 @@ function formatDate(iso: string): string {
                     :key="request.id"
                     class="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
                   >
-                    <div>
+                    <div class="flex min-w-0 items-center gap-2">
+                      <component
+                        :is="REQUEST_TYPE_META[request.type].icon"
+                        class="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                      />
                       <span class="text-sm font-medium">{{ request.spaceName }}</span>
-                      <span class="ml-2 text-xs text-muted-foreground">
-                        {{ request.requesterEmail }}
+                      <span class="truncate text-xs text-muted-foreground">
+                        {{ REQUEST_TYPE_META[request.type].label }} · {{ request.requesterEmail }} ·
+                        {{ formatDate(request.createdAt) }}
                       </span>
                     </div>
                     <RequestStatusBadge :status="request.status" />

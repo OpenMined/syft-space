@@ -5,20 +5,23 @@ import type { RequestStatus } from '@/lib/types'
 
 defineProps<{ status: RequestStatus }>()
 
+// Quiet palette: a soft pill carries the label, a small dot carries the
+// semantic colour — so a settled state reads as a calm fact, not a shout.
+// Only in-flight (provisioning) and error (failed) states earn a tinted fill.
 const config: Record<RequestStatus, { label: string; classes: string; dot: string }> = {
   pending: {
     label: 'Pending review',
-    classes: 'bg-secondary text-secondary-foreground border-transparent',
-    dot: 'bg-muted-foreground',
+    classes: 'bg-warning/10 text-foreground border-warning/25',
+    dot: 'bg-warning',
   },
   provisioning: {
     label: 'Setting up',
     classes: 'bg-warning/15 text-foreground border-warning/40',
     dot: '',
   },
-  active: {
-    label: 'Active',
-    classes: 'bg-success/15 text-foreground border-success/40',
+  approved: {
+    label: 'Approved',
+    classes: 'bg-muted text-muted-foreground border-transparent',
     dot: 'bg-success',
   },
   rejected: {
@@ -26,20 +29,15 @@ const config: Record<RequestStatus, { label: string; classes: string; dot: strin
     classes: 'bg-muted text-muted-foreground border-transparent',
     dot: 'bg-muted-foreground',
   },
-  failed: {
-    label: 'Failed',
-    classes: 'bg-destructive/10 text-destructive border-destructive/40',
-    dot: 'bg-destructive',
-  },
-  deleted: {
-    label: 'Deleted',
-    classes: 'bg-muted text-muted-foreground border-transparent',
-    dot: 'bg-muted-foreground',
-  },
   withdrawn: {
     label: 'Withdrawn',
     classes: 'bg-muted text-muted-foreground border-transparent',
     dot: 'bg-muted-foreground',
+  },
+  failed: {
+    label: 'Failed',
+    classes: 'bg-destructive/10 text-destructive border-destructive/40',
+    dot: 'bg-destructive',
   },
 }
 </script>

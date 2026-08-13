@@ -31,35 +31,46 @@ export interface UpdateSetupBody {
   supported_version?: string
 }
 
+export type RequestType = 'create_space' | 'delete_space'
+
+/** Generic review lifecycle. provisioning/failed apply only to create_space. */
 export type ApiRequestStatus =
   | 'pending'
   | 'provisioning'
-  | 'active'
+  | 'approved'
   | 'rejected'
-  | 'failed'
-  | 'deleted'
   | 'withdrawn'
+  | 'failed'
 
 export type RequestOrigin = 'member' | 'admin'
 
 export interface RequestResponse {
   id: string
-  space_name: string
-  subdomain: string
-  owner_email: string
-  reason: string
-  origin: RequestOrigin
+  type: RequestType
   status: ApiRequestStatus
-  reject_reason: string | null
+  owner_email: string
   space_id: string | null
+  space_name: string | null
+  subdomain: string | null
+  reason: string
+  resolution_note: string | null
+  payload: Record<string, unknown>
+  origin: RequestOrigin
   created_at: string
   updated_at: string
+  resolved_at: string | null
 }
 
+/** Discriminated on `type`, matching the backend payload union. */
+export type CreateSpacePayload = { type: 'create_space'; space_name: string; subdomain: string }
+export type DeleteSpacePayload = { type: 'delete_space' }
+export type RequestPayload = CreateSpacePayload | DeleteSpacePayload
+
 export interface SubmitRequestBody {
-  space_name: string
-  subdomain: string
+  payload: RequestPayload
   reason?: string
+  /** Target space (required for delete_space; ignored by create_space). */
+  space_id?: string
   /** Admin only: create the space for this member (ignored for members). */
   owner_email?: string
 }
@@ -74,6 +85,17 @@ export interface ApproveRequestBody {
 
 export interface RejectRequestBody {
   reason?: string
+}
+
+/** PATCH /requests/{id}: drive the lifecycle by target status. approved/
+ *  rejected are admin-only; withdrawn is the owner's. */
+export interface PatchRequestBody {
+  status: 'approved' | 'rejected' | 'withdrawn'
+  reason?: string
+  space_name?: string
+  subdomain?: string
+  attach_wallet?: boolean
+  wallet_id?: string
 }
 
 export interface SpaceResponse {

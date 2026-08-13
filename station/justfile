@@ -282,6 +282,9 @@ dev *args="up":
     export SYFT_STATION_PUBLIC_URL=http://station.localhost
     # No certs in dev — spaces are minted plain-http URLs.
     export SYFT_STATION_SPACE_SCHEME=http
+    # The :dev image is built + imported into the node, never published — so
+    # never let kubelet reach for the registry (it would 404 the :dev tag).
+    export SYFT_STATION_SPACE_IMAGE_PULL_POLICY=Never
     # Spaces see the host's home dir read-only at ~/host-home (the cluster maps
     # $HOME to the node's /mnt/host-home at creation; off by default in prod).
     export SYFT_STATION_SPACE_HOST_MOUNT=true

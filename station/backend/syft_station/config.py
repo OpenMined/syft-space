@@ -128,6 +128,15 @@ class AppSettings(BaseSettings):
             "ingress; dev has no certs and sets http."
         ),
     )
+    space_image_pull_policy: str = Field(
+        default="IfNotPresent",
+        description=(
+            "imagePullPolicy for space pods. Prod pulls published tags from "
+            "the registry (IfNotPresent). Dev builds the :dev image locally "
+            "and imports it into the cluster node — set Never there so kubelet "
+            "never reaches for the registry (the :dev tag isn't published)."
+        ),
+    )
     image_registry: str = Field(
         default="ghcr.io",
         description=(

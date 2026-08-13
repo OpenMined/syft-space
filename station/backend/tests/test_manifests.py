@@ -14,6 +14,7 @@ SETTINGS = SimpleNamespace(
     namespace="syft-spaces",
     space_image="openmined/syft-space",
     space_scheme="https",
+    space_image_pull_policy="IfNotPresent",
     ingress_class="traefik",
     space_pvc_size="2Gi",
     space_cpu_request="250m",
@@ -128,6 +129,21 @@ def test_space_scheme_flows_into_the_public_url():
     settings = SimpleNamespace(**{**vars(SETTINGS), "space_scheme": "http"})
     env = _env(render_space_manifests(SPEC, settings)["deployment"])
     assert env["SYFT_PUBLIC_URL"]["value"] == "http://alpha.spaces.test.org"
+
+
+def test_image_pull_policy_flows_into_the_container(manifests):
+    container = manifests["deployment"]["spec"]["template"]["spec"]["containers"][0]
+    assert container["imagePullPolicy"] == "IfNotPresent"
+
+
+def test_dev_never_pulls_the_unpublished_dev_image():
+    # Dev builds :dev locally and imports it — Never keeps kubelet off the
+    # registry so the missing published tag can't cause ImagePullBackOff.
+    settings = SimpleNamespace(**{**vars(SETTINGS), "space_image_pull_policy": "Never"})
+    container = render_space_manifests(SPEC, settings)["deployment"]["spec"][
+        "template"
+    ]["spec"]["containers"][0]
+    assert container["imagePullPolicy"] == "Never"
 
 
 def test_deployment_points_spaces_at_the_station_syfthub(manifests):

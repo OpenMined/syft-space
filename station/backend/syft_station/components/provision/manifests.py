@@ -46,6 +46,7 @@ class RenderSettings(Protocol):
     namespace: str
     space_image: str
     space_scheme: str
+    space_image_pull_policy: str
     ingress_class: str
     space_pvc_size: str
     space_cpu_request: str
@@ -74,6 +75,7 @@ def _substitutions(spec: SpaceSpec, settings: RenderSettings) -> dict[str, str]:
         "OWNER_EMAIL": spec.owner_email,
         "ADMIN_TOKEN": spec.admin_token,
         "IMAGE": f"{settings.space_image}:{spec.version}",
+        "IMAGE_PULL_POLICY": settings.space_image_pull_policy,
         "CHROMADB_HOST": settings.chromadb_host,
         "CHROMADB_PORT": str(settings.chromadb_port),
         "DOCLING_URL": settings.docling_url,

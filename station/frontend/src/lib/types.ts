@@ -1,27 +1,29 @@
+export type RequestType = 'create_space' | 'delete_space'
+
 export type RequestStatus =
   | 'pending'
   | 'provisioning'
-  | 'active'
+  | 'approved'
   | 'rejected'
-  | 'failed'
-  | 'deleted'
   | 'withdrawn'
+  | 'failed'
 
 export type SpaceHealth = 'healthy' | 'unhealthy' | 'restarting' | 'paused' | 'starting'
 
 export interface SpaceRequest {
   id: string
-  spaceName: string
-  subdomain: string
+  type: RequestType
+  status: RequestStatus
   requesterEmail: string
   requesterName?: string
-  purpose: string
-  createdAt: string
-  status: RequestStatus
-  rejectReason?: string
-  failureError?: string
   spaceId?: string
-  /** Set when the admin created the space directly (no member request). */
+  spaceName: string
+  subdomain: string
+  purpose: string
+  /** Admin's note on reject, or the provisioning error on failed. */
+  resolutionNote?: string
+  createdAt: string
+  /** Set when the admin created/acted directly (no member request). */
   origin?: 'admin'
 }
 
