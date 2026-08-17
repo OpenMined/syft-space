@@ -1,6 +1,6 @@
 [project]
 name = "syft-station"
-version = "0.1.4"
+version = "0.1.5"
 description = "Station control plane — provisions and manages syft-space instances on Kubernetes"
 authors = [
     {name = "OpenMined", email = "info@openmined.org"}
