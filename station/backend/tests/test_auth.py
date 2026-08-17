@@ -16,6 +16,7 @@ from syft_station.components.auth.session import (
 from syft_station.components.auth.syfthub import (
     SyftHubAuthError,
     SyftHubBuyerTokenError,
+    SyftHubGoogleNotLinkedError,
     SyftHubIdentityClient,
     SyftHubUnavailableError,
 )
@@ -116,6 +117,103 @@ async def test_login_lowercases_profile_email(monkeypatch):
     handler = AuthHandler(make_hub_client(hub))
     user = await handler.login("Alice@Test.COM", "pw")
     assert user.email == "alice@test.com"
+
+
+# ── Google sign-in (existing SyftHub users only) ────────────────────────────
+
+
+def google_hub(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/api/v1/auth/google":
+        body = json.loads(request.content)
+        assert body["credential"] == "gtok"
+        assert body["allow_signup"] is False  # existing users only
+        return httpx.Response(200, json={"access_token": "tok"})
+    if request.url.path == "/api/v1/users/me":
+        assert request.headers["Authorization"] == "Bearer tok"
+        return httpx.Response(
+            200,
+            json={
+                "id": 7,
+                "username": "alice",
+                "email": "alice@test.com",
+                "full_name": "Alice",
+            },
+        )
+    raise AssertionError(f"unexpected path {request.url.path}")
+
+
+async def test_google_login_returns_profile():
+    profile = await make_hub_client(google_hub).authenticate_with_google("gtok")
+    assert profile.email == "alice@test.com"
+    assert profile.username == "alice"
+
+
+async def test_google_unknown_email_is_auth_error():
+    def hub(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401, json={"detail": {"code": "account_not_found", "message": "nope"}}
+        )
+
+    with pytest.raises(SyftHubAuthError, match="No SyftHub account"):
+        await make_hub_client(hub).authenticate_with_google("gtok")
+
+
+async def test_google_not_linked_is_not_linked_error():
+    def hub(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, json={"detail": "email already exists"})
+
+    with pytest.raises(SyftHubGoogleNotLinkedError):
+        await make_hub_client(hub).authenticate_with_google("gtok")
+
+
+async def test_google_hub_down_is_unavailable():
+    def hub(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    with pytest.raises(SyftHubUnavailableError):
+        await make_hub_client(hub).authenticate_with_google("gtok")
+
+
+async def test_handler_google_login_routes_role(monkeypatch):
+    monkeypatch.setattr(app_settings, "admin_email", "alice@test.com")
+    user = await AuthHandler(make_hub_client(google_hub)).login_with_google("gtok")
+    assert user.email == "alice@test.com"
+    assert user.role == ROLE_ADMIN
+
+
+async def test_handler_google_not_linked_409(monkeypatch):
+    monkeypatch.setattr(app_settings, "admin_email", "")
+
+    def hub(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, json={"detail": "exists"})
+
+    with pytest.raises(HTTPException) as exc:
+        await AuthHandler(make_hub_client(hub)).login_with_google("gtok")
+    assert exc.value.status_code == 409
+
+
+async def test_handler_google_unknown_401(monkeypatch):
+    monkeypatch.setattr(app_settings, "admin_email", "")
+
+    def hub(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": {"code": "account_not_found"}})
+
+    with pytest.raises(HTTPException) as exc:
+        await AuthHandler(make_hub_client(hub)).login_with_google("gtok")
+    assert exc.value.status_code == 401
+
+
+def test_auth_config_reflects_google_client_id(monkeypatch):
+    monkeypatch.setattr(app_settings, "google_client_id", "abc.googleusercontent.com")
+    cfg = AuthHandler(make_hub_client(happy_hub)).auth_config()
+    assert cfg.google_enabled is True
+    assert cfg.google_client_id == "abc.googleusercontent.com"
+
+
+def test_auth_config_google_disabled_when_unset(monkeypatch):
+    monkeypatch.setattr(app_settings, "google_client_id", "")
+    cfg = AuthHandler(make_hub_client(happy_hub)).auth_config()
+    assert cfg.google_enabled is False
 
 
 # ── Credits identity: PAT mint / whoami / buyer-token verification ──────────

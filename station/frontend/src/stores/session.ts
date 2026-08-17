@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError } from '@/api/client'
 import { authApi } from '@/api/endpoints/auth'
-import type { MeResponse, Role } from '@/api/types'
+import type { AuthConfig, MeResponse, Role } from '@/api/types'
 
 export interface SessionProfile {
   email: string
@@ -34,6 +34,17 @@ export const useSessionStore = defineStore('session', () => {
     return profile.value
   }
 
+  /** Sign in with a Google ID token (existing SyftHub users only). */
+  async function signInWithGoogle(credential: string): Promise<SessionProfile> {
+    profile.value = toProfile(await authApi.loginWithGoogle({ credential }))
+    return profile.value
+  }
+
+  /** Which sign-in methods the page should offer. */
+  function authConfig(): Promise<AuthConfig> {
+    return authApi.config()
+  }
+
   /**
    * Restore the session from the cookie, once per app load (the router
    * guard awaits this before deciding where to send the user). Signed out
@@ -60,5 +71,14 @@ export const useSessionStore = defineStore('session', () => {
     authApi.logout().catch(() => {})
   }
 
-  return { profile, isSignedIn, isAdmin, signIn, restore, signOut }
+  return {
+    profile,
+    isSignedIn,
+    isAdmin,
+    signIn,
+    signInWithGoogle,
+    authConfig,
+    restore,
+    signOut,
+  }
 })

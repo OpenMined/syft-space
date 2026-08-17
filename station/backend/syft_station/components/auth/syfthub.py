@@ -32,6 +32,14 @@ class SyftHubBuyerTokenError(Exception):
     """The buyer's satellite token is invalid, expired, or a guest token."""
 
 
+class SyftHubGoogleNotLinkedError(Exception):
+    """The Google email maps to a SyftHub account not linked to Google.
+
+    SyftHub refuses to implicitly link (409) — the user must sign in with
+    their password, or link Google from SyftHub's account settings first.
+    """
+
+
 class SyftHubProfile(BaseModel):
     """Profile from ``GET /api/v1/users/me``."""
 
@@ -102,10 +110,57 @@ class SyftHubIdentityClient:
 
         return SyftHubProfile.model_validate(me.json())
 
+    async def _google_login(self, client: httpx.AsyncClient, credential: str) -> str:
+        """Exchange a Google ID token for a hub access token.
+
+        Sends ``allow_signup=false`` so SyftHub rejects an unknown email
+        (401) instead of signing it up — the station admits existing SyftHub
+        users only. A 409 means the email exists but isn't Google-linked.
+        """
+        try:
+            response = await client.post(
+                "/api/v1/auth/google",
+                json={"credential": credential, "allow_signup": False},
+            )
+        except httpx.HTTPError as e:
+            raise SyftHubUnavailableError(f"SyftHub is unreachable: {e}") from e
+
+        if response.status_code == 409:
+            raise SyftHubGoogleNotLinkedError(
+                "This SyftHub account isn't linked to Google"
+            )
+        if response.status_code == 401:
+            detail = None
+            try:
+                detail = response.json().get("detail")
+            except ValueError:
+                pass
+            if isinstance(detail, dict) and detail.get("code") == "account_not_found":
+                raise SyftHubAuthError("No SyftHub account for this Google email")
+            raise SyftHubAuthError("Google sign-in was rejected")
+        if response.status_code != 200:
+            raise SyftHubUnavailableError(
+                f"SyftHub Google sign-in failed with status {response.status_code}"
+            )
+
+        access_token = response.json().get("access_token")
+        if not access_token:
+            raise SyftHubUnavailableError("SyftHub login response missing access_token")
+        return str(access_token)
+
     async def authenticate(self, email: str, password: str) -> SyftHubProfile:
         """One-shot credential check: login, fetch profile, discard tokens."""
         async with self._build_http_client() as client:
             access_token = await self._login(client, email, password)
+            return await self._fetch_profile(client, access_token)
+
+    async def authenticate_with_google(self, credential: str) -> SyftHubProfile:
+        """One-shot Google sign-in: exchange the ID token, fetch profile, discard.
+
+        Existing SyftHub users only (see ``_google_login``).
+        """
+        async with self._build_http_client() as client:
+            access_token = await self._google_login(client, credential)
             return await self._fetch_profile(client, access_token)
 
     async def mint_pat(
