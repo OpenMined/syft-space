@@ -66,6 +66,13 @@ class AppSettings(BaseSettings):
             "Sign-ins with this email get the admin role."
         ),
     )
+    google_client_id: str = Field(
+        default="",
+        description=(
+            "Google OAuth client ID for 'Continue with Google'. Must be "
+            "SyftHub's own client ID; empty disables the Google button."
+        ),
+    )
 
     # Session settings
     session_secret: str = Field(

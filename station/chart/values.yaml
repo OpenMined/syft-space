@@ -32,6 +32,9 @@ station:
   # with it get the admin role. Both are non-secret and injected as plain env.
   adminEmail: ""
   syfthubUrl: "https://syfthub.openmined.org"
+  # "Continue with Google" — SyftHub's OWN Google client ID (its Authorized
+  # JS origins must include the station). Empty hides the Google button.
+  googleClientId: ""
 
   # Session cookie signing key. Left empty, the chart generates one on first
   # install and PRESERVES it across `helm upgrade` (via a live lookup), so

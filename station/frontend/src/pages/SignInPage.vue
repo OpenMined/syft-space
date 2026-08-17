@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
@@ -11,7 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ApiError } from '@/api/client'
-import { useSessionStore } from '@/stores/session'
+import { renderGoogleButton } from '@/composables/useGoogleSignIn'
+import { useSessionStore, type SessionProfile } from '@/stores/session'
 import { useStationStore } from '@/stores/station'
 
 const router = useRouter()
@@ -21,6 +22,20 @@ const station = useStationStore()
 const email = ref('')
 const password = ref('')
 const signingIn = ref(false)
+const googleEnabled = ref(false)
+const googleButton = ref<HTMLElement | null>(null)
+
+// Load setup, then honor a redirect (e.g. /credits) or route by role.
+async function afterSignIn(profile: SessionProfile) {
+  toast.success(`Signed in as ${profile.email}`)
+  await station.loadSetup().catch(() => {})
+  const redirect = router.currentRoute.value.query.redirect
+  if (typeof redirect === 'string' && redirect) {
+    router.push(redirect)
+  } else {
+    router.push({ name: session.isAdmin ? 'admin' : 'member' })
+  }
+}
 
 async function submit() {
   if (!email.value || !password.value) {
@@ -29,22 +44,36 @@ async function submit() {
   }
   signingIn.value = true
   try {
-    const profile = await session.signIn(email.value, password.value)
-    toast.success(`Signed in as ${profile.email}`)
-    await station.loadSetup().catch(() => {})
-    // Honor a post-sign-in destination (e.g. the /credits checkout link).
-    const redirect = router.currentRoute.value.query.redirect
-    if (typeof redirect === 'string' && redirect) {
-      router.push(redirect)
-    } else {
-      router.push({ name: session.isAdmin ? 'admin' : 'member' })
-    }
+    await afterSignIn(await session.signIn(email.value, password.value))
   } catch (error) {
     toast.error(error instanceof ApiError ? error.message : 'Sign-in failed — is the station up?')
   } finally {
     signingIn.value = false
   }
 }
+
+async function handleGoogle(credential: string) {
+  signingIn.value = true
+  try {
+    await afterSignIn(await session.signInWithGoogle(credential))
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'Google sign-in failed')
+  } finally {
+    signingIn.value = false
+  }
+}
+
+// Show the Google button only if the backend has it configured and GIS loads.
+onMounted(async () => {
+  const config = await session.authConfig().catch(() => null)
+  if (!config?.google_enabled || !googleButton.value) return
+  try {
+    await renderGoogleButton(googleButton.value, config.google_client_id, handleGoogle)
+    googleEnabled.value = true
+  } catch {
+    // Silent: password sign-in still works.
+  }
+})
 </script>
 
 <template>
@@ -113,6 +142,16 @@ async function submit() {
                   Sign in
                 </Button>
               </form>
+
+              <!-- Google sign-in (only when configured) -->
+              <div v-show="googleEnabled" class="mt-4">
+                <div class="my-4 flex items-center gap-3">
+                  <span class="h-px flex-1 bg-border" />
+                  <span class="text-xs text-muted-foreground">or</span>
+                  <span class="h-px flex-1 bg-border" />
+                </div>
+                <div ref="googleButton" class="flex justify-center" />
+              </div>
             </CardContent>
           </Card>
         </div>

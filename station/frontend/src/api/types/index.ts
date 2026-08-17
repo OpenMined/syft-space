@@ -17,6 +17,16 @@ export interface LoginBody {
   password: string
 }
 
+export interface GoogleLoginBody {
+  credential: string
+}
+
+/** Public sign-in config, read before authenticating. */
+export interface AuthConfig {
+  google_enabled: boolean
+  google_client_id: string
+}
+
 export interface SetupResponse {
   domain: string
   supported_version: string

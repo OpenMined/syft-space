@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Response
 
 from syft_station.components.auth.handlers import AuthHandler
 from syft_station.components.auth.schemas import (
+    AuthConfigResponse,
+    GoogleLoginRequest,
     LoginRequest,
     LogoutResponse,
     MeResponse,
@@ -23,6 +25,13 @@ def build_auth_routes(handler: AuthHandler) -> APIRouter:
     def get_handler() -> AuthHandler:
         return handler
 
+    @router.get("/config", response_model=AuthConfigResponse)
+    async def config(
+        handler: AuthHandler = Depends(get_handler),
+    ) -> AuthConfigResponse:
+        """Public sign-in config (which methods the sign-in page should offer)."""
+        return handler.auth_config()
+
     @router.post("/login", response_model=MeResponse)
     async def login(
         request: LoginRequest,
@@ -31,6 +40,17 @@ def build_auth_routes(handler: AuthHandler) -> APIRouter:
     ) -> MeResponse:
         """Sign in with SyftHub credentials; sets the session cookie."""
         user = await handler.login(request.email, request.password)
+        set_session_cookie(response, user)
+        return MeResponse(**user.model_dump())
+
+    @router.post("/login/google", response_model=MeResponse)
+    async def login_google(
+        request: GoogleLoginRequest,
+        response: Response,
+        handler: AuthHandler = Depends(get_handler),
+    ) -> MeResponse:
+        """Sign in with a Google ID token (existing SyftHub users only)."""
+        user = await handler.login_with_google(request.credential)
         set_session_cookie(response, user)
         return MeResponse(**user.model_dump())
 

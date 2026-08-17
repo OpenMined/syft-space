@@ -41,6 +41,8 @@ spec:
               value: {{ .Values.station.adminEmail | quote }}
             - name: SYFT_STATION_SYFTHUB_URL
               value: {{ .Values.station.syfthubUrl | quote }}
+            - name: SYFT_STATION_GOOGLE_CLIENT_ID
+              value: {{ .Values.station.googleClientId | quote }}
             # Spaces run the published image; the tag is chosen by the admin at
             # runtime from the registry version picker.
             - name: SYFT_STATION_SPACE_IMAGE
