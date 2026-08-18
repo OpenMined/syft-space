@@ -40,10 +40,10 @@ jobs:
           bun-version: latest
 
       - name: Install frontend dependencies
-        run: bun install --cwd frontend
+        run: bun install --cwd packages/spaces/frontend
 
       - name: Build frontend
-        run: bun run --cwd frontend build
+        run: bun run --cwd packages/spaces/frontend build
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
