@@ -22,13 +22,13 @@
 #                 └───────────────────────────────┘
 #
 # WHAT SHIPS
-#   Version  `uv version --bump` on station/backend/pyproject.toml decides <v>.
+#   Version  `uv version --bump` on packages/station/backend/pyproject.toml decides <v>.
 #            This is the version the running station reports at /version.
 #   Image    ghcr.io/openmined/syft-station:<v> (and :latest), amd64 + arm64.
-#            Built from station/Dockerfile — the frontend compiles inside the
-#            image, so there is no separate frontend build step.
+#            Built from packages/station/Dockerfile — the frontend compiles inside
+#            the image, so there is no separate frontend build step.
 #   Chart    oci://ghcr.io/openmined/charts/syft-station, packaged from
-#            station/chart with version AND appVersion stamped to <v> at
+#            packages/station/chart with version AND appVersion stamped to <v> at
 #            package time (the repo's Chart.yaml stays a placeholder).
 #   Git tag  station-<v> — a record of what shipped, not a trigger.
 #
@@ -214,11 +214,11 @@ jobs:
         uses: azure/setup-helm@v4
 
       - name: Lint chart
-        run: helm lint station/chart
+        run: helm lint packages/station/chart
 
       - name: Package chart at the release version
         run: |
-          helm package station/chart \
+          helm package packages/station/chart \
             --version "${{ needs.release.outputs.version }}" \
             --app-version "${{ needs.release.outputs.version }}" \
             --destination dist
