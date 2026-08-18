@@ -5,6 +5,9 @@ name: Trigger E2E Tests
 on:
   push:
     branches: [main]
+    paths:
+      - 'packages/spaces/**'
+      - '.github/workflows/trigger-e2e.yml'
 
 jobs:
   e2e:

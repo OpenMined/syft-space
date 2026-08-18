@@ -8,7 +8,7 @@ Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 f
 
 ## Architecture
 
-### Backend Structure (`/backend`)
+### Backend Structure (`packages/spaces/backend`)
 
 - **Framework**: FastAPI with FastSyftBox wrapper
 - **Structure**: Domain-driven design with components organized by feature
@@ -22,7 +22,7 @@ Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 f
   - `settings/` - Application configuration
   - `shared/` - Common utilities (database, errors, logging)
 
-### Frontend Structure (`/frontend`)
+### Frontend Structure (`packages/spaces/frontend`)
 
 - **Framework**: Vue 3 with Composition API, TypeScript, Tailwind CSS
 - **UI Library**: shadcn/ui components (located in `src/components/ui/`)
@@ -36,18 +36,18 @@ Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 f
 ### Backend Development
 
 ```bash
-# Setup and run backend (from project root)
-./run.sh
+# Setup and run backend (self-cds to packages/spaces)
+packages/spaces/run.sh
 
-# Manual setup
+# Manual setup (from packages/spaces/)
 rm -rf .venv
 uv venv -p 3.12
 uv pip install -e backend/
 
 # Run server
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8080
+uv run uvicorn syft_space.main:app --reload --host 0.0.0.0 --port 8080
 
-# Code quality (from backend/ directory)
+# Code quality (from packages/spaces/backend/ directory)
 black .                    # Format code
 isort .                    # Sort imports
 flake8 .                   # Lint code
@@ -58,7 +58,7 @@ pytest                     # Run tests
 ### Frontend Development
 
 ```bash
-cd frontend
+cd packages/spaces/frontend
 
 # Package management (use bun, not npm)
 bun install                # Install dependencies
@@ -123,7 +123,7 @@ bun run test:e2e           # E2E tests against production build
 
 When integrating a backend API endpoint into the frontend:
 
-1. **Create API types** in `frontend/src/api/types/index.ts`:
+1. **Create API types** in `packages/spaces/frontend/src/api/types/index.ts`:
 
    ```typescript
    export interface MyResponse {
@@ -131,7 +131,7 @@ When integrating a backend API endpoint into the frontend:
    }
    ```
 
-2. **Add API function** in `frontend/src/api/endpoints/`:
+2. **Add API function** in `packages/spaces/frontend/src/api/endpoints/`:
 
    ```typescript
    export const myApi = {
@@ -142,7 +142,7 @@ When integrating a backend API endpoint into the frontend:
    }
    ```
 
-3. **Create composable** for complex logic in `frontend/src/composables/`:
+3. **Create composable** for complex logic in `packages/spaces/frontend/src/composables/`:
 
    ```typescript
    export function useMyFeature() {
@@ -154,10 +154,10 @@ When integrating a backend API endpoint into the frontend:
 
 ### Example: File Browser Integration
 
-- API types: `frontend/src/api/types/index.ts`
-- API endpoint: `frontend/src/api/endpoints/datasets.ts`
-- Composable: `frontend/src/composables/useDatasetBrowser.ts`
-- Component: `frontend/src/components/FileExplorer.vue`
+- API types: `packages/spaces/frontend/src/api/types/index.ts`
+- API endpoint: `packages/spaces/frontend/src/api/endpoints/datasets.ts`
+- Composable: `packages/spaces/frontend/src/composables/useDatasetBrowser.ts`
+- Component: `packages/spaces/frontend/src/components/FileExplorer.vue`
 
 ## Important Notes
 

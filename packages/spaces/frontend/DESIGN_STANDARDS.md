@@ -4,7 +4,7 @@
 
 ### Primary Typography Classes
 - `heading-1` - Main hero headings (HomePage welcome)
-- `heading-3` - Section headings (Recent Activity, etc.) 
+- `heading-3` - Section headings (Recent Activity, etc.)
 - `text-2xl font-light` - Statistics/Numbers display
 - `text-lg` - Large descriptive text (hero descriptions)
 - `text-sm` - Standard body text, labels, descriptions
@@ -14,7 +14,7 @@
 Use **only** shadcn Button variants:
 - `<Button>` - Primary actions (default variant)
 - `<Button variant="outline">` - Secondary actions
-- `<Button variant="destructive">` - Delete/dangerous actions  
+- `<Button variant="destructive">` - Delete/dangerous actions
 - `<Button variant="ghost">` - Subtle actions
 - `<Button size="sm">`, `<Button size="lg">` - Size variants
 
@@ -80,7 +80,7 @@ Use **only** shadcn semantic tokens:
 ## Migration Guidelines
 
 1. Replace page titles: `text-2xl font-bold` → `heading-3`
-2. Replace descriptions: `text-gray-600` → `text-muted-foreground`  
+2. Replace descriptions: `text-gray-600` → `text-muted-foreground`
 3. Replace buttons: Custom styling → shadcn variants
 4. Replace colors: CSS variables → shadcn tokens
 5. Maintain the same visual hierarchy from HomePage.vue

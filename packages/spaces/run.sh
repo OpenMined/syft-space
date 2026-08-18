@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Run from this script's own directory (packages/spaces) so the relative
+# backend/ path resolves no matter where it's invoked from.
+cd "$(dirname "$0")"
+
 # Remove old venv and artifacts
 rm -rf .venv
 
