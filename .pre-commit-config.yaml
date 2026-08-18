@@ -4,7 +4,8 @@ repos:
     rev: v0.8.4
     hooks:
       # Run the linter on all Python (each backend resolves its own
-      # [tool.ruff] config per-file: backend/, station/backend/, scripts).
+      # [tool.ruff] config per-file: packages/spaces/backend/,
+      # packages/station/backend/, scripts).
       - id: ruff
         args: [--fix]
       # Run the formatter on all Python.
@@ -20,7 +21,7 @@ repos:
   #         - sqlmodel
   #         - pydantic
   #       args: [--ignore-missing-imports]
-  #       files: ^backend/
+  #       files: ^packages/spaces/backend/
 
   # General pre-commit hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -31,7 +32,7 @@ repos:
       - id: check-yaml
         args: [--allow-multiple-documents]
         # Helm templates are Go-templated, not valid YAML.
-        exclude: ^station/chart/templates/
+        exclude: ^packages/station/chart/templates/
       - id: check-added-large-files
         args: [--maxkb=1000]
       - id: check-merge-conflict
@@ -47,9 +48,9 @@ repos:
     rev: 1.8.0
     hooks:
       - id: bandit
-        args: [-c, backend/pyproject.toml]
+        args: [-c, packages/spaces/backend/pyproject.toml]
         additional_dependencies: ["bandit[toml]"]
-        files: ^backend/
+        files: ^packages/spaces/backend/
 
   # Conventional Commits — validates commit subject lines.
   # Requires opt-in: `pre-commit install --hook-type commit-msg`

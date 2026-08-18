@@ -131,7 +131,7 @@ src/
    // src/api/endpoints/datasets.ts
    import { apiClient } from '../client'
    import type { BrowseResponse } from '../types'
-   
+
    export const datasetsApi = {
      browse: async (path = '~'): Promise<BrowseResponse> => {
        const response = await apiClient.get('/datasets/browse', { params: { path } })
@@ -147,7 +147,7 @@ src/
      const data = ref([])
      const loading = ref(false)
      const error = ref(null)
-     
+
      const load = async () => {
        loading.value = true
        try {
@@ -158,7 +158,7 @@ src/
          loading.value = false
        }
      }
-     
+
      return { data, loading, error, load }
    }
    ```

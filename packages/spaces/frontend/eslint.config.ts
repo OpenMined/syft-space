@@ -23,7 +23,7 @@ export default defineConfigWithVueTs(
 
   pluginVue.configs['flat/essential'],
   vueTsConfigs.recommended,
-  
+
   {
     name: 'app/ui-components',
     files: ['src/components/ui/**/*.vue'],
@@ -31,12 +31,12 @@ export default defineConfigWithVueTs(
       'vue/multi-word-component-names': 'off',
     },
   },
-  
+
   {
     ...pluginVitest.configs.recommended,
     files: ['src/**/__tests__/*'],
   },
-  
+
   {
     ...pluginCypress.configs.recommended,
     files: [

@@ -18,7 +18,7 @@ You add your documents, connect an AI model, and create endpoints that others ca
 
 **Key Benefits:**
 - **🔒 Privacy-First**: Your data never leaves your control
-- **🎯 Selective Sharing**: Share insights, not raw data  
+- **🎯 Selective Sharing**: Share insights, not raw data
 - **💰 Monetization**: Set your own pricing and access rules
 - **🔍 AI-Powered**: Make any document collection searchable with AI
 - **🌐 Decentralized**: Part of a growing network while maintaining independence
@@ -33,7 +33,7 @@ Syft Space is a full-stack application that creates a bridge between your privat
 
 **Core Architecture:**
 - **Frontend**: Vue 3 web interface for management and configuration
-- **Backend**: FastAPI server handling requests, policies, and data processing  
+- **Backend**: FastAPI server handling requests, policies, and data processing
 - **Vector Databases**: Local or remote databases (Weaviate, Qdrant, ChromaDB) for document indexing
 - **AI Models**: Integration with OpenAI, Anthropic, Ollama, vLLM, and other providers
 - **SyftHub Integration**: Optional publishing to the decentralized knowledge network
@@ -44,7 +44,7 @@ The system automatically provisions Docker containers for local vector databases
 
 Build your knowledge hub with four core components:
 
-### 📚 **Datasets** 
+### 📚 **Datasets**
 Upload documents or connect vector databases. Files are automatically indexed for AI search.
 
 ### 🤖 **Models**
@@ -65,7 +65,7 @@ Control access, set rate limits, and configure pricing for your endpoints.
 - **📊 Publishers & Creators** — Make your content AI-queryable for your audience while maintaining attribution and control
 - **🎓 Researchers** — Turn your papers and notes into a searchable knowledge assistant that others can query
 - **🏢 Organizations** — Build AI-powered customer support from your documentation without exposing internal details
-- **👥 Teams** — Create searchable knowledge hubs from scattered wikis, docs, and guides  
+- **👥 Teams** — Create searchable knowledge hubs from scattered wikis, docs, and guides
 - **💡 Data Monetization** — Share valuable insights from your data without exposing the underlying information
 
 ## 🚀 Getting Started
@@ -140,13 +140,13 @@ curl -X POST http://localhost:8080/api/v1/endpoints/my-docs/query \
 | ☁️ Cloud VM/Server | ❌ No - uses public IP |
 | 🧪 Local development only | ❌ No - for testing only |
 
-**Getting a token:** Contact OpenMined directly (currently in beta)  
+**Getting a token:** Contact OpenMined directly (currently in beta)
 **Configure:** During onboarding or in Settings → Network
 
 ## ✨ Key Features
 
 - **🗄️ Multi-database support**: Weaviate, Qdrant, ChromaDB, or remote data sources
-- **🤖 Multi-model support**: OpenAI, Anthropic, vLLM, Ollama, and other providers  
+- **🤖 Multi-model support**: OpenAI, Anthropic, vLLM, Ollama, and other providers
 - **⚙️ Auto-provisioning**: Automatically manages Docker containers for local databases
 - **💻 Desktop & web interface**: Run it as an app or deploy as a service
 - **📊 Usage analytics**: Monitor costs, tokens, and performance
@@ -157,12 +157,14 @@ curl -X POST http://localhost:8080/api/v1/endpoints/my-docs/query \
 
 ```
 syft-space/
-├── backend/         # Python FastAPI server
-│   └── syft_space/  # Main application code  
-├── frontend/        # Vue 3 web interface
-├── docs/            # Documentation
-├── Dockerfile       # Container build
-└── docker-compose.yml
+└── packages/
+    └── spaces/              # the Syft Space package
+        ├── backend/         # Python FastAPI server
+        │   └── syft_space/  # Main application code
+        ├── frontend/        # Vue 3 web interface
+        ├── docs/            # Documentation
+        ├── Dockerfile       # Container build
+        └── docker-compose.yml
 ```
 
 ## 📚 Documentation
@@ -175,7 +177,7 @@ syft-space/
 
 ### Component Guides
 - [Datasets](http://syft.docs.openmined.org/space/components/datasets) — Managing your data sources
-- [Models](http://syft.docs.openmined.org/space/components/models) — AI providers and configuration  
+- [Models](http://syft.docs.openmined.org/space/components/models) — AI providers and configuration
 - [Endpoints](http://syft.docs.openmined.org/space/components/endpoints) — Queryable RAG services
 - [Policies](http://syft.docs.openmined.org/space/components/policies) — Access control and rate limiting
 

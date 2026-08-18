@@ -44,7 +44,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: "./packages/spaces/src-tauri -> target"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -56,10 +56,10 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install backend dependencies
-        run: uv pip install -e "backend/.[build,libs]" --system
+        run: uv pip install -e "packages/spaces/backend/.[build,libs]" --system
 
       - name: install frontend dependencies
-        run: bun install --cwd frontend
+        run: bun install --cwd packages/spaces/frontend
 
       - name: import Apple Developer Certificate
         if: startsWith(matrix.platform, 'macos')
@@ -101,6 +101,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         with:
+          projectPath: packages/spaces
           tagName: v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
           releaseName: "Release v__VERSION__"
           releaseBody: "See the assets to download this version and install."

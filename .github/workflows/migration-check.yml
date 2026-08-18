@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'backend/**'
+      - 'packages/spaces/backend/**'
 
 jobs:
   check-migrations:
@@ -25,17 +25,17 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd backend
+          cd packages/spaces/backend
           uv pip install -e . --system
 
       - name: Check for multiple heads
         run: |
-          cd backend
+          cd packages/spaces/backend
           just check
 
       - name: Test fresh install
         run: |
-          cd backend
+          cd packages/spaces/backend
           rm -f /tmp/ci_test.db
           SYFT_SQLITE_DB_PATH=/tmp/ci_test.db just upgrade
           echo "Fresh install migration succeeded"

@@ -29,7 +29,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 dist/
-backend/dist/
+packages/spaces/backend/dist/
 
 # Installer logs
 pip-log.txt
@@ -199,7 +199,7 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
-backend/.cursor/*
+packages/spaces/backend/.cursor/*
 
 # Marimo
 marimo/_static/
@@ -216,7 +216,7 @@ notebooks/
 .syftboxapp.json
 logs
 
-src-tauri/binaries
+packages/spaces/src-tauri/binaries
 
 # Superset
 .superset/

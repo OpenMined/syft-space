@@ -73,8 +73,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./packages/spaces
+          file: ./packages/spaces/Dockerfile
           target: production
           push: true
           platforms: ${{ matrix.platform }}

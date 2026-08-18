@@ -94,7 +94,7 @@ jobs:
       - name: Bump the version, commit, and tag
         id: bump
         run: |
-          cd station/backend
+          cd packages/station/backend
           uv version --bump "${{ inputs.bump }}"
           version=$(uv version --short)
 
@@ -153,8 +153,8 @@ jobs:
       - name: Build and push station image
         uses: docker/build-push-action@v6
         with:
-          context: station
-          file: station/Dockerfile
+          context: packages/station
+          file: packages/station/Dockerfile
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ steps.platform.outputs.image }}:${{ needs.release.outputs.version }}-${{ steps.platform.outputs.suffix }}
