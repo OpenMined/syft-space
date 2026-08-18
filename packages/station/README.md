@@ -4,7 +4,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688)](https://fastapi.tiangolo.com/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D)](https://vuejs.org/)
 [![Helm](https://img.shields.io/badge/Helm-chart-0F1689)](https://helm.sh/)
-[![License](https://img.shields.io/github/license/OpenMined/syft-space)](../LICENSE)
+[![License](https://img.shields.io/github/license/OpenMined/syft-space)](../../LICENSE)
 
 > **Spin up your own Space, dock it to the Station.** Share the infrastructure, never your data.
 
@@ -12,7 +12,7 @@
 
 ## What is Syft Station?
 
-Syft Station lets one organization run **[Syft Spaces](../README.md) for all
+Syft Station lets one organization run **[Syft Spaces](../../README.md) for all
 of its members on shared Kubernetes infrastructure**. Members sign in with
 their SyftHub account and request a space; the station admin approves; the
 station provisions each space at its own subdomain — backed by shared
@@ -104,7 +104,7 @@ SyftHub; it stores no passwords of its own.
 ## 📄 License
 
 Part of the OpenMined ecosystem, licensed under Apache 2.0 — see
-[LICENSE](../LICENSE).
+[LICENSE](../../LICENSE).
 
 ---
 
