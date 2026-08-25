@@ -26,9 +26,10 @@ pick expands to arbitrarily many leaves:
 * The poll walks the blog's listing rather than re-fetching exact ids —
   Blogger has no ``include``-style id filter. A watermark stops the walk
   early once it reaches posts older than the newest one seen last time.
-* Unchanged posts are not re-emitted. The scanner's ``skip_map`` is loaded
-  once per source task, so re-emitting a large blog's every post on every
-  poll would cost a DB read per post forever.
+* Unchanged posts are not re-emitted between sweeps — re-emitting a large
+  blog every poll would cost a DB read per post. Every
+  ``FULL_SWEEP_EVERY_POLLS`` polls the suppression is dropped for one walk, so
+  a transiently-failed ingest can still use its retry budget.
 
 Not handled: deletes (Blogger has no REST tombstone — a removed post just
 stops appearing in polls, same gap as the WordPress source), drafts and
@@ -74,6 +75,9 @@ DEFAULT_POLL_INTERVAL_SECONDS = 300
 PAGE_SIZE = 100
 # Longest filename stem taken from a post title before the post id suffix.
 MAX_SLUG_LENGTH = 60
+# Polls between full re-walks. A FAILED job only re-queues when the source
+# re-emits it, so suppression can't be permanent. ~hourly at the default poll.
+FULL_SWEEP_EVERY_POLLS = 12
 
 # 403s that are about quota rather than access. Reporting these as an API-key
 # problem would send people hunting through the console for the wrong thing.
@@ -242,11 +246,10 @@ def _check_response(response: httpx.Response) -> None:
     """Map a Blogger API error onto the source-layer exception hierarchy.
 
     Raises:
-        SourceAuthError: The API key is missing or rejected.
-        SourceForbiddenError: Key accepted but the request is not permitted —
-            most often the Blogger API is not enabled on its project, or the
-            blog is private.
-        SourceError: Quota exhausted (403), or the blog/post is gone (404).
+        SourceAuthError: Credentials rejected (401).
+        SourceForbiddenError: Blogger API not enabled, or the blog is private.
+        SourceError: Quota exhausted (403), request rejected (400), or the
+            blog/post is gone (404).
         httpx.HTTPStatusError: Any other failure.
     """
     if response.status_code < 400:
@@ -254,11 +257,8 @@ def _check_response(response: httpx.Response) -> None:
 
     reason, message = _google_error_reason(response)
 
-    if response.status_code == 401 or reason in {"keyInvalid", "badRequest"}:
-        raise SourceAuthError(
-            "Google rejected the API key. Check it was copied correctly and "
-            f"that it is not restricted away from the Blogger API. {message}".strip()
-        )
+    if response.status_code == 401:
+        raise SourceAuthError(f"Google rejected the credentials. {message}".strip())
 
     if response.status_code == 403:
         if reason == "accessNotConfigured":
@@ -280,6 +280,13 @@ def _check_response(response: httpx.Response) -> None:
     if response.status_code == 404:
         raise SourceError(f"Not found on Blogger. {message}".strip(), status_code=404)
 
+    if response.status_code == 400:
+        # Google's own text is specific here — a bad key says so, and so does a
+        # malformed parameter. Classifying further would guess at the difference.
+        raise SourceError(
+            f"Blogger rejected the request. {message}".strip(), status_code=400
+        )
+
     response.raise_for_status()
 
 
@@ -289,8 +296,12 @@ async def _get(
     url: str,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """GET a Blogger endpoint with the API key appended."""
-    response = await client.get(url, params={**(params or {}), "key": api_key})
+    """GET a Blogger endpoint, authenticating with the API key.
+
+    Header rather than the ``key=`` query param: httpx embeds the URL in every
+    error it raises, which would put the key into logs and error bodies.
+    """
+    response = await client.get(url, params=params, headers={"x-goog-api-key": api_key})
     _check_response(response)
     return response.json()
 
@@ -595,10 +606,17 @@ class BlogspotSource:
         whole_blogs, posts_by_blog = self._group_picks(selected_ids)
         blog_ids = sorted(whole_blogs | set(posts_by_blog))
 
+        polls = 0
+
         # One client for the life of the stream; closed when the consuming
         # task is cancelled and the generator unwinds.
         async with _make_client() as client:
             while True:
+                if polls and polls % FULL_SWEEP_EVERY_POLLS == 0:
+                    # Re-emit everything next walk so FAILED jobs re-queue.
+                    self._fingerprints.clear()
+                    self._watermarks.clear()
+
                 for blog_id in blog_ids:
                     try:
                         async for event in self._poll_blog(
@@ -612,6 +630,7 @@ class BlogspotSource:
                         logger.warning(
                             "Blogspot poll failed for blog %s: %s", blog_id, e
                         )
+                polls += 1
                 await asyncio.sleep(self.config.poll_interval_seconds)
 
     @staticmethod

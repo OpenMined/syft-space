@@ -173,20 +173,38 @@ class TestErrorMapping:
     def test_success_passes(self):
         bs._check_response(_response(200, {}))
 
-    def test_invalid_key_is_an_auth_error(self):
-        with pytest.raises(SourceAuthError) as exc:
-            bs._check_response(_google_error(400, "keyInvalid"))
-        assert "API key" in str(exc.value)
-
-    def test_real_bad_key_shape_is_an_auth_error(self):
-        # Observed live: Google answers a bad key with 400 / "badRequest",
-        # not the "keyInvalid" reason its error tables suggest.
+    def test_401_is_an_auth_error(self):
         with pytest.raises(SourceAuthError):
+            bs._check_response(_google_error(401, "authError"))
+
+    def test_bad_key_surfaces_googles_own_message(self):
+        # Observed live: a bad key is 400 / "badRequest", not "keyInvalid".
+        # Google's text is already actionable, so it is passed through.
+        with pytest.raises(SourceError) as exc:
             bs._check_response(
                 _google_error(
                     400, "badRequest", "API key not valid. Please pass a valid API key."
                 )
             )
+        assert "API key not valid" in str(exc.value)
+        assert exc.value.status_code == 400
+
+    def test_malformed_request_is_not_blamed_on_the_key(self):
+        # badRequest is Google's generic 400 reason — a bad pageToken lands
+        # here too and must not send the reader to the console.
+        with pytest.raises(SourceError) as exc:
+            bs._check_response(
+                _google_error(400, "badRequest", "Invalid value for pageToken.")
+            )
+        assert "API key" not in str(exc.value)
+        assert "pageToken" in str(exc.value)
+
+    def test_403_reason_is_not_hijacked_by_badRequest(self):
+        # The reason check used to run before the 403 branch, so a 403 could
+        # be misreported as bad credentials.
+        with pytest.raises(SourceForbiddenError) as exc:
+            bs._check_response(_google_error(403, "badRequest", "blog is private"))
+        assert "private" in str(exc.value)
 
     def test_403_api_disabled_names_the_fix(self):
         with pytest.raises(SourceForbiddenError) as exc:
@@ -239,8 +257,6 @@ class TestBrowser:
 
         assert {i.external_id for i in page.items} == {"blog:1", "blog:2"}
         assert all(i.is_container and i.is_leaf for i in page.items)  # whole-blog pick
-        # One key serves every blog.
-        assert {p["key"] for p in seen} == {API_KEY}
         assert page.next_cursor is None
 
     async def test_blog_lists_posts_with_a_cursor(self, monkeypatch):
@@ -358,13 +374,16 @@ class TestBrowser:
             )
         assert str(exc.value).count("not enabled") == 1
 
-    async def test_bad_key_surfaces_as_auth_error(self, monkeypatch):
+    async def test_bad_key_surfaces_googles_message(self, monkeypatch):
         def handler(request):
-            return _google_error(400, "keyInvalid")
+            return _google_error(
+                400, "badRequest", "API key not valid. Please pass a valid API key."
+            )
 
         monkeypatch.setattr(bs, "_make_client", lambda: _mock_client(handler))
-        with pytest.raises(SourceAuthError):
+        with pytest.raises(SourceError) as exc:
             await BlogspotProvider.validate_browse_config(CONF)
+        assert "API key not valid" in str(exc.value)
 
     async def test_malformed_config_is_rejected_before_any_call(self):
         with pytest.raises(ValueError):
@@ -533,6 +552,124 @@ class TestPollBlog:
             return _response(200, {"items": [{"id": "10"}]})
 
         assert await self._drain(self._source(), handler) == []
+
+
+# ── Credential handling ──────────────────────────────────────────────────
+
+
+class TestApiKeyIsNotInUrls:
+    """httpx embeds request URLs in error messages, which reach logs."""
+
+    async def test_key_is_sent_as_a_header(self, monkeypatch):
+        seen: dict = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            seen["header"] = request.headers.get("x-goog-api-key")
+            seen["url"] = str(request.url)
+            return _response(200, _blog("1"))
+
+        monkeypatch.setattr(bs, "_make_client", lambda: _mock_client(handler))
+        await BlogspotBrowser(BlogspotBrowseConfig.model_validate(CONF)).list_items(
+            None
+        )
+
+        assert seen["header"] == API_KEY
+        assert "key" not in seen["params"]
+        assert API_KEY not in seen["url"]
+
+    async def test_key_does_not_leak_into_error_messages(self):
+        # Unmapped statuses defer to raise_for_status, which embeds the URL.
+        def handler(request):
+            return _response(500, {"error": {"message": "backend error"}})
+
+        async with _mock_client(handler) as client:
+            with pytest.raises(httpx.HTTPStatusError) as exc:
+                await bs._get(client, API_KEY, "/blogs/byurl", {"url": BLOG_URL})
+        assert API_KEY not in str(exc.value)
+
+
+# ── Retry budget ─────────────────────────────────────────────────────────
+
+
+class _StopPolling(Exception):
+    """Ends the poll loop from inside the patched sleep."""
+
+
+class TestFullSweep:
+    """A FAILED job re-queues only on re-emit, so suppression must expire."""
+
+    async def _run_polls(self, monkeypatch, handler, polls: int) -> list[str]:
+        monkeypatch.setattr(bs, "_make_client", lambda: _mock_client(handler))
+
+        count = {"n": 0}
+
+        async def fake_sleep(_seconds):
+            count["n"] += 1
+            if count["n"] >= polls:
+                raise _StopPolling
+
+        monkeypatch.setattr(bs.asyncio, "sleep", fake_sleep)
+
+        source = BlogspotSource(BlogspotDatasetConfig.model_validate(CONF))
+        emitted: list[str] = []
+        with pytest.raises(_StopPolling):
+            async for event in source.change_stream(["blog:1"]):
+                emitted.append(event.external_id)
+        return emitted
+
+    async def test_unchanged_post_is_suppressed_between_sweeps(self, monkeypatch):
+        def handler(request):
+            return _response(200, {"items": [_post("10", "2024-03-01T00:00:00Z")]})
+
+        # Stop before the first sweep is due.
+        emitted = await self._run_polls(
+            monkeypatch, handler, bs.FULL_SWEEP_EVERY_POLLS - 1
+        )
+        assert emitted == ["1:10"]
+
+    async def test_sweep_re_emits_so_failed_jobs_can_retry(self, monkeypatch):
+        def handler(request):
+            return _response(200, {"items": [_post("10", "2024-03-01T00:00:00Z")]})
+
+        # Run one poll past the sweep boundary.
+        emitted = await self._run_polls(
+            monkeypatch, handler, bs.FULL_SWEEP_EVERY_POLLS + 1
+        )
+        assert emitted == ["1:10", "1:10"]
+
+    async def test_sweep_also_recovers_posts_older_than_the_watermark(
+        self, monkeypatch
+    ):
+        # A backdated post sorts below the early stop until the sweep.
+        state = {"rows": [_post("10", "2024-03-01T00:00:00Z")]}
+
+        def handler(request):
+            return _response(200, {"items": state["rows"]})
+
+        monkeypatch.setattr(bs, "_make_client", lambda: _mock_client(handler))
+        source = BlogspotSource(BlogspotDatasetConfig.model_validate(CONF))
+
+        async def walk() -> list[str]:
+            async with _mock_client(handler) as client:
+                return [
+                    e.external_id
+                    async for e in source._poll_blog(
+                        client, "1", whole_blog=True, picked_posts=set()
+                    )
+                ]
+
+        assert await walk() == ["1:10"]
+        # Appears with an older timestamp than the watermark.
+        state["rows"] = [
+            _post("10", "2024-03-01T00:00:00Z"),
+            _post("11", "2020-01-01T00:00:00Z"),
+        ]
+        assert await walk() == []  # early stop skips past it
+
+        source._fingerprints.clear()
+        source._watermarks.clear()  # what the sweep does
+        assert sorted(await walk()) == ["1:10", "1:11"]
 
 
 # ── Binding ──────────────────────────────────────────────────────────────
