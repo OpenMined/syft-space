@@ -158,6 +158,7 @@ def _make_client(cfg: WordPressBrowseConfig) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=f"{cfg.site_url}/wp-json/wp/v2",
         auth=(cfg.username, cfg.application_password),
+        follow_redirects=True,
         timeout=30.0,
         headers={
             "Accept": "application/json",
@@ -185,6 +186,8 @@ async def _fetch_post_types(client: httpx.AsyncClient) -> dict[str, dict[str, st
     Raises:
         SourceAuthError: credentials rejected (401).
         SourceForbiddenError: permission or WAF/User-Agent block (403).
+        ValueError: no REST API at this URL (404) — usually not a WordPress
+            site at all, or the REST API is disabled.
     """
     r = await client.get("/types", params={"context": "edit"})
     if r.status_code == 401:
@@ -195,6 +198,16 @@ async def _fetch_post_types(client: httpx.AsyncClient) -> dict[str, dict[str, st
         raise SourceForbiddenError(
             "Listing post types returned 403 — the user may lack edit rights, "
             "or the site blocks this User-Agent (override userAgent)"
+        )
+    if r.status_code == 404:
+        # A 404 here means /wp-json/wp/v2 isn't serving the REST API. Reporting
+        # the raw status would leave someone checking their password when the
+        # real answer is that the URL isn't a WordPress site.
+        logger.error("No WordPress REST API found at %s", client.base_url)
+        site = str(client.base_url).removesuffix("/wp-json/wp/v2")
+        raise ValueError(
+            f"No WordPress REST API found at {site} — check the site URL, and "
+            "that the REST API has not been disabled."
         )
     r.raise_for_status()
     types: dict[str, dict[str, str]] = {}
