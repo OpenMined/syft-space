@@ -34,5 +34,11 @@ def register_builtin_types(registry: "DatasetTypeRegistry") -> None:
         "WordPressChromaDBDatasetType",
     )
 
+    registry.register_lazy_dataset_type(
+        "blogspot",
+        "syft_space.components.dataset_types.blogspot_chromadb",
+        "BlogspotChromaDBDatasetType",
+    )
+
 
 __all__ = ["register_builtin_types"]

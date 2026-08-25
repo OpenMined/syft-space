@@ -100,6 +100,11 @@ def register_builtin_sources() -> None:
         "WordPressProvider",
     )
     SOURCE_REGISTRY.register(
+        "blogspot",
+        "syft_space.components.sources.blogspot.blogspot_source",
+        "BlogspotProvider",
+    )
+    SOURCE_REGISTRY.register(
         "noop",
         "syft_space.components.sources.noop_source",
         "NoOpProvider",

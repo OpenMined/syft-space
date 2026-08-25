@@ -171,7 +171,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue'
-import { FileText, HardDrive, Newspaper, ShieldAlert, X } from 'lucide-vue-next'
+import { FileText, HardDrive, Newspaper, PenLine, ShieldAlert, X } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -219,6 +219,20 @@ const PRESENTATIONS: Record<string, SourcePresentation> = {
       'Click a post type to expand. Use checkboxes to select individual items or whole groups.',
     containerMode: 'group',
   },
+  blogspot: {
+    headerTitle: 'Select blogs & posts',
+    panelIcon: PenLine,
+    panelLabel: 'Blogger blogs',
+    loadingText: 'Connecting…',
+    emptyText: 'No blogs resolved from those URLs.',
+    selectionTitle: 'Selected Blogs & Posts',
+    selectionEmptyTitle: 'No items selected',
+    selectionEmptyHint:
+      'Tick a blog to follow all of its posts, or expand it and pick individual posts.',
+    footerHint:
+      'Ticking a blog follows the whole blog, including posts published later. Expand it to pick individual posts instead.',
+    containerMode: 'self',
+  },
 }
 
 const FALLBACK: SourcePresentation = {
@@ -263,6 +277,22 @@ const selected = computed({
 const presentation = computed(() => PRESENTATIONS[props.dtype] ?? FALLBACK)
 
 const panelLabel = computed(() => {
+  if (props.dtype === 'blogspot') {
+    const urls = props.configuration?.blogUrls as string | undefined
+    if (urls) {
+      const hosts = urls
+        .split(',')
+        .map((u) =>
+          u
+            .trim()
+            .replace(/^https?:\/\//, '')
+            .replace(/\/$/, ''),
+        )
+        .filter(Boolean)
+      if (hosts.length === 1) return hosts[0]
+      if (hosts.length > 1) return `${hosts[0]} +${hosts.length - 1} more`
+    }
+  }
   if (props.dtype === 'wordpress') {
     const url = props.configuration?.siteUrl as string | undefined
     if (url) return url.replace(/^https?:\/\//, '').replace(/\/$/, '')

@@ -230,6 +230,11 @@ const props = withDefaults(
 const sourceType = computed(() => props.sourceType)
 const credentials = computed(() => props.credentials)
 
+const blogspotCredentials = (): Record<string, unknown> => ({
+  blogUrls: credentials.value.blogUrls ?? '',
+  apiKey: credentials.value.apiKey ?? '',
+})
+
 const browserConfiguration = computed<Record<string, unknown>>(() => {
   if (sourceType.value === 'wordpress') {
     return {
@@ -237,6 +242,9 @@ const browserConfiguration = computed<Record<string, unknown>>(() => {
       username: credentials.value.username ?? '',
       applicationPassword: credentials.value.applicationPassword ?? '',
     }
+  }
+  if (sourceType.value === 'blogspot') {
+    return blogspotCredentials()
   }
   return {}
 })
@@ -283,6 +291,11 @@ const buildConfiguration = (): Record<string, unknown> => {
       username: credentials.value.username ?? '',
       applicationPassword: credentials.value.applicationPassword ?? '',
     }
+  }
+  if (sourceType.value === 'blogspot') {
+    // pollIntervalSeconds is left to its backend default — the picker form
+    // renders only required string fields.
+    return blogspotCredentials()
   }
   // local_file (default) — no source-specific config beyond defaults; the
   // selection travels in selected_items, not in the configuration.
