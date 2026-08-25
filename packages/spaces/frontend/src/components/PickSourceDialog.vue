@@ -9,9 +9,11 @@
         </DialogDescription>
       </DialogHeader>
 
-      <!-- Only the body scrolls, so a long field can never push Continue
-           out of reach. -->
-      <div class="space-y-6 mt-4 flex-1 overflow-y-auto min-h-0 px-1">
+      <!-- Only the body scrolls, so a long field can never push Continue out
+           of reach. Scrolling one axis clips the other, which would shear off
+           an input's 3px focus ring — the padding gives the ring room and the
+           matching negative margin keeps fields aligned with the header. -->
+      <div class="space-y-6 mt-4 flex-1 overflow-y-auto min-h-0 -mx-1 px-1">
         <div class="space-y-2">
           <Label for="source-type" class="text-sm font-medium">
             Source type <span class="text-red-500">*</span>
