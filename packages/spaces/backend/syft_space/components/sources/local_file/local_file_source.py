@@ -212,7 +212,11 @@ class LocalFileSource:
             path=path,
             filename=path.name,
             file_size=stat.st_size,
-            metadata={"source": LocalFileProvider.NAME, "absolute_path": str(path)},
+            metadata={
+                "source": LocalFileProvider.NAME,
+                "updated": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+                "absolute_path": str(path),
+            },
         )
 
     def fingerprint(self, external_id: str) -> str:

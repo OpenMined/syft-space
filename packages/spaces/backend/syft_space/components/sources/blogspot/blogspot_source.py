@@ -567,7 +567,7 @@ class BlogspotSource:
                     # fingerprint above still uses the raw `updated`.
                     "updated": parse_datetime(updated),
                     "published": parse_datetime(post.get("published")),
-                    "labels": post.get("labels"),
+                    "tags": post.get("labels"),
                     "author": (post.get("author") or {}).get("displayName"),
                 },
             )

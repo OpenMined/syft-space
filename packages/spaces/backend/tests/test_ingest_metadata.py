@@ -124,7 +124,92 @@ class TestSourcesEmitDatetimes:
 
         stored = _chroma_scalars(meta)
         assert stored["published_ts"] == 1517989560
-        assert stored["labels"] == "ml"
+        assert stored["tags"] == "ml"
+
+
+class TestCanonicalFields:
+    """Sources agree on names for the same concepts, so a future filter can
+    target one key across sources instead of `link` here and `url` there."""
+
+    async def test_wordpress_fills_the_canonical_set(self, monkeypatch):
+        import httpx
+
+        from syft_space.components.sources.wordpress import wordpress_source as wp
+
+        post = {
+            "id": 7,
+            "slug": "hello",
+            "link": "https://example.com/hello",
+            "date_gmt": "2024-01-10T09:00:00",
+            "modified_gmt": "2024-01-15T10:30:00",
+            "title": {"rendered": "Hello"},
+            "content": {"rendered": "<p>body</p>"},
+            "author": 227158,
+            "status": "publish",
+            "_embedded": {
+                "author": [{"name": "Nicholas Garofalo"}],
+                "wp:term": [
+                    [{"name": "Community"}, {"name": "Events"}],
+                    [{"name": "WCUS"}],
+                ],
+            },
+        }
+
+        def handler(request):
+            if request.url.path.endswith("/types"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "post": {
+                            "slug": "post",
+                            "name": "Posts",
+                            "rest_base": "posts",
+                            "viewable": True,
+                        }
+                    },
+                    request=request,
+                )
+            return httpx.Response(200, json=post, request=request)
+
+        monkeypatch.setattr(
+            wp,
+            "_make_client",
+            lambda _cfg: httpx.AsyncClient(
+                base_url="https://example.com/wp-json/wp/v2",
+                transport=httpx.MockTransport(handler),
+            ),
+        )
+        source = wp.WordPressSource(
+            wp.WordPressDatasetConfig.model_validate(
+                {
+                    "siteUrl": "https://example.com",
+                    "username": "u",
+                    "applicationPassword": "p",
+                }
+            )
+        )
+        async with source.fetch("post:7") as ingest_file:
+            meta = ingest_file.metadata
+
+        assert meta["url"] == "https://example.com/hello"
+        # A display name, not the numeric id the bare field carries.
+        assert meta["author"] == "Nicholas Garofalo"
+        assert meta["author_id"] == 227158
+        # Categories and tags flattened into one canonical list of names.
+        assert meta["tags"] == ["Community", "Events", "WCUS"]
+        assert isinstance(meta["published"], datetime)
+        assert isinstance(meta["updated"], datetime)
+
+        stored = _chroma_scalars(meta)
+        assert stored["published_ts"] == 1704877200
+        assert stored["tags"] == "Community,Events,WCUS"
+
+    async def test_missing_embed_degrades_quietly(self):
+        from syft_space.components.sources.wordpress import wordpress_source as wp
+
+        # A site that does not honour _embed must not break the ingest.
+        assert wp._embedded_author({"author": 1}) is None
+        assert wp._embedded_terms({"categories": [3]}) == []
 
 
 class TestStoredChunkMetadata:
