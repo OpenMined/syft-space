@@ -23,6 +23,14 @@ class IngestContext(Context):
 class IngestFile(BaseModel):
     """Framework-agnostic file wrapper for ingestion."""
 
+    external_id: str = Field(
+        ...,
+        description=(
+            "Source-unique id of the item. The document id stored in the "
+            "vector store derives from it, so re-ingesting replaces the "
+            "previous version instead of adding a second copy."
+        ),
+    )
     path: Path = Field(..., description="Local readable path")
     filename: str = Field(..., description="Display filename")
     file_size: int | None = Field(default=None, description="Size in bytes")

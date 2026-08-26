@@ -203,7 +203,7 @@ def test_remote_backend_produces_chunks(tmp_path):
     backend = RemoteDoclingBackend(fake)  # type: ignore[arg-type]
     source = tmp_path / "a.docx"
     source.write_bytes(b"fake")
-    file = IngestFile(path=source, filename="a.docx", file_size=4)
+    file = IngestFile(external_id="item-1", path=source, filename="a.docx", file_size=4)
 
     chunks = backend.convert_to_chunks(
         file, tmp_path / "images", "doc1", _heuristic_chunker
@@ -222,7 +222,7 @@ def test_remote_backend_pdf_timeout_scales_with_pages(tmp_path, monkeypatch):
     monkeypatch.setattr(docling_remote, "_get_pdf_page_count", lambda _: 5)
     source = tmp_path / "a.pdf"
     source.write_bytes(b"fake")
-    file = IngestFile(path=source, filename="a.pdf", file_size=4)
+    file = IngestFile(external_id="item-1", path=source, filename="a.pdf", file_size=4)
 
     backend.convert_to_chunks(file, tmp_path / "images", "doc1", _heuristic_chunker)
 
@@ -238,7 +238,7 @@ def test_remote_backend_empty_pdf_result_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(docling_remote, "_get_pdf_page_count", lambda _: 1)
     source = tmp_path / "a.pdf"
     source.write_bytes(b"fake")
-    file = IngestFile(path=source, filename="a.pdf", file_size=4)
+    file = IngestFile(external_id="item-1", path=source, filename="a.pdf", file_size=4)
 
     with pytest.raises(ConversionError, match="All pages failed"):
         backend.convert_to_chunks(file, tmp_path / "images", "doc1", _heuristic_chunker)
@@ -271,7 +271,9 @@ def test_facade_txt_shortcut_bypasses_backend(tmp_path, _reset_backend):
     DocumentChunker._backend = _Exploding()
     source = tmp_path / "notes.txt"
     source.write_text("plain text")
-    file = IngestFile(path=source, filename="notes.txt", file_size=10)
+    file = IngestFile(
+        external_id="item-1", path=source, filename="notes.txt", file_size=10
+    )
 
     chunks = DocumentChunker().parse_document(file, "col")
 
@@ -284,7 +286,7 @@ def test_facade_delegates_docling_formats_to_backend(tmp_path, _reset_backend):
     DocumentChunker._backend = backend
     source = tmp_path / "a.docx"
     source.write_bytes(b"fake")
-    file = IngestFile(path=source, filename="a.docx", file_size=4)
+    file = IngestFile(external_id="item-1", path=source, filename="a.docx", file_size=4)
 
     DocumentChunker().parse_document(file, "col")
 

@@ -267,7 +267,11 @@ class ChromaDBLocalVectorStore:
                 file,
                 self.collection_name,
             )
-            await self._store_chunks(collection, chunks, file.metadata)
+            await self._store_chunks(
+                collection,
+                chunks,
+                {**file.metadata, "external_id": file.external_id},
+            )
 
     async def _store_chunks(
         self, collection, chunks: list[dict], source_metadata: dict | None = None
@@ -312,6 +316,10 @@ class ChromaDBLocalVectorStore:
             }
             for i, chunk in enumerate(chunks)
         ]
+
+        # Drop any previous version first: doc_id is derived from the item's
+        # external_id, so without this an edited item would be indexed twice.
+        await collection.delete(where={"doc_id": doc_id})
 
         # Write in batches under ChromaDB's max add() size (see _ADD_BATCH_SIZE).
         documents = [chunk["text"] for chunk in chunks]

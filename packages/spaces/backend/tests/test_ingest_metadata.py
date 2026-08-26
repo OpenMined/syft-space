@@ -8,10 +8,12 @@ so every date and author was discarded at ingest.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 import pytest
 
+from syft_space.components.chunking.chunker import derive_doc_id
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store import (
     _chroma_scalars,
@@ -125,6 +127,49 @@ class TestSourcesEmitDatetimes:
         stored = _chroma_scalars(meta)
         assert stored["published_ts"] == 1517989560
         assert stored["tags"] == "ml"
+
+
+class TestDocumentIdentity:
+    """doc_id is derived, so re-ingesting replaces rather than duplicates."""
+
+    def test_same_item_yields_the_same_id(self):
+        assert derive_doc_id("1:10") == derive_doc_id("1:10")
+
+    def test_different_items_differ(self):
+        assert derive_doc_id("1:10") != derive_doc_id("1:11")
+
+    def test_shape_matches_what_the_image_route_accepts(self):
+        # handlers.serve_image validates ^[a-f0-9]{16}$.
+        assert re.fullmatch(r"[a-f0-9]{16}", derive_doc_id("1:10"))
+
+    async def test_external_id_is_stored_for_every_source(self, monkeypatch):
+        # A hash cannot be reversed, so the id itself has to be recorded to
+        # map a search hit back to the source item.
+        import httpx
+
+        from syft_space.components.sources.blogspot import blogspot_source as bs
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                json={"id": "10", "title": "T", "content": "<p>x</p>"},
+                request=request,
+            )
+
+        monkeypatch.setattr(
+            bs,
+            "_make_client",
+            lambda: httpx.AsyncClient(
+                base_url=bs.BLOGGER_API_ROOT, transport=httpx.MockTransport(handler)
+            ),
+        )
+        source = bs.BlogspotSource(
+            bs.BlogspotDatasetConfig.model_validate(
+                {"blogUrls": "https://example.blogspot.com", "apiKey": "k"}
+            )
+        )
+        async with source.fetch("1:10") as ingest_file:
+            assert ingest_file.external_id == "1:10"
 
 
 class TestCanonicalFields:

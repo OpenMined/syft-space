@@ -437,6 +437,7 @@ class WordPressSource:
         tmp_path.write_text(html, encoding="utf-8")
         try:
             yield IngestFile(
+                external_id=external_id,
                 path=tmp_path,
                 filename=f"{slug}.html",
                 file_size=tmp_path.stat().st_size,
