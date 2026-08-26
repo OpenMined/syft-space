@@ -32,6 +32,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.errors import (
     SourceAuthError,
@@ -431,7 +432,9 @@ class WordPressSource:
                     "slug": slug,
                     "title": title,
                     "link": post.get("link"),
-                    "modified_gmt": modified_gmt,
+                    # A datetime, not the raw string: the vector store turns
+                    # it into an ISO value plus a filterable epoch int.
+                    "modified_gmt": parse_datetime(modified_gmt),
                     "status": post.get("status"),
                     "categories": post.get("categories"),
                     "tags": post.get("tags"),
