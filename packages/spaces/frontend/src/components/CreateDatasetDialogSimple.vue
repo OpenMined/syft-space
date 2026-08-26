@@ -27,7 +27,7 @@
             :key="sourceType"
             ref="sourceBrowserRef"
             :dtype="sourceType"
-            :configuration="browserConfiguration"
+            :configuration="sourceConfiguration"
             v-model="formData.selectedFiles"
           />
 
@@ -230,16 +230,15 @@ const props = withDefaults(
 const sourceType = computed(() => props.sourceType)
 const credentials = computed(() => props.credentials)
 
-const browserConfiguration = computed<Record<string, unknown>>(() => {
-  if (sourceType.value === 'wordpress') {
-    return {
-      siteUrl: credentials.value.siteUrl ?? '',
-      username: credentials.value.username ?? '',
-      applicationPassword: credentials.value.applicationPassword ?? '',
-    }
-  }
-  return {}
-})
+// The picker emits exactly the fields of the source's browse schema, and a
+// binding's dataset schema always extends its source's browse schema, so one
+// object serves both the browse call and the create call. Ingest-time and
+// vector-store fields (pollIntervalSeconds, collectionName, httpPort) are
+// left to their backend defaults. Sources with no credentials (local_file)
+// yield an empty object, which is what their configuration should be.
+const sourceConfiguration = computed<Record<string, unknown>>(() => ({
+  ...credentials.value,
+}))
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
@@ -275,19 +274,6 @@ const isFormValid = computed(() => {
   }
   return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
 })
-
-const buildConfiguration = (): Record<string, unknown> => {
-  if (sourceType.value === 'wordpress') {
-    return {
-      siteUrl: credentials.value.siteUrl ?? '',
-      username: credentials.value.username ?? '',
-      applicationPassword: credentials.value.applicationPassword ?? '',
-    }
-  }
-  // local_file (default) — no source-specific config beyond defaults; the
-  // selection travels in selected_items, not in the configuration.
-  return {}
-}
 
 // The picker selection, sent as selected_items (stored server-side in the
 // dataset_selection table, never inside configuration).
@@ -359,7 +345,7 @@ const handleCreate = async () => {
         name: formData.value.name.trim(),
         summary: formData.value.summary.trim() || '',
         tags: formData.value.tags.join(','),
-        configuration: buildConfiguration(),
+        configuration: sourceConfiguration.value,
         selected_items: buildSelectedItems(),
       }
 

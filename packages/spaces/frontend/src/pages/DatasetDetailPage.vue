@@ -834,6 +834,8 @@ const selectionPanelTitle = computed(() => {
       return 'Watched Paths'
     case 'wordpress':
       return 'Watched posts'
+    case 'blogspot':
+      return 'Watched blogs & posts'
     default:
       return 'Selected items'
   }

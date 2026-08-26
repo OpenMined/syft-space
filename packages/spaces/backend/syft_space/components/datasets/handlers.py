@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+import httpx
 from fastapi import HTTPException
 from loguru import logger
 
@@ -1223,6 +1224,11 @@ class DatasetHandler:
             raise HTTPException(status_code=403, detail=str(e)) from e
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+        except httpx.HTTPError as e:
+            logger.error(f"Browse failed for '{dtype}' (parent={parent_id}): {e}")
+            raise HTTPException(
+                status_code=502, detail=f"Source request failed: {e}"
+            ) from e
 
         return SourceBrowseResponse(
             parent_id=parent_id, items=page.items, next_cursor=page.next_cursor

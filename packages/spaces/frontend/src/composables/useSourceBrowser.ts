@@ -97,7 +97,12 @@ export function useSourceBrowser(
           children: item.is_container ? [] : undefined,
           hasLoaded: false,
           status: (item.metadata?.status as string | undefined) ?? undefined,
-          link: (item.metadata?.link as string | undefined) ?? undefined,
+          // Sources name this differently — WordPress sends `link`,
+          // Blogger sends `url`.
+          link:
+            (item.metadata?.link as string | undefined) ??
+            (item.metadata?.url as string | undefined) ??
+            undefined,
         }
       })
 
