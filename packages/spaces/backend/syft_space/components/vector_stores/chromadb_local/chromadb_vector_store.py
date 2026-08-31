@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from datetime import datetime, timezone
 from functools import lru_cache
 from types import ModuleType
 from typing import Any
@@ -97,6 +98,31 @@ def _resolve_provisioner_cls() -> type[BaseVectorStoreProvisioner]:
     if app_settings.chromadb_provision:
         return LocalChromaDBProvisioner
     return ExternalChromaDBProvisioner
+
+
+def _chroma_scalars(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Coerce source metadata into the scalar types ChromaDB accepts.
+
+    ChromaDB stores only str/int/float/bool, so lists are joined and None is
+    dropped. A datetime becomes both an ISO string and a ``{key}_ts`` epoch
+    int — metadata filtering compares numbers, so the int is what makes a
+    date range queryable.
+    """
+    scalars: dict[str, Any] = {}
+    for key, value in metadata.items():
+        if value is None:
+            continue
+        if isinstance(value, datetime):
+            aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+            scalars[key] = aware.astimezone(timezone.utc).isoformat()
+            scalars[f"{key}_ts"] = int(aware.timestamp())
+        elif isinstance(value, str | int | float | bool):
+            scalars[key] = value
+        elif isinstance(value, list | tuple | set):
+            scalars[key] = ",".join(str(v) for v in value if v is not None)
+        else:
+            scalars[key] = str(value)
+    return scalars
 
 
 class ChromaDBLocalVectorStore:
@@ -241,13 +267,21 @@ class ChromaDBLocalVectorStore:
                 file,
                 self.collection_name,
             )
-            await self._store_chunks(collection, chunks)
+            await self._store_chunks(
+                collection,
+                chunks,
+                {**file.metadata, "external_id": file.external_id},
+            )
 
-    async def _store_chunks(self, collection, chunks: list[dict]) -> None:
+    async def _store_chunks(
+        self, collection, chunks: list[dict], source_metadata: dict | None = None
+    ) -> None:
         """Embed and store chunks with neighbor references in ChromaDB.
 
         Each chunk gets prev/next pointers so the search method can
-        fetch surrounding context in a single batch call.
+        fetch surrounding context in a single batch call, plus whatever the
+        source recorded about the item — publication date, author, link —
+        which search returns to the caller alongside the text.
         """
 
         # Early return if no chunks to store.
@@ -264,9 +298,11 @@ class ChromaDBLocalVectorStore:
             self._generate_embeddings, [chunk["embedding_text"] for chunk in chunks]
         )
 
-        # Build metadata for all chunks.
+        # Source metadata first: the structural keys below must win a clash.
+        extra = _chroma_scalars(source_metadata or {})
         metadatas = [
             {
+                **extra,
                 "doc_id": doc_id,
                 "chunk_index": i,
                 "prev_chunk_id": chunk_ids[i - 1] if i > 0 else "",
@@ -280,6 +316,10 @@ class ChromaDBLocalVectorStore:
             }
             for i, chunk in enumerate(chunks)
         ]
+
+        # Drop any previous version first: doc_id is derived from the item's
+        # external_id, so without this an edited item would be indexed twice.
+        await collection.delete(where={"doc_id": doc_id})
 
         # Write in batches under ChromaDB's max add() size (see _ADD_BATCH_SIZE).
         documents = [chunk["text"] for chunk in chunks]

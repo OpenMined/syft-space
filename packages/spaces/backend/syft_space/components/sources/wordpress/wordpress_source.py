@@ -32,6 +32,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.errors import (
     SourceAuthError,
@@ -241,6 +242,18 @@ async def _validate_connection(cfg: WordPressBrowseConfig) -> None:
             )
 
 
+def _embedded_author(post: dict[str, Any]) -> str | None:
+    """Display name from ``_embed=author``; the bare field is a numeric id."""
+    authors = (post.get("_embedded") or {}).get("author") or []
+    return authors[0].get("name") if authors else None
+
+
+def _embedded_terms(post: dict[str, Any]) -> list[str]:
+    """Category and tag names from ``_embed=wp:term``, which returns ids."""
+    groups = (post.get("_embedded") or {}).get("wp:term") or []
+    return [t["name"] for group in groups for t in group if t.get("name")]
+
+
 def _to_source_item(post_type: str, parent_id: str, item: dict[str, Any]) -> SourceItem:
     """Map a REST listing row to a leaf ``SourceItem`` for the picker."""
     rendered = (item.get("title") or {}).get("rendered")
@@ -397,9 +410,12 @@ class WordPressSource:
             r = await client.get(
                 f"/{rest_base}/{post_id}",
                 params={
+                    # _embed resolves the author and term names in this same
+                    # request; _links must be in _fields for it to apply.
+                    "_embed": "author,wp:term",
                     "_fields": (
-                        "id,slug,link,modified_gmt,title,content,excerpt,"
-                        "categories,tags,author,status"
+                        "id,slug,link,date_gmt,modified_gmt,title,content,"
+                        "excerpt,categories,tags,author,status,_links,_embedded"
                     ),
                 },
             )
@@ -421,21 +437,27 @@ class WordPressSource:
         tmp_path.write_text(html, encoding="utf-8")
         try:
             yield IngestFile(
+                external_id=external_id,
                 path=tmp_path,
                 filename=f"{slug}.html",
                 file_size=tmp_path.stat().st_size,
                 metadata={
                     "source": WordPressProvider.NAME,
+                    "title": title,
+                    "url": post.get("link"),
+                    "author": _embedded_author(post),
+                    # Datetimes, not raw strings: the vector store turns each
+                    # into an ISO value plus a filterable epoch int.
+                    "published": parse_datetime(post.get("date_gmt")),
+                    "updated": parse_datetime(modified_gmt),
+                    # Categories and tags are both topical labels; the
+                    # canonical field flattens them.
+                    "tags": _embedded_terms(post),
                     "post_type": post_type,
                     "post_id": post_id,
                     "slug": slug,
-                    "title": title,
-                    "link": post.get("link"),
-                    "modified_gmt": modified_gmt,
                     "status": post.get("status"),
-                    "categories": post.get("categories"),
-                    "tags": post.get("tags"),
-                    "author": post.get("author"),
+                    "author_id": post.get("author"),
                 },
             )
         finally:

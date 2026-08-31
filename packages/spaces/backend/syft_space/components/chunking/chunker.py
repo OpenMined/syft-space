@@ -11,6 +11,7 @@ funnel into the same extraction + chunking helpers here, so they
 produce identical chunks.
 """
 
+import hashlib
 import logging
 import shutil
 import threading
@@ -234,6 +235,17 @@ def _resolve_backend() -> DoclingBackend:
     return LocalDoclingBackend()
 
 
+def derive_doc_id(external_id: str) -> str:
+    """Stable document id for a source item.
+
+    Derived rather than random so re-ingesting an edited item overwrites its
+    chunks instead of adding a second copy, and so a tombstoned item's vectors
+    can still be found from its external_id alone. Sixteen lowercase hex
+    characters, which is the shape the image route already validates.
+    """
+    return hashlib.sha256(external_id.encode()).hexdigest()[:16]
+
+
 class DocumentChunker:
     """Shared docling conversion + HybridChunker pipeline for all dataset types.
 
@@ -327,7 +339,7 @@ class DocumentChunker:
                 file_size: size in bytes
         """
         ext = Path(file.filename).suffix.lower()
-        doc_id = uuid4().hex[:16]
+        doc_id = derive_doc_id(file.external_id)
 
         # Simple text files - no docling overhead needed
         if ext in [".json", ".txt"]:
@@ -347,6 +359,10 @@ class DocumentChunker:
             ]
 
         images_dir = self.get_page_images_dir(collection_name, doc_id)
+        # doc_id is stable across re-ingests, so last time's pictures would
+        # otherwise pile up beside the new ones under the same directory.
+        if images_dir.exists():
+            shutil.rmtree(images_dir, ignore_errors=True)
 
         def get_chunker():
             return self._get_chunker(tabular=ext in _TABULAR_EXTS)

@@ -53,6 +53,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.errors import (
     SourceAuthError,
@@ -552,6 +553,7 @@ class BlogspotSource:
         tmp_path.write_text(body, encoding="utf-8")
         try:
             yield IngestFile(
+                external_id=external_id,
                 path=tmp_path,
                 filename=filename,
                 file_size=tmp_path.stat().st_size,
@@ -561,9 +563,12 @@ class BlogspotSource:
                     "post_id": post_id,
                     "title": title,
                     "url": post.get("url"),
-                    "updated": updated,
-                    "published": post.get("published"),
-                    "labels": post.get("labels"),
+                    # Datetimes, not raw strings: the vector store turns each
+                    # into an ISO value plus a filterable epoch int. The
+                    # fingerprint above still uses the raw `updated`.
+                    "updated": parse_datetime(updated),
+                    "published": parse_datetime(post.get("published")),
+                    "tags": post.get("labels"),
                     "author": (post.get("author") or {}).get("displayName"),
                 },
             )

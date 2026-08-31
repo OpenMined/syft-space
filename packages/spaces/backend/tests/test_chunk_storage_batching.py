@@ -18,6 +18,13 @@ class _FakeCollection:
     def __init__(self):
         self.batch_sizes: list[int] = []
         self.all_ids: list[str] = []
+        self.deleted_where: list[dict] = []
+
+    async def delete(self, where):
+        # Must land before any add: the delete is what replaces the previous
+        # version rather than leaving it alongside the new one.
+        assert not self.all_ids
+        self.deleted_where.append(where)
 
     async def add(self, ids, documents, embeddings, metadatas):
         # Every batch must be self-consistent and within the cap.
@@ -60,6 +67,12 @@ async def test_large_input_is_split_into_capped_batches():
     # Every chunk written exactly once, ids unique and complete.
     assert len(coll.all_ids) == n
     assert coll.all_ids == [f"doc_{i}" for i in range(n)]
+
+
+async def test_previous_version_is_deleted_before_adding():
+    """Without this an edited item is indexed twice, old chunks and new."""
+    coll = await _store(3)
+    assert coll.deleted_where == [{"doc_id": "doc"}]
 
 
 async def test_small_input_is_one_batch():
