@@ -117,6 +117,40 @@ class MarketplaceRepository(AsyncBaseRepository[Marketplace]):
             result = await session.exec(statement)
             return list(result.all())
 
+    async def set_satellite(
+        self, id: UUID, tenant_id: UUID, satellite_id: str | None
+    ) -> Marketplace | None:
+        """Record the satellite this space is registered as on the marketplace.
+
+        Separate from ``update`` so the registration path cannot be reached
+        by the user-facing marketplace edit form, and vice versa.
+
+        Args:
+            id: Marketplace ID
+            tenant_id: Tenant ID
+            satellite_id: Satellite id returned by the marketplace
+
+        Returns:
+            Updated marketplace if found, None otherwise
+        """
+        async with self.db.get_session() as session:
+            statement = select(Marketplace).where(
+                Marketplace.id == id, Marketplace.tenant_id == tenant_id
+            )
+            result = await session.exec(statement)
+            marketplace = result.first()
+
+            if not marketplace:
+                return None
+
+            marketplace.satellite_id = satellite_id
+            marketplace.updated_at = datetime.now(timezone.utc)
+
+            session.add(marketplace)
+            await session.commit()
+            await session.refresh(marketplace)
+            return marketplace
+
     async def update(
         self,
         id: UUID,

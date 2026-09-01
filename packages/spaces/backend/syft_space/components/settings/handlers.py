@@ -6,8 +6,8 @@ from fastapi import HTTPException
 from loguru import logger
 from pydantic import HttpUrl
 
-from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
+from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.schemas import (
     DiagnosticsResponse,
@@ -16,7 +16,7 @@ from syft_space.components.settings.schemas import (
     PublicUrlResponse,
 )
 from syft_space.components.shared.proxy_service import ProxyService
-from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
+from syft_space.components.shared.syfthub_client import SyftHubError
 from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
 
@@ -39,6 +39,7 @@ class SettingsHandler:
         """
         self.settings_repository = settings_repository
         self.marketplace_repository = marketplace_repository
+        self.satellites = SatelliteRegistrar(marketplace_repository)
         self.proxy_service = proxy_service
 
     async def get_public_url(self) -> PublicUrlResponse:
@@ -73,7 +74,8 @@ class SettingsHandler:
     ) -> PublicUrlResponse:
         """Update the public URL.
 
-        Updates the database (source of truth) and syncs to SyftHub marketplace.
+        Updates the database (source of truth), then points this space's
+        satellite at the new origin on the default marketplace.
 
         Args:
             tenant: Tenant context
@@ -83,7 +85,7 @@ class SettingsHandler:
             Updated public URL response
 
         Raises:
-            HTTPException: If sync to marketplace fails
+            HTTPException: If registering the new origin fails
         """
         # Convert to string for storage
         url_str = str(new_url) if new_url else None
@@ -98,32 +100,42 @@ class SettingsHandler:
         marketplace = await self.marketplace_repository.get_default(tenant.id)
 
         if marketplace is not None:
-            # Sync to marketplace
-            await self.sync_public_url_to_marketplace(marketplace, url_str)
+            await self.satellites.ensure(marketplace, url_str, tenant.id)
 
         # Return response
         return PublicUrlResponse(public_url=url_str)
 
-    async def sync_public_url_to_marketplace(
-        self, marketplace: Marketplace, url: str | None
-    ) -> None:
-        """Sync public URL to marketplace (helper method).
+    async def ensure_satellites(self, tenant: Tenant) -> None:
+        """Register this space with every active marketplace, at boot.
 
-        Args:
-            marketplace: Marketplace to sync to
-            url: Public URL to sync
+        The seed-once rule means ``initialize_from_config`` only registers on
+        a space's first boot, and a managed space never touches the proxy
+        path — so without this an upgraded space would hold no satellite id
+        until someone edited the public URL. Idempotent: with an id already
+        stored this is one no-op move per marketplace.
+
+        Per-marketplace failures are logged, not raised — this runs
+        fire-and-forget at startup and one unreachable hub must not stop the
+        others.
         """
+        settings = await self.settings_repository.get_settings()
+        if not settings.public_url:
+            logger.debug("No public URL set, skipping satellite registration")
+            return
 
-        try:
-            logger.info(f"Syncing public URL {url} to marketplace {marketplace.url}")
-            async with SyftHubClient(str(marketplace.url)) as syfthub:
-                await syfthub.login(marketplace.email, marketplace.password)
-                await syfthub.update_profile(domain=url)
-        except SyftHubError as e:
-            raise HTTPException(
-                status_code=e.status_code,
-                detail=f"Failed to sync public URL to marketplace: {e.message}",
-            ) from e
+        for marketplace in await self.marketplace_repository.get_active(tenant.id):
+            try:
+                satellite_id = await self.satellites.ensure(
+                    marketplace, settings.public_url, tenant.id
+                )
+                logger.info(
+                    f"Satellite {satellite_id} registered for {marketplace.name} "
+                    f"at {settings.public_url}"
+                )
+            except HTTPException as e:
+                logger.warning(
+                    f"Could not register satellite with {marketplace.name}: {e.detail}"
+                )
 
     async def initialize_from_config(self, tenants: list[Tenant]) -> None:
         """Seed the public URL from SYFT_PUBLIC_URL on first boot.
@@ -235,7 +247,7 @@ class SettingsHandler:
             logger.exception(f"Failed to connect to ngrok: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-        await self.sync_public_url_to_marketplace(marketplace, public_url)
+        await self.satellites.ensure(marketplace, public_url, tenant.id)
         self.proxy_service.log_connection_info()
 
         return ProxyStatusResponse(
@@ -244,6 +256,13 @@ class SettingsHandler:
 
     async def disconnect_proxy(self, tenant: Tenant) -> ProxyStatusResponse:
         """Disconnect the ngrok proxy tunnel and clear configuration.
+
+        Nothing is retracted on the marketplace. Deleting the satellite would
+        take its endpoints with it — along with their stars, uptime history
+        and collective memberships, none of which a resync restores — and
+        clearing the legacy profile domain is accepted and ignored. Endpoints
+        deactivate on their own once health reports stop arriving, which also
+        covers the unclean shutdowns this path cannot run for.
 
         Returns:
             Proxy status response indicating disconnected state
@@ -257,10 +276,6 @@ class SettingsHandler:
                 detail="Ngrok proxy service not configured",
             )
 
-        marketplace = await self.marketplace_repository.get_default(tenant.id)
-
         await self.proxy_service.disconnect()
-        if marketplace is not None:
-            await self.sync_public_url_to_marketplace(marketplace, None)
 
         return ProxyStatusResponse(connected=False, public_url=None, has_token=False)

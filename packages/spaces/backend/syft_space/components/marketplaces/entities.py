@@ -31,6 +31,12 @@ class Marketplace(SQLModel, table=True):
     )
     email: str = Field(default="", description="Login email for marketplace")
     password: str = Field(default="", description="Login password for marketplace")
+    satellite_id: str | None = Field(
+        default=None,
+        description="Id of this space's satellite on the marketplace — the "
+        "registry row that scopes endpoint sync, health and token audience "
+        "to this space rather than the whole account",
+    )
     is_default: bool = Field(
         default=False, description="Is this the default marketplace (e.g., SyftHub)"
     )
