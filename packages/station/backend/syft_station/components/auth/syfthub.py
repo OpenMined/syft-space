@@ -32,6 +32,10 @@ class SyftHubBuyerTokenError(Exception):
     """The buyer's satellite token is invalid, expired, or a guest token."""
 
 
+class SyftHubSatelliteError(Exception):
+    """SyftHub refused to register the station's origin as a satellite."""
+
+
 class SyftHubGoogleNotLinkedError(Exception):
     """The Google email maps to a SyftHub account not linked to Google.
 
@@ -47,6 +51,13 @@ class SyftHubProfile(BaseModel):
     username: str
     email: NormalizedEmail
     full_name: str
+
+
+class Satellite(BaseModel):
+    """A satellite row from ``/api/v1/satellites``."""
+
+    id: str
+    base_url: str
 
 
 class VerifiedBuyer(BaseModel):
@@ -206,17 +217,23 @@ class SyftHubIdentityClient:
         async with self._build_http_client() as client:
             return await self._fetch_profile(client, pat)
 
-    async def verify_buyer_token(self, pat: str, token: str) -> VerifiedBuyer:
+    async def verify_buyer_token(
+        self, pat: str, token: str, satellite_id: str | None = None
+    ) -> VerifiedBuyer:
         """Verify a buyer's satellite token server-side; return billing claims.
 
-        The hub derives the authorized audience from the PAT owner, so this
-        can only verify tokens minted for the station's own wallet owner.
+        The hub derives the authorized audience from the PAT owner. Naming
+        the station's own satellite narrows that to this station, so a token
+        minted for the owner's space cannot be replayed here.
         """
+        payload: dict[str, Any] = {"token": token}
+        if satellite_id:
+            payload["satellite_id"] = satellite_id
         async with self._build_http_client() as client:
             try:
                 response = await client.post(
                     "/api/v1/verify",
-                    json={"token": token},
+                    json=payload,
                     headers={"Authorization": f"Bearer {pat}"},
                 )
             except httpx.HTTPError as e:
@@ -240,3 +257,63 @@ class SyftHubIdentityClient:
             if not email:
                 raise SyftHubBuyerTokenError("Token missing email claim")
             return VerifiedBuyer(email=str(email), exp=result.get("exp"))
+
+    async def register_satellite(
+        self, pat: str, base_url: str, kind: str = "station"
+    ) -> Satellite:
+        """Claim this origin as a satellite of the PAT owner's account.
+
+        Idempotent on the origin, so it is safe to call repeatedly. The
+        publish and mint gates ask whether the wallet owner's account holds
+        a satellite at the exact credits origin; nothing heartbeats the
+        station, so this is the only way one appears.
+        """
+        async with self._build_http_client() as client:
+            try:
+                response = await client.post(
+                    "/api/v1/satellites",
+                    json={"kind": kind, "base_url": base_url},
+                    headers={"Authorization": f"Bearer {pat}"},
+                )
+            except httpx.HTTPError as e:
+                raise SyftHubUnavailableError(f"SyftHub is unreachable: {e}") from e
+
+        if response.status_code in (401, 403):
+            raise SyftHubAuthError("SyftHub rejected the station's API token")
+        if response.status_code == 409:
+            raise SyftHubSatelliteError(
+                f"SyftHub already holds {base_url} under a different kind"
+            )
+        if response.status_code not in (200, 201):
+            raise SyftHubSatelliteError(
+                f"SyftHub refused the satellite ({response.status_code})"
+            )
+        return Satellite.model_validate(response.json())
+
+    async def move_satellite(
+        self, pat: str, satellite_id: str, base_url: str
+    ) -> Satellite | None:
+        """Point the station's satellite at its current origin.
+
+        None when the hub no longer knows the id — the caller registers
+        afresh. Moving to the origin it already has is a no-op 200.
+        """
+        async with self._build_http_client() as client:
+            try:
+                response = await client.put(
+                    f"/api/v1/satellites/{satellite_id}",
+                    json={"base_url": base_url},
+                    headers={"Authorization": f"Bearer {pat}"},
+                )
+            except httpx.HTTPError as e:
+                raise SyftHubUnavailableError(f"SyftHub is unreachable: {e}") from e
+
+        if response.status_code == 404:
+            return None
+        if response.status_code in (401, 403):
+            raise SyftHubAuthError("SyftHub rejected the station's API token")
+        if response.status_code != 200:
+            raise SyftHubSatelliteError(
+                f"SyftHub refused the move ({response.status_code})"
+            )
+        return Satellite.model_validate(response.json())

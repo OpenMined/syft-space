@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { KeyRound } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { ApiError } from '@/api/client'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -14,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import WalletSummaryCard from '@/components/WalletSummaryCard.vue'
 import type { WalletProvider } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
@@ -80,48 +76,6 @@ const webhookUrl = computed(
   () => `${window.location.origin}/api/v1/credits/webhooks/${provider.value}`,
 )
 
-// SyftHub connection — two ways to provide the wallet's API token:
-//   generate: the admin's password mints one up front (shown truncated);
-//   paste: an existing syft_pat_… token, validated server-side on save.
-// Either way the full token is submitted from memory as syfthub_api_token;
-// nothing token-related persists client-side.
-const hubMode = ref('generate')
-const hubToken = ref('')
-const hubTokenOwner = ref('')
-const pastedToken = ref('')
-const hubPassword = ref('')
-const hubPromptOpen = ref(false)
-const minting = ref(false)
-
-/** Truncated for display — the user never needs the full token. */
-const hubTokenPreview = computed(() =>
-  hubToken.value ? `${hubToken.value.slice(0, 12)}…${hubToken.value.slice(-4)}` : '',
-)
-
-/** What the save submits: the pasted token or the minted one, per mode. */
-const tokenToSubmit = computed(() =>
-  hubMode.value === 'paste' ? pastedToken.value.trim() : hubToken.value,
-)
-
-async function generateHubToken() {
-  if (!hubPassword.value) {
-    toast.error('Enter your SyftHub password')
-    return
-  }
-  minting.value = true
-  try {
-    const result = await station.mintHubToken(hubPassword.value)
-    hubToken.value = result.token
-    hubTokenOwner.value = result.email
-    hubPassword.value = ''
-    hubPromptOpen.value = false
-  } catch (error) {
-    toast.error(error instanceof ApiError ? error.message : 'Could not create the API token')
-  } finally {
-    minting.value = false
-  }
-}
-
 async function save(): Promise<{ spacesAttached: number; spacesFailed: number } | null> {
   if (apiKey.value.trim().length < 8) {
     toast.error('A valid secret API key is required')
@@ -135,12 +89,6 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
     )
     return null
   }
-  // A new wallet must connect SyftHub; a replace may skip the token to
-  // keep the identity it already has.
-  if (!station.wallet && !tokenToSubmit.value) {
-    toast.error('Provide a SyftHub API token — generate one or paste an existing token')
-    return null
-  }
   // Credential keys are provider-specific; each gateway validates its own.
   const credentials: Record<string, string> =
     provider.value === 'stripe'
@@ -152,7 +100,6 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
       provider: provider.value,
       currency: currency.value,
       credentials,
-      syfthubApiToken: tokenToSubmit.value || undefined,
     })
   } catch (error) {
     toast.error(error instanceof ApiError ? error.message : 'Could not save the wallet')
@@ -250,81 +197,6 @@ defineExpose({ save, saving })
         <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
         and copy its verification token here.
       </p>
-    </div>
-
-    <div class="space-y-1.5">
-      <div class="flex items-center gap-2">
-        <Label>SyftHub API token</Label>
-        <Badge v-if="station.wallet?.hubConnected && !tokenToSubmit" variant="secondary">
-          Connected
-        </Badge>
-      </div>
-
-      <Tabs v-model="hubMode">
-        <TabsList class="grid w-full grid-cols-2">
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-          <TabsTrigger value="paste">Paste existing</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="generate" class="space-y-1.5">
-          <!-- Minted: display-only confirmation; the wallet save consumes it. -->
-          <div
-            v-if="hubToken"
-            class="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2"
-          >
-            <KeyRound class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <code class="font-mono text-xs">{{ hubTokenPreview }}</code>
-            <span class="min-w-0 truncate text-xs text-muted-foreground">
-              · {{ hubTokenOwner }}</span
-            >
-          </div>
-
-          <!-- Asking for the password to mint with. -->
-          <div v-else-if="hubPromptOpen" class="flex gap-2">
-            <Input
-              v-model="hubPassword"
-              type="password"
-              autocomplete="off"
-              placeholder="Your SyftHub password"
-              @keydown.enter.prevent="generateHubToken"
-            />
-            <Button :disabled="minting" @click="generateHubToken">Generate</Button>
-          </div>
-
-          <Button v-else variant="outline" size="sm" @click="hubPromptOpen = true">
-            <KeyRound class="mr-1.5 h-3.5 w-3.5" />
-            {{ station.wallet?.hubConnected ? 'Rotate API token' : 'Create API token' }}
-          </Button>
-
-          <p class="text-xs text-muted-foreground">
-            <template v-if="hubToken">
-              Created on SyftHub for <span class="font-medium">{{ hubTokenOwner }}</span> — saved
-              with the wallet to verify buyers' sign-ins. Revoke it on SyftHub at any time.
-            </template>
-            <template v-else>
-              Your SyftHub password mints the token and is discarded — the wallet uses the token to
-              verify buyers' SyftHub sign-ins.
-              <template v-if="station.wallet?.hubConnected">
-                Leave as-is to keep the current connection.
-              </template>
-            </template>
-          </p>
-        </TabsContent>
-
-        <TabsContent value="paste" class="space-y-1.5">
-          <Input
-            v-model="pastedToken"
-            autocomplete="off"
-            spellcheck="false"
-            class="font-mono"
-            placeholder="syft_pat_…"
-          />
-          <p class="text-xs text-muted-foreground">
-            Paste an API token you created on SyftHub — it's validated and stored when you save the
-            wallet, and the same token can be reused across wallets.
-          </p>
-        </TabsContent>
-      </Tabs>
     </div>
   </div>
 </template>

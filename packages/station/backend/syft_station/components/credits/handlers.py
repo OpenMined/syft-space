@@ -26,7 +26,6 @@ from syft_station.components.auth.syfthub import (
     SyftHubAuthError,
     SyftHubBuyerTokenError,
     SyftHubIdentityClient,
-    SyftHubProfile,
     SyftHubUnavailableError,
 )
 from syft_station.components.credits.bundles import bundle_amount
@@ -61,7 +60,6 @@ from syft_station.components.credits.schemas import (
     EarningsResponse,
     EarningsTotals,
     EndpointEarnings,
-    HubTokenMintResponse,
     MemberEarningsResponse,
     MemberSpaceEarnings,
     OutstandingBalance,
@@ -78,6 +76,7 @@ from syft_station.components.credits.schemas import (
     WalletStatusResponse,
 )
 from syft_station.components.credits.tokens import hash_credit_token
+from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.shared.database import AsyncDatabase
 
 
@@ -256,7 +255,6 @@ def _wallet_status(wallet: Wallet | None) -> WalletStatusResponse:
         configured=True,
         provider=wallet.provider,
         currency=wallet.currency,
-        wallet_owner=wallet.hub_user_id,
     )
 
 
@@ -268,78 +266,13 @@ class WalletAdminHandler:
         wallets: WalletRepository,
         gateways: dict[str, PaymentGateway],
         rollout: WalletRollout,
-        hub: SyftHubIdentityClient,
     ):
         self.wallets = wallets
         self.gateways = gateways
         self.rollout = rollout
-        self.hub = hub
 
     async def get(self) -> WalletStatusResponse:
         return _wallet_status(await self.wallets.get_active())
-
-    async def _mint(
-        self, admin_email: str, password: str
-    ) -> tuple[str, SyftHubProfile]:
-        """Mint a PAT on the hub and resolve who it belongs to.
-
-        The password never outlives this call. A newly minted PAT replaces
-        the stored one; the previous PAT stays valid hub-side until the
-        admin revokes it from the hub's token list.
-        """
-        try:
-            pat = await self.hub.mint_pat(admin_email, password)
-            profile = await self.hub.whoami(pat)
-        except SyftHubAuthError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-            ) from e
-        except SyftHubUnavailableError as e:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
-            ) from e
-        return pat, profile
-
-    async def _mint_hub_identity(
-        self, admin_email: str, password: str
-    ) -> tuple[str, int]:
-        """One-shot: mint the wallet's PAT and resolve its owner's user id."""
-        pat, profile = await self._mint(admin_email, password)
-        return pat, profile.id
-
-    async def mint_hub_token(
-        self, admin_email: str, password: str
-    ) -> HubTokenMintResponse:
-        """Mint a hub token ahead of wallet setup (the UI's generate button).
-
-        Nothing is stored here — the token travels to the client, which
-        submits it back as ``syfthub_api_token`` on wallet save, where the
-        adopt path validates and persists it.
-        """
-        pat, profile = await self._mint(admin_email, password)
-        return HubTokenMintResponse(
-            token=pat, username=profile.username, email=profile.email
-        )
-
-    async def _adopt_hub_token(self, api_token: str) -> tuple[str, int]:
-        """Validate a pasted API token and resolve its owner's user id.
-
-        The paste path never sees a password — the admin created the token
-        on the hub themselves (where they're already signed in) and can
-        reuse it across wallets.
-        """
-        try:
-            profile = await self.hub.whoami(api_token)
-        except SyftHubAuthError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SyftHub rejected the API token",
-            ) from e
-        except SyftHubUnavailableError as e:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
-            ) from e
-        return api_token, profile.id
 
     async def setup(
         self, body: WalletSetupRequest, admin_email: str
@@ -350,11 +283,8 @@ class WalletAdminHandler:
         bound. The currency is immutable — every user balance is
         denominated in it.
 
-        The hub identity travels with the wallet, and first setup must carry
-        a hub credential (buyer verification needs a PAT): either a pasted
-        ``syfthub_api_token`` (adopted as-is; reusable across wallets) or a
-        ``syfthub_password`` (mints a fresh token on the fly). A replace
-        with neither keeps the stored identity.
+        Gateway credentials only: the SyftHub identity that verifies buyers
+        belongs to the station, not to any one wallet.
         """
         gateway = self.gateways.get(body.provider)
         if gateway is None:
@@ -366,29 +296,12 @@ class WalletAdminHandler:
         credentials = gateway.validate_credentials(body.credentials, body.currency)
 
         wallet = await self.wallets.get_active()
-        hub_pat = wallet.hub_pat if wallet else None
-        hub_user_id = wallet.hub_user_id if wallet else None
-        if body.syfthub_api_token:
-            hub_pat, hub_user_id = await self._adopt_hub_token(body.syfthub_api_token)
-        elif body.syfthub_password:
-            hub_pat, hub_user_id = await self._mint_hub_identity(
-                admin_email, body.syfthub_password
-            )
-        elif hub_pat is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="A SyftHub API token (or password to mint one) is "
-                "required — the wallet needs a hub identity to verify buyers",
-            )
-
         if wallet is None:
             wallet = await self.wallets.create(
                 Wallet(
                     provider=body.provider,
                     currency=body.currency,
                     credentials=credentials,
-                    hub_user_id=hub_user_id,
-                    hub_pat=hub_pat,
                 )
             )
         else:
@@ -400,8 +313,6 @@ class WalletAdminHandler:
                 )
             wallet.provider = body.provider
             wallet.credentials = credentials
-            wallet.hub_user_id = hub_user_id
-            wallet.hub_pat = hub_pat
             wallet.updated_at = datetime.now(UTC)
             wallet = await self.wallets.update(wallet)
 
@@ -456,11 +367,13 @@ class CheckoutHandler:
         wallets: WalletRepository,
         gateways: dict[str, PaymentGateway],
         hub: SyftHubIdentityClient,
+        station: SetupRepository,
     ):
         self.db = db
         self.wallets = wallets
         self.gateways = gateways
         self.hub = hub
+        self.station = station
         # token-hash → (email, absolute expiry). /verify is a network call on
         # the buyer read hot-path; satellite tokens are short-lived, so cache
         # verdicts until the token's own exp (capped at a short TTL).
@@ -484,14 +397,14 @@ class CheckoutHandler:
         """Resolve a satellite token to the buyer's billing email.
 
         Raises 401 for a bad buyer token; 502 when the hub is unreachable
-        or the wallet's own PAT is rejected — station-side problems the
-        buyer can't fix.
+        or the station's own PAT is rejected — problems the buyer can't fix.
         """
-        if not wallet.hub_pat:
+        config = await self.station.get_config()
+        if not config.hub_pat:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="The station wallet has no SyftHub identity — "
-                "ask the admin to reconnect it",
+                detail="This station has no SyftHub identity — "
+                "ask the admin to connect one",
             )
         key = sha256(token.encode()).hexdigest()
         now = time.time()
@@ -500,7 +413,11 @@ class CheckoutHandler:
             return cached[0]
 
         try:
-            buyer = await self.hub.verify_buyer_token(wallet.hub_pat, token)
+            # Naming our satellite narrows the accepted audience to this
+            # station, so a token minted for the owner's space is rejected.
+            buyer = await self.hub.verify_buyer_token(
+                config.hub_pat, token, config.satellite_id or None
+            )
         except SyftHubBuyerTokenError as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)
@@ -509,7 +426,7 @@ class CheckoutHandler:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="SyftHub rejected the station's API token — "
-                "reconnect the wallet",
+                "reconnect the station's SyftHub identity",
             ) from e
         except SyftHubUnavailableError as e:
             raise HTTPException(

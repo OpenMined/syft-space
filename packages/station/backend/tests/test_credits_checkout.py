@@ -39,10 +39,18 @@ from syft_station.components.credits.repository import (
 from syft_station.components.credits.routes import build_credits_routes
 from syft_station.components.credits.tokens import hash_credit_token
 from syft_station.components.requests.repository import RequestRepository
+from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.repository import SpaceRepository
-from tests.conftest import ADMIN, MEMBER, OTHER_MEMBER, StubHubIdentity, buyer_auth
+from tests.conftest import (
+    ADMIN,
+    MEMBER,
+    OTHER_MEMBER,
+    StubHubIdentity,
+    buyer_auth,
+    connect_station_identity,
+)
 
 XENDIT_URL = "https://xendit.test"
 CREDITS_URL = "http://station.test:8090"
@@ -52,7 +60,6 @@ SETUP_BODY = {
     "provider": "xendit",
     "currency": "PHP",
     "credentials": {"api_key": "xnd_test_key", "callback_token": "cb_secret"},
-    "syfthub_password": StubHubIdentity.HUB_PASSWORD,
 }
 
 
@@ -136,7 +143,9 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
     wallets = WalletRepository(db)
     tokens = SpaceCreditTokenRepository(db)
     patcher = RecordingPatcher()
-    credits_service = SpaceCreditsService(wallets, tokens, CREDITS_URL, PUBLIC_URL)
+    credits_service = SpaceCreditsService(
+        wallets, tokens, SetupRepository(db), CREDITS_URL, PUBLIC_URL
+    )
     rollout = WalletRollout(SpaceRepository(db), patcher, credits_service)
 
     gateway = XenditGateway(XENDIT_URL)
@@ -157,8 +166,8 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, gateways, rollout, hub),  # type: ignore[arg-type]
-            CheckoutHandler(db, wallets, gateways, hub),  # type: ignore[arg-type]
+            WalletAdminHandler(wallets, gateways, rollout),
+            CheckoutHandler(db, wallets, gateways, hub, SetupRepository(db)),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, gateways),
             EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),
         ),
@@ -168,6 +177,7 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
     app.dependency_overrides[get_current_user] = lambda: MEMBER
     app.dependency_overrides[require_admin] = lambda: ADMIN
 
+    await connect_station_identity(db, hub)
     bed = CheckoutTestbed(db, app, patcher, hub)
     return bed
 
@@ -204,141 +214,6 @@ async def test_setup_rejects_bad_input(testbed: CheckoutTestbed):
     assert unsupported.status_code == 422
     assert bad_currency.status_code == 422  # Xendit has no USD
     assert no_token.status_code == 422
-
-
-async def test_setup_mints_hub_identity(testbed: CheckoutTestbed):
-    """The admin's hub password is spent on a PAT + owner id, then discarded."""
-    created = await testbed.setup_wallet()
-    assert created["wallet_owner"] == testbed.hub.user_id
-    assert testbed.hub.minted == [ADMIN.email]
-
-    wallet = await testbed.wallets.get_active()
-    assert wallet.hub_user_id == testbed.hub.user_id
-    assert wallet.hub_pat == "syft_pat_stub_1"
-
-    # The PAT never leaves the backend.
-    async with testbed.client() as client:
-        fetched = await client.get("/api/v1/credits/admin/wallet")
-    assert "syft_pat" not in fetched.text
-    assert fetched.json()["wallet_owner"] == testbed.hub.user_id
-
-
-async def test_setup_adopts_pasted_token_over_password(testbed: CheckoutTestbed):
-    """A pasted API token is validated and stored as-is — no mint happens,
-    even when a password is also sent (the token wins)."""
-    async with testbed.client() as client:
-        response = await client.put(
-            "/api/v1/credits/admin/wallet",
-            json={**SETUP_BODY, "syfthub_api_token": "syft_pat_pasted"},
-        )
-    assert response.status_code == 200, response.text
-    assert response.json()["wallet_owner"] == testbed.hub.user_id
-
-    wallet = await testbed.wallets.get_active()
-    assert wallet.hub_pat == "syft_pat_pasted"
-    assert testbed.hub.minted == []  # password path never ran
-
-
-async def test_setup_bad_pasted_token_400_and_no_wallet(testbed: CheckoutTestbed):
-    body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
-    async with testbed.client() as client:
-        response = await client.put(
-            "/api/v1/credits/admin/wallet",
-            json={**body, "syfthub_api_token": "not-a-pat"},
-        )
-    assert response.status_code == 400
-    assert await testbed.wallets.get_active() is None
-
-
-async def test_setup_requires_hub_credential_on_first_create(
-    testbed: CheckoutTestbed,
-):
-    body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
-    async with testbed.client() as client:
-        response = await client.put("/api/v1/credits/admin/wallet", json=body)
-    assert response.status_code == 422
-    assert await testbed.wallets.get_active() is None
-
-
-async def test_mint_hub_token_returns_token_and_stores_nothing(
-    testbed: CheckoutTestbed,
-):
-    """The generate button's endpoint: mints on the hub, hands the token to
-    the client, and leaves no wallet state behind."""
-    async with testbed.client() as client:
-        response = await client.post(
-            "/api/v1/credits/admin/wallet/hub-token",
-            json={"password": StubHubIdentity.HUB_PASSWORD},
-        )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["token"] == "syft_pat_stub_1"
-    assert body["username"] == ADMIN.username
-    assert body["email"] == ADMIN.email
-    assert testbed.hub.minted == [ADMIN.email]
-    assert await testbed.wallets.get_active() is None  # mint alone saves nothing
-
-
-async def test_mint_hub_token_bad_password_400(testbed: CheckoutTestbed):
-    async with testbed.client() as client:
-        response = await client.post(
-            "/api/v1/credits/admin/wallet/hub-token", json={"password": "wrong"}
-        )
-    assert response.status_code == 400
-    assert testbed.hub.minted == []
-
-
-async def test_mint_then_setup_adopts_the_minted_token(testbed: CheckoutTestbed):
-    """The UI flow end to end: generate first, then wallet save submits the
-    minted token through the adopt path — no second mint."""
-    async with testbed.client() as client:
-        minted = await client.post(
-            "/api/v1/credits/admin/wallet/hub-token",
-            json={"password": StubHubIdentity.HUB_PASSWORD},
-        )
-        token = minted.json()["token"]
-        body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
-        created = await client.put(
-            "/api/v1/credits/admin/wallet",
-            json={**body, "syfthub_api_token": token},
-        )
-    assert created.status_code == 200, created.text
-    wallet = await testbed.wallets.get_active()
-    assert wallet.hub_pat == token
-    assert testbed.hub.minted == [ADMIN.email]  # exactly one mint: the button
-
-
-async def test_setup_bad_hub_password_400_and_no_wallet(testbed: CheckoutTestbed):
-    async with testbed.client() as client:
-        response = await client.put(
-            "/api/v1/credits/admin/wallet",
-            json={**SETUP_BODY, "syfthub_password": "wrong"},
-        )
-    assert response.status_code == 400
-    assert await testbed.wallets.get_active() is None
-
-
-async def test_replace_without_password_keeps_hub_identity(testbed: CheckoutTestbed):
-    await testbed.setup_wallet()
-
-    body = {k: v for k, v in SETUP_BODY.items() if k != "syfthub_password"}
-    async with testbed.client() as client:
-        replaced = await client.put("/api/v1/credits/admin/wallet", json=body)
-    assert replaced.status_code == 200
-
-    wallet = await testbed.wallets.get_active()
-    assert wallet.hub_pat == "syft_pat_stub_1"  # untouched
-    assert wallet.hub_user_id == testbed.hub.user_id
-    assert testbed.hub.minted == [ADMIN.email]  # no second mint
-
-
-async def test_replace_with_password_rotates_pat(testbed: CheckoutTestbed):
-    await testbed.setup_wallet()
-    await testbed.setup_wallet()  # password present → fresh PAT
-
-    wallet = await testbed.wallets.get_active()
-    assert wallet.hub_pat == "syft_pat_stub_2"
-    assert len(testbed.hub.minted) == 2
 
 
 async def test_replace_keeps_id_and_currency(testbed: CheckoutTestbed):
@@ -436,7 +311,6 @@ async def test_wallet_info_unconfigured_and_configured(testbed: CheckoutTestbed)
         "configured": False,
         "provider": None,
         "currency": None,
-        "wallet_owner": None,
     }
 
     await testbed.setup_wallet()
@@ -530,8 +404,10 @@ async def test_buyer_verification_is_cached(testbed: CheckoutTestbed):
     assert len(testbed.hub.verified) == 1
 
 
-async def test_wallet_without_hub_identity_502(testbed: CheckoutTestbed):
-    """A wallet with no PAT (pre-migration row) cannot verify buyers."""
+async def test_station_without_hub_identity_502(testbed: CheckoutTestbed):
+    """Buyer verification runs on the station's token; without one, nothing
+    can be verified however well-configured the wallet is."""
+    await SetupRepository(testbed.db).update_identity("", 0)
     wallet = await testbed.wallets.create(
         Wallet(provider="xendit", currency="PHP", credentials={"api_key": "x"})
     )

@@ -208,6 +208,14 @@ class AppSettings(BaseSettings):
             "host-run dev overrides it (e.g. http://host.k3d.internal:8090)."
         ),
     )
+    satellite_id: str = Field(
+        default="",
+        description=(
+            "This station's satellite on SyftHub. Seeds an empty database "
+            "only — once registered, the stored value wins — so a re-spun "
+            "station reclaims its registration instead of making a second."
+        ),
+    )
     public_url: str = Field(
         default="",
         description=(

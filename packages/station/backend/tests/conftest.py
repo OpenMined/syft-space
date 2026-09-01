@@ -10,6 +10,7 @@ from sqlmodel import SQLModel
 
 from syft_station.components.auth.session import ROLE_ADMIN, ROLE_MEMBER, SessionUser
 from syft_station.components.auth.syfthub import (
+    Satellite,
     SyftHubAuthError,
     SyftHubBuyerTokenError,
     SyftHubProfile,
@@ -89,10 +90,16 @@ class StubHubIdentity:
 
     HUB_PASSWORD = "hub-pw"
 
+    SATELLITE_ID = "5f2c9b10-0000-4000-8000-000000000001"
+
     def __init__(self, user_id: int = 42):
         self.user_id = user_id
+        self.satellite_id = self.SATELLITE_ID
         self.minted: list[str] = []
         self.verified: list[str] = []
+        self.verified_audiences: list[str | None] = []
+        self.registered: list[tuple[str, str]] = []
+        self.moved: list[tuple[str, str]] = []
 
     async def mint_pat(self, email: str, password: str) -> str:
         if password != self.HUB_PASSWORD:
@@ -110,11 +117,28 @@ class StubHubIdentity:
             full_name=ADMIN.name,
         )
 
-    async def verify_buyer_token(self, pat: str, token: str) -> VerifiedBuyer:
+    async def verify_buyer_token(
+        self, pat: str, token: str, satellite_id: str | None = None
+    ) -> VerifiedBuyer:
         self.verified.append(token)
+        self.verified_audiences.append(satellite_id)
         if token.startswith("sat:"):
             return VerifiedBuyer(email=token.removeprefix("sat:"), exp=None)
         raise SyftHubBuyerTokenError("Invalid satellite token")
+
+    async def register_satellite(
+        self, pat: str, base_url: str, kind: str = "station"
+    ) -> Satellite:
+        self.registered.append((base_url, kind))
+        return Satellite(id=self.satellite_id, base_url=base_url)
+
+    async def move_satellite(
+        self, pat: str, satellite_id: str, base_url: str
+    ) -> Satellite | None:
+        if satellite_id != self.satellite_id:
+            return None  # the hub does not know it
+        self.moved.append((satellite_id, base_url))
+        return Satellite(id=satellite_id, base_url=base_url)
 
 
 def buyer_auth(email: str) -> dict[str, str]:
@@ -128,3 +152,19 @@ MEMBER = SessionUser(
 OTHER_MEMBER = SessionUser(
     email="other@test.com", username="other", name="Other", role=ROLE_MEMBER
 )
+
+
+async def connect_station_identity(
+    db: AsyncDatabase, hub: StubHubIdentity, register: bool = True
+) -> str:
+    """Give the station a SyftHub identity, as the identity endpoint would.
+
+    Most credits tests need one to exist — buyer verification runs against
+    the station's token — without exercising how it got there.
+    """
+    repository = SetupRepository(db)
+    pat = await hub.mint_pat(ADMIN.email, hub.HUB_PASSWORD)
+    await repository.update_identity(pat, hub.user_id)
+    if register:
+        await repository.update_satellite_id(hub.satellite_id)
+    return pat

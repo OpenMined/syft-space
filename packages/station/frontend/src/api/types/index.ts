@@ -41,6 +41,22 @@ export interface UpdateSetupBody {
   supported_version?: string
 }
 
+/** The station's SyftHub identity — one per station, shared by every wallet. */
+export interface IdentityResponse {
+  connected: boolean
+  username: string
+  email: string
+  /** This station's satellite; empty until registration succeeds. */
+  satellite_id: string
+}
+
+export interface ConnectIdentityBody {
+  /** Existing token (syft_pat_…) to adopt; wins over the password. */
+  syfthub_api_token?: string
+  /** Admin's SyftHub password — mints a fresh token, then is discarded. */
+  syfthub_password?: string
+}
+
 export type RequestType = 'create_space' | 'delete_space'
 
 /** Generic review lifecycle. provisioning/failed apply only to create_space. */
@@ -162,8 +178,6 @@ export interface WalletStatusResponse {
   configured: boolean
   provider: string | null
   currency: string | null
-  /** SyftHub user id the wallet's spaces publish as their owner; null = no hub identity yet. */
-  wallet_owner: number | null
 }
 
 export interface WalletSetupBody {
@@ -171,28 +185,11 @@ export interface WalletSetupBody {
   currency: string
   /** { api_key, callback_token } for Xendit; { secret_key, webhook_secret } for Stripe. */
   credentials: Record<string, string>
-  /** Existing SyftHub API token (syft_pat_…) to adopt; wins over the password. */
-  syfthub_api_token?: string
-  /** SyftHub password — used once to mint a fresh API token, then discarded. */
-  syfthub_password?: string
 }
 
 export interface WalletSetupResponse extends WalletStatusResponse {
   spaces_attached: number
   spaces_failed: number
-}
-
-export interface HubTokenMintBody {
-  /** Admin's SyftHub password — forwarded to the hub once, never stored. */
-  password: string
-}
-
-/** A freshly minted SyftHub API token. Held in memory only and submitted
- *  back as syfthub_api_token on wallet save; shown truncated, never persisted. */
-export interface HubTokenMintResponse {
-  token: string
-  username: string
-  email: string
 }
 
 export interface TopUpResponse {
