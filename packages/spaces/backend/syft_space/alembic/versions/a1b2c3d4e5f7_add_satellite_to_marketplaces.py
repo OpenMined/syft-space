@@ -22,8 +22,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Add the satellite registration column to ``marketplaces``.
 
-    Nullable: an existing row has not registered yet, and NULL is what the
-    registrar reads as "no satellite known, get-or-create one".
+    Nullable: NULL reads as "not registered yet, get-or-create one".
     """
     with op.batch_alter_table("marketplaces") as batch_op:
         batch_op.add_column(

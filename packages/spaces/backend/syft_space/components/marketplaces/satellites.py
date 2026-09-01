@@ -1,25 +1,13 @@
-"""Satellite registration — the one place this space names itself to a hub.
+"""Satellite registration — where this space names itself to a marketplace.
 
 A satellite is the marketplace's registry row for one origin owned by one
-account. Its id scopes endpoint sync, publish and token audience to *this*
-space instead of everything the account runs, which is what makes more than
-one space per account possible.
+account; its id scopes endpoint sync, publish and token audience to this
+space rather than the whole account.
 
-Two facts shape the flow below:
-
-- ``POST /satellites`` is a get-or-create, idempotent on the origin *after*
-  canonicalisation — so the local URL goes over verbatim and lands on the
-  same satellite every time.
-- A *changed* origin is a move, never a fresh POST: POST with a new origin
-  creates a second satellite, so a rotating tunnel URL would otherwise
-  accumulate one per restart. A move to the origin the satellite already has
-  is a no-op that returns 200, so the move needs no change detection.
-
-Registration is a durable fact about where this account serves from, and it
-outlives any single process: nothing here deregisters on shutdown. Deleting
-a satellite would take its endpoints — and their stars, uptime history and
-collective memberships — with it, and a resync brings none of that back.
-Endpoints deactivate on their own once health reports stop.
+Registering an origin is a get-or-create. Changing origin is a move: a POST
+with a new origin would create a *second* satellite, so a rotating tunnel URL
+would accumulate one per restart. Nothing here deregisters — deleting a
+satellite also deletes its endpoints, and a resync does not bring them back.
 """
 
 from uuid import UUID
@@ -54,15 +42,8 @@ class SatelliteRegistrar:
     ) -> Satellite | None:
         """Register or move the satellite; return it for the caller to persist.
 
-        Returns None when there is no origin to register — during onboarding
-        the marketplace is connected before the public URL is set, so this is
-        the normal path there, not a failure.
-
-        Args:
-            client: Authenticated client for the marketplace
-            base_url: This space's current public URL
-            satellite_id: Satellite id already stored, if any
-            kind: "space" — this repo never registers a station
+        None when there is no origin yet: onboarding connects the marketplace
+        before the public URL is set, so that is a normal path, not a failure.
         """
         if not base_url:
             return None
@@ -73,11 +54,10 @@ class SatelliteRegistrar:
     async def ensure(
         self, marketplace: Marketplace, base_url: str | None, tenant_id: UUID
     ) -> str | None:
-        """Log in to the marketplace, sync the satellite, persist the result.
+        """Log in, sync the satellite, persist it; return the id to use.
 
-        Returns the satellite id to use for subsequent calls. Raises the
-        marketplace's error as HTTP so the settings routes surface it —
-        background callers catch it themselves.
+        Raises as HTTP so the settings routes surface it; background callers
+        catch it themselves.
         """
         if not marketplace.email or not marketplace.password:
             return marketplace.satellite_id
@@ -101,6 +81,37 @@ class SatelliteRegistrar:
         await self.persist(marketplace, tenant_id, satellite)
         return str(satellite.id)
 
+    async def resolve_id(
+        self,
+        client: SyftHubClient,
+        marketplace: Marketplace,
+        base_url: str | None,
+        tenant_id: UUID,
+    ) -> str | None:
+        """Return the satellite id to send, registering if there is none yet.
+
+        Not a move — a known id costs no hub call, which the heartbeat's 30s
+        cadence needs. None means no public URL, so the caller skips.
+        """
+        if marketplace.satellite_id:
+            return marketplace.satellite_id
+        if not base_url:
+            return None
+
+        satellite = await client.register_satellite(base_url)
+        await self.persist(marketplace, tenant_id, satellite)
+        return str(satellite.id)
+
+    async def forget_id(self, marketplace: Marketplace, tenant_id: UUID) -> None:
+        """Drop an id the marketplace no longer knows; the next resolve_id
+        registers afresh."""
+        logger.warning(
+            f"Marketplace {marketplace.name} does not know satellite "
+            f"{marketplace.satellite_id} — clearing it for re-registration"
+        )
+        await self.marketplace_repository.set_satellite(marketplace.id, tenant_id, None)
+        marketplace.satellite_id = None
+
     async def persist(
         self, marketplace: Marketplace, tenant_id: UUID, satellite: Satellite
     ) -> None:
@@ -119,10 +130,8 @@ class SatelliteRegistrar:
     ) -> Satellite | None:
         """Move the satellite to the current origin, keeping its id.
 
-        A stale id (404) is recoverable — re-register and adopt the new id.
-        A sibling holding the origin (409) is not: taking it over would drag
-        this space's endpoints onto another space's satellite, so the stored
-        id is kept and the clash is left for an operator.
+        A stale id (404) re-registers. A sibling already on the origin (409)
+        does not: taking it would drag our endpoints onto their satellite.
         """
         try:
             return await client.move_satellite(satellite_id, base_url)
@@ -135,7 +144,6 @@ class SatelliteRegistrar:
         except SatelliteOriginConflictError:
             logger.error(
                 f"Cannot move satellite {satellite_id} to {base_url}: another "
-                f"satellite on this account already serves that origin. "
-                f"Two spaces cannot share a public URL."
+                f"satellite on this account already serves that origin"
             )
             return None

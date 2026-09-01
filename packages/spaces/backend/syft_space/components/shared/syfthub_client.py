@@ -92,31 +92,19 @@ class ValidationError(SyftHubError):
 
 
 class SatelliteKindMismatchError(ConflictError):
-    """409 SATELLITE_KIND_MISMATCH - the origin is registered as the other kind.
-
-    A host is a space or a station, never both. Not retryable: the operator
-    must change the public URL or remove the conflicting satellite.
-    """
+    """409 - the origin is registered as the other kind. Needs an operator."""
 
     pass
 
 
 class SatelliteOriginConflictError(ConflictError):
-    """409 - another satellite on this account already serves that origin.
-
-    Raised by a move. Adopting the sibling would drag this space's endpoints
-    onto another space's satellite, so the caller keeps the id it has.
-    """
+    """409 - another satellite on this account already serves that origin."""
 
     pass
 
 
 class SatelliteRequiredError(ValidationError):
-    """422 - the account owns 2+ satellites and the call named none.
-
-    A client bug: sync and single-publish carry no URL, so SyftHub cannot
-    infer which space is calling once there is more than one.
-    """
+    """422 - the account runs 2+ spaces and the call named no satellite."""
 
     def __init__(
         self,
@@ -230,7 +218,7 @@ class UserProfile(BaseModel):
 
 
 class SatelliteKind(StrEnum):
-    """What a satellite serves. Matching is on origin alone — this is a label."""
+    """What a satellite serves. The hub matches on origin alone; this is a label."""
 
     SPACE = "space"
     STATION = "station"
@@ -239,17 +227,15 @@ class SatelliteKind(StrEnum):
 class Satellite(BaseModel):
     """A marketplace registry row for one origin owned by one account."""
 
-    id: UUID = Field(..., description="Satellite id — this is `satellite_id`")
-    kind: SatelliteKind = Field(..., description="space | station")
+    id: UUID
+    kind: SatelliteKind
     base_url: str = Field(
         ...,
-        description="Origin as canonicalised by the marketplace. Not a URL type: "
-        "`tunneling:<username>` is a legal value here",
+        description="Origin, canonicalised by the marketplace. Not a URL type: "
+        "`tunneling:<username>` is legal here",
     )
-    last_seen_at: datetime | None = Field(
-        None, description="Last health report resolved to this satellite"
-    )
-    created_at: datetime | None = Field(None, description="Registration time")
+    last_seen_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 class SatelliteToken(BaseModel):
@@ -259,16 +245,12 @@ class SatelliteToken(BaseModel):
     email: EmailStr | None = Field(None, description="User email")
     iat: int | None = Field(None, description="Issued at time")
     exp: int | None = Field(None, description="Expiration time")
-    aud: str | None = Field(None, description="Satellite uuid the token was minted for")
-    sub: str | None = Field(
-        None, description="Subject; the literal 'guest' for guest tokens"
-    )
-    username: str | None = Field(None, description="Token owner's username")
-    role: str | None = Field(None, description="Token owner's role")
-    error: str | None = Field(
-        None, description="Failure kind when valid is False (e.g. audience_mismatch)"
-    )
-    message: str | None = Field(None, description="Human-readable failure reason")
+    aud: str | None = Field(None, description="Satellite the token was minted for")
+    sub: str | None = Field(None, description="Subject; 'guest' for guest tokens")
+    username: str | None = None
+    role: str | None = None
+    error: str | None = Field(None, description="Failure kind when valid is False")
+    message: str | None = None
 
     class Config:
         """Pydantic config."""
@@ -364,8 +346,7 @@ def _raise_for_status(response: httpx.Response) -> None:
     parsed = _parse_error_response(response)
     status = response.status_code
 
-    # SyftHub returns X-Correlation-ID on domain errors; log it so a failure
-    # here can be traced to the hub-side request that produced it.
+    # Ties a failure here to the hub-side request that produced it.
     correlation_id = response.headers.get("X-Correlation-ID")
     if correlation_id:
         logger.warning(
@@ -389,9 +370,7 @@ def _raise_for_status(response: httpx.Response) -> None:
     elif status == 422:
         errors = _extract_validation_errors(response)
         if parsed.count is not None:
-            # Only the ambiguous-satellite error carries a count (§1: extra
-            # fields are per error type), and it needs a distinct type because
-            # it means the client omitted an id it was obliged to send.
+            # `count` is carried only by the ambiguous-satellite error.
             raise SatelliteRequiredError(
                 parsed.message,
                 status_code=status,
@@ -757,19 +736,20 @@ class SyftHubClient:
     async def publish_endpoint(
         self,
         payload: dict[str, Any],
+        satellite_id: str,
         overwrite: bool = False,
-        satellite_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Publish an endpoint to SyftHub.
 
         Args:
             payload: Endpoint data (structure depends on API version)
-            overwrite: Update the endpoint when it already exists
             satellite_id: Satellite to attach the endpoint to. A query
-                parameter here, not a body field — the body schema is reused
-                per item inside a sync payload, where a per-endpoint
-                satellite would be meaningless.
+                parameter, not a body field — the body schema is reused per
+                item inside a sync payload.
+            overwrite: Update the endpoint when it already exists. Carries no
+                satellite_id: an update never re-homes an endpoint, so only
+                the slug's owner may take this path.
 
         Raises:
             NotAuthenticatedError: login() not called
@@ -779,10 +759,11 @@ class SyftHubClient:
             ServerError: Server-side error
         """
         self._require_auth()
-        params = {"satellite_id": satellite_id} if satellite_id else None
-        response = await self._client.post(
-            "/api/v1/endpoints", json=payload, params=params
-        )  # type: ignore
+        response = await self._client.post(  # type: ignore[union-attr]
+            "/api/v1/endpoints",
+            json=payload,
+            params={"satellite_id": satellite_id},
+        )
 
         if overwrite and response.status_code == 400:
             # Endpoint already exists, try to update it
@@ -838,17 +819,10 @@ class SyftHubClient:
     async def register_satellite(
         self, base_url: str, kind: SatelliteKind = SatelliteKind.SPACE
     ) -> Satellite:
-        """Ensure a satellite exists at this origin and return it.
+        """Get-or-create the satellite at this origin.
 
-        Idempotent after canonicalisation, so ``base_url`` can be passed
-        verbatim — trailing slash, mixed case, even a full path all resolve
-        to the same satellite. A *different* origin creates a new one, which
-        is why a changed URL must go through ``move_satellite`` instead.
-
-        Raises:
-            SatelliteKindMismatchError: the origin is registered as the
-                other kind
-            ValidationError: base_url is not a usable origin
+        Idempotent after canonicalisation, so base_url goes over verbatim. A
+        *different* origin creates a new satellite — use move_satellite.
         """
         self._require_auth()
         response = await self._client.post(  # type: ignore[union-attr]
@@ -862,15 +836,10 @@ class SyftHubClient:
             ) from e
 
     async def move_satellite(self, satellite_id: str, base_url: str) -> Satellite:
-        """Point an existing satellite at a new origin, keeping its id.
+        """Point a satellite at a new origin, keeping its id.
 
-        Endpoints stay attached and outstanding tokens keep resolving. Safe
-        to call with the origin the satellite already has — self is excluded
-        from the conflict check, so a no-op move returns 200.
-
-        Raises:
-            NotFoundError: the id is not on this account (stale)
-            SatelliteOriginConflictError: a sibling already claims the origin
+        Endpoints stay attached. Safe to call with the origin it already has:
+        self is excluded from the conflict check, so a no-op move is a 200.
         """
         self._require_auth()
         response = await self._client.put(  # type: ignore[union-attr]
@@ -891,9 +860,7 @@ class SyftHubClient:
         Args:
             token: Satellite token
             satellite_id: Restrict the accepted audience to this satellite.
-                Omitted, SyftHub accepts a token minted for any satellite the
-                account owns — which is what lets a token for one of the
-                owner's services be replayed at another.
+                Omitted, any satellite the account owns is accepted.
         Returns:
             SatelliteToken: Verify satellite token response
         """
@@ -905,29 +872,26 @@ class SyftHubClient:
         return _handle_response(response, SatelliteToken)
 
     async def sync_endpoints(
-        self, payload: list[dict[str, Any]], satellite_id: str | None = None
+        self, payload: list[dict[str, Any]], satellite_id: str
     ) -> dict[str, Any]:
-        """Sync endpoints to SyftHub.
+        """Replace one satellite's endpoint catalogue with this payload.
 
-        It is used to sync endpoints from the database to SyftHub. Destructive
-        within one satellite's catalogue: SyftHub deletes the resolved
-        satellite's endpoints (plus any not yet attached to a satellite) and
-        replaces them with the payload. Endpoints published by the account's
-        other satellites are untouched.
+        SyftHub deletes the satellite's endpoints (plus any not yet attached
+        to one) and recreates from the payload; other satellites on the
+        account are untouched.
 
         Args:
             payload: List of endpoints to sync
-            satellite_id: Satellite whose catalogue this payload replaces.
-                Sync carries no URL, so SyftHub cannot infer the caller —
-                required once the account owns two or more satellites.
+            satellite_id: Whose catalogue this replaces. Sync carries no URL,
+                so SyftHub cannot infer the caller.
         Returns:
             dict[str, Any]: Sync endpoints response
         """
         self._require_auth()
-        body: dict[str, Any] = {"endpoints": payload}
-        if satellite_id:
-            body["satellite_id"] = satellite_id
-        response = await self._client.post("/api/v1/endpoints/sync", json=body)  # type: ignore
+        response = await self._client.post(  # type: ignore[union-attr]
+            "/api/v1/endpoints/sync",
+            json={"endpoints": payload, "satellite_id": satellite_id},
+        )
         return _handle_response_raw(response)
 
     async def update_endpoint_health(
@@ -935,34 +899,32 @@ class SyftHubClient:
         endpoint_health: list[dict[str, Any]],
         ttl_seconds: int,
         public_url: str,
-        satellite_id: str | None = None,
+        satellite_id: str,
     ) -> dict[str, Any]:
         """Send endpoint health status to SyftHub.
 
-        Non-destructive: only updates health of known endpoints on SyftHub.
-        Unknown slugs are ignored by SyftHub. Also serves as domain liveness
-        signal via TTL — SyftHub marks domain as stale if no update within TTL.
+        Non-destructive: unknown slugs are ignored. Doubles as the liveness
+        signal — endpoints go stale once TTL passes with no new report.
 
         Args:
             endpoint_health: List of {"slug": str, "status": str, "checked_at": str}
-            ttl_seconds: Domain liveness TTL in seconds
-            public_url: Domain's public URL. SyftHub resolves the satellite
-                from it and moves that satellite when the URL has changed.
-            satellite_id: Satellite to address explicitly. Optional — the
-                url already identifies the space — but sent so the hub can
-                make it required once every space reports it.
+            ttl_seconds: Liveness TTL in seconds
+            public_url: Resolves the satellite, and moves it if the URL changed
+            satellite_id: Addresses the satellite explicitly. Optional to the
+                hub today; always sent so it can be made mandatory.
         Returns:
             dict[str, Any]: Health update response
         """
         self._require_auth()
-        body: dict[str, Any] = {
-            "endpoints": endpoint_health,
-            "ttl_seconds": ttl_seconds,
-            "url": public_url,
-        }
-        if satellite_id:
-            body["satellite_id"] = satellite_id
-        response = await self._client.post("/api/v1/endpoints/health", json=body)  # type: ignore
+        response = await self._client.post(  # type: ignore[union-attr]
+            "/api/v1/endpoints/health",
+            json={
+                "endpoints": endpoint_health,
+                "ttl_seconds": ttl_seconds,
+                "url": public_url,
+                "satellite_id": satellite_id,
+            },
+        )
         return _handle_response_raw(response)
 
     def _require_auth(self) -> None:

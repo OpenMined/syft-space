@@ -230,9 +230,6 @@ async def _sync_endpoints_safe(handler: PublishEndpointHandler, tenant: Tenant) 
 async def _register_satellites_safe(handler: SettingsHandler, tenant: Tenant) -> None:
     """Register this space with its marketplaces without blocking startup.
 
-    Covers the cases the proxy path misses: a managed space (no tunnel), and
-    any space upgrading into satellite support with a public URL already set.
-
     Args:
         handler: Settings handler instance
         tenant: Tenant context
@@ -253,10 +250,9 @@ async def _startup_marketplace_sync(
 ) -> None:
     """Settle the public URL, register satellites, then sync endpoints.
 
-    Ordered, not concurrent: the endpoint sync is scoped by satellite, so it
-    has to run after this space knows which satellite it is. Each step
-    swallows its own failures — a later step still runs, just without the
-    benefit of the earlier one.
+    Ordered, not concurrent: the sync is satellite-scoped, so it runs after
+    this space knows which satellite it is. Each step swallows its own
+    failures and the next still runs.
     """
     await _sync_public_url_safe(settings_handler, tenant, proxy_service)
     await _register_satellites_safe(settings_handler, tenant)

@@ -74,8 +74,8 @@ class SettingsHandler:
     ) -> PublicUrlResponse:
         """Update the public URL.
 
-        Updates the database (source of truth), then points this space's
-        satellite at the new origin on the default marketplace.
+        Writes the database (source of truth), then moves this space's
+        satellite to the new origin on the default marketplace.
 
         Args:
             tenant: Tenant context
@@ -108,15 +108,9 @@ class SettingsHandler:
     async def ensure_satellites(self, tenant: Tenant) -> None:
         """Register this space with every active marketplace, at boot.
 
-        The seed-once rule means ``initialize_from_config`` only registers on
-        a space's first boot, and a managed space never touches the proxy
-        path — so without this an upgraded space would hold no satellite id
-        until someone edited the public URL. Idempotent: with an id already
-        stored this is one no-op move per marketplace.
-
-        Per-marketplace failures are logged, not raised — this runs
-        fire-and-forget at startup and one unreachable hub must not stop the
-        others.
+        Covers what the other paths miss: a managed space never touches the
+        proxy path, and initialize_from_config seeds only on first boot.
+        Failures are logged per marketplace so one bad hub blocks no others.
         """
         settings = await self.settings_repository.get_settings()
         if not settings.public_url:
@@ -257,12 +251,9 @@ class SettingsHandler:
     async def disconnect_proxy(self, tenant: Tenant) -> ProxyStatusResponse:
         """Disconnect the ngrok proxy tunnel and clear configuration.
 
-        Nothing is retracted on the marketplace. Deleting the satellite would
-        take its endpoints with it — along with their stars, uptime history
-        and collective memberships, none of which a resync restores — and
-        clearing the legacy profile domain is accepted and ignored. Endpoints
-        deactivate on their own once health reports stop arriving, which also
-        covers the unclean shutdowns this path cannot run for.
+        Nothing is retracted on the marketplace: deleting the satellite
+        would delete its endpoints too. They deactivate on their own once
+        health reports stop, which also covers unclean shutdowns.
 
         Returns:
             Proxy status response indicating disconnected state

@@ -120,10 +120,9 @@ class MarketplaceRepository(AsyncBaseRepository[Marketplace]):
     async def set_satellite(
         self, id: UUID, tenant_id: UUID, satellite_id: str | None
     ) -> Marketplace | None:
-        """Record the satellite this space is registered as on the marketplace.
+        """Record this space's satellite on the marketplace.
 
-        Separate from ``update`` so the registration path cannot be reached
-        by the user-facing marketplace edit form, and vice versa.
+        Kept off ``update`` so the marketplace edit form cannot reach it.
 
         Args:
             id: Marketplace ID

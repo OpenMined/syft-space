@@ -11,8 +11,10 @@ from uuid import UUID
 from loguru import logger
 
 from syft_space.components.marketplaces.entities import Marketplace
+from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.components.shared.syfthub_client import (
+    NotFoundError,
     RateLimitError,
     SyftHubClient,
     SyftHubError,
@@ -84,6 +86,7 @@ class EndpointHeartbeatManager(LifecycleService):
         """
         self._health_checker = health_checker
         self._marketplace_repository = marketplace_repository
+        self._satellites = SatelliteRegistrar(marketplace_repository)
         self._settings_repository = settings_repository
         self._enabled = enabled
         self._check_interval = check_interval
@@ -262,7 +265,7 @@ class EndpointHeartbeatManager(LifecycleService):
         # Send to each marketplace concurrently
         tasks = [
             self._send_endpoint_heartbeat_to_marketplace(
-                marketplace, public_url, endpoint_health
+                marketplace, public_url, endpoint_health, self._tenant.id
             )
             for marketplace in marketplaces
         ]
@@ -273,6 +276,7 @@ class EndpointHeartbeatManager(LifecycleService):
         marketplace: Marketplace,
         public_url: str,
         endpoint_health: list[dict[str, Any]],
+        tenant_id: UUID,
     ) -> None:
         """Send endpoint health to a single marketplace.
 
@@ -282,6 +286,7 @@ class EndpointHeartbeatManager(LifecycleService):
             marketplace: Marketplace entity with credentials
             public_url: Domain's public URL
             endpoint_health: List of endpoint health statuses
+            tenant_id: Tenant owning this marketplace
         """
         if not marketplace.email or not marketplace.password:
             logger.debug(
@@ -308,10 +313,21 @@ class EndpointHeartbeatManager(LifecycleService):
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
+                satellite_id = await self._satellites.resolve_id(
+                    client, marketplace, public_url, tenant_id
+                )
+                if satellite_id is None:
+                    # Unreachable: the loop waits for public_url first.
+                    logger.warning(
+                        f"Marketplace {marketplace.name} has no satellite, "
+                        "skipping endpoint heartbeat"
+                    )
+                    return
                 await client.update_endpoint_health(
                     endpoint_health=endpoint_health,
                     ttl_seconds=ttl,
                     public_url=public_url,
+                    satellite_id=satellite_id,
                 )
 
                 state.consecutive_failures = 0
@@ -327,6 +343,13 @@ class EndpointHeartbeatManager(LifecycleService):
                 f"Endpoint heartbeat to {marketplace.name} rate limited, "
                 f"backing off {state.next_delivery_at - now:.0f}s: {e.message} "
                 f"(failures={state.consecutive_failures})"
+            )
+        except NotFoundError as e:
+            await self._satellites.forget_id(marketplace, tenant_id)
+            self._handle_transport_failure(state, now)
+            logger.warning(
+                f"Endpoint heartbeat to {marketplace.name} hit an unknown "
+                f"satellite: {e.message} (failures={state.consecutive_failures})"
             )
         except SyftHubError as e:
             self._handle_transport_failure(state, now)

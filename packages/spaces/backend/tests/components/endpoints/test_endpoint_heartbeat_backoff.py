@@ -102,6 +102,7 @@ def make_marketplace() -> SimpleNamespace:
         url="https://hub.test",
         email="space@test.org",
         password="pw",
+        satellite_id=str(uuid4()),
     )
 
 
@@ -114,7 +115,7 @@ async def test_rate_limited_delivery_backs_off_and_skips_next_attempt(monkeypatc
     health = [{"slug": "ep", "status": "online", "checked_at": "now"}]
 
     await manager._send_endpoint_heartbeat_to_marketplace(
-        marketplace, "https://space.test", health
+        marketplace, "https://space.test", health, uuid4()
     )
 
     state = manager._states[marketplace.id]
@@ -124,7 +125,7 @@ async def test_rate_limited_delivery_backs_off_and_skips_next_attempt(monkeypatc
 
     # Second cycle arrives while still in backoff: no request is attempted
     await manager._send_endpoint_heartbeat_to_marketplace(
-        marketplace, "https://space.test", health
+        marketplace, "https://space.test", health, uuid4()
     )
     assert _RateLimitedClient.instantiations == 1
     assert state.consecutive_failures == 1
