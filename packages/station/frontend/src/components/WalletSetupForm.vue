@@ -89,6 +89,14 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
     )
     return null
   }
+  // Buyers are verified with the station's SyftHub token, so a wallet saved
+  // without one cannot take a payment — and the failure would surface as a
+  // 502 to a buyer mid-purchase rather than to the admin saving it here.
+  if (station.identity === null) await station.loadIdentity().catch(() => {})
+  if (!station.identity?.connected) {
+    toast.error('Connect SyftHub first — the station verifies buyers with its API token')
+    return null
+  }
   // Credential keys are provider-specific; each gateway validates its own.
   const credentials: Record<string, string> =
     provider.value === 'stripe'
