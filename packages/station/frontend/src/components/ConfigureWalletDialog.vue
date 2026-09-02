@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
+import SyftHubIdentityCard from '@/components/SyftHubIdentityCard.vue'
 import WalletSetupForm from '@/components/WalletSetupForm.vue'
 import { Button } from '@/components/ui/button'
 import {
@@ -55,6 +56,10 @@ async function save() {
       </DialogHeader>
 
       <WalletSetupForm ref="form" />
+
+      <div class="border-t pt-4">
+        <SyftHubIdentityCard />
+      </div>
 
       <DialogFooter>
         <Button variant="outline" @click="emit('update:open', false)">Cancel</Button>

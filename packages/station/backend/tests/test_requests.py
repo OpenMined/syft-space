@@ -23,6 +23,7 @@ from syft_station.components.requests.schemas import (
     PatchRequestBody,
     SubmitRequestBody,
 )
+from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.spaces.provisioning import SpaceConverger
 from tests.conftest import ADMIN, MEMBER, OTHER_MEMBER
 
@@ -33,6 +34,7 @@ def credits_service(db) -> SpaceCreditsService:
     return SpaceCreditsService(
         WalletRepository(db),
         SpaceCreditTokenRepository(db),
+        SetupRepository(db),
         "http://station.test",
         "http://station.public",
     )

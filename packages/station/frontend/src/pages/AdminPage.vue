@@ -35,6 +35,7 @@ import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
 import RequestHistoryList from '@/components/RequestHistoryList.vue'
 import { REQUEST_TYPE_META } from '@/lib/requestTypes'
 import SetupStationDialog from '@/components/SetupStationDialog.vue'
+import SyftHubIdentityCard from '@/components/SyftHubIdentityCard.vue'
 import VersionSelect from '@/components/VersionSelect.vue'
 import ViewLogsSheet from '@/components/ViewLogsSheet.vue'
 import HealthBadge from '@/components/HealthBadge.vue'
@@ -79,6 +80,9 @@ onMounted(() => {
   station.loadSpaces().catch(() => toast.error('Could not load spaces'))
   // Wallet presence drives the approve dialog's picker + "space includes".
   station.loadWallet().catch(() => {})
+  // The SyftHub identity gates buyer verification, so its badge shows anywhere
+  // a wallet does — load it alongside.
+  station.loadIdentity().catch(() => {})
   // Earnings feed the delete dialog's unpaid-payable warning.
   station.loadEarnings().catch(() => {})
 })
@@ -695,6 +699,16 @@ function formatDate(iso: string): string {
                 <p class="text-xs text-muted-foreground">
                   Currently deploying:
                   <span class="font-mono">{{ station.supportedVersion || '—' }}</span>
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent class="space-y-3">
+                <SyftHubIdentityCard />
+                <p class="text-xs text-muted-foreground">
+                  One token per station: every wallet verifies buyers with it, and it registers this
+                  station with SyftHub so buyers can be billed here.
                 </p>
               </CardContent>
             </Card>

@@ -29,6 +29,7 @@ from syft_station.components.requests.schemas import (
     PatchRequestBody,
     SubmitRequestBody,
 )
+from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.spaces.provisioning import SpaceConverger
 from tests.conftest import ADMIN, MEMBER
 
@@ -64,8 +65,10 @@ def credit_tokens(db) -> SpaceCreditTokenRepository:
 
 
 @pytest.fixture
-def credits_service(wallets, credit_tokens) -> SpaceCreditsService:
-    return SpaceCreditsService(wallets, credit_tokens, CREDITS_URL, PUBLIC_URL)
+def credits_service(db, wallets, credit_tokens) -> SpaceCreditsService:
+    return SpaceCreditsService(
+        wallets, credit_tokens, SetupRepository(db), CREDITS_URL, PUBLIC_URL
+    )
 
 
 @pytest.fixture
@@ -105,8 +108,6 @@ async def make_wallet(wallets: WalletRepository, currency: str = "PHP") -> Walle
             provider="xendit",
             currency=currency,
             credentials={"api_key": "x"},
-            hub_user_id=42,
-            hub_pat="syft_pat_stub",
         )
     )
 
@@ -130,6 +131,7 @@ async def test_approve_attaches_station_wallet_by_default(
     handler, provisioner, wallets, credit_tokens, setup_repository
 ):
     await onboard(setup_repository)
+    await setup_repository.update_identity("syft_pat_stub", 42)
     wallet = await make_wallet(wallets)
 
     approved = await approve_space(handler)
@@ -160,10 +162,10 @@ async def test_approve_attaches_station_wallet_by_default(
     assert space.wallet_id == wallet.id
 
 
-async def test_wallet_without_hub_identity_grants_empty_owner(
+async def test_station_without_hub_identity_grants_empty_owner(
     handler, provisioner, wallets, setup_repository
 ):
-    """A wallet with no hub identity still provisions; the optional owner
+    """A station with no hub identity still provisions; the optional owner
     stays empty (and is then omitted from the Secret, never sent as "")."""
     await onboard(setup_repository)
     await wallets.create(

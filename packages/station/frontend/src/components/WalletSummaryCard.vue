@@ -20,6 +20,6 @@ const PROVIDER_LABELS: Record<string, string> = { xendit: 'Xendit', stripe: 'Str
       {{ PROVIDER_LABELS[station.wallet.provider] ?? station.wallet.provider }}
     </span>
     <Badge variant="secondary">{{ station.wallet.currency }}</Badge>
-    <Badge v-if="station.wallet.hubConnected" variant="secondary">SyftHub connected</Badge>
+    <Badge v-if="station.identity?.connected" variant="secondary">SyftHub connected</Badge>
   </div>
 </template>

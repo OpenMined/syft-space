@@ -2,7 +2,7 @@
 
 import re
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 _DOMAIN_RE = re.compile(
     r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
@@ -33,3 +33,33 @@ class UpdateSetupRequest(BaseModel):
         if not _DOMAIN_RE.match(v):
             raise ValueError("Enter a valid domain, e.g. spaces.my-station.org")
         return v
+
+
+class IdentityResponse(BaseModel):
+    """The station's SyftHub identity — never the token itself."""
+
+    connected: bool
+    username: str = ""
+    email: str = ""
+    satellite_id: str = Field(
+        default="",
+        description="This station's satellite; empty until registration succeeds",
+    )
+
+
+class ConnectIdentityRequest(BaseModel):
+    """Adopt an existing SyftHub API token, or mint one from a password.
+
+    One token serves every wallet, so this is set once per station rather
+    than per gateway.
+    """
+
+    syfthub_api_token: str | None = Field(
+        default=None,
+        description="Existing token (syft_pat_…) to adopt; validated, then "
+        "stored. Takes precedence over syfthub_password",
+    )
+    syfthub_password: str | None = Field(
+        default=None,
+        description="Admin's SyftHub password — mints a fresh token, then is discarded",
+    )

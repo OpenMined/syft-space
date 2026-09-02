@@ -43,9 +43,10 @@ from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.handlers import RequestHandler
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.requests.routes import build_request_routes
-from syft_station.components.setup.handlers import SetupHandler
+from syft_station.components.setup.handlers import SetupHandler, StationIdentityHandler
 from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.setup.routes import build_setup_routes
+from syft_station.components.setup.satellites import StationSatelliteRegistrar
 from syft_station.components.shared.database import AsyncDatabase, SQLiteConfig
 from syft_station.components.spaces.handlers import SpaceHandler
 from syft_station.components.spaces.provisioning import SpaceConverger
@@ -99,21 +100,31 @@ credits_handler = CreditsHandler(database, wallet_repository, credit_token_repos
 space_credits_service = SpaceCreditsService(
     wallet_repository,
     credit_token_repository,
+    setup_repository,
     app_settings.credits_url,
     app_settings.public_url,
 )
 wallet_rollout = WalletRollout(space_repository, provisioner, space_credits_service)
 wallet_admin_handler = WalletAdminHandler(
-    wallet_repository, payment_gateways, wallet_rollout, syfthub_client
+    wallet_repository, payment_gateways, wallet_rollout
 )
 checkout_handler = CheckoutHandler(
-    database, wallet_repository, payment_gateways, syfthub_client
+    database, wallet_repository, payment_gateways, syfthub_client, setup_repository
 )
 webhook_handler = WebhookHandler(database, wallet_repository, payment_gateways)
 earnings_handler = EarningsHandler(
     database, wallet_repository, payout_repository, request_repository
 )
 setup_handler = SetupHandler(setup_repository)
+station_satellites = StationSatelliteRegistrar(
+    setup_repository,
+    syfthub_client,
+    app_settings.public_url,
+    app_settings.satellite_id,
+)
+station_identity_handler = StationIdentityHandler(
+    setup_repository, syfthub_client, station_satellites
+)
 space_converger = SpaceConverger(
     space_repository, setup_repository, provisioner, space_credits_service
 )
@@ -134,7 +145,12 @@ request_handler = RequestHandler(
 async def lifespan(app: FastAPI):
     """Application lifespan — startup and shutdown."""
     await database.run_migrations(reset=app_settings.reset_db)
-    await setup_repository.get_config()  # ensure the singleton row exists
+    config = await setup_repository.get_config()  # ensure the singleton row exists
+
+    # Nothing heartbeats the station's origin, so its satellite is only ever
+    # what we register. Re-asserted here so a changed public_url moves it.
+    if config.hub_pat:
+        await station_satellites.ensure_quietly(config.hub_pat)
 
     if not app_settings.admin_email:
         logger.warning(
@@ -200,7 +216,9 @@ app.add_middleware(
 )
 
 app.include_router(build_auth_routes(auth_handler), prefix="/api/v1")
-app.include_router(build_setup_routes(setup_handler), prefix="/api/v1")
+app.include_router(
+    build_setup_routes(setup_handler, station_identity_handler), prefix="/api/v1"
+)
 app.include_router(build_request_routes(request_handler), prefix="/api/v1")
 app.include_router(build_space_routes(space_handler), prefix="/api/v1")
 app.include_router(build_image_routes(image_handler), prefix="/api/v1")

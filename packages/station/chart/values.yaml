@@ -36,6 +36,11 @@ station:
   # JS origins must include the station). Empty hides the Google button.
   googleClientId: ""
 
+  # This station's SyftHub satellite, if it already has one. Seeds an empty
+  # database only — once registered the stored value wins — so re-spinning a
+  # station reclaims its registration instead of creating a second.
+  satelliteId: ""
+
   # Session cookie signing key. Left empty, the chart generates one on first
   # install and PRESERVES it across `helm upgrade` (via a live lookup), so
   # cookies survive redeploys. Set explicitly to pin it, or point

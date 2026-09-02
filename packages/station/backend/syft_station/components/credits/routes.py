@@ -41,8 +41,6 @@ from syft_station.components.credits.schemas import (
     DebitRequest,
     DebitResponse,
     EarningsResponse,
-    HubTokenMintRequest,
-    HubTokenMintResponse,
     MemberEarningsResponse,
     OutstandingBalancesResponse,
     PayoutRequest,
@@ -192,14 +190,6 @@ def build_credits_routes(
     ) -> WalletSetupResponse:
         """Create or replace the station wallet; attaches unbound spaces."""
         return await admin_handler.setup(body, user.email)
-
-    @router.post("/admin/wallet/hub-token", response_model=HubTokenMintResponse)
-    async def mint_hub_token(
-        body: HubTokenMintRequest,
-        user: SessionUser = Depends(require_admin),
-    ) -> HubTokenMintResponse:
-        """Mint a SyftHub API token for the wallet form (password used once)."""
-        return await admin_handler.mint_hub_token(user.email, body.password)
 
     @router.get("/admin/earnings", response_model=EarningsResponse)
     async def earnings(

@@ -413,7 +413,8 @@ space-image tag:
     set -euo pipefail
     # Accept both `just space-image x` and `just space-image tag=x`.
     tag="{{tag}}"; tag="${tag#tag=}"
-    cd ..
+    # syft-space is a sibling package; its Dockerfile expects its own root.
+    cd ../spaces
     (cd frontend && bun install && bun run build)
     docker build -t ghcr.io/openmined/syft-space:$tag .
     k3d image import ghcr.io/openmined/syft-space:$tag -c {{cluster_name}}

@@ -33,6 +33,7 @@ from syft_station.components.credits.tokens import (
     hash_credit_token,
 )
 from syft_station.components.provision.interfaces import CreditsGrant
+from syft_station.components.setup.repository import SetupRepository
 
 
 class SpaceCreditsService:
@@ -46,11 +47,15 @@ class SpaceCreditsService:
         self,
         wallets: WalletRepository,
         credit_tokens: SpaceCreditTokenRepository,
+        station: SetupRepository,
         credits_url: str,
         public_url: str,
     ):
         self.wallets = wallets
         self.credit_tokens = credit_tokens
+        # The hub identity a space publishes as its wallet owner belongs to
+        # the station, so every wallet's spaces name the same account.
+        self.station = station
         self.credits_url = credits_url
         # The station's own public host, minted into spaces as the buyer URL.
         # Always the station's address (where checkout lives) — never the
@@ -105,6 +110,7 @@ class SpaceCreditsService:
         # The station's catalog is the source of truth for bundle pricing —
         # inject it so the space publishes exactly what a purchase will cost.
         bundles = PREPAID_BUNDLES.get(wallet.provider, {}).get(wallet.currency, [])
+        config = await self.station.get_config()
         return CreditsGrant(
             url=self.credits_url,
             token=plaintext,
@@ -112,7 +118,7 @@ class SpaceCreditsService:
             wallet_id=str(wallet.id),
             public_url=self.public_url,
             wallet_owner=(
-                str(wallet.hub_user_id) if wallet.hub_user_id is not None else ""
+                str(config.hub_user_id) if config.hub_user_id is not None else ""
             ),
             bundles=json.dumps(bundles) if bundles else "",
         )

@@ -21,14 +21,20 @@ from syft_space.components.endpoints.schemas import (
 )
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
+from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
-from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
+from syft_space.components.shared.syfthub_client import (
+    NotFoundError,
+    SyftHubClient,
+    SyftHubError,
+)
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.interfaces import WalletProvider
 from syft_space.components.wallets.repository import WalletRepository
+from syft_space.config import app_settings
 
 
 class PublishEndpointHandler:
@@ -47,6 +53,7 @@ class PublishEndpointHandler:
     ):
         self.endpoint_repository = endpoint_repository
         self.marketplace_repository = marketplace_repository
+        self.satellites = SatelliteRegistrar(marketplace_repository)
         self.dataset_repository = dataset_repository
         self.model_repository = model_repository
         self.dataset_registry = dataset_registry
@@ -276,7 +283,28 @@ class PublishEndpointHandler:
                     await client.login(
                         username=marketplace.email, password=marketplace.password
                     )
-                    await client.sync_endpoints(payloads)
+                    satellite_id = await self.satellites.resolve_id(
+                        client, marketplace, self._public_url(), tenant.id
+                    )
+                    if satellite_id is None:
+                        logger.warning(
+                            f"Marketplace {marketplace_id} has no satellite "
+                            "(no public URL set), skipping sync"
+                        )
+                        continue
+                    try:
+                        await client.sync_endpoints(payloads, satellite_id)
+                    except NotFoundError:
+                        # Hub no longer knows this satellite (deleted there,
+                        # or the row was re-pointed at another account).
+                        # Re-register so the catalogue still syncs this boot.
+                        await self.satellites.forget_id(marketplace, tenant.id)
+                        retry_id = await self.satellites.resolve_id(
+                            client, marketplace, self._public_url(), tenant.id
+                        )
+                        if retry_id is None:
+                            continue
+                        await client.sync_endpoints(payloads, retry_id)
 
                 results[marketplace_id] = [ep.slug for ep in eps]
                 logger.info(
@@ -295,6 +323,11 @@ class PublishEndpointHandler:
         return results
 
     # ── Private helpers ──────────────────────────────────────────
+
+    @staticmethod
+    def _public_url() -> str | None:
+        """The origin a satellite would be registered at."""
+        return str(app_settings.public_url) if app_settings.public_url else None
 
     async def _publish_to_marketplace(
         self, endpoint: Endpoint, marketplace: Marketplace
@@ -320,8 +353,30 @@ class PublishEndpointHandler:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
+                satellite_id = await self.satellites.resolve_id(
+                    client, marketplace, self._public_url(), endpoint.tenant_id
+                )
+                if satellite_id is None:
+                    return PublishResult(
+                        marketplace_id=marketplace.id,
+                        marketplace_name=marketplace.name,
+                        success=False,
+                        error="Set this space's public URL before publishing",
+                    )
                 payload = await self._build_publish_payload(endpoint)
-                await client.publish_endpoint(payload, overwrite=True)
+                # Slugs are unique per account, not per space: a 400 on a
+                # slug we never published means another space holds it, and
+                # overwriting would replace their listing's contents.
+                ours = str(marketplace.id) in endpoint.published_to
+                await client.publish_endpoint(payload, satellite_id, overwrite=ours)
+        except NotFoundError as e:
+            await self.satellites.forget_id(marketplace, endpoint.tenant_id)
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=e.message,
+            )
         except SyftHubError as e:
             return PublishResult(
                 marketplace_id=marketplace.id,
