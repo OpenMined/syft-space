@@ -50,22 +50,23 @@ class MarketplaceDeliveryState:
 class EndpointHeartbeatManager(LifecycleService):
     """Manages periodic endpoint health reporting to SyftHub marketplaces.
 
-    Checks health of all published endpoints every 30 seconds and reports
-    to SyftHub. Fixed interval ensures ≤30s detection latency for health
-    changes. Transport failures to individual marketplaces trigger backoff
-    for delivery to that marketplace only — health checks continue unaffected.
+    Checks every published endpoint on a fixed interval, so detection latency
+    for a health change is bounded by it. Transport failures back off per
+    marketplace — health checks themselves continue unaffected.
     """
 
-    # Fixed health check interval
-    CHECK_INTERVAL = 30.0  # Check + deliver every 30 seconds
+    CHECK_INTERVAL = 30.0
     JITTER_MAX = 5.0  # Random extra sleep so co-located instances desynchronize
-    TTL_MULTIPLIER = 3.0  # TTL = 90s (3 missed checks before stale)
-    POLL_INTERVAL = 5.0  # Poll for public_url every 5 seconds
+    # TTL must clear one whole cycle — interval + jitter + up to 10s of health
+    # checks — or a healthy space reports late and looks stale. Blips are
+    # absorbed by the hub needing 3 consecutive stale sweeps, not by this margin.
+    TTL_MULTIPLIER = 2.0
+    POLL_INTERVAL = 5.0  # While waiting for public_url to be set
 
-    # Transport failure backoff (only when SyftHub POST fails)
-    TRANSPORT_BACKOFF_FACTOR = 2.0  # Double delivery interval on failure
-    TRANSPORT_MAX_INTERVAL = 300.0  # Cap transport retry at 5 minutes
-    TRANSPORT_MAX_FAILURES = 5  # Start backing off after this many consecutive failures
+    # Transport failure backoff (only when the SyftHub POST fails)
+    TRANSPORT_BACKOFF_FACTOR = 2.0
+    TRANSPORT_MAX_INTERVAL = 300.0
+    TRANSPORT_MAX_FAILURES = 5  # Consecutive failures tolerated before backoff
 
     def __init__(
         self,
