@@ -17,6 +17,7 @@ import {
   Server,
   ServerOff,
   Settings,
+  SquareUser,
   Tag,
   Trash2,
   TriangleAlert,
@@ -29,6 +30,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import ApproveSpaceModal from '@/components/ApproveSpaceModal.vue'
 import CreateSpaceDialog from '@/components/CreateSpaceDialog.vue'
 import EarningsPanel from '@/components/EarningsPanel.vue'
+import MyRequests from '@/components/MyRequests.vue'
 import RejectRequestDialog from '@/components/RejectRequestDialog.vue'
 import StationAnimation from '@/components/StationAnimation.vue'
 import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
@@ -85,11 +87,18 @@ onMounted(() => {
   station.loadIdentity().catch(() => {})
   // Earnings feed the delete dialog's unpaid-payable warning.
   station.loadEarnings().catch(() => {})
+  // What the admin's own spaces earned, for the My spaces section.
+  station.loadMemberEarnings().catch(() => {})
 })
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
-type AdminSection = 'requests' | 'spaces' | 'earnings' | 'settings'
+type AdminSection = 'requests' | 'my-spaces' | 'spaces' | 'earnings' | 'settings'
 const activeSection = ref<AdminSection>('requests')
+
+/** An admin may also own a space (they can create one for their own email). */
+const ownsSpace = computed(() =>
+  station.spaces.some((space) => space.ownerEmail === session.profile?.email),
+)
 
 // Requests and spaces change from OTHER sessions (a member submits, a space
 // settles), so switching to a section refetches it, and a background poll
@@ -97,7 +106,15 @@ const activeSection = ref<AdminSection>('requests')
 // neither: EarningsPanel re-mounts on each switch and loads itself.
 watch(activeSection, (section) => {
   if (section === 'requests') station.loadRequests().catch(() => {})
-  else if (section === 'spaces') station.loadSpaces().catch(() => {})
+  else if (section === 'spaces' || section === 'my-spaces') {
+    station.loadSpaces().catch(() => {})
+  }
+})
+
+// Losing the last own space takes the section with it, so don't strand the
+// admin on a tab that no longer has a nav entry.
+watch(ownsSpace, (owns) => {
+  if (!owns && activeSection.value === 'my-spaces') activeSection.value = 'requests'
 })
 
 const REFRESH_INTERVAL_MS = 30_000
@@ -115,6 +132,9 @@ const mainNav = computed(() => [
     icon: Inbox,
     badge: station.pendingCount > 0 ? station.pendingCount : undefined,
   },
+  ...(ownsSpace.value
+    ? [{ id: 'my-spaces' as AdminSection, label: 'My spaces', icon: SquareUser, badge: undefined }]
+    : []),
 ])
 
 const stationNav = computed(() => [
@@ -661,6 +681,12 @@ function formatDate(iso: string): string {
               </CardContent>
             </Card>
           </div>
+
+          <!-- ==================== My spaces ==================== -->
+          <!-- The member view of one's own spaces: admin URL, logs, earnings.
+               MyRequests filters by the signed-in email, so it needs no
+               admin-specific variant. -->
+          <MyRequests v-else-if="activeSection === 'my-spaces'" />
 
           <!-- ==================== Earnings ==================== -->
           <EarningsPanel v-else-if="activeSection === 'earnings'" />
