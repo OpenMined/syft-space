@@ -52,9 +52,8 @@ class WalletSetupRequest(BaseModel):
 
     Credentials are provider-specific and validated by the matching
     gateway. On replace, the currency must stay the same — user balances
-    are denominated in it. First setup must also connect a SyftHub
-    identity (buyer verification needs it): paste an API token, or send a
-    password to mint one.
+    are denominated in it. The SyftHub identity that verifies buyers is set
+    separately, once per station.
     """
 
     provider: str = Field(description="Payment provider: xendit | stripe")
@@ -62,18 +61,6 @@ class WalletSetupRequest(BaseModel):
     credentials: dict = Field(
         description="Provider credentials: {api_key, callback_token} for "
         "Xendit, {secret_key, webhook_secret} for Stripe"
-    )
-    syfthub_api_token: str | None = Field(
-        default=None,
-        description="Existing SyftHub API token (syft_pat_…) to adopt as the "
-        "wallet's hub identity — validated against the hub, then stored. "
-        "Takes precedence over syfthub_password",
-    )
-    syfthub_password: str | None = Field(
-        default=None,
-        description="Admin's SyftHub password — used once to mint a fresh "
-        "hub API token, then discarded. First setup needs one of the two "
-        "credentials; omit both on replace to keep the existing identity",
     )
 
 
@@ -88,10 +75,6 @@ class WalletStatusResponse(BaseModel):
     configured: bool
     provider: str | None = None
     currency: str | None = None
-    wallet_owner: int | None = Field(
-        default=None,
-        description="SyftHub user id the wallet's spaces publish as their owner",
-    )
 
 
 class WalletSetupResponse(WalletStatusResponse):
@@ -99,34 +82,6 @@ class WalletSetupResponse(WalletStatusResponse):
 
     spaces_attached: int = 0
     spaces_failed: int = 0
-
-
-class HubTokenMintRequest(BaseModel):
-    """Mint a SyftHub API token ahead of wallet setup.
-
-    The admin's password is forwarded to the hub once and never stored —
-    minting up front lets the UI confirm the hub credential before the
-    wallet form is submitted.
-    """
-
-    password: str = Field(min_length=1, description="Admin's SyftHub password")
-
-
-class HubTokenMintResponse(BaseModel):
-    """A freshly minted hub token, handed to the wallet form.
-
-    The client holds the token in memory only and submits it back as
-    ``syfthub_api_token`` on wallet save — displayed truncated, never
-    persisted browser-side. An abandoned form leaves an unused token on
-    the hub (revocable from its token list).
-    """
-
-    token: str = Field(description="The full API token (syft_pat_…)")
-    username: str = Field(description="Hub account the token belongs to")
-    email: str
-
-
-# ── Buyer checkout (any signed-in session) ──────────────────────────────────
 
 
 class CreateInvoiceRequest(BaseModel):

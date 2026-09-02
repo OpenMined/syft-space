@@ -49,9 +49,16 @@ from syft_station.components.credits.repository import (
 )
 from syft_station.components.credits.routes import build_credits_routes
 from syft_station.components.requests.repository import RequestRepository
+from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.repository import SpaceRepository
-from tests.conftest import ADMIN, MEMBER, StubHubIdentity, buyer_auth
+from tests.conftest import (
+    ADMIN,
+    MEMBER,
+    StubHubIdentity,
+    buyer_auth,
+    connect_station_identity,
+)
 
 STRIPE_URL = "https://stripe.test"
 WEBHOOK_SECRET = "whsec_test_secret"
@@ -60,7 +67,6 @@ SETUP_BODY = {
     "provider": "stripe",
     "currency": "USD",
     "credentials": {"secret_key": "sk_test_key", "webhook_secret": WEBHOOK_SECRET},
-    "syfthub_password": StubHubIdentity.HUB_PASSWORD,
 }
 
 
@@ -170,7 +176,9 @@ def sign_webhook(raw_body: bytes, ts: int | None = None) -> str:
 async def testbed(db: AsyncDatabase) -> StripeTestbed:
     wallets = WalletRepository(db)
     tokens = SpaceCreditTokenRepository(db)
-    credits_service = SpaceCreditsService(wallets, tokens, "http://c", "http://p")
+    credits_service = SpaceCreditsService(
+        wallets, tokens, SetupRepository(db), "http://c", "http://p"
+    )
     rollout = WalletRollout(SpaceRepository(db), NullPatcher(), credits_service)
 
     gateway = StripeGateway(STRIPE_URL)
@@ -191,8 +199,8 @@ async def testbed(db: AsyncDatabase) -> StripeTestbed:
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, gateways, rollout, hub),  # type: ignore[arg-type]
-            CheckoutHandler(db, wallets, gateways, hub),  # type: ignore[arg-type]
+            WalletAdminHandler(wallets, gateways, rollout),
+            CheckoutHandler(db, wallets, gateways, hub, SetupRepository(db)),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, gateways),
             EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),
         ),
@@ -201,6 +209,7 @@ async def testbed(db: AsyncDatabase) -> StripeTestbed:
     app.dependency_overrides[get_current_user] = lambda: MEMBER
     app.dependency_overrides[require_admin] = lambda: ADMIN
 
+    await connect_station_identity(db, hub)
     bed = StripeTestbed(db, app)
     return bed
 

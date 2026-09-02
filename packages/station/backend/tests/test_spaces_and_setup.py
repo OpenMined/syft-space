@@ -10,6 +10,7 @@ from syft_station.components.credits.repository import (
 )
 from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.setup.handlers import SetupHandler
+from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.setup.schemas import UpdateSetupRequest
 from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.handlers import SpaceHandler
@@ -90,6 +91,7 @@ def space_handler(space_repository, setup_repository, provisioner, db) -> SpaceH
     credits = SpaceCreditsService(
         WalletRepository(db),
         SpaceCreditTokenRepository(db),
+        SetupRepository(db),
         "http://station.test",
         "http://station.public",
     )

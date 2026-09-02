@@ -6,8 +6,8 @@ import { requestsApi } from '@/api/endpoints/requests'
 import { setupApi } from '@/api/endpoints/setup'
 import { spacesApi } from '@/api/endpoints/spaces'
 import type {
+  IdentityResponse,
   EarningsResponse,
-  HubTokenMintResponse,
   ImageTagResponse,
   MemberEarningsResponse,
   OutstandingBalanceResponse,
@@ -23,6 +23,7 @@ import type {
   Payout,
   RequestStatus,
   SharedWallet,
+  StationIdentity,
   Space,
   SpaceHealth,
   SpaceRequest,
@@ -43,6 +44,8 @@ export const useStationStore = defineStore('station', () => {
   const requests = ref<SpaceRequest[]>([])
   const spaces = ref<Space[]>([])
   const wallet = ref<SharedWallet | null>(null)
+  /** The station's SyftHub identity — one token, shared by every wallet. */
+  const identity = ref<StationIdentity | null>(null)
   /** Raw admin earnings payload — getters below derive every view from it. */
   const earnings = ref<EarningsResponse | null>(null)
   const balances = ref<OutstandingBalanceResponse[]>([])
@@ -239,7 +242,6 @@ export const useStationStore = defineStore('station', () => {
     return {
       provider: w.provider as WalletProvider,
       currency: w.currency,
-      hubConnected: w.wallet_owner !== null,
     }
   }
 
@@ -600,28 +602,46 @@ export const useStationStore = defineStore('station', () => {
     provider: WalletProvider
     currency: string
     credentials: Record<string, string>
-    /** Paste an existing SyftHub API token — or set syfthubPassword to mint one. */
-    syfthubApiToken?: string
-    syfthubPassword?: string
   }): Promise<{ spacesAttached: number; spacesFailed: number }> {
     const result = await creditsApi.setupWallet({
       provider: input.provider,
       currency: input.currency,
       credentials: input.credentials,
-      ...(input.syfthubApiToken ? { syfthub_api_token: input.syfthubApiToken } : {}),
-      ...(input.syfthubPassword ? { syfthub_password: input.syfthubPassword } : {}),
     })
     wallet.value = mapWallet(result)
     return { spacesAttached: result.spaces_attached, spacesFailed: result.spaces_failed }
   }
 
-  // Thin API pass-throughs so UI never imports @/api/endpoints directly (keeps
-  // the store the single seam onto the backend). Neither owns store state:
-  // mintHubToken returns an ephemeral token the wallet form submits with setup;
-  // spaceLogs returns a transient log snapshot the viewer renders.
-  function mintHubToken(password: string): Promise<HubTokenMintResponse> {
-    return creditsApi.mintHubToken({ password })
+  function mapIdentity(i: IdentityResponse): StationIdentity {
+    return {
+      connected: i.connected,
+      username: i.username,
+      email: i.email,
+      satelliteId: i.satellite_id,
+    }
   }
+
+  /** Admin: the station's SyftHub identity (never the token itself). */
+  async function loadIdentity(): Promise<void> {
+    identity.value = mapIdentity(await setupApi.identity())
+  }
+
+  /** Admin: connect or rotate it. Registers the station's satellite too. */
+  async function connectIdentity(input: {
+    syfthubApiToken?: string
+    syfthubPassword?: string
+  }): Promise<void> {
+    identity.value = mapIdentity(
+      await setupApi.connectIdentity({
+        ...(input.syfthubApiToken ? { syfthub_api_token: input.syfthubApiToken } : {}),
+        ...(input.syfthubPassword ? { syfthub_password: input.syfthubPassword } : {}),
+      }),
+    )
+  }
+
+  // Thin API pass-through so UI never imports @/api/endpoints directly (keeps
+  // the store the single seam onto the backend). Owns no store state:
+  // spaceLogs returns a transient log snapshot the viewer renders.
 
   function spaceLogs(spaceId: string): Promise<SpaceLogsResponse> {
     return spacesApi.logs(spaceId)
@@ -667,7 +687,9 @@ export const useStationStore = defineStore('station', () => {
     subdomainInUse,
     spaceIncludes,
     setupWallet,
-    mintHubToken,
+    identity,
+    loadIdentity,
+    connectIdentity,
     spaceLogs,
     requestsFor,
     inflightCreatesFor,

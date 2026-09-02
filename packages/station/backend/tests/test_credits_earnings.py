@@ -48,9 +48,16 @@ from syft_station.components.requests.entities import (
     RequestType,
 )
 from syft_station.components.requests.repository import RequestRepository
+from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.repository import SpaceRepository
-from tests.conftest import ADMIN, MEMBER, StubHubIdentity, buyer_auth
+from tests.conftest import (
+    ADMIN,
+    MEMBER,
+    StubHubIdentity,
+    buyer_auth,
+    connect_station_identity,
+)
 
 SPACE_A = uuid4()
 SPACE_B = uuid4()
@@ -175,19 +182,27 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
     rollout = WalletRollout(
         SpaceRepository(db),
         MockProvisioner(),
-        SpaceCreditsService(wallets, tokens, "http://station.test", "http://pub.test"),
+        SpaceCreditsService(
+            wallets,
+            tokens,
+            SetupRepository(db),
+            "http://station.test",
+            "http://pub.test",
+        ),
     )
+    hub = StubHubIdentity()
     app = FastAPI()
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, {}, rollout, StubHubIdentity()),  # type: ignore[arg-type]
-            CheckoutHandler(db, wallets, {}, StubHubIdentity()),  # type: ignore[arg-type]
+            WalletAdminHandler(wallets, {}, rollout),
+            CheckoutHandler(db, wallets, {}, hub, SetupRepository(db)),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, {}),
             EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),
         ),
         prefix="/api/v1",
     )
+    await connect_station_identity(db, hub)
     app.dependency_overrides[get_current_user] = lambda: MEMBER
     app.dependency_overrides[require_admin] = lambda: ADMIN
     return EarningsTestbed(db, app)

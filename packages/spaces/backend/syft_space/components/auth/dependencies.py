@@ -51,14 +51,19 @@ async def get_verified_user_email(
     if token == app_settings.admin_api_key:
         return marketplace.email
 
-    # Otherwise, verify token with SyftHub
+    # The satellite id narrows the accepted audience to this space, so a
+    # token minted for another service the same owner runs is rejected.
     try:
         async with SyftHubClient(str(marketplace.url)) as client:
             await client.login(marketplace.email, marketplace.password)
-            result = await client.verify_satellite_token(token)
+            result = await client.verify_satellite_token(
+                token, marketplace.satellite_id
+            )
     except SyftHubError as e:
         raise e.to_http_exception() from e
 
+    # TODO: guest tokens (sub == "guest") are accepted here but rejected by
+    # the station. Worth aligning the two receivers.
     if not result.valid:
         raise HTTPException(status_code=401, detail="Invalid satellite token")
     if result.is_expired:

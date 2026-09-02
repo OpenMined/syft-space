@@ -227,6 +227,38 @@ async def _sync_endpoints_safe(handler: PublishEndpointHandler, tenant: Tenant) 
         logger.warning(f"Endpoint sync failed: {e} - server will continue running")
 
 
+async def _register_satellites_safe(handler: SettingsHandler, tenant: Tenant) -> None:
+    """Register this space with its marketplaces without blocking startup.
+
+    Args:
+        handler: Settings handler instance
+        tenant: Tenant context
+    """
+    try:
+        await asyncio.wait_for(handler.ensure_satellites(tenant), timeout=30.0)
+    except asyncio.TimeoutError:
+        logger.warning("Satellite registration timed out - server will continue")
+    except Exception as e:
+        logger.warning(f"Satellite registration failed: {e} - server will continue")
+
+
+async def _startup_marketplace_sync(
+    settings_handler: SettingsHandler,
+    publish_handler: PublishEndpointHandler,
+    tenant: Tenant,
+    proxy_service: ProxyService,
+) -> None:
+    """Settle the public URL, register satellites, then sync endpoints.
+
+    Ordered, not concurrent: the sync is satellite-scoped, so it runs after
+    this space knows which satellite it is. Each step swallows its own
+    failures and the next still runs.
+    """
+    await _sync_public_url_safe(settings_handler, tenant, proxy_service)
+    await _register_satellites_safe(settings_handler, tenant)
+    await _sync_endpoints_safe(publish_handler, tenant)
+
+
 async def _warmup_dataset_types(handler: DatasetHandler) -> None:
     """Warm up dataset type imports in background to avoid first-request latency."""
     try:
@@ -357,24 +389,15 @@ async def lifespan(app: FastAPI):
 
     # 6. Fire-and-forget sync tasks (wait for proxy to be ready first)
     if default_tenant:
-        # Sync public URL to marketplace
+        # Public URL → satellite registration → endpoint sync, in that order
         asyncio.create_task(
             run_after_event(
                 proxy_ready_event,
-                _sync_public_url_safe,
+                _startup_marketplace_sync,
                 settings_handler,
-                default_tenant,
-                proxy_service,
-            )
-        )
-
-        # Sync endpoints to marketplaces
-        asyncio.create_task(
-            run_after_event(
-                proxy_ready_event,
-                _sync_endpoints_safe,
                 publish_endpoint_handler,
                 default_tenant,
+                proxy_service,
             )
         )
 

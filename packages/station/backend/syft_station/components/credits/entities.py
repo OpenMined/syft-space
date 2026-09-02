@@ -61,6 +61,9 @@ class Wallet(SQLModel, table=True):
     handler, not the schema, so multi-wallet later is a code change only.
     Currency is locked at setup (station currency = wallet currency);
     replacing the wallet must keep the currency in v1.
+
+    The SyftHub identity lives on StationConfig, not here: one token verifies
+    buyers for every wallet, so minting one per wallet would be waste.
     """
 
     __tablename__ = "wallets"
@@ -72,17 +75,6 @@ class Wallet(SQLModel, table=True):
         default_factory=dict,
         sa_column=Column(JSON),
         description="Provider credentials (API keys, webhook secret)",
-    )
-    hub_user_id: int | None = Field(
-        default=None,
-        description="SyftHub user id of the wallet owner — published to the hub "
-        "as wallet_owner so it can mint buyer tokens with the right audience",
-    )
-    hub_pat: str | None = Field(
-        default=None,
-        description="SyftHub API token (PAT) used to verify buyers' satellite "
-        "tokens server-side; pasted by the admin at wallet setup, or minted "
-        "one-shot from their password",
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -1,8 +1,6 @@
 import { apiClient } from '@/api/client'
 import type {
   EarningsResponse,
-  HubTokenMintBody,
-  HubTokenMintResponse,
   MemberEarningsResponse,
   OutstandingBalancesResponse,
   PayoutBody,
@@ -22,9 +20,6 @@ export const creditsApi = {
   /** Admin: create or replace the station wallet; attaches unbound spaces. */
   setupWallet: (body: WalletSetupBody): Promise<WalletSetupResponse> =>
     apiClient.put('/credits/admin/wallet', body),
-  /** Admin: mint a SyftHub API token for the wallet form (password used once). */
-  mintHubToken: (body: HubTokenMintBody): Promise<HubTokenMintResponse> =>
-    apiClient.post('/credits/admin/wallet/hub-token', body),
   /** Admin: the ledger-derived money dashboard. */
   earnings: (): Promise<EarningsResponse> => apiClient.get('/credits/admin/earnings'),
   /** Admin: unspent user credit — the station's liability. */

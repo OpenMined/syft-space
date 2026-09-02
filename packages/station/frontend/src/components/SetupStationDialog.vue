@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import VersionSelect from '@/components/VersionSelect.vue'
+import SyftHubIdentityCard from '@/components/SyftHubIdentityCard.vue'
 import WalletSetupForm from '@/components/WalletSetupForm.vue'
 import WalletSummaryCard from '@/components/WalletSummaryCard.vue'
 import { ApiError } from '@/api/client'
@@ -273,8 +274,8 @@ async function finish() {
             <Lock class="mt-0.5 h-3 w-3 shrink-0" />
             <span>
               For HTTPS, the spaces' certificate needs a
-              <code>*.{{ domainInput.trim() || 'your-domain' }}</code> wildcard name — a
-              certificate wildcard covers exactly one label.
+              <code>*.{{ domainInput.trim() || 'your-domain' }}</code> wildcard name — a certificate
+              wildcard covers exactly one label.
             </span>
           </p>
           <div class="flex items-center justify-between">
@@ -326,6 +327,8 @@ async function finish() {
             space; you pay members for what users spend. Skip it to run without pooled payments —
             you can add it later from Earnings.
           </p>
+          <SyftHubIdentityCard />
+
           <WalletSetupForm ref="walletForm" />
           <div class="flex items-center justify-between">
             <Button

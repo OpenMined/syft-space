@@ -103,7 +103,7 @@ function formatDay(iso: string): string {
             <span class="font-medium capitalize">{{ station.wallet.provider }}</span>
             <Badge variant="secondary">{{ station.wallet.currency }}</Badge>
             <Badge
-              v-if="station.wallet.hubConnected"
+              v-if="station.identity?.connected"
               variant="secondary"
               title="The wallet holds a SyftHub API token and can verify buyers' sign-ins"
             >

@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
+from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.marketplaces.schemas import (
     ConnectMarketplaceRequest,
     EmailVerificationRequiredResponse,
@@ -16,6 +17,7 @@ from syft_space.components.marketplaces.schemas import (
     VerifyMarketplaceOTPRequest,
 )
 from syft_space.components.shared.syfthub_client import (
+    Satellite,
     SyftHubClient,
     SyftHubError,
     UserResponse,
@@ -34,6 +36,7 @@ class MarketplaceHandler:
             repository: Marketplace repository
         """
         self.repository = repository
+        self.satellites = SatelliteRegistrar(repository)
 
     async def register_marketplace(
         self, request: RegisterMarketplaceRequest, tenant: Tenant
@@ -65,7 +68,7 @@ class MarketplaceHandler:
                     )
 
                 await syfthub_client.login(request.email, request.password)
-                await self._sync_public_url(syfthub_client)
+                satellite = await self._register_satellite(syfthub_client)
             except SyftHubError as e:
                 raise e.to_http_exception() from e
 
@@ -74,6 +77,7 @@ class MarketplaceHandler:
             url=str(request.url),
             user=register_response.user,
             password=request.password,
+            satellite=satellite,
         )
 
     async def verify_marketplace_otp(
@@ -90,7 +94,7 @@ class MarketplaceHandler:
                 syfthub_client.authenticate_with_tokens(
                     verify_response.access_token, verify_response.refresh_token
                 )
-                await self._sync_public_url(syfthub_client)
+                satellite = await self._register_satellite(syfthub_client)
             except SyftHubError as e:
                 raise e.to_http_exception() from e
 
@@ -99,6 +103,7 @@ class MarketplaceHandler:
             url=str(request.url),
             user=verify_response.user,
             password=request.password,
+            satellite=satellite,
         )
 
     async def resend_marketplace_otp(
@@ -117,10 +122,22 @@ class MarketplaceHandler:
             )
         }
 
-    async def _sync_public_url(self, syfthub_client: SyftHubClient) -> None:
-        """Push the locally-configured public URL to SyftHub as the user's domain."""
-        if app_settings.public_url:
-            await syfthub_client.update_profile(domain=str(app_settings.public_url))
+    async def _register_satellite(
+        self,
+        syfthub_client: SyftHubClient,
+        satellite_id: str | None = None,
+    ) -> Satellite | None:
+        """Register this space with SyftHub at its configured public URL.
+
+        Runs before the marketplace row exists on the signup paths, so the
+        registration is returned rather than persisted here — the caller
+        writes it as part of creating (or updating) the row.
+        """
+        return await self.satellites.ensure_with_client(
+            syfthub_client,
+            str(app_settings.public_url) if app_settings.public_url else None,
+            satellite_id,
+        )
 
     async def _persist_marketplace_after_signup(
         self,
@@ -129,6 +146,7 @@ class MarketplaceHandler:
         url: str,
         user: UserResponse,
         password: str,
+        satellite: Satellite | None = None,
     ) -> MarketplaceResponse:
         """Shared persistence path for register + verify-OTP + connect-new flows."""
         marketplace = await self.repository.create(
@@ -139,6 +157,7 @@ class MarketplaceHandler:
                 url=url,
                 email=user.email,
                 password=password,
+                satellite_id=str(satellite.id) if satellite else None,
                 is_default=False,
                 is_active=True,
             )
@@ -163,6 +182,14 @@ class MarketplaceHandler:
         Returns:
             Created marketplace
         """
+        # Read the row first so a reconnect reuses the satellite it already
+        # holds. Connecting a *different* account leaves a stale id here —
+        # the move then 404s and the registrar re-registers under the new
+        # account, so the row self-heals.
+        existing_marketplace = await self.repository.get_by_url(
+            str(request.url), tenant.id
+        )
+
         async with SyftHubClient(str(request.url)) as syfthub_client:
             try:
                 # use_cache=False: this login validates user-supplied
@@ -172,13 +199,12 @@ class MarketplaceHandler:
                     request.username, request.password, use_cache=False
                 )
                 user_profile = await syfthub_client.profile()
-                await self._sync_public_url(syfthub_client)
+                satellite = await self._register_satellite(
+                    syfthub_client,
+                    existing_marketplace.satellite_id if existing_marketplace else None,
+                )
             except SyftHubError as e:
                 raise e.to_http_exception() from e
-
-        existing_marketplace = await self.repository.get_by_url(
-            str(request.url), tenant.id
-        )
 
         if existing_marketplace is None:
             return await self._persist_marketplace_after_signup(
@@ -190,6 +216,7 @@ class MarketplaceHandler:
                     full_name=user_profile.full_name,
                 ),
                 password=request.password,
+                satellite=satellite,
             )
 
         marketplace = await self.repository.update(
@@ -201,6 +228,9 @@ class MarketplaceHandler:
             password=request.password,
             is_active=True,
         )
+
+        if satellite is not None and marketplace is not None:
+            await self.satellites.persist(marketplace, tenant.id, satellite)
 
         if app_settings.default_marketplace_url == request.url:
             marketplace = await self.repository.set_as_default(

@@ -86,6 +86,10 @@ spec:
             # off it (optionally under a prefix), so this is the single source.
             - name: SYFT_STATION_PUBLIC_URL
               value: {{ include "syft-station.publicUrl" . | quote }}
+            # Seeds the station's satellite id on a fresh database, so a
+            # re-spun station reclaims its SyftHub registration.
+            - name: SYFT_STATION_SATELLITE_ID
+              value: {{ .Values.station.satelliteId | quote }}
             {{- range $k, $v := .Values.station.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}
