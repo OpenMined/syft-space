@@ -226,9 +226,9 @@
 
           <!-- Step 1: Choose Data Source -->
           <div v-if="currentSubStep === 1" class="space-y-6">
-            <!-- Data source selection cards - only show if there are existing datasets -->
+            <!-- Always offer "add a source"; the existing-sources card below
+                 appears only when there is something to choose from. -->
             <div
-              v-if="existingDataSourcesCount > 0"
               :class="[
                 'grid gap-6',
                 existingDataSourcesCount > 0 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1',
@@ -238,11 +238,11 @@
               <Card
                 :class="[
                   'transition-all duration-200 border-2 cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-400 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 dark:hover:from-blue-950/30 dark:hover:to-indigo-950/30 bg-card',
-                  selectedDataSourceType === 'filesystem'
+                  selectedDataSourceType === 'new'
                     ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30'
                     : 'border-border bg-card',
                 ]"
-                @click="selectDataSourceType('filesystem')"
+                @click="openSourcePicker"
               >
                 <CardContent class="p-6 h-full">
                   <div class="flex flex-col items-center text-center h-full">
@@ -252,9 +252,9 @@
                       <FileText class="w-7 h-7 text-blue-600 dark:text-blue-400" />
                     </div>
 
-                    <h3 class="heading-3 text-foreground mb-2">Add Files</h3>
+                    <h3 class="heading-3 text-foreground mb-2">Add a data source</h3>
                     <p class="body-sm text-muted-foreground mb-4">
-                      Add documents, spreadsheets, or text files from your computer
+                      Pick a source — your files, or a site you publish — and choose what to share
                     </p>
 
                     <div class="space-y-2 body-sm text-muted-foreground mb-4 flex-grow">
@@ -440,19 +440,27 @@
             </div>
 
             <!-- File Explorer (shown when filesystem is selected) -->
-            <div v-if="selectedDataSourceType === 'filesystem'" class="mt-6">
+            <PickSourceDialog v-model:open="showPickSourceDialog" @continue="handleSourcePicked" />
+
+            <div v-if="selectedDataSourceType === 'new'" class="mt-6">
               <Card class="bg-card border-border">
                 <CardContent class="p-6">
                   <SourceBrowser
+                    :key="pickedSourceType"
                     ref="sourceBrowserRef"
-                    dtype="local_file"
+                    :dtype="pickedSourceType"
+                    :configuration="pickedCredentials"
                     v-model="selectedFiles"
                   />
                 </CardContent>
               </Card>
 
-              <!-- File descriptions for selected files -->
-              <div v-if="selectedFiles.length > 0" class="mt-4 space-y-3">
+              <!-- Per-item descriptions, local files only — same gate the
+                   create dialog uses. -->
+              <div
+                v-if="pickedSourceType === 'local_file' && selectedFiles.length > 0"
+                class="mt-4 space-y-3"
+              >
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
                     <h4 class="text-sm font-medium text-foreground">Selected Paths</h4>
@@ -992,7 +1000,7 @@
 
               <!-- Watched Paths Descriptions -->
               <div
-                v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0"
+                v-if="selectedDataSourceType === 'new' && selectedFiles.length > 0"
                 class="space-y-3"
               >
                 <div class="flex items-center justify-between">
@@ -1169,15 +1177,14 @@
                   <div>
                     <p class="body-sm font-medium text-muted-foreground mb-2">Data Source</p>
                     <div class="flex items-center gap-2">
-                      <div
-                        v-if="selectedDataSourceType === 'filesystem'"
-                        class="flex items-center gap-2"
-                      >
-                        <FolderOpen class="w-4 h-4 text-primary" />
-                        <span class="text-foreground">File System</span>
+                      <div v-if="selectedDataSourceType === 'new'" class="flex items-center gap-2">
+                        <span>{{ sourcePresentation(pickedSourceType).icon }}</span>
+                        <span class="text-foreground">
+                          {{ sourcePresentation(pickedSourceType).label }}
+                        </span>
                         <span class="body-sm text-muted-foreground"
                           >({{ selectedFiles.length }}
-                          {{ selectedFiles.length === 1 ? 'file' : 'files' }})</span
+                          {{ selectedFiles.length === 1 ? 'item' : 'items' }})</span
                         >
                       </div>
                       <div
@@ -1234,7 +1241,7 @@
 
               <!-- Configured Files Detail -->
               <div
-                v-if="selectedDataSourceType === 'filesystem' && selectedFiles.length > 0"
+                v-if="selectedDataSourceType === 'new' && selectedFiles.length > 0"
                 class="border-t pt-6"
               >
                 <p class="body-sm font-medium text-muted-foreground mb-3">Selected Files</p>
@@ -1500,6 +1507,8 @@ import {
 } from '@/components/ui/dialog'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import SourceBrowser from '@/components/SourceBrowser.vue'
+import PickSourceDialog from '@/components/PickSourceDialog.vue'
+import { sourcePresentation } from '@/config/sources'
 import ModelSelector from '@/components/ModelSelector.vue'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
@@ -1639,8 +1648,13 @@ const formData = ref({
   aiModel: '', // Will be set when user selects a model
 })
 
-// Data source selection
-const selectedDataSourceType = ref<'filesystem' | 'existing' | ''>('')
+// Data source selection. 'new' means "browse a source and create a dataset
+// from it" — the source itself is whatever the picker chose, not necessarily
+// the local filesystem.
+const selectedDataSourceType = ref<'new' | 'existing' | ''>('')
+const showPickSourceDialog = ref(false)
+const pickedSourceType = ref<string>('local_file')
+const pickedCredentials = ref<Record<string, string>>({})
 const selectedFiles = ref<string[]>([])
 const fileDescriptions = ref({} as Record<string, string>)
 const sourceBrowserRef = ref<InstanceType<typeof SourceBrowser> | null>(null)
@@ -1793,7 +1807,7 @@ const endpointNameError = computed(() => {
 
 const isCurrentStepValid = computed(() => {
   if (currentSubStep.value === 1) {
-    if (selectedDataSourceType.value === 'filesystem') {
+    if (selectedDataSourceType.value === 'new') {
       return selectedFiles.value.length > 0
     } else if (selectedDataSourceType.value === 'existing') {
       return formData.value.selectedDataSource !== ''
@@ -1845,8 +1859,28 @@ const handleEndpointNameInput = () => {
   }
 }
 
-const selectDataSourceType = (type: 'filesystem' | 'existing') => {
+const selectDataSourceType = (type: 'new' | 'existing') => {
   selectedDataSourceType.value = type
+}
+
+// Choosing a source is the step this flow used to skip: it browsed the local
+// filesystem and nothing else. The picker names the type and collects its
+// credentials, which the browser below and the create call both need.
+const openSourcePicker = () => {
+  showPickSourceDialog.value = true
+}
+
+const handleSourcePicked = (payload: {
+  sourceType: string
+  credentials: Record<string, string>
+}) => {
+  pickedSourceType.value = payload.sourceType
+  pickedCredentials.value = payload.credentials
+  // A different source means a different tree; anything picked from the old
+  // one is meaningless against it.
+  selectedFiles.value = []
+  fileDescriptions.value = {}
+  selectedDataSourceType.value = 'new'
 }
 
 const nextStep = async () => {
@@ -1886,6 +1920,8 @@ const nextStep = async () => {
 const publishEndpoint = async () => {
   const endpointData = {
     selectedDataSourceType: selectedDataSourceType.value,
+    sourceType: pickedSourceType.value,
+    sourceConfiguration: pickedCredentials.value,
     selectedFiles: selectedFiles.value,
     fileDescriptions: fileDescriptions.value,
     selectedDataSource: formData.value.selectedDataSource,
@@ -2160,11 +2196,6 @@ const getModelDisplayName = (): string => {
 // Load datasets when component mounts
 onMounted(async () => {
   await loadExistingDatasets()
-
-  // Auto-select filesystem if no existing datasets are available
-  if (existingDataSourcesCount.value === 0 && !selectedDataSourceType.value) {
-    selectedDataSourceType.value = 'filesystem'
-  }
 })
 
 // Cleanup debounce timer when component unmounts

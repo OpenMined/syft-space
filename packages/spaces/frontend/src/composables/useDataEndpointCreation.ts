@@ -21,8 +21,11 @@ export interface PolicyRules {
 }
 
 export interface DataEndpointCreationData {
-  // Step 1: Data source
-  selectedDataSourceType: 'filesystem' | 'existing' | ''
+  // Step 1: Data source. 'new' creates a dataset from whichever source the
+  // picker chose; sourceType/sourceConfiguration describe it.
+  selectedDataSourceType: 'new' | 'existing' | ''
+  sourceType: string
+  sourceConfiguration: Record<string, string>
   selectedFiles: string[]
   fileDescriptions: Record<string, string>
   selectedDataSource: string // For existing dataset selection
@@ -63,20 +66,20 @@ export function useDataEndpointCreation() {
   // Computed
   const isLoading = computed(() => isCreating.value)
 
-  // Step 1: Create dataset (if filesystem source)
+  // Step 1: Create the dataset, when the source is a new one
   const createDataset = async (data: DataEndpointCreationData): Promise<string | null> => {
-    if (data.selectedDataSourceType !== 'filesystem') {
-      return null // No dataset to create
+    if (data.selectedDataSourceType !== 'new') {
+      return null // Reusing an existing dataset
     }
 
     creationStep.value = 'Creating dataset...'
 
     const createRequest: CreateDatasetRequest = {
-      dtype: 'local_file',
+      dtype: data.sourceType,
       name: data.endpointName,
       summary: `Dataset for ${data.summary}`,
       tags: data.tags.join(','),
-      configuration: {},
+      configuration: data.sourceConfiguration,
       // Stored server-side in the dataset_selection table.
       selected_items: data.selectedFiles.map((itemId) => ({
         item_id: itemId,

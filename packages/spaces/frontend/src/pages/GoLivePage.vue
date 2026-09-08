@@ -51,6 +51,7 @@ import { modelsApi } from '@/api/endpoints/models'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import ModelSelector from '@/components/ModelSelector.vue'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import PickSourceDialog from '@/components/PickSourceDialog.vue'
 import CreateModelDialogSimple from '@/components/CreateModelDialogSimple.vue'
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
@@ -141,11 +142,41 @@ const toggleModel = (id: string) => {
   }
 }
 
+const showPickSourceDialog = ref(false)
 const showCreateDatasetDialog = ref(false)
 const showCreateModelDialog = ref(false)
 
+// Which source the picker chose, and the credentials it collected. Without
+// these the create dialog falls back to its local_file default, which is
+// what made this flow filesystem-only.
+const pickedSourceType = ref<string>('local_file')
+const pickedCredentials = ref<Record<string, string>>({})
+
+const openSourcePicker = () => {
+  pickedSourceType.value = 'local_file'
+  pickedCredentials.value = {}
+  showPickSourceDialog.value = true
+}
+
+const handleSourcePicked = (payload: {
+  sourceType: string
+  credentials: Record<string, string>
+}) => {
+  pickedSourceType.value = payload.sourceType
+  pickedCredentials.value = payload.credentials
+  showCreateDatasetDialog.value = true
+}
+
+// Dismissing the dialog drops the credentials the picker collected; they are
+// browser-only until a dataset is created, so they should not outlive a cancel.
+const handleCreateDatasetOpen = (open: boolean) => {
+  showCreateDatasetDialog.value = open
+  if (!open) pickedCredentials.value = {}
+}
+
 const handleDatasetCreated = async () => {
   showCreateDatasetDialog.value = false
+  pickedCredentials.value = {}
   datasets.value = await datasetsApi.list()
 }
 
@@ -766,7 +797,7 @@ const handleOverwriteConfirm = async () => {
 
                   <button
                     class="p-4 rounded-lg border border-dashed border-border hover:border-primary/40 text-left transition-all flex items-center gap-3 text-muted-foreground hover:text-foreground"
-                    @click="showCreateDatasetDialog = true"
+                    @click="openSourcePicker"
                   >
                     <Plus class="h-5 w-5 shrink-0" />
                     <span class="text-sm font-medium">Add data source</span>
@@ -1704,10 +1735,16 @@ const handleOverwriteConfirm = async () => {
       </DialogContent>
     </Dialog>
 
+    <!-- Choose the source type before creating — same two-step flow as the
+         Data Sources page, so every source type is reachable from here too. -->
+    <PickSourceDialog v-model:open="showPickSourceDialog" @continue="handleSourcePicked" />
+
     <!-- Create Data Source Dialog -->
     <CreateDatasetDialogSimple
       :open="showCreateDatasetDialog"
-      @update:open="showCreateDatasetDialog = $event"
+      :source-type="pickedSourceType"
+      :credentials="pickedCredentials"
+      @update:open="handleCreateDatasetOpen"
       @dataset-created="handleDatasetCreated"
     />
 
