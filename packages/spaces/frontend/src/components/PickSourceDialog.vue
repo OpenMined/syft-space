@@ -26,8 +26,8 @@
             </SelectTrigger>
             <SelectContent>
               <SelectItem v-for="source in browsableTypes" :key="source.name" :value="source.name">
-                <span class="mr-2">{{ presentation(source.name).icon }}</span>
-                {{ presentation(source.name).label }}
+                <span class="mr-2">{{ sourcePresentation(source.name).icon }}</span>
+                {{ sourcePresentation(source.name).label }}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -142,65 +142,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { sourcePresentation } from '@/config/sources'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import type { DatasetTypeInfoResponse } from '@/api/types'
-
-interface FieldCopy {
-  label?: string
-  placeholder?: string
-  // Render as a chip list. Values are joined with `separator` into the
-  // single string the backend config field expects.
-  list?: { separator: string }
-}
-
-interface SourceCopy {
-  label: string
-  icon: string
-  description?: string
-  fields?: Record<string, FieldCopy>
-}
-
-// Presentation layer: all user-facing copy lives here, keyed by source type.
-// The backend schema supplies structure (which fields, required, type/format)
-// and is the fallback for labels/description when an entry is missing here.
-const PRESENTATION: Record<string, SourceCopy> = {
-  local_file: {
-    label: 'Local files',
-    icon: '📁',
-    description: 'Files and folders from this machine.',
-  },
-  wordpress: {
-    label: 'WordPress',
-    icon: '📰',
-    description: 'Posts and pages from a self-hosted WordPress site.',
-    fields: {
-      siteUrl: { label: 'Site URL', placeholder: 'https://example.com' },
-      username: { label: 'Username', placeholder: 'wp-admin user_login' },
-      applicationPassword: {
-        label: 'Application password',
-        placeholder: 'Generate under Users → Profile → Application Passwords',
-      },
-    },
-  },
-  blogspot: {
-    label: 'Blogspot',
-    icon: '✍️',
-    description: 'Posts from public Blogger blogs. One API key covers any number of blogs.',
-    fields: {
-      blogUrls: {
-        label: 'Blog URLs',
-        placeholder: 'https://example.blogspot.com',
-        list: { separator: ',' },
-      },
-      apiKey: {
-        label: 'API key',
-        placeholder: 'Google API key with the Blogger API enabled',
-      },
-    },
-  },
-}
-
-const presentation = (name: string): SourceCopy => PRESENTATION[name] ?? { label: name, icon: '🗂️' }
 
 const props = defineProps<{
   open: boolean
@@ -241,14 +185,14 @@ const selectedType = computed(
 const selectedDescription = computed(() => {
   const type = selectedType.value
   if (!type) return ''
-  return presentation(type.name).description ?? type.description
+  return sourcePresentation(type.name).description ?? type.description
 })
 
 const requiredFields = computed(() => {
   const type = selectedType.value
   const schema = type?.browse_schema
   if (!type || !schema?.properties) return []
-  const fieldCopy = presentation(type.name).fields ?? {}
+  const fieldCopy = sourcePresentation(type.name).fields ?? {}
   return (schema.required ?? []).map((name) => {
     const prop = schema.properties?.[name]
     const copy = fieldCopy[name]
