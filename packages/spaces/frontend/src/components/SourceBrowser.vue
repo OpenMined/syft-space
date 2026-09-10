@@ -171,7 +171,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue'
-import { FileText, HardDrive, Newspaper, PenLine, ShieldAlert, X } from 'lucide-vue-next'
+import { FileText, HardDrive, Newspaper, PenLine, Rss, ShieldAlert, X } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -231,6 +231,20 @@ const PRESENTATIONS: Record<string, SourcePresentation> = {
       'Tick a blog to follow all of its posts, or expand it and pick individual posts.',
     footerHint:
       'Ticking a blog follows the whole blog, including posts published later. Expand it to pick individual posts instead.',
+    containerMode: 'self',
+  },
+  rss: {
+    headerTitle: 'Select feeds & articles',
+    panelIcon: Rss,
+    panelLabel: 'RSS / Atom feeds',
+    loadingText: 'Fetching feeds…',
+    emptyText: 'No feeds resolved from those URLs.',
+    selectionTitle: 'Selected Feeds & Articles',
+    selectionEmptyTitle: 'No items selected',
+    selectionEmptyHint:
+      'Tick a feed to follow every article it publishes, or expand it and pick individual articles.',
+    footerHint:
+      'Ticking a feed follows it, including articles published later. Picking individual articles ingests just those — a feed only lists its most recent articles, and older ones cannot be fetched back.',
     containerMode: 'self',
   },
 }
