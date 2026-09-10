@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, Check, Globe, Rocket, Tag, Wallet } from 'lucide-vue-next'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  ExternalLink,
+  Globe,
+  Rocket,
+  Tag,
+  Wallet,
+} from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -207,9 +216,11 @@ async function finish() {
               :href="DOCS.dnsAndTls"
               target="_blank"
               rel="noopener"
-              class="underline underline-offset-2 hover:text-foreground"
-              >Setup guide</a
+              class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
             >
+              Setup guide
+              <ExternalLink class="h-3 w-3" />
+            </a>
           </p>
           <div class="space-y-1.5">
             <Label>Station</Label>
@@ -265,9 +276,11 @@ async function finish() {
               :href="DOCS.dnsAndTls"
               target="_blank"
               rel="noopener"
-              class="underline underline-offset-2 hover:text-foreground"
-              >Setup guide</a
+              class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
             >
+              Setup guide
+              <ExternalLink class="h-3 w-3" />
+            </a>
           </p>
           <div class="space-y-1.5">
             <Label for="setup-domain">Domain</Label>
@@ -329,9 +342,11 @@ async function finish() {
               :href="DOCS.creditsAndPayouts"
               target="_blank"
               rel="noopener"
-              class="underline underline-offset-2 hover:text-foreground"
-              >How credits work</a
+              class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
             >
+              How credits work
+              <ExternalLink class="h-3 w-3" />
+            </a>
           </p>
           <SyftHubIdentityCard />
 
@@ -371,9 +386,11 @@ async function finish() {
             :href="DOCS.versions"
             target="_blank"
             rel="noopener"
-            class="underline underline-offset-2 hover:text-foreground"
-            >Version updates</a
+            class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
           >
+            Version updates
+            <ExternalLink class="h-3 w-3" />
+          </a>
         </p>
         <div class="space-y-1.5">
           <Label>Version</Label>

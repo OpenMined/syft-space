@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
+import { ExternalLink } from 'lucide-vue-next'
 import SyftHubIdentityCard from '@/components/SyftHubIdentityCard.vue'
 import WalletSetupForm from '@/components/WalletSetupForm.vue'
 import { Button } from '@/components/ui/button'
@@ -57,9 +58,11 @@ async function save() {
             :href="DOCS.creditsAndPayouts"
             target="_blank"
             rel="noopener"
-            class="underline underline-offset-2 hover:text-foreground"
-            >How credits work</a
+            class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
           >
+            How credits work
+            <ExternalLink class="h-3.5 w-3.5" />
+          </a>
         </DialogDescription>
       </DialogHeader>
 

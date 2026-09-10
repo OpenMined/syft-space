@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Check, Globe, Send } from 'lucide-vue-next'
+import { Check, ExternalLink, Globe, Send } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -61,9 +61,11 @@ async function submit() {
           :href="DOCS.membersQuickstart"
           target="_blank"
           rel="noopener"
-          class="underline underline-offset-2 hover:text-foreground"
-          >How it works</a
+          class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
         >
+          How it works
+          <ExternalLink class="h-3.5 w-3.5" />
+        </a>
       </CardDescription>
     </CardHeader>
     <CardContent>

@@ -4,6 +4,7 @@ import {
   Banknote,
   Coins,
   Copy,
+  ExternalLink,
   HandCoins,
   Pencil,
   TrendingUp,
@@ -157,9 +158,11 @@ function formatDay(iso: string): string {
               :href="DOCS.creditsAndPayouts"
               target="_blank"
               rel="noopener"
-              class="underline underline-offset-2 hover:text-foreground"
-              >How credits work</a
+              class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
             >
+              How credits work
+              <ExternalLink class="h-3 w-3" />
+            </a>
           </p>
         </div>
         <Button size="sm" @click="walletOpen = true">
@@ -197,7 +200,7 @@ function formatDay(iso: string): string {
             </p>
           </CardContent>
         </Card>
-        <Card class="border-primary/30 bg-primary/5">
+        <Card class="border-primary/30 bg-primary/8">
           <CardContent>
             <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
               <HandCoins class="h-3.5 w-3.5" />

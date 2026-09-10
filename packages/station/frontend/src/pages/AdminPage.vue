@@ -708,9 +708,11 @@ function formatDate(iso: string): string {
                       :href="DOCS.versions"
                       target="_blank"
                       rel="noopener"
-                      class="underline underline-offset-2 hover:text-foreground"
-                      >Version updates</a
+                      class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
                     >
+                      Version updates
+                      <ExternalLink class="h-3 w-3" />
+                    </a>
                   </p>
                 </div>
                 <div class="flex items-end gap-2">
@@ -747,9 +749,11 @@ function formatDate(iso: string): string {
                     :href="DOCS.creditsAndPayouts"
                     target="_blank"
                     rel="noopener"
-                    class="underline underline-offset-2 hover:text-foreground"
-                    >How credits work</a
+                    class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
                   >
+                    How credits work
+                    <ExternalLink class="h-3 w-3" />
+                  </a>
                 </p>
               </CardContent>
             </Card>
