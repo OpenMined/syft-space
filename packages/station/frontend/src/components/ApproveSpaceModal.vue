@@ -75,7 +75,7 @@ async function approve() {
     // Retry re-runs the failed request as-is; approve allows edits
     if (isRetry.value) await station.retryProvision(props.request.id, config)
     else await station.approveRequest(props.request.id, config)
-    toast.success(isRetry.value ? 'Retrying setup' : 'Approved — setting up the space', {
+    toast.success(isRetry.value ? 'Retrying setup' : 'Approved, setting up the space', {
       description: `${props.request.subdomain}.${station.domain}`,
     })
     emit('update:open', false)
@@ -93,7 +93,7 @@ async function approve() {
     <DialogContent v-if="request">
       <DialogHeader>
         <DialogTitle>{{ isRetry ? 'Retry setup' : 'Approve request' }}</DialogTitle>
-        <DialogDescription> {{ request.requesterEmail }} — verified via SyftHub </DialogDescription>
+        <DialogDescription> {{ request.requesterEmail }} · verified via SyftHub </DialogDescription>
       </DialogHeader>
 
       <div class="space-y-4">
@@ -117,7 +117,7 @@ async function approve() {
         <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Globe class="h-3 w-3" />
           {{ slugify(subdomain) || '—' }}.{{ station.domain }}
-          <span v-if="!isRetry && subdomainTaken" class="text-destructive">— already in use</span>
+          <span v-if="!isRetry && subdomainTaken" class="text-destructive">(already in use)</span>
         </p>
 
         <!-- Wallet picker — only when the station has a wallet; retry keeps
@@ -130,9 +130,9 @@ async function approve() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="station">
-                Station wallet — {{ station.wallet.provider }} · {{ station.wallet.currency }}
+                Station wallet ({{ station.wallet.provider }} · {{ station.wallet.currency }})
               </SelectItem>
-              <SelectItem value="none">No wallet — space runs unbilled</SelectItem>
+              <SelectItem value="none">No wallet (space runs unbilled)</SelectItem>
             </SelectContent>
           </Select>
         </div>

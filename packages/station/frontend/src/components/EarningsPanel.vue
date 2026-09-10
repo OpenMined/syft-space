@@ -4,6 +4,7 @@ import {
   Banknote,
   Coins,
   Copy,
+  ExternalLink,
   HandCoins,
   Pencil,
   TrendingUp,
@@ -16,6 +17,7 @@ import RecordPayoutDialog from '@/components/RecordPayoutDialog.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { DOCS } from '@/lib/docs'
 import { formatMoney } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
 
@@ -112,14 +114,14 @@ function formatDay(iso: string): string {
             <Badge
               v-else
               variant="destructive"
-              title="Buyers can't be verified — replace the wallet and connect SyftHub"
+              title="Buyers can't be verified. Replace the wallet and connect SyftHub"
             >
               SyftHub not connected
             </Badge>
           </div>
           <button
             class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
-            :title="`Payment events are delivered here — set it in ${webhookDashboard}`"
+            :title="`Payment events are delivered here. Set it in ${webhookDashboard}`"
             @click="copyWebhookUrl"
           >
             <Webhook class="h-3 w-3" />
@@ -146,12 +148,21 @@ function formatDay(iso: string): string {
         <div class="min-w-0">
           <p class="flex items-center gap-2 text-sm font-medium">
             <Wallet class="h-4 w-4 text-muted-foreground" />
-            No shared wallet — optional
+            No shared wallet (optional)
           </p>
           <p class="mt-1 text-xs text-muted-foreground">
-            Add one gateway account (Xendit or Stripe) to sell credits that work at every space —
-            you collect the money and pay members for what users spend. Without it, spaces handle
-            payments on their own. One shared wallet per station.
+            Add one payment account (Xendit or Stripe) to sell credits that work at every space. You
+            collect the money and pay members for what users spend. Without a wallet, each space
+            handles its own payments.
+            <a
+              :href="DOCS.creditsAndPayouts"
+              target="_blank"
+              rel="noopener"
+              class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
+            >
+              How credits work
+              <ExternalLink class="h-3 w-3" />
+            </a>
           </p>
         </div>
         <Button size="sm" @click="walletOpen = true">
@@ -162,8 +173,8 @@ function formatDay(iso: string): string {
     </Card>
 
     <template v-if="station.topUps.length > 0">
-      <!-- Stat cards -->
-      <div class="grid gap-3 sm:grid-cols-3">
+      <!-- Stat cards: the money at a glance, with what's owed to members up front -->
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent>
             <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -189,6 +200,17 @@ function formatDay(iso: string): string {
             </p>
           </CardContent>
         </Card>
+        <Card class="border-primary/30 bg-primary/8">
+          <CardContent>
+            <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <HandCoins class="h-3.5 w-3.5" />
+              Owed to members
+            </p>
+            <p class="mt-1 text-2xl font-semibold tracking-tight">
+              {{ formatMoney(station.totalPayable, currency) }}
+            </p>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent>
             <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -202,163 +224,180 @@ function formatDay(iso: string): string {
         </Card>
       </div>
 
-      <!-- Earned by date -->
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-sm">Earned by date</CardTitle>
-          <p class="text-xs text-muted-foreground">
-            Daily query spend across all spaces, last {{ CHART_DAYS }} days.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div class="flex h-36 items-end gap-1.5">
+      <!-- ===== Pay members (the primary action) ===== -->
+      <section class="space-y-3">
+        <h2 class="text-sm font-medium text-muted-foreground">Pay members</h2>
+
+        <!-- Earned by space (payout basis) -->
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-sm">Member payouts</CardTitle>
+            <p class="text-xs text-muted-foreground">
+              Payouts are based on what users actually spend at each space (per-query price ×
+              queries). Record each payout you make so payable amounts stay accurate.
+            </p>
+          </CardHeader>
+          <CardContent class="divide-y p-0">
             <div
-              v-for="day in chart"
-              :key="day.date"
-              class="group relative flex h-full flex-1 flex-col justify-end"
-              :title="`${day.label}: ${formatMoney(day.total, currency)}`"
+              v-for="row in station.earnedBySpace"
+              :key="row.slug"
+              class="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
             >
+              <div class="min-w-0">
+                <span class="text-sm font-medium">{{ row.spaceName }}</span>
+                <Badge v-if="row.deleted" variant="outline" class="ml-2 text-xs">deleted</Badge>
+                <span class="ml-2 text-xs text-muted-foreground">{{ row.ownerEmail }}</span>
+                <div class="mt-0.5 text-xs text-muted-foreground">
+                  {{ row.queries.toLocaleString() }} paid quer{{
+                    row.queries === 1 ? 'y' : 'ies'
+                  }}
+                  · last active {{ formatDay(row.lastActiveAt) }}
+                </div>
+              </div>
+              <div class="flex shrink-0 items-center gap-4">
+                <div class="text-right text-xs text-muted-foreground">
+                  <div>earned {{ formatMoney(row.earned, currency) }}</div>
+                  <div>paid out {{ formatMoney(row.paidOut, currency) }}</div>
+                </div>
+                <span
+                  class="w-20 text-right text-sm font-semibold tabular-nums"
+                  :class="row.payable > 0 ? '' : 'text-muted-foreground'"
+                >
+                  {{ formatMoney(row.payable, currency) }}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  :disabled="row.payable <= 0"
+                  @click="openPayout(row)"
+                >
+                  <HandCoins class="mr-1.5 h-3.5 w-3.5" />
+                  Record payout
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <!-- Payout history -->
+        <Card v-if="station.payouts.length > 0">
+          <CardHeader>
+            <CardTitle class="text-sm">Payout history</CardTitle>
+          </CardHeader>
+          <CardContent class="divide-y p-0">
+            <div
+              v-for="payout in station.payouts"
+              :key="payout.id"
+              class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
+            >
+              <div class="min-w-0">
+                <span class="font-medium tabular-nums">
+                  {{ formatMoney(payout.amount, currency) }}
+                </span>
+                <span class="text-muted-foreground">
+                  → {{ station.spaceById(payout.spaceId)?.name ?? 'Deleted space' }}</span
+                >
+                <span v-if="payout.note" class="text-xs text-muted-foreground">
+                  · {{ payout.note }}</span
+                >
+              </div>
+              <span class="text-xs text-muted-foreground">{{ formatDay(payout.paidAt) }}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <!-- ===== Activity (trend + reference) ===== -->
+      <section class="space-y-3">
+        <h2 class="text-sm font-medium text-muted-foreground">Activity</h2>
+
+        <!-- Earned by date -->
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-sm">Earned by date</CardTitle>
+            <p class="text-xs text-muted-foreground">
+              Daily query spend across all spaces, last {{ CHART_DAYS }} days.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div class="flex h-36 items-end gap-1.5">
               <div
-                class="rounded-t bg-primary/80 transition-colors group-hover:bg-primary"
-                :style="{ height: `${day.pct}%`, minHeight: day.total > 0 ? '4px' : '1px' }"
-              />
-            </div>
-          </div>
-          <div class="mt-1.5 flex justify-between text-[10px] text-muted-foreground">
-            <span>{{ chart[0]?.label }}</span>
-            <span>{{ chart[chart.length - 1]?.label }}</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <!-- Earned by space (payout basis) -->
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-sm">Member payouts</CardTitle>
-          <p class="text-xs text-muted-foreground">
-            Payouts are based on what users actually spend at each space — per-query price ×
-            queries. Record each payout you make so payable amounts stay accurate.
-          </p>
-        </CardHeader>
-        <CardContent class="divide-y p-0">
-          <div
-            v-for="row in station.earnedBySpace"
-            :key="row.slug"
-            class="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-          >
-            <div class="min-w-0">
-              <span class="text-sm font-medium">{{ row.spaceName }}</span>
-              <Badge v-if="row.deleted" variant="outline" class="ml-2 text-xs">deleted</Badge>
-              <span class="ml-2 text-xs text-muted-foreground">{{ row.ownerEmail }}</span>
-              <div class="mt-0.5 text-xs text-muted-foreground">
-                {{ row.queries.toLocaleString() }} paid quer{{ row.queries === 1 ? 'y' : 'ies' }} ·
-                last active {{ formatDay(row.lastActiveAt) }}
+                v-for="day in chart"
+                :key="day.date"
+                class="group relative flex h-full flex-1 flex-col justify-end"
+                :title="`${day.label}: ${formatMoney(day.total, currency)}`"
+              >
+                <div
+                  class="rounded-t bg-primary/80 transition-colors group-hover:bg-primary"
+                  :style="{ height: `${day.pct}%`, minHeight: day.total > 0 ? '4px' : '1px' }"
+                />
               </div>
             </div>
-            <div class="flex shrink-0 items-center gap-4">
-              <div class="text-right text-xs text-muted-foreground">
-                <div>earned {{ formatMoney(row.earned, currency) }}</div>
-                <div>paid out {{ formatMoney(row.paidOut, currency) }}</div>
+            <div class="mt-1.5 flex justify-between text-[10px] text-muted-foreground">
+              <span>{{ chart[0]?.label }}</span>
+              <span>{{ chart[chart.length - 1]?.label }}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <!-- Money in: recent top-ups + user credit, side by side -->
+        <div class="grid gap-3 lg:grid-cols-2">
+          <!-- Recent top-ups -->
+          <Card>
+            <CardHeader>
+              <CardTitle class="text-sm">Recent top-ups</CardTitle>
+              <p class="text-xs text-muted-foreground">
+                Credits bought at the station checkout. The station is notified directly, so spaces
+                are never involved in payments.
+              </p>
+            </CardHeader>
+            <CardContent class="divide-y p-0">
+              <div
+                v-for="t in recentTopUps"
+                :key="t.id"
+                class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
+              >
+                <div class="min-w-0">
+                  <span class="font-medium tabular-nums">
+                    {{ formatMoney(t.amount, t.currency) }}
+                  </span>
+                  <span class="text-muted-foreground"> · {{ t.userEmail }}</span>
+                </div>
+                <span class="text-xs text-muted-foreground">{{ formatDay(t.paidAt) }}</span>
               </div>
-              <span
-                class="w-20 text-right text-sm font-semibold tabular-nums"
-                :class="row.payable > 0 ? '' : 'text-muted-foreground'"
-              >
-                {{ formatMoney(row.payable, currency) }}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                :disabled="row.payable <= 0"
-                @click="openPayout(row)"
-              >
-                <HandCoins class="mr-1.5 h-3.5 w-3.5" />
-                Record payout
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      <!-- Payout history -->
-      <Card v-if="station.payouts.length > 0">
-        <CardHeader>
-          <CardTitle class="text-sm">Payout history</CardTitle>
-        </CardHeader>
-        <CardContent class="divide-y p-0">
-          <div
-            v-for="payout in station.payouts"
-            :key="payout.id"
-            class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
-          >
-            <div class="min-w-0">
-              <span class="font-medium tabular-nums">
-                {{ formatMoney(payout.amount, currency) }}
-              </span>
-              <span class="text-muted-foreground">
-                → {{ station.spaceById(payout.spaceId)?.name ?? 'Deleted space' }}</span
+          <!-- User credit balances -->
+          <Card>
+            <CardHeader>
+              <CardTitle class="text-sm">User credit</CardTitle>
+              <p class="text-xs text-muted-foreground">
+                Unspent credit is money the station holds for users. It isn't payable to members
+                until it's spent on queries.
+              </p>
+            </CardHeader>
+            <CardContent class="divide-y p-0">
+              <div
+                v-for="user in station.userBalances"
+                :key="user.email"
+                class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
               >
-              <span v-if="payout.note" class="text-xs text-muted-foreground">
-                · {{ payout.note }}</span
-              >
-            </div>
-            <span class="text-xs text-muted-foreground">{{ formatDay(payout.paidAt) }}</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <!-- User credit balances -->
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-sm">User credit</CardTitle>
-          <p class="text-xs text-muted-foreground">
-            Unspent credit is money the station holds for users — it isn't payable to members until
-            it's spent on queries.
-          </p>
-        </CardHeader>
-        <CardContent class="divide-y p-0">
-          <div
-            v-for="user in station.userBalances"
-            :key="user.email"
-            class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
-          >
-            <span class="min-w-0 truncate">{{ user.email }}</span>
-            <div class="flex items-center gap-4">
-              <span class="text-xs text-muted-foreground">
-                bought {{ formatMoney(user.toppedUp, currency) }} · spent
-                {{ formatMoney(user.spent, currency) }}
-              </span>
-              <span class="w-16 text-right font-medium tabular-nums">
-                {{ formatMoney(user.balance, currency) }}
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <!-- Recent top-ups -->
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-sm">Recent top-ups</CardTitle>
-          <p class="text-xs text-muted-foreground">
-            Credits bought at the station checkout. The gateway notifies the station directly —
-            spaces are never involved in payments.
-          </p>
-        </CardHeader>
-        <CardContent class="divide-y p-0">
-          <div
-            v-for="t in recentTopUps"
-            :key="t.id"
-            class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
-          >
-            <div class="min-w-0">
-              <span class="font-medium tabular-nums">{{ formatMoney(t.amount, t.currency) }}</span>
-              <span class="text-muted-foreground"> · {{ t.userEmail }}</span>
-            </div>
-            <span class="text-xs text-muted-foreground">{{ formatDay(t.paidAt) }}</span>
-          </div>
-        </CardContent>
-      </Card>
+                <span class="min-w-0 truncate">{{ user.email }}</span>
+                <div class="flex items-center gap-4">
+                  <span class="text-xs text-muted-foreground">
+                    bought {{ formatMoney(user.toppedUp, currency) }} · spent
+                    {{ formatMoney(user.spent, currency) }}
+                  </span>
+                  <span class="w-16 text-right font-medium tabular-nums">
+                    {{ formatMoney(user.balance, currency) }}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
     </template>
   </div>
 

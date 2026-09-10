@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
+import { ExternalLink } from 'lucide-vue-next'
 import SyftHubIdentityCard from '@/components/SyftHubIdentityCard.vue'
 import WalletSetupForm from '@/components/WalletSetupForm.vue'
 import { Button } from '@/components/ui/button'
@@ -12,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { DOCS } from '@/lib/docs'
 import { useStationStore } from '@/stores/station'
 
 defineProps<{ open: boolean }>()
@@ -32,7 +34,7 @@ async function save() {
     toast.success('Shared wallet saved', {
       description:
         result.spacesAttached > 0
-          ? `${result.spacesAttached} existing space(s) attached — they pick it up on restart.`
+          ? `${result.spacesAttached} existing space(s) attached. They pick it up on restart.`
           : 'New spaces get the shared wallet automatically.',
     })
     emit('update:open', false)
@@ -51,7 +53,16 @@ async function save() {
         }}</DialogTitle>
         <DialogDescription>
           One shared wallet per station, and it's optional. Users buy credits at the station and
-          spend them at any space; you pay members from Earnings for what users spend.
+          spend them at any space. You pay members from Earnings for what users spend.
+          <a
+            :href="DOCS.creditsAndPayouts"
+            target="_blank"
+            rel="noopener"
+            class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
+          >
+            How credits work
+            <ExternalLink class="h-3.5 w-3.5" />
+          </a>
         </DialogDescription>
       </DialogHeader>
 

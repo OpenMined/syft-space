@@ -164,29 +164,23 @@ onUnmounted(() => {
       <SheetHeader v-if="space" class="px-4 pt-4 pb-3">
         <SheetTitle class="flex items-center gap-2 pr-8">
           <ScrollText class="h-4 w-4 shrink-0" />
-          Logs — {{ space.name }}
+          Logs for {{ space.name }}
           <HealthBadge :health="space.health" />
         </SheetTitle>
         <SheetDescription>
-          A snapshot of the space's most recent logs, read live from the pod — not stored.
+          A snapshot of the space's most recent logs, read live and not stored.
         </SheetDescription>
       </SheetHeader>
 
       <!-- Control toolbar -->
-      <div
-        v-if="space && !paused"
-        class="flex items-center gap-1 border-y bg-muted/30 px-3 py-1.5"
-      >
+      <div v-if="space && !paused" class="flex items-center gap-1 border-y bg-muted/30 px-3 py-1.5">
         <Button
           :variant="live ? 'selected' : 'ghost'"
           size="sm"
           class="h-7 gap-1.5"
           @click="live = !live"
         >
-          <span
-            v-if="live"
-            class="h-1.5 w-1.5 animate-pulse rounded-full bg-success"
-          />
+          <span v-if="live" class="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
           <component :is="live ? Pause : Play" v-else class="h-3.5 w-3.5" />
           {{ live ? 'Following' : 'Follow' }}
         </Button>
@@ -212,13 +206,7 @@ onUnmounted(() => {
           <WrapText class="h-3.5 w-3.5" />
           Wrap
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-7 gap-1.5"
-          title="Copy all"
-          @click="copyLogs"
-        >
+        <Button variant="ghost" size="sm" class="h-7 gap-1.5" title="Copy all" @click="copyLogs">
           <component :is="copied ? Check : Copy" class="h-3.5 w-3.5" />
           {{ copied ? 'Copied' : 'Copy' }}
         </Button>
@@ -240,7 +228,7 @@ onUnmounted(() => {
           class="flex h-full flex-col items-center justify-center gap-2 rounded-md border border-dashed text-center text-sm text-muted-foreground"
         >
           <PauseCircle class="h-6 w-6" />
-          <p class="font-medium text-foreground">Space is paused — no logs to show</p>
+          <p class="font-medium text-foreground">Space is paused. No logs to show</p>
           <p class="max-w-xs text-xs">
             Logs are available while the space is running. Start the space to read them again.
           </p>
@@ -256,10 +244,7 @@ onUnmounted(() => {
           class="h-full overflow-auto rounded-md bg-[color:var(--color-grayscale-1000)] p-3 font-mono text-[11px] leading-relaxed text-[color:var(--color-grayscale-100)]"
         >
           <p v-if="error" class="text-[color:var(--color-red-400)]">{{ error }}</p>
-          <p
-            v-else-if="loading && !lines.length"
-            class="text-[color:var(--color-grayscale-500)]"
-          >
+          <p v-else-if="loading && !lines.length" class="text-[color:var(--color-grayscale-500)]">
             Loading logs…
           </p>
           <p v-else-if="!lines.length" class="text-[color:var(--color-grayscale-500)]">

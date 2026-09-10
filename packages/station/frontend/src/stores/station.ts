@@ -230,7 +230,7 @@ export const useStationStore = defineStore('station', () => {
     wallet.value
       ? [
           ...SPACE_INCLUDES,
-          `Payments set up for you — get paid through the station (${wallet.value.currency})`,
+          `Payments set up for you, so you get paid through the station (${wallet.value.currency})`,
         ]
       : [...SPACE_INCLUDES],
   )

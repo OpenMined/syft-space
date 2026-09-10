@@ -94,7 +94,7 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
   // 502 to a buyer mid-purchase rather than to the admin saving it here.
   if (station.identity === null) await station.loadIdentity().catch(() => {})
   if (!station.identity?.connected) {
-    toast.error('Connect SyftHub first — the station verifies buyers with its API token')
+    toast.error('Connect SyftHub first. The station verifies buyers with its API token')
     return null
   }
   // Credential keys are provider-specific; each gateway validates its own.
@@ -126,7 +126,7 @@ defineExpose({ save, saving })
     <template v-if="station.wallet">
       <WalletSummaryCard />
       <p class="text-xs text-muted-foreground">
-        Replacing swaps the provider account behind this wallet — user balances and connected spaces
+        Replacing swaps the provider account behind this wallet. User balances and connected spaces
         stay as they are.
       </p>
     </template>
@@ -142,13 +142,13 @@ defineExpose({ save, saving })
             <SelectItem value="xendit" :disabled="providerUnavailable('xendit')">
               Xendit
               <template v-if="providerUnavailable('xendit')">
-                — not available in {{ lockedCurrency }}</template
+                (not available in {{ lockedCurrency }})</template
               >
             </SelectItem>
             <SelectItem value="stripe" :disabled="providerUnavailable('stripe')">
               Stripe
               <template v-if="providerUnavailable('stripe')">
-                — not available in {{ lockedCurrency }}</template
+                (not available in {{ lockedCurrency }})</template
               >
             </SelectItem>
           </SelectContent>
@@ -165,7 +165,7 @@ defineExpose({ save, saving })
           </SelectContent>
         </Select>
         <p v-if="station.wallet" class="text-xs text-muted-foreground">
-          Fixed — user balances are held in this currency.
+          Fixed. User balances are held in this currency.
         </p>
       </div>
     </div>
@@ -179,8 +179,8 @@ defineExpose({ save, saving })
         :placeholder="provider === 'stripe' ? 'sk_…' : 'xnd_…'"
       />
       <p class="text-xs text-muted-foreground">
-        Stays at the station — spaces never see it; they only check credits with the station before
-        serving a paid query.
+        This stays at the station. Spaces never see it. Before serving a paid query, a space just
+        checks with the station that the buyer has credits.
       </p>
     </div>
 
