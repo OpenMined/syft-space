@@ -33,6 +33,7 @@ dependencies = [
     "pympp[tempo]>=0.4.0",
     "spacy>=3.8.14",
     "en-core-web-sm",
+    "feedparser>=6.0.11",
 ]
 
 [project.optional-dependencies]

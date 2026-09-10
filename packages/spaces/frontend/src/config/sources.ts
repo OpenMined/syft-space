@@ -61,6 +61,19 @@ export const SOURCE_PRESENTATION: Record<string, SourceCopy> = {
       },
     },
   },
+  rss: {
+    label: 'RSS / Atom',
+    icon: '📡',
+    description:
+      'Items from public RSS or Atom feeds. No credentials — a feed only shows its most recent items.',
+    fields: {
+      feedUrls: {
+        label: 'Feed URLs',
+        placeholder: 'https://example.com/feed',
+        list: { separator: ',' },
+      },
+    },
+  },
 }
 
 export const sourcePresentation = (name: string): SourceCopy =>
