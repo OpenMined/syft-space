@@ -46,7 +46,9 @@ async function submit() {
   try {
     await afterSignIn(await session.signIn(email.value, password.value))
   } catch (error) {
-    toast.error(error instanceof ApiError ? error.message : 'Sign-in failed — is the station up?')
+    toast.error(
+      error instanceof ApiError ? error.message : 'Sign-in failed. Is the station running?',
+    )
   } finally {
     signingIn.value = false
   }
@@ -88,9 +90,11 @@ onMounted(async () => {
         <div class="max-w-md px-8 text-center">
           <h1 class="text-2xl font-semibold tracking-tight">Syft Station</h1>
           <p class="mt-1 text-sm font-medium text-foreground/80">
-            Spin up your own Space, dock it to the Station.
+            Get your own private Space, hosted on a shared Station.
           </p>
-          <p class="mt-1 text-sm text-muted-foreground">Share the station, never your data.</p>
+          <p class="mt-1 text-sm text-muted-foreground">
+            You keep your data. The Station just runs it.
+          </p>
         </div>
         <StationAnimation :busy="signingIn" class="h-[26rem] w-[26rem] shrink-0" />
       </div>
@@ -101,10 +105,11 @@ onMounted(async () => {
           <div class="mb-6 flex flex-col items-center gap-2 text-center lg:hidden">
             <h1 class="text-2xl font-semibold tracking-tight">Syft Station</h1>
             <p class="text-sm font-medium text-foreground/80">
-              Spin up your own Space, dock it to the Station.
+              Get your own private Space, hosted on a shared Station.
             </p>
             <p class="text-sm text-muted-foreground">
-              Share the station, never your data. Sign in with your SyftHub account to get started.
+              You keep your data. The Station just runs it. Sign in with your SyftHub account to get
+              started.
             </p>
           </div>
 
@@ -112,7 +117,7 @@ onMounted(async () => {
             <CardHeader>
               <CardTitle class="text-base">Sign in with SyftHub</CardTitle>
               <CardDescription>
-                Your identity is verified against SyftHub; your password is never stored.
+                We verify your identity with SyftHub. Your password is never stored.
               </CardDescription>
             </CardHeader>
             <CardContent>

@@ -269,13 +269,13 @@ function formatDate(iso: string): string {
           class="flex items-center gap-3 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground"
         >
           <StationAnimation mini class="h-10 w-10 shrink-0" />
-          Approved — your space is being set up. This usually takes a minute.
+          Approved. Your space is being set up. This usually takes about a minute.
         </div>
         <div
           v-else-if="request.status === 'failed'"
           class="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive"
         >
-          Provisioning failed — the station admin has been notified and can retry.
+          Setup failed. The station admin has been notified and can retry.
         </div>
       </CardContent>
     </Card>
@@ -296,7 +296,7 @@ function formatDate(iso: string): string {
         <DialogDescription>
           This asks the station admin to permanently delete
           <span class="font-medium text-foreground">{{ deleteTarget?.name }}</span
-          >. Its data volume is removed on approval — this can't be undone.
+          >. On approval, all of its data is removed too. This can't be undone.
         </DialogDescription>
       </DialogHeader>
       <div class="space-y-1.5">
@@ -305,7 +305,7 @@ function formatDate(iso: string): string {
           id="delete-reason"
           v-model="deleteReason"
           rows="2"
-          placeholder="Helps the admin review — e.g. no longer needed"
+          placeholder="Helps the admin review, e.g. no longer needed"
         />
       </div>
       <DialogFooter>

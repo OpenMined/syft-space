@@ -83,21 +83,17 @@ const myInflightCreate = computed(() =>
   session.profile ? station.inflightCreatesFor(session.profile.email)[0] : undefined,
 )
 const myLiveSpace = computed(() =>
-  session.profile
-    ? station.spaces.find((s) => s.ownerEmail === session.profile!.email)
-    : undefined,
+  session.profile ? station.spaces.find((s) => s.ownerEmail === session.profile!.email) : undefined,
 )
 const slotHeld = computed(() => !!(myInflightCreate.value || myLiveSpace.value))
-const slotName = computed(
-  () => myInflightCreate.value?.spaceName ?? myLiveSpace.value?.name ?? '',
-)
+const slotName = computed(() => myInflightCreate.value?.spaceName ?? myLiveSpace.value?.name ?? '')
 const slotExplanation = computed(() => {
   if (myLiveSpace.value)
     return 'is already running. Request its deletion from "My requests" to start over.'
   const byStatus: Record<string, string> = {
     pending: 'is awaiting review. Withdraw it if you want to request a different space.',
     provisioning: 'is being set up right now.',
-    failed: 'failed to provision and is with the station admin to retry or delete.',
+    failed: 'failed to set up, and the station admin can retry or delete it.',
   }
   return byStatus[myInflightCreate.value?.status ?? ''] ?? ''
 })
@@ -193,7 +189,7 @@ const currency = computed(() => station.wallet?.currency ?? 'USD')
               </p>
               <p class="mt-0.5 text-xs text-muted-foreground">
                 {{ formatMoney(totalEarned, currency) }} earned across
-                {{ myEarnings.length }} space{{ myEarnings.length === 1 ? '' : 's' }} — the station
+                {{ myEarnings.length }} space{{ myEarnings.length === 1 ? '' : 's' }}. The station
                 admin pays out manually.
               </p>
             </CardContent>

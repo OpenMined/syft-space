@@ -63,6 +63,7 @@ import {
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ApiError } from '@/api/client'
+import { DOCS } from '@/lib/docs'
 import { formatMoney } from '@/lib/types'
 import type { Space, SpaceRequest } from '@/lib/types'
 import { Label } from '@/components/ui/label'
@@ -250,7 +251,7 @@ const updatingAll = ref(false)
 
 async function updateAll() {
   updatingAll.value = true
-  toast('Updating spaces one at a time — this can take a few minutes', {
+  toast('Updating spaces one at a time. This can take a few minutes', {
     description: `${outdatedCount.value} space(s) behind ${station.supportedVersion}`,
   })
   try {
@@ -263,14 +264,14 @@ async function updateAll() {
     for (const r of skipped) toast(`${r.name} skipped`, { description: r.detail })
     for (const r of failed) toast.error(`${r.name} failed to update`, { description: r.detail })
   } catch {
-    toast.error('Update all failed — the spaces list shows the live state')
+    toast.error('Update all failed. The spaces list shows the live state')
   } finally {
     updatingAll.value = false
   }
 }
 
 async function updateOne(space: Space) {
-  toast('Updating space — this can take a few minutes', { description: space.name })
+  toast('Updating space. This can take a few minutes', { description: space.name })
   try {
     await station.updateSpace(space.id)
     toast.success(`${space.name} updated to ${station.supportedVersion}`)
@@ -327,7 +328,7 @@ async function restart(space: Space) {
 async function pause(space: Space) {
   try {
     await station.pauseSpace(space.id)
-    toast('Space paused — data retained, no compute used', { description: space.name })
+    toast('Space paused. Data retained, no compute used', { description: space.name })
   } catch {
     toast.error('Pausing the space failed')
   }
@@ -701,8 +702,15 @@ function formatDate(iso: string): string {
                     Supported Syft Space version
                   </p>
                   <p class="mt-0.5 text-xs text-muted-foreground">
-                    New spaces deploy this version. Existing spaces are updated with "Update all" on
-                    the Spaces page — downgrades are not supported.
+                    New spaces deploy this version. Update existing spaces with "Update all" on the
+                    Spaces page. Downgrades aren't supported.
+                    <a
+                      :href="DOCS.versions"
+                      target="_blank"
+                      rel="noopener"
+                      class="underline underline-offset-2 hover:text-foreground"
+                      >Version updates</a
+                    >
                   </p>
                 </div>
                 <div class="flex items-end gap-2">
@@ -735,6 +743,13 @@ function formatDate(iso: string): string {
                 <p class="text-xs text-muted-foreground">
                   One token per station: every wallet verifies buyers with it, and it registers this
                   station with SyftHub so buyers can be billed here.
+                  <a
+                    :href="DOCS.creditsAndPayouts"
+                    target="_blank"
+                    rel="noopener"
+                    class="underline underline-offset-2 hover:text-foreground"
+                    >How credits work</a
+                  >
                 </p>
               </CardContent>
             </Card>
@@ -785,13 +800,13 @@ function formatDate(iso: string): string {
         <DialogDescription>
           The space stops running and its URL is released.
           <span class="font-medium text-destructive">
-            All of its data — files and search index — is deleted permanently.
+            All of its data (files and the search index) is deleted permanently.
           </span>
           This cannot be undone.
           <span v-if="deletePayable > 0" class="mt-2 block">
             {{ deleteTarget.ownerEmail }} is still owed
             <span class="font-medium">{{ formatMoney(deletePayable, currency) }}</span>
-            from this space — it stays payable after deletion.
+            from this space. It stays payable after deletion.
           </span>
         </DialogDescription>
       </DialogHeader>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, Check, Globe, Lock, Rocket, Tag, Wallet } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Check, Globe, Rocket, Tag, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -18,6 +18,7 @@ import SyftHubIdentityCard from '@/components/SyftHubIdentityCard.vue'
 import WalletSetupForm from '@/components/WalletSetupForm.vue'
 import WalletSummaryCard from '@/components/WalletSummaryCard.vue'
 import { ApiError } from '@/api/client'
+import { DOCS } from '@/lib/docs'
 import { useSessionStore } from '@/stores/session'
 import { useStationStore } from '@/stores/station'
 
@@ -133,7 +134,7 @@ async function nextFromWallet(withWallet: boolean) {
 
 async function finish() {
   if (!versionInput.value.trim()) {
-    toast.error('Pick or enter the version to deploy')
+    toast.error('Choose a version to deploy')
     return
   }
   finishing.value = true
@@ -149,8 +150,8 @@ async function finish() {
   } finally {
     finishing.value = false
   }
-  toast.success('Station is ready', {
-    description: `Spaces will live on *.${station.domain} running ${station.supportedVersion}.`,
+  toast.success('Your station is ready', {
+    description: `Spaces will run at *.${station.domain} on ${station.supportedVersion}.`,
   })
 }
 </script>
@@ -165,7 +166,7 @@ async function finish() {
       <DialogHeader>
         <DialogTitle>Set up your station</DialogTitle>
         <DialogDescription>
-          Three quick decisions and you're live — members can request spaces right after.
+          Three quick steps and your station is live. Members can request a space right after.
         </DialogDescription>
       </DialogHeader>
 
@@ -200,8 +201,15 @@ async function finish() {
         <!-- Host known: show it, ask only for an optional subdomain prefix -->
         <template v-if="useHost">
           <p class="text-xs text-muted-foreground">
-            Your station is reachable here, and every space is a subdomain of it. Point a wildcard
-            DNS record at this cluster so spaces resolve.
+            Your station lives here, and each space is a subdomain of it. Add a wildcard DNS record
+            pointing at this station's servers so those subdomains work.
+            <a
+              :href="DOCS.dnsAndTls"
+              target="_blank"
+              rel="noopener"
+              class="underline underline-offset-2 hover:text-foreground"
+              >Setup guide</a
+            >
           </p>
           <div class="space-y-1.5">
             <Label>Station</Label>
@@ -225,21 +233,13 @@ async function finish() {
               <span class="text-muted-foreground">.{{ stationHost }}</span>
             </div>
             <p class="text-xs text-muted-foreground">
-              Blank → spaces sit directly under the station ({{ '*' }}.{{ stationHost }}). A prefix
-              sandboxes them under its own <code>*</code> wildcard.
+              Leave blank to put spaces directly under your station, or add a prefix to group them
+              under their own subdomain.
             </p>
           </div>
           <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Globe class="h-3 w-3" />
             Spaces will look like: research-lab.{{ effectiveDomain }}
-          </p>
-          <p class="flex items-start gap-1.5 text-xs text-muted-foreground">
-            <Lock class="mt-0.5 h-3 w-3 shrink-0" />
-            <span>
-              For HTTPS, one certificate with two names — <code>{{ stationHost }}</code> and
-              <code>*.{{ effectiveDomain }}</code> — serves the station and every space: a
-              certificate wildcard covers exactly one label, never the bare host.
-            </span>
           </p>
           <div class="flex items-center justify-between">
             <button
@@ -259,8 +259,15 @@ async function finish() {
         <!-- Host unknown (or overridden): type the domain -->
         <template v-else>
           <p class="text-xs text-muted-foreground">
-            Every space gets its own subdomain on this domain. Point a wildcard DNS record
-            (*.your-domain) at the machines running this station.
+            Every space gets its own subdomain of this domain. Add a wildcard DNS record
+            (*.your-domain) pointing at this station's servers so those subdomains work.
+            <a
+              :href="DOCS.dnsAndTls"
+              target="_blank"
+              rel="noopener"
+              class="underline underline-offset-2 hover:text-foreground"
+              >Setup guide</a
+            >
           </p>
           <div class="space-y-1.5">
             <Label for="setup-domain">Domain</Label>
@@ -269,14 +276,6 @@ async function finish() {
           <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Globe class="h-3 w-3" />
             Spaces will look like: research-lab.{{ domainInput.trim() || '…' }}
-          </p>
-          <p class="flex items-start gap-1.5 text-xs text-muted-foreground">
-            <Lock class="mt-0.5 h-3 w-3 shrink-0" />
-            <span>
-              For HTTPS, the spaces' certificate needs a
-              <code>*.{{ domainInput.trim() || 'your-domain' }}</code> wildcard name — a certificate
-              wildcard covers exactly one label.
-            </span>
           </p>
           <div class="flex items-center justify-between">
             <button
@@ -302,8 +301,8 @@ async function finish() {
         <!-- A wallet already exists: offer it as-is, unfold the form to replace. -->
         <template v-if="station.wallet && !replacingWallet">
           <p class="text-xs text-muted-foreground">
-            This station already has a shared wallet — users buy credits through it and spend them
-            at any space. Keep using it, or replace the provider account behind it.
+            This station already has a shared wallet. Users buy credits through it and spend them at
+            any space. Keep it, or replace the provider account behind it.
           </p>
           <WalletSummaryCard />
           <div class="flex items-center justify-between">
@@ -323,9 +322,16 @@ async function finish() {
 
         <template v-else>
           <p v-if="!station.wallet" class="text-xs text-muted-foreground">
-            One gateway account for the whole station: users buy credits here and spend them at any
-            space; you pay members for what users spend. Skip it to run without pooled payments —
-            you can add it later from Earnings.
+            One shared payment account for the whole station: users buy credits here and spend them
+            at any space, and you pay members for what they use. It's optional. Skip it now and add
+            one later from Earnings.
+            <a
+              :href="DOCS.creditsAndPayouts"
+              target="_blank"
+              rel="noopener"
+              class="underline underline-offset-2 hover:text-foreground"
+              >How credits work</a
+            >
           </p>
           <SyftHubIdentityCard />
 
@@ -360,8 +366,14 @@ async function finish() {
       <!-- Step 3: version -->
       <div v-if="step === 2" class="space-y-4">
         <p class="text-xs text-muted-foreground">
-          The image version every space runs, straight from the registry. You can bump it later in
-          Settings and roll it out with "Update all" — downgrades are not supported.
+          The Syft Space version every space runs. You can change it later in Settings.
+          <a
+            :href="DOCS.versions"
+            target="_blank"
+            rel="noopener"
+            class="underline underline-offset-2 hover:text-foreground"
+            >Version updates</a
+          >
         </p>
         <div class="space-y-1.5">
           <Label>Version</Label>

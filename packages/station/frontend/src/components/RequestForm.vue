@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { ApiError } from '@/api/client'
+import { DOCS } from '@/lib/docs'
 import { slugify } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
 import { useSessionStore } from '@/stores/session'
@@ -43,7 +44,7 @@ async function submit() {
     emit('submitted')
   } catch (error) {
     // 409 = subdomain taken or owner already holds their one space slot
-    toast.error(error instanceof ApiError ? error.message : 'Submitting the request failed')
+    toast.error(error instanceof ApiError ? error.message : "Couldn't submit your request")
   } finally {
     submitting.value = false
   }
@@ -55,7 +56,14 @@ async function submit() {
     <CardHeader>
       <CardTitle class="text-base">Request a space</CardTitle>
       <CardDescription>
-        Your own hosted Syft Space — set up and run for you. One space per email address.
+        Your own Syft Space, set up and hosted for you. One space per account.
+        <a
+          :href="DOCS.membersQuickstart"
+          target="_blank"
+          rel="noopener"
+          class="underline underline-offset-2 hover:text-foreground"
+          >How it works</a
+        >
       </CardDescription>
     </CardHeader>
     <CardContent>

@@ -94,8 +94,8 @@ async function create() {
       <DialogHeader>
         <DialogTitle>New space</DialogTitle>
         <DialogDescription>
-          Create a space for a member directly — no request needed. They pick up their API key from
-          their dashboard after signing in with SyftHub.
+          Create a space for a member directly, with no request needed. They pick up their API key
+          from their dashboard after signing in with SyftHub.
         </DialogDescription>
       </DialogHeader>
 
@@ -118,7 +118,7 @@ async function create() {
         <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Globe class="h-3 w-3" />
           {{ slugify(subdomain) || '—' }}.{{ station.domain }}
-          <span v-if="subdomainTaken" class="text-destructive">— already in use</span>
+          <span v-if="subdomainTaken" class="text-destructive">(already in use)</span>
         </p>
 
         <div class="space-y-1.5">

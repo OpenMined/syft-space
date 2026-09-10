@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { DOCS } from '@/lib/docs'
 import { useStationStore } from '@/stores/station'
 
 defineProps<{ open: boolean }>()
@@ -32,7 +33,7 @@ async function save() {
     toast.success('Shared wallet saved', {
       description:
         result.spacesAttached > 0
-          ? `${result.spacesAttached} existing space(s) attached — they pick it up on restart.`
+          ? `${result.spacesAttached} existing space(s) attached. They pick it up on restart.`
           : 'New spaces get the shared wallet automatically.',
     })
     emit('update:open', false)
@@ -51,7 +52,14 @@ async function save() {
         }}</DialogTitle>
         <DialogDescription>
           One shared wallet per station, and it's optional. Users buy credits at the station and
-          spend them at any space; you pay members from Earnings for what users spend.
+          spend them at any space. You pay members from Earnings for what users spend.
+          <a
+            :href="DOCS.creditsAndPayouts"
+            target="_blank"
+            rel="noopener"
+            class="underline underline-offset-2 hover:text-foreground"
+            >How credits work</a
+          >
         </DialogDescription>
       </DialogHeader>
 

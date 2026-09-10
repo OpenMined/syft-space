@@ -40,7 +40,7 @@ async function reject() {
   if (!props.request) return
   try {
     await station.rejectRequest(props.request.id, reason.value.trim() || 'No reason given.')
-    toast(isDeletion.value ? 'Deletion declined — space kept' : 'Request rejected', {
+    toast(isDeletion.value ? 'Deletion declined, space kept' : 'Request rejected', {
       description: props.request.spaceName,
     })
     emit('update:open', false)

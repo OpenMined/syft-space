@@ -85,7 +85,7 @@ async function record() {
   <Dialog :open="open" @update:open="(v: boolean) => emit('update:open', v)">
     <DialogContent v-if="target">
       <DialogHeader>
-        <DialogTitle>Record payout — {{ target.spaceName }}</DialogTitle>
+        <DialogTitle>Record payout for {{ target.spaceName }}</DialogTitle>
         <DialogDescription>
           You pay {{ target.ownerEmail }} outside the platform (bank transfer, etc.) and record it
           here. Payable: {{ formatMoney(target.payable, currency) }}.
@@ -99,7 +99,7 @@ async function record() {
         </div>
         <div class="space-y-1.5">
           <Label for="payout-note">Note (optional)</Label>
-          <Input id="payout-note" v-model="note" placeholder="e.g. July payout — bank transfer" />
+          <Input id="payout-note" v-model="note" placeholder="e.g. July payout, bank transfer" />
         </div>
       </div>
 
