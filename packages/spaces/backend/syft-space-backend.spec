@@ -35,6 +35,9 @@ PACKAGES_WITH_DATA = [
 # collect_data_files only gets files *inside* the package directory;
 # copy_metadata gets the .dist-info directory from site-packages.
 PACKAGES_WITH_METADATA = [
+    # py_ecc reads its own version at import time, reached via
+    # payments.mpp -> web3 -> eth_account -> eth_keyfile.
+    'py_ecc',
     'docling',
     'docling_slim',
     'docling_core',
