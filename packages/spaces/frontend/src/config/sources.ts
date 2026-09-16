@@ -14,6 +14,10 @@ export interface FieldCopy {
   // Render as a chip list. Values are joined with `separator` into the
   // single string the backend config field expects.
   list?: { separator: string }
+  // Human labels for an enum field's values, keyed by the raw value. The
+  // schema's enum decides which options exist and in what order; anything
+  // missing here falls back to the raw value.
+  choices?: Record<string, string>
 }
 
 export interface SourceCopy {
@@ -71,6 +75,15 @@ export const SOURCE_PRESENTATION: Record<string, SourceCopy> = {
         label: 'Feed URLs',
         placeholder: 'https://example.com/feed',
         list: { separator: ',' },
+      },
+      pollIntervalSeconds: {
+        label: 'Check for new items',
+        choices: {
+          900: 'Every 15 minutes',
+          3600: 'Every hour',
+          21600: 'Every 6 hours',
+          86400: 'Once a day',
+        },
       },
     },
   },
