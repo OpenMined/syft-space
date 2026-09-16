@@ -620,6 +620,54 @@ class TestFetch:
 # ── provider and binding ─────────────────────────────────────────────────
 
 
+class TestSelectionIsFeedsOnly:
+    """Only whole feeds are selectable.
+
+    An article pick ingests once and then polls forever without emitting
+    again, so the picker offers feeds only and the API refuses the rest.
+    """
+
+    async def test_a_feed_pick_is_accepted(self):
+        await RssProvider.validate_selection(
+            [rss._feed_container_id(FEED_URL), rss._feed_container_id(OTHER_URL)]
+        )
+
+    async def test_an_empty_selection_is_accepted(self):
+        await RssProvider.validate_selection([])
+
+    async def test_an_article_pick_is_refused(self):
+        item_id = rss._item_id(FEED_URL, "https://example.com/post-1")
+
+        with pytest.raises(SourceError, match="whole feeds"):
+            await RssProvider.validate_selection([item_id])
+
+    async def test_one_article_among_feeds_still_refuses(self):
+        with pytest.raises(SourceError) as excinfo:
+            await RssProvider.validate_selection(
+                [rss._feed_container_id(FEED_URL), rss._item_id(FEED_URL, "g")]
+            )
+
+        assert rss._item_id(FEED_URL, "g") in str(excinfo.value)
+
+    async def test_a_watched_feed_still_emits_its_articles(self):
+        """The guard is picker-side only — ingest still walks the whole feed."""
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+        body = _rss(
+            _item(title="A", link="https://example.com/a")
+            + _item(title="B", link="https://example.com/b")
+        )
+        async with _serve(_always(body)) as client:
+            events = [
+                event
+                async for event in source._poll_feed(
+                    client, FEED_URL, whole_feed=True, picked_items=set()
+                )
+            ]
+
+        assert [e.metadata["title"] for e in events] == ["A", "B"]
+        assert all(rss._parse_item_id(e.external_id) for e in events)
+
+
 class TestProvider:
     def test_it_is_registered_and_enabled(self):
         from syft_space.components.sources.registry import (

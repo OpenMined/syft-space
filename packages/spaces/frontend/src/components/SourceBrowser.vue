@@ -189,7 +189,9 @@ interface SourcePresentation {
   selectionEmptyTitle: string
   selectionEmptyHint: string
   footerHint: string
-  containerMode: 'self' | 'group'
+  // 'self' = the container's own id is the pick; 'group' = its children are;
+  // 'self-only' = as 'self', and children are shown but cannot be picked.
+  containerMode: 'self' | 'group' | 'self-only'
 }
 
 const PRESENTATIONS: Record<string, SourcePresentation> = {
@@ -234,18 +236,17 @@ const PRESENTATIONS: Record<string, SourcePresentation> = {
     containerMode: 'self',
   },
   rss: {
-    headerTitle: 'Select feeds & articles',
+    headerTitle: 'Select feeds',
     panelIcon: Rss,
     panelLabel: 'RSS / Atom feeds',
     loadingText: 'Fetching feeds…',
     emptyText: 'No feeds resolved from those URLs.',
-    selectionTitle: 'Selected Feeds & Articles',
-    selectionEmptyTitle: 'No items selected',
-    selectionEmptyHint:
-      'Tick a feed to follow every article it publishes, or expand it and pick individual articles.',
+    selectionTitle: 'Selected Feeds',
+    selectionEmptyTitle: 'No feeds selected',
+    selectionEmptyHint: 'Tick a feed to ingest its articles and everything it publishes later.',
     footerHint:
-      'Ticking a feed follows it, including articles published later. Picking individual articles ingests just those — a feed only lists its most recent articles, and older ones cannot be fetched back.',
-    containerMode: 'self',
+      'You follow a whole feed, not single articles. Expand one to see what it currently holds — a feed only lists its most recent articles, and older ones cannot be fetched back.',
+    containerMode: 'self-only',
   },
 }
 

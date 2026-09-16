@@ -6,9 +6,11 @@ ask for.
 
 ``RssProvider`` builds the two runtime objects: ``RssBrowser`` for
 picker-time discovery, ``RssSource`` for ingestion. Each configured URL is
-shown as a container; both a whole feed (``feed:{hash}``) and an individual
-item (``{feedHash}:{itemHash}``) can be picked. Subscribing to the feed is
-the normal choice — see the window note below.
+shown as a container that expands to its current items, but only the feed
+itself (``feed:{hash}``) is selectable: an article pick would ingest once
+and then poll forever without emitting again. Items still carry an id
+(``{feedHash}:{itemHash}``) — that is what ``change_stream`` emits and
+``fetch`` receives for each article in a watched feed.
 
 Three properties of real feeds shape this source:
 
@@ -774,10 +776,20 @@ class RssProvider:
 
     @classmethod
     async def validate_selection(cls, item_ids: list[str]) -> None:
-        """No-op — the picker only surfaces items the feed currently holds,
-        and a feed's window moves on its own, so a pick cannot be confirmed
-        to still resolve. Same stance as the Blogspot source."""
-        return None
+        """Only whole feeds are selectable.
+
+        An article pick ingests once and then polls forever without ever
+        emitting again, so the picker offers feeds only and this refuses the
+        ids it no longer produces. Whether a feed still resolves is NOT
+        checked: its window moves on its own, so a pick cannot be confirmed
+        — same stance as the Blogspot source.
+        """
+        articles = [i for i in item_ids if _parse_feed_container_id(i) is None]
+        if articles:
+            raise SourceError(
+                "Select whole feeds, not individual articles: "
+                + ", ".join(sorted(articles)[:3])
+            )
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:

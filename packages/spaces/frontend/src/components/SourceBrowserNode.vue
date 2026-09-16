@@ -4,10 +4,11 @@
       <Tooltip>
         <TooltipTrigger as-child>
           <div
-            class="group flex items-center gap-2 px-2 py-1 rounded hover:bg-muted select-none"
+            class="group flex items-center gap-2 px-2 py-1 rounded select-none"
             :class="[
               isLeafSelected ? 'bg-blue-50 dark:bg-blue-950/50' : '',
-              isLocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+              isLocked ? 'opacity-60 cursor-not-allowed' : isPickable ? 'cursor-pointer' : '',
+              isPickable ? 'hover:bg-muted' : '',
             ]"
             :style="{ paddingLeft: `${depth * 20 + 8}px` }"
             @click="onRowClick"
@@ -20,13 +21,15 @@
               />
             </div>
 
-            <Checkbox
-              :model-value="checkboxState"
-              :disabled="checkboxDisabled"
-              @click.stop
-              @update:model-value="onCheckbox"
-              class="flex-shrink-0"
-            />
+            <div class="w-4 flex-shrink-0">
+              <Checkbox
+                v-if="isPickable"
+                :model-value="checkboxState"
+                :disabled="checkboxDisabled"
+                @click.stop
+                @update:model-value="onCheckbox"
+              />
+            </div>
 
             <component :is="iconComponent" class="w-4 h-4 flex-shrink-0" :class="iconClass" />
 
@@ -159,7 +162,7 @@ const props = withDefaults(
     node: FileNode
     depth?: number
     dtype: string
-    containerMode: 'self' | 'group'
+    containerMode: 'self' | 'group' | 'self-only'
     selected: string[]
     lockedSelection?: string[]
     expanded: Set<string>
@@ -179,6 +182,8 @@ const { getFileIcon, getFileIconColor, formatFileSize } = useFileIcon()
 const lockedSet = computed(() => new Set(props.lockedSelection))
 const isContainer = computed(() => props.node.type === 'directory')
 const isExpanded = computed(() => props.expanded.has(props.node.path))
+/** Self-only sources are picked a container at a time; children are context. */
+const isPickable = computed(() => isContainer.value || props.containerMode !== 'self-only')
 /** A leaf already part of the saved selection — shown selected but immutable. */
 const isLocked = computed(() => !isContainer.value && lockedSet.value.has(props.node.path))
 const isLeafSelected = computed(() => props.selected.includes(props.node.path) || isLocked.value)
@@ -229,6 +234,7 @@ const iconClass = computed(() => {
 })
 
 const onCheckbox = (checked: boolean | 'indeterminate') => {
+  if (!isPickable.value) return
   const on = checked === true
   if (isContainer.value && props.containerMode === 'group') {
     if (togglableChildPaths.value.length === 0) return
@@ -243,7 +249,7 @@ const onRowClick = () => {
   if (isContainer.value) {
     emit('toggle-expand', props.node)
   } else {
-    if (isLocked.value) return
+    if (isLocked.value || !isPickable.value) return
     emit('toggle-select', [props.node.path], !isLeafSelected.value)
   }
 }
