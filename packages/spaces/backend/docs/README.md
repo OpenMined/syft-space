@@ -19,6 +19,7 @@ marketplace where others can query them — without ever handing over your raw d
 | Install it and create your first endpoint | [Getting Started](./getting-started.md) |
 | Understand how the pieces fit together | [Architecture](./architecture.md) |
 | Learn the domain model (datasets, sources, policies, …) | [Core Concepts](./concepts.md) |
+| Pick the right dataset type, and see how each one works | [Dataset Types](./dataset-types/README.md) |
 | Call the HTTP API | [API Overview](./api-overview.md) |
 | Trace exactly what happens during a query | [Query Flow](./query-flow.md) |
 | Charge for queries (wallets, invoices, crypto) | [Payments & Wallets](./payments.md) |
@@ -31,7 +32,8 @@ marketplace where others can query them — without ever handing over your raw d
 - A **Source** answers *“where does the data come from?”* (e.g. local files).
 - A **Vector Store** answers *“where is it indexed for search?”* (e.g. ChromaDB).
 - A **Dataset Type** is a **binding** of one source to one vector store
-  (e.g. `local_file` = local files → ChromaDB).
+  (e.g. `local_file` = local files → ChromaDB). Five ship today — see
+  [Dataset Types](./dataset-types/README.md).
 - A **Dataset** is a configured instance of a dataset type.
 - A **Model** is a configured LLM (currently OpenAI-compatible).
 - An **Endpoint** combines a dataset and/or a model and answers queries as
