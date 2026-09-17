@@ -4,9 +4,9 @@ Pairs the RSS/Atom source with an embedded ChromaDB vector store. The
 user-facing configuration is flat; ``split_config`` peels off the
 source-axis fields from the vector-store-axis fields at construction time.
 
-Nothing is redacted: a feed URL is a public address, and private feeds carry
-their token in the URL — which the source deliberately does not separate
-into a credential field, so there is no secret here to hide.
+There is no ``redact_configuration`` override because nothing here is
+secret: a feed URL is a public address, and a private feed's token rides in
+that URL rather than in a credential field of its own.
 """
 
 from __future__ import annotations
@@ -33,7 +33,12 @@ from syft_space.components.vector_stores.chromadb_local.schemas import (
 
 
 class RssChromaDBConfiguration(BaseModel):
-    """Flat user-facing configuration for the RSS binding."""
+    """Flat user-facing configuration for the RSS binding.
+
+    Restates the source's fields rather than inheriting them: the public API
+    is flat, so the binding owns the shape the user types in. Validation
+    still belongs to each axis — ``validate_configuration`` delegates.
+    """
 
     collection_name: str = Field(
         ...,

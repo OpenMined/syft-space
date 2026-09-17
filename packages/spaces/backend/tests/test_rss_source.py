@@ -529,6 +529,29 @@ class TestPollFeed:
         second = await self._poll(handler)
         assert first[0].fingerprint == second[0].fingerprint
 
+    async def test_a_poll_caches_nothing(self):
+        """A window is re-emitted whole every poll; all but the newest items
+        are dropped by the scanner, so caching them holds them unread."""
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+        body = _rss(
+            _item(title="A", link="https://example.com/a")
+            + _item(title="B", link="https://example.com/b")
+        )
+        events = await self._poll(_always(body), source=source)
+
+        assert len(events) == 2
+        assert source._slot is None
+
+    async def test_a_poll_drops_a_slot_it_has_moved_past(self, monkeypatch):
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+        _patch_client(monkeypatch, _always(_rss(_item())))
+        async with source.fetch(rss._item_id(FEED_URL, "https://example.com/post-1")):
+            pass
+        assert source._slot is not None
+
+        await self._poll(_always(_rss(_item(title="later"))), source=source)
+        assert source._slot is None
+
 
 class TestPollErrorIsolation:
     async def test_one_bad_feed_does_not_stop_the_other(self, monkeypatch):
@@ -594,7 +617,7 @@ class TestFetch:
         """Reached when the process restarted between emit and fetch."""
         _patch_client(monkeypatch, _always(_rss(_item())))
         source = RssSource(RssDatasetConfig.model_validate(CONF))
-        assert source._bodies == {}
+        assert source._slot is None
 
         external_id = rss._item_id(FEED_URL, "https://example.com/post-1")
         async with source.fetch(external_id) as file:
@@ -620,6 +643,92 @@ class TestFetch:
 # ── provider and binding ─────────────────────────────────────────────────
 
 
+class TestFetchSlot:
+    """``fetch`` holds one feed at a time.
+
+    Parsing a feed for one article materialises every article in it, so the
+    bound is which feed is held, not how many items of it.
+    """
+
+    def _counting(self, body: bytes):
+        calls: list[str] = []
+
+        def handler(request):
+            calls.append(str(request.url))
+            return _response(body)
+
+        return handler, calls
+
+    async def _fetch(self, source, url, guid):
+        async with source.fetch(rss._item_id(url, guid)) as file:
+            return file
+
+    async def test_the_feed_is_downloaded_once_for_a_whole_batch(self, monkeypatch):
+        body = _rss(
+            _item(title="A", link="https://example.com/a")
+            + _item(title="B", link="https://example.com/b")
+        )
+        handler, calls = self._counting(body)
+        _patch_client(monkeypatch, handler)
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+
+        await self._fetch(source, FEED_URL, "https://example.com/a")
+        await self._fetch(source, FEED_URL, "https://example.com/b")
+
+        assert len(calls) == 1
+
+    async def test_a_fetch_for_another_feed_discards_the_held_one(self, monkeypatch):
+        def handler(request):
+            title = "other" if "other" in str(request.url) else "first"
+            return _response(_rss(_item(title=title), title=title))
+
+        _patch_client(monkeypatch, handler)
+        source = RssSource(
+            RssDatasetConfig.model_validate({"feedUrls": f"{FEED_URL},{OTHER_URL}"})
+        )
+
+        await self._fetch(source, FEED_URL, "https://example.com/post-1")
+        assert source._slot.feed_hash == rss._hash(FEED_URL)
+
+        await self._fetch(source, OTHER_URL, "https://example.com/post-1")
+        assert source._slot.feed_hash == rss._hash(OTHER_URL)
+        assert source._slot.feed.url == OTHER_URL
+
+    async def test_an_entry_is_released_once_fetched(self, monkeypatch):
+        """A retry after a failed ingest reloads rather than reusing the parse."""
+        handler, calls = self._counting(_rss(_item()))
+        _patch_client(monkeypatch, handler)
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+        guid = "https://example.com/post-1"
+
+        await self._fetch(source, FEED_URL, guid)
+        assert source._slot.entries == {}
+
+        await self._fetch(source, FEED_URL, guid)
+        assert len(calls) == 2
+
+    async def test_the_held_feed_carries_no_entries_of_its_own(self, monkeypatch):
+        _patch_client(monkeypatch, _always(_rss(_item())))
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+
+        await self._fetch(source, FEED_URL, "https://example.com/post-1")
+        assert source._slot.feed.entries == []
+
+    async def test_the_index_is_truncated_like_a_poll(self, monkeypatch):
+        """An item the poll would not emit has no job to ask for it."""
+        monkeypatch.setattr(rss, "MAX_ITEMS_PER_POLL", 2)
+        body = _rss(
+            "".join(
+                _item(title=str(n), link=f"https://example.com/{n}") for n in range(5)
+            )
+        )
+        _patch_client(monkeypatch, _always(body))
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+
+        await self._fetch(source, FEED_URL, "https://example.com/0")
+        assert len(source._slot.entries) == 1  # 2 indexed, 1 popped
+
+
 class TestSelectionIsFeedsOnly:
     """Only whole feeds are selectable.
 
@@ -638,11 +747,11 @@ class TestSelectionIsFeedsOnly:
     async def test_an_article_pick_is_refused(self):
         item_id = rss._item_id(FEED_URL, "https://example.com/post-1")
 
-        with pytest.raises(SourceError, match="whole feeds"):
+        with pytest.raises(ValueError, match="whole feeds"):
             await RssProvider.validate_selection([item_id])
 
     async def test_one_article_among_feeds_still_refuses(self):
-        with pytest.raises(SourceError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:
             await RssProvider.validate_selection(
                 [rss._feed_container_id(FEED_URL), rss._item_id(FEED_URL, "g")]
             )

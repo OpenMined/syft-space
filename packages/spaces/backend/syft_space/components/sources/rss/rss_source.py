@@ -1,51 +1,36 @@
 """RSS / Atom source for public feeds.
 
-Ingests items from one or more public feeds named by URL. No credentials:
-private feeds embed their token in the URL already, so there is nothing to
-ask for.
+Ingests items from one or more feeds named by URL. No credentials: a
+private feed carries its token in the URL already.
 
 ``RssProvider`` builds the two runtime objects: ``RssBrowser`` for
-picker-time discovery, ``RssSource`` for ingestion. Each configured URL is
-shown as a container that expands to its current items, but only the feed
-itself (``feed:{hash}``) is selectable: an article pick would ingest once
-and then poll forever without emitting again. Items still carry an id
-(``{feedHash}:{itemHash}``) — that is what ``change_stream`` emits and
-``fetch`` receives for each article in a watched feed.
+picker-time discovery, ``RssSource`` for ingestion. A feed is
+``feed:{feedHash}`` and an item is ``{feedHash}:{itemHash}``; only feeds
+are selectable, but items carry an id because that is what
+``change_stream`` emits and ``fetch`` receives.
 
 Three properties of real feeds shape this source:
 
-* **A feed is a mutable window, not an archive.** The URL is one document
-  the publisher rewrites in place; fetching it returns whatever it holds
-  now. Window lifetime measured across real feeds ranges from ~12 hours
-  (BBC News) to never (podcast archives), and there is no pagination to
-  reach what has fallen off. The poll interval is therefore a correctness
-  setting: poll slower than the window turns over and items are lost with
-  no way to ask for them again.
-* **Append-only.** RSS 2.0 cannot express an edit — it carries only
-  ``pubDate`` — so this source does not try to detect one. Fingerprints are
-  derived from the item id and never change, which makes them stable for the
-  item's life; every poll re-emits the whole window and the ingestion
-  repository's upsert collapses the repeats. No watermark, no suppression,
-  and a transiently-failed ingest re-emits next poll instead of needing a
-  periodic full sweep.
-* **The interesting fields are extensions, not core RSS.** The body lives in
+* **A feed is a mutable window, not an archive.** The publisher rewrites
+  one document in place, and there is no pagination back to what has
+  fallen off (windows sampled ranged from ~12 hours on BBC News to
+  unbounded on podcast archives). That makes the poll interval a
+  correctness setting, not a tuning knob.
+* **Append-only.** RSS 2.0 carries only ``pubDate`` and cannot express an
+  edit, so every poll re-emits the whole window and the ingestion
+  repository's upsert collapses the repeats. No watermark and no
+  suppression, so a transiently-failed ingest retries next poll.
+* **The interesting fields are extensions.** The body lives in
   ``content:encoded`` and the author in ``dc:creator``; the spec's own
-  ``<author>`` element appears in no real feed sampled. ``feedparser``
-  normalises those, which is why it is a dependency rather than a
-  hand-rolled parse.
+  ``<author>`` appeared in no feed sampled. ``feedparser`` normalises
+  those, which is why it is a dependency rather than a hand-rolled parse.
 
-The fetch stays here rather than in ``feedparser`` (which can fetch for
-itself) because two guarantees need the request: conditional GET, and
-validating the scheme on every redirect hop.
+Fetching stays here rather than in ``feedparser``, which can fetch for
+itself, because conditional GET and the per-hop scheme check both need
+the request.
 
-A link-only item — a Hacker News entry is one "Comments" anchor and no
-article — is still ingested, as its title plus the article and thread URLs
-in its metadata. The body is dropped so that boilerplate is not embedded on
-every item in the feed; only an item with neither prose nor a title is
-skipped outright.
-
-Not handled: deletes — a removed item just stops appearing, the same gap as
-the Blogspot and WordPress sources.
+Not handled: deletes — a removed item just stops appearing, the same gap
+as the Blogspot and WordPress sources.
 """
 
 from __future__ import annotations
@@ -59,7 +44,7 @@ import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import feedparser
 import httpx
@@ -89,8 +74,7 @@ POLL_INTERVAL_CHOICES = [900, 3600, 21600, 86400]
 MAX_BODY_BYTES = 1_000_000
 
 # Podcast feeds ship their whole archive (560 items measured) where blogs
-# ship ~10. Bound the per-poll work rather than assume the ingest path
-# absorbs it.
+# ship ~10; bound the per-poll work rather than assume ingest absorbs it.
 MAX_ITEMS_PER_POLL = 200
 
 MAX_REDIRECTS = 5
@@ -151,9 +135,8 @@ class RssBrowseConfig(BaseModel):
         """Split, validate, and re-join so the stored value is canonical.
 
         The scheme check re-raises as ``ValueError`` so pydantic reports it
-        as a field error alongside the rest, rather than letting a
-        ``SourceError`` — which belongs to the fetch path — escape
-        ``model_validate``.
+        as a field error, rather than letting a fetch-path ``SourceError``
+        escape ``model_validate``.
         """
         urls = _split_feed_urls(v)
         if not urls:
@@ -194,8 +177,8 @@ class RssDatasetConfig(RssBrowseConfig):
     @field_validator("poll_interval_seconds")
     @classmethod
     def known_interval(cls, v: int) -> int:
-        """Constrain to the offered choices — an arbitrary value here is
-        usually a mistake that silently drops items."""
+        """Off-menu intervals are usually a typo, and the wrong one
+        silently drops items."""
         if v not in POLL_INTERVAL_CHOICES:
             raise ValueError(
                 f"poll_interval_seconds must be one of {POLL_INTERVAL_CHOICES}"
@@ -215,12 +198,12 @@ def _split_feed_urls(raw: str) -> list[str]:
 
 
 def _require_https(url: str) -> None:
-    """Reject anything but https.
+    """Reject anything but https. Called once per redirect hop.
 
-    This is close to a complete SSRF guard, and certificate verification is
-    what makes it one: internal services speak plain http or have no
-    publicly-valid cert, so even a DNS rebind to a private address dies at
-    the TLS handshake. Applied per redirect hop, never with verify disabled.
+    This doubles as the SSRF guard, and certificate verification is what
+    makes it one: internal services speak plain http or hold no
+    publicly-valid cert, so even a DNS rebind dies at the TLS handshake.
+    Never run with verification disabled.
     """
     parsed = httpx.URL(url)
     if parsed.scheme != "https":
@@ -237,8 +220,8 @@ def _require_https(url: str) -> None:
 def _hash(value: str) -> str:
     """Short stable digest, used for both halves of an id.
 
-    Ids are ``{container}:{leaf}``, and a guid is frequently a URL — which
-    contains ``:`` — or a bare UUID, so neither half can be embedded raw.
+    Ids are ``{container}:{leaf}`` and a guid is often a URL, which itself
+    contains ``:``, so neither half can be embedded raw.
     """
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:_HASH_LENGTH]
 
@@ -295,9 +278,8 @@ async def _fetch_feed(
 ) -> _Feed:
     """Fetch and parse one feed, honouring conditional GET.
 
-    ``unchanged`` is set on a 304, which costs no body and means there is
-    nothing to emit. Redirects are followed by hand so every hop is
-    scheme-checked before it is requested.
+    A 304 returns ``unchanged`` and no body. Redirects are followed by hand
+    so every hop is scheme-checked before it is requested.
     """
     headers: dict[str, str] = {}
     if etag:
@@ -344,9 +326,9 @@ def _parse_feed(url: str, response: httpx.Response) -> _Feed:
         raise SourceError(
             f"Could not parse {url}: {parsed.get('bozo_exception') or 'malformed feed'}"
         )
-    # ``version`` names the dialect and is empty for anything that is not a
-    # feed. A web page parses cleanly into zero entries, so entries alone
-    # cannot tell a mistyped URL from a feed between publications.
+    # Entry count alone cannot tell a mistyped URL from a quiet feed — a web
+    # page parses cleanly into zero entries. ``version`` names the dialect and
+    # is empty for anything that is not a feed.
     if not parsed.get("version") and not parsed.entries:
         raise SourceError(f"{url} is not an RSS or Atom feed")
     if parsed.bozo:
@@ -382,9 +364,9 @@ def _entry_guid(entry: dict[str, Any]) -> str:
 def _entry_body(entry: dict[str, Any]) -> str:
     """The item's HTML body: full content if present, else the summary.
 
-    Never both — where a feed carries both, the summary is a prefix of the
-    content, so concatenating would duplicate the opening paragraph and
-    weight retrieval towards it.
+    Never both: where a feed carries both, the summary is a prefix of the
+    content, so concatenating would double the opening paragraph and skew
+    retrieval towards it.
     """
     contents = entry.get("content") or []
     for content in contents:
@@ -397,11 +379,10 @@ def _entry_body(entry: dict[str, Any]) -> str:
 def _has_prose(html: str) -> bool:
     """Whether a body says anything beyond its link labels.
 
-    Anchors go before the tag strip, not with it: a Hacker News item's whole
-    body is ``<a ...>Comments</a>``, whose label survives a plain strip and
-    would then be embedded — the same constant string on every item in the
-    feed. Structural rather than a length threshold, which would also
-    discard genuinely short posts.
+    Anchors are dropped before the tag strip, not with it: a Hacker News
+    item's whole body is ``<a ...>Comments</a>``, and that label survives a
+    plain strip — the same constant string on every item in the feed. A
+    length threshold would instead discard genuinely short posts.
     """
     return bool(_TAG_RE.sub(" ", _ANCHOR_RE.sub(" ", html)).strip())
 
@@ -501,19 +482,35 @@ class RssBrowser:
 # ── ingest ──────────────────────────────────────────────────────────────
 
 
+class _Slot(NamedTuple):
+    """The one feed held in memory, indexed by item id.
+
+    ``feed`` is a header: only the url and title ``_entry_metadata`` stamps
+    onto each item, never the parsed entries again.
+    """
+
+    feed_hash: str
+    feed: _Feed
+    entries: dict[str, dict[str, Any]]
+
+
 class RssSource:
     """Ingest-time access to public feeds.
 
-    Built by ``RssProvider.for_ingest``. Each poll fetches the selected
-    feeds and emits an event per item in the window; the repository's upsert
-    makes the repeats free. ``_bodies`` holds the last-parsed body per item
-    so ``fetch`` does not re-request the feed it was just emitted from, and
-    ``_conditional`` carries each feed's validators between polls.
+    Built by ``RssProvider.for_ingest``. Each poll emits an event per item in
+    the feed's window and caches nothing: the window is re-emitted whole every
+    poll, so all but the few items new since the last one are dropped by the
+    scanner and would be cached unread.
+
+    ``fetch`` loads what it needs instead, into ``_slot`` — one feed at a
+    time, since parsing a feed for one article materialises all of them.
+    ``_conditional`` carries each feed's validators between polls; it holds
+    two short strings per feed, so it is not worth bounding.
     """
 
     def __init__(self, config: RssDatasetConfig) -> None:
         self.config = config
-        self._bodies: dict[str, tuple[dict[str, Any], _Feed]] = {}
+        self._slot: _Slot | None = None
         self._conditional: dict[str, tuple[str | None, str | None]] = {}
 
     async def list_items(
@@ -530,15 +527,12 @@ class RssSource:
         """Write the item's HTML body to a tempfile and yield it.
 
         The title becomes an ``<h1>`` so the chunker, which splits on
-        headings, gives every chunk of a long article something naming what
-        it is about. The body is the publisher's own HTML, passed through,
-        and is left out entirely when it holds nothing but link labels.
+        headings, names every chunk of a long article. The body is the
+        publisher's HTML passed through, and is dropped when it holds
+        nothing but link labels.
         """
-        cached = self._bodies.get(external_id)
-        if cached is None:
-            entry, feed = await self._locate(external_id)
-        else:
-            entry, feed = cached
+        feed_hash, item_hash = _parse_item_id(external_id)
+        entry, feed = await self._take(external_id, feed_hash)
 
         body = _entry_body(entry)
         title = entry.get("title") or "(untitled)"
@@ -546,7 +540,6 @@ class RssSource:
         if _has_prose(body):
             document = f"{document}\n{body}"
 
-        _, item_hash = _parse_item_id(external_id)
         fd, tmp_str = tempfile.mkstemp(prefix=f"rss_{item_hash}_", suffix=".html")
         os.close(fd)
         tmp_path = Path(tmp_str)
@@ -562,35 +555,62 @@ class RssSource:
         finally:
             tmp_path.unlink(missing_ok=True)
 
-    async def _locate(self, external_id: str) -> tuple[dict[str, Any], _Feed]:
-        """Re-fetch the item's feed and find it, for a cold ``fetch``.
+    async def _take(
+        self, external_id: str, feed_hash: str
+    ) -> tuple[dict[str, Any], _Feed]:
+        """Claim an item's parsed entry, loading its feed when the slot
+        cannot serve it.
 
-        Only reached when the process restarted between emit and fetch. An
-        item that has since fallen out of the window is unreachable — the
-        feed carries no archive.
+        A held slot misses two ways: it holds a different feed, or it has
+        already handed this item out — a retry after a failed ingest. Both
+        reload, so the entry always comes from a parse that still has it.
         """
-        feed_hash, _ = _parse_item_id(external_id)
+        slot = self._slot
+        if (
+            slot is None
+            or slot.feed_hash != feed_hash
+            or external_id not in slot.entries
+        ):
+            self._slot = None  # release the held feed before parsing the next
+            slot = await self._load(feed_hash)
+            self._slot = slot
+
+        entry = slot.entries.pop(external_id, None)
+        if entry is None:
+            raise SourceError(
+                f"Item {external_id} is no longer in {slot.feed.url}"
+                " — feeds keep no archive"
+            )
+        return entry, slot.feed
+
+    async def _load(self, feed_hash: str) -> _Slot:
+        """Download one feed and index its items by id.
+
+        Truncated like a poll: an item the poll would not have emitted has no
+        job, so nothing will ask for it.
+        """
         url = next(
             (u for u in self.config.feed_url_list if _hash(u) == feed_hash), None
         )
         if url is None:
-            raise SourceError(f"No configured feed matches {external_id}")
+            raise SourceError(f"No configured feed matches feed {feed_hash}")
 
         async with _make_client() as client:
             feed = await _fetch_feed(client, url)
-        for entry in feed.entries:
-            if _item_id(url, _entry_guid(entry)) == external_id:
-                return entry, feed
-        raise SourceError(
-            f"Item {external_id} is no longer in {url} — feeds keep no archive"
+        return _Slot(
+            feed_hash=feed_hash,
+            feed=_Feed(url=feed.url, title=feed.title),
+            entries={
+                _item_id(url, _entry_guid(e)): e
+                for e in feed.entries[:MAX_ITEMS_PER_POLL]
+            },
         )
 
     def fingerprint(self, external_id: str) -> str:
-        """The item's identity, which is also its fingerprint.
+        """The item hash, which is also its fingerprint.
 
-        RSS 2.0 cannot express an edit, so this source is append-only: an
-        item's fingerprint is stable for its life and a re-emit of the same
-        item is correctly seen as unchanged.
+        Append-only, so it never changes and a re-emitted item is correctly
+        seen as unchanged.
         """
         _, item_hash = _parse_item_id(external_id)
         return item_hash
@@ -647,6 +667,11 @@ class RssSource:
         if feed.unchanged:
             return
 
+        # Anything the slot holds for this feed is a parse of the window that
+        # just moved, so drop it rather than hold it until the next fetch.
+        if self._slot is not None and self._slot.feed_hash == _hash(url):
+            self._slot = None
+
         entries = feed.entries
         if len(entries) > MAX_ITEMS_PER_POLL:
             logger.info(
@@ -678,7 +703,6 @@ class RssSource:
                 )
                 continue
 
-            self._bodies[external_id] = (entry, feed)
             yield SourceChangeEvent(
                 event_type="created",
                 external_id=external_id,
@@ -692,10 +716,9 @@ class RssSource:
     ) -> tuple[set[str], dict[str, set[str]]]:
         """Split picks into whole-feed subscriptions and per-feed item ids.
 
-        A feed covered by a whole-feed pick drops its individual item picks —
-        they are already covered, and keeping them would make the scope test
-        ambiguous. Malformed ids are skipped so one bad entry cannot abort
-        the poll.
+        A whole-feed pick absorbs that feed's individual item picks, which
+        would otherwise make the scope test ambiguous. Malformed ids are
+        skipped so one bad entry cannot abort the poll.
         """
         whole_feeds: set[str] = set()
         items_by_feed: dict[str, set[str]] = {}
@@ -778,15 +801,19 @@ class RssProvider:
     async def validate_selection(cls, item_ids: list[str]) -> None:
         """Only whole feeds are selectable.
 
-        An article pick ingests once and then polls forever without ever
+        An article pick would ingest once and then poll forever without
         emitting again, so the picker offers feeds only and this refuses the
-        ids it no longer produces. Whether a feed still resolves is NOT
-        checked: its window moves on its own, so a pick cannot be confirmed
-        — same stance as the Blogspot source.
+        rest. Whether a feed still resolves is not checked — its window moves
+        on its own, so a pick cannot be confirmed (as in the Blogspot source).
+
+        Raises:
+            ValueError: If any pick is an article rather than a whole feed.
+                Not ``SourceError``: the create / add-selection handlers
+                translate only ``ValueError`` into a 400.
         """
         articles = [i for i in item_ids if _parse_feed_container_id(i) is None]
         if articles:
-            raise SourceError(
+            raise ValueError(
                 "Select whole feeds, not individual articles: "
                 + ", ".join(sorted(articles)[:3])
             )

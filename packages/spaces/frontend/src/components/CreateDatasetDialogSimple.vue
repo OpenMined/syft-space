@@ -258,12 +258,10 @@ const props = withDefaults(
 const sourceType = computed(() => props.sourceType)
 const credentials = computed(() => props.credentials)
 
-// The picker emits exactly the fields of the source's browse schema, and a
-// binding's dataset schema always extends its source's browse schema, so this
-// object serves the browse call. Vector-store fields (collectionName,
-// httpPort) are left to their backend defaults. Sources with no credentials
-// (local_file) yield an empty object, which is what their configuration
-// should be.
+// The picker emits exactly the source's browse-schema fields, so this object
+// serves the browse call as-is. Vector-store fields (collectionName, httpPort)
+// fall back to their backend defaults; a source with no credentials
+// (local_file) yields {}, which is the right configuration for it.
 const sourceConfiguration = computed<Record<string, unknown>>(() => ({
   ...credentials.value,
 }))

@@ -14,9 +14,8 @@ export interface FieldCopy {
   // Render as a chip list. Values are joined with `separator` into the
   // single string the backend config field expects.
   list?: { separator: string }
-  // Human labels for an enum field's values, keyed by the raw value. The
-  // schema's enum decides which options exist and in what order; anything
-  // missing here falls back to the raw value.
+  // Human labels for an enum field's values, keyed by raw value. The schema
+  // decides which options exist; anything missing here shows its raw value.
   choices?: Record<string, string>
 }
 
