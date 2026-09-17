@@ -245,7 +245,7 @@ const PRESENTATIONS: Record<string, SourcePresentation> = {
     selectionEmptyTitle: 'No feeds selected',
     selectionEmptyHint: 'Tick a feed to ingest its articles and everything it publishes later.',
     footerHint:
-      'You follow a whole feed, not single articles. Expand one to see what it currently holds — a feed only lists its most recent articles, and older ones cannot be fetched back.',
+      'You follow a whole feed, not single articles. The count is what a feed holds right now — all of it is indexed, plus everything published later. Feeds list only their most recent articles, and older ones cannot be fetched back.',
     containerMode: 'self-only',
   },
 }

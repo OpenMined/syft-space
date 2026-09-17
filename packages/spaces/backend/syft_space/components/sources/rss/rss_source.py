@@ -73,9 +73,11 @@ POLL_INTERVAL_CHOICES = [900, 3600, 21600, 86400]
 # 5 MB held in memory before it reaches a tempfile.
 MAX_BODY_BYTES = 1_000_000
 
-# Podcast feeds ship their whole archive (560 items measured) where blogs
-# ship ~10; bound the per-poll work rather than assume ingest absorbs it.
-MAX_ITEMS_PER_POLL = 200
+# A guard, not a policy. Every poll re-reads the window from the start, so
+# anything cut here is cut permanently — a cap set to a plausible archive size
+# (560 items was the largest measured) would silently strand the rest. This is
+# set where a feed is better explained as malformed than as long.
+MAX_ITEMS_PER_FEED = 5000
 
 MAX_REDIRECTS = 5
 MAX_SLUG_LENGTH = 60
@@ -602,7 +604,7 @@ class RssSource:
             feed=_Feed(url=feed.url, title=feed.title),
             entries={
                 _item_id(url, _entry_guid(e)): e
-                for e in feed.entries[:MAX_ITEMS_PER_POLL]
+                for e in feed.entries[:MAX_ITEMS_PER_FEED]
             },
         )
 
@@ -673,14 +675,15 @@ class RssSource:
             self._slot = None
 
         entries = feed.entries
-        if len(entries) > MAX_ITEMS_PER_POLL:
-            logger.info(
-                "Feed %s has %d items; emitting the newest %d",
+        if len(entries) > MAX_ITEMS_PER_FEED:
+            logger.warning(
+                "Feed %s carries %d items; ingesting the first %d and dropping "
+                "the rest, which no later poll will pick up",
                 url,
                 len(entries),
-                MAX_ITEMS_PER_POLL,
+                MAX_ITEMS_PER_FEED,
             )
-            entries = entries[:MAX_ITEMS_PER_POLL]
+            entries = entries[:MAX_ITEMS_PER_FEED]
 
         for entry in entries:
             external_id = _item_id(url, _entry_guid(entry))

@@ -60,6 +60,13 @@
               {{ formatFileSize(node.size) }}
             </span>
 
+            <span
+              v-if="isContainer && node.itemCount !== undefined"
+              class="text-xs text-muted-foreground flex-shrink-0"
+            >
+              {{ node.itemCount }} {{ node.itemCount === 1 ? 'item' : 'items' }}
+            </span>
+
             <a
               v-if="node.link"
               :href="node.link"

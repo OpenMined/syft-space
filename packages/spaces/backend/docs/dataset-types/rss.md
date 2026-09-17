@@ -67,8 +67,10 @@ flowchart TB
     LOAD --> VS[(ChromaDB)]
 ```
 
-Each poll re-announces the **entire** window, not just what is new. Nearly all
-of it is already indexed and skipped in memory. That sounds wasteful but buys
+Each poll re-announces the **entire** window, not just what is new. The first
+poll therefore indexes everything the feed currently holds — a 500-episode
+podcast archive arrives in full, queued and worked through in the background.
+After that, nearly all of each poll is already indexed and skipped in memory. That sounds wasteful but buys
 something: an article whose indexing failed is retried automatically on the next
 poll, with no bookkeeping to go stale.
 
@@ -105,8 +107,9 @@ neither text nor a title is skipped.
 - **Deletes are not detected.** A withdrawn article stops appearing; its indexed
   copy remains.
 - **Very large items are skipped**, over roughly 1 MB of HTML in one article.
-- **Very large windows are truncated** to the first 200 items the feed lists
-  per poll. A podcast archive publishing its whole back catalogue will not
-  backfill entirely.
+- **Absurdly large feeds are truncated** past 5,000 items in one document,
+  which is a guard against a malformed feed rather than a limit on real ones —
+  the largest archive measured was 560. It is set high because every poll
+  re-reads the window from the start, so anything cut is cut for good.
 - **Items that scroll off before a poll are unrecoverable.** This is the feed's
   limitation, not Syft Space's.

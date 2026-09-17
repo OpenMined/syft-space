@@ -512,8 +512,21 @@ class TestPollFeed:
         events = await self._poll(_always(_rss(_item(body="<p>" + "x" * 200))))
         assert events == []
 
-    async def test_only_the_newest_items_are_taken(self, monkeypatch):
-        monkeypatch.setattr(rss, "MAX_ITEMS_PER_POLL", 2)
+    async def test_a_whole_archive_is_emitted_in_one_poll(self):
+        """Every poll re-reads the window from the start, so anything left out
+        of the first one is left out for good."""
+        body = _rss(
+            "".join(
+                _item(title=str(n), link=f"https://example.com/{n}") for n in range(500)
+            )
+        )
+        events = await self._poll(_always(body))
+        assert len(events) == 500
+
+    async def test_a_feed_past_the_guard_is_truncated(self, monkeypatch):
+        """The guard is for a malformed feed, not a long one — it drops those
+        items permanently, so it is set far above any real archive."""
+        monkeypatch.setattr(rss, "MAX_ITEMS_PER_FEED", 2)
         body = _rss(
             "".join(
                 _item(title=str(n), link=f"https://example.com/{n}") for n in range(5)
@@ -716,7 +729,7 @@ class TestFetchSlot:
 
     async def test_the_index_is_truncated_like_a_poll(self, monkeypatch):
         """An item the poll would not emit has no job to ask for it."""
-        monkeypatch.setattr(rss, "MAX_ITEMS_PER_POLL", 2)
+        monkeypatch.setattr(rss, "MAX_ITEMS_PER_FEED", 2)
         body = _rss(
             "".join(
                 _item(title=str(n), link=f"https://example.com/{n}") for n in range(5)
