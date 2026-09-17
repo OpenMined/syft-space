@@ -56,7 +56,19 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install backend dependencies
-        run: uv pip install -e "packages/spaces/backend/.[build,libs]" --system
+        # Install from backend/uv.lock so the bundled backend holds the versions
+        # we test and ship. `uv pip install` ignores the lockfile and re-resolves
+        # the ranges against PyPI. before_build.sh finds this venv via `uv run`
+        # from packages/spaces.
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/packages/spaces/.venv
+          UV_HTTP_TIMEOUT: "600"
+          # Build against setup-python's 3.12: requires-python is only >=3.12,
+          # so uv would otherwise take the newest interpreter it finds, or
+          # download a managed one for PyInstaller to bundle.
+          UV_PYTHON: "3.12"
+          UV_NO_MANAGED_PYTHON: "1"
+        run: uv sync --locked --project packages/spaces/backend --extra build --extra libs
 
       - name: install frontend dependencies
         run: bun install --cwd packages/spaces/frontend --frozen-lockfile

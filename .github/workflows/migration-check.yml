@@ -24,9 +24,14 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
+        # Install from uv.lock; `uv pip install` ignores it and re-resolves.
+        env:
+          UV_HTTP_TIMEOUT: "600"
+          UV_PYTHON: "3.12"
+          UV_NO_MANAGED_PYTHON: "1"
         run: |
           cd packages/spaces/backend
-          uv pip install -e . --system
+          uv sync --locked
 
       - name: Check for multiple heads
         run: |
