@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
 # Packages that are lazily/conditionally imported in syft_space code and thus
@@ -58,6 +60,49 @@ PACKAGES_WITH_BINARIES = [
     'torchvision',
 ]
 
+def _flatten_license_trees(datas):
+    """Fold each dist-info's nested licence tree into one file.
+
+    torch vendors licences up to 15 directories deep, which puts two of them
+    past Windows' 260-character path limit once NSIS stages the bundle and
+    aborts the installer. Every notice is kept, prefixed with the path it came
+    from, so attribution survives the flattening. Licence files sitting
+    directly in ``licenses/`` are left alone.
+    """
+    nested: dict[str, list[tuple[str, str]]] = {}
+    kept = []
+    for entry in datas:
+        dest, source = entry[0], entry[1]
+        parts = dest.replace("\\", "/").split("/")
+        # <name>.dist-info/licenses/<subdir>/.../<file>
+        if (
+            len(parts) > 3
+            and parts[0].endswith(".dist-info")
+            and parts[1] == "licenses"
+        ):
+            nested.setdefault(parts[0], []).append(("/".join(parts[2:]), source))
+        else:
+            kept.append(entry)
+
+    for dist_info, files in nested.items():
+        combined = []
+        for relative, source in sorted(files):
+            combined.append("=" * 72)
+            combined.append(relative)
+            combined.append("=" * 72)
+            combined.append(Path(source).read_text(encoding="utf-8", errors="replace"))
+            combined.append("")
+        out = Path(workpath) / dist_info / "THIRD_PARTY_NOTICES.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join(combined), encoding="utf-8")
+        kept.append(
+            (f"{dist_info}/licenses/THIRD_PARTY_NOTICES.txt", str(out), "DATA")
+        )
+        print(f"[spec] flattened {len(files)} licence files in {dist_info}")
+
+    return kept
+
+
 a = Analysis(
     ['syft_space/__main__.py'],
     pathex=[],
@@ -83,6 +128,8 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+a.datas = _flatten_license_trees(a.datas)
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
