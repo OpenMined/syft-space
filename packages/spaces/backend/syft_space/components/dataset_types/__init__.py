@@ -40,5 +40,11 @@ def register_builtin_types(registry: "DatasetTypeRegistry") -> None:
         "BlogspotChromaDBDatasetType",
     )
 
+    registry.register_lazy_dataset_type(
+        "rss",
+        "syft_space.components.dataset_types.rss_chromadb",
+        "RssChromaDBDatasetType",
+    )
+
 
 __all__ = ["register_builtin_types"]

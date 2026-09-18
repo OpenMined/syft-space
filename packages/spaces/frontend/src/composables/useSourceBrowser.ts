@@ -17,6 +17,8 @@ export interface FileNode {
   status?: string
   /** External URL to preview the item, if the source provides one. */
   link?: string
+  /** How many items a container currently holds, when the source counts them. */
+  itemCount?: number
   /** Cursor for the next page of this container's children; null when exhausted. */
   nextCursor?: string | null
   /** True while a "load more" fetch for this container is in flight. */
@@ -103,6 +105,7 @@ export function useSourceBrowser(
             (item.metadata?.link as string | undefined) ??
             (item.metadata?.url as string | undefined) ??
             undefined,
+          itemCount: (item.metadata?.item_count as number | undefined) ?? undefined,
         }
       })
 

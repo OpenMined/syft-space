@@ -105,6 +105,11 @@ def register_builtin_sources() -> None:
         "BlogspotProvider",
     )
     SOURCE_REGISTRY.register(
+        "rss",
+        "syft_space.components.sources.rss.rss_source",
+        "RssProvider",
+    )
+    SOURCE_REGISTRY.register(
         "noop",
         "syft_space.components.sources.noop_source",
         "NoOpProvider",

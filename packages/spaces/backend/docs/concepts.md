@@ -10,9 +10,9 @@ Three concepts, deliberately separated:
 
 | Concept | Question it answers | Interface | Built-ins |
 | --- | --- | --- | --- |
-| **Source** | *Where does the data come from?* | `BaseSource` / `BaseSourceProvider` / `BaseBrowser` | `local_file`, `noop` |
+| **Source** | *Where does the data come from?* | `BaseSource` / `BaseSourceProvider` / `BaseBrowser` | `local_file`, `rss`, `wordpress`, `blogspot`, `noop` |
 | **Vector Store** | *Where is it indexed and searched?* | `BaseVectorStore` | `chromadb_local`, `weaviate_remote` |
-| **Dataset Type** | *Which source pairs with which store?* | `BaseDatasetType` (a **binding**) | `local_file`, `remote_weaviate` |
+| **Dataset Type** | *Which source pairs with which store?* | `BaseDatasetType` (a **binding**) | `local_file`, `rss`, `wordpress`, `blogspot`, `remote_weaviate` |
 
 - A **source** knows how to browse items (for the file picker), stream
   documents for ingestion, and optionally subscribe to changes (file watching).
@@ -22,12 +22,12 @@ Three concepts, deliberately separated:
 - A **vector store** knows how to ingest chunks, run similarity search, and
   delete content.
 - A **dataset type** binds one source to one vector store and exposes a single
-  configuration schema to the user. The two shipped bindings:
-  - `local_file` → local files (the `local_file` source) indexed in a local
-    ChromaDB subprocess.
-  - `remote_weaviate` → a remote Weaviate cluster you populate externally, so it
-    pairs the Weaviate store with the `noop` source — search-only, with no
-    ingestion through Syft Space.
+  configuration schema to the user. Five ship today — four that ingest into a
+  local ChromaDB subprocess (`local_file`, `rss`, `wordpress`, `blogspot`) and
+  one that only searches (`remote_weaviate`, pairing the Weaviate store with the
+  `noop` source, since you populate that cluster yourself).
+  [Dataset Types](./dataset-types/README.md) covers each one: what it needs,
+  what you pick, and how it decides something changed.
 
 Because the axes are orthogonal, adding *S3 → Weaviate* or *local files →
 Qdrant* is just a new binding. See [Extending the Platform](./extending.md).
