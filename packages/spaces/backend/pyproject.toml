@@ -14,7 +14,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.116.2",
     "uvicorn[standard]==0.35.0",
-    "pydantic[email]==2.11.9",
+    "pydantic[email]==2.12.5",
     "pydantic-settings>=2.14.2",
     "sqlmodel>=0.0.14",
     "alembic>=1.13.0",
@@ -33,6 +33,7 @@ dependencies = [
     "pympp[tempo]>=0.4.0",
     "spacy>=3.8.14",
     "en-core-web-sm",
+    "feedparser>=6.0.11",
 ]
 
 [project.optional-dependencies]

@@ -103,6 +103,26 @@
           </div>
         </div>
 
+        <!-- Schema-driven options (create only) -->
+        <div v-for="field in props.dataset ? [] : optionFields" :key="field.name" class="space-y-2">
+          <Label :for="`option-${field.name}`" class="text-sm font-medium">
+            {{ field.label }}
+          </Label>
+          <Select v-model="optionValues[field.name]">
+            <SelectTrigger :id="`option-${field.name}`" class="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="option in field.options" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p v-if="field.description" class="text-xs text-muted-foreground">
+            {{ field.description }}
+          </p>
+        </div>
+
         <!-- Summary -->
         <div class="space-y-2">
           <Label for="summary" class="text-sm font-medium"> Summary </Label>
@@ -199,11 +219,19 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Plus, X } from 'lucide-vue-next'
 import SourceBrowser from '@/components/SourceBrowser.vue'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
+import { sourcePresentation } from '@/config/sources'
 import type { CreateDatasetRequest, SelectionItemRequest, UpdateDatasetRequest } from '@/api/types'
 
 interface EditDataset {
@@ -230,15 +258,79 @@ const props = withDefaults(
 const sourceType = computed(() => props.sourceType)
 const credentials = computed(() => props.credentials)
 
-// The picker emits exactly the fields of the source's browse schema, and a
-// binding's dataset schema always extends its source's browse schema, so one
-// object serves both the browse call and the create call. Ingest-time and
-// vector-store fields (pollIntervalSeconds, collectionName, httpPort) are
-// left to their backend defaults. Sources with no credentials (local_file)
-// yield an empty object, which is what their configuration should be.
+// The picker emits exactly the source's browse-schema fields, so this object
+// serves the browse call as-is. Vector-store fields (collectionName, httpPort)
+// fall back to their backend defaults; a source with no credentials
+// (local_file) yields {}, which is the right configuration for it.
 const sourceConfiguration = computed<Record<string, unknown>>(() => ({
   ...credentials.value,
 }))
+
+// ── Schema-driven options ──────────────────────────────────────────────
+// Dataset config fields the schema constrains to a fixed set render as
+// selects. The schema decides which exist and their order; config/sources.ts
+// only names the values for humans.
+
+interface SchemaProperty {
+  type?: string
+  title?: string
+  description?: string
+  enum?: (string | number)[]
+  default?: unknown
+}
+
+const configSchema = ref<Record<string, SchemaProperty>>({})
+const optionValues = ref<Record<string, string>>({})
+
+const optionFields = computed(() => {
+  const copy = sourcePresentation(sourceType.value).fields ?? {}
+  return Object.entries(configSchema.value)
+    .filter(([name, prop]) => Array.isArray(prop.enum) && !(name in credentials.value))
+    .map(([name, prop]) => ({
+      name,
+      label: copy[name]?.label ?? prop.title ?? name,
+      description: prop.description ?? '',
+      // The select's value is a string; the backend field may not be.
+      isNumeric: prop.type === 'integer' || prop.type === 'number',
+      options: (prop.enum ?? []).map((value) => ({
+        value: String(value),
+        label: copy[name]?.choices?.[String(value)] ?? String(value),
+      })),
+    }))
+})
+
+/** A schema we cannot read just means no controls — the backend still
+ *  applies its own defaults on create. */
+const loadConfigSchema = async () => {
+  configSchema.value = {}
+  optionValues.value = {}
+  try {
+    const type = await datasetsApi.getType(sourceType.value)
+    const properties = (type.config_schema?.properties ?? {}) as Record<string, SchemaProperty>
+    configSchema.value = properties
+    const defaults: Record<string, string> = {}
+    for (const [name, prop] of Object.entries(properties)) {
+      if (Array.isArray(prop.enum) && prop.default !== undefined) {
+        defaults[name] = String(prop.default)
+      }
+    }
+    optionValues.value = defaults
+  } catch {
+    configSchema.value = {}
+  }
+}
+
+/** What create sends. SourceBrowser gets `sourceConfiguration` alone —
+ *  these are ingest-time settings the browse call has no use for. */
+const datasetConfiguration = computed<Record<string, unknown>>(() => {
+  const config: Record<string, unknown> = { ...sourceConfiguration.value }
+  for (const field of optionFields.value) {
+    const raw = optionValues.value[field.name]
+    if (raw === undefined) continue
+    config[field.name] = field.isNumeric ? Number(raw) : raw
+  }
+  return config
+})
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
@@ -345,7 +437,7 @@ const handleCreate = async () => {
         name: formData.value.name.trim(),
         summary: formData.value.summary.trim() || '',
         tags: formData.value.tags.join(','),
-        configuration: sourceConfiguration.value,
+        configuration: datasetConfiguration.value,
         selected_items: buildSelectedItems(),
       }
 
@@ -394,6 +486,7 @@ watch(
     } else if (open && !dataset) {
       isInitialized.value = false
       resetForm()
+      await loadConfigSchema()
     } else if (!open) {
       isInitialized.value = false
     }

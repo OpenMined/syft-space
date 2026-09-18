@@ -171,7 +171,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue'
-import { FileText, HardDrive, Newspaper, PenLine, ShieldAlert, X } from 'lucide-vue-next'
+import { FileText, HardDrive, Newspaper, PenLine, Rss, ShieldAlert, X } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -189,7 +189,9 @@ interface SourcePresentation {
   selectionEmptyTitle: string
   selectionEmptyHint: string
   footerHint: string
-  containerMode: 'self' | 'group'
+  // 'self' = the container's own id is the pick; 'group' = its children are;
+  // 'self-only' = as 'self', and children are shown but cannot be picked.
+  containerMode: 'self' | 'group' | 'self-only'
 }
 
 const PRESENTATIONS: Record<string, SourcePresentation> = {
@@ -232,6 +234,19 @@ const PRESENTATIONS: Record<string, SourcePresentation> = {
     footerHint:
       'Ticking a blog follows the whole blog, including posts published later. Expand it to pick individual posts instead.',
     containerMode: 'self',
+  },
+  rss: {
+    headerTitle: 'Select feeds',
+    panelIcon: Rss,
+    panelLabel: 'RSS / Atom feeds',
+    loadingText: 'Fetching feeds…',
+    emptyText: 'No feeds resolved from those URLs.',
+    selectionTitle: 'Selected Feeds',
+    selectionEmptyTitle: 'No feeds selected',
+    selectionEmptyHint: 'Tick a feed to ingest its articles and everything it publishes later.',
+    footerHint:
+      'You follow a whole feed, not single articles. The count is what a feed holds right now — all of it is indexed, plus everything published later. Feeds list only their most recent articles, and older ones cannot be fetched back.',
+    containerMode: 'self-only',
   },
 }
 

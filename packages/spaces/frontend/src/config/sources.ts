@@ -14,6 +14,9 @@ export interface FieldCopy {
   // Render as a chip list. Values are joined with `separator` into the
   // single string the backend config field expects.
   list?: { separator: string }
+  // Human labels for an enum field's values, keyed by raw value. The schema
+  // decides which options exist; anything missing here shows its raw value.
+  choices?: Record<string, string>
 }
 
 export interface SourceCopy {
@@ -58,6 +61,28 @@ export const SOURCE_PRESENTATION: Record<string, SourceCopy> = {
       apiKey: {
         label: 'API key',
         placeholder: 'Google API key with the Blogger API enabled',
+      },
+    },
+  },
+  rss: {
+    label: 'RSS / Atom',
+    icon: '📡',
+    description:
+      'Items from public RSS or Atom feeds. No credentials — a feed only shows its most recent items.',
+    fields: {
+      feedUrls: {
+        label: 'Feed URLs',
+        placeholder: 'https://example.com/feed',
+        list: { separator: ',' },
+      },
+      pollIntervalSeconds: {
+        label: 'Check for new items',
+        choices: {
+          900: 'Every 15 minutes',
+          3600: 'Every hour',
+          21600: 'Every 6 hours',
+          86400: 'Once a day',
+        },
       },
     },
   },
