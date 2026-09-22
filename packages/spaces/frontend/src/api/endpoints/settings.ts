@@ -6,6 +6,8 @@ import type {
   ProxyStatusResponse,
   DiagnosticsResponse,
   UpdateDiagnosticsRequest,
+  BenchmarksModeResponse,
+  UpdateBenchmarksModeRequest,
 } from '../types'
 
 export const settingsApi = {
@@ -54,6 +56,22 @@ export const settingsApi = {
   // Update diagnostics preference
   updateDiagnostics: async (data: UpdateDiagnosticsRequest): Promise<DiagnosticsResponse> => {
     const response = await apiClient.patch('/settings/diagnostics', data)
+    return response.data
+  },
+
+  // How this Space accepts benchmark cards: 'off' or 'local'
+  getBenchmarksMode: async (): Promise<BenchmarksModeResponse> => {
+    const response = await apiClient.get('/settings/benchmarks')
+    return response.data
+  },
+
+  // Change it. Turning it off closes the door on new cards; it does not
+  // retract what was published while it was open — that stays a separate,
+  // owner-only act.
+  updateBenchmarksMode: async (
+    data: UpdateBenchmarksModeRequest,
+  ): Promise<BenchmarksModeResponse> => {
+    const response = await apiClient.patch('/settings/benchmarks', data)
     return response.data
   },
 }

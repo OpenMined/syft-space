@@ -5,6 +5,7 @@ import DatasetsPage from '../pages/DatasetsPage.vue'
 import ModelsPage from '../pages/ModelsPage.vue'
 import SettingsPage from '../pages/SettingsPage.vue'
 import AnalyticsPage from '../pages/AnalyticsPage.vue'
+import BenchmarkPage from '../pages/BenchmarkPage.vue'
 import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
 import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
 import ModelDetailPage from '../pages/ModelDetailPage.vue'
@@ -97,6 +98,11 @@ const router = createRouter({
       path: '/analytics',
       name: 'analytics',
       component: AnalyticsPage,
+    },
+    {
+      path: '/benchmark',
+      name: 'benchmark',
+      component: BenchmarkPage,
     },
     {
       path: '/settings',

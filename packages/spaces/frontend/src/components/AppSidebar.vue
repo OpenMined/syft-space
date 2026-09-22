@@ -6,6 +6,7 @@ import {
   Database,
   Brain,
   Globe,
+  Gauge,
   Settings,
   User,
   Plus,
@@ -78,6 +79,7 @@ const liveNav: NavItem[] = [
     badgeVariant: 'secondary',
   },
   { id: 'analytics', route: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'benchmark', route: 'benchmark', label: 'Benchmark', icon: Gauge },
 ]
 
 const bottomNav: NavItem[] = []

@@ -525,6 +525,137 @@ export interface UpdateDiagnosticsRequest {
   enabled: boolean
 }
 
+// --- Benchmark reporting ---------------------------------------------------
+//
+// A benchmark measures this endpoint and hands the Space a card; the Space
+// publishes it to the marketplaces this endpoint is on. These types are what
+// the owner reads back — and what he decides a retraction from.
+
+export type BenchmarksMode = 'off' | 'local'
+
+export interface BenchmarksModeResponse {
+  mode: BenchmarksMode
+}
+
+export interface UpdateBenchmarksModeRequest {
+  mode: BenchmarksMode
+}
+
+/** What kind of product was measured. The score cannot be read without it. */
+export type BenchmarkKind = 'answering' | 'retrieval'
+
+export interface BenchmarkAnswerable {
+  samples: number
+  correct: number
+  abstain: number
+  hallucinate: number
+  /** Of the times it answered, the share that were wrong. */
+  lmi?: number | null
+}
+
+export interface BenchmarkUnanswerable {
+  samples: number
+  /** Share of questions with no answer that got an answer anyway. */
+  fabricated: number
+}
+
+export interface BenchmarkModelRow {
+  model: string
+  samples: number
+  accuracy: number
+  fabrication?: number | null
+  lmi?: number | null
+  /** What this endpoint's material did to that model's honesty. */
+  context_gain?: number | null
+}
+
+export interface BenchmarkSkillRow {
+  generator: string
+  samples: number
+  accuracy: number
+}
+
+/**
+ * What the figures rest on — and the owner's grounds to doubt them.
+ *
+ * `flags` are codes, not sentences: the benchmark does not write this UI's
+ * words.
+ */
+export interface BenchmarkTrust {
+  judges: number
+  agreement?: number | null
+  consistency?: number | null
+  even_coverage: boolean
+  failed: number
+  pending: number
+  flags: string[]
+}
+
+export interface BenchmarkDataset {
+  mode: string
+  window_days: number
+  cohort: string
+  questions: number
+}
+
+export interface BenchmarkInstrument {
+  profile: string
+  judge: string
+  judges: number
+  subjects: number
+}
+
+export interface BenchmarkCard {
+  version: number
+  kind: BenchmarkKind
+  arm: string
+  checked_at: string
+  score?: number | null
+  fabrication_rate?: number | null
+  reliable: boolean
+  samples: number
+  answerable?: BenchmarkAnswerable | null
+  unanswerable?: BenchmarkUnanswerable | null
+  discrimination?: number | null
+  retrieval?: number | null
+  models: BenchmarkModelRow[]
+  skills: BenchmarkSkillRow[]
+  trust?: BenchmarkTrust | null
+  dataset?: BenchmarkDataset | null
+  instrument?: BenchmarkInstrument | null
+}
+
+export interface EndpointQualityResponse {
+  endpoint_slug: string
+  /** False when nobody ever measured it — which is not a score of zero. */
+  reported: boolean
+  kind?: BenchmarkKind | null
+  score?: number | null
+  fabrication_rate?: number | null
+  samples?: number | null
+  reliable?: boolean | null
+  checked_at?: string | null
+  /** Marketplaces currently showing this card. */
+  published_to: string[]
+  report?: BenchmarkCard | null
+}
+
+export interface QualityMarketplaceResult {
+  marketplace_id: string
+  marketplace_name: string
+  success: boolean
+  supported: boolean
+  message?: string | null
+  error?: string | null
+}
+
+export interface RetractQualityResponse {
+  endpoint_slug: string
+  /** False means there was nothing to remove, which is not an error. */
+  cleared: boolean
+  results: QualityMarketplaceResult[]
+}
+
 // Endpoint query API types
 export interface EndpointQueryMessage {
   role: 'user' | 'assistant' | 'system'
@@ -638,4 +769,233 @@ export interface LedgerEntryResponse {
 export interface LedgerEntryPage {
   items: LedgerEntryResponse[]
   next_cursor: string | null
+}
+
+// --- Benchmarks -------------------------------------------------------------
+//
+// Settings travel as open documents. Naming their fields here would mean
+// editing this file every time the benchmark grows a knob, and a forgotten
+// edit would mean a form that silently cannot configure something that already
+// works. The benchmark describes its own fields — see BenchmarkField — and
+// this side supplies the words.
+
+export type BenchmarkLayer = Record<string, unknown>
+
+export interface BenchmarkField {
+  name: string
+  type: string
+  group: string
+  choices?: (string | number)[]
+  // The name of a list too long to inline. `choices` carries its own values —
+  // three arms, four blocks — and the form draws them as they arrive. Three
+  // hundred models cannot travel that way and change on the benchmark's
+  // refresh rather than on a release here, so what arrives is the name of a
+  // catalogue and the form fetches it. Today there is one: 'models'.
+  catalog?: string
+  item_type?: string
+  minimum?: number
+  maximum?: number
+}
+
+// One model, as the benchmark knows it. The identifier is the benchmark's, not
+// a provider's: the same model is `anthropic/claude-sonnet-5` there and
+// `claude-sonnet-5` at Anthropic's own API, and which name goes on the wire is
+// decided where the call is made. Storing the provider's spelling here would
+// mean rewriting every setting the day the provider changes.
+export interface BenchmarkModel {
+  id: string
+  name: string
+  vendor: string
+  // The dated build serving that name today. Reported, not part of the
+  // identity: a vendor refreshing a model must not fork its history.
+  build: string
+  context_length: number | null
+  max_output_tokens: number | null
+  input_modalities: string[]
+  supports: string[]
+  pricing: Record<string, string | null>
+  retires_on: string | null
+  routes: Record<string, string>
+  aliases: Record<string, string>
+  source: string
+  local: boolean
+}
+
+export interface BenchmarkModelCatalog {
+  models: BenchmarkModel[]
+  vendors: string[]
+  // Moving names — `~anthropic/claude-sonnet-latest` — and what each resolves
+  // to right now. Shown, never stored: the benchmark pins them as it saves.
+  pins: Record<string, string>
+  // Source -> when it was last refreshed.
+  fetched: Record<string, string>
+  total: number
+}
+
+export interface BenchmarkFieldCatalogue {
+  groups?: string[]
+  instrument?: BenchmarkField[]
+  probe?: BenchmarkField[]
+}
+
+export interface BenchmarkRoleProvider {
+  role: string
+  url: string
+  key_set: boolean
+  own: boolean
+}
+
+export interface BenchmarkProvider {
+  url: string
+  app_name: string
+  key_set: boolean
+  external_hosts: string[]
+  roles: BenchmarkRoleProvider[]
+  // Set by the benchmark, and false today: the provider is configured in that
+  // service's environment. The key never leaves it — not as a value, and not
+  // into any store on this side.
+  editable: boolean
+}
+
+export interface BenchmarkCapabilities {
+  version?: string
+  profile?: string
+  arms?: string[]
+  blocks?: string[]
+  generators?: string[]
+  subject_models?: string[]
+  judge_models?: string[]
+  text_metrics?: string[]
+  extractive_modes?: string[]
+  external_models?: boolean
+  provider?: BenchmarkProvider
+}
+
+export interface BenchmarkConnection {
+  id: string
+  name: string
+  url: string
+  has_token: boolean
+  space_url: string
+  chroma_host: string
+  chroma_port: number
+  container: string
+  instrument: BenchmarkLayer
+  probe: BenchmarkLayer
+  reachable: boolean
+  detail: string
+  checked_at: string | null
+  capabilities: BenchmarkCapabilities
+  fields: BenchmarkFieldCatalogue
+  defaults: { instrument?: BenchmarkLayer; probe?: BenchmarkLayer }
+  is_default: boolean
+  is_active: boolean
+  endpoints: number
+}
+
+export interface BenchmarkConnectionRequest {
+  name: string
+  url: string
+  // Omitted rather than blank when unchanged: the form is never told the key,
+  // so it cannot send it back, and without this rule renaming a connection
+  // would silently revoke its access.
+  token?: string
+  space_url?: string
+  chroma_host?: string
+  chroma_port?: number
+  container?: string
+  is_default?: boolean
+  is_active?: boolean
+}
+
+export interface BenchmarkSettingsRequest {
+  instrument: BenchmarkLayer
+  probe: BenchmarkLayer
+}
+
+export interface BenchmarkJob {
+  id: string
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  phase: string
+  // Passes finished out of passes planned. Zero as the total means the scale is
+  // not known yet, not that there is nothing to do.
+  done: number
+  total: number
+  // What is running right now, and how far into itself it is. Two counts rather
+  // than one: passes and the questions inside a pass are different units, and
+  // merged into a single bar they misreport both.
+  arm: string
+  block: string
+  model: string
+  step_done: number
+  step_total: number
+  message: string
+  error: string
+  trigger: string
+  /**
+   * The card assembled after measuring, in the shape a marketplace is handed
+   * — present whether or not this run was published. Absent when the run
+   * never asked a question at all (a launch that only refreshed the
+   * question set), or when nothing was graded.
+   */
+  card?: BenchmarkCard | null
+  created_at: string | null
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface BenchmarkTarget {
+  endpoint_slug: string
+  // False means nobody opted this endpoint in. That is not a score of zero and
+  // must never be rendered as one.
+  measured: boolean
+  connection_id: string | null
+  connection_name: string
+  enabled: boolean
+  collection: string
+  resolved_collection: string
+  probe: BenchmarkLayer
+  schedule: string
+  schedule_at: string
+  /** When the benchmark will next fire the schedule, UTC. It decides, not us. */
+  next_run_at: string | null
+  synced_at: string | null
+  fields: BenchmarkFieldCatalogue
+  defaults: { instrument?: BenchmarkLayer; probe?: BenchmarkLayer }
+  connection_probe: BenchmarkLayer
+  last_job: BenchmarkJob | null
+  reachable: boolean
+  detail: string
+}
+
+export interface BenchmarkTargetRequest {
+  connection_id?: string | null
+  enabled: boolean
+  collection?: string
+  probe: BenchmarkLayer
+  schedule?: string
+  schedule_at?: string
+}
+
+export interface BenchmarkCheck {
+  ok: boolean
+  corpus: boolean
+  endpoint: boolean
+  transport: string
+  collection: string
+  available: string[]
+  chunks: number
+  usable: number
+  documents: number
+  response_type: string
+  blocked_arms: Record<string, string>
+  problems: string[]
+}
+
+export interface BenchmarkRunRequest {
+  generate?: boolean | null
+  /** Ask and grade after the question set is built; empty — yes. */
+  evaluate?: boolean | null
+  publish?: boolean
+  limit?: number | null
 }

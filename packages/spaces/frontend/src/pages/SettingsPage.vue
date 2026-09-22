@@ -702,6 +702,40 @@
         </div>
       </div>
 
+      <!-- Benchmark Reporting Section -->
+      <div class="bg-card border border-border rounded-xl p-6 mt-6">
+        <div class="flex items-start space-x-3">
+          <Checkbox id="benchmarks" v-model="benchmarksEnabled" class="mt-0.5" />
+          <div class="space-y-1.5">
+            <Label for="benchmarks" class="text-sm text-foreground cursor-pointer leading-snug">
+              Let a benchmark publish results about your endpoints
+            </Label>
+            <p class="text-xs text-muted-foreground max-w-2xl">
+              A benchmark measures how good your endpoints are and hands the
+              result to this Space, which publishes it to the marketplaces they
+              are on — under your account, the same way it already reports
+              health. While this is off, the reporting API is not there at all.
+            </p>
+            <p class="text-xs text-muted-foreground max-w-2xl">
+              Switching it off closes the door on new results. It does
+              <span class="text-foreground">not</span> take back what was already
+              published — that stays yours to do, per endpoint, on its Benchmark
+              tab.
+            </p>
+            <!-- This switch is about publishing, not about measuring. Which
+                 benchmark does the measuring, and how, is a page of its own —
+                 and saying so here is what stops the two being confused. -->
+            <p class="text-xs text-muted-foreground max-w-2xl pt-1">
+              This is only about publishing. Which benchmark measures your
+              endpoints, and how, is set on the
+              <RouterLink to="/benchmark" class="text-primary hover:underline">
+                Benchmark page </RouterLink
+              >.
+            </p>
+          </div>
+        </div>
+      </div>
+
       <!-- Save Button -->
       <div class="mt-8 flex justify-end">
         <Button :disabled="saving" @click="saveChanges">
@@ -714,6 +748,7 @@
 </template>
 
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import {
   Settings,
@@ -773,6 +808,10 @@ const customUrl = ref(window.location.origin)
 // (the backend refuses the connect too).
 const managedMode = ref(false)
 const diagnosticsEnabled = ref(false)
+// Outwardly this is a string ('off' / 'local'), not a flag: there will be more
+// ways to trust a benchmark over time. Here it is still a checkbox, because for
+// now there is exactly one way.
+const benchmarksEnabled = ref(false)
 
 // Wallet state
 const loadingWallets = ref(true)
@@ -805,6 +844,16 @@ const fetchDiagnostics = async () => {
     diagnosticsEnabled.value = res.enabled
   } catch {
     // Default to false if fetch fails
+  }
+}
+
+const fetchBenchmarksMode = async () => {
+  try {
+    const res = await settingsApi.getBenchmarksMode()
+    benchmarksEnabled.value = res.mode !== 'off'
+  } catch {
+    // An older Space does not know this setting — and "off" is the right reading
+    // of that unknown: staying quiet is safer than speaking for the owner.
   }
 }
 
@@ -1087,6 +1136,10 @@ const saveChanges = async () => {
     setDiagnosticsEnabled(diagnosticsEnabled.value)
     setPosthogDiagnosticsEnabled(diagnosticsEnabled.value)
 
+    await settingsApi.updateBenchmarksMode({
+      mode: benchmarksEnabled.value ? 'local' : 'off',
+    })
+
     toast.success('Settings saved')
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Failed to save settings')
@@ -1099,6 +1152,7 @@ onMounted(() => {
   fetchAccountInfo()
   fetchNetworkConfig()
   fetchDiagnostics()
+  fetchBenchmarksMode()
   fetchWallets()
 })
 </script>

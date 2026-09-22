@@ -264,6 +264,13 @@
               {{ totalTransactionsForBadge }}
             </Badge>
           </TabsTrigger>
+          <TabsTrigger
+            value="benchmark"
+            class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
+          >
+            <FlaskConical class="h-4 w-4" />
+            Benchmark
+          </TabsTrigger>
         </TabsList>
 
         <!-- Overview Tab -->
@@ -845,6 +852,11 @@
             </CardContent>
           </Card>
         </TabsContent>
+
+        <!-- Benchmark Tab -->
+        <TabsContent value="benchmark" class="space-y-4 pt-6 mt-0">
+          <BenchmarkPanel :slug="routeSlug" />
+        </TabsContent>
       </Tabs>
     </div>
   </div>
@@ -951,6 +963,7 @@ import {
   Plus,
   ExternalLink,
   Pencil,
+  FlaskConical,
   Receipt,
   Zap,
   CreditCard,
@@ -972,6 +985,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import BenchmarkPanel from '@/components/BenchmarkPanel.vue'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -1038,6 +1052,9 @@ const { isDark } = useTheme()
 const error = ref(false)
 const loading = ref(true)
 const endpoint = ref<EndpointResponse | null>(null)
+// Slug from the route: the benchmark tab asks for the card by it, so it has no
+// reason to wait for the endpoint itself to load.
+const routeSlug = computed(() => route.params.slug as string)
 const activeTab = ref('overview')
 
 watch(activeTab, (tab) => {

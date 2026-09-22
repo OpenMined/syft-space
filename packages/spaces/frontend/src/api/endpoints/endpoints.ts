@@ -11,6 +11,8 @@ import type {
   UpdateEndpointRequest,
   EndpointQueryRequest,
   EndpointQueryResponse,
+  EndpointQualityResponse,
+  RetractQualityResponse,
 } from '../types'
 
 export const endpointsApi = {
@@ -60,6 +62,33 @@ export const endpointsApi = {
 
   unpublish: async (slug: string): Promise<UnpublishResult[]> => {
     const response = await apiClient.delete<UnpublishResult[]>(`/endpoints/${slug}/unpublish`)
+    return response.data
+  },
+
+  /**
+   * The benchmark card stored for this endpoint.
+   *
+   * Always available to the owner, whatever the benchmarks setting says: he
+   * must be able to read what is said in his name even after closing the door
+   * on new reports.
+   */
+  getQuality: async (slug: string): Promise<EndpointQualityResponse> => {
+    const response = await apiClient.get<EndpointQualityResponse>(
+      `/endpoints/${slug}/quality`,
+    )
+    return response.data
+  },
+
+  /**
+   * Withdraw the published card, here and at every marketplace showing it.
+   *
+   * Idempotent: an endpoint with no card comes back `cleared: false`, which is
+   * not an error.
+   */
+  retractQuality: async (slug: string): Promise<RetractQualityResponse> => {
+    const response = await apiClient.delete<RetractQualityResponse>(
+      `/endpoints/${slug}/quality`,
+    )
     return response.data
   },
 
