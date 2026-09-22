@@ -68,7 +68,9 @@ row's status is what the UI polls.
 
 ## The spaces registry
 
-A `Space` row is created when provisioning succeeds. Design decisions
+A `Space` row is created when provisioning *starts*, not when it succeeds —
+a FAILED attempt leaves the row (with an empty `url`) so a retry reuses it
+and its token. Design decisions
 visible in the schema (`spaces/entities.py`):
 
 - **Runtime status is not a column.** Kubernetes is the source of truth;
