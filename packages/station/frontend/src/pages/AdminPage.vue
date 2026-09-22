@@ -112,6 +112,14 @@ function go(section: AdminSection): void {
   router.push({ name: 'admin', params: { section } })
 }
 
+// Panels differ in height, so a switch that kept the old scroll position
+// would clamp it and jump. Navigating starts at the top, as a page would.
+const scroller = ref<HTMLElement | null>(null)
+watch(
+  () => route.fullPath,
+  () => scroller.value?.scrollTo({ top: 0 }),
+)
+
 /** An admin may also own a space (they can create one for their own email). */
 const ownsSpace = computed(() =>
   station.spaces.some((space) => space.ownerEmail === session.profile?.email),
@@ -466,7 +474,7 @@ function formatDate(iso: string): string {
         </div>
       </aside>
 
-      <main class="min-w-0 flex-1 overflow-y-auto">
+      <main ref="scroller" class="min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div class="mx-auto w-full max-w-5xl px-6 py-8">
           <!-- ==================== Requests ==================== -->
           <div v-if="activeSection === 'requests'" class="space-y-8">

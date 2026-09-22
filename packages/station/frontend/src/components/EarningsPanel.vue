@@ -70,12 +70,17 @@ const noMoneyYet = computed(() => station.topUps.length === 0)
 
 <template>
   <Tabs :model-value="activeTab" class="gap-6" @update:model-value="goTab">
-    <TabsList>
-      <TabsTrigger v-for="tab in TABS" :key="tab.id" :value="tab.id">
-        <component :is="tab.icon" class="h-3.5 w-3.5" />
-        {{ tab.label }}
-      </TabsTrigger>
-    </TabsList>
+    <!-- Anchored: the tabs stay put while the panel below them changes, so a
+         switch never moves the control you just clicked. z-20 keeps it over
+         the tables' own sticky headers. -->
+    <div class="sticky top-0 z-20 -mt-2 bg-background py-2">
+      <TabsList>
+        <TabsTrigger v-for="tab in TABS" :key="tab.id" :value="tab.id">
+          <component :is="tab.icon" class="h-3.5 w-3.5" />
+          {{ tab.label }}
+        </TabsTrigger>
+      </TabsList>
+    </div>
 
     <TabsContent value="wallet">
       <PaymentSettings />
