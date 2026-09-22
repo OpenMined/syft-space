@@ -19,11 +19,15 @@ from syft_space.components.endpoints.schemas import (
     EndpointCreateResponse,
     EndpointDetailResponse,
     EndpointListItem,
+    EndpointQualityResponse,
     PublishEndpointRequest,
     PublishEndpointResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
     RejectionResponse,
+    ReportQualityRequest,
+    ReportQualityResponse,
+    RetractQualityResponse,
     SlugAvailabilityRequest,
     SlugAvailabilityResponse,
     UnpublishResult,
@@ -222,5 +226,44 @@ def build_endpoint_routes(
         handler: PublishEndpointHandler = Depends(get_publish_handler),
     ) -> list[UnpublishResult]:
         return await handler.unpublish_endpoint(slug, tenant)
+
+    @router.post("/{slug}/quality", response_model=ReportQualityResponse)
+    async def report_quality(
+        slug: str,
+        request: ReportQualityRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PublishEndpointHandler = Depends(get_publish_handler),
+    ) -> ReportQualityResponse:
+        """Hand a benchmark's card to this Space to publish.
+
+        404 while the benchmarks mode is "off", which is the default. 422 when the
+        card is of a version or shape this Space cannot read - refusing is the
+        point: a card understood wrongly is worse than one not taken.
+        """
+        return await handler.report_quality(slug, request, tenant)
+
+    @router.get("/{slug}/quality", response_model=EndpointQualityResponse)
+    async def get_quality(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PublishEndpointHandler = Depends(get_publish_handler),
+    ) -> EndpointQualityResponse:
+        """The stored card, for the owner's own page.
+
+        This is what a retraction is decided from, so it carries the whole card
+        and not the badge figures. Always available to the owner, whatever
+        the benchmarks mode says: he must be able to read what is said in his
+        name even after he has closed the door on new reports.
+        """
+        return await handler.get_quality(slug, tenant)
+
+    @router.delete("/{slug}/quality", response_model=RetractQualityResponse)
+    async def retract_quality(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PublishEndpointHandler = Depends(get_publish_handler),
+    ) -> RetractQualityResponse:
+        """Withdraw a published card. Always available to the owner."""
+        return await handler.retract_quality(slug, tenant)
 
     return router

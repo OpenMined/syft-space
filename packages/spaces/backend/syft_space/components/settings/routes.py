@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends
 
 from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.schemas import (
+    BenchmarksModeResponse,
     DiagnosticsResponse,
     ManagedResponse,
     ProxyStatusResponse,
     PublicUrlResponse,
+    UpdateBenchmarksModeRequest,
     UpdateDiagnosticsRequest,
     UpdatePublicUrlRequest,
 )
@@ -75,6 +77,21 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
         result = await handler.update_diagnostics(request.enabled)
         set_diagnostics_enabled(request.enabled)
         return result
+
+    @router.get("/benchmarks", response_model=BenchmarksModeResponse)
+    async def get_benchmarks_mode(
+        handler: SettingsHandler = Depends(get_handler),
+    ) -> BenchmarksModeResponse:
+        """How this Space accepts benchmark results."""
+        return await handler.get_benchmarks_mode()
+
+    @router.patch("/benchmarks", response_model=BenchmarksModeResponse)
+    async def update_benchmarks_mode(
+        request: UpdateBenchmarksModeRequest,
+        handler: SettingsHandler = Depends(get_handler),
+    ) -> BenchmarksModeResponse:
+        """Change how this Space accepts benchmark results."""
+        return await handler.update_benchmarks_mode(request.mode)
 
     @router.get("/proxy", response_model=ProxyStatusResponse)
     async def get_proxy_status(

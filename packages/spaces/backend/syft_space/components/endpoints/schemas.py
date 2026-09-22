@@ -616,6 +616,342 @@ class UnpublishResult(BaseModel):
     error: str | None = Field(default=None, description="Error message if failed")
 
 
+# Benchmark Card Models
+#
+# A benchmark hands the Space a card: what it measured, how confident it is,
+# and what the figures rest on. The Space stores it, shows it to its owner, and
+# forwards it to the marketplaces this endpoint is published to.
+#
+# Everything here is a share, a count, or an identifier. No question, no answer,
+# no fragment of the corpus reaches this schema — by construction on the
+# benchmark's side, and checked here by refusing anything that looks like prose.
+
+# Kept in lockstep with CARD_VERSION in
+# packages/benchmark/src/syft_benchmark/report/card.py by hand: the two
+# packages must not import each other, so nothing enforces this beyond
+# whoever bumps one remembering the other.
+CARD_VERSION = 2
+
+KIND_ANSWERING = "answering"
+KIND_RETRIEVAL = "retrieval"
+
+
+class CardAnswerable(BaseModel):
+    """How it did on questions the corpus can answer."""
+
+    samples: int = Field(..., ge=0, description="Questions graded in this half")
+    correct: float = Field(..., ge=0.0, le=1.0, description="Share answered correctly")
+    abstain: float = Field(..., ge=0.0, le=1.0, description="Share declined")
+    hallucinate: float = Field(
+        ..., ge=0.0, le=1.0, description="Share answered confidently and wrong"
+    )
+    lmi: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Of the times it chose to answer, the share that were wrong. The "
+            "consumer's risk per answer — and, unlike accuracy, it does not "
+            "punish an honest refusal"
+        ),
+    )
+
+
+class CardUnanswerable(BaseModel):
+    """How it did on questions the corpus cannot answer.
+
+    There is no correct answer to these, so there is no accuracy: any reply at
+    all is an invention. This is the half a consumer cannot check for himself.
+    """
+
+    samples: int = Field(..., ge=0, description="Control questions graded")
+    fabricated: float = Field(
+        ..., ge=0.0, le=1.0, description="Share that got an answer anyway"
+    )
+
+
+class CardModel(BaseModel):
+    """What one subject model got out of this endpoint's material.
+
+    Reported one per model, never averaged: a mean over them would move when
+    the benchmark's own list of models changes while nothing happened here.
+    """
+
+    model: str = Field(..., max_length=120, description="Model identifier")
+    samples: int = Field(..., ge=0, description="Questions graded with this model")
+    accuracy: float = Field(..., ge=0.0, le=1.0)
+    fabrication: float | None = Field(default=None, ge=0.0, le=1.0)
+    lmi: float | None = Field(default=None, ge=0.0, le=1.0)
+    context_gain: float | None = Field(
+        default=None,
+        ge=-1.0,
+        le=1.0,
+        description=(
+            "What this endpoint's material did to the model's honesty: the "
+            "change in its share of inventions once it had the context. "
+            "Positive means the context made it bolder, not better"
+        ),
+    )
+
+
+class CardSkill(BaseModel):
+    """How it does on one type of task. One share over ten types hides what to fix."""
+
+    generator: str = Field(..., max_length=64, description="Task type identifier")
+    samples: int = Field(..., ge=0)
+    accuracy: float = Field(..., ge=0.0, le=1.0)
+
+
+class CardTrust(BaseModel):
+    """What the figures rest on.
+
+    `flags` are codes, not sentences: the wording belongs to whoever renders
+    them, in his own language.
+    """
+
+    judges: int = Field(default=0, ge=0, description="How many graders scored the run")
+    agreement: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Pairwise agreement between graders, on questions both saw",
+    )
+    consistency: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="How alike repeated answers were"
+    )
+    even_coverage: bool = Field(
+        default=True, description="Whether every task type was measured comparably"
+    )
+    failed: int = Field(default=0, ge=0, description="Calls that never completed")
+    pending: int = Field(default=0, ge=0, description="Answers left ungraded")
+    flags: list[str] = Field(
+        default_factory=list,
+        max_length=16,
+        description="Why the figures are not vouched for, as codes",
+    )
+
+
+class CardDataset(BaseModel):
+    """Which set of questions this was measured on.
+
+    "71% over yesterday's documents" and "71% over the whole corpus" are
+    different claims, and the difference is invisible in the share.
+    """
+
+    mode: str = Field(default="", max_length=32)
+    window_days: int = Field(default=0, ge=0)
+    cohort: str = Field(default="", max_length=64)
+    questions: int = Field(default=0, ge=0)
+
+
+class CardInstrument(BaseModel):
+    """What did the measuring.
+
+    Within one benchmark installation several Spaces are measured by the same
+    grader, the same panel and the same subjects, and so compare. Between two
+    installations nothing is guaranteed, and a marketplace cannot tell the
+    difference unless it is told.
+    """
+
+    profile: str = Field(default="", max_length=64)
+    judge: str = Field(default="", max_length=120)
+    judges: int = Field(default=0, ge=0)
+    subjects: int = Field(default=0, ge=0)
+
+
+class ReportQualityRequest(BaseModel):
+    """A benchmark's card for one endpoint, handed to the Space to publish."""
+
+    version: int = Field(
+        ...,
+        description=(
+            "Card format version. Refused when unknown: a Space that cannot "
+            "read a card must say so rather than read it wrongly"
+        ),
+    )
+    kind: str = Field(
+        ...,
+        description=(
+            "'answering' — the endpoint writes the answer and is judged by it; "
+            "'retrieval' — it finds material and someone else's model answers, "
+            "so it is judged by what it found"
+        ),
+    )
+    arm: str = Field(
+        default="", max_length=32, description="Which measurement produced this"
+    )
+    checked_at: datetime = Field(..., description="When the benchmark ran")
+
+    score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Headline share, to be read together with `kind`",
+    )
+    fabrication_rate: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Share of no-answer questions that got an answer anyway",
+    )
+    reliable: bool = Field(
+        default=False, description="Whether the benchmark vouches for the figures"
+    )
+    samples: int = Field(..., ge=0, description="Questions graded in total")
+
+    answerable: CardAnswerable | None = None
+    unanswerable: CardUnanswerable | None = None
+    discrimination: float | None = Field(
+        default=None,
+        ge=-1.0,
+        le=1.0,
+        description=(
+            "Refusals on unanswerable questions minus refusals on answerable "
+            "ones. Says whether this endpoint's silence is a signal at all"
+        ),
+    )
+    retrieval: float | None = Field(default=None, ge=0.0, le=1.0)
+    models: list[CardModel] = Field(default_factory=list, max_length=64)
+    skills: list[CardSkill] = Field(default_factory=list, max_length=32)
+    trust: CardTrust | None = None
+    dataset: CardDataset | None = None
+    instrument: CardInstrument | None = None
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, v: int) -> int:
+        """Refuse a card this Space was not written to read."""
+        if v != CARD_VERSION:
+            raise ValueError(
+                f"unsupported card version {v}; this Space reads {CARD_VERSION}"
+            )
+        return v
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, v: str) -> str:
+        """Refuse a kind nobody can render."""
+        if v not in (KIND_ANSWERING, KIND_RETRIEVAL):
+            raise ValueError(
+                f"unknown kind '{v}'; expected '{KIND_ANSWERING}' or '{KIND_RETRIEVAL}'"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_no_prose_reached_us(self) -> "ReportQualityRequest":
+        """Refuse anything that looks like text rather than an identifier.
+
+        The benchmark promises that nothing but shares, counts and identifiers
+        leaves its perimeter. This is the receiving end of that promise, and it
+        is checked by form rather than by a list of forbidden words: every
+        string here is one token — a model id, a task type, a mode, a flag —
+        and a fragment of somebody's private corpus always has spaces in it.
+
+        Cheap to run, and it turns a leak on the other side into a rejected
+        request instead of a published document.
+        """
+        for name in ("arm", "kind"):
+            value = getattr(self, name)
+            if value and " " in value:
+                raise ValueError(f"{name} must be an identifier, not text")
+        for row in self.models:
+            if " " in row.model:
+                raise ValueError("models[].model must be an identifier, not text")
+        for skill in self.skills:
+            if " " in skill.generator:
+                raise ValueError("skills[].generator must be an identifier, not text")
+        if self.trust:
+            for flag in self.trust.flags:
+                if " " in flag or len(flag) > 64:
+                    raise ValueError("trust.flags must be codes, not sentences")
+        if self.instrument:
+            for field_name in ("profile", "judge"):
+                value = getattr(self.instrument, field_name)
+                if value and " " in value:
+                    raise ValueError(
+                        f"instrument.{field_name} must be an identifier, not text"
+                    )
+        if self.dataset and " " in self.dataset.cohort:
+            raise ValueError("dataset.cohort must be an identifier, not text")
+        return self
+
+
+class QualityMarketplaceResult(BaseModel):
+    """Outcome of pushing (or withdrawing) a card at one marketplace."""
+
+    marketplace_id: UUID = Field(..., description="Marketplace ID")
+    marketplace_name: str = Field(..., description="Marketplace name")
+    success: bool = Field(..., description="Whether the marketplace accepted it")
+    supported: bool = Field(
+        default=True,
+        description=(
+            "False when this marketplace has no benchmark API. Not a failure: "
+            "a Space may be published to a hub that predates the feature"
+        ),
+    )
+    message: str | None = Field(default=None, description="Success message")
+    error: str | None = Field(default=None, description="Error message if failed")
+
+
+class ReportQualityResponse(BaseModel):
+    """Response model for reporting an endpoint's benchmark card."""
+
+    endpoint_slug: str = Field(..., description="Slug of the endpoint reported on")
+    stored: bool = Field(..., description="Whether the Space recorded the card locally")
+    results: list[QualityMarketplaceResult] = Field(
+        ..., description="Results for each marketplace the endpoint is published to"
+    )
+
+
+class RetractQualityResponse(BaseModel):
+    """Response model for withdrawing an endpoint's benchmark card."""
+
+    endpoint_slug: str = Field(..., description="Slug of the endpoint")
+    cleared: bool = Field(
+        ...,
+        description=(
+            "Whether a local card was removed; False means there was none, "
+            "which is not an error"
+        ),
+    )
+    results: list[QualityMarketplaceResult] = Field(
+        ..., description="Results for each marketplace the card was withdrawn from"
+    )
+
+
+class EndpointQualityResponse(BaseModel):
+    """The stored card, for the owner's own page.
+
+    This is the view that decides a retraction, so it carries the whole card
+    rather than the badge figures: the owner's question is not "is this node
+    good" but "do I vouch for this number", and that is answered by what the
+    number rests on — how many graders, how far apart they were, whether every
+    task type was measured, how much of the run failed.
+    """
+
+    endpoint_slug: str = Field(..., description="Slug of the endpoint")
+    reported: bool = Field(
+        ..., description="Whether any benchmark has reported on this endpoint"
+    )
+    kind: str | None = Field(
+        default=None, description="What kind of product was measured"
+    )
+    score: float | None = Field(
+        default=None, description="Headline share for that kind"
+    )
+    fabrication_rate: float | None = Field(default=None)
+    samples: int | None = Field(default=None)
+    reliable: bool | None = Field(default=None)
+    checked_at: datetime | None = Field(default=None)
+    published_to: list[str] = Field(
+        default_factory=list,
+        description="Marketplaces currently showing this card",
+    )
+    report: dict[str, Any] | None = Field(
+        default=None, description="The whole card as the benchmark reported it"
+    )
+
+
 # Slug Availability Check Models
 class SlugAvailabilityRequest(BaseModel):
     """Request model for checking slug availability."""

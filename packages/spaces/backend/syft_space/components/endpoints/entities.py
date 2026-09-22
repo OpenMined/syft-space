@@ -143,3 +143,91 @@ class Endpoint(SQLModel, table=True):
                 "tags": "legal,qa,documents",
             }
         }
+
+
+class EndpointQualityCard(SQLModel, table=True):
+    """What a benchmark said about one endpoint, on one run.
+
+    A table of its own rather than columns on ``endpoints``, and a row per run
+    rather than a row per endpoint. Both follow from the same thing: a share is
+    unreadable alone. "0.71 accuracy" says almost nothing; "0.71, and 0.78 a
+    month ago, on twice the questions" is what an owner actually decides on.
+    Overwriting in place answered only the first and discarded the rest.
+
+    Kept locally and not merely forwarded to the marketplaces: the Space needs
+    something to show its owner, something to re-send once a marketplace that
+    was down comes back, and something to retract.
+
+    Split in two deliberately. The columns are what a list of endpoints needs
+    to paint a badge without opening a document per row; ``report`` holds the
+    whole card for the detail view.
+    """
+
+    __tablename__ = "endpoint_quality_cards"
+    __table_args__ = (
+        # Every read is "the newest card for this endpoint", or "this
+        # endpoint's cards, newest first". One index serves both.
+        Index("idx_quality_card_endpoint_checked", "endpoint_id", "checked_at"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
+    tenant_id: UUID = Field(
+        ...,
+        sa_column=Column(ForeignKey("tenants.id", ondelete="CASCADE")),
+        description="Tenant ID for multi-tenancy isolation",
+    )
+    endpoint_id: UUID = Field(
+        ...,
+        sa_column=Column(ForeignKey("endpoints.id", ondelete="CASCADE")),
+        description="The endpoint this card is about",
+    )
+
+    kind: str = Field(
+        ...,
+        description=(
+            "What kind of product was measured: 'answering' (it writes the "
+            "answer) or 'retrieval' (it finds the material and someone else's "
+            "model answers). Without it `score` is ambiguous"
+        ),
+    )
+    score: float | None = Field(
+        default=None,
+        description=(
+            "Headline share for that kind: accuracy of the answer, or share of "
+            "questions where the search found the right material (0..1). Empty "
+            "when the run produced no such figure"
+        ),
+    )
+    fabrication_rate: float | None = Field(
+        default=None,
+        description=(
+            "Share of questions with no answer in the corpus that were "
+            "answered anyway (0..1). Reported for both kinds"
+        ),
+    )
+    samples: int = Field(..., description="How many questions this run graded")
+    reliable: bool = Field(
+        ...,
+        description=(
+            "Whether the benchmark vouches for these figures. False means show "
+            "them greyed out or not at all — reasons are in `report`"
+        ),
+    )
+    checked_at: datetime = Field(
+        ..., description="When the benchmark that produced this ran"
+    )
+    report: dict = Field(
+        ...,
+        sa_column=Column(JSON, nullable=False),
+        description="The whole card as reported, for the detail view and re-sends",
+    )
+
+    # When the owner withdrew this card from the marketplaces. The row stays:
+    # what was published and then taken back is a fact about this endpoint, and
+    # deleting it would make the next card look like the first one. The current
+    # card is the newest row with this NULL; no such row means no benchmark has
+    # reported, which is not a score of zero.
+    retracted_at: datetime | None = Field(
+        default=None, description="When the owner withdrew it; empty — it still stands"
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

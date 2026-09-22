@@ -118,3 +118,53 @@ async def test_tunnel_connect_unguarded_when_unmanaged(
         await handler.configure_proxy(tenant)
 
     assert exc.value.status_code == 404
+
+
+# ============== benchmarks_mode: on with the first connection, not after ==============
+
+
+async def test_a_virgin_space_turns_reporting_on(
+    settings_repository: SettingsRepository,
+):
+    """The switch nobody has ever touched follows the first connection."""
+    await settings_repository.enable_benchmarks_if_untouched()
+
+    assert await settings_repository.get_benchmarks_mode() == "local"
+
+
+async def test_an_explicit_off_is_not_overridden(
+    settings_repository: SettingsRepository,
+):
+    """A second benchmark connecting must not quietly turn reporting back on."""
+    await settings_repository.update_benchmarks_mode("off")
+
+    await settings_repository.enable_benchmarks_if_untouched()
+
+    assert await settings_repository.get_benchmarks_mode() == "off"
+
+
+async def test_turning_it_on_twice_is_a_no_op(
+    settings_repository: SettingsRepository,
+):
+    """A second connection is not a second vote — the first is the one that counts."""
+    await settings_repository.enable_benchmarks_if_untouched()
+    await settings_repository.update_benchmarks_mode("off")
+
+    await settings_repository.enable_benchmarks_if_untouched()
+
+    assert await settings_repository.get_benchmarks_mode() == "off"
+
+
+async def test_reading_the_mode_does_not_decide_it(
+    settings_repository: SettingsRepository,
+):
+    """Opening the page that shows the switch is not the owner touching it.
+
+    A read that stored a row would make the first connection look like a
+    second one, and reporting would never come on at all.
+    """
+    assert await settings_repository.get_benchmarks_mode() == "off"
+
+    await settings_repository.enable_benchmarks_if_untouched()
+
+    assert await settings_repository.get_benchmarks_mode() == "local"

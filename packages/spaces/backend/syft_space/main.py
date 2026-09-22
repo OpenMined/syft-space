@@ -31,6 +31,12 @@ from syft_space.components.analytics.text_processing import extract_user_query
 from syft_space.components.auth.dependencies import bearer_scheme
 from syft_space.components.auth.middleware import AdminKeyMiddleware
 from syft_space.components.auth.public import discover_public_routes, public_route
+from syft_space.components.benchmarks.handlers import BenchmarkHandler
+from syft_space.components.benchmarks.repository import (
+    BenchmarkConnectionRepository,
+    BenchmarkTargetRepository,
+)
+from syft_space.components.benchmarks.routes import build_benchmark_routes
 
 # Import explicit registration functions
 from syft_space.components.dataset_types import (
@@ -666,6 +672,7 @@ publish_endpoint_handler = PublishEndpointHandler(
     model_registry=MODEL_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
     wallet_providers=wallet_providers,
+    settings_repository=settings_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
 
@@ -680,6 +687,17 @@ settings_handler = SettingsHandler(
     settings_repository, marketplace_repository, proxy_service
 )
 feedback_handler = FeedbackHandler(marketplace_repository)
+
+# A Space ships without a benchmark: with no connection made, these routes
+# answer "nothing is connected" and nothing measures anything.
+benchmark_handler = BenchmarkHandler(
+    connection_repository=BenchmarkConnectionRepository(database),
+    target_repository=BenchmarkTargetRepository(database),
+    endpoint_repository=endpoint_repository,
+    dataset_repository=dataset_repository,
+    dataset_registry=DATASET_TYPE_REGISTRY,
+    settings_repository=settings_repository,
+)
 
 # Initialize ingestion manager and handler
 ingestion_manager = IngestionManager(
@@ -729,6 +747,7 @@ router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_settings_routes(settings_handler))
+router.include_router(build_benchmark_routes(benchmark_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 router.include_router(build_wallet_routes(wallet_handler))
 router.include_router(

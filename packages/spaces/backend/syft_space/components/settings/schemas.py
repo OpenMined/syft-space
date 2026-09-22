@@ -1,5 +1,7 @@
 """Settings API schemas for request/response models."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, HttpUrl
 
 
@@ -47,6 +49,30 @@ class UpdateDiagnosticsRequest(BaseModel):
     """Request model for updating diagnostics preference."""
 
     enabled: bool = Field(..., description="Whether to enable anonymous diagnostics")
+
+
+BENCHMARKS_MODES = ("off", "local")
+
+
+class BenchmarksModeResponse(BaseModel):
+    """Response model for the benchmark-reporting mode."""
+
+    mode: str = Field(
+        "off",
+        description="How benchmark results are accepted: 'off' or 'local'",
+    )
+
+
+class UpdateBenchmarksModeRequest(BaseModel):
+    """Request model for updating the benchmark-reporting mode."""
+
+    mode: Literal["off", "local"] = Field(
+        ...,
+        description=(
+            "'off' hides the reporting API entirely; 'local' accepts results "
+            "from an authenticated caller on this Space"
+        ),
+    )
 
 
 class ProxyStatusResponse(BaseModel):

@@ -10,12 +10,19 @@ from loguru import logger
 
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.repository import DatasetRepository
-from syft_space.components.endpoints.entities import Endpoint
+from syft_space.components.endpoints.entities import Endpoint, ResponseType
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.schemas import (
+    KIND_ANSWERING,
+    KIND_RETRIEVAL,
+    EndpointQualityResponse,
     MarketplaceAvailabilityResult,
     PublishEndpointResponse,
     PublishResult,
+    QualityMarketplaceResult,
+    ReportQualityRequest,
+    ReportQualityResponse,
+    RetractQualityResponse,
     SlugAvailabilityResponse,
     UnpublishResult,
 )
@@ -24,6 +31,7 @@ from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
+from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.syfthub_client import (
     NotFoundError,
@@ -35,6 +43,8 @@ from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.interfaces import WalletProvider
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.config import app_settings
+
+PUBLISH_TIMEOUT_SECONDS = 60.0
 
 
 class PublishEndpointHandler:
@@ -50,6 +60,7 @@ class PublishEndpointHandler:
         model_registry: ModelTypeRegistry,
         wallet_repository: WalletRepository | None = None,
         wallet_providers: dict[str, WalletProvider] | None = None,
+        settings_repository: SettingsRepository | None = None,
     ):
         self.endpoint_repository = endpoint_repository
         self.marketplace_repository = marketplace_repository
@@ -60,6 +71,9 @@ class PublishEndpointHandler:
         self.model_registry = model_registry
         self.wallet_repository = wallet_repository
         self.wallet_providers = wallet_providers or {}
+        # Optional so existing construction sites keep working. Absent, the
+        # benchmark API stays closed, which is the safe reading of "unknown".
+        self.settings_repository = settings_repository
 
     async def publish_endpoint(
         self,
@@ -129,6 +143,335 @@ class PublishEndpointHandler:
             results.append(result)
 
         return results
+
+    async def report_quality(
+        self,
+        slug: str,
+        report: ReportQualityRequest,
+        tenant: Tenant,
+    ) -> ReportQualityResponse:
+        """Record a benchmark's card and publish it to the marketplaces.
+
+        The benchmark measures; the Space publishes. That split is the whole
+        design: marketplace credentials live here and nowhere else, so a
+        benchmark never needs - and never gets - an account on the hub. It
+        hands its figures to the Space that owns the endpoint, and the Space
+        speaks for itself, exactly as it already does for endpoint health.
+
+        Gated on the benchmarks ``mode`` setting, which is "off" until the
+        owner turns it on. While off this reads as 404: not "you may not" but
+        "there is nothing here", because a Space that has not opted in should
+        not advertise a way to speak in its name.
+
+        The card is stored whole and summarised into columns at the same time.
+        The columns are what a list of endpoints paints a badge from; the whole
+        card is what the owner reads before deciding whether he vouches for it.
+
+        Appended, not overwritten. The previous run is not made untrue by this
+        one; it becomes the figure this one is read against.
+
+        Args:
+            slug: Endpoint the benchmark evaluated
+            report: The card
+            tenant: Tenant owning the endpoint
+
+        Returns:
+            ReportQualityResponse with the local write and one result per
+            marketplace
+
+        Raises:
+            HTTPException: 404 if reporting is off or the endpoint is unknown
+        """
+        await self._require_benchmarks_enabled()
+
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        # A benchmark may measure an endpoint in a mode it no longer serves -
+        # the owner is free to switch response_type between runs. Say so rather
+        # than refusing: the card describes what was measured, and a stale kind
+        # is information, not a fault.
+        if not self._kind_matches(endpoint, report.kind):
+            logger.info(
+                f"Benchmark reports '{report.kind}' for {slug}, which now "
+                f"serves '{endpoint.response_type}' - storing as reported"
+            )
+
+        card = report.model_dump(mode="json")
+
+        # Local first. A marketplace may be down, and the run that produced
+        # these figures may have taken hours - losing them to a network blip
+        # would be the expensive kind of mistake.
+        stored = await self.endpoint_repository.record_quality(
+            endpoint.id,
+            tenant.id,
+            kind=report.kind,
+            score=report.score,
+            fabrication_rate=report.fabrication_rate,
+            samples=report.samples,
+            reliable=report.reliable,
+            checked_at=report.checked_at,
+            report=card,
+        )
+
+        results: list[QualityMarketplaceResult] = []
+        if stored is None:
+            # The endpoint was deleted between the check above and this write
+            # - nothing to publish under a name that no longer exists.
+            logger.info(f"Endpoint '{slug}' vanished before its card could be stored")
+        else:
+            payload: dict[str, Any] = {"slug": endpoint.slug, **card}
+            for marketplace in await self._marketplaces_for(endpoint, tenant):
+                results.append(await self._push_quality(marketplace, payload))
+
+        return ReportQualityResponse(
+            endpoint_slug=slug, stored=stored is not None, results=results
+        )
+
+    async def get_quality(self, slug: str, tenant: Tenant) -> EndpointQualityResponse:
+        """The stored card, for the owner's own page.
+
+        Not gated on the benchmarks ``mode`` setting: this is the owner reading what is
+        being said in his name, and a card published while reporting was on
+        must stay visible after he switches it off - otherwise he cannot find
+        what he needs to retract.
+
+        Args:
+            slug: Endpoint to read
+            tenant: Tenant owning it
+
+        Returns:
+            EndpointQualityResponse; ``reported`` is False when no benchmark
+            has ever reported - or every card has since been withdrawn - which
+            is not a score of zero
+
+        Raises:
+            HTTPException: 404 if the endpoint is unknown
+        """
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        card = await self.endpoint_repository.get_current_quality(
+            endpoint.id, tenant.id
+        )
+        if card is None:
+            return EndpointQualityResponse(
+                endpoint_slug=slug,
+                reported=False,
+                published_to=list(endpoint.published_to or []),
+            )
+
+        return EndpointQualityResponse(
+            endpoint_slug=slug,
+            reported=True,
+            kind=card.kind,
+            score=card.score,
+            fabrication_rate=card.fabrication_rate,
+            samples=card.samples,
+            reliable=card.reliable,
+            checked_at=card.checked_at,
+            published_to=list(endpoint.published_to or []),
+            report=card.report,
+        )
+
+    async def retract_quality(
+        self,
+        slug: str,
+        tenant: Tenant,
+    ) -> RetractQualityResponse:
+        """Withdraw an endpoint's published benchmark card.
+
+        Not gated on the benchmarks ``mode`` setting, and that is deliberate.
+        Reporting is a claim the owner lets a benchmark make on their behalf;
+        retracting is an act of ownership over that claim. Turning reporting
+        off must not also strand whatever was published while it was on - that
+        would make the setting a one-way door.
+
+        The cards are marked withdrawn, not deleted. Retracting is a claim
+        about what the outside world may show, not an instruction to the Space
+        to forget what it measured - and a history with the awkward runs
+        removed would be worth less than no history.
+
+        Args:
+            slug: Endpoint whose card is withdrawn
+            tenant: Tenant owning the endpoint
+
+        Returns:
+            RetractQualityResponse with the local wipe and one result per
+            marketplace
+
+        Raises:
+            HTTPException: 404 if the endpoint is unknown
+        """
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        # Marketplaces first, this time. What the outside world can see matters
+        # more than the local copy, and if a marketplace refuses, the owner is
+        # left able to see that it still has a card to take down.
+        results: list[QualityMarketplaceResult] = []
+        for marketplace in await self._marketplaces_for(endpoint, tenant):
+            results.append(await self._retract_quality(endpoint, marketplace))
+
+        withdrawn = await self.endpoint_repository.retract_quality(
+            endpoint.id, tenant.id
+        )
+
+        return RetractQualityResponse(
+            endpoint_slug=slug, cleared=withdrawn > 0, results=results
+        )
+
+    @staticmethod
+    def _kind_matches(endpoint: Endpoint, kind: str) -> bool:
+        """Whether the measured kind still describes what this endpoint serves.
+
+        ``raw`` never writes an answer, so it can only be measured as
+        retrieval; ``summary`` and ``both`` write one and are measured by it.
+        """
+        serving = str(endpoint.response_type)
+        if serving == ResponseType.RAW.value:
+            return kind == KIND_RETRIEVAL
+        return kind == KIND_ANSWERING
+
+    async def _require_benchmarks_enabled(self) -> None:
+        """Reject reporting unless the owner switched it on."""
+        mode = "off"
+        if self.settings_repository is not None:
+            mode = await self.settings_repository.get_benchmarks_mode()
+        if mode == "off":
+            raise HTTPException(status_code=404, detail="Not Found")
+
+    async def _marketplaces_for(
+        self, endpoint: Endpoint, tenant: Tenant
+    ) -> list[Marketplace]:
+        """Marketplaces this endpoint is published to.
+
+        A card follows publication: an endpoint nobody can find in a
+        marketplace has no figures to show there either.
+        """
+        if not endpoint.published_to:
+            return []
+        return await self.marketplace_repository.get_by_ids(
+            [UUID(mid) for mid in endpoint.published_to], tenant.id
+        )
+
+    async def _push_quality(
+        self, marketplace: Marketplace, payload: dict[str, Any]
+    ) -> QualityMarketplaceResult:
+        """Send one endpoint's card to a single marketplace."""
+        if not marketplace.email or not marketplace.password:
+            return QualityMarketplaceResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error="Marketplace credentials not configured",
+            )
+        try:
+            async with SyftHubClient(
+                base_url=marketplace.url, timeout=PUBLISH_TIMEOUT_SECONDS
+            ) as client:
+                await client.login(
+                    username=marketplace.email, password=marketplace.password
+                )
+                result = await client.update_endpoint_quality([payload])
+                accepted = int(result.get("updated", 0)) > 0
+                return QualityMarketplaceResult(
+                    marketplace_id=marketplace.id,
+                    marketplace_name=marketplace.name,
+                    success=accepted,
+                    message=(
+                        f"Card reported to {marketplace.name}" if accepted else None
+                    ),
+                    error=(
+                        None
+                        if accepted
+                        else f"{marketplace.name} did not recognise this endpoint"
+                    ),
+                )
+        except NotFoundError:
+            # The marketplace predates benchmark cards. Expected against an
+            # unmodified hub, and not the Space's problem to fix - say so
+            # plainly rather than reporting a failure the owner cannot act on.
+            logger.info(f"Marketplace {marketplace.name} has no quality API, skipping")
+            return QualityMarketplaceResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                supported=False,
+                message=f"{marketplace.name} does not support benchmark cards",
+            )
+        except SyftHubError as e:
+            return QualityMarketplaceResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=e.message,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to report card to {marketplace.name}: {str(e)}")
+            return QualityMarketplaceResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=str(e),
+            )
+
+    async def _retract_quality(
+        self, endpoint: Endpoint, marketplace: Marketplace
+    ) -> QualityMarketplaceResult:
+        """Withdraw one endpoint's card from a single marketplace."""
+        if not marketplace.email or not marketplace.password:
+            return QualityMarketplaceResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error="Marketplace credentials not configured",
+            )
+        try:
+            async with SyftHubClient(
+                base_url=marketplace.url, timeout=PUBLISH_TIMEOUT_SECONDS
+            ) as client:
+                await client.login(
+                    username=marketplace.email, password=marketplace.password
+                )
+                await client.clear_endpoint_quality(endpoint.slug)
+                return QualityMarketplaceResult(
+                    marketplace_id=marketplace.id,
+                    marketplace_name=marketplace.name,
+                    success=True,
+                    message=f"Card withdrawn from {marketplace.name}",
+                )
+        except NotFoundError:
+            # Either the marketplace has no benchmark API, or it does not know
+            # this endpoint. For a retraction both mean the same thing: there
+            # is nothing there to take down, so the goal is already met.
+            return QualityMarketplaceResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=True,
+                supported=False,
+                message=f"Nothing published at {marketplace.name}",
+            )
+        except SyftHubError as e:
+            return QualityMarketplaceResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=e.message,
+            )
+        except Exception as e:
+            logger.exception(
+                f"Failed to withdraw card from {marketplace.name}: {str(e)}"
+            )
+            return QualityMarketplaceResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=str(e),
+            )
 
     async def check_slug_availability(
         self,
@@ -349,7 +692,9 @@ class PublishEndpointHandler:
             )
 
         try:
-            async with SyftHubClient(base_url=marketplace.url) as client:
+            async with SyftHubClient(
+                base_url=marketplace.url, timeout=PUBLISH_TIMEOUT_SECONDS
+            ) as client:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
@@ -383,6 +728,22 @@ class PublishEndpointHandler:
                 marketplace_name=marketplace.name,
                 success=False,
                 error=e.message,
+            )
+        except Exception as e:
+            # Everything the hub says arrives as a SyftHubError; what is left
+            # here is the hub not saying anything — a timeout, a dropped
+            # connection, a reply we could not parse. That is a failed
+            # publication, not a broken space, so it is reported as one rather
+            # than escaping as a 500 the caller cannot read.
+            logger.exception(
+                f"Failed to publish endpoint {endpoint.slug} "
+                f"to {marketplace.name}: {str(e)}"
+            )
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=f"{type(e).__name__}: {e}",
             )
 
         try:

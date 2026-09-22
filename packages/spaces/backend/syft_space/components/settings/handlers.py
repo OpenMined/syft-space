@@ -10,6 +10,7 @@ from syft_space.components.marketplaces.repository import MarketplaceRepository
 from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.schemas import (
+    BenchmarksModeResponse,
     DiagnosticsResponse,
     ManagedResponse,
     ProxyStatusResponse,
@@ -169,6 +170,32 @@ class SettingsHandler:
         """
         await self.settings_repository.update_diagnostics_enabled(enabled)
         return DiagnosticsResponse(enabled=enabled)
+
+    async def get_benchmarks_mode(self) -> BenchmarksModeResponse:
+        """Get how this Space accepts benchmark results.
+
+        Returns:
+            Benchmarks mode response
+        """
+        mode = await self.settings_repository.get_benchmarks_mode()
+        return BenchmarksModeResponse(mode=mode)
+
+    async def update_benchmarks_mode(self, mode: str) -> BenchmarksModeResponse:
+        """Update how this Space accepts benchmark results.
+
+        Turning this on lets a benchmark publish answer-quality figures under
+        this Space's marketplace identity. Turning it off closes that door but
+        does not retract what was already published - that is a separate,
+        owner-only act, so switching off is never a one-way door.
+
+        Args:
+            mode: "off" or "local"
+
+        Returns:
+            Updated benchmarks mode response
+        """
+        await self.settings_repository.update_benchmarks_mode(mode)
+        return BenchmarksModeResponse(mode=mode)
 
     async def get_proxy_status(self) -> ProxyStatusResponse:
         """Get the current proxy tunnel status.
