@@ -1,0 +1,138 @@
+# The benchmark: its Postgres, and the service itself.
+#
+# Two ways to bring it up, and they are different jobs.
+#
+#   docker compose up -d                       — the database alone
+#   docker compose --profile service up -d     — the database and the service
+#
+# The first is for working from the console: the CLI runs on the host against
+# this database, and that is how the pipeline is developed and a measurement is
+# taken apart by hand. The second is the deployment — the service holds the
+# control API, the job queue and the schedule, and the Space's UI drives it.
+#
+# The profile is what keeps both: without it every `up` would build an image and
+# demand a running Space, which is not what somebody wanting a database for an
+# afternoon asked for.
+services:
+  benchmark-db:
+    image: postgres:16-alpine
+    container_name: syft-benchmark-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${BENCH_DB_USER:-benchmark}"
+      POSTGRES_PASSWORD: "${BENCH_DB_PASSWORD:-benchmark}"
+      POSTGRES_DB: "${BENCH_DB_NAME:-benchmark}"
+    ports:
+      - "${BENCH_DB_PORT:-5442}:5432"
+    volumes:
+      - benchmark-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${BENCH_DB_USER:-benchmark}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - syft-benchmark
+
+    # The perimeter: the database is reachable only from the host and from its
+    # own network. We do not put it on the rig's shared network — the contents
+    # here are more sensitive than the rig's.
+
+  benchmark:
+    profiles: ["service"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: syft-benchmark:latest
+    container_name: syft-benchmark
+    restart: unless-stopped
+
+    # A measurement stops by request, not by kill: the run finishes the question
+    # it is on and exits, leaving the database whole. Less than this and an
+    # ordinary `docker compose down` would cut a write off mid-transaction.
+    stop_grace_period: 30s
+
+    depends_on:
+      benchmark-db:
+        condition: service_healthy
+
+    ports:
+      - "${BENCH_CONTROL_PORT:-8200}:8200"
+
+    # What is left in .env: the control key, the master key for the stored
+    # secrets, and the perimeter. Everything else the installation configures is
+    # in its database now.
+    #
+    # BENCH_SECRET_KEY is deliberately NOT repeated in `environment` below. An
+    # entry there wins over the file, so a shell without that variable exported
+    # would blank it — and the service would come up unable to open a single
+    # stored key, which looks exactly like a wrong key.
+    env_file:
+      - path: .env
+        required: false
+
+    environment:
+      # `localhost` in a container is the container. Every address here would
+      # otherwise point the service at itself.
+      - BENCH_DATABASE_URL=postgresql+psycopg://${BENCH_DB_USER:-benchmark}:${BENCH_DB_PASSWORD:-benchmark}@benchmark-db:5432/${BENCH_DB_NAME:-benchmark}
+
+      # The model provider. A local Ollama lives on the host, so it is reached
+      # through the host gateway; an external provider is a URL and needs none
+      # of this — set BENCH_OLLAMA_URL in .env and it wins.
+      - BENCH_OLLAMA_URL=${BENCH_OLLAMA_URL:-http://host.docker.internal:11434}
+
+      - BENCH_CONTROL_HOST=0.0.0.0
+      - BENCH_CONTROL_PORT=8200
+
+      # The schedule is stored and fired in UTC. The container's clock agrees
+      # with it, so that the same schedule does not fire at two different hours
+      # on two different hosts.
+      - TZ=UTC
+
+    # host.docker.internal already resolves on macOS and Windows; this is what
+    # makes it resolve on Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    networks:
+      # Its own network, for the database.
+      - syft-benchmark
+      # The rig's, for the index. The Space keeps ChromaDB as a subprocess inside
+      # its own container, listening on 8100 and not published to the host — from
+      # a sibling container on this network it is simply http://<container>:8100,
+      # and the `docker exec` fallback is not needed, so the docker socket is not
+      # mounted and this service holds no privilege on the host.
+      #
+      # A target must be told as much: chroma_host is the Space's container name
+      # and chroma_port is 8100. A target left at `localhost` will look for the
+      # index inside the benchmark itself and find nothing.
+      - syft-space
+
+networks:
+  syft-benchmark:
+    name: syft-benchmark
+
+  # The Space's own network, created by its compose file. Declared external
+  # because it belongs to the rig: the benchmark joins it, it does not own it.
+  # If `--profile service` reports that it cannot be found, the Space is not up
+  # — and there is nothing here to measure until it is.
+  #
+  # The name is a setting because it is not ours to fix. A Space brought up by
+  # its own compose file calls it `syft-space-network`; one brought up as part
+  # of a larger rig gets the name that project gives it — on the demo stand,
+  # `demosyft_syfthub-network`. `docker network ls` says which.
+  syft-space:
+    name: ${BENCH_SPACE_NETWORK:-syft-space-network}
+    external: true
+
+volumes:
+  benchmark-db-data:
+    name: syft_benchmark_db_data

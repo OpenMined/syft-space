@@ -1,0 +1,86 @@
+[project]
+name = "syft-benchmark"
+version = "0.1.0"
+description = "An honesty benchmark for Syft Space endpoints"
+readme = "README.md"
+authors = [
+    { name = "Alexander Kozlov", email = "alexander.kozlov@openmined.org" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.19.2",
+    # Secrets are encrypted before they reach the database — the provider keys
+    # and the Space tokens. AES-GCM comes from here; nothing else in the tree
+    # needed it, so it arrives with this and for this.
+    "cryptography>=46.0.4",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "matplotlib>=3.11.2",
+    "psycopg[binary]>=3.3.5",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "python-docx>=1.2.0",
+    "sqlalchemy>=2.0.52",
+    "typer>=0.27.2",
+    "uvicorn[standard]>=0.53.0",
+]
+
+[project.scripts]
+syft-benchmark = "syft_benchmark.cli:main"
+
+[project.optional-dependencies]
+spacy = [
+    "spacy>=3.8.16",
+]
+# BERTScore is the only text metric that is itself a model run: it drags in
+# torch. BLEU and ROUGE are computed without third-party packages and are
+# always available.
+metrics = [
+    "bert-score>=0.3.13",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.9,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    # Bracketed to the version the repository's pre-commit hook pins
+    # (.pre-commit-config.yaml, ruff-pre-commit v0.8.4). The formatter's output
+    # shifts between minor versions, so a newer ruff here would reformat files
+    # the hook then reformats back, and the two would take turns undoing each
+    # other. Raise both together or neither.
+    "ruff>=0.8,<0.9",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+
+# python-docx ships no types. The check stays strict everywhere the code is
+# ours; the document builder calls a foreign API, and demanding annotations of
+# it that it does not have would mean switching strict off across the project.
+#
+# spaCy is here for a different reason: it is an optional extra, so a plain
+# `uv sync` does not install it and mypy cannot find it. Its absence is a
+# supported mode rather than a broken install — without it the extractive
+# generators work through an LLM, and `spacy_available()` guards every use —
+# so a type check that fails unless an optional dependency is present would be
+# reporting a fault that is not one.
+[[tool.mypy.overrides]]
+module = ["docx.*", "bert_score.*", "spacy.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

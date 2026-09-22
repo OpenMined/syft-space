@@ -1,0 +1,31 @@
+# The build needs the package, the migrations and the lockfile. Everything else
+# either belongs to the host's working copy or must not travel in an image.
+
+# Secrets and the operator's own configuration. .env holds provider keys and the
+# control token; spaces.json holds Space tokens. Both are gitignored, and baking
+# either into an image would hand them to whoever can pull it.
+.env
+.env.*
+!.env.example
+config/spaces.json
+
+# The host's virtualenv: a different platform's binaries, and larger than the
+# image.
+.venv/
+__pycache__/
+*.py[cod]
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+
+# Measurement artefacts. They hold corpus text — an audit export carries the
+# chunks whole — and they are rebuilt from the database anyway.
+reports/
+
+tests/
+docs/
+Dockerfile
+.dockerignore
+docker-compose.yml
