@@ -31,6 +31,27 @@ Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 f
 - **Components**: Reusable components in `src/components/`
 - **Composables**: Shared logic in `src/composables/`
 
+### Benchmark Structure (`packages/benchmark`)
+
+The honesty benchmark: it measures an endpoint and hands the Space a verdict to
+publish. A service in its own right — its own Postgres (port 5442), its own
+Alembic history, its own `pyproject.toml` — that happens to share this
+repository.
+
+- **Package**: `src/syft_benchmark/` (a Typer CLI plus a FastAPI control API under `control/`)
+- **Deployment**: its own container (`docker compose --profile service up -d`),
+  joined to the rig's docker network so it can read the Space's ChromaDB over
+  HTTP at `http://<the Space's container>:8100`. It mounts no docker socket and
+  holds no marketplace credentials by design. Without the profile only the
+  database comes up — that is the console flow
+- **Contract**: the two packages talk over HTTP and **must not import each other**.
+  `JobState` and `JobPhase` in `src/syft_benchmark/config.py` are the authority
+  on the job vocabulary the Space proxies through
+  `components/benchmarks/schemas.py`; the Space stores those as plain strings
+  on purpose, so the benchmark can grow one without a migration here.
+- **Tooling**: `ruff`/`mypy --strict` are configured in `packages/benchmark/pyproject.toml`,
+  and both are run from that directory over `src` and `tests`
+
 ## Development Commands
 
 ### Backend Development
@@ -48,12 +69,18 @@ uv pip install -e backend/
 uv run uvicorn syft_space.main:app --reload --host 0.0.0.0 --port 8080
 
 # Code quality (from packages/spaces/backend/ directory)
-black .                    # Format code
-isort .                    # Sort imports
-flake8 .                   # Lint code
-mypy .                     # Type checking
-pytest                     # Run tests
+ruff check .               # Lint
+ruff format .              # Format code
+mypy .                     # Type checking — NOT clean; see the note below
+pytest --no-cov            # Run tests
 ```
+
+Two things to know before trusting a green run here. `mypy` reports some eighty
+pre-existing errors across this backend, so it is a signal about the file you
+touched, not a gate. And on Windows five tests in `test_analytics_handler.py`
+fail regardless of your change: `components/analytics/handlers.py` formats
+dates with `%-d`, a glibc extension the Windows C library does not have — the
+same call fails at runtime there, not only in the tests.
 
 ### Frontend Development
 
@@ -81,6 +108,51 @@ bun run test:e2e:dev       # E2E tests in development
 bun run test:e2e           # E2E tests against production build
 ```
 
+### Benchmark Development
+
+Every command below is run from `packages/benchmark/` — `prepend_sys_path` in
+`alembic.ini` and the `config/` paths are relative to it.
+
+```bash
+cd packages/benchmark
+
+# Setup
+cp .env.example .env
+cp config/spaces.example.json config/spaces.json
+docker compose up -d       # its own Postgres on 5442, not the Space's 5432
+uv sync
+uv run alembic upgrade head
+uv run syft-benchmark secrets keygen >> .env   # master key for stored secrets
+
+# Code quality
+uv run ruff check src tests
+uv run ruff format src tests
+uv run mypy src            # strict
+uv run pytest
+
+# Run
+uv run syft-benchmark doctor   # is everything in place
+uv run syft-benchmark serve    # the service: control API, job queue, schedule
+
+# Or as the service it is deployed as
+docker compose --profile service up -d --build
+```
+
+A target's `chroma_host` must be the Space's container name when the benchmark
+runs in a container: `localhost` there is the benchmark itself. Schedules are
+stored and fired in UTC.
+
+**Settings and secrets live in the database, not in `.env`.** One row of
+overrides (`syft-benchmark settings show|set|unset`, or `PUT /settings`) under
+the Space's instrument and the node's probe; the provider keys and Space tokens
+sealed with AES-256-GCM in `credentials` (`syft-benchmark secrets ...`). The
+environment is the read-only layer under that row, not a seed: built-in
+defaults → environment → row → instrument → probe. Only four things stay in it
+for good and `PUT /settings` refuses them by name: `BENCH_DATABASE_URL`,
+`BENCH_CONTROL_TOKEN`, `BENCH_SECRET_KEY`, and the perimeter
+(`BENCH_ALLOW_EXTERNAL_MODELS`/`BENCH_EXTERNAL_HOSTS`) — which is deliberately
+not editable by anyone holding an API key.
+
 ## Development Patterns
 
 ### Backend Patterns
@@ -106,7 +178,7 @@ bun run test:e2e           # E2E tests against production build
 
 ### Code Style
 
-- **Backend**: Black formatting (line-length 88), isort with black profile, type hints required
+- **Backend**: ruff (line-length 88, isort rules included), type hints required
 - **Frontend**: Vue 3 Composition API with `<script setup>`, TypeScript, ESLint + Oxlint for linting
 
 ## Server Configuration

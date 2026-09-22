@@ -51,14 +51,14 @@ list per group.
 | --- | --- | --- |
 | **Datasets** | `/datasets` | CRUD, type discovery + schemas, source browsing, health, provisioner admin |
 | **Models** | `/models` | CRUD, type discovery + schemas, type actions, health |
-| **Endpoints** | `/endpoints` | CRUD, slug validation, archive/unarchive, **query**, preview, publish/unpublish |
+| **Endpoints** | `/endpoints` | CRUD, slug validation, archive/unarchive, **query**, preview, publish/unpublish, benchmark card report/read/retract |
 | **Policies** | `/policies` | CRUD, type discovery + schemas |
 | **Ingestion** | `/ingestion/datasets/{id}` | Status, jobs, start/stop, retry failed |
 | **Wallets** | `/wallets` | List/get/delete; `mpp/*` (generate, import, address) and `gateway/*` (stripe, xendit) creation |
 | **Payments** | `/payments` | `mpp/*` balance & transactions; `gateway/*` invoices, balances, transactions, provider webhooks |
 | **Analytics** | `/analytics` | Summary, time-series, top users, word cloud |
 | **Marketplaces** | `/marketplaces` | Register (+ OTP), connect, username check, list/get |
-| **Settings** | `/settings` | Public URL, proxy (ngrok) status/config, diagnostics toggle |
+| **Settings** | `/settings` | Public URL, proxy (ngrok) status/config, diagnostics toggle, benchmark-reporting mode |
 | **Feedback** | `/feedback` | Submit feedback / bug report (multipart, with screenshot) |
 | **Tenants** | `/tenants` | Create/list/get (multi-tenancy) |
 | **System** | `/health` | Liveness check (public) |

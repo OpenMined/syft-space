@@ -158,14 +158,24 @@ curl -X POST http://localhost:8080/api/v1/endpoints/my-docs/query \
 ```
 syft-space/
 └── packages/
-    └── spaces/              # the Syft Space package
-        ├── backend/         # Python FastAPI server
-        │   └── syft_space/  # Main application code
-        ├── frontend/        # Vue 3 web interface
-        ├── docs/            # Documentation
-        ├── Dockerfile       # Container build
+    ├── spaces/              # the Syft Space package
+    │   ├── backend/         # Python FastAPI server
+    │   │   └── syft_space/  # Main application code
+    │   ├── frontend/        # Vue 3 web interface
+    │   ├── docs/            # Documentation
+    │   ├── Dockerfile       # Container build
+    │   └── docker-compose.yml
+    ├── station/             # the Syft Station package
+    └── benchmark/           # the honesty benchmark, a service of its own
+        ├── src/             # syft_benchmark: CLI and control API
+        ├── alembic/         # its own schema, its own database
+        ├── docs/            # the pipeline, stage by stage
         └── docker-compose.yml
 ```
+
+The benchmark is deployed separately from a Space and holds no hub credentials
+— it measures, the Space publishes. It shares this repository, not a process:
+neither package imports the other, they speak over HTTP.
 
 ## 📚 Documentation
 
@@ -192,6 +202,7 @@ A Space connects to **[SyftHub](https://syfthub.openmined.org)** — a decentral
 - 🔍 **Querying**: Users can search and query across multiple Spaces
 - 📝 **Attribution**: Every contribution is tracked and credited automatically
 - 🏗️ **Open Architecture**: Built on open protocols — no single point of control
+- 📊 **Proven answers**: Publish how good your endpoint is, as measured by a benchmark you run yourself
 
 The network grows stronger as more Spaces join, but each Space maintains full autonomy over its data and policies.
 

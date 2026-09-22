@@ -120,6 +120,11 @@ declares how it answers.
 - `slug` is the unique, URL-safe identifier used for querying and publishing.
 - `published` / `published_to` track marketplace publication. Endpoints can also
   be archived/unarchived.
+- `quality_*` fields hold a benchmark's card: what kind of product was measured,
+  the headline share for that kind, how often it answered a question the corpus
+  cannot answer, whether the benchmark vouches for the figures, and the whole
+  card as a document. All nullable; NULL means never measured — which is not a
+  score of zero. See [Benchmark Reporting](./benchmarks.md).
 
 See [Query Flow](./query-flow.md) for exactly what happens on a query.
 
@@ -167,7 +172,9 @@ Wallets](./payments.md).
 ## Marketplaces & tenants
 
 - A **Marketplace** holds the credentials and sync state for a SyftHub instance
-  you publish to.
+  you publish to. Those credentials live here and nowhere else: everything the
+  Space says about itself outside — health and benchmark results — it says
+  under its own account.
 - A **Tenant** is the isolation boundary. With multi-tenancy off, everything
   lives under one default tenant; with it on, every resource is tenant-scoped.
 
