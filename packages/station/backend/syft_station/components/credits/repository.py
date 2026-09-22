@@ -19,13 +19,14 @@ Wallets and space credit tokens are low-frequency CRUD and use plain
 own-session repositories.
 """
 
+from collections.abc import Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import case, func, update
-from sqlmodel import select
+from sqlalchemy import case, distinct, func, update
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from syft_station.components.credits.entities import (
@@ -100,15 +101,24 @@ class UserBalanceRepository:
         )
         await self.session.exec(stmt)
 
-    async def list_nonzero(self) -> list[UserBalance]:
-        """Outstanding credit per user — the station's liability list."""
+    async def list_nonzero(self, limit: int, offset: int) -> list[UserBalance]:
+        """One page of outstanding credit per user, largest first."""
         statement = (
             select(UserBalance)
             .where(UserBalance.balance > 0)
             .order_by(UserBalance.balance.desc())  # type: ignore[attr-defined]
+            .limit(limit)
+            .offset(offset)
         )
         result = await self.session.exec(statement)
         return list(result.all())
+
+    async def count_nonzero(self) -> int:
+        statement = (
+            select(func.count()).select_from(UserBalance).where(UserBalance.balance > 0)
+        )
+        result = await self.session.exec(statement)
+        return int(result.one())
 
     async def total_outstanding(self) -> float:
         statement = select(func.coalesce(func.sum(UserBalance.balance), 0.0))
@@ -128,7 +138,17 @@ class EarningsRow:
     earned: float
     query_count: int
     endpoint: str = ""
-    day: str = ""
+    last_active_at: str = ""
+    paid_out: float = 0.0
+
+
+@dataclass(frozen=True)
+class DailyRow:
+    """One day's net spend across every space — the chart's series."""
+
+    day: str
+    earned: float
+    query_count: int
 
 
 # CANCELLED rows negate their DEBIT in every aggregate.
@@ -173,17 +193,89 @@ class LedgerEntryRepository:
 
     # --- Earnings aggregates (all plain GROUP BYs, no joins) ---
 
-    async def earnings_by_space(self) -> list[EarningsRow]:
-        statement = select(
-            LedgerEntry.space_id,
-            func.sum(_SIGNED_AMOUNT),
-            func.sum(_SIGNED_COUNT),
-        ).group_by(LedgerEntry.space_id)
+    async def earnings_by_space(self, limit: int, offset: int) -> list[EarningsRow]:
+        """One page of the payout table, biggest payable first.
+
+        Payouts are joined rather than subtracted in Python because the sort
+        key *is* `earned − paid_out` — ordering a page by it means the
+        database has to know both.
+        """
+        paid = (
+            select(
+                Payout.space_id.label("space_id"),
+                func.coalesce(func.sum(Payout.amount), 0.0).label("paid"),
+            )
+            .group_by(Payout.space_id)
+            .subquery()
+        )
+        earned = func.sum(_SIGNED_AMOUNT)
+        paid_out = func.coalesce(paid.c.paid, 0.0)
+        statement = (
+            select(
+                LedgerEntry.space_id,
+                earned,
+                func.sum(_SIGNED_COUNT),
+                func.max(LedgerEntry.created_at),
+                paid_out,
+            )
+            .outerjoin(paid, paid.c.space_id == LedgerEntry.space_id)
+            .group_by(LedgerEntry.space_id, paid.c.paid)
+            .order_by((earned - paid_out).desc())
+            .limit(limit)
+            .offset(offset)
+        )
         result = await self.session.exec(statement)
         return [
-            EarningsRow(space_id=sid, earned=earned or 0.0, query_count=count or 0)
-            for sid, earned, count in result.all()
+            EarningsRow(
+                space_id=sid,
+                earned=e or 0.0,
+                query_count=count or 0,
+                last_active_at=str(last or ""),
+                paid_out=float(paid_total or 0.0),
+            )
+            for sid, e, count, last, paid_total in result.all()
         ]
+
+    async def earnings_for_spaces(
+        self, space_ids: Sequence[UUID]
+    ) -> dict[UUID, EarningsRow]:
+        """Totals for a known set of spaces — the member view owns one or
+        two, so it asks for those rather than reading every space's."""
+        if not space_ids:
+            return {}
+        statement = (
+            select(
+                LedgerEntry.space_id,
+                func.sum(_SIGNED_AMOUNT),
+                func.sum(_SIGNED_COUNT),
+                func.max(LedgerEntry.created_at),
+            )
+            .where(col(LedgerEntry.space_id).in_(list(space_ids)))
+            .group_by(LedgerEntry.space_id)
+        )
+        result = await self.session.exec(statement)
+        return {
+            sid: EarningsRow(
+                space_id=sid,
+                earned=earned or 0.0,
+                query_count=count or 0,
+                last_active_at=str(last or ""),
+            )
+            for sid, earned, count, last in result.all()
+        }
+
+    async def count_spaces(self) -> int:
+        """Spaces that have ever charged — the payout table's row count."""
+        statement = select(func.count(distinct(LedgerEntry.space_id)))
+        result = await self.session.exec(statement)
+        return int(result.one())
+
+    async def total_earned(self) -> float:
+        """Net earnings across every space — the headline figure, which a
+        page of rows can no longer be summed to produce."""
+        statement = select(func.coalesce(func.sum(_SIGNED_AMOUNT), 0.0))
+        result = await self.session.exec(statement)
+        return float(result.one())
 
     async def earned_for_space(self, space_id: UUID) -> float:
         statement = select(func.coalesce(func.sum(_SIGNED_AMOUNT), 0.0)).where(
@@ -218,24 +310,24 @@ class LedgerEntryRepository:
         result = await self.session.exec(statement)
         return {email: float(total or 0.0) for email, total in result.all()}
 
-    async def earnings_by_day(self) -> list[EarningsRow]:
+    async def earnings_by_day(self, since: datetime) -> list[DailyRow]:
+        """Daily totals across every space, from `since`. Grouping by space
+        as well would ship spaces × days rows to draw one series."""
         day = func.date(LedgerEntry.created_at)
         statement = (
             select(
-                LedgerEntry.space_id,
                 day,
                 func.sum(_SIGNED_AMOUNT),
                 func.sum(_SIGNED_COUNT),
             )
-            .group_by(LedgerEntry.space_id, day)
+            .where(LedgerEntry.created_at >= since)
+            .group_by(day)
             .order_by(day)
         )
         result = await self.session.exec(statement)
         return [
-            EarningsRow(
-                space_id=sid, day=d, earned=earned or 0.0, query_count=count or 0
-            )
-            for sid, d, earned, count in result.all()
+            DailyRow(day=d, earned=earned or 0.0, query_count=count or 0)
+            for d, earned, count in result.all()
         ]
 
 
@@ -277,16 +369,26 @@ class InvoiceRepository:
         result = await self.session.exec(statement)
         return float(result.one())
 
-    async def list_recent_paid(self, limit: int = 20) -> list[Invoice]:
-        """The freshest settled top-ups — the admin dashboard's feed."""
+    async def list_paid(self, limit: int, offset: int = 0) -> list[Invoice]:
+        """One page of settled top-ups, freshest first."""
         statement = (
             select(Invoice)
             .where(Invoice.status == InvoiceStatus.PAID.value)
             .order_by(Invoice.paid_at.desc())  # type: ignore[attr-defined]
             .limit(limit)
+            .offset(offset)
         )
         result = await self.session.exec(statement)
         return list(result.all())
+
+    async def count_paid(self) -> int:
+        statement = (
+            select(func.count())
+            .select_from(Invoice)
+            .where(Invoice.status == InvoiceStatus.PAID.value)
+        )
+        result = await self.session.exec(statement)
+        return int(result.one())
 
     async def paid_totals_by_user(self) -> dict[str, float]:
         """Σ settled top-ups per user — the 'bought' column."""
@@ -420,15 +522,29 @@ class PayoutRepository(AsyncBaseRepository[Payout]):
             result = await session.exec(statement)
             return list(result.all())
 
-    async def list_recent(self, limit: int = 20) -> list[Payout]:
+    async def list_recent(self, limit: int = 20, offset: int = 0) -> list[Payout]:
+        """One page of payouts, newest first. The table grows forever."""
         async with self.db.get_session() as session:
             statement = (
                 select(Payout)
                 .order_by(Payout.created_at.desc())  # type: ignore[attr-defined]
                 .limit(limit)
+                .offset(offset)
             )
             result = await session.exec(statement)
             return list(result.all())
+
+    async def count(self) -> int:
+        async with self.db.get_session() as session:
+            result = await session.exec(select(func.count()).select_from(Payout))
+            return int(result.one())
+
+    async def total_paid(self) -> float:
+        async with self.db.get_session() as session:
+            result = await session.exec(
+                select(func.coalesce(func.sum(Payout.amount), 0.0))
+            )
+            return float(result.one())
 
 
 class WalletRepository(AsyncBaseRepository[Wallet]):

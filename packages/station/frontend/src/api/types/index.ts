@@ -238,18 +238,21 @@ export interface SpaceEarningsResponse {
   query_count: number
   paid_out: number
   payable: number
+  /** When the space last charged — the payout table's 'last active'. */
+  last_active_at: string
 }
 
-export interface EndpointEarningsResponse {
-  space_id: string
-  endpoint: string
-  earned: number
-  query_count: number
+/** One window over a list that grows without bound; `total` counts every
+ *  matching row, not the page. */
+export interface Page<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface DailyEarningsResponse {
   day: string
-  space_id: string
   earned: number
   query_count: number
 }
@@ -266,10 +269,7 @@ export interface EarningsResponse {
   currency: string
   totals: EarningsTotalsResponse
   spaces: SpaceEarningsResponse[]
-  endpoints: EndpointEarningsResponse[]
   daily: DailyEarningsResponse[]
-  recent_top_ups: TopUpResponse[]
-  payouts: PayoutInfoResponse[]
 }
 
 export interface MemberSpaceEarningsResponse {
@@ -297,11 +297,6 @@ export interface OutstandingBalanceResponse {
   topped_up: number
   spent: number
   balance: number
-}
-
-export interface OutstandingBalancesResponse {
-  total: number
-  balances: OutstandingBalanceResponse[]
 }
 
 export interface PayoutBody {

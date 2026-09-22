@@ -22,9 +22,21 @@ const router = useRouter()
  * button moves between tabs, like the sections above it.
  */
 const TABS = [
-  { id: 'wallet', label: 'Wallet', icon: Wallet },
-  { id: 'payouts', label: 'Payouts', icon: HandCoins },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  // `load` is the tab's data: a new tab brings its own fetches, so nothing
+  // downstream has to learn about it.
+  { id: 'wallet', label: 'Wallet', icon: Wallet, load: () => [] },
+  {
+    id: 'payouts',
+    label: 'Payouts',
+    icon: HandCoins,
+    load: () => [station.loadEarnings(), station.loadSpaceEarnings(), station.loadPayouts()],
+  },
+  {
+    id: 'analytics',
+    label: 'Analytics',
+    icon: BarChart3,
+    load: () => [station.loadEarnings(), station.loadTopUps(), station.loadBalances()],
+  },
 ] as const
 
 type EarningsTab = (typeof TABS)[number]['id']
@@ -45,7 +57,8 @@ function goTab(tab: string | number): void {
  * switching tabs never flashes an empty state.
  */
 function revalidate(): void {
-  Promise.all([station.loadWallet(), station.loadEarnings()]).catch(() =>
+  const tab = TABS.find((t) => t.id === activeTab.value) ?? TABS[0]
+  Promise.all([station.loadWallet(), ...tab.load()]).catch(() =>
     toast.error('Could not load earnings'),
   )
 }
@@ -65,7 +78,7 @@ watch(visibility, (state) => {
 })
 
 /** Money views are empty until someone has actually bought credits. */
-const noMoneyYet = computed(() => station.topUps.length === 0)
+const noMoneyYet = computed(() => station.totalCollected === 0)
 </script>
 
 <template>

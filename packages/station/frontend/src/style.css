@@ -227,8 +227,19 @@
     @apply border-border outline-ring/50;
   }
 
+  /* The app shell owns scrolling: each pane scrolls internally, so the
+     document itself never should. #app is the missing link — without a
+     height it grows to fit whatever escapes the shell, and the sidebar
+     scrolls away with the page. */
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
   body {
     @apply bg-background text-foreground;
+    overflow: hidden;
     font-family: var(--font-sans);
     font-weight: 400;
     line-height: 1.6;

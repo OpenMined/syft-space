@@ -1,11 +1,15 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { creditsApi } from '@/api/endpoints/credits'
+import { CHART_DAYS, creditsApi } from '@/api/endpoints/credits'
 import { imagesApi } from '@/api/endpoints/images'
 import { requestsApi } from '@/api/endpoints/requests'
 import { setupApi } from '@/api/endpoints/setup'
 import { spacesApi } from '@/api/endpoints/spaces'
 import type {
+  SpaceEarningsResponse,
+  TopUpResponse,
+  PayoutInfoResponse,
+  Page,
   IdentityResponse,
   EarningsResponse,
   ImageTagResponse,
@@ -56,7 +60,16 @@ export const useStationStore = defineStore('station', () => {
   const earningsLoaded = ref(false)
   /** Raw admin earnings payload — getters below derive every view from it. */
   const earnings = ref<EarningsResponse | null>(null)
-  const balances = ref<OutstandingBalanceResponse[]>([])
+  /** How far back the earnings chart looks. Only `daily` is windowed —
+   *  totals and per-space earnings are all-time. */
+  const chartDays = ref(CHART_DAYS)
+  // The lists that grow without bound are paged, so each carries its own
+  // window and total rather than riding in the earnings payload.
+  const emptyPage = <T>(): Page<T> => ({ items: [], total: 0, limit: 0, offset: 0 })
+  const spaceEarningsPage = ref<Page<SpaceEarningsResponse>>(emptyPage())
+  const balancePage = ref<Page<OutstandingBalanceResponse>>(emptyPage())
+  const payoutPage = ref<Page<PayoutInfoResponse>>(emptyPage())
+  const topUpPage = ref<Page<TopUpResponse>>(emptyPage())
   /** The member's own money view (payable is the headline number). */
   const memberEarnings = ref<MemberEarningsResponse | null>(null)
   /** Syft-space version (image tag) the station deploys — set at onboarding, editable in Settings. */
@@ -298,6 +311,10 @@ export const useStationStore = defineStore('station', () => {
     }
   }
 
+  /** The wallet's currency, or USD before one is configured — every money
+   *  view formats against it. */
+  const currency = computed(() => wallet.value?.currency ?? 'USD')
+
   /** Cash collected at the gateway = credits users bought at the station. */
   const totalCollected = computed(() => earnings.value?.totals.credits_sold ?? 0)
 
@@ -307,9 +324,9 @@ export const useStationStore = defineStore('station', () => {
   /** Unspent user credit — a liability the station holds, never paid to members. */
   const totalUserCredit = computed(() => earnings.value?.totals.outstanding_balance ?? 0)
 
-  /** Recent settled top-ups (the admin feed). */
+  /** Settled top-ups — its own page; the list grows without bound. */
   const topUps = computed<TopUp[]>(() =>
-    (earnings.value?.recent_top_ups ?? []).map((t) => ({
+    topUpPage.value.items.map((t) => ({
       id: t.invoice_id,
       userEmail: t.user_email,
       bundleName: t.bundle_name,
@@ -319,9 +336,9 @@ export const useStationStore = defineStore('station', () => {
     })),
   )
 
-  /** Recorded payouts, newest first. */
+  /** Recorded payouts, newest first — its own page. */
   const payouts = computed<Payout[]>(() =>
-    (earnings.value?.payouts ?? []).map((p) => ({
+    payoutPage.value.items.map((p) => ({
       id: p.id,
       spaceId: p.space_id,
       amount: p.amount,
@@ -335,37 +352,30 @@ export const useStationStore = defineStore('station', () => {
    * carry their own attribution from the backend (resolved from request
    * rows), so a deleted space keeps its real name and owner.
    */
-  const earnedBySpace = computed(() => {
-    if (!earnings.value) return []
-    // Last day each space earned anything, from the daily series.
-    const lastDay = new Map<string, string>()
-    for (const d of earnings.value.daily) {
-      const prev = lastDay.get(d.space_id)
-      if (!prev || d.day > prev) lastDay.set(d.space_id, d.day)
-    }
-    return earnings.value.spaces
-      .map((row) => ({
-        spaceId: row.space_id,
-        slug: row.subdomain || row.space_id.slice(0, 8),
-        spaceName: row.name,
-        ownerEmail: row.owner_email || '—',
-        deleted: row.deleted,
-        earned: row.earned,
-        queries: row.query_count,
-        lastActiveAt: lastDay.get(row.space_id) ?? '',
-        paidOut: row.paid_out,
-        payable: row.payable,
-      }))
-      .sort((a, b) => b.payable - a.payable)
-  })
+  /** One page of the payout table; the server sorts it by payable. */
+  const earnedBySpace = computed(() =>
+    spaceEarningsPage.value.items.map((row) => ({
+      spaceId: row.space_id,
+      slug: row.subdomain || row.space_id.slice(0, 8),
+      spaceName: row.name,
+      ownerEmail: row.owner_email || '—',
+      deleted: row.deleted,
+      earned: row.earned,
+      queries: row.query_count,
+      lastActiveAt: row.last_active_at,
+      paidOut: row.paid_out,
+      payable: row.payable,
+    })),
+  )
 
-  const totalPayable = computed(() =>
-    earnedBySpace.value.reduce((sum, row) => sum + row.payable, 0),
+  /** Owed across every space — from the totals, since the rows are a page. */
+  const totalPayable = computed(
+    () => (earnings.value?.totals.earned ?? 0) - (earnings.value?.totals.paid_out ?? 0),
   )
 
   /** Per-user credit balances (topped up / spent / remaining). */
   const userBalances = computed(() =>
-    balances.value.map((b) => ({
+    balancePage.value.items.map((b) => ({
       email: b.user_email,
       toppedUp: b.topped_up,
       spent: b.spent,
@@ -470,18 +480,48 @@ export const useStationStore = defineStore('station', () => {
     }
   }
 
-  /** Admin: the full money dashboard (earnings + outstanding balances). */
+  /** Admin: totals, per-space earnings and the chart series — both money tabs. */
   async function loadEarnings(): Promise<void> {
     try {
-      const [earned, outstanding] = await Promise.all([
-        creditsApi.earnings(),
-        creditsApi.balances(),
-      ])
-      earnings.value = earned
-      balances.value = outstanding.balances
+      earnings.value = await creditsApi.earnings(chartDays.value)
     } finally {
       earningsLoaded.value = true
     }
+  }
+
+  /** Change the chart window and refetch the series behind it. */
+  async function setChartDays(days: number): Promise<void> {
+    chartDays.value = days
+    await loadEarnings()
+  }
+
+  /** The Payouts tab's main table — sorted by payable on the server. */
+  async function loadSpaceEarnings(offset = 0): Promise<void> {
+    spaceEarningsPage.value = await creditsApi.spaceEarnings(undefined, offset)
+  }
+
+  /** What one space is still owed. The payout table is paged, so a space
+   *  being deleted may not be among the loaded rows. 0 when it never
+   *  charged (the endpoint 404s). */
+  async function spacePayable(spaceId: string): Promise<number> {
+    return creditsApi
+      .spaceEarning(spaceId)
+      .then((row) => row.payable)
+      .catch(() => 0)
+  }
+
+  /** The Payouts tab's history table. */
+  async function loadPayouts(offset = 0): Promise<void> {
+    payoutPage.value = await creditsApi.payouts(undefined, offset)
+  }
+
+  /** The Analytics tab's two tables. */
+  async function loadTopUps(offset = 0): Promise<void> {
+    topUpPage.value = await creditsApi.topUps(undefined, offset)
+  }
+
+  async function loadBalances(offset = 0): Promise<void> {
+    balancePage.value = await creditsApi.balances(undefined, offset)
   }
 
   /** Member: what their spaces earned and are still owed. */
@@ -757,6 +797,7 @@ export const useStationStore = defineStore('station', () => {
     onboarded,
     setupLoaded,
     walletLoaded,
+    currency,
     identityLoaded,
     spacesLoaded,
     requestsLoaded,
@@ -792,6 +833,17 @@ export const useStationStore = defineStore('station', () => {
     loadSpaces,
     loadWallet,
     loadEarnings,
+    chartDays,
+    setChartDays,
+    loadSpaceEarnings,
+    spacePayable,
+    spaceEarningsPage,
+    loadPayouts,
+    loadTopUps,
+    loadBalances,
+    payoutPage,
+    topUpPage,
+    balancePage,
     loadMemberEarnings,
     refreshSpaceState,
     submitRequest,

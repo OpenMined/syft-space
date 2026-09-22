@@ -150,18 +150,11 @@ class SpaceEarnings(BaseModel):
     query_count: int = Field(description="Paid queries net of reversals")
     paid_out: float
     payable: float = Field(description="earned − paid_out")
-
-
-class EndpointEarnings(BaseModel):
-    space_id: UUID
-    endpoint: str
-    earned: float
-    query_count: int
+    last_active_at: str = Field(description="When the space last charged")
 
 
 class DailyEarnings(BaseModel):
     day: str = Field(description="YYYY-MM-DD")
-    space_id: UUID
     earned: float
     query_count: int
 
@@ -174,21 +167,30 @@ class PayoutInfo(BaseModel):
     created_at: datetime
 
 
-class EarningsResponse(BaseModel):
-    """Everything the Earnings dashboard renders, derived from the ledger.
+class Page[T](BaseModel):
+    """One window over a list that grows without bound.
 
-    Space rows carry their own name/owner attribution (resolved from the
-    request rows, which survive deletion) — endpoint/daily rows carry
-    space_id only and group under them.
+    `total` is the number of matching rows, not the page size — the UI shows
+    "N of M" and sizes its pager from it.
+    """
+
+    items: list[T]
+    total: int
+    limit: int
+    offset: int
+
+
+class EarningsResponse(BaseModel):
+    """The dashboard's headline figures and the chart series.
+
+    Every list that grows with the station — per-space earnings, payouts,
+    top-ups, user balances — is its own paged endpoint; totals here are real
+    aggregates, not sums over a page.
     """
 
     currency: str
     totals: EarningsTotals
-    spaces: list[SpaceEarnings]
-    endpoints: list[EndpointEarnings]
     daily: list[DailyEarnings]
-    recent_top_ups: list[TopUpInfo]
-    payouts: list[PayoutInfo]
 
 
 class MemberSpaceEarnings(BaseModel):
@@ -218,11 +220,6 @@ class OutstandingBalance(BaseModel):
     topped_up: float
     spent: float
     balance: float
-
-
-class OutstandingBalancesResponse(BaseModel):
-    total: float
-    balances: list[OutstandingBalance]
 
 
 class PayoutRequest(BaseModel):

@@ -81,7 +81,9 @@ onMounted(() => load())
   <div v-else class="flex items-center gap-1.5">
     <Select v-model="model" :disabled="station.imageTagsLoading && !refreshing">
       <SelectTrigger class="w-full">
-        <SelectValue :placeholder="station.imageTagsLoading ? 'Loading versions…' : 'Pick a version'" />
+        <SelectValue
+          :placeholder="station.imageTagsLoading ? 'Loading versions…' : 'Pick a version'"
+        />
       </SelectTrigger>
       <SelectContent>
         <template v-if="current">
@@ -94,7 +96,10 @@ onMounted(() => load())
               <Badge variant="outline" class="h-4 px-1.5 text-[10px]">current</Badge>
             </template>
           </SelectItem>
-          <SelectSeparator v-if="fetched.length" class="h-0 border-t border-dashed bg-transparent" />
+          <SelectSeparator
+            v-if="fetched.length"
+            class="h-0 border-t border-dashed bg-transparent"
+          />
         </template>
         <SelectItem v-for="image in fetched" :key="image.tag" :value="image.tag">
           <span class="font-mono">{{ image.tag }}</span>

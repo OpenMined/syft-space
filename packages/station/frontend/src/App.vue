@@ -7,8 +7,8 @@ useTheme()
 </script>
 
 <template>
-  <div class="flex h-screen flex-col bg-background text-foreground">
-    <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="flex h-full flex-col bg-background text-foreground">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <RouterView />
     </div>
     <Toaster position="top-right" rich-colors close-button />

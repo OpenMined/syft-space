@@ -66,7 +66,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ApiError } from '@/api/client'
 import { DOCS } from '@/lib/docs'
-import { formatMoney } from '@/lib/types'
+import { formatDay, formatMoney } from '@/lib/types'
 import type { Space, SpaceRequest } from '@/lib/types'
 import { Label } from '@/components/ui/label'
 import { SPACE_CONDITION_META } from '@/lib/spaceConditions'
@@ -250,14 +250,15 @@ function openDeleteFailed(request: SpaceRequest) {
   else toast.error('Could not find the space for this request')
 }
 
-const currency = computed(() => station.wallet?.currency ?? 'USD')
-
 // What the station still owes this space's owner. Deletion never blocks on
 // it — the money stays payable from the surviving ledger attribution.
-const deletePayable = computed(() => {
-  if (!deleteTarget.value) return 0
-  const row = station.earnedBySpace.find((r) => r.spaceId === deleteTarget.value!.id)
-  return row?.payable ?? 0
+// Fetched per space: the payout table is paged, so the space being deleted
+// may not be in the rows currently loaded.
+const deletePayable = ref(0)
+watch(deleteTarget, async (space) => {
+  deletePayable.value = 0
+  if (!space) return
+  deletePayable.value = await station.spacePayable(space.id)
 })
 
 async function confirmDelete() {
@@ -370,14 +371,10 @@ async function start(space: Space) {
   toast('Starting space', { description: space.name })
   await station.startSpace(space.id).catch(() => toast.error('Starting the space failed'))
 }
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden bg-background">
+  <div class="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
     <AppHeader
       variant="admin"
       @new-space="createOpen = true"
@@ -509,7 +506,7 @@ function formatDate(iso: string): string {
                     <div class="mt-0.5 text-xs text-muted-foreground">
                       {{ REQUEST_TYPE_META[request.type].label }} ·
                       <template v-if="request.origin === 'admin'">by admin for </template>
-                      {{ request.requesterEmail }} · {{ formatDate(request.createdAt) }}
+                      {{ request.requesterEmail }} · {{ formatDay(request.createdAt) }}
                     </div>
                     <p v-if="request.purpose" class="mt-1.5 text-sm text-muted-foreground">
                       {{ request.purpose }}
@@ -639,7 +636,7 @@ function formatDate(iso: string): string {
                     class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
                   >
                     <span>{{ space.ownerEmail }}</span>
-                    <span>since {{ formatDate(space.createdAt) }}</span>
+                    <span>since {{ formatDay(space.createdAt) }}</span>
                     <span class="font-mono">{{ space.version }}</span>
                     <Badge
                       v-if="space.version !== station.supportedVersion"
@@ -854,7 +851,7 @@ function formatDate(iso: string): string {
           This cannot be undone.
           <span v-if="deletePayable > 0" class="mt-2 block">
             {{ deleteTarget.ownerEmail }} is still owed
-            <span class="font-medium">{{ formatMoney(deletePayable, currency) }}</span>
+            <span class="font-medium">{{ formatMoney(deletePayable, station.currency) }}</span>
             from this space. It stays payable after deletion.
           </span>
         </DialogDescription>

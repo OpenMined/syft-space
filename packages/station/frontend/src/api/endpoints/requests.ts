@@ -14,8 +14,7 @@ export const requestsApi = {
   get: (id: string): Promise<RequestResponse> => apiClient.get(`/requests/${id}`),
 
   /** Submit any request type; payload.type selects the shape. */
-  submit: (body: SubmitRequestBody): Promise<RequestResponse> =>
-    apiClient.post('/requests', body),
+  submit: (body: SubmitRequestBody): Promise<RequestResponse> => apiClient.post('/requests', body),
 
   /** Ask to create a space (member, or admin on a member's behalf). */
   submitCreate: (
@@ -50,8 +49,7 @@ export const requestsApi = {
     requestsApi.patch(id, { status: 'rejected', reason }),
 
   /** Admin. Re-runs provisioning for a FAILED create (approve again). */
-  retry: (id: string): Promise<RequestResponse> =>
-    requestsApi.patch(id, { status: 'approved' }),
+  retry: (id: string): Promise<RequestResponse> => requestsApi.patch(id, { status: 'approved' }),
 
   /** Owner (or admin) cancels their own PENDING request. */
   withdraw: (id: string): Promise<RequestResponse> =>

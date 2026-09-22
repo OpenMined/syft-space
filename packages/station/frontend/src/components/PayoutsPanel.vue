@@ -4,6 +4,7 @@ import { HandCoins } from 'lucide-vue-next'
 import RecordPayoutDialog from '@/components/RecordPayoutDialog.vue'
 import HelpTip from '@/components/HelpTip.vue'
 import StatStrip from '@/components/StatStrip.vue'
+import TablePager from '@/components/TablePager.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatMoney } from '@/lib/types'
+import { formatDay, formatMoney } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
 
 const station = useStationStore()
@@ -39,26 +40,20 @@ function openPayout(row: {
   payoutOpen.value = true
 }
 
-const currency = computed(() => station.wallet?.currency ?? 'USD')
-
 const stats = computed(() => [
-  { label: 'Credits sold', value: formatMoney(station.totalCollected, currency.value) },
+  { label: 'Credits sold', value: formatMoney(station.totalCollected, station.currency) },
   {
     label: 'Earned by spaces',
-    value: formatMoney(station.totalEarned, currency.value),
+    value: formatMoney(station.totalEarned, station.currency),
     hint: `${station.earnedBySpace.length} space${station.earnedBySpace.length === 1 ? '' : 's'}`,
   },
   {
     label: 'Owed to members',
-    value: formatMoney(station.totalPayable, currency.value),
+    value: formatMoney(station.totalPayable, station.currency),
     accent: true,
   },
-  { label: 'Unspent user credit', value: formatMoney(station.totalUserCredit, currency.value) },
+  { label: 'Unspent user credit', value: formatMoney(station.totalUserCredit, station.currency) },
 ])
-
-function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
 </script>
 
 <template>
@@ -66,7 +61,12 @@ function formatDay(iso: string): string {
     <StatStrip :stats="stats" />
 
     <section class="space-y-2">
-      <h2 class="text-sm font-medium">Member payouts</h2>
+      <h2 class="text-sm font-medium">
+        Member payouts
+        <span class="ml-1 text-xs font-normal text-muted-foreground">
+          {{ station.spaceEarningsPage.total }}
+        </span>
+      </h2>
 
       <Table>
         <TableHeader>
@@ -97,16 +97,16 @@ function formatDay(iso: string): string {
               {{ row.queries.toLocaleString() }}
             </TableCell>
             <TableCell class="text-right tabular-nums text-muted-foreground">
-              {{ formatMoney(row.earned, currency) }}
+              {{ formatMoney(row.earned, station.currency) }}
             </TableCell>
             <TableCell class="text-right tabular-nums text-muted-foreground">
-              {{ row.paidOut > 0 ? formatMoney(row.paidOut, currency) : '—' }}
+              {{ row.paidOut > 0 ? formatMoney(row.paidOut, station.currency) : '—' }}
             </TableCell>
             <TableCell
               class="text-right font-medium tabular-nums"
               :class="row.payable > 0 ? '' : 'text-muted-foreground'"
             >
-              {{ formatMoney(row.payable, currency) }}
+              {{ formatMoney(row.payable, station.currency) }}
             </TableCell>
             <TableCell class="text-right">
               <Button
@@ -122,16 +122,20 @@ function formatDay(iso: string): string {
           </TableRow>
         </TableBody>
       </Table>
+      <TablePager
+        :page="station.spaceEarningsPage"
+        @go="(offset) => station.loadSpaceEarnings(offset)"
+      />
     </section>
 
     <section v-if="station.payouts.length > 0" class="space-y-2">
       <h2 class="text-sm font-medium">
         Payout history
         <span class="ml-1 text-xs font-normal text-muted-foreground">
-          {{ station.payouts.length }}
+          {{ station.payoutPage.total }}
         </span>
       </h2>
-      <Table max-height="18rem">
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>
@@ -150,13 +154,18 @@ function formatDay(iso: string): string {
             </TableCell>
             <TableCell class="text-muted-foreground">{{ payout.note || '—' }}</TableCell>
             <TableCell class="text-right font-medium tabular-nums">
-              {{ formatMoney(payout.amount, currency) }}
+              {{ formatMoney(payout.amount, station.currency) }}
             </TableCell>
           </TableRow>
         </TableBody>
       </Table>
+      <TablePager :page="station.payoutPage" @go="(offset) => station.loadPayouts(offset)" />
     </section>
   </div>
 
-  <RecordPayoutDialog v-model:open="payoutOpen" :target="payoutTarget" :currency="currency" />
+  <RecordPayoutDialog
+    v-model:open="payoutOpen"
+    :target="payoutTarget"
+    :currency="station.currency"
+  />
 </template>

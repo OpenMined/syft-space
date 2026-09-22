@@ -96,6 +96,11 @@ export function formatMoney(amount: number, currency: string): string {
   }).format(amount)
 }
 
+/** Short day label for the money tables and chart ("21 Sept"). */
+export function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
 export interface ApprovalConfig {
   spaceName: string
   subdomain: string
