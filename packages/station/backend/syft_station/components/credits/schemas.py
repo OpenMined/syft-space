@@ -77,13 +77,6 @@ class WalletStatusResponse(BaseModel):
     currency: str | None = None
 
 
-class WalletSetupResponse(WalletStatusResponse):
-    """Setup result, including the rollout to pre-existing spaces."""
-
-    spaces_attached: int = 0
-    spaces_failed: int = 0
-
-
 class CreateInvoiceRequest(BaseModel):
     """SyftHub buys a bundle by name — same body as the self-hosted gateway."""
 

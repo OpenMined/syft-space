@@ -41,8 +41,7 @@ from syft_station.components.credits.gateway.interfaces import (
     PaymentGateway,
     WebhookEnvelope,
 )
-from syft_station.components.credits.interfaces import SpaceIdentities
-from syft_station.components.credits.provisioning import WalletRollout
+from syft_station.components.credits.interfaces import SpaceFlags, SpaceIdentities
 from syft_station.components.credits.repository import (
     CreditsLedger,
     PayoutRepository,
@@ -72,7 +71,6 @@ from syft_station.components.credits.schemas import (
     SpaceEarnings,
     TopUpInfo,
     WalletSetupRequest,
-    WalletSetupResponse,
     WalletStatusResponse,
 )
 from syft_station.components.credits.tokens import hash_credit_token
@@ -259,24 +257,24 @@ def _wallet_status(wallet: Wallet | None) -> WalletStatusResponse:
 
 
 class WalletAdminHandler:
-    """Station wallet setup — create/replace plus the rollout to spaces."""
+    """Station wallet setup — create or replace the station's one wallet."""
 
     def __init__(
         self,
         wallets: WalletRepository,
         gateways: dict[str, PaymentGateway],
-        rollout: WalletRollout,
+        spaces: SpaceFlags,
     ):
         self.wallets = wallets
         self.gateways = gateways
-        self.rollout = rollout
+        self.spaces = spaces
 
     async def get(self) -> WalletStatusResponse:
         return _wallet_status(await self.wallets.get_active())
 
     async def setup(
         self, body: WalletSetupRequest, admin_email: str
-    ) -> WalletSetupResponse:
+    ) -> WalletStatusResponse:
         """Create the wallet, or replace its provider/credentials in place.
 
         Replacement keeps the wallet id, so existing space tokens stay
@@ -311,19 +309,33 @@ class WalletAdminHandler:
                     detail=f"The wallet currency is fixed at {wallet.currency} — "
                     "user balances are denominated in it",
                 )
+            previous_provider = wallet.provider
             wallet.provider = body.provider
             wallet.credentials = credentials
             wallet.updated_at = datetime.now(UTC)
             wallet = await self.wallets.update(wallet)
+            await self._flag_stale_spaces(wallet, previous_provider)
 
-        # Spaces approved before the wallet existed (and not opted out) get
-        # attached now; the rollout restarts each one so the wallet takes
-        # effect immediately.
-        attached, failed = await self.rollout.attach_unbound_spaces(wallet.id)
+        # Existing spaces are NOT swept onto the wallet — the admin attaches
+        # them deliberately (POST /spaces/{id}/wallet), one restart at a time.
+        return _wallet_status(wallet)
 
-        response = _wallet_status(wallet)
-        return WalletSetupResponse(
-            **response.model_dump(), spaces_attached=attached, spaces_failed=failed
+    async def _flag_stale_spaces(self, wallet: Wallet, previous: str) -> None:
+        """Flag every attached space when the provider changes.
+
+        Credentials never leave the station, so the provider is the only
+        thing a save changes that a space carries: the bundle catalog is
+        keyed by it, and each space holds the copy injected at its last
+        converge. Flagging all of them — including the ones that cannot be
+        re-applied right now — is what leaves the leftovers visible after a
+        re-apply run.
+        """
+        if previous == wallet.provider:
+            return
+        await self.spaces.flag_wallet_stale(
+            f"Publishes the {previous} price list; the wallet now uses "
+            f"{wallet.provider}",
+            wallet_id=wallet.id,
         )
 
 

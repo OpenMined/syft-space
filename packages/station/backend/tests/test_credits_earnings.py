@@ -30,10 +30,6 @@ from syft_station.components.credits.handlers import (
     WalletAdminHandler,
     WebhookHandler,
 )
-from syft_station.components.credits.provisioning import (
-    SpaceCreditsService,
-    WalletRollout,
-)
 from syft_station.components.credits.repository import (
     CreditsLedger,
     PayoutRepository,
@@ -41,7 +37,6 @@ from syft_station.components.credits.repository import (
     WalletRepository,
 )
 from syft_station.components.credits.routes import build_credits_routes
-from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.entities import (
     Request,
     RequestStatus,
@@ -179,23 +174,12 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
         )
     )
 
-    rollout = WalletRollout(
-        SpaceRepository(db),
-        MockProvisioner(),
-        SpaceCreditsService(
-            wallets,
-            tokens,
-            SetupRepository(db),
-            "http://station.test",
-            "http://pub.test",
-        ),
-    )
     hub = StubHubIdentity()
     app = FastAPI()
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, {}, rollout),
+            WalletAdminHandler(wallets, {}, SpaceRepository(db)),
             CheckoutHandler(db, wallets, {}, hub, SetupRepository(db)),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, {}),
             EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),

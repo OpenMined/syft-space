@@ -13,8 +13,8 @@ from loguru import logger
 
 from syft_station.components.provision.interfaces import Provisioner, SpaceSpec
 from syft_station.components.setup.repository import SetupRepository
-from syft_station.components.spaces.entities import Space
-from syft_station.components.spaces.interfaces import CreditsGranter
+from syft_station.components.spaces.entities import CLEARED_BY_CONVERGE, Space
+from syft_station.components.spaces.interfaces import CreditsService
 from syft_station.components.spaces.repository import SpaceRepository
 
 
@@ -26,22 +26,27 @@ class SpaceConverger:
         space_repository: SpaceRepository,
         setup_repository: SetupRepository,
         provisioner: Provisioner,
-        credits: CreditsGranter,
+        credits: CreditsService,
     ):
         self.space_repository = space_repository
         self.setup_repository = setup_repository
         self.provisioner = provisioner
         self.credits = credits
 
-    async def converge(self, space: Space) -> str:
-        """Provision the space at the supported version; returns its URL.
+    async def converge(self, space: Space, version: str | None = None) -> str:
+        """Provision the space at `version`; returns its URL.
+
+        `version` defaults to the station's supported version — attaching a
+        wallet passes the space's current one so it re-renders the bundle
+        without also rolling the image forward.
 
         Raises ProvisionError (or any substrate error) on failure — the
         caller decides what that means for its own state. On success the
-        space row records the new url/version and any pending
-        restart_required flag is cleared (the pod just started fresh).
+        space row records the new url/version and the conditions a
+        converge resolves are cleared (the pod just started fresh).
         """
         config = await self.setup_repository.get_config()
+        target_version = version or config.supported_version
         token_row = await self.space_repository.get_token(space.id)
 
         # Every attempt mints a FRESH credits token (the previous plaintext
@@ -55,7 +60,7 @@ class SpaceConverger:
             subdomain=space.subdomain,
             space_name=space.name,
             owner_email=space.owner_email,
-            version=config.supported_version,
+            version=target_version,
             domain=config.domain,
             admin_token=token_row.token or "" if token_row else "",
             credits_url=grant.url if grant else "",
@@ -70,8 +75,10 @@ class SpaceConverger:
         url = await self.provisioner.provision(spec)
 
         space.url = url
-        space.version = config.supported_version
-        space.restart_required = False
+        space.version = target_version
         await self.space_repository.update(space)
+        # The pod just started from a freshly rendered bundle, so every
+        # condition a converge can resolve is resolved.
+        await self.space_repository.clear_conditions(space.id, CLEARED_BY_CONVERGE)
         logger.info(f"Space '{space.subdomain}' converged at {url}")
         return url

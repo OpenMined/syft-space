@@ -48,11 +48,13 @@ attempt is revoke-then-mint — a failed attempt never leaves a live
 credential behind, and the pod that comes up always has a token the
 station honors.
 
-`WalletRollout` handles the other direction: when the admin creates (or
-replaces) the wallet, every existing space that is neither attached nor
-opted out gets a token minted, its Secret patched, and an automatic
-restart. A space whose restart fails is flagged `restart_required` —
-never silently left running on the old env.
+A space that predates the wallet is attached the other way round, one at a
+time: `POST /spaces/{id}/wallet` resolves the wallet, writes the intent to
+the space row and re-converges the space at its current version. Saving the
+wallet sweeps nothing — every attachment is an admin's deliberate act, and
+each one restarts exactly one space. Converge (rather than a Secret patch)
+because spaces provisioned by an older station have no env refs for the
+optional credits keys; re-rendering the bundle cannot half-attach them.
 
 ## The buyer flow
 

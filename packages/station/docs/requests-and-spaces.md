@@ -76,8 +76,10 @@ visible in the schema (`spaces/entities.py`):
   and the spaces list annotates each row the same way. A restarted pod or
   a scaled-to-zero deployment is never stale data in SQLite.
 - `wallet_id` records the admin's attachment pick; `wallet_opt_out`
-  distinguishes "no wallet existed yet" (backfilled when one is added by
-  `WalletRollout`) from "keep this space unbilled" (left alone forever).
+  distinguishes "no wallet existed yet" from "the admin declined the wallet
+  at approval". Neither is permanent: `POST /spaces/{id}/wallet` attaches
+  either one later. `SpaceResponse.wallet_status` derives the three states
+  (`attached` / `declined` / `unattached`) for the UI.
 - `restart_required` flags a space whose Secret was patched but whose
   automatic restart failed — the pod is running on old env, and the UI
   badges it. Any successful restart/update/re-provision clears it.

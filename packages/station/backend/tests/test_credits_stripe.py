@@ -37,10 +37,6 @@ from syft_station.components.credits.handlers import (
     WalletAdminHandler,
     WebhookHandler,
 )
-from syft_station.components.credits.provisioning import (
-    SpaceCreditsService,
-    WalletRollout,
-)
 from syft_station.components.credits.repository import (
     CreditsLedger,
     PayoutRepository,
@@ -176,10 +172,6 @@ def sign_webhook(raw_body: bytes, ts: int | None = None) -> str:
 async def testbed(db: AsyncDatabase) -> StripeTestbed:
     wallets = WalletRepository(db)
     tokens = SpaceCreditTokenRepository(db)
-    credits_service = SpaceCreditsService(
-        wallets, tokens, SetupRepository(db), "http://c", "http://p"
-    )
-    rollout = WalletRollout(SpaceRepository(db), NullPatcher(), credits_service)
 
     gateway = StripeGateway(STRIPE_URL)
     bed: StripeTestbed  # bound below; the stub closure reads it lazily
@@ -199,7 +191,7 @@ async def testbed(db: AsyncDatabase) -> StripeTestbed:
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, gateways, rollout),
+            WalletAdminHandler(wallets, gateways, SpaceRepository(db)),
             CheckoutHandler(db, wallets, gateways, hub, SetupRepository(db)),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, gateways),
             EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),

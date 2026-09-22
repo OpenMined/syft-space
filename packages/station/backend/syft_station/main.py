@@ -25,10 +25,7 @@ from syft_station.components.credits.handlers import (
     WalletAdminHandler,
     WebhookHandler,
 )
-from syft_station.components.credits.provisioning import (
-    SpaceCreditsService,
-    WalletRollout,
-)
+from syft_station.components.credits.provisioning import SpaceCreditsService
 from syft_station.components.credits.repository import (
     PayoutRepository,
     SpaceCreditTokenRepository,
@@ -104,9 +101,8 @@ space_credits_service = SpaceCreditsService(
     app_settings.credits_url,
     app_settings.public_url,
 )
-wallet_rollout = WalletRollout(space_repository, provisioner, space_credits_service)
 wallet_admin_handler = WalletAdminHandler(
-    wallet_repository, payment_gateways, wallet_rollout
+    wallet_repository, payment_gateways, space_repository
 )
 checkout_handler = CheckoutHandler(
     database, wallet_repository, payment_gateways, syfthub_client, setup_repository
@@ -123,13 +119,17 @@ station_satellites = StationSatelliteRegistrar(
     app_settings.satellite_id,
 )
 station_identity_handler = StationIdentityHandler(
-    setup_repository, syfthub_client, station_satellites
+    setup_repository, syfthub_client, station_satellites, space_repository
 )
 space_converger = SpaceConverger(
     space_repository, setup_repository, provisioner, space_credits_service
 )
 space_handler = SpaceHandler(
-    space_repository, provisioner, setup_repository, space_converger
+    space_repository,
+    provisioner,
+    setup_repository,
+    space_converger,
+    space_credits_service,
 )
 request_handler = RequestHandler(
     repository=request_repository,

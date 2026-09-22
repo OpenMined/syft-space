@@ -49,7 +49,6 @@ from syft_station.components.credits.schemas import (
     RefundResponse,
     ReversalResponse,
     WalletSetupRequest,
-    WalletSetupResponse,
     WalletStatusResponse,
 )
 
@@ -183,12 +182,13 @@ def build_credits_routes(
         """Wallet state, never credentials."""
         return await admin_handler.get()
 
-    @router.put("/admin/wallet", response_model=WalletSetupResponse)
+    @router.put("/admin/wallet", response_model=WalletStatusResponse)
     async def setup_wallet(
         body: WalletSetupRequest,
         user: SessionUser = Depends(require_admin),
-    ) -> WalletSetupResponse:
-        """Create or replace the station wallet; attaches unbound spaces."""
+    ) -> WalletStatusResponse:
+        """Create or replace the station wallet. Existing spaces are not
+        swept onto it — the admin attaches them per space."""
         return await admin_handler.setup(body, user.email)
 
     @router.get("/admin/earnings", response_model=EarningsResponse)
