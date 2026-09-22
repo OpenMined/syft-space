@@ -3,12 +3,9 @@ import { RotateCw, Wallet } from 'lucide-vue-next'
 import type { SpaceConditionResponse, SpaceConditionType } from '@/lib/types'
 
 /**
- * Per-condition presentation and remedy. Rendering keys off this map, never
- * off `type ===` checks in components — a new condition is one entry here.
- *
- * `fix` matters as much as the label: a restart re-reads the same Secret, so
- * only a re-apply can resolve wallet_stale. Offering the wrong button would
- * clear the badge over a space that is still wrong.
+ * Per-condition presentation and remedy; components render off this map, not
+ * off `type ===`. `fix` carries the backend's clearing rule — a restart
+ * re-reads the same Secret, so only a re-apply resolves wallet_stale.
  */
 export interface SpaceConditionMeta {
   label: string

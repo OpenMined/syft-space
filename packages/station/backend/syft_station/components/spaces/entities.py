@@ -40,9 +40,8 @@ class Space(SQLModel, table=True):
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    # Eager by design: every read of a space wants its conditions, and
-    # `selectin` fetches them for the whole result set in one extra query —
-    # so the API shape comes off the row instead of being assembled by hand.
+    # selectin: one extra query for the whole result set, so SpaceResponse
+    # builds off the row with no assembly.
     conditions: list["SpaceCondition"] = Relationship(
         back_populates="space",
         sa_relationship_kwargs={"lazy": "selectin", "cascade": "all, delete-orphan"},
@@ -76,25 +75,16 @@ class SpaceConditionType(StrEnum):
     WALLET_STALE = "wallet_stale"
 
 
-# What resolves each type. A restart deliberately does NOT clear
-# WALLET_STALE: the pod would come back reading the same stale Secret, and
-# the badge would go green over a space still publishing the old price
-# list. Only re-rendering the bundle rewrites those keys.
+# A restart does NOT clear WALLET_STALE: the pod comes back reading the same
+# Secret, so only re-rendering the bundle resolves it.
 CLEARED_BY_RESTART = frozenset({SpaceConditionType.RESTART_REQUIRED})
 CLEARED_BY_CONVERGE = frozenset(SpaceConditionType)
 
 
 class SpaceCondition(SQLModel, table=True):
-    """Something about a space that needs an admin action.
-
-    One row per (space, type): a space can need several things at once, and
-    each type names its own remedy — collapsing them into a single state
-    column would drop whichever was raised first.
-
-    Only facts the station knows and cannot re-read belong here. Runtime
-    status comes from Kubernetes and version drift is compared against the
-    station config, so neither is a condition.
-    """
+    """Something about a space that needs an admin action — one row per
+    (space, type). Only facts the station knows and cannot re-read belong
+    here; see docs/requests-and-spaces.md#space-conditions."""
 
     __tablename__ = "space_conditions"
     __table_args__ = (Index("idx_space_condition", "space_id", "type", unique=True),)

@@ -85,40 +85,49 @@ visible in the schema (`spaces/entities.py`):
 
 ## Space conditions
 
-Anything about a space that needs an admin to act is a row in
-`space_conditions` (`spaces/entities.py`), one per `(space, type)` — the
-index is unique, so re-raising a type rewrites its message instead of
-duplicating the row. A space can need several things at once; a single
-`state` column would drop whichever was raised first.
+One row per `(space, type)` in `space_conditions` (`spaces/entities.py`) for
+anything that needs an admin to act. The `(space_id, type)` index is unique,
+so re-raising a type rewrites its message rather than adding a row — and a
+space can carry several at once, which a single `state` column could not.
 
-| type | raised when | cleared by |
+| type | raised by | cleared by |
 |---|---|---|
-| `restart_required` | a Secret patch landed but the automatic restart failed (`SpaceHandler._restart_to_apply`) | restart, resume, or converge |
-| `wallet_stale` | the wallet facts the space carries changed under it ([credits.md](credits.md#space-attachment-lifecycle)) | converge only |
+| `restart_required` | `SpaceHandler._restart_to_apply` — the Secret patch landed, the automatic restart failed | restart · resume · converge |
+| `wallet_stale` | `WalletAdminHandler.setup` / `StationIdentityHandler.connect` — see [credits.md](credits.md#space-attachment-lifecycle) | converge |
 
-**Each type declares what clears it** — `CLEARED_BY_RESTART` and
-`CLEARED_BY_CONVERGE` in `spaces/entities.py`. That distinction is
-load-bearing rather than bookkeeping: a restarted pod re-reads the *same*
-Secret, so clearing `wallet_stale` on restart would turn the badge green
-over a space still publishing the old price list. Only re-rendering the
-bundle rewrites those keys.
+Conditions ride on the space (`lazy="selectin"`, cascading on delete), so a
+registry read carries them and `GET /spaces` needs no assembly:
 
-**What belongs in the table** — the test for anything new:
+```json
+{
+  "name": "Weather Lab",
+  "version": "0.1.2",
+  "conditions": [
+    {
+      "type": "wallet_stale",
+      "message": "Publishes the xendit price list; the wallet now uses stripe",
+      "created_at": "2026-09-22T09:14:03Z"
+    }
+  ],
+  "wallet_status": "attached"
+}
+```
 
-1. Can Kubernetes tell us? Derive it (health, paused, pod state).
-2. Can we compute it from what we already store? Derive it — "update
-   available" is `space.version != supported_version`, and `wallet_status`
-   comes off `wallet_id` / `wallet_opt_out`.
-3. Only the station knows it happened, and someone must act? A condition.
+`message` is frozen when the condition is raised: it describes what happened
+at the time, which can't be re-derived once the wallet has moved on again.
 
-`message` is written when the condition is raised and then frozen:
-"Publishes the xendit price list; the wallet now uses stripe" describes what
-happened at the time, which can no longer be derived once the wallet has
-moved on again.
+**A restart must not clear `wallet_stale`.** The pod comes back reading the
+same Secret; only re-rendering the bundle rewrites those keys. Each type
+names its own remedy — `CLEARED_BY_RESTART` and `CLEARED_BY_CONVERGE` in
+`spaces/entities.py` — so adding a type forces that choice.
 
-Conditions ride on the space — the relationship is `lazy="selectin"`, so a
-registry read carries them in one extra query and `SpaceResponse` is built
-straight off the row. They cascade when the space is deleted.
+**Before adding one, check it isn't derivable:**
+
+| | then |
+|---|---|
+| Kubernetes can tell us | derive it — health, paused, pod state |
+| computable from what we store | derive it — "update available" is `space.version != supported_version` |
+| only the station knows, and someone must act | a condition |
 
 ## Space admin tokens
 

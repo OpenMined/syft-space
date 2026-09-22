@@ -9,22 +9,12 @@ export interface AttachRunState {
   detail?: string
 }
 
-/**
- * Put spaces on the station wallet, one at a time.
- *
- * Sequential on purpose: each space is re-converged, so a parallel run would
- * take the whole station down at once. A failure is recorded against its
- * space and never stops the rest — the spaces it couldn't reach keep their
- * wallet_stale condition, which is the record of what's left to do.
- *
- * Shared by the panel (admin picks spaces) and the wallet save (every
- * attached space after a provider change). The state is module-level, not
- * per-component, so a run started from the save dialog renders in the panel
- * underneath it — and so two runs can never overlap.
- */
+// Module-level, not per-component: a run started from the wallet-save dialog
+// renders in the panel underneath it, and two runs can never overlap.
 const progress = ref<Record<string, AttachRunState>>({})
 const running = ref(false)
 
+/** Put spaces on the wallet one at a time; a failure never stops the rest. */
 export function useWalletAttachRun() {
   const station = useStationStore()
 
@@ -35,6 +25,8 @@ export function useWalletAttachRun() {
       spaces.map((s) => [s.id, { state: 'queued' } as AttachRunState]),
     )
     let failed = 0
+    // Sequential: each attach restarts a space, so a parallel run would take
+    // the whole station down at once.
     for (const space of spaces) {
       progress.value = { ...progress.value, [space.id]: { state: 'attaching' } }
       try {
