@@ -55,6 +55,30 @@ wallet sweeps nothing — every attachment is an admin's deliberate act, and
 each one restarts exactly one space. Converge (rather than a Secret patch)
 because spaces provisioned by an older station have no env refs for the
 optional credits keys; re-rendering the bundle cannot half-attach them.
+`reapply: true` re-runs it for a space already attached; without it that is
+a 409, so a stray click can never rotate a live credits token.
+
+**When a space's copy goes stale.** An attached space carries the wallet
+facts injected at its last converge, so a change to them leaves that copy
+behind. Two do, and each raises `wallet_stale`
+([conditions](requests-and-spaces.md#space-conditions)) on every attached
+space:
+
+- **the provider changes** (`WalletAdminHandler.setup`) — `PREPAID_BUNDLES`
+  is keyed provider → currency, so the price list the space publishes is the
+  old one while checkout prices from the new provider. The currency is
+  immutable, so a swap is only possible in a currency both gateways support;
+- **the station's SyftHub account changes**
+  (`StationIdentityHandler.connect`) — every attached space publishes
+  `hub_user_id` as its wallet owner, which is how the hub decides whose
+  audience to mint buyer tokens for and who to credit as host. The first
+  connect flags too: spaces attached before the station had an identity
+  carry an empty owner, which the hub reads as "the publishing user".
+
+Gateway credentials are not among them — they never leave the station, so
+rotating a key needs no space restart. Flagging every attached space,
+including the ones that cannot be re-applied right now (paused, not yet
+created), is what makes the leftovers visible after a re-apply run.
 
 ## The buyer flow
 

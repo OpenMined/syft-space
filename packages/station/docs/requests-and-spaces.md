@@ -80,9 +80,45 @@ visible in the schema (`spaces/entities.py`):
   at approval". Neither is permanent: `POST /spaces/{id}/wallet` attaches
   either one later. `SpaceResponse.wallet_status` derives the three states
   (`attached` / `declined` / `unattached`) for the UI.
-- `restart_required` flags a space whose Secret was patched but whose
-  automatic restart failed — the pod is running on old env, and the UI
-  badges it. Any successful restart/update/re-provision clears it.
+- Anything needing an admin to act is a row in `space_conditions`, not a
+  column on the space — see [Space conditions](#space-conditions).
+
+## Space conditions
+
+Anything about a space that needs an admin to act is a row in
+`space_conditions` (`spaces/entities.py`), one per `(space, type)` — the
+index is unique, so re-raising a type rewrites its message instead of
+duplicating the row. A space can need several things at once; a single
+`state` column would drop whichever was raised first.
+
+| type | raised when | cleared by |
+|---|---|---|
+| `restart_required` | a Secret patch landed but the automatic restart failed (`SpaceHandler._restart_to_apply`) | restart, resume, or converge |
+| `wallet_stale` | the wallet facts the space carries changed under it ([credits.md](credits.md#space-attachment-lifecycle)) | converge only |
+
+**Each type declares what clears it** — `CLEARED_BY_RESTART` and
+`CLEARED_BY_CONVERGE` in `spaces/entities.py`. That distinction is
+load-bearing rather than bookkeeping: a restarted pod re-reads the *same*
+Secret, so clearing `wallet_stale` on restart would turn the badge green
+over a space still publishing the old price list. Only re-rendering the
+bundle rewrites those keys.
+
+**What belongs in the table** — the test for anything new:
+
+1. Can Kubernetes tell us? Derive it (health, paused, pod state).
+2. Can we compute it from what we already store? Derive it — "update
+   available" is `space.version != supported_version`, and `wallet_status`
+   comes off `wallet_id` / `wallet_opt_out`.
+3. Only the station knows it happened, and someone must act? A condition.
+
+`message` is written when the condition is raised and then frozen:
+"Publishes the xendit price list; the wallet now uses stripe" describes what
+happened at the time, which can no longer be derived once the wallet has
+moved on again.
+
+Conditions ride on the space — the relationship is `lazy="selectin"`, so a
+registry read carries them in one extra query and `SpaceResponse` is built
+straight off the row. They cascade when the space is deleted.
 
 ## Space admin tokens
 
