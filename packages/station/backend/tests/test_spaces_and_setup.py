@@ -130,7 +130,10 @@ async def make_space(
     owner_email: str = MEMBER.email,
     subdomain: str = "alpha",
     version: str = "",
+    provisioner: "TrackingProvisioner | None" = None,
 ) -> Space:
+    """A provisioned space. Tests that drive runtime state pass the
+    provisioner so it knows the space exists, as a real provision would."""
     space = await space_repository.create(
         Space(
             name=subdomain.capitalize(),
@@ -141,6 +144,8 @@ async def make_space(
         )
     )
     await space_repository.create_token(space.id, generate_space_token())
+    if provisioner is not None:
+        provisioner.mark_provisioned(subdomain)
     return space
 
 
@@ -197,14 +202,16 @@ async def test_regenerate_rotates_the_key_and_url(space_handler, space_repositor
 # ============== Runtime ops (pause / resume / status) ==============
 
 
-async def test_status_starts_running(space_handler, space_repository):
-    space = await make_space(space_repository)
+async def test_status_starts_running(space_handler, space_repository, provisioner):
+    space = await make_space(space_repository, provisioner=provisioner)
     result = await space_handler.runtime_status(space.id, MEMBER)
     assert result.status == "running"
 
 
-async def test_pause_then_resume_round_trips(space_handler, space_repository):
-    space = await make_space(space_repository)
+async def test_pause_then_resume_round_trips(
+    space_handler, space_repository, provisioner
+):
+    space = await make_space(space_repository, provisioner=provisioner)
 
     paused = await space_handler.pause(space.id, MEMBER)
     assert paused.status == "paused"
@@ -220,14 +227,16 @@ async def test_pause_denied_for_non_owner(space_handler, space_repository):
     assert exc.value.status_code == 403
 
 
-async def test_admin_can_pause_any_space(space_handler, space_repository):
-    space = await make_space(space_repository, MEMBER.email)
+async def test_admin_can_pause_any_space(space_handler, space_repository, provisioner):
+    space = await make_space(space_repository, MEMBER.email, provisioner=provisioner)
     paused = await space_handler.pause(space.id, ADMIN)
     assert paused.status == "paused"
 
 
-async def test_logs_returns_snapshot_lines(space_handler, space_repository):
-    space = await make_space(space_repository, MEMBER.email)
+async def test_logs_returns_snapshot_lines(
+    space_handler, space_repository, provisioner
+):
+    space = await make_space(space_repository, MEMBER.email, provisioner=provisioner)
     result = await space_handler.logs(space.id, MEMBER, tail_lines=200)
     assert result.lines and all(isinstance(ln, str) for ln in result.lines)
 
@@ -239,8 +248,10 @@ async def test_logs_denied_for_non_owner(space_handler, space_repository):
     assert exc.value.status_code == 403
 
 
-async def test_admin_can_read_any_space_logs(space_handler, space_repository):
-    space = await make_space(space_repository, MEMBER.email)
+async def test_admin_can_read_any_space_logs(
+    space_handler, space_repository, provisioner
+):
+    space = await make_space(space_repository, MEMBER.email, provisioner=provisioner)
     result = await space_handler.logs(space.id, ADMIN, tail_lines=200)
     assert result.lines
 
@@ -264,7 +275,7 @@ async def test_status_unknown_space_404(space_handler):
 
 
 async def test_restart_rolls_the_space(space_handler, space_repository, provisioner):
-    space = await make_space(space_repository)
+    space = await make_space(space_repository, provisioner=provisioner)
     result = await space_handler.restart(space.id, MEMBER)
     assert result.status == "running"
     assert provisioner.restarted == ["alpha"]
@@ -390,10 +401,10 @@ async def test_update_space_converges_to_supported_version(
 
 
 async def test_update_space_refuses_paused(
-    space_handler, space_repository, setup_repository
+    space_handler, space_repository, setup_repository, provisioner
 ):
     await onboard_spaces(setup_repository)
-    space = await make_space(space_repository, version="1.0.0")
+    space = await make_space(space_repository, version="1.0.0", provisioner=provisioner)
     await space_handler.pause(space.id, ADMIN)
 
     with pytest.raises(HTTPException) as exc:
@@ -417,14 +428,20 @@ async def test_update_all_touches_only_outdated_spaces(
 
 
 async def test_update_all_reports_skipped_and_failed_per_space(
-    space_handler, space_repository, setup_repository
+    space_handler, space_repository, setup_repository, provisioner
 ):
     await onboard_spaces(setup_repository)
-    paused = await make_space(space_repository, subdomain="alpha", version="1.0.0")
+    paused = await make_space(
+        space_repository, subdomain="alpha", version="1.0.0", provisioner=provisioner
+    )
     await space_handler.pause(paused.id, ADMIN)
     # The mock provisioner fails subdomains containing "fail".
-    await make_space(space_repository, subdomain="failbeta", version="1.0.0")
-    await make_space(space_repository, subdomain="gamma", version="1.0.0")
+    await make_space(
+        space_repository, subdomain="failbeta", version="1.0.0", provisioner=provisioner
+    )
+    await make_space(
+        space_repository, subdomain="gamma", version="1.0.0", provisioner=provisioner
+    )
 
     result = await space_handler.update_all()
 
@@ -534,11 +551,11 @@ async def test_attach_wallet_without_a_station_wallet_is_409(
 
 
 async def test_attach_wallet_refuses_a_paused_space(
-    space_handler, space_repository, setup_repository, wallets
+    space_handler, space_repository, setup_repository, wallets, provisioner
 ):
     await onboard_spaces(setup_repository)
     await make_wallet(wallets)
-    space = await make_space(space_repository, version="1.0.0")
+    space = await make_space(space_repository, version="1.0.0", provisioner=provisioner)
     await space_handler.pause(space.id, ADMIN)
 
     # Converge applies one replica, which would silently un-pause it.
@@ -621,3 +638,42 @@ async def test_deleting_a_space_takes_its_conditions_with_it(space_repository):
     await space_repository.delete_space(space.id)
 
     assert await space_repository.conditions_for([space.id]) == {}
+
+
+# ============== Bulk status ==============
+
+
+async def test_statuses_covers_every_visible_space(
+    space_handler, space_repository, provisioner
+):
+    running = await make_space(
+        space_repository, subdomain="alpha", provisioner=provisioner
+    )
+    paused = await make_space(
+        space_repository,
+        owner_email=OTHER_MEMBER.email,
+        subdomain="beta",
+        provisioner=provisioner,
+    )
+    await space_handler.pause(paused.id, ADMIN)
+    # Never provisioned: the registry has it, the substrate doesn't.
+    ghost = await make_space(
+        space_repository, owner_email="ghost@test.com", subdomain="gamma"
+    )
+
+    result = await space_handler.runtime_statuses(ADMIN)
+
+    assert result.statuses == {
+        running.id: "running",
+        paused.id: "paused",
+        ghost.id: "not_found",
+    }
+
+
+async def test_statuses_are_scoped_to_the_caller(space_handler, space_repository):
+    mine = await make_space(space_repository, MEMBER.email, subdomain="alpha")
+    await make_space(space_repository, OTHER_MEMBER.email, subdomain="beta")
+
+    result = await space_handler.runtime_statuses(MEMBER)
+
+    assert list(result.statuses) == [mine.id]

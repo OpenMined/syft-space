@@ -170,6 +170,11 @@ export interface SpaceStatusResponse {
   status: SpaceRuntimeStatus
 }
 
+export interface SpaceStatusesResponse {
+  /** Live status per space id — one read for every space the caller sees. */
+  statuses: Record<string, SpaceRuntimeStatus>
+}
+
 export interface SpaceLogsResponse {
   lines: string[]
 }

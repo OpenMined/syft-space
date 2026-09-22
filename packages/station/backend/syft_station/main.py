@@ -169,6 +169,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Kubernetes cluster is not reachable at startup: {e}")
 
+    # The mock provisioner holds its state in memory, so a restart would
+    # report every existing space as not found — and `just dev` restarts on
+    # every .py edit. A real cluster still has the Deployments, so tell the
+    # mock about the spaces the registry says were provisioned.
+    mark_provisioned = getattr(provisioner, "mark_provisioned", None)
+    if mark_provisioned is not None:
+        for space in await space_repository.get_all():
+            if space.url:
+                mark_provisioned(space.subdomain)
+
     # Warm the image catalog so the first version picker (onboarding hits it
     # right after boot) finds a cache instead of the cold registry chain.
     # Fire-and-forget: a failure only means the first UI call pays the cost.

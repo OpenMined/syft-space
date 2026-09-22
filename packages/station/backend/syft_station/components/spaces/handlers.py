@@ -26,6 +26,7 @@ from syft_station.components.spaces.schemas import (
     AdminUrlResponse,
     SpaceLogsResponse,
     SpaceResponse,
+    SpaceStatusesResponse,
     SpaceStatusResponse,
     SpaceUpdateResult,
     UpdateAllResponse,
@@ -84,6 +85,30 @@ class SpaceHandler:
                 detail="Could not read the space status",
             ) from e
         return SpaceStatusResponse(status=str(status_))
+
+    async def runtime_statuses(self, user: SessionUser) -> SpaceStatusesResponse:
+        """Live status for every space the caller can see, in one read."""
+        spaces = (
+            await self.repository.get_all()
+            if user.role == ROLE_ADMIN
+            else await self.repository.list_by_owner(user.email)
+        )
+        try:
+            by_subdomain = await self.provisioner.statuses(
+                [s.subdomain for s in spaces]
+            )
+        except Exception as e:
+            logger.exception("Bulk status read failed")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not read the space statuses",
+            ) from e
+        return SpaceStatusesResponse(
+            statuses={
+                s.id: str(by_subdomain.get(s.subdomain, SpaceRuntimeStatus.NOT_FOUND))
+                for s in spaces
+            }
+        )
 
     async def logs(
         self, space_id: UUID, user: SessionUser, tail_lines: int

@@ -15,6 +15,7 @@ from syft_station.components.spaces.schemas import (
     AttachWalletBody,
     SpaceLogsResponse,
     SpaceResponse,
+    SpaceStatusesResponse,
     SpaceStatusResponse,
     UpdateAllResponse,
 )
@@ -42,6 +43,14 @@ def build_space_routes(handler: SpaceHandler) -> APIRouter:
     ) -> list[SpaceResponse]:
         """The signed-in member's spaces."""
         return await handler.list_mine(user.email)
+
+    @router.get("/statuses", response_model=SpaceStatusesResponse)
+    async def runtime_statuses(
+        user: SessionUser = Depends(get_current_user),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> SpaceStatusesResponse:
+        """Every visible space's live status in one read, for the dashboard."""
+        return await handler.runtime_statuses(user)
 
     @router.get("/{space_id}/status", response_model=SpaceStatusResponse)
     async def runtime_status(

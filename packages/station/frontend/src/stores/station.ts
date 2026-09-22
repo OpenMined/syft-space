@@ -205,15 +205,51 @@ export const useStationStore = defineStore('station', () => {
     if (adminUrl) space.adminUrl = adminUrl.url
   }
 
-  async function loadSpaces(): Promise<void> {
+  /** Health for every space in one call, and the signed-in admin URL only
+   *  for spaces the user owns — it backs one link in My spaces, so fetching
+   *  it per space cost N requests to fill at most one. */
+  async function refreshAllSpaceState(): Promise<void> {
     const session = useSessionStore()
-    try {
-      const list = session.isAdmin ? await spacesApi.list() : await spacesApi.mine()
-      spaces.value = list.map(mapSpace)
-    } finally {
-      spacesLoaded.value = true
+    const [statuses] = await Promise.all([
+      spacesApi.statuses().catch(() => null),
+      ...spaces.value
+        .filter((s) => s.ownerEmail === session.profile?.email)
+        .map((s) =>
+          spacesApi
+            .adminUrl(s.id)
+            .then((r) => {
+              s.adminUrl = r.url
+            })
+            .catch(() => {}),
+        ),
+    ])
+    if (!statuses) return
+    for (const space of spaces.value) {
+      const status = statuses.statuses[space.id]
+      if (status) space.health = statusToHealth[status]
     }
-    await Promise.all(spaces.value.map((s) => refreshSpaceState(s.id)))
+  }
+
+  // Several components load spaces on mount, so a single dashboard open used
+  // to fire the whole fan-out two or three times over. Concurrent callers
+  // share the in-flight round instead.
+  let spacesInFlight: Promise<void> | null = null
+
+  async function loadSpaces(): Promise<void> {
+    if (spacesInFlight) return spacesInFlight
+    spacesInFlight = (async () => {
+      const session = useSessionStore()
+      try {
+        const list = session.isAdmin ? await spacesApi.list() : await spacesApi.mine()
+        spaces.value = list.map(mapSpace)
+      } finally {
+        spacesLoaded.value = true
+      }
+      await refreshAllSpaceState()
+    })().finally(() => {
+      spacesInFlight = null
+    })
+    return spacesInFlight
   }
 
   /** Poll a PROVISIONING request until it settles, then refresh spaces. */

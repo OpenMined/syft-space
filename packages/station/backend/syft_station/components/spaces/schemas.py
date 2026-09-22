@@ -77,6 +77,13 @@ class SpaceStatusResponse(BaseModel):
     status: str
 
 
+class SpaceStatusesResponse(BaseModel):
+    """Every visible space's live status, keyed by space id — one substrate
+    call instead of one per space."""
+
+    statuses: dict[UUID, str]
+
+
 class SpaceLogsResponse(BaseModel):
     """A snapshot of the space container's recent log lines (newest last).
 

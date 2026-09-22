@@ -3,6 +3,7 @@ import type {
   AdminUrlResponse,
   SpaceLogsResponse,
   SpaceResponse,
+  SpaceStatusesResponse,
   SpaceStatusResponse,
   UpdateAllResponse,
 } from '@/api/types'
@@ -16,6 +17,9 @@ export const spacesApi = {
 
   /** Live running/paused/unavailable status, read from Kubernetes. */
   status: (id: string): Promise<SpaceStatusResponse> => apiClient.get(`/spaces/${id}/status`),
+
+  /** Every visible space's status in one call — what the dashboard uses. */
+  statuses: (): Promise<SpaceStatusesResponse> => apiClient.get('/spaces/statuses'),
 
   /** Snapshot tail of the space's logs (admin or the space's owner). */
   logs: (id: string, tailLines = 200): Promise<SpaceLogsResponse> =>
