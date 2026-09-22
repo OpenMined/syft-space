@@ -1,3 +1,7 @@
+import type { SpaceConditionResponse, SpaceConditionType, WalletStatus } from '@/api/types'
+
+export type { SpaceConditionResponse, SpaceConditionType, WalletStatus }
+
 export type RequestType = 'create_space' | 'delete_space'
 
 export type RequestStatus =
@@ -39,8 +43,10 @@ export interface Space {
   adminUrl?: string
   /** Image tag this space's deployment currently runs. */
   version: string
-  /** A Secret patch is waiting for a restart the station couldn't do itself. */
-  restartRequired: boolean
+  /** Everything needing an admin action; each condition names its own fix. */
+  conditions: SpaceConditionResponse[]
+  /** Whether the space is on the station wallet, and if not, why. */
+  walletStatus: WalletStatus
 }
 
 // ---- Shared wallet & earnings (server-backed via /credits) ----

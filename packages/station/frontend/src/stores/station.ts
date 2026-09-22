@@ -46,6 +46,14 @@ export const useStationStore = defineStore('station', () => {
   const wallet = ref<SharedWallet | null>(null)
   /** The station's SyftHub identity — one token, shared by every wallet. */
   const identity = ref<StationIdentity | null>(null)
+  // An empty collection means both "not asked yet" and "there are none", so
+  // every list that renders an empty state needs to know which. Without
+  // these, a reload flashes "No spaces yet" until the response lands.
+  const walletLoaded = ref(false)
+  const identityLoaded = ref(false)
+  const spacesLoaded = ref(false)
+  const requestsLoaded = ref(false)
+  const earningsLoaded = ref(false)
   /** Raw admin earnings payload — getters below derive every view from it. */
   const earnings = ref<EarningsResponse | null>(null)
   const balances = ref<OutstandingBalanceResponse[]>([])
@@ -151,7 +159,8 @@ export const useStationStore = defineStore('station', () => {
       createdAt: s.created_at,
       adminUrl: existing?.adminUrl,
       version: s.version,
-      restartRequired: s.restart_required,
+      conditions: s.conditions,
+      walletStatus: s.wallet_status,
     }
   }
 
@@ -165,11 +174,15 @@ export const useStationStore = defineStore('station', () => {
   }
 
   async function loadRequests(): Promise<void> {
-    const list = await requestsApi.list() // scoped by role on the backend
-    requests.value = list.map(mapRequest)
-    // Resume progress tracking for anything still being provisioned
-    for (const request of requests.value) {
-      if (request.status === 'provisioning') trackProvisioning(request.id)
+    try {
+      const list = await requestsApi.list() // scoped by role on the backend
+      requests.value = list.map(mapRequest)
+      // Resume progress tracking for anything still being provisioned
+      for (const request of requests.value) {
+        if (request.status === 'provisioning') trackProvisioning(request.id)
+      }
+    } finally {
+      requestsLoaded.value = true
     }
   }
 
@@ -194,8 +207,12 @@ export const useStationStore = defineStore('station', () => {
 
   async function loadSpaces(): Promise<void> {
     const session = useSessionStore()
-    const list = session.isAdmin ? await spacesApi.list() : await spacesApi.mine()
-    spaces.value = list.map(mapSpace)
+    try {
+      const list = session.isAdmin ? await spacesApi.list() : await spacesApi.mine()
+      spaces.value = list.map(mapSpace)
+    } finally {
+      spacesLoaded.value = true
+    }
     await Promise.all(spaces.value.map((s) => refreshSpaceState(s.id)))
   }
 
@@ -410,14 +427,25 @@ export const useStationStore = defineStore('station', () => {
 
   /** Wallet presence + bundle catalog (any signed-in user). */
   async function loadWallet(): Promise<void> {
-    wallet.value = mapWallet(await creditsApi.wallet())
+    try {
+      wallet.value = mapWallet(await creditsApi.wallet())
+    } finally {
+      walletLoaded.value = true
+    }
   }
 
   /** Admin: the full money dashboard (earnings + outstanding balances). */
   async function loadEarnings(): Promise<void> {
-    const [earned, outstanding] = await Promise.all([creditsApi.earnings(), creditsApi.balances()])
-    earnings.value = earned
-    balances.value = outstanding.balances
+    try {
+      const [earned, outstanding] = await Promise.all([
+        creditsApi.earnings(),
+        creditsApi.balances(),
+      ])
+      earnings.value = earned
+      balances.value = outstanding.balances
+    } finally {
+      earningsLoaded.value = true
+    }
   }
 
   /** Member: what their spaces earned and are still owed. */
@@ -467,11 +495,14 @@ export const useStationStore = defineStore('station', () => {
     spaceName: string
     subdomain: string
     ownerEmail: string
+    attachWallet?: boolean
   }): Promise<SpaceRequest> {
     const created = await requestsApi.submitCreate(input.spaceName, input.subdomain, {
       ownerEmail: input.ownerEmail,
     })
-    const approved = await requestsApi.approve(created.id, {})
+    const approved = await requestsApi.approve(created.id, {
+      attach_wallet: input.attachWallet ?? true,
+    })
     const request = applyRequest(approved)
     trackProvisioning(request.id)
     return request
@@ -509,14 +540,29 @@ export const useStationStore = defineStore('station', () => {
     await refreshSpaceState(spaceId)
   }
 
+  /**
+   * Put one space on the station wallet. The space is re-converged, so it
+   * restarts — callers attach one space at a time rather than fanning the
+   * restarts out across the station.
+   */
+  async function attachWallet(spaceId: string, reapply = false): Promise<void> {
+    const attached = mapSpace(await spacesApi.attachWallet(spaceId, { reapply }))
+    const index = spaces.value.findIndex((s) => s.id === spaceId)
+    if (index >= 0) spaces.value[index] = attached
+    // The pod was replaced; re-read its live status and admin URL.
+    await refreshSpaceState(spaceId)
+  }
+
   /** Roll the space's pods so they start with the current Secret. */
   async function restartSpace(spaceId: string): Promise<void> {
     const space = spaceById(spaceId)
     if (!space) return
     await spacesApi.restart(spaceId)
-    space.restartRequired = false
+    // A restart resolves only what a fresh pod resolves; the server is the
+    // authority on what's left, so the refresh below brings it back.
     space.health = 'restarting'
     await waitUntilRunning(spaceId)
+    await loadSpaces()
   }
 
   /** Pause = scale the space's deployment to 0; data (volume + vector db) stays. */
@@ -531,9 +577,9 @@ export const useStationStore = defineStore('station', () => {
     const space = spaceById(spaceId)
     if (!space || space.health !== 'paused') return
     await spacesApi.resume(spaceId)
-    space.restartRequired = false // the fresh pod starts with the current Secret
     space.health = 'starting'
     await waitUntilRunning(spaceId)
+    await loadSpaces()
   }
 
   /**
@@ -548,7 +594,7 @@ export const useStationStore = defineStore('station', () => {
       const updated = await spacesApi.update(spaceId)
       space.version = updated.version
       space.url = updated.url
-      space.restartRequired = updated.restart_required
+      space.conditions = updated.conditions
       space.health = 'healthy'
     } catch (error) {
       await refreshSpaceState(spaceId)
@@ -593,23 +639,22 @@ export const useStationStore = defineStore('station', () => {
   }
 
   /**
-   * Configure (or replace) the station's shared gateway wallet. Spaces
-   * approved before the wallet existed are attached in the same call and
-   * restarted so the wallet takes effect; any space whose restart failed
-   * comes back flagged restart_required.
+   * Configure (or replace) the station's shared gateway wallet. Existing
+   * spaces are not swept onto it — the admin attaches them per space, so
+   * each restart is deliberate.
    */
   async function setupWallet(input: {
     provider: WalletProvider
     currency: string
     credentials: Record<string, string>
-  }): Promise<{ spacesAttached: number; spacesFailed: number }> {
-    const result = await creditsApi.setupWallet({
-      provider: input.provider,
-      currency: input.currency,
-      credentials: input.credentials,
-    })
-    wallet.value = mapWallet(result)
-    return { spacesAttached: result.spaces_attached, spacesFailed: result.spaces_failed }
+  }): Promise<void> {
+    wallet.value = mapWallet(
+      await creditsApi.setupWallet({
+        provider: input.provider,
+        currency: input.currency,
+        credentials: input.credentials,
+      }),
+    )
   }
 
   function mapIdentity(i: IdentityResponse): StationIdentity {
@@ -623,7 +668,11 @@ export const useStationStore = defineStore('station', () => {
 
   /** Admin: the station's SyftHub identity (never the token itself). */
   async function loadIdentity(): Promise<void> {
-    identity.value = mapIdentity(await setupApi.identity())
+    try {
+      identity.value = mapIdentity(await setupApi.identity())
+    } finally {
+      identityLoaded.value = true
+    }
   }
 
   /** Admin: connect or rotate it. Registers the station's satellite too. */
@@ -671,6 +720,11 @@ export const useStationStore = defineStore('station', () => {
     stationHost,
     onboarded,
     setupLoaded,
+    walletLoaded,
+    identityLoaded,
+    spacesLoaded,
+    requestsLoaded,
+    earningsLoaded,
     imageTags,
     imageTagsLoading,
     loadImageTags,
@@ -714,6 +768,7 @@ export const useStationStore = defineStore('station', () => {
     withdrawRequest,
     regenerateApiKey,
     recordPayout,
+    attachWallet,
     restartSpace,
     pauseSpace,
     startSpace,

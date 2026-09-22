@@ -120,6 +120,22 @@ export interface PatchRequestBody {
   wallet_id?: string
 }
 
+/**
+ * Derived from the space row, never stored: `attached` = bound to a wallet,
+ * `declined` = the admin chose "no wallet" at approval, `unattached` = neither
+ * (usually approved before the station had a wallet).
+ */
+export type WalletStatus = 'attached' | 'declined' | 'unattached'
+
+/** Something about a space that needs an admin action. */
+export type SpaceConditionType = 'restart_required' | 'wallet_stale'
+
+export interface SpaceConditionResponse {
+  type: SpaceConditionType
+  message: string
+  created_at: string
+}
+
 export interface SpaceResponse {
   id: string
   request_id: string | null
@@ -128,8 +144,9 @@ export interface SpaceResponse {
   owner_email: string
   url: string
   version: string
-  /** A Secret patch is waiting for a restart the station couldn't do itself. */
-  restart_required: boolean
+  /** Everything needing an admin action — a space can need several at once. */
+  conditions: SpaceConditionResponse[]
+  wallet_status: WalletStatus
   created_at: string
 }
 
@@ -185,11 +202,6 @@ export interface WalletSetupBody {
   currency: string
   /** { api_key, callback_token } for Xendit; { secret_key, webhook_secret } for Stripe. */
   credentials: Record<string, string>
-}
-
-export interface WalletSetupResponse extends WalletStatusResponse {
-  spaces_attached: number
-  spaces_failed: number
 }
 
 export interface TopUpResponse {

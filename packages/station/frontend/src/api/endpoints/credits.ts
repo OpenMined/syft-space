@@ -6,7 +6,6 @@ import type {
   PayoutBody,
   PayoutRecordedResponse,
   WalletSetupBody,
-  WalletSetupResponse,
   WalletStatusResponse,
 } from '@/api/types'
 
@@ -18,7 +17,7 @@ export const creditsApi = {
   /** Admin: wallet state, never credentials. */
   adminWallet: (): Promise<WalletStatusResponse> => apiClient.get('/credits/admin/wallet'),
   /** Admin: create or replace the station wallet; attaches unbound spaces. */
-  setupWallet: (body: WalletSetupBody): Promise<WalletSetupResponse> =>
+  setupWallet: (body: WalletSetupBody): Promise<WalletStatusResponse> =>
     apiClient.put('/credits/admin/wallet', body),
   /** Admin: the ledger-derived money dashboard. */
   earnings: (): Promise<EarningsResponse> => apiClient.get('/credits/admin/earnings'),

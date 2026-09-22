@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useDocumentVisibility } from '@vueuse/core'
 import {
   ArrowUpCircle,
   Check,
@@ -23,6 +24,7 @@ import {
   TriangleAlert,
   User,
   Wallet,
+  WalletMinimal,
   X,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
@@ -37,7 +39,7 @@ import RequestStatusBadge from '@/components/RequestStatusBadge.vue'
 import RequestHistoryList from '@/components/RequestHistoryList.vue'
 import { REQUEST_TYPE_META } from '@/lib/requestTypes'
 import SetupStationDialog from '@/components/SetupStationDialog.vue'
-import SyftHubIdentityCard from '@/components/SyftHubIdentityCard.vue'
+import { Skeleton } from '@/components/ui/skeleton'
 import VersionSelect from '@/components/VersionSelect.vue'
 import ViewLogsSheet from '@/components/ViewLogsSheet.vue'
 import HealthBadge from '@/components/HealthBadge.vue'
@@ -67,6 +69,7 @@ import { DOCS } from '@/lib/docs'
 import { formatMoney } from '@/lib/types'
 import type { Space, SpaceRequest } from '@/lib/types'
 import { Label } from '@/components/ui/label'
+import { SPACE_CONDITION_META } from '@/lib/spaceConditions'
 import { useStationStore } from '@/stores/station'
 import { useSessionStore } from '@/stores/session'
 
@@ -94,7 +97,20 @@ onMounted(() => {
 
 // ---- Sidebar navigation (same shell as the syft-space sidebar) ----
 type AdminSection = 'requests' | 'my-spaces' | 'spaces' | 'earnings' | 'settings'
-const activeSection = ref<AdminSection>('requests')
+const SECTIONS: AdminSection[] = ['requests', 'my-spaces', 'spaces', 'earnings', 'settings']
+const DEFAULT_SECTION: AdminSection = 'requests'
+
+const route = useRoute()
+
+/** The URL owns the section; an unknown one falls back rather than blanking. */
+const activeSection = computed<AdminSection>(() => {
+  const section = route.params.section as AdminSection | undefined
+  return section && SECTIONS.includes(section) ? section : DEFAULT_SECTION
+})
+
+function go(section: AdminSection): void {
+  router.push({ name: 'admin', params: { section } })
+}
 
 /** An admin may also own a space (they can create one for their own email). */
 const ownsSpace = computed(() =>
@@ -102,29 +118,37 @@ const ownsSpace = computed(() =>
 )
 
 // Requests and spaces change from OTHER sessions (a member submits, a space
-// settles), so switching to a section refetches it, and a background poll
-// keeps the visible list + sidebar badges live between clicks. Earnings needs
-// neither: EarningsPanel re-mounts on each switch and loads itself.
-watch(activeSection, (section) => {
-  if (section === 'requests') station.loadRequests().catch(() => {})
-  else if (section === 'spaces' || section === 'my-spaces') {
+// settles), so switching to a section refetches it, a background poll keeps
+// the visible list + sidebar badges live between clicks, and returning to the
+// window refetches at once. Earnings revalidates itself the same way.
+function revalidateSection(): void {
+  station.loadRequests().catch(() => {})
+  if (activeSection.value === 'spaces' || activeSection.value === 'my-spaces') {
     station.loadSpaces().catch(() => {})
   }
-})
+}
+
+watch(activeSection, revalidateSection)
 
 // Losing the last own space takes the section with it, so don't strand the
 // admin on a tab that no longer has a nav entry.
 watch(ownsSpace, (owns) => {
-  if (!owns && activeSection.value === 'my-spaces') activeSection.value = 'requests'
+  if (!owns && activeSection.value === 'my-spaces') go(DEFAULT_SECTION)
 })
 
 const REFRESH_INTERVAL_MS = 30_000
 const refreshTimer = setInterval(() => {
   if (document.hidden) return
-  station.loadRequests().catch(() => {})
-  if (activeSection.value === 'spaces') station.loadSpaces().catch(() => {})
+  revalidateSection()
 }, REFRESH_INTERVAL_MS)
 onUnmounted(() => clearInterval(refreshTimer))
+
+// The poll skips hidden windows, so without this a station left open in a
+// background tab is up to REFRESH_INTERVAL_MS stale the moment you look at it.
+const visibility = useDocumentVisibility()
+watch(visibility, (state) => {
+  if (state === 'visible') revalidateSection()
+})
 
 const mainNav = computed(() => [
   {
@@ -349,7 +373,7 @@ function formatDate(iso: string): string {
     <AppHeader
       variant="admin"
       @new-space="createOpen = true"
-      @go="(section) => (activeSection = section)"
+      @go="(section: AdminSection) => go(section)"
     />
     <div class="flex min-h-0 flex-1 overflow-hidden">
       <!-- Sidebar -->
@@ -363,7 +387,7 @@ function formatDate(iso: string): string {
             :class="
               activeSection === item.id ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''
             "
-            @click="activeSection = item.id"
+            @click="go(item.id)"
           >
             <component :is="item.icon" class="mr-3 h-5 w-5 shrink-0" />
             <span class="flex-1 truncate text-left">{{ item.label }}</span>
@@ -387,7 +411,7 @@ function formatDate(iso: string): string {
                 :class="
                   activeSection === item.id ? 'text-primary bg-primary/8 hover:bg-primary/12' : ''
                 "
-                @click="activeSection = item.id"
+                @click="go(item.id)"
               >
                 <component :is="item.icon" class="mr-3 h-5 w-5 shrink-0" />
                 <span class="flex-1 truncate text-left">{{ item.label }}</span>
@@ -422,7 +446,7 @@ function formatDate(iso: string): string {
                         ? 'text-primary bg-primary/8 hover:bg-primary/12'
                         : ''
                     "
-                    @click="activeSection = 'settings'"
+                    @click="go('settings')"
                   >
                     <Settings class="h-4 w-4" />
                   </Button>
@@ -449,8 +473,12 @@ function formatDate(iso: string): string {
             <section class="space-y-3">
               <h2 class="text-sm font-medium text-muted-foreground">Review queue</h2>
 
+              <div v-if="!station.requestsLoaded" class="space-y-3">
+                <Skeleton v-for="n in 2" :key="n" class="h-24 w-full" />
+              </div>
+
               <EmptyState
-                v-if="openRequests.length === 0"
+                v-else-if="openRequests.length === 0"
                 title="Queue is clear"
                 description="New space requests will appear here for review."
               >
@@ -562,8 +590,12 @@ function formatDate(iso: string): string {
               </Button>
             </div>
 
+            <div v-if="!station.spacesLoaded" class="space-y-3">
+              <Skeleton v-for="n in 3" :key="n" class="h-20 w-full" />
+            </div>
+
             <EmptyState
-              v-if="station.spaces.length === 0"
+              v-else-if="station.spaces.length === 0"
               :icon="ServerOff"
               title="No spaces yet"
               description="Spaces appear here once you approve a request."
@@ -576,13 +608,14 @@ function formatDate(iso: string): string {
                     <span class="font-medium">{{ space.name }}</span>
                     <HealthBadge :health="space.health" />
                     <Badge
-                      v-if="space.restartRequired"
+                      v-for="condition in space.conditions"
+                      :key="condition.type"
                       variant="outline"
                       class="gap-1 border-warning/50 bg-warning/10 px-1.5 py-0 text-[11px] font-normal"
-                      title="A settings change is waiting for a restart"
+                      :title="condition.message"
                     >
-                      <RotateCw class="h-3 w-3" />
-                      restart required
+                      <component :is="SPACE_CONDITION_META[condition.type].icon" class="h-3 w-3" />
+                      {{ SPACE_CONDITION_META[condition.type].label }}
                     </Badge>
                   </div>
                   <a
@@ -607,6 +640,24 @@ function formatDate(iso: string): string {
                     >
                       <ArrowUpCircle class="h-3 w-3" />
                       update available
+                    </Badge>
+                    <Badge
+                      v-if="station.wallet && space.walletStatus === 'attached'"
+                      variant="outline"
+                      class="gap-1 px-1.5 py-0 text-[11px] font-normal"
+                      title="This space is on the station wallet"
+                    >
+                      <Wallet class="h-3 w-3" />
+                      wallet
+                    </Badge>
+                    <Badge
+                      v-else-if="station.wallet"
+                      variant="outline"
+                      class="gap-1 px-1.5 py-0 text-[11px] font-normal text-muted-foreground"
+                      title="Not on the station wallet — attach it under Earnings"
+                    >
+                      <WalletMinimal class="h-3 w-3" />
+                      unbilled
                     </Badge>
                   </div>
                 </div>
@@ -693,95 +744,81 @@ function formatDate(iso: string): string {
           <EarningsPanel v-else-if="activeSection === 'earnings'" />
 
           <!-- ==================== Settings ==================== -->
-          <div v-else class="max-w-xl space-y-6">
-            <Card>
-              <CardContent class="space-y-3">
-                <div>
-                  <p class="flex items-center gap-1.5 text-sm font-medium">
-                    <Tag class="h-3.5 w-3.5" />
-                    Supported Syft Space version
-                  </p>
-                  <p class="mt-0.5 text-xs text-muted-foreground">
-                    New spaces deploy this version. Update existing spaces with "Update all" on the
-                    Spaces page. Downgrades aren't supported.
-                    <a
-                      :href="DOCS.versions"
-                      target="_blank"
-                      rel="noopener"
-                      class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
-                    >
-                      Version updates
-                      <ExternalLink class="h-3 w-3" />
-                    </a>
-                  </p>
-                </div>
-                <div class="flex items-end gap-2">
-                  <div class="flex-1 space-y-1.5">
-                    <Label>Version</Label>
-                    <VersionSelect v-model="versionInput" />
+          <div v-else class="max-w-xl space-y-8">
+            <section class="space-y-3">
+              <h2 class="text-sm font-medium text-muted-foreground">Deployment</h2>
+              <Card>
+                <CardContent class="space-y-3">
+                  <div>
+                    <p class="flex items-center gap-1.5 text-sm font-medium">
+                      <Tag class="h-3.5 w-3.5" />
+                      Supported Syft Space version
+                    </p>
+                    <p class="mt-0.5 text-xs text-muted-foreground">
+                      New spaces deploy this version. Update existing spaces with "Update all" on
+                      the Spaces page. Downgrades aren't supported.
+                      <a
+                        :href="DOCS.versions"
+                        target="_blank"
+                        rel="noopener"
+                        class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
+                      >
+                        Version updates
+                        <ExternalLink class="h-3 w-3" />
+                      </a>
+                    </p>
                   </div>
-                  <Button
-                    :disabled="
-                      savingVersion ||
-                      !versionInput.trim() ||
-                      versionInput === station.supportedVersion
-                    "
-                    @click="saveVersion"
-                  >
-                    <Save class="mr-1.5 h-3.5 w-3.5" />
-                    Save
-                  </Button>
-                </div>
-                <p class="text-xs text-muted-foreground">
-                  Currently deploying:
-                  <span class="font-mono">{{ station.supportedVersion || '—' }}</span>
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent class="space-y-3">
-                <SyftHubIdentityCard />
-                <p class="text-xs text-muted-foreground">
-                  One token per station: every wallet verifies buyers with it, and it registers this
-                  station with SyftHub so buyers can be billed here.
-                  <a
-                    :href="DOCS.creditsAndPayouts"
-                    target="_blank"
-                    rel="noopener"
-                    class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
-                  >
-                    How credits work
-                    <ExternalLink class="h-3 w-3" />
-                  </a>
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent class="space-y-3">
-                <p class="text-sm font-medium">Station</p>
-                <dl class="space-y-2 text-sm">
-                  <div class="flex justify-between gap-4">
-                    <dt class="text-muted-foreground">Space domain</dt>
-                    <dd class="font-mono text-xs">*.{{ station.domain }}</dd>
-                  </div>
-                </dl>
-                <div class="rounded-md border bg-muted/40 px-3 py-2.5">
-                  <p class="mb-1.5 text-xs font-medium text-muted-foreground">Every space gets</p>
-                  <ul class="space-y-1">
-                    <li
-                      v-for="item in station.spaceIncludes"
-                      :key="item"
-                      class="flex items-center gap-1.5 text-xs text-muted-foreground"
+                  <div class="flex items-end gap-2">
+                    <div class="flex-1 space-y-1.5">
+                      <Label>Version</Label>
+                      <VersionSelect v-model="versionInput" />
+                    </div>
+                    <Button
+                      :disabled="
+                        savingVersion ||
+                        !versionInput.trim() ||
+                        versionInput === station.supportedVersion
+                      "
+                      @click="saveVersion"
                     >
-                      <Check class="h-3 w-3 shrink-0 text-success" />
-                      {{ item }}
-                    </li>
-                  </ul>
-                </div>
-              </CardContent>
-            </Card>
+                      <Save class="mr-1.5 h-3.5 w-3.5" />
+                      Save
+                    </Button>
+                  </div>
+                  <p class="text-xs text-muted-foreground">
+                    Currently deploying:
+                    <span class="font-mono">{{ station.supportedVersion || '—' }}</span>
+                  </p>
+                </CardContent>
+              </Card>
+            </section>
+
+            <section class="max-w-xl space-y-3">
+              <h2 class="text-sm font-medium text-muted-foreground">Station</h2>
+              <Card>
+                <CardContent class="space-y-3">
+                  <dl class="space-y-2 text-sm">
+                    <div class="flex justify-between gap-4">
+                      <dt class="text-muted-foreground">Space domain</dt>
+                      <dd class="font-mono text-xs">*.{{ station.domain }}</dd>
+                    </div>
+                  </dl>
+                  <div class="rounded-md border bg-muted/40 px-3 py-2.5">
+                    <p class="mb-1.5 text-xs font-medium text-muted-foreground">Every space gets</p>
+                    <ul class="space-y-1">
+                      <li
+                        v-for="item in station.spaceIncludes"
+                        :key="item"
+                        class="flex items-center gap-1.5 text-xs text-muted-foreground"
+                      >
+                        <Check class="h-3 w-3 shrink-0 text-success" />
+                        {{ item }}
+                      </li>
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
           </div>
         </div>
       </main>

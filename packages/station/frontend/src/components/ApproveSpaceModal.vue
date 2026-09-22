@@ -70,7 +70,7 @@ async function approve() {
     const config = {
       spaceName: spaceName.value.trim(),
       subdomain: slugify(subdomain.value),
-      attachWallet: station.wallet !== null && walletChoice.value === 'station',
+      attachWallet: walletChoice.value === 'station',
     }
     // Retry re-runs the failed request as-is; approve allows edits
     if (isRetry.value) await station.retryProvision(props.request.id, config)
