@@ -3,16 +3,18 @@
 import pytest
 from fastapi import HTTPException
 
+from syft_station.components.credits.entities import Wallet
 from syft_station.components.credits.provisioning import SpaceCreditsService
 from syft_station.components.credits.repository import (
     SpaceCreditTokenRepository,
     WalletRepository,
 )
+from syft_station.components.provision.interfaces import SpaceSpec
 from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.setup.handlers import SetupHandler
 from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.setup.schemas import UpdateSetupRequest
-from syft_station.components.spaces.entities import Space
+from syft_station.components.spaces.entities import Space, SpaceConditionType
 from syft_station.components.spaces.handlers import SpaceHandler
 from syft_station.components.spaces.provisioning import SpaceConverger
 from syft_station.components.spaces.repository import generate_space_token
@@ -100,16 +102,22 @@ def space_handler(space_repository, setup_repository, provisioner, db) -> SpaceH
         provisioner,
         setup_repository,
         SpaceConverger(space_repository, setup_repository, provisioner, credits),
+        credits,
     )
 
 
 class TrackingProvisioner(MockProvisioner):
-    """Mock + records restarts; set fail_restart to simulate a k8s error."""
+    """Mock + records specs and restarts; set fail_restart for a k8s error."""
 
     def __init__(self):
         super().__init__()
+        self.specs: list[SpaceSpec] = []
         self.restarted: list[str] = []
         self.fail_restart = False
+
+    async def provision(self, spec: SpaceSpec) -> str:
+        self.specs.append(spec)
+        return await super().provision(spec)
 
     async def restart(self, subdomain: str) -> None:
         if self.fail_restart:
@@ -122,7 +130,10 @@ async def make_space(
     owner_email: str = MEMBER.email,
     subdomain: str = "alpha",
     version: str = "",
+    provisioner: "TrackingProvisioner | None" = None,
 ) -> Space:
+    """A provisioned space. Tests that drive runtime state pass the
+    provisioner so it knows the space exists, as a real provision would."""
     space = await space_repository.create(
         Space(
             name=subdomain.capitalize(),
@@ -133,6 +144,8 @@ async def make_space(
         )
     )
     await space_repository.create_token(space.id, generate_space_token())
+    if provisioner is not None:
+        provisioner.mark_provisioned(subdomain)
     return space
 
 
@@ -189,14 +202,16 @@ async def test_regenerate_rotates_the_key_and_url(space_handler, space_repositor
 # ============== Runtime ops (pause / resume / status) ==============
 
 
-async def test_status_starts_running(space_handler, space_repository):
-    space = await make_space(space_repository)
+async def test_status_starts_running(space_handler, space_repository, provisioner):
+    space = await make_space(space_repository, provisioner=provisioner)
     result = await space_handler.runtime_status(space.id, MEMBER)
     assert result.status == "running"
 
 
-async def test_pause_then_resume_round_trips(space_handler, space_repository):
-    space = await make_space(space_repository)
+async def test_pause_then_resume_round_trips(
+    space_handler, space_repository, provisioner
+):
+    space = await make_space(space_repository, provisioner=provisioner)
 
     paused = await space_handler.pause(space.id, MEMBER)
     assert paused.status == "paused"
@@ -212,14 +227,16 @@ async def test_pause_denied_for_non_owner(space_handler, space_repository):
     assert exc.value.status_code == 403
 
 
-async def test_admin_can_pause_any_space(space_handler, space_repository):
-    space = await make_space(space_repository, MEMBER.email)
+async def test_admin_can_pause_any_space(space_handler, space_repository, provisioner):
+    space = await make_space(space_repository, MEMBER.email, provisioner=provisioner)
     paused = await space_handler.pause(space.id, ADMIN)
     assert paused.status == "paused"
 
 
-async def test_logs_returns_snapshot_lines(space_handler, space_repository):
-    space = await make_space(space_repository, MEMBER.email)
+async def test_logs_returns_snapshot_lines(
+    space_handler, space_repository, provisioner
+):
+    space = await make_space(space_repository, MEMBER.email, provisioner=provisioner)
     result = await space_handler.logs(space.id, MEMBER, tail_lines=200)
     assert result.lines and all(isinstance(ln, str) for ln in result.lines)
 
@@ -231,8 +248,10 @@ async def test_logs_denied_for_non_owner(space_handler, space_repository):
     assert exc.value.status_code == 403
 
 
-async def test_admin_can_read_any_space_logs(space_handler, space_repository):
-    space = await make_space(space_repository, MEMBER.email)
+async def test_admin_can_read_any_space_logs(
+    space_handler, space_repository, provisioner
+):
+    space = await make_space(space_repository, MEMBER.email, provisioner=provisioner)
     result = await space_handler.logs(space.id, ADMIN, tail_lines=200)
     assert result.lines
 
@@ -256,7 +275,7 @@ async def test_status_unknown_space_404(space_handler):
 
 
 async def test_restart_rolls_the_space(space_handler, space_repository, provisioner):
-    space = await make_space(space_repository)
+    space = await make_space(space_repository, provisioner=provisioner)
     result = await space_handler.restart(space.id, MEMBER)
     assert result.status == "running"
     assert provisioner.restarted == ["alpha"]
@@ -269,47 +288,68 @@ async def test_restart_denied_for_non_owner(space_handler, space_repository):
     assert exc.value.status_code == 403
 
 
+async def flag_restart(space_repository, space_id) -> None:
+    await space_repository.raise_condition(
+        space_id, SpaceConditionType.RESTART_REQUIRED, "could not restart"
+    )
+
+
+async def condition_types(space_repository, space_id) -> set[str]:
+    by_space = await space_repository.conditions_for([space_id])
+    return {c.type for c in by_space.get(space_id, [])}
+
+
 async def test_restart_clears_the_restart_required_flag(
     space_handler, space_repository
 ):
     space = await make_space(space_repository)
-    space.restart_required = True
-    await space_repository.update(space)
+    await flag_restart(space_repository, space.id)
 
     await space_handler.restart(space.id, MEMBER)
 
-    refreshed = await space_repository.get_by_id(space.id)
-    assert refreshed.restart_required is False
+    assert await condition_types(space_repository, space.id) == set()
 
 
 async def test_restart_failure_is_502_and_keeps_the_flag(
     space_handler, space_repository, provisioner
 ):
     space = await make_space(space_repository)
-    space.restart_required = True
-    await space_repository.update(space)
+    await flag_restart(space_repository, space.id)
     provisioner.fail_restart = True
 
     with pytest.raises(HTTPException) as exc:
         await space_handler.restart(space.id, MEMBER)
 
     assert exc.value.status_code == 502
-    refreshed = await space_repository.get_by_id(space.id)
-    assert refreshed.restart_required is True
+    assert await condition_types(space_repository, space.id) == {"restart_required"}
+
+
+async def test_restart_does_not_clear_a_wallet_stale_condition(
+    space_handler, space_repository
+):
+    # A restarted pod re-reads the SAME Secret — only a converge rewrites
+    # the wallet keys, so a restart must not resolve this one.
+    space = await make_space(space_repository)
+    await flag_restart(space_repository, space.id)
+    await space_repository.raise_condition(
+        space.id, SpaceConditionType.WALLET_STALE, "price list out of date"
+    )
+
+    await space_handler.restart(space.id, MEMBER)
+
+    assert await condition_types(space_repository, space.id) == {"wallet_stale"}
 
 
 async def test_resume_clears_the_restart_required_flag(space_handler, space_repository):
     # A fresh pod starts with the current Secret, so resuming applies any
     # pending patch just as well as a restart.
     space = await make_space(space_repository)
-    space.restart_required = True
-    await space_repository.update(space)
+    await flag_restart(space_repository, space.id)
     await space_handler.pause(space.id, MEMBER)
 
     await space_handler.resume(space.id, MEMBER)
 
-    refreshed = await space_repository.get_by_id(space.id)
-    assert refreshed.restart_required is False
+    assert await condition_types(space_repository, space.id) == set()
 
 
 # ============== Regenerate applies via restart ==============
@@ -321,8 +361,7 @@ async def test_regenerate_restarts_to_apply_the_new_key(
     space = await make_space(space_repository)
     await space_handler.regenerate_token(space.id, MEMBER)
     assert provisioner.restarted == ["alpha"]
-    refreshed = await space_repository.get_by_id(space.id)
-    assert refreshed.restart_required is False
+    assert await condition_types(space_repository, space.id) == set()
 
 
 async def test_regenerate_flags_the_space_when_restart_fails(
@@ -335,8 +374,7 @@ async def test_regenerate_flags_the_space_when_restart_fails(
     rotated = await space_handler.regenerate_token(space.id, MEMBER)
     assert "authToken=sst_" in rotated.url
 
-    refreshed = await space_repository.get_by_id(space.id)
-    assert refreshed.restart_required is True
+    assert await condition_types(space_repository, space.id) == {"restart_required"}
 
 
 # ============== Update / update-all ==============
@@ -363,10 +401,10 @@ async def test_update_space_converges_to_supported_version(
 
 
 async def test_update_space_refuses_paused(
-    space_handler, space_repository, setup_repository
+    space_handler, space_repository, setup_repository, provisioner
 ):
     await onboard_spaces(setup_repository)
-    space = await make_space(space_repository, version="1.0.0")
+    space = await make_space(space_repository, version="1.0.0", provisioner=provisioner)
     await space_handler.pause(space.id, ADMIN)
 
     with pytest.raises(HTTPException) as exc:
@@ -390,14 +428,20 @@ async def test_update_all_touches_only_outdated_spaces(
 
 
 async def test_update_all_reports_skipped_and_failed_per_space(
-    space_handler, space_repository, setup_repository
+    space_handler, space_repository, setup_repository, provisioner
 ):
     await onboard_spaces(setup_repository)
-    paused = await make_space(space_repository, subdomain="alpha", version="1.0.0")
+    paused = await make_space(
+        space_repository, subdomain="alpha", version="1.0.0", provisioner=provisioner
+    )
     await space_handler.pause(paused.id, ADMIN)
     # The mock provisioner fails subdomains containing "fail".
-    await make_space(space_repository, subdomain="failbeta", version="1.0.0")
-    await make_space(space_repository, subdomain="gamma", version="1.0.0")
+    await make_space(
+        space_repository, subdomain="failbeta", version="1.0.0", provisioner=provisioner
+    )
+    await make_space(
+        space_repository, subdomain="gamma", version="1.0.0", provisioner=provisioner
+    )
 
     result = await space_handler.update_all()
 
@@ -405,3 +449,231 @@ async def test_update_all_reports_skipped_and_failed_per_space(
     assert outcomes == {"Alpha": "skipped", "Failbeta": "failed", "Gamma": "updated"}
     failed = next(r for r in result.results if r.outcome == "failed")
     assert failed.detail  # the provision error rides along for the admin
+
+
+# ============== Wallet attachment ==============
+
+
+@pytest.fixture
+def wallets(db) -> WalletRepository:
+    return WalletRepository(db)
+
+
+@pytest.fixture
+def credit_tokens(db) -> SpaceCreditTokenRepository:
+    return SpaceCreditTokenRepository(db)
+
+
+async def make_wallet(wallets: WalletRepository) -> Wallet:
+    return await wallets.create(
+        Wallet(provider="xendit", currency="PHP", credentials={"api_key": "x"})
+    )
+
+
+async def test_attach_wallet_binds_the_space_without_upgrading_it(
+    space_handler,
+    space_repository,
+    setup_repository,
+    provisioner,
+    wallets,
+    credit_tokens,
+):
+    await onboard_spaces(setup_repository)  # supported version is 2.0.0
+    wallet = await make_wallet(wallets)
+    space = await make_space(space_repository, version="1.0.0")
+
+    attached = await space_handler.attach_wallet(space.id, None)
+
+    assert attached.wallet_status == "attached"
+    # Converged at the space's own version — attaching is not an upgrade.
+    assert attached.version == "1.0.0"
+    assert provisioner.specs[-1].version == "1.0.0"
+    refreshed = await space_repository.get_by_id(space.id)
+    assert refreshed.wallet_id == wallet.id
+
+    # The pod comes up with a token that verifies back to the binding.
+    binding = await credit_tokens.get_active_for_space(space.id)
+    assert binding is not None and binding.wallet_id == wallet.id
+    spec = provisioner.specs[-1]
+    assert spec.credits_token and spec.credits_currency == "PHP"
+    assert spec.credits_wallet_id == str(wallet.id)
+
+
+async def test_attach_wallet_reverses_a_decline(
+    space_handler, space_repository, setup_repository, wallets
+):
+    await onboard_spaces(setup_repository)
+    await make_wallet(wallets)
+    space = await space_repository.create(
+        Space(
+            name="NoBill",
+            subdomain="no-bill",
+            owner_email=MEMBER.email,
+            url="https://no-bill.spaces.test.org",
+            wallet_opt_out=True,
+        )
+    )
+    await space_repository.create_token(space.id, generate_space_token())
+
+    assert (await space_handler.list_spaces())[0].wallet_status == "declined"
+
+    attached = await space_handler.attach_wallet(space.id, None)
+
+    assert attached.wallet_status == "attached"
+    assert (await space_repository.get_by_id(space.id)).wallet_opt_out is False
+
+
+async def test_attach_wallet_refuses_an_already_attached_space(
+    space_handler, space_repository, setup_repository, wallets
+):
+    await onboard_spaces(setup_repository)
+    await make_wallet(wallets)
+    space = await make_space(space_repository, version="1.0.0")
+    await space_handler.attach_wallet(space.id, None)
+
+    # Re-attach would rotate the credits token and restart the pod, so it's
+    # never something a stray click can do.
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.attach_wallet(space.id, None)
+    assert exc.value.status_code == 409
+
+
+async def test_attach_wallet_without_a_station_wallet_is_409(
+    space_handler, space_repository, setup_repository
+):
+    await onboard_spaces(setup_repository)
+    space = await make_space(space_repository, version="1.0.0")
+
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.attach_wallet(space.id, None)
+    assert exc.value.status_code == 409
+    assert (await space_repository.get_by_id(space.id)).wallet_id is None
+
+
+async def test_attach_wallet_refuses_a_paused_space(
+    space_handler, space_repository, setup_repository, wallets, provisioner
+):
+    await onboard_spaces(setup_repository)
+    await make_wallet(wallets)
+    space = await make_space(space_repository, version="1.0.0", provisioner=provisioner)
+    await space_handler.pause(space.id, ADMIN)
+
+    # Converge applies one replica, which would silently un-pause it.
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.attach_wallet(space.id, None)
+    assert exc.value.status_code == 409
+
+
+async def test_attach_wallet_refuses_a_space_that_was_never_created(
+    space_handler, space_repository, setup_repository, wallets
+):
+    await onboard_spaces(setup_repository)
+    await make_wallet(wallets)
+    space = await space_repository.create(
+        Space(name="Ghost", subdomain="ghost", owner_email=MEMBER.email)
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.attach_wallet(space.id, None)
+    assert exc.value.status_code == 409
+
+
+async def test_failed_attach_leaves_the_space_unattached(
+    space_handler, space_repository, setup_repository, wallets
+):
+    await onboard_spaces(setup_repository)
+    await make_wallet(wallets)
+    # The mock provisioner fails subdomains containing "fail".
+    space = await make_space(space_repository, subdomain="failspace", version="1.0.0")
+
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.attach_wallet(space.id, None)
+    assert exc.value.status_code == 502
+    # The binding is only persisted by a successful converge, so a retry
+    # starts clean.
+    refreshed = await space_repository.get_by_id(space.id)
+    assert refreshed.wallet_id is None
+    assert refreshed.wallet_opt_out is False
+
+
+async def test_reapply_refreshes_an_attached_space_and_clears_the_condition(
+    space_handler, space_repository, setup_repository, provisioner, wallets
+):
+    await onboard_spaces(setup_repository)
+    await make_wallet(wallets)
+    space = await make_space(space_repository, version="1.0.0")
+    await space_handler.attach_wallet(space.id, None)
+    await space_repository.raise_condition(
+        space.id, SpaceConditionType.WALLET_STALE, "price list out of date"
+    )
+    before = len(provisioner.specs)
+
+    reapplied = await space_handler.attach_wallet(space.id, None, reapply=True)
+
+    assert reapplied.wallet_status == "attached"
+    assert len(provisioner.specs) == before + 1  # the bundle was re-rendered
+    assert await condition_types(space_repository, space.id) == set()
+
+
+async def test_reapply_still_refuses_a_paused_space(
+    space_handler, space_repository, setup_repository, wallets
+):
+    await onboard_spaces(setup_repository)
+    await make_wallet(wallets)
+    space = await make_space(space_repository, version="1.0.0")
+    await space_handler.attach_wallet(space.id, None)
+    await space_handler.pause(space.id, ADMIN)
+
+    with pytest.raises(HTTPException) as exc:
+        await space_handler.attach_wallet(space.id, None, reapply=True)
+    assert exc.value.status_code == 409
+
+
+async def test_deleting_a_space_takes_its_conditions_with_it(space_repository):
+    # The cascade is load-bearing now that delete_space no longer removes
+    # them by hand — an orphan would break the foreign key.
+    space = await make_space(space_repository)
+    await flag_restart(space_repository, space.id)
+
+    await space_repository.delete_space(space.id)
+
+    assert await space_repository.conditions_for([space.id]) == {}
+
+
+# ============== Bulk status ==============
+
+
+async def test_statuses_covers_every_visible_space(
+    space_handler, space_repository, provisioner
+):
+    running = await make_space(
+        space_repository, subdomain="alpha", provisioner=provisioner
+    )
+    paused = await make_space(
+        space_repository,
+        owner_email=OTHER_MEMBER.email,
+        subdomain="beta",
+        provisioner=provisioner,
+    )
+    await space_handler.pause(paused.id, ADMIN)
+    # Never provisioned: the registry has it, the substrate doesn't.
+    ghost = await make_space(
+        space_repository, owner_email="ghost@test.com", subdomain="gamma"
+    )
+
+    result = await space_handler.runtime_statuses(ADMIN)
+
+    assert result.statuses == {
+        running.id: "running",
+        paused.id: "paused",
+        ghost.id: "not_found",
+    }
+
+
+async def test_statuses_are_scoped_to_the_caller(space_handler, space_repository):
+    mine = await make_space(space_repository, MEMBER.email, subdomain="alpha")
+    await make_space(space_repository, OTHER_MEMBER.email, subdomain="beta")
+
+    result = await space_handler.runtime_statuses(MEMBER)
+
+    assert list(result.statuses) == [mine.id]

@@ -10,6 +10,7 @@ from syft_station.components.auth.syfthub import (
     SyftHubUnavailableError,
 )
 from syft_station.components.setup.entities import StationConfig
+from syft_station.components.setup.interfaces import SpaceFlags
 from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.setup.satellites import StationSatelliteRegistrar
 from syft_station.components.setup.schemas import (
@@ -69,10 +70,12 @@ class StationIdentityHandler:
         repository: SetupRepository,
         hub: SyftHubIdentityClient,
         satellites: StationSatelliteRegistrar,
+        spaces: SpaceFlags,
     ):
         self.repository = repository
         self.hub = hub
         self.satellites = satellites
+        self.spaces = spaces
 
     async def get(self) -> IdentityResponse:
         config = await self.repository.get_config()
@@ -120,7 +123,9 @@ class StationIdentityHandler:
                 status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
             ) from e
 
+        previous_owner = (await self.repository.get_config()).hub_user_id
         await self.repository.update_identity(pat, profile.id)
+        await self._flag_stale_spaces(previous_owner, profile)
         await self.satellites.ensure_quietly(pat)
 
         config = await self.repository.get_config()
@@ -129,4 +134,20 @@ class StationIdentityHandler:
             username=profile.username,
             email=str(profile.email),
             satellite_id=config.satellite_id,
+        )
+
+    async def _flag_stale_spaces(self, previous: int | None, profile) -> None:
+        """Flag attached spaces when the hub account behind the station changes.
+
+        Every attached space publishes this id as its wallet owner, which is
+        how the hub decides whose audience to mint buyer tokens for and who
+        to credit as host. A space carrying the old one — or none, if it was
+        attached before the station had an identity — credits the wrong
+        account until it is re-applied.
+        """
+        if previous == profile.id:
+            return
+        was = f"SyftHub owner {previous}" if previous is not None else "no wallet owner"
+        await self.spaces.flag_wallet_stale(
+            f"Publishes {was}; the station now signs in as {profile.username}"
         )

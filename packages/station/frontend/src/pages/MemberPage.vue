@@ -119,16 +119,15 @@ async function withdrawLiveRequest() {
 const myEarnings = computed(() => station.memberEarnings?.spaces ?? [])
 const totalOwed = computed(() => station.memberEarnings?.total_payable ?? 0)
 const totalEarned = computed(() => station.memberEarnings?.total_earned ?? 0)
-const currency = computed(() => station.wallet?.currency ?? 'USD')
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden bg-background">
+  <div class="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
     <AppHeader variant="member" />
     <div class="flex min-h-0 flex-1 overflow-hidden">
       <!-- Sidebar -->
       <aside class="flex w-60 shrink-0 flex-col border-r border-border/40 bg-background">
-        <nav class="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
+        <nav class="flex-1 space-y-0.5 overflow-y-auto px-2 py-6">
           <Button
             v-for="item in navItems"
             :key="item.id"
@@ -185,10 +184,10 @@ const currency = computed(() => station.wallet?.currency ?? 'USD')
                 To be paid out to you
               </p>
               <p class="mt-1 text-2xl font-semibold tracking-tight">
-                {{ formatMoney(totalOwed, currency) }}
+                {{ formatMoney(totalOwed, station.currency) }}
               </p>
               <p class="mt-0.5 text-xs text-muted-foreground">
-                {{ formatMoney(totalEarned, currency) }} earned across
+                {{ formatMoney(totalEarned, station.currency) }} earned across
                 {{ myEarnings.length }} space{{ myEarnings.length === 1 ? '' : 's' }}. The station
                 admin pays out manually.
               </p>

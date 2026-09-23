@@ -3,6 +3,7 @@ import type {
   AdminUrlResponse,
   SpaceLogsResponse,
   SpaceResponse,
+  SpaceStatusesResponse,
   SpaceStatusResponse,
   UpdateAllResponse,
 } from '@/api/types'
@@ -16,6 +17,9 @@ export const spacesApi = {
 
   /** Live running/paused/unavailable status, read from Kubernetes. */
   status: (id: string): Promise<SpaceStatusResponse> => apiClient.get(`/spaces/${id}/status`),
+
+  /** Every visible space's status in one call — what the dashboard uses. */
+  statuses: (): Promise<SpaceStatusesResponse> => apiClient.get('/spaces/statuses'),
 
   /** Snapshot tail of the space's logs (admin or the space's owner). */
   logs: (id: string, tailLines = 200): Promise<SpaceLogsResponse> =>
@@ -37,6 +41,20 @@ export const spacesApi = {
 
   /** The space URL with the admin key attached — opens the space signed in. */
   adminUrl: (id: string): Promise<AdminUrlResponse> => apiClient.get(`/spaces/${id}/admin-url`),
+
+  /**
+   * Admin: put a space on the station wallet; it restarts to pick it up.
+   * `reapply` re-runs it for a space already on the wallet — the only way
+   * to refresh facts the wallet has since changed.
+   */
+  attachWallet: (
+    id: string,
+    options: { walletId?: string; reapply?: boolean } = {},
+  ): Promise<SpaceResponse> =>
+    apiClient.post(`/spaces/${id}/wallet`, {
+      ...(options.walletId ? { wallet_id: options.walletId } : {}),
+      ...(options.reapply ? { reapply: true } : {}),
+    }),
 
   /** Replace the space admin API key (the space applies it on restart). */
   regenerateToken: (id: string): Promise<AdminUrlResponse> =>

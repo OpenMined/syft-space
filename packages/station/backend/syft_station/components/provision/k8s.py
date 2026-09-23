@@ -13,6 +13,7 @@ The ``kubernetes`` client is synchronous; every call goes through
 
 import asyncio
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import NamedTuple, Protocol
 
@@ -176,6 +177,12 @@ class K8sProvisioner:
     async def get_status(self, subdomain: str) -> SpaceRuntimeStatus:
         """Read the space's live running state from its Deployment."""
         return await asyncio.to_thread(self._read_status, subdomain)
+
+    async def statuses(
+        self, subdomains: Sequence[str]
+    ) -> dict[str, SpaceRuntimeStatus]:
+        """Status for each space, from one Deployment list."""
+        return await asyncio.to_thread(self._read_statuses, subdomains)
 
     async def logs(self, subdomain: str, tail_lines: int) -> str:
         """Snapshot of the space container's last ``tail_lines`` lines."""
@@ -386,6 +393,22 @@ class K8sProvisioner:
         )
         logger.info(f"[k8s] scaled deployment/{name} to {replicas}")
 
+    def _read_statuses(
+        self, subdomains: Sequence[str]
+    ) -> dict[str, SpaceRuntimeStatus]:
+        """One List over the label every space bundle carries; a space with
+        no Deployment reports NOT_FOUND."""
+        result = self.kube.apps.list_namespaced_deployment(
+            self.settings.namespace,
+            label_selector=LABEL_SPACE,  # key-exists: only space bundles
+        )
+        found = {}
+        for deployment in result.items or []:
+            subdomain = (deployment.metadata.labels or {}).get(LABEL_SPACE)
+            if subdomain:
+                found[subdomain] = _deployment_status(deployment)
+        return {s: found.get(s, SpaceRuntimeStatus.NOT_FOUND) for s in subdomains}
+
     def _read_status(self, subdomain: str) -> SpaceRuntimeStatus:
         """Derive runtime status from the Deployment's desired vs ready pods.
 
@@ -401,15 +424,7 @@ class K8sProvisioner:
             if e.status == 404:
                 return SpaceRuntimeStatus.NOT_FOUND
             raise
-        spec = deployment.spec
-        desired = spec.replicas if spec and spec.replicas is not None else 0
-        status = deployment.status
-        available = (status.available_replicas or 0) if status else 0
-        if desired == 0:
-            return SpaceRuntimeStatus.PAUSED
-        if available >= 1:
-            return SpaceRuntimeStatus.RUNNING
-        return SpaceRuntimeStatus.UNAVAILABLE
+        return _deployment_status(deployment)
 
     def _delete_bundle(self, subdomain: str, purge: bool) -> None:
         ns = self.settings.namespace
@@ -436,3 +451,16 @@ class K8sProvisioner:
             if e.status == 404:
                 return
             raise
+
+
+def _deployment_status(deployment) -> SpaceRuntimeStatus:
+    """desired 0 → PAUSED; a ready pod → RUNNING; else UNAVAILABLE."""
+    spec = deployment.spec
+    desired = spec.replicas if spec and spec.replicas is not None else 0
+    status = deployment.status
+    available = (status.available_replicas or 0) if status else 0
+    if desired == 0:
+        return SpaceRuntimeStatus.PAUSED
+    if available >= 1:
+        return SpaceRuntimeStatus.RUNNING
+    return SpaceRuntimeStatus.UNAVAILABLE

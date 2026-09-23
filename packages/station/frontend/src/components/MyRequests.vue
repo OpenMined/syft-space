@@ -53,8 +53,6 @@ const hasNothing = computed(
   () => !mySpaces.value.length && !inflightCreates.value.length && !pastRequests.value.length,
 )
 
-const currency = computed(() => station.wallet?.currency ?? 'USD')
-
 function earningsFor(spaceId: string) {
   return station.memberEarnings?.spaces.find((row) => row.space_id === spaceId)
 }
@@ -231,9 +229,9 @@ function formatDate(iso: string): string {
           class="flex items-center gap-1.5 text-xs text-muted-foreground"
         >
           <Banknote class="h-3.5 w-3.5" />
-          Earned {{ formatMoney(earningsFor(space.id)!.earned, currency) }} from
+          Earned {{ formatMoney(earningsFor(space.id)!.earned, station.currency) }} from
           {{ earningsFor(space.id)!.query_count.toLocaleString() }} paid queries ·
-          {{ formatMoney(earningsFor(space.id)!.payable, currency) }} owed
+          {{ formatMoney(earningsFor(space.id)!.payable, station.currency) }} owed
         </p>
       </CardContent>
     </Card>

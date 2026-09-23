@@ -8,6 +8,8 @@ origin, so registration only ever happens here.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from fastapi import HTTPException
 
@@ -17,6 +19,8 @@ from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.setup.satellites import StationSatelliteRegistrar
 from syft_station.components.setup.schemas import ConnectIdentityRequest
 from syft_station.components.shared.database import AsyncDatabase
+from syft_station.components.spaces.entities import CLEARED_BY_CONVERGE, Space
+from syft_station.components.spaces.repository import SpaceRepository
 from tests.conftest import ADMIN, StubHubIdentity
 
 PUBLIC_URL = "https://station.example.com"
@@ -31,7 +35,10 @@ def build(
 ) -> tuple[StationIdentityHandler, SetupRepository]:
     repository = SetupRepository(db)
     registrar = StationSatelliteRegistrar(repository, hub, public_url, seed)
-    return StationIdentityHandler(repository, hub, registrar), repository
+    return (
+        StationIdentityHandler(repository, hub, registrar, SpaceRepository(db)),
+        repository,
+    )
 
 
 def by_password() -> ConnectIdentityRequest:
@@ -203,3 +210,69 @@ async def test_a_failed_registration_still_saves_the_identity(db):
     config = await repository.get_config()
     assert config.hub_pat == "syft_pat_stub_1"
     assert config.satellite_id == ""
+
+
+# ============== Reconnecting under a different hub account ==============
+
+
+async def attached_space(space_repository, subdomain="alpha"):
+    return await space_repository.create(
+        Space(
+            name=subdomain.capitalize(),
+            subdomain=subdomain,
+            owner_email=f"{subdomain}@test.com",
+            url=f"https://{subdomain}.spaces.test.org",
+            wallet_id=uuid4(),
+        )
+    )
+
+
+async def stale_messages(space_repository, space_id) -> list[str]:
+    by_space = await space_repository.conditions_for([space_id])
+    return [c.message for c in by_space.get(space_id, []) if c.type == "wallet_stale"]
+
+
+async def test_first_connect_flags_spaces_attached_before_the_identity_existed(
+    db, space_repository
+):
+    # They were converged with an empty SYFT_CLUSTER_WALLET_OWNER, so the hub
+    # reads them as owned by whoever published them.
+    space = await attached_space(space_repository)
+    handler, _ = build(db, StubHubIdentity())
+
+    await handler.connect(by_password(), ADMIN.email)
+
+    [message] = await stale_messages(space_repository, space.id)
+    assert "no wallet owner" in message
+
+
+async def test_reconnecting_as_another_account_flags_attached_spaces(
+    db, space_repository
+):
+    space = await attached_space(space_repository)
+    unattached = await space_repository.create(
+        Space(name="Beta", subdomain="beta", owner_email="beta@test.com")
+    )
+    handler, _ = build(db, StubHubIdentity(user_id=42))
+    await handler.connect(by_password(), ADMIN.email)
+    await space_repository.clear_conditions(space.id, CLEARED_BY_CONVERGE)
+
+    handler, _ = build(db, StubHubIdentity(user_id=99))
+    await handler.connect(by_password(), ADMIN.email)
+
+    [message] = await stale_messages(space_repository, space.id)
+    assert "42" in message  # names the account the spaces still publish
+    assert await stale_messages(space_repository, unattached.id) == []
+
+
+async def test_reconnecting_as_the_same_account_flags_nothing(db, space_repository):
+    space = await attached_space(space_repository)
+    handler, _ = build(db, StubHubIdentity())
+    await handler.connect(by_password(), ADMIN.email)
+    await space_repository.clear_conditions(space.id, CLEARED_BY_CONVERGE)
+
+    # Rotating the token without changing the account changes nothing a
+    # space carries.
+    await handler.connect(by_password(), ADMIN.email)
+
+    assert await stale_messages(space_repository, space.id) == []

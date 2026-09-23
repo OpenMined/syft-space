@@ -4,10 +4,31 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+# Derived from the space row, never stored: `attached` = bound to a wallet,
+# `declined` = the admin chose "no wallet" at approval, `unattached` = neither
+# (usually approved before the station had a wallet).
+WalletStatus = Literal["attached", "declined", "unattached"]
+
+
+class SpaceConditionResponse(BaseModel):
+    """One thing about a space that needs an admin action."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    type: str
+    message: str
+    created_at: datetime
 
 
 class SpaceResponse(BaseModel):
+    """Built straight off the Space row: conditions arrive with it (the
+    relationship is eager) and wallet_status is derived here, so nothing
+    assembles this shape by hand."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     request_id: UUID | None
     name: str
@@ -15,8 +36,32 @@ class SpaceResponse(BaseModel):
     owner_email: str
     url: str
     version: str
-    restart_required: bool
+    conditions: list[SpaceConditionResponse] = []
     created_at: datetime
+
+    # Read from the row to derive wallet_status; never serialized.
+    wallet_id: UUID | None = Field(default=None, exclude=True)
+    wallet_opt_out: bool = Field(default=False, exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def wallet_status(self) -> WalletStatus:
+        if self.wallet_id is not None:
+            return "attached"
+        return "declined" if self.wallet_opt_out else "unattached"
+
+
+class AttachWalletBody(BaseModel):
+    """Which wallet to attach. None = the station wallet (v1 has one).
+
+    `reapply` re-runs the attach for a space that is already on the wallet,
+    which re-renders its bundle with the wallet's current facts. It is off
+    by default because it rotates the space's credits token and restarts
+    the pod — never something a stray click should do.
+    """
+
+    wallet_id: UUID | None = None
+    reapply: bool = False
 
 
 class AdminUrlResponse(BaseModel):
@@ -30,6 +75,13 @@ class SpaceStatusResponse(BaseModel):
     """Live runtime status of a space (read from Kubernetes, never stored)."""
 
     status: str
+
+
+class SpaceStatusesResponse(BaseModel):
+    """Every visible space's live status, keyed by space id — one substrate
+    call instead of one per space."""
+
+    statuses: dict[UUID, str]
 
 
 class SpaceLogsResponse(BaseModel):

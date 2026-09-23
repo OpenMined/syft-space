@@ -80,10 +80,17 @@
   --shadow-blur: var(--shadow-blur);
   --shadow-opacity: var(--shadow-opacity);
   --color-shadow-color: var(--shadow-color);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* Mapped to OMDS steps directly, not derived by calc from one base: the
+     brand's radius scale is non-linear (2/6/8/16/32), so no base + ladder
+     lands on it. S is the brand's card/input/button radius, so md and lg
+     share it — OMDS has one card radius; shadcn's md-vs-lg split is a
+     shadcn convention, not a brand one. xs and sm likewise share XS: both
+     are small interactive rows (menu items, a dialog close), not cards. */
+  --radius-xs: var(--border-radius-XS);
+  --radius-sm: var(--border-radius-XS);
+  --radius-md: var(--border-radius-S);
+  --radius-lg: var(--border-radius-S);
+  --radius-xl: var(--border-radius-L);
   --shadow-color: var(--shadow-color);
 }
 
@@ -165,8 +172,9 @@
   --sidebar-border: var(--surface-foreground-default);
   --sidebar-ring: var(--color-teal-600);
 
-  /* Corner radius on the OMDS scale (M = 8px) */
-  --radius: var(--border-radius-M);
+  /* Corner radius on the OMDS scale. S is annotated "most-used: cards,
+     inputs, buttons"; M is "defined but no confirmed component usage". */
+  --radius: var(--border-radius-S);
 
   /* ── Non-color app tokens (unchanged: the dashboard's own scale) ── */
   --font-sans: Inter, ui-sans-serif, sans-serif, system-ui;
@@ -219,8 +227,19 @@
     @apply border-border outline-ring/50;
   }
 
+  /* The app shell owns scrolling: each pane scrolls internally, so the
+     document itself never should. #app is the missing link — without a
+     height it grows to fit whatever escapes the shell, and the sidebar
+     scrolls away with the page. */
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
   body {
     @apply bg-background text-foreground;
+    overflow: hidden;
     font-family: var(--font-sans);
     font-weight: 400;
     line-height: 1.6;
@@ -249,7 +268,7 @@
   }
 
   code {
-    @apply text-sm bg-muted px-1.5 py-0.5 rounded text-muted-foreground;
+    @apply text-sm bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground;
   }
 
   pre {

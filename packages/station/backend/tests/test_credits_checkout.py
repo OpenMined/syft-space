@@ -16,7 +16,6 @@ from fastapi import FastAPI
 from sqlmodel import select
 
 from syft_station.components.auth.session import get_current_user, require_admin
-from syft_station.components.credits.bundles import PREPAID_BUNDLES
 from syft_station.components.credits.entities import Invoice, InvoiceStatus, Wallet
 from syft_station.components.credits.gateway.xendit import XenditClient, XenditGateway
 from syft_station.components.credits.handlers import (
@@ -26,10 +25,6 @@ from syft_station.components.credits.handlers import (
     WalletAdminHandler,
     WebhookHandler,
 )
-from syft_station.components.credits.provisioning import (
-    SpaceCreditsService,
-    WalletRollout,
-)
 from syft_station.components.credits.repository import (
     CreditsLedger,
     PayoutRepository,
@@ -37,11 +32,9 @@ from syft_station.components.credits.repository import (
     WalletRepository,
 )
 from syft_station.components.credits.routes import build_credits_routes
-from syft_station.components.credits.tokens import hash_credit_token
 from syft_station.components.requests.repository import RequestRepository
 from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.shared.database import AsyncDatabase
-from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.repository import SpaceRepository
 from tests.conftest import (
     ADMIN,
@@ -82,34 +75,15 @@ def xendit_down(request: httpx.Request) -> httpx.Response:
     return httpx.Response(500, json={"message": "internal error"})
 
 
-class RecordingPatcher:
-    """SecretPatcher stub recording patches and restarts."""
-
-    def __init__(self):
-        self.patched: list[tuple[str, dict[str, str]]] = []
-        self.restarted: list[str] = []
-        self.fail_restart = False
-
-    async def update_space_secret(self, subdomain: str, data: dict[str, str]) -> None:
-        self.patched.append((subdomain, data))
-
-    async def restart(self, subdomain: str) -> None:
-        if self.fail_restart:
-            raise RuntimeError("substrate says no")
-        self.restarted.append(subdomain)
-
-
 class CheckoutTestbed:
     def __init__(
         self,
         db: AsyncDatabase,
         app: FastAPI,
-        patcher: RecordingPatcher,
         hub: StubHubIdentity,
     ):
         self.db = db
         self.app = app
-        self.patcher = patcher
         self.hub = hub
         self.wallets = WalletRepository(db)
         self.credit_tokens = SpaceCreditTokenRepository(db)
@@ -142,11 +116,6 @@ class CheckoutTestbed:
 async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
     wallets = WalletRepository(db)
     tokens = SpaceCreditTokenRepository(db)
-    patcher = RecordingPatcher()
-    credits_service = SpaceCreditsService(
-        wallets, tokens, SetupRepository(db), CREDITS_URL, PUBLIC_URL
-    )
-    rollout = WalletRollout(SpaceRepository(db), patcher, credits_service)
 
     gateway = XenditGateway(XENDIT_URL)
     bed: CheckoutTestbed  # bound below; the stub closure reads it lazily
@@ -166,7 +135,7 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, gateways, rollout),
+            WalletAdminHandler(wallets, gateways, SpaceRepository(db)),
             CheckoutHandler(db, wallets, gateways, hub, SetupRepository(db)),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, gateways),
             EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),
@@ -178,7 +147,7 @@ async def testbed(db: AsyncDatabase) -> CheckoutTestbed:
     app.dependency_overrides[require_admin] = lambda: ADMIN
 
     await connect_station_identity(db, hub)
-    bed = CheckoutTestbed(db, app, patcher, hub)
+    bed = CheckoutTestbed(db, app, hub)
     return bed
 
 
@@ -238,67 +207,6 @@ async def test_replace_keeps_id_and_currency(testbed: CheckoutTestbed):
     wallet = await testbed.wallets.get_active()
     assert wallet.id == original.id  # space tokens stay bound
     assert wallet.credentials["api_key"] == "xnd_rotated"
-
-
-async def test_setup_attaches_unbound_spaces(testbed: CheckoutTestbed):
-    """Spaces approved before the wallet existed get tokens + Secret keys;
-    opted-out spaces are left alone."""
-    unbound = await testbed.spaces.create(
-        Space(name="Old", subdomain="old-space", owner_email="a@test.com")
-    )
-    opted_out = await testbed.spaces.create(
-        Space(
-            name="NoBill",
-            subdomain="no-bill",
-            owner_email="b@test.com",
-            wallet_opt_out=True,
-        )
-    )
-
-    result = await testbed.setup_wallet()
-    assert result["spaces_attached"] == 1 and result["spaces_failed"] == 0
-
-    # Binding minted + intent stored for the unbound space only.
-    wallet = await testbed.wallets.get_active()
-    binding = await testbed.credit_tokens.get_active_for_space(unbound.id)
-    assert binding is not None and binding.wallet_id == wallet.id
-    assert (await testbed.spaces.get_by_id(unbound.id)).wallet_id == wallet.id
-    assert await testbed.credit_tokens.get_active_for_space(opted_out.id) is None
-
-    # The Secret was patched with the grant (token verifies to the binding),
-    # including the hub owner and the station's own bundle catalog.
-    [(subdomain, data)] = testbed.patcher.patched
-    assert subdomain == "old-space"
-    assert data["SYFT_CLUSTER_CREDITS_URL"] == CREDITS_URL
-    assert data["SYFT_CLUSTER_CREDITS_CURRENCY"] == "PHP"
-    assert data["SYFT_CLUSTER_WALLET_OWNER"] == str(testbed.hub.user_id)
-    assert json.loads(data["SYFT_CLUSTER_BUNDLES"]) == PREPAID_BUNDLES["xendit"]["PHP"]
-    hashed = hash_credit_token(data["SYFT_CLUSTER_CREDITS_TOKEN"])
-    assert (await testbed.credit_tokens.get_active_by_hash(hashed)).id == binding.id
-
-    # The space was restarted so the wallet takes effect immediately.
-    assert testbed.patcher.restarted == ["old-space"]
-    assert (await testbed.spaces.get_by_id(unbound.id)).restart_required is False
-
-    # Re-saving the wallet is a no-op sweep — everyone is already attached.
-    again = await testbed.setup_wallet()
-    assert again["spaces_attached"] == 0
-
-
-async def test_setup_flags_space_when_auto_restart_fails(testbed: CheckoutTestbed):
-    """A failed restart still counts as attached (the Secret is in place)
-    but the space is flagged so the UI can show 'restart required'."""
-    space = await testbed.spaces.create(
-        Space(name="Old", subdomain="old-space", owner_email="a@test.com")
-    )
-    testbed.patcher.fail_restart = True
-
-    result = await testbed.setup_wallet()
-
-    assert result["spaces_attached"] == 1 and result["spaces_failed"] == 0
-    refreshed = await testbed.spaces.get_by_id(space.id)
-    assert refreshed.wallet_id is not None
-    assert refreshed.restart_required is True
 
 
 # ============== Buyer purchase (SyftHub, satellite token) ==============

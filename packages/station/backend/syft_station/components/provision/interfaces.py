@@ -5,6 +5,7 @@ the real one, behind the same protocol. The contract with syft-space is the
 container image + SYFT_* env vars + health endpoint — nothing else.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -104,6 +105,16 @@ class Provisioner(Protocol):
 
     async def get_status(self, subdomain: str) -> SpaceRuntimeStatus:
         """Read the space's live running state from the substrate."""
+        ...
+
+    async def statuses(
+        self, subdomains: Sequence[str]
+    ) -> dict[str, SpaceRuntimeStatus]:
+        """Status for each of these spaces, in one substrate call.
+
+        The dashboard reads N spaces at once; asking per space is N round
+        trips to the API server on every load and every poll.
+        """
         ...
 
     async def logs(self, subdomain: str, tail_lines: int) -> str:

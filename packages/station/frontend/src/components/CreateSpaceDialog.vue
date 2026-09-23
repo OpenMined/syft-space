@@ -13,6 +13,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ApiError } from '@/api/client'
 import { slugify } from '@/lib/types'
 import { useStationStore } from '@/stores/station'
@@ -26,6 +33,8 @@ const spaceName = ref('')
 const subdomain = ref('')
 const ownerEmail = ref('')
 const subdomainEdited = ref(false)
+/** 'station' = attach the shared wallet (default); 'none' = unbilled space. */
+const walletChoice = ref<'station' | 'none'>('station')
 
 // Reset the form each time the dialog opens
 watch(
@@ -36,6 +45,7 @@ watch(
       subdomain.value = ''
       ownerEmail.value = ''
       subdomainEdited.value = false
+      walletChoice.value = 'station'
     }
   },
 )
@@ -75,6 +85,7 @@ async function create() {
       spaceName: spaceName.value.trim(),
       subdomain: slugify(subdomain.value),
       ownerEmail: ownerEmail.value.trim(),
+      attachWallet: walletChoice.value === 'station',
     })
     toast.success('Setting up the space', {
       description: `${slugify(subdomain.value)}.${station.domain}`,
@@ -129,6 +140,23 @@ async function create() {
             type="email"
             placeholder="member@example.org"
           />
+        </div>
+
+        <!-- Only when there's a wallet to pick; without one the space is
+             provisioned unbilled and can be attached later. -->
+        <div v-if="station.wallet" class="space-y-1.5">
+          <Label>Payments</Label>
+          <Select v-model="walletChoice">
+            <SelectTrigger class="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="station">
+                Station wallet ({{ station.wallet.provider }} · {{ station.wallet.currency }})
+              </SelectItem>
+              <SelectItem value="none">No wallet (space runs unbilled)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div class="rounded-md border bg-muted/40 px-3 py-2.5">

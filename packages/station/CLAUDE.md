@@ -40,13 +40,15 @@ Design doc: `station.md` at the repo root (uncommitted, kept current).
   - `setup/` — first-run settings (domain + supported version);
     `onboarded ⇔ domain != ""`.
   - `requests/` — space-request lifecycle:
-    PENDING → PROVISIONING → ACTIVE, plus REJECTED / FAILED (retryable) /
-    DELETED / WITHDRAWN (member withdraws own PENDING request; kept as a
-    state so the admin retains visibility). Only PENDING / PROVISIONING /
-    ACTIVE reserve a subdomain.
-  - `spaces/` — provisioned-space registry + space admin-token lifecycle
-    (one-time reveal, regenerate). Runtime status is NOT stored — Kubernetes
-    is the source of truth for it.
+    PENDING → PROVISIONING → APPROVED, plus REJECTED / FAILED (retryable) /
+    WITHDRAWN (member withdraws own PENDING request; kept as a state so the
+    admin retains visibility). PENDING / PROVISIONING / FAILED reserve the
+    subdomain and the owner's one-create slot (`OPEN_CREATE_STATUSES`);
+    once APPROVED the space itself holds the slot.
+  - `spaces/` — provisioned-space registry, admin-token lifecycle, and
+    `space_conditions` (things needing an admin action; each type declares
+    what clears it). Runtime status is NOT stored — Kubernetes is the source
+    of truth for it.
   - `provision/` — the `Provisioner` protocol. `MockProvisioner` fakes it
     without a cluster (subdomain containing "fail" → FAILED, to exercise
     retry); `K8sProvisioner` is the real one.
@@ -176,8 +178,10 @@ directly with `MockProvisioner` (`SYFT_STATION_PROVISIONER` defaults to
 - Tests mirror syft-space style: handler/repository-level with temp-file
   SQLite fixtures; external HTTP (SyftHub) stubbed via `httpx.MockTransport`
   through the client's `_build_http_client` seam.
-- Space admin tokens: plaintext is stored only until first reveal, then
-  cleared; regenerate mints a new token.
+- Space admin tokens are stored in plaintext and served repeatedly as an
+  `authToken` URL — the station minted them into the space's Secret anyway,
+  so hiding them here buys nothing. Regenerate patches the Secret and
+  restarts the space.
 - Zero code coupling with syft-space: the only contract is the syft-space
   container image + `SYFT_*` env vars + its health endpoint. Never import
   from `syft_space`.

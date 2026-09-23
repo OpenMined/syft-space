@@ -25,10 +25,7 @@ from syft_station.components.credits.handlers import (
     WalletAdminHandler,
     WebhookHandler,
 )
-from syft_station.components.credits.provisioning import (
-    SpaceCreditsService,
-    WalletRollout,
-)
+from syft_station.components.credits.provisioning import SpaceCreditsService
 from syft_station.components.credits.repository import (
     PayoutRepository,
     SpaceCreditTokenRepository,
@@ -104,9 +101,8 @@ space_credits_service = SpaceCreditsService(
     app_settings.credits_url,
     app_settings.public_url,
 )
-wallet_rollout = WalletRollout(space_repository, provisioner, space_credits_service)
 wallet_admin_handler = WalletAdminHandler(
-    wallet_repository, payment_gateways, wallet_rollout
+    wallet_repository, payment_gateways, space_repository
 )
 checkout_handler = CheckoutHandler(
     database, wallet_repository, payment_gateways, syfthub_client, setup_repository
@@ -123,13 +119,17 @@ station_satellites = StationSatelliteRegistrar(
     app_settings.satellite_id,
 )
 station_identity_handler = StationIdentityHandler(
-    setup_repository, syfthub_client, station_satellites
+    setup_repository, syfthub_client, station_satellites, space_repository
 )
 space_converger = SpaceConverger(
     space_repository, setup_repository, provisioner, space_credits_service
 )
 space_handler = SpaceHandler(
-    space_repository, provisioner, setup_repository, space_converger
+    space_repository,
+    provisioner,
+    setup_repository,
+    space_converger,
+    space_credits_service,
 )
 request_handler = RequestHandler(
     repository=request_repository,
@@ -168,6 +168,16 @@ async def lifespan(app: FastAPI):
             logger.info(f"Connected to Kubernetes {cluster_version}")
         except Exception as e:
             logger.error(f"Kubernetes cluster is not reachable at startup: {e}")
+
+    # The mock provisioner holds its state in memory, so a restart would
+    # report every existing space as not found — and `just dev` restarts on
+    # every .py edit. A real cluster still has the Deployments, so tell the
+    # mock about the spaces the registry says were provisioned.
+    mark_provisioned = getattr(provisioner, "mark_provisioned", None)
+    if mark_provisioned is not None:
+        for space in await space_repository.get_all():
+            if space.url:
+                mark_provisioned(space.subdomain)
 
     # Warm the image catalog so the first version picker (onboarding hits it
     # right after boot) finds a cache instead of the cold registry chain.

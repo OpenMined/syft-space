@@ -63,6 +63,8 @@ class FakeKube:
         self.deployment_patches: list[dict] = []  # bodies passed to patch
         self.pods: list = []  # returned by list_namespaced_pod
         self.pod_list_selectors: list[str] = []
+        self.deployments: list = []  # returned by list_namespaced_deployment
+        self.deployment_list_selectors: list[str] = []
         self.pod_log = ""  # returned by read_namespaced_pod_log
         self.pod_log_error = False  # log read raises
         self.log_requests: list[dict] = []
@@ -95,6 +97,10 @@ class FakeKube:
     # -- patch (update on 409) --
     def patch_namespaced_secret(self, name, namespace, body):
         self.calls.append(("patch", "secret", name))
+
+    def list_namespaced_deployment(self, namespace, label_selector=None):
+        self.deployment_list_selectors.append(label_selector)
+        return SimpleNamespace(items=self.deployments)
 
     def patch_namespaced_deployment(self, name, namespace, body):
         self.calls.append(("patch", "deployment", name))
@@ -497,3 +503,30 @@ async def test_status_not_found_when_deployment_missing(provisioner, kube):
 
 async def test_check_connection_returns_version(provisioner):
     assert await provisioner.check_connection() == "v1.30.0-fake"
+
+
+def _deployment(subdomain: str, replicas: int, available: int):
+    return SimpleNamespace(
+        metadata=SimpleNamespace(labels={k8s_module.LABEL_SPACE: subdomain}),
+        spec=SimpleNamespace(replicas=replicas),
+        status=SimpleNamespace(available_replicas=available),
+    )
+
+
+async def test_statuses_reads_every_space_in_one_list_call(kube, provisioner):
+    # The dashboard asks about N spaces; this must stay one API-server call
+    # however many there are.
+    kube.deployments = [
+        _deployment("alpha", 1, 1),
+        _deployment("beta", 0, 0),
+        _deployment("orphan", 1, 1),  # no longer in the registry
+    ]
+
+    result = await provisioner.statuses(["alpha", "beta", "gone"])
+
+    assert result == {
+        "alpha": SpaceRuntimeStatus.RUNNING,
+        "beta": SpaceRuntimeStatus.PAUSED,
+        "gone": SpaceRuntimeStatus.NOT_FOUND,  # asked for, no Deployment
+    }
+    assert kube.deployment_list_selectors == [k8s_module.LABEL_SPACE]

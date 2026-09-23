@@ -68,7 +68,9 @@ row's status is what the UI polls.
 
 ## The spaces registry
 
-A `Space` row is created when provisioning succeeds. Design decisions
+A `Space` row is created when provisioning *starts*, not when it succeeds —
+a FAILED attempt leaves the row (with an empty `url`) so a retry reuses it
+and its token. Design decisions
 visible in the schema (`spaces/entities.py`):
 
 - **Runtime status is not a column.** Kubernetes is the source of truth;
@@ -76,11 +78,58 @@ visible in the schema (`spaces/entities.py`):
   and the spaces list annotates each row the same way. A restarted pod or
   a scaled-to-zero deployment is never stale data in SQLite.
 - `wallet_id` records the admin's attachment pick; `wallet_opt_out`
-  distinguishes "no wallet existed yet" (backfilled when one is added by
-  `WalletRollout`) from "keep this space unbilled" (left alone forever).
-- `restart_required` flags a space whose Secret was patched but whose
-  automatic restart failed — the pod is running on old env, and the UI
-  badges it. Any successful restart/update/re-provision clears it.
+  distinguishes "no wallet existed yet" from "the admin declined the wallet
+  at approval". Neither is permanent: `POST /spaces/{id}/wallet` attaches
+  either one later. `SpaceResponse.wallet_status` derives the three states
+  (`attached` / `declined` / `unattached`) for the UI.
+- Anything needing an admin to act is a row in `space_conditions`, not a
+  column on the space — see [Space conditions](#space-conditions).
+
+## Space conditions
+
+One row per `(space, type)` in `space_conditions` (`spaces/entities.py`) for
+anything that needs an admin to act. The `(space_id, type)` index is unique,
+so re-raising a type rewrites its message rather than adding a row — and a
+space can carry several at once, which a single `state` column could not.
+
+| type | raised by | cleared by |
+|---|---|---|
+| `restart_required` | `SpaceHandler._restart_to_apply` — the Secret patch landed, the automatic restart failed | restart · resume · converge |
+| `wallet_stale` | `WalletAdminHandler.setup` / `StationIdentityHandler.connect` — see [credits.md](credits.md#space-attachment-lifecycle) | converge |
+
+Conditions ride on the space (`lazy="selectin"`, cascading on delete), so a
+registry read carries them and `GET /spaces` needs no assembly:
+
+```json
+{
+  "name": "Weather Lab",
+  "version": "0.1.2",
+  "conditions": [
+    {
+      "type": "wallet_stale",
+      "message": "Publishes the xendit price list; the wallet now uses stripe",
+      "created_at": "2026-09-22T09:14:03Z"
+    }
+  ],
+  "wallet_status": "attached"
+}
+```
+
+`message` is frozen when the condition is raised: it describes what happened
+at the time, which can't be re-derived once the wallet has moved on again.
+
+**A restart must not clear `wallet_stale`.** The pod comes back reading the
+same Secret; only re-rendering the bundle rewrites those keys. Each type
+names its own remedy — `CLEARED_BY_RESTART` and `CLEARED_BY_CONVERGE` in
+`spaces/entities.py` — so adding a type forces that choice.
+
+**Before adding one, check it isn't derivable:**
+
+| | then |
+|---|---|
+| Kubernetes can tell us | derive it — health, paused, pod state |
+| computable from what we store | derive it — "update available" is `space.version != supported_version` |
+| only the station knows, and someone must act | a condition |
 
 ## Space admin tokens
 

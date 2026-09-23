@@ -1,0 +1,50 @@
+name: station backend tests
+
+# Path-filtered: a PR that only touches the frontend, the chart or another
+# package never queues this.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/station/backend/**'
+      - '.github/workflows/station-tests.yml'
+
+permissions:
+  contents: read
+
+# A new push supersedes the run in flight for the same PR.
+concurrency:
+  group: station-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: station backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: packages/station/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        # --locked fails if uv.lock has drifted from pyproject, so a forgotten
+        # lock update surfaces here rather than at the next person's sync.
+        env:
+          UV_HTTP_TIMEOUT: "600"
+          UV_PYTHON: "3.12"
+          UV_NO_MANAGED_PYTHON: "1"
+        run: uv sync --locked --extra test
+
+      - name: Run tests
+        run: uv run --locked --extra test pytest
