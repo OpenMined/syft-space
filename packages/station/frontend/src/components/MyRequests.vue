@@ -46,7 +46,9 @@ const session = useSessionStore()
 
 const email = computed(() => session.profile?.email ?? '')
 // A member's loaded spaces are already their own; filter defensively anyway.
-const mySpaces = computed(() => station.spaces.filter((s) => s.ownerEmail === email.value))
+const mySpaces = computed(() =>
+  station.provisionedSpaces.filter((s) => s.ownerEmail === email.value),
+)
 const inflightCreates = computed(() => station.inflightCreatesFor(email.value))
 const pastRequests = computed(() => station.pastRequestsFor(email.value))
 const hasNothing = computed(

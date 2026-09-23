@@ -91,7 +91,7 @@ function groupOf(view: RowView): Group {
 }
 
 const rows = computed(() =>
-  [...station.spaces]
+  [...station.provisionedSpaces]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((space) => ({ space, view: viewFor(space) })),
 )
@@ -107,7 +107,7 @@ const groups = computed(() => {
 })
 
 const attachedCount = computed(
-  () => station.spaces.filter((s) => s.walletStatus === 'attached').length,
+  () => station.provisionedSpaces.filter((s) => s.walletStatus === 'attached').length,
 )
 
 // Selection is tracked as exclusions, so a space flagged while the admin is
@@ -190,7 +190,9 @@ async function runAttach(): Promise<void> {
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <h2 class="flex items-center gap-2 text-sm font-medium">
         Spaces on this wallet
-        <Badge variant="secondary">{{ attachedCount }} of {{ station.spaces.length }}</Badge>
+        <Badge variant="secondary"
+          >{{ attachedCount }} of {{ station.provisionedSpaces.length }}</Badge
+        >
       </h2>
       <p class="text-xs text-muted-foreground">
         A space earns only once it's on the wallet.
@@ -204,7 +206,7 @@ async function runAttach(): Promise<void> {
     <Skeleton v-if="!station.spacesLoaded" class="h-40 w-full" />
 
     <div
-      v-else-if="station.spaces.length === 0"
+      v-else-if="station.provisionedSpaces.length === 0"
       class="rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground"
     >
       No spaces yet.
@@ -226,7 +228,7 @@ async function runAttach(): Promise<void> {
             :variant="activeFilter === 'all' ? 'secondary' : 'ghost'"
             @click="filter = 'all'"
           >
-            All {{ station.spaces.length }}
+            All {{ station.provisionedSpaces.length }}
           </Button>
         </div>
 

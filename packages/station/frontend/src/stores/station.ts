@@ -57,6 +57,9 @@ export const useStationStore = defineStore('station', () => {
   const identityLoaded = ref(false)
   const spacesLoaded = ref(false)
   const requestsLoaded = ref(false)
+  /** The last runtime-status read failed — every space's health is stale or
+   *  unknown until it succeeds. */
+  const statusReadFailed = ref(false)
   const earningsLoaded = ref(false)
   /** Raw admin earnings payload — getters below derive every view from it. */
   const earnings = ref<EarningsResponse | null>(null)
@@ -168,7 +171,7 @@ export const useStationStore = defineStore('station', () => {
       subdomain: s.subdomain,
       url: s.url,
       ownerEmail: s.owner_email,
-      health: existing?.health ?? 'healthy',
+      health: existing?.health ?? 'checking',
       createdAt: s.created_at,
       adminUrl: existing?.adminUrl,
       version: s.version,
@@ -236,6 +239,9 @@ export const useStationStore = defineStore('station', () => {
             .catch(() => {}),
         ),
     ])
+    // One read covers every space, so a failure is about the station's
+    // access to Kubernetes, not about any one space. Say so once.
+    statusReadFailed.value = !statuses
     if (!statuses) return
     for (const space of spaces.value) {
       const status = statuses.statuses[space.id]
@@ -310,6 +316,10 @@ export const useStationStore = defineStore('station', () => {
       currency: w.currency,
     }
   }
+
+  /** Spaces that finished provisioning. `url` is written only when converge
+   *  succeeds, so one without it is still a request, not a space. */
+  const provisionedSpaces = computed(() => spaces.value.filter((s) => s.url))
 
   /** The wallet's currency, or USD before one is configured — every money
    *  view formats against it. */
@@ -461,6 +471,8 @@ export const useStationStore = defineStore('station', () => {
    * space and no open create request (mirrors the server-side guard).
    */
   function canRequestSpace(email: string): boolean {
+    // Every space row holds the slot, provisioned or not — the server counts
+    // them the same way, and a guard should not be the looser of the two.
     const hasSpace = spaces.value.some((s) => s.ownerEmail === email)
     return !hasSpace && inflightCreatesFor(email).length === 0
   }
@@ -798,6 +810,8 @@ export const useStationStore = defineStore('station', () => {
     setupLoaded,
     walletLoaded,
     currency,
+    provisionedSpaces,
+    statusReadFailed,
     identityLoaded,
     spacesLoaded,
     requestsLoaded,

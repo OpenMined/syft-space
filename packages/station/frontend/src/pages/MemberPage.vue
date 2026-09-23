@@ -83,7 +83,9 @@ const myInflightCreate = computed(() =>
   session.profile ? station.inflightCreatesFor(session.profile.email)[0] : undefined,
 )
 const myLiveSpace = computed(() =>
-  session.profile ? station.spaces.find((s) => s.ownerEmail === session.profile!.email) : undefined,
+  session.profile
+    ? station.provisionedSpaces.find((s) => s.ownerEmail === session.profile!.email)
+    : undefined,
 )
 const slotHeld = computed(() => !!(myInflightCreate.value || myLiveSpace.value))
 const slotName = computed(() => myInflightCreate.value?.spaceName ?? myLiveSpace.value?.name ?? '')

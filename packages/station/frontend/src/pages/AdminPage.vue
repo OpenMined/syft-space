@@ -122,7 +122,7 @@ watch(
 
 /** An admin may also own a space (they can create one for their own email). */
 const ownsSpace = computed(() =>
-  station.spaces.some((space) => space.ownerEmail === session.profile?.email),
+  station.provisionedSpaces.some((space) => space.ownerEmail === session.profile?.email),
 )
 
 // Requests and spaces change from OTHER sessions (a member submits, a space
@@ -175,7 +175,7 @@ const stationNav = computed(() => [
     id: 'spaces' as AdminSection,
     label: 'Spaces',
     icon: Server,
-    badge: station.spaces.length > 0 ? station.spaces.length : undefined,
+    badge: station.provisionedSpaces.length > 0 ? station.provisionedSpaces.length : undefined,
   },
   { id: 'earnings' as AdminSection, label: 'Earnings', icon: Wallet, badge: undefined },
 ])
@@ -277,7 +277,7 @@ async function confirmDelete() {
 }
 
 const outdatedCount = computed(
-  () => station.spaces.filter((s) => s.version !== station.supportedVersion).length,
+  () => station.provisionedSpaces.filter((s) => s.version !== station.supportedVersion).length,
 )
 
 const updatingAll = ref(false)
@@ -591,18 +591,30 @@ async function start(space: Space) {
               </Button>
             </div>
 
+            <!-- One read covers every space, so this is the station's access to
+                 Kubernetes failing, not the spaces themselves. -->
+            <div
+              v-if="station.statusReadFailed"
+              class="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-sm"
+            >
+              <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Could not read live status from Kubernetes — the states below may be out of date.
+              </span>
+            </div>
+
             <div v-if="!station.spacesLoaded" class="space-y-3">
               <Skeleton v-for="n in 3" :key="n" class="h-20 w-full" />
             </div>
 
             <EmptyState
-              v-else-if="station.spaces.length === 0"
+              v-else-if="station.provisionedSpaces.length === 0"
               :icon="ServerOff"
               title="No spaces yet"
               description="Spaces appear here once you approve a request."
             />
 
-            <Card v-for="space in station.spaces" :key="space.id">
+            <Card v-for="space in station.provisionedSpaces" :key="space.id">
               <CardContent class="flex flex-wrap items-center justify-between gap-3">
                 <div class="min-w-0">
                   <div class="flex items-center gap-2">
