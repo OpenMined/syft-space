@@ -8,7 +8,7 @@ const props = defineProps<{ class?: HTMLAttributes['class'] }>()
 <template>
   <thead
     data-slot="table-header"
-    :class="cn('sticky top-0 z-10 bg-muted/60 [&_tr]:border-b', props.class)"
+    :class="cn('sticky top-0 z-10 bg-muted [&_tr]:border-b', props.class)"
   >
     <slot />
   </thead>
