@@ -1,21 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import HomePage from '../pages/HomePage.vue'
-import EndpointsPage from '../pages/EndpointsPage.vue'
-import DatasetsPage from '../pages/DatasetsPage.vue'
-import ModelsPage from '../pages/ModelsPage.vue'
-import SettingsPage from '../pages/SettingsPage.vue'
-import AnalyticsPage from '../pages/AnalyticsPage.vue'
-import BenchmarkPage from '../pages/BenchmarkPage.vue'
-import EndpointDetailPage from '../pages/EndpointDetailPage.vue'
-import DatasetDetailPage from '../pages/DatasetDetailPage.vue'
-import ModelDetailPage from '../pages/ModelDetailPage.vue'
-import CreateDataEndpointPage from '../pages/CreateDataEndpointPage.vue'
-import UpdatesPage from '../pages/UpdatesPage.vue'
-import AboutPage from '../pages/AboutPage.vue'
-import OnboardingPage from '../pages/OnboardingPage.vue'
-import GoLivePage from '../pages/GoLivePage.vue'
-import ChatPage from '../pages/ChatPage.vue'
-import ExperimentalRemoteWeaviateDatasetPage from '../pages/ExperimentalRemoteWeaviateDatasetPage.vue'
+
+// Pages are loaded on demand. Importing them eagerly puts every page, and
+// everything they pull in, into the entry chunk — a single multi-megabyte
+// response that a browser on a real network link has to finish before it
+// can render anything.
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 import { settingsApi } from '../api/endpoints/settings'
 import { useServerAvailabilityStore } from '../stores/serverAvailability'
@@ -57,87 +45,87 @@ const router = createRouter({
     {
       path: '/home',
       name: 'home',
-      component: HomePage,
+      component: () => import('../pages/HomePage.vue'),
     },
     {
       path: '/endpoints',
       name: 'endpoints',
-      component: EndpointsPage,
+      component: () => import('../pages/EndpointsPage.vue'),
     },
     {
       path: '/datasets',
       name: 'datasets',
-      component: DatasetsPage,
+      component: () => import('../pages/DatasetsPage.vue'),
     },
     {
       path: '/models',
       name: 'models',
-      component: ModelsPage,
+      component: () => import('../pages/ModelsPage.vue'),
     },
     {
       path: '/endpoints/:slug',
       name: 'endpoint-detail',
-      component: EndpointDetailPage,
+      component: () => import('../pages/EndpointDetailPage.vue'),
     },
     {
       path: '/datasets/:slug',
       name: 'dataset-detail',
-      component: DatasetDetailPage,
+      component: () => import('../pages/DatasetDetailPage.vue'),
     },
     {
       path: '/models/:slug',
       name: 'model-detail',
-      component: ModelDetailPage,
+      component: () => import('../pages/ModelDetailPage.vue'),
     },
     {
       path: '/chat',
       name: 'chat',
-      component: ChatPage,
+      component: () => import('../pages/ChatPage.vue'),
     },
     {
       path: '/analytics',
       name: 'analytics',
-      component: AnalyticsPage,
+      component: () => import('../pages/AnalyticsPage.vue'),
     },
     {
       path: '/benchmark',
       name: 'benchmark',
-      component: BenchmarkPage,
+      component: () => import('../pages/BenchmarkPage.vue'),
     },
     {
       path: '/settings',
       name: 'settings',
-      component: SettingsPage,
+      component: () => import('../pages/SettingsPage.vue'),
     },
     {
       path: '/go-live',
       name: 'go-live',
-      component: GoLivePage,
+      component: () => import('../pages/GoLivePage.vue'),
     },
     {
       path: '/create/data-endpoint',
       name: 'create-data-endpoint',
-      component: CreateDataEndpointPage,
+      component: () => import('../pages/CreateDataEndpointPage.vue'),
     },
     {
       path: '/updates',
       name: 'updates',
-      component: UpdatesPage,
+      component: () => import('../pages/UpdatesPage.vue'),
     },
     {
       path: '/about',
       name: 'about',
-      component: AboutPage,
+      component: () => import('../pages/AboutPage.vue'),
     },
     {
       path: '/onboarding',
       name: 'onboarding',
-      component: OnboardingPage,
+      component: () => import('../pages/OnboardingPage.vue'),
     },
     {
       path: '/experimental-rwdt',
       name: 'experimental-remote-weaviate-dataset',
-      component: ExperimentalRemoteWeaviateDatasetPage,
+      component: () => import('../pages/ExperimentalRemoteWeaviateDatasetPage.vue'),
     },
   ],
 })

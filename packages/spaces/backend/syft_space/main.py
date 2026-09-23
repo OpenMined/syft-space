@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -793,6 +794,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Compress responses over the wire. The frontend's entry chunk is a couple of
+# megabytes uncompressed and shrinks to roughly a third of that gzipped, which
+# is the difference between a page that loads over a real network link and one
+# that spends its budget on a single asset. Added last, so it sits outermost
+# and also covers the static mount below.
+#
+# Level 6 rather than zlib's 9: on the 2 vCPU the Space is sized for, the last
+# three levels buy a couple of percent for several times the CPU, and the
+# compression runs on the event loop thread.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 # Mount static files (if frontend exists)
 # Frontend is a sibling directory to backend
