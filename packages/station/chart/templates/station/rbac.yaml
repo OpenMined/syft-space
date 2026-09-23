@@ -25,10 +25,11 @@ rules:
   - apiGroups: [""]
     resources: [secrets, services, persistentvolumeclaims]
     verbs: [get, create, patch, delete]
-  # Per-space Deployment
+  # Per-space Deployment. `list` backs the one-call status read for the whole
+  # spaces list; without it every status 403s and the UI has nothing to show.
   - apiGroups: [apps]
     resources: [deployments]
-    verbs: [get, create, patch, delete]
+    verbs: [get, list, create, patch, delete]
   # Live status derivation — the spaces list and the provisioning wait's poll
   - apiGroups: [apps]
     resources: [deployments/status]

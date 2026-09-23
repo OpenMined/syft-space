@@ -39,7 +39,9 @@ const confirmOpen = ref(false)
 const providerChanged = computed(
   () => station.wallet !== null && form.value?.provider !== station.wallet.provider,
 )
-const attachedSpaces = computed(() => station.spaces.filter((s) => s.walletStatus === 'attached'))
+const attachedSpaces = computed(() =>
+  station.provisionedSpaces.filter((s) => s.walletStatus === 'attached'),
+)
 const reappliable = computed(() =>
   attachedSpaces.value.filter((s) => s.url && s.health !== 'paused'),
 )

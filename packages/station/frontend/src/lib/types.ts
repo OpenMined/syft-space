@@ -12,7 +12,15 @@ export type RequestStatus =
   | 'withdrawn'
   | 'failed'
 
-export type SpaceHealth = 'healthy' | 'unhealthy' | 'restarting' | 'paused' | 'starting'
+/** `checking` = no runtime status read back yet. Never assume healthy:
+ *  a failed status read used to render every space as Running. */
+export type SpaceHealth =
+  | 'healthy'
+  | 'unhealthy'
+  | 'restarting'
+  | 'paused'
+  | 'starting'
+  | 'checking'
 
 export interface SpaceRequest {
   id: string
