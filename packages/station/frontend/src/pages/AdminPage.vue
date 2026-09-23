@@ -375,15 +375,11 @@ async function start(space: Space) {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-    <AppHeader
-      variant="admin"
-      @new-space="createOpen = true"
-      @go="(section: AdminSection) => go(section)"
-    />
+    <AppHeader variant="admin" @new-space="createOpen = true" />
     <div class="flex min-h-0 flex-1 overflow-hidden">
       <!-- Sidebar -->
       <aside class="flex w-60 shrink-0 flex-col border-r border-border/40 bg-background">
-        <nav class="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
+        <nav class="flex-1 space-y-0.5 overflow-y-auto px-2 py-6">
           <Button
             v-for="item in mainNav"
             :key="item.id"
@@ -401,7 +397,7 @@ async function start(space: Space) {
             </Badge>
           </Button>
 
-          <div class="pt-4">
+          <div class="pt-5">
             <p
               class="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
             >
