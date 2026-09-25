@@ -71,8 +71,10 @@ choose when your content gets revised.
 
 ## What lands in the index
 
-The post's **rendered** HTML — shortcodes expanded, blocks resolved — exactly
-what a visitor's browser would receive.
+The post's title as an `<h1>`, a one-line byline (author, date, tags), then
+the post's **rendered** HTML — shortcodes expanded, blocks resolved — exactly
+what a visitor's browser would receive. The byline puts those facts into the
+first chunk's text, so a query naming one of them can match on it.
 
 Stored alongside, and searchable: `title`, `url`, `author`, `published`,
 `updated`, `tags` (categories and tags flattened together), `post_type`,

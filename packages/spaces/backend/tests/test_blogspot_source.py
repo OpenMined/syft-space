@@ -714,3 +714,37 @@ class TestBinding:
 
     async def test_validate_selection_is_a_no_op(self):
         await BlogspotProvider.validate_selection(["blog:1", "1:10"])
+
+
+# ── Ingest document ──────────────────────────────────────────────────────
+
+
+class TestFetchDocument:
+    async def test_the_post_is_written_as_an_article(self, monkeypatch):
+        """Heading, byline from the same metadata the file carries, body."""
+        post = {
+            "id": "456",
+            "updated": "2026-09-09T10:00:00Z",
+            "published": "2026-09-09T09:00:00Z",
+            "title": "Hello",
+            "content": "<p>Words</p>",
+            "url": f"{BLOG_URL}/hello",
+            "labels": ["AI", "R&D"],
+            "author": {"displayName": "Ada & Bob"},
+        }
+        monkeypatch.setattr(
+            bs, "_make_client", lambda: _mock_client(lambda r: _response(200, post))
+        )
+        source = BlogspotSource(BlogspotDatasetConfig.model_validate(CONF))
+
+        async with source.fetch(bs._post_id("123", "456")) as file:
+            document = file.path.read_text()
+            metadata = file.metadata
+
+        assert document == (
+            "<h1>Hello</h1>\n"
+            "<p>By Ada &amp; Bob. Published 2026-09-09. Tags: AI, R&amp;D.</p>\n"
+            "<p>Words</p>"
+        )
+        assert metadata["author"] == "Ada & Bob"
+        assert metadata["tags"] == ["AI", "R&D"]
