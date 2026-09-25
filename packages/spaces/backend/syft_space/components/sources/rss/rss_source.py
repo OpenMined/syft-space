@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import logging
 import os
 import re
@@ -409,6 +410,23 @@ def _entry_metadata(feed: _Feed, entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _byline(metadata: dict[str, Any]) -> str:
+    """Author, date, and tags as one paragraph under the heading.
+
+    The same facts ride on every chunk as metadata, but metadata is only
+    filterable. In the document they reach the first chunk's embedding, so
+    a query naming an author or a month can match on them.
+    """
+    parts: list[str] = []
+    if metadata["author"]:
+        parts.append(f"By {html.escape(metadata['author'])}")
+    if metadata["published"]:
+        parts.append(f"Published {metadata['published'].date().isoformat()}")
+    if metadata["tags"]:
+        parts.append("Tags: " + ", ".join(html.escape(t) for t in metadata["tags"]))
+    return f"<p>{'. '.join(parts)}.</p>" if parts else ""
+
+
 # ── browse ──────────────────────────────────────────────────────────────
 
 
@@ -529,16 +547,19 @@ class RssSource:
         """Write the item's HTML body to a tempfile and yield it.
 
         The title becomes an ``<h1>`` so the chunker, which splits on
-        headings, names every chunk of a long article. The body is the
-        publisher's HTML passed through, and is dropped when it holds
-        nothing but link labels.
+        headings, names every chunk of a long article. A byline (author,
+        date, tags) follows it. The body is the publisher's HTML passed
+        through, and is dropped when it holds nothing but link labels.
         """
         feed_hash, item_hash = _parse_item_id(external_id)
         entry, feed = await self._take(external_id, feed_hash)
 
         body = _entry_body(entry)
         title = entry.get("title") or "(untitled)"
+        metadata = _entry_metadata(feed, entry)
         document = f"<h1>{title}</h1>"
+        if byline := _byline(metadata):
+            document = f"{document}\n{byline}"
         if _has_prose(body):
             document = f"{document}\n{body}"
 
@@ -552,7 +573,7 @@ class RssSource:
                 path=tmp_path,
                 filename=f"{_slugify(title)}_{item_hash}.html",
                 file_size=tmp_path.stat().st_size,
-                metadata=_entry_metadata(feed, entry),
+                metadata=metadata,
             )
         finally:
             tmp_path.unlink(missing_ok=True)

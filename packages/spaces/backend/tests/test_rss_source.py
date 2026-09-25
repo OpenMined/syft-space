@@ -595,8 +595,12 @@ class TestPollErrorIsolation:
 
 
 class TestFetch:
-    async def _document(self, body: str, monkeypatch) -> tuple[str, str]:
-        _patch_client(monkeypatch, _always(_rss(_item(title="Hello", body=body))))
+    async def _document(
+        self, body: str, monkeypatch, extra: str = ""
+    ) -> tuple[str, str]:
+        _patch_client(
+            monkeypatch, _always(_rss(_item(title="Hello", body=body, extra=extra)))
+        )
         source = RssSource(RssDatasetConfig.model_validate(CONF))
         external_id = rss._item_id(FEED_URL, "https://example.com/post-1")
         async with source.fetch(external_id) as file:
@@ -604,12 +608,46 @@ class TestFetch:
 
     async def test_the_title_becomes_the_heading_above_the_body(self, monkeypatch):
         document, _ = await self._document("<p>Words</p>", monkeypatch)
-        assert document == "<h1>Hello</h1>\n<p>Words</p>"
+        assert document == "<h1>Hello</h1>\n<p>Published 2026-09-09.</p>\n<p>Words</p>"
+
+    async def test_the_byline_names_author_date_and_tags(self, monkeypatch):
+        """feedparser decodes entities, so the byline re-escapes them."""
+        feed = _rss(
+            _item(
+                title="Hello",
+                extra="<dc:creator>Ada &amp; Bob</dc:creator>"
+                "<category>AI</category><category>R&amp;D</category>",
+            )
+        ).replace(
+            b'<rss version="2.0">',
+            b'<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">',
+        )
+        _patch_client(monkeypatch, _always(feed))
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+        async with source.fetch(
+            rss._item_id(FEED_URL, "https://example.com/post-1")
+        ) as file:
+            byline = file.path.read_text().split("\n")[1]
+        assert byline == (
+            "<p>By Ada &amp; Bob. Published 2026-09-09. Tags: AI, R&amp;D.</p>"
+        )
+
+    async def test_no_byline_when_the_item_carries_none_of_it(self, monkeypatch):
+        item = (
+            "<item><title>Hello</title><link>https://example.com/post-1</link>"
+            "<description><![CDATA[<p>Words</p>]]></description></item>"
+        )
+        _patch_client(monkeypatch, _always(_rss(item)))
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+        async with source.fetch(
+            rss._item_id(FEED_URL, "https://example.com/post-1")
+        ) as file:
+            assert file.path.read_text() == "<h1>Hello</h1>\n<p>Words</p>"
 
     async def test_a_link_only_body_is_left_out(self, monkeypatch):
         """The title is still searchable; the anchor would be feed-wide noise."""
         document, _ = await self._document('<a href="x">Comments</a>', monkeypatch)
-        assert document == "<h1>Hello</h1>"
+        assert document == "<h1>Hello</h1>\n<p>Published 2026-09-09.</p>"
 
     async def test_the_file_is_html_so_the_chunker_splits_it(self, monkeypatch):
         """``.txt`` and ``.json`` take a fast path that never chunks."""
