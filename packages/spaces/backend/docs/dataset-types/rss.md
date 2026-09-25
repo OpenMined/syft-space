@@ -63,7 +63,7 @@ flowchart TB
     PARSE --> EMIT["Announce <i>every</i> item in it"]
     EMIT --> SK{"Already indexed?"}
     SK -->|yes| SKIP([skip — most items, most polls])
-    SK -->|no| LOAD["Build the document:<br/>&lt;h1&gt;title&lt;/h1&gt; + the publisher's HTML"]
+    SK -->|no| LOAD["Build the document:<br/>&lt;h1&gt;title&lt;/h1&gt; + byline + the publisher's HTML"]
     LOAD --> VS[(ChromaDB)]
 ```
 
@@ -90,12 +90,22 @@ modification timestamp.
 
 ## What lands in the index
 
-The document is the article's title as an `<h1>`, followed by the publisher's
-own HTML. The heading matters: long articles are split into chunks, and the
-heading gives each chunk something naming what it is about.
+The document is the article's title as an `<h1>`, a one-line byline, then the
+publisher's own HTML:
 
-Stored alongside, and searchable: `feed_url`, `feed_title`, `title`, `url`,
-`comments_url`, `author`, `tags`, `published`.
+```html
+<h1>When chat is the wrong UI</h1>
+<p>By Burke Holland. Published 2026-09-24. Tags: AI &amp; ML, GitHub Copilot.</p>
+<p>Sometimes I remember things that happened last year...</p>
+```
+
+The heading matters: long articles are split into chunks, and the heading gives
+each chunk something naming what it is about. The byline puts the author, date,
+and tags into the first chunk's text, so a query that names one of them can
+match on it. Parts the feed does not carry are left out.
+
+Stored alongside as filterable metadata: `feed_url`, `feed_title`, `title`,
+`url`, `comments_url`, `author`, `tags`, `published`.
 
 **Link-only items** — a Hacker News entry, for example, whose whole body is one
 "Comments" anchor — are indexed as their title alone. The body is dropped so the

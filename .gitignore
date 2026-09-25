@@ -221,3 +221,9 @@ packages/spaces/src-tauri/binaries
 # Superset
 .superset/
 .gitnexus
+
+
+# Claude skills
+packages/spaces/.claude
+packages/station/.claude
+.claude/
