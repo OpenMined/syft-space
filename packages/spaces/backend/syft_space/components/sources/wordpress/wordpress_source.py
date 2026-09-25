@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.sources.article import article_html
 from syft_space.components.sources.errors import (
     SourceAuthError,
     SourceError,
@@ -429,36 +430,38 @@ class WordPressSource:
         if modified_gmt:
             self._fingerprints[external_id] = modified_gmt
 
+        metadata = {
+            "source": WordPressProvider.NAME,
+            "title": title,
+            "url": post.get("link"),
+            "author": _embedded_author(post),
+            # Datetimes, not raw strings: the vector store turns each
+            # into an ISO value plus a filterable epoch int.
+            "published": parse_datetime(post.get("date_gmt")),
+            "updated": parse_datetime(modified_gmt),
+            # Categories and tags are both topical labels; the
+            # canonical field flattens them.
+            "tags": _embedded_terms(post),
+            "post_type": post_type,
+            "post_id": post_id,
+            "slug": slug,
+            "status": post.get("status"),
+            "author_id": post.get("author"),
+        }
+
         fd, tmp_str = tempfile.mkstemp(
             prefix=f"wp_{post_type}_{post_id}_", suffix=".html"
         )
         os.close(fd)
         tmp_path = Path(tmp_str)
-        tmp_path.write_text(html, encoding="utf-8")
+        tmp_path.write_text(article_html(title, html, metadata), encoding="utf-8")
         try:
             yield IngestFile(
                 external_id=external_id,
                 path=tmp_path,
                 filename=f"{slug}.html",
                 file_size=tmp_path.stat().st_size,
-                metadata={
-                    "source": WordPressProvider.NAME,
-                    "title": title,
-                    "url": post.get("link"),
-                    "author": _embedded_author(post),
-                    # Datetimes, not raw strings: the vector store turns each
-                    # into an ISO value plus a filterable epoch int.
-                    "published": parse_datetime(post.get("date_gmt")),
-                    "updated": parse_datetime(modified_gmt),
-                    # Categories and tags are both topical labels; the
-                    # canonical field flattens them.
-                    "tags": _embedded_terms(post),
-                    "post_type": post_type,
-                    "post_id": post_id,
-                    "slug": slug,
-                    "status": post.get("status"),
-                    "author_id": post.get("author"),
-                },
+                metadata=metadata,
             )
         finally:
             tmp_path.unlink(missing_ok=True)
