@@ -748,3 +748,19 @@ class TestFetchDocument:
         )
         assert metadata["author"] == "Ada & Bob"
         assert metadata["tags"] == ["AI", "R&D"]
+
+    async def test_the_title_is_escaped(self, monkeypatch):
+        post = {
+            "id": "456",
+            "updated": "2026-09-09T10:00:00Z",
+            "title": "A & <b>",
+            "content": "<p>Words</p>",
+        }
+        monkeypatch.setattr(
+            bs, "_make_client", lambda: _mock_client(lambda r: _response(200, post))
+        )
+        source = BlogspotSource(BlogspotDatasetConfig.model_validate(CONF))
+
+        async with source.fetch(bs._post_id("123", "456")) as file:
+            heading = file.path.read_text().splitlines()[0]
+        assert heading == "<h1>A &amp; &lt;b&gt;</h1>"

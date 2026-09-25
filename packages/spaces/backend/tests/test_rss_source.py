@@ -915,3 +915,21 @@ class TestBinding:
             await RssChromaDBDatasetType.validate_configuration(
                 {"feedUrls": FEED_URL, "collectionName": "has spaces"}
             )
+
+
+class TestFetchTitle:
+    async def _heading(self, title_xml: str, monkeypatch) -> str:
+        _patch_client(monkeypatch, _always(_rss(_item(title=title_xml))))
+        source = RssSource(RssDatasetConfig.model_validate(CONF))
+        async with source.fetch(
+            rss._item_id(FEED_URL, "https://example.com/post-1")
+        ) as file:
+            return file.path.read_text().splitlines()[0]
+
+    async def test_a_plain_title_is_escaped(self, monkeypatch):
+        assert await self._heading("AT &amp; T", monkeypatch) == "<h1>AT &amp; T</h1>"
+
+    async def test_an_html_title_is_reduced_to_words(self, monkeypatch):
+        """feedparser hands a typed-html title back as markup."""
+        heading = await self._heading("<![CDATA[AT &amp; <b>x</b>]]>", monkeypatch)
+        assert heading == "<h1>AT &amp; x</h1>"
