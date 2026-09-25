@@ -19,7 +19,6 @@ appearing in polls) and a "subscribe to a whole post type" mode.
 from __future__ import annotations
 
 import asyncio
-import html
 import logging
 import os
 import tempfile
@@ -34,7 +33,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
-from syft_space.components.sources.article import article_html
+from syft_space.components.sources.article import article_html, html_to_text
 from syft_space.components.sources.errors import (
     SourceAuthError,
     SourceError,
@@ -261,7 +260,7 @@ def _to_source_item(post_type: str, parent_id: str, item: dict[str, Any]) -> Sou
     # WordPress returns titles HTML-encoded (e.g. ``&#8217;``); decode so the
     # picker shows real text instead of entities.
     title = (
-        html.unescape(rendered) if rendered else (item.get("slug") or str(item["id"]))
+        html_to_text(rendered) if rendered else (item.get("slug") or str(item["id"]))
     )
     return SourceItem(
         external_id=_external_id(post_type, item["id"]),
@@ -423,7 +422,8 @@ class WordPressSource:
             r.raise_for_status()
             post = r.json()
         html: str = (post.get("content") or {}).get("rendered", "")
-        title: str = (post.get("title") or {}).get("rendered", "")
+        # ``rendered`` is HTML; the heading and the metadata want words.
+        title = html_to_text((post.get("title") or {}).get("rendered", ""))
         slug: str = post.get("slug") or str(post_id)
 
         modified_gmt = post.get("modified_gmt")

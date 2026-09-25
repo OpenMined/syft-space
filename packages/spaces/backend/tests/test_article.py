@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from syft_space.components.sources.article import article_html, byline
+from syft_space.components.sources.article import article_html, byline, html_to_text
 
 PUBLISHED = datetime(2026, 9, 9, 10, 0, tzinfo=timezone.utc)
 
@@ -46,6 +46,23 @@ class TestArticleHtml:
     def test_empty_title_is_named(self):
         assert article_html("", "<p>Words</p>", {}).startswith("<h1>(untitled)</h1>")
 
-    def test_title_passes_through_unescaped(self):
-        """Titles arrive as the source's HTML (WordPress renders them)."""
-        assert article_html("A &amp; B", "", {}) == "<h1>A &amp; B</h1>"
+    def test_the_title_is_escaped(self):
+        assert article_html("A & <b>", "", {}) == "<h1>A &amp; &lt;b&gt;</h1>"
+
+
+class TestHtmlToText:
+    def test_tags_dropped_and_entities_decoded(self):
+        assert html_to_text("AT &#038; T <em>x</em>") == "AT & T x"
+
+    def test_text_is_unchanged(self):
+        assert html_to_text("AT & T") == "AT & T"
+
+    def test_a_bracket_inside_an_attribute_is_not_a_tag_end(self):
+        """The reason this is a parser and not a regex."""
+        assert html_to_text('<a title="a>b">link</a> on') == "link on"
+
+    def test_round_trip_into_a_heading(self):
+        """A rendered title becomes words, then a safely escaped heading."""
+        assert article_html(html_to_text("A &amp; <b>x</b>"), "", {}) == (
+            "<h1>A &amp; x</h1>"
+        )

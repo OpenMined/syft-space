@@ -8,9 +8,29 @@ the first chunk's text, where metadata alone would only be filterable.
 from __future__ import annotations
 
 import html
+from html.parser import HTMLParser
 from typing import Any
 
 UNTITLED = "(untitled)"
+
+
+class _TextOnly(HTMLParser):
+    """Collects the text between tags; entities are decoded on the way."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def html_to_text(markup: str) -> str:
+    """Words of an HTML fragment, for sources whose titles arrive as HTML."""
+    parser = _TextOnly()
+    parser.feed(markup)
+    parser.close()
+    return "".join(parser.parts).strip()
 
 
 def byline(metadata: dict[str, Any]) -> str:
@@ -27,9 +47,9 @@ def byline(metadata: dict[str, Any]) -> str:
 
 
 def article_html(title: str, body: str, metadata: dict[str, Any]) -> str:
-    """Assemble the document. ``title`` and ``body`` are the source's HTML,
-    passed through; an empty body leaves only the heading and byline."""
-    parts = [f"<h1>{title or UNTITLED}</h1>"]
+    """Assemble the document. ``title`` is text and is escaped; ``body`` is
+    HTML, passed through. An empty body leaves only the heading and byline."""
+    parts = [f"<h1>{html.escape(title) or UNTITLED}</h1>"]
     if line := byline(metadata):
         parts.append(line)
     if body:
