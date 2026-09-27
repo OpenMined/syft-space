@@ -231,10 +231,37 @@ class JobPhase(StrEnum):
 
     PENDING = "pending"
     GENERATE = "generate"
+    FILTER = "filter"
     EVALUATE = "evaluate"
+    JUDGE = "judge"
     REPORT = "report"
     PUBLISH = "publish"
     DONE = "done"
+
+
+class JobKind(StrEnum):
+    """What operation a job is, as opposed to ``phase``, which is where it is now.
+
+    ``execute()`` picks a function by ``kind`` before there is any phase to
+    look at yet.
+
+    Only three values exist, not one per phase: ``PIPELINE`` covers every job
+    ``/targets/{key}/runs`` creates, whatever combination of ``generate``,
+    ``filter`` and ``evaluate`` its ``RunRequest`` sets — including a lone
+    generate, a lone evaluate, or the two console-facing groups ("Prepare" =
+    generate+filter, "Test" = evaluate+report+publish), since all of those
+    are just different flag combinations on the one long-lived function,
+    ``scheduler.measure()``. ``FILTER`` and ``JUDGE`` are the two phases that
+    are NOT reachable that way — each needs its own already-stored input
+    (pending pairs; pending verdicts) rather than a fresh call to
+    ``measure()``, so each gets its own kind and its own route. Report,
+    publish and retract need no kind at all: building a card and handing it
+    to the Space are both fast, synchronous operations, not queued ones.
+    """
+
+    PIPELINE = "pipeline"
+    FILTER = "filter"
+    JUDGE = "judge"
 
 
 class DatasetMode(StrEnum):

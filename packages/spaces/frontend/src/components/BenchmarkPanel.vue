@@ -3,7 +3,7 @@
     <!-- Whether anyone is measuring this endpoint, and the button that sets it
          going. Above the card because it is the question that comes first: a
          card is what a run left behind, and without a run there is none. -->
-    <RunControl :slug="slug" @finished="load" />
+    <RunControl :slug="slug" @card-changed="load" />
 
   <div v-if="loading" class="space-y-4">
     <Skeleton class="h-24 w-full" />
@@ -288,6 +288,7 @@ import {
   Wrench,
 } from 'lucide-vue-next'
 
+import { trustFlagWords } from '@/components/benchmark/labels'
 import RunControl from '@/components/benchmark/RunControl.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -311,45 +312,13 @@ const publishedWhere = computed(() => {
   return where.length === 1 ? '1 marketplace' : `${where.length} marketplaces`
 })
 
-/**
- * The benchmark sends codes; the words are ours.
- *
- * Each one is a reason the owner might not want this published, phrased as what
- * it means for him rather than as what the benchmark measured.
- */
-const DOUBTS: Record<string, { title: string; detail: string }> = {
-  few_samples: {
-    title: 'Too few questions',
-    detail:
-      'the shares move by whole points on a single verdict, so they say more about which questions were asked than about the endpoint',
-  },
-  judges_disagree: {
-    title: 'The graders disagreed',
-    detail:
-      'they differ from each other by more than endpoints usually differ, so a comparison against another endpoint means little',
-  },
-  uneven_coverage: {
-    title: 'Some question types were barely measured',
-    detail:
-      'usually an interrupted run; the shares are computed over a skewed sample and look exactly like ordinary shares',
-  },
-  pending_verdicts: {
-    title: 'Part of the run was never graded',
-    detail: 'answers were collected but no verdict was recorded for them',
-  },
-  failed_calls: {
-    title: 'Some calls failed',
-    detail: 'that much of the measurement did not happen at all',
-  },
-}
-
+/** The benchmark sends `trust.flags` as codes; `trustFlagWords` has the words. */
 const doubts = computed(() => {
   const flags = report.value?.trust?.flags ?? []
-  return flags.map((code) => ({
-    code,
-    title: DOUBTS[code]?.title ?? code,
-    detail: DOUBTS[code]?.detail ?? 'reported by the benchmark',
-  }))
+  return flags.map((code) => {
+    const words = trustFlagWords(code)
+    return { code, title: words.label, detail: words.help ?? 'reported by the benchmark' }
+  })
 })
 
 function percent(value: number | null | undefined): string {

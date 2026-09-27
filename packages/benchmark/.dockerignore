@@ -18,7 +18,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-dist/
+/dist/
+
+# The console's own dependencies: reinstalled by whoever runs `npm run
+# build-only`, not something the image needs to see. Its built `dist/` is
+# NOT excluded here — the Dockerfile copies that in.
+frontend/node_modules/
 
 # Measurement artefacts. They hold corpus text — an audit export carries the
 # chunks whole — and they are rebuilt from the database anyway.

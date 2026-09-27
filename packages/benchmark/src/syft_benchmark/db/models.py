@@ -492,6 +492,16 @@ class Job(Base):
     )
     phase: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
 
+    # What operation this job is: ``pipeline`` (any ``measure()`` call — a
+    # full run, a lone generate, a lone evaluate, or a console-facing group
+    # built from the same flags), ``filter`` or ``judge`` — the two phases
+    # that work over already-stored input rather than a fresh ``measure()``
+    # call. Old rows and anything launched through the unattended nightly
+    # cycle default to ``pipeline``. See ``JobKind``.
+    kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pipeline", index=True
+    )
+
     # The progress of the measurement. The full volume is not known at once — it comes
     # to light after the items are selected — so a zero in total means "we do not know
     # yet" rather than "there is nothing to do", and until then there is nothing to

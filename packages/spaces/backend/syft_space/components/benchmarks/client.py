@@ -184,6 +184,55 @@ class BenchmarkClient:
     async def delete_job(self, job_id: str) -> Reply:
         return await self._call("DELETE", f"/jobs/{job_id}")
 
+    async def mint_session(self, key: str) -> Reply:
+        """A short-lived, single-target token for the benchmark's own console."""
+        return await self._call("POST", f"/targets/{key}/session")
+
+    # --- installation settings ----------------------------------------------
+
+    async def get_settings(self) -> Reply:
+        """This installation's own overrides — not the effective values."""
+        return await self._call("GET", "/settings")
+
+    async def put_settings(self, values: dict[str, Any]) -> Reply:
+        return await self._call("PUT", "/settings", body={"values": values})
+
+    # --- secrets ---------------------------------------------------------------
+    #
+    # They go in and never come out. `list_credentials` says only whether one
+    # is set and since when — the same thing a target's token has always said.
+
+    async def list_credentials(self) -> Reply:
+        return await self._call("GET", "/credentials")
+
+    async def put_credential(self, name: str, value: str) -> Reply:
+        return await self._call("PUT", f"/credentials/{name}", body={"value": value})
+
+    async def delete_credential(self, name: str) -> Reply:
+        return await self._call("DELETE", f"/credentials/{name}")
+
+    # --- the console: pairs, results, filtering, judging, the report -------
+    #
+    # Authenticated differently from everything above: a session token scoped
+    # to one target, minted fresh by the caller for each of these (see
+    # `BenchmarkHandler._console`), never this client's own `token`. `raw`
+    # exists because this client does not know what a console route looks
+    # like by name — naming each one here would mean a migration whenever the
+    # benchmark's own console grows a field, exactly what this client is built
+    # to avoid everywhere else.
+
+    async def raw(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: Any = None,
+        params: dict[str, Any] | None = None,
+    ) -> Reply:
+        clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+        suffix = f"?{urlencode(clean)}" if clean else ""
+        return await self._call(method, f"{path}{suffix}", body=body)
+
 
 def _detail(resp: httpx.Response) -> str:
     """The benchmark's own words about the refusal, if it gave any."""

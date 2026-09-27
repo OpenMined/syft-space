@@ -41,6 +41,15 @@ class BenchmarkConnection(SQLModel, table=True):
     )
     name: str = Field(..., description="What the owner calls this benchmark")
     url: str = Field(..., description="Base URL of the benchmark's control API")
+    console_url: str = Field(
+        default="",
+        description=(
+            "Base URL a browser can reach the console at, when it differs "
+            "from `url` — a Docker-internal hostname resolves for this "
+            "backend's own calls but not for the owner's browser. Empty "
+            "falls back to `url`"
+        ),
+    )
     token: str = Field(
         default="",
         description=(
@@ -112,12 +121,12 @@ class BenchmarkTarget(SQLModel, table=True):
     different conversation: an endpoint exists to serve, and this table says
     whether anyone is also grading it.
 
-    ``probe`` here is the third layer. Unset fields fall back to the
-    connection's, and those to the benchmark's own defaults. Instrument is
-    absent on purpose: judges, panel and thresholds are what the card declares
-    in ``instrument``, and letting one endpoint use different ones would make
-    two endpoints of the same Space quietly incomparable while the card still
-    promised otherwise.
+    ``probe`` and ``instrument`` are both override layers here. Unset fields
+    fall back to the connection's, and those to the benchmark's own defaults.
+    A card declares the instrument it was measured with, so two endpoints
+    graded under different instruments are still readable on their own
+    terms — comparing them is then a question the reader answers by reading
+    both cards, not one this table enforces by construction.
     """
 
     __tablename__ = "benchmark_targets"
@@ -155,6 +164,9 @@ class BenchmarkTarget(SQLModel, table=True):
         ),
     )
     probe: dict | None = Field(default=None, sa_column=Column(JSON(none_as_null=True)))
+    instrument: dict | None = Field(
+        default=None, sa_column=Column(JSON(none_as_null=True))
+    )
 
     # Schedule lives per endpoint, not per Space: a news corpus wants nightly,
     # a manual kept for reference wants monthly, and one answer for both would

@@ -29,7 +29,11 @@ from syft_benchmark.config import (
     SpaceConfig,
     get_settings,
 )
-from syft_benchmark.generation import enabled_generators, generate_for_space
+from syft_benchmark.generation import (
+    enabled_generators,
+    filter_and_rotate,
+    generate_for_space,
+)
 from syft_benchmark.llm import (
     check_perimeter,
     judge_providers,
@@ -38,7 +42,13 @@ from syft_benchmark.llm import (
 from syft_benchmark.publish import publish
 from syft_benchmark.report import Metrics, build_docx, render_markdown, summarize
 from syft_benchmark.report.card import build as build_card
-from syft_benchmark.runs import MODEL_ARMS, Progress, RunCache, run_pass
+from syft_benchmark.runs import (
+    MODEL_ARMS,
+    Progress,
+    RunCache,
+    endpoint_retriever,
+    run_pass,
+)
 
 REPORTS_DIR = Path("reports")
 
@@ -166,7 +176,9 @@ def measure(
     cache: RunCache | None = None,
     resume: bool = False,
     generate: bool | None = None,
+    filter: bool | None = None,  # noqa: A002 - the console-facing name for the phase
     evaluate: bool = True,
+    defer_judging: bool = False,
     limit: int | None = None,
     observer: Observer | None = None,
     job_id: str | None = None,
@@ -183,12 +195,23 @@ def measure(
         conf: The settings, already assembled for this node
         cache: The shared cache of the launch; None — its own, for this node only
         resume: Finish what was interrupted, without re-asking what is done
-        generate: Whether to build the dataset; None — as the settings say
+        generate: Whether to build the dataset; None — as the settings say.
+            Every item it builds lands ``pending`` — nothing here decides on
+            its own whether one is fit
+        filter: Whether to screen pending pairs into active or rejected right
+            after building; None — follow ``generate``, so a launch that built
+            a dataset also decides what of it is fit. A launch that only wants
+            to build ("just show me what came out") passes this explicitly
+            ``False``
         evaluate: Whether to ask and grade after building the dataset. False is
             for a launch that only wants a fresh question set and nothing asked
             against it yet — building the set is cheap, asking a model about
             every item in it is not, and the two are worth separating for
             exactly that reason
+        defer_judging: Collect the answers without calling a judge, leaving
+            every ``Result`` with ``verdict = pending`` for ``judge_stage`` to
+            grade afterwards. False everywhere judging still happens inline,
+            as it always has
         limit: How many questions to ask in a run; None — all the active ones
         observer: Who to report progress to
         job_id: The launch this measurement belongs to. It is written on every run
@@ -222,7 +245,8 @@ def measure(
     # Generation goes first: the runs have to go over a fresh dataset. It is
     # switched off by a setting — for example when the corpus is closed to the
     # generator and the dataset is filled separately.
-    if conf.generate_in_cycle if generate is None else generate:
+    generate_effective = conf.generate_in_cycle if generate is None else generate
+    if generate_effective:
         if observer is not None:
             observer.phase(JobPhase.GENERATE)
         try:
@@ -232,28 +256,48 @@ def measure(
                 settings=conf,
                 should_stop=observer.stop_requested if observer else None,
             )
-            out.generated = made.pairs_active
             # Nothing built AND something refused: nothing built on its own
             # means no new chunks since the last pass.
             out.generated_nothing = bool(made.failures) and made.pairs_made == 0
             out.generation_failure_sample = made.failure_sample
             logger.info(
-                f"{space.key}: items {made.pairs_made}, fit {made.pairs_active}, "
+                f"{space.key}: items {made.pairs_made} pending, "
                 f"failed calls {made.failures}"
             )
             if observer is not None:
-                observer.phase(
-                    JobPhase.GENERATE,
-                    f"{made.pairs_active} of {made.pairs_made} fit into "
-                    "the measurement",
-                )
+                observer.phase(JobPhase.GENERATE, f"{made.pairs_made} pending")
         except Exception as exc:  # noqa: BLE001 - the index may have been unreachable
             out.failures.append(f"{space.key}/generate: {exc}")
             logger.warning(f"{space.key} generation failed: {exc}")
 
-    # Stopped during generation: the runs are the expensive half, and starting
-    # them because the cheap half happened to finish first would answer a
-    # button press with more spending.
+    # Stopped during generation: filtering and the runs are the expensive
+    # halves, and starting either because the cheap half happened to finish
+    # first would answer a button press with more spending.
+    if observer is not None and observer.stop_requested():
+        return out
+
+    filter_effective = generate_effective if filter is None else filter
+    if filter_effective:
+        if observer is not None:
+            observer.phase(JobPhase.FILTER)
+        try:
+            filtered = filter_and_rotate(
+                space,
+                settings=conf,
+                # The same retrieval the control gate is checked with at
+                # generation time: "there is no answer" is meaningful only
+                # relative to this endpoint, not to an abstract corpus.
+                retrieve=endpoint_retriever(space, conf),
+                should_stop=observer.stop_requested if observer else None,
+            )
+            out.generated = filtered.active
+            logger.info(f"{space.key}: filtering — {filtered.line()}")
+            if observer is not None:
+                observer.phase(JobPhase.FILTER, filtered.line())
+        except Exception as exc:  # noqa: BLE001 - the index may have been unreachable
+            out.failures.append(f"{space.key}/filter: {exc}")
+            logger.warning(f"{space.key} filtering failed: {exc}")
+
     if observer is not None and observer.stop_requested():
         return out
 
@@ -326,6 +370,7 @@ def measure(
                         judges=panel,
                         cache=shared,
                         resume=resume or conf.resume,
+                        defer_judging=defer_judging,
                         watch=observer.watcher(label) if observer else None,
                         job_id=job_id,
                     )

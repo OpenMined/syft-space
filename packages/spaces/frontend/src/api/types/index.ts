@@ -875,6 +875,7 @@ export interface BenchmarkConnection {
   id: string
   name: string
   url: string
+  console_url: string
   has_token: boolean
   space_url: string
   chroma_host: string
@@ -896,6 +897,10 @@ export interface BenchmarkConnection {
 export interface BenchmarkConnectionRequest {
   name: string
   url: string
+  // Where a browser reaches the console, when that differs from `url` — a
+  // Docker-internal hostname resolves for this backend's own calls but not
+  // for the owner's browser. Blank falls back to `url`.
+  console_url?: string
   // Omitted rather than blank when unchanged: the form is never told the key,
   // so it cannot send it back, and without this rule renaming a connection
   // would silently revoke its access.
@@ -917,6 +922,8 @@ export interface BenchmarkJob {
   id: string
   state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   phase: string
+  /** pipeline, filter or judge — which operation this job is, not where it is. */
+  kind: string
   // Passes finished out of passes planned. Zero as the total means the scale is
   // not known yet, not that there is nothing to do.
   done: number
@@ -955,6 +962,7 @@ export interface BenchmarkTarget {
   collection: string
   resolved_collection: string
   probe: BenchmarkLayer
+  instrument: BenchmarkLayer
   schedule: string
   schedule_at: string
   /** When the benchmark will next fire the schedule, UTC. It decides, not us. */
@@ -963,6 +971,8 @@ export interface BenchmarkTarget {
   fields: BenchmarkFieldCatalogue
   defaults: { instrument?: BenchmarkLayer; probe?: BenchmarkLayer }
   connection_probe: BenchmarkLayer
+  connection_instrument: BenchmarkLayer
+  capabilities: BenchmarkCapabilities
   last_job: BenchmarkJob | null
   reachable: boolean
   detail: string
@@ -973,8 +983,30 @@ export interface BenchmarkTargetRequest {
   enabled: boolean
   collection?: string
   probe: BenchmarkLayer
+  instrument?: BenchmarkLayer
   schedule?: string
   schedule_at?: string
+}
+
+export interface ProviderRole {
+  url: string
+  url_default: string
+  key_set: boolean
+  key_updated_at: string | null
+}
+
+export interface ProviderResponse {
+  shared: ProviderRole
+  generator: ProviderRole
+  subject: ProviderRole
+  judge: ProviderRole
+}
+
+export interface ProviderUrls {
+  ollama_url: string
+  generator_url: string
+  subject_url: string
+  judge_url: string
 }
 
 export interface BenchmarkCheck {
@@ -994,8 +1026,150 @@ export interface BenchmarkCheck {
 
 export interface BenchmarkRunRequest {
   generate?: boolean | null
+  /** Screen the pending pairs generation just built; empty — follow `generate`. */
+  filter?: boolean | null
   /** Ask and grade after the question set is built; empty — yes. */
   evaluate?: boolean | null
+  /** Collect answers without calling a judge, leaving every verdict pending. */
+  defer_judging?: boolean
   publish?: boolean
   limit?: number | null
+}
+
+export type BenchmarkPairStatus = 'pending' | 'active' | 'rejected' | 'retired'
+export type BenchmarkVerdict = 'correct' | 'abstain' | 'hallucinate' | 'pending'
+
+export interface BenchmarkPair {
+  id: string
+  generator: string
+  task_type: string
+  cohort: string
+  status: BenchmarkPairStatus
+  status_note: string
+  question: string
+  answer: string
+  context: string
+  expected_behavior: string
+  document_title: string
+  file_name: string
+  meta: Record<string, unknown>
+  created_at: string
+  has_results: boolean
+}
+
+export interface BenchmarkPairPage {
+  items: BenchmarkPair[]
+  total: number
+}
+
+export interface BenchmarkResult {
+  id: string
+  qa_id: string
+  question: string
+  answer: string
+  generator: string
+  verdict: BenchmarkVerdict
+  reasoning: string
+  judge_model: string
+  context_mode: string
+  block: string
+  model: string
+  created_at: string
+  is_latest: boolean
+}
+
+export interface BenchmarkResultPage {
+  items: BenchmarkResult[]
+  total: number
+}
+
+export interface BenchmarkReportShare {
+  samples: number
+  correct: number
+  abstain: number
+  hallucinate: number
+  lmi: number | null
+}
+
+export interface BenchmarkReportControl {
+  samples: number
+  fabricated: number
+}
+
+export interface BenchmarkReportModelRow {
+  model: string
+  samples: number
+  accuracy: number
+  fabrication: number | null
+  lmi: number | null
+  context_gain: number | null
+}
+
+export interface BenchmarkReportSkillRow {
+  generator: string
+  samples: number
+  accuracy: number
+}
+
+export interface BenchmarkReportTrust {
+  judges: number
+  agreement: number | null
+  consistency: number | null
+  even_coverage: boolean
+  failed: number
+  pending: number
+  flags: string[]
+  /** Present only on the owner's own console build — never on a published card. */
+  doubts?: string[]
+}
+
+export interface BenchmarkReportDataset {
+  mode: string
+  window_days: number
+  cohort: string
+  questions: number
+}
+
+export interface BenchmarkReportInstrument {
+  profile: string
+  judge: string
+  judges: number
+  subjects: number
+}
+
+/**
+ * One endpoint's measured quality — what `/console/report` (and, once
+ * published, `/console/publish`) return. The owner's own build additionally
+ * carries `score_label` and `trust.doubts`; a published card never does.
+ */
+export interface BenchmarkReport {
+  version: number
+  kind: 'answering' | 'retrieval'
+  arm: string
+  checked_at: string
+  score: number | null
+  score_label?: string
+  fabrication_rate: number | null
+  reliable: boolean
+  samples: number
+  answerable?: BenchmarkReportShare
+  unanswerable?: BenchmarkReportControl
+  discrimination: number | null
+  retrieval: number | null
+  models: BenchmarkReportModelRow[]
+  skills: BenchmarkReportSkillRow[]
+  trust?: BenchmarkReportTrust
+  dataset?: BenchmarkReportDataset
+  instrument?: BenchmarkReportInstrument
+}
+
+/**
+ * A ready-to-open link into the benchmark's own console for one endpoint —
+ * generation, filtering, execution, judging and the report, all in one
+ * place. `url` already carries the session token; it is scoped to this one
+ * endpoint and expires, minted fresh on every open rather than reused.
+ */
+export interface BenchmarkSession {
+  url: string
+  expires_at: string
 }

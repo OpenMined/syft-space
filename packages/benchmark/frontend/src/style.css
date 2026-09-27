@@ -1,0 +1,83 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Same token names as packages/spaces/frontend/src/style.css, trimmed to
+   what this console actually uses — kept in step deliberately, since this
+   is the same product family and an owner may have both open at once. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: Inter, ui-sans-serif, sans-serif, system-ui;
+  --radius: 0.5rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+}
+
+:root {
+  --background: oklch(99.5% 0.002 240);
+  --foreground: oklch(13% 0.01 240);
+  --card: oklch(99% 0.003 240);
+  --card-foreground: oklch(13% 0.01 240);
+  --primary: oklch(55% 0.12 180);
+  --primary-foreground: oklch(99.5% 0.002 240);
+  --muted: oklch(95% 0.005 240);
+  --muted-foreground: oklch(45% 0.02 240);
+  --accent: oklch(92% 0.01 240);
+  --accent-foreground: oklch(18% 0.015 240);
+  --destructive: oklch(62% 0.18 20);
+  --destructive-foreground: oklch(44.18% 0.1253 12.1772);
+  --success: oklch(0.6424 0.1519 141.7654);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.7686 0.1647 70.0804);
+  --warning-foreground: oklch(0 0 0);
+  --border: oklch(90% 0.005 240);
+  --input: oklch(90% 0.005 240);
+  --ring: oklch(55% 0.12 180);
+}
+
+.dark {
+  --background: oklch(9% 0.005 240);
+  --foreground: oklch(95% 0.01 240);
+  --card: oklch(12% 0.01 240);
+  --card-foreground: oklch(95% 0.01 240);
+  --primary: oklch(70% 0.13 180);
+  --primary-foreground: oklch(9% 0.005 240);
+  --muted: oklch(16% 0.01 240);
+  --muted-foreground: oklch(65% 0.02 240);
+  --accent: oklch(20% 0.01 240);
+  --accent-foreground: oklch(95% 0.01 240);
+  --destructive: oklch(70% 0.18 20);
+  --destructive-foreground: oklch(97% 0.01 20);
+  --success: oklch(0.7 0.15 142);
+  --success-foreground: oklch(0.1 0 0);
+  --warning: oklch(0.8 0.15 70);
+  --warning-foreground: oklch(0.1 0 0);
+  --border: oklch(22% 0.01 240);
+  --input: oklch(22% 0.01 240);
+  --ring: oklch(70% 0.13 180);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}

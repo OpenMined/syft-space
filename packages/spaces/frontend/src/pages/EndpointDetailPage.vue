@@ -1055,12 +1055,20 @@ const endpoint = ref<EndpointResponse | null>(null)
 // Slug from the route: the benchmark tab asks for the card by it, so it has no
 // reason to wait for the endpoint itself to load.
 const routeSlug = computed(() => route.params.slug as string)
-const activeTab = ref('overview')
+// The active tab lives in the URL, not only in memory — otherwise a reload,
+// or a link sent to someone else, always lands back on Overview.
+const KNOWN_TABS = new Set(['overview', 'access', 'transactions', 'benchmark'])
+const requestedTab = route.query.tab
+const activeTab = ref(
+  typeof requestedTab === 'string' && KNOWN_TABS.has(requestedTab) ? requestedTab : 'overview',
+)
 
 watch(activeTab, (tab) => {
   if (tab === 'transactions') {
     fetchTransactions()
   }
+  const query = { ...route.query, tab: tab === 'overview' ? undefined : tab }
+  router.replace({ query })
 })
 
 const deleteNameConfirm = ref('')

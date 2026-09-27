@@ -5,6 +5,7 @@ uv run syft-benchmark generators                   # the line-up and the setting
 uv run syft-benchmark generate docs                # all but the disabled ones
 uv run syft-benchmark generate docs -g qa -g mcq   # by name
 uv run syft-benchmark generate docs --limit 2      # 2 units per EACH generator
+uv run syft-benchmark filter docs                  # screen what generate left pending
 ```
 
 The dataset is built by ten generators over chunks and documents from the
@@ -197,7 +198,7 @@ versus refute — and the report counts them separately.
 
 ---
 
-## The pipeline and the double screening
+## The pipeline
 
 ```mermaid
 flowchart TB
@@ -216,17 +217,18 @@ flowchart TB
     LLMG --> R1
     LLMN --> R1
 
-    R1{"screening of the QUESTION<br/><i>quality.py</i>"} -- "reference to the source,<br/>a demonstrative without an antecedent,<br/>several correct answers" --> REJ1["rejected"]
-    R1 -- "fit, ordinary" --> R2{"screening of the GOLD ANSWER<br/><i>validate.py</i>"}
-    R1 -- "fit, control" --> R3{"THE GATE via live retrieval<br/><i>control.py</i>"}
-    R2 -- "rests on something<br/>not in the chunk" --> REJ2["rejected"]
-    R2 -- "grounded" --> ACT[("active<br/>goes into the arms")]
-    R3 -- "retrieval DOES answer it" --> REJ3["rejected:<br/>not a negative"]
-    R3 -- "retrieval does not answer" --> ACT
+    R1{"screening of the QUESTION<br/><i>quality.py</i>"} -- "reference to the source,<br/>a demonstrative without an antecedent,<br/>several correct answers" --> DROP["dropped — never becomes a row"]
+    R1 -- "fit" --> PEND[("pending<br/>awaits filtering")]
 
     MARK["processed_units:<br/>space + generator + unit_id + cohort"]
     PICK -.-> MARK
 ```
+
+Every pair that survives question screening becomes a row, `pending`.
+Whether it is grounded, and whether a control question genuinely has no
+answer, is decided afterwards, over the stored row rather than the fresh
+candidate — see [Filtering](#filtering-deciding-which-pending-pairs-are-fit)
+below.
 
 ### Screening the questions: can this be asked apart from the source
 
@@ -250,7 +252,28 @@ off almost all masking.
 | `choice` / `statement` | self-sufficiency only: the options are unambiguous on their own |
 | `negative` | as for abstractive: a control question is asked the same way |
 
-### Screening the gold answers: does the answer rest on the source
+## Filtering: deciding which pending pairs are fit
+
+```mermaid
+flowchart TB
+    PEND[("pending")] --> CTRL{"generator's expected<br/>behaviour"}
+    CTRL -- "ordinary: an answer<br/>is expected" --> R2{"grounding of the GOLD ANSWER<br/><i>validate.py</i>"}
+    CTRL -- "control: no answer<br/>should exist" --> R3{"THE GATE via live retrieval<br/><i>control.py</i>"}
+    R2 -- "rests on something<br/>not in the chunk" --> REJ2["rejected"]
+    R2 -- "grounded" --> ACT[("active<br/>goes into the arms")]
+    R3 -- "retrieval DOES answer it" --> REJ3["rejected:<br/>not a negative"]
+    R3 -- "retrieval does not answer" --> ACT
+```
+
+`syft-benchmark filter`, `POST /targets/{key}/filter`, and the console's
+Filtering block all run this pass — over pairs already stored as `pending`,
+not over the fresh candidate a generator just produced. It only ever touches
+`pending` pairs: an `active` or `rejected` verdict, once made, stands until a
+person overturns it by hand (`PATCH /console/pairs/{id}`, or `filter set` on
+the CLI) — automatic filtering never re-decides what a person, or an earlier
+pass, already decided.
+
+### Grounding the gold answer: does the answer rest on the source
 
 The generator writes the gold answer with the chunk in front of it, and usually
 copies it from there — but sometimes fills in from memory: adds a year, a job
@@ -268,22 +291,24 @@ either there or invented.
 Where the gold answer is **obliged** to differ from the text — the reworded
 explanation of `tiered_explanation`, the false statement in
 `two_truths_one_lie` — what is checked is not the answer but the facts the
-generator listed (`review_claims`).
+generator listed (`review_claims`), read back off the stored pair's `meta`.
 
 It has already paid for itself on a live corpus: it caught the gold answer "the
 FastAPI backend runs on SQLite" (the hub is on PostgreSQL) and an entirely
 invented explanation in which a 4B model decided that OMSyft was a medical
 device with an ECG.
 
-Screened-out items are **not deleted**: they are material for tuning prompts,
-not rubbish. Such an item never comes back — unlike `retired`, see
-[03-dataset.md](03-dataset.md).
+Rejected items are **not deleted**: they are material for tuning prompts, not
+rubbish, and a person reviewing the run may reinstate one that turns out fine
+after all. A pair nothing has measured yet can also be deleted outright
+instead — see [the console](control-api.md#the-console). Compare `retired`,
+which leaves and returns on its own as the corpus moves — [03-dataset.md](03-dataset.md).
 
 ### The gate for control questions: without it the set is more dangerous than its absence
 
-For control items the grounding check is **replaced by its opposite**: they
-have no gold answer by construction, and running them through grounding would
-mean cutting out the whole set.
+For control items grounding is **replaced by its opposite**: they have no
+gold answer by construction, and running them through grounding would mean
+cutting out the whole set.
 
 A generated negative is only the model's **conjecture** about what is not in
 the corpus. A conjecture can be wrong: **the generator sees ONE chunk, while
@@ -293,7 +318,9 @@ recording a correct answer as a hallucination.
 
 So a candidate goes through a check: the question is put to **the live
 retrieval of that very endpoint**, and a judge decides whether among what was
-found there is a chunk that answers it.
+found there is a chunk that answers it — at filtering time, not at
+generation time, so a re-run checks the index as it stands right now rather
+than replaying the day the pair was written.
 
 Three decisions, each of which changes the meaning of the check:
 
@@ -304,12 +331,12 @@ Three decisions, each of which changes the meaning of the check:
 * **A judge decides, not the generator.** There is no reason for the generator
   to judge its own work.
 * **Unknown is not fit.** If retrieval is unreachable or the gate did not run,
-  the candidate goes to screening with an explicit note: a question about which
-  one cannot say whether it is answerable does not go into the measurement.
+  the candidate is rejected with an explicit note: a question about which one
+  cannot say whether it is answerable does not go into the measurement.
 
-Hence the corollary: **generating control questions requires a reachable
-endpoint**. Without one, both control generators run to no effect, and this is
-said out loud.
+Hence the corollary: **filtering control questions requires a reachable
+endpoint**. Without one, every pending control pair is rejected outright, and
+this is said out loud.
 
 ---
 

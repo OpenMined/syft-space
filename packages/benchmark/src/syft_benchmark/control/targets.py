@@ -118,6 +118,22 @@ def save(
     return target
 
 
+def update_probe(session: Session, key: str, probe: Probe) -> Target | None:
+    """Change only this target's own probe layer.
+
+    Used by the console, whose session is scoped to one target: unlike
+    ``save``, this never touches the url, the credentials or the instrument
+    — none of which a single endpoint's session has any business changing.
+    """
+    row = session.get(Target, key)
+    if row is None:
+        return None
+    row.probe = probe.overrides()
+    row.updated_at = datetime.now(UTC)
+    session.flush()
+    return row
+
+
 def drop(session: Session, key: str, settings: Settings | None = None) -> bool:
     """Remove a target. Its measurement history stays: it is about the endpoint.
 

@@ -1,15 +1,22 @@
 # Stage 5. Judging
 
 The answer has been obtained — next it has to be reduced to an outcome.
-Normally that happens inside `evaluate` and is not a separate command; what is
-done by separate commands is judging without an API and deferred judging, with
-which the expensive half of the measurement is separated from the cheap one.
+Normally that happens inside `evaluate`, as each answer comes back. Judging can
+also run on its own, over answers a deferred pass left pending: live, by
+calling the configured judge model(s), or without a judge API at all, by
+pasting the questions into an external chat and importing the verdicts back.
 
 ```bash
 uv run syft-benchmark evaluate docs --defer-judging       # answers only
+uv run syft-benchmark judge docs                          # grade what is pending, live
 uv run syft-benchmark export-judging docs --judge claude-console --only-pending
 uv run syft-benchmark import-judging docs --judge claude-console --verdicts v.json
 ```
+
+The live pass is also reachable over HTTP: `POST /targets/{key}/judge` for
+services, the console's Judging block for a person. Both call the same
+`judge_pending()` and insert one new `Result` row per verdict — a verdict is
+never overwritten, only superseded by a fresher row.
 
 ---
 
@@ -202,6 +209,9 @@ noticeable share of the whole measurement.
 
 **Deferred judging** (`--defer-judging`) is the second half of the same thing:
 answers are recorded with the verdict `pending` and the judge is not called.
+The same `pending` rows are also what the live `judge` pass grades — pick
+whichever fits: live for the configured judge model(s), console for paying
+nothing per call.
 
 Four things worth knowing:
 

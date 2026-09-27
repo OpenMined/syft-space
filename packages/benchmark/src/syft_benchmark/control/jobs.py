@@ -31,14 +31,16 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from syft_benchmark.config import JobPhase, JobState, Settings
+from syft_benchmark.config import JobKind, JobPhase, JobState, Settings, SpaceConfig
 from syft_benchmark.control.compose import merge, settings_for
-from syft_benchmark.control.schemas import RunRequest
+from syft_benchmark.control.schemas import FilterRequest, JudgeRequest, RunRequest
 from syft_benchmark.db import store
 from syft_benchmark.db.models import Job, Run, Target
 from syft_benchmark.db.session import session_scope
+from syft_benchmark.generation import filter_and_rotate
 from syft_benchmark.publish import payload_for, publish
 from syft_benchmark.report.card import build as build_card
+from syft_benchmark.runs import endpoint_retriever, judge_pending
 from syft_benchmark.runs.parallel import Progress
 from syft_benchmark.scheduler import measure
 
@@ -208,14 +210,19 @@ class Reporter:
 
 
 def enqueue(
-    session: Session, target: Target, request: RunRequest, *, trigger: str = "manual"
+    session: Session,
+    target: Target,
+    request: RunRequest | FilterRequest | JudgeRequest,
+    *,
+    kind: JobKind = JobKind.PIPELINE,
+    trigger: str = "manual",
 ) -> Job:
-    """Put a measurement in the queue.
+    """Put a job in the queue.
 
     A second job for the same target is not created — the one already standing
-    there is returned. Otherwise a double press of the button would mean a
-    double measurement of one node, and it is not fast with the first one as it
-    is.
+    there is returned, whatever kind it is: the queue is one per target
+    regardless of what the job does, since a filter or a judge pass reads and
+    writes the same rows a measurement would.
     """
     # Locks the target row for the rest of this transaction, so two concurrent
     # launches for the same target serialize on the check below instead of
@@ -237,6 +244,7 @@ def enqueue(
         target=target.key,
         state=JobState.QUEUED.value,
         phase=JobPhase.PENDING.value,
+        kind=kind.value,
         trigger=trigger,
         params=request.model_dump(mode="json", exclude_none=True),
     )
@@ -289,7 +297,7 @@ def delete(session: Session, job_id: str) -> str:
 
 
 def execute(job_id: str, settings: Settings | None = None) -> None:
-    """Carry out a job whole: the dataset, the runs, the card.
+    """Carry out a job: what it does from here depends on its kind.
 
     Exceptions are not let out: the worker thread outlives a failed job and
     takes the next one, while the reason stays in the job's row. A dead thread
@@ -317,91 +325,171 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
                 job.error = TARGET_GONE
                 job.finished_at = datetime.now(UTC)
                 return
-            request = RunRequest.model_validate(job.params or {})
+            kind = job.kind or JobKind.PIPELINE.value
+            params = dict(job.params or {})
             job.state = JobState.RUNNING.value
             job.started_at = datetime.now(UTC)
             node_conf, space = settings_for(target, conf)
 
-        # The layers from the request itself lie on top of the ones saved on
-        # the target and do not change the target: a trial run with a
-        # different similarity threshold must not rewrite the setting the
-        # ordinary nightly measurement will go by.
-        extra = [x for x in (request.instrument, request.probe) if x is not None]
-        if extra:
-            node_conf = merge(node_conf, *extra)
-
-        # None means "yes" — the ordinary shape of a launch that measures.
-        # False is for a launch that only wants the question set refreshed:
-        # the runs below, and the card built from them, describe an
-        # evaluation that did not happen and have no business existing for
-        # this one.
-        want_evaluate = request.evaluate if request.evaluate is not None else True
-
-        reporter = Reporter(job_id, conf)
-        failures: list[str] = []
-        card_payload: dict[str, Any] | None = None
-        done = measure(
-            space,
-            node_conf,
-            generate=request.generate,
-            evaluate=want_evaluate,
-            limit=request.limit,
-            observer=reporter,
-            job_id=job_id,
-        )
-        failures = list(done.failures)
-        # Outside `want_evaluate` on purpose: a launch that only refreshes the
-        # question set can fail this way too.
-        if done.generated_nothing:
-            failures.append(
-                _with_sample(NOTHING_GENERATED, done.generation_failure_sample)
-            )
-        if want_evaluate:
-            if done.had_nothing_to_ask:
-                # The set is empty: the freshness window let no document through,
-                # or generation has not reached this node yet. Without this line
-                # the job would report "passed" without having asked a single
-                # question.
-                failures.append(NO_QUESTIONS)
-            if done.measured_nothing:
-                # A full pass over the set, zero verdicts — and without this line
-                # the job would report "passed" after twenty seconds in which
-                # nothing was measured. The failed call travels with it: the code
-                # says only that nothing was graded, and the cause is in the text
-                # the provider sent back.
-                failures.append(_with_sample(NOTHING_GRADED, done.failure_sample))
-
-            # The card is built from the verdicts that are in the database on
-            # the same terms whether or not it is going anywhere: "how did this
-            # run go" must not depend on the answer to "does anyone else get to
-            # see it". A thin sample is not hidden but named — `trust.flags`
-            # carries `few_samples`, and the reader sees how many questions the
-            # numbers stand on. Cancelled is a different matter: a run cut off
-            # halfway was not a statement.
-            if not reporter.cancelled:
-                reporter.phase(JobPhase.PUBLISH)
-                card = build_card(space.key, space.endpoint, settings=node_conf)
-                if card is None:
-                    failures.append(NO_CARD)
-                else:
-                    card_payload = payload_for(card)
-                    # Publishing — handing the card to the Space, and from
-                    # there to whatever marketplace it is registered with — is
-                    # the one part that is optional: the owner ticks it per
-                    # run, and its refusal (benchmarks_mode off, an old Space)
-                    # is a failure of that step alone, not of the measurement
-                    # the card already describes.
-                    if request.publish:
-                        sent = publish(space, card)
-                        if not sent.ok:
-                            failures.append(f"{PUBLISH_REFUSED}: {sent.detail}")
+        if kind == JobKind.FILTER.value:
+            _execute_filter(job_id, space, node_conf, params, base_settings=conf)
+        elif kind == JobKind.JUDGE.value:
+            _execute_judge(job_id, space, node_conf, params, base_settings=conf)
+        else:
+            _execute_pipeline(job_id, space, node_conf, params, base_settings=conf)
     except Exception as exc:  # noqa: BLE001 - the owner needs the cause, not a traceback
         logger.exception(f"job {job_id} failed")
         _finish(job_id, JobState.FAILED, error=str(exc), settings=settings)
-        return
+
+
+def _execute_pipeline(
+    job_id: str,
+    space: SpaceConfig,
+    node_conf: Settings,
+    params: dict[str, Any],
+    *,
+    base_settings: Settings,
+) -> None:
+    """The original, uninterrupted run: generate, filter, evaluate, the card.
+
+    Also what a lone generate, a lone evaluate and either console-facing
+    group are — all of it is one call to ``measure()``, distinguished only by
+    which of ``RunRequest``'s booleans are set.
+    """
+    request = RunRequest.model_validate(params)
+
+    # The layers from the request itself lie on top of the ones saved on the
+    # target and do not change the target: a trial run with a different
+    # similarity threshold must not rewrite the setting the ordinary nightly
+    # measurement will go by.
+    extra = [x for x in (request.instrument, request.probe) if x is not None]
+    if extra:
+        node_conf = merge(node_conf, *extra)
+
+    # None means "yes" — the ordinary shape of a launch that measures. False
+    # is for a launch that only wants the question set refreshed: the runs
+    # below, and the card built from them, describe an evaluation that did
+    # not happen and have no business existing for this one.
+    want_evaluate = request.evaluate if request.evaluate is not None else True
+
+    reporter = Reporter(job_id, base_settings)
+    card_payload: dict[str, Any] | None = None
+    done = measure(
+        space,
+        node_conf,
+        generate=request.generate,
+        filter=request.filter,
+        evaluate=want_evaluate,
+        defer_judging=request.defer_judging,
+        limit=request.limit,
+        observer=reporter,
+        job_id=job_id,
+    )
+    failures = list(done.failures)
+    # Outside `want_evaluate` on purpose: a launch that only refreshes the
+    # question set can fail this way too.
+    if done.generated_nothing:
+        failures.append(_with_sample(NOTHING_GENERATED, done.generation_failure_sample))
+    if want_evaluate:
+        if done.had_nothing_to_ask:
+            # The set is empty: the freshness window let no document through,
+            # or generation has not reached this node yet. Without this line
+            # the job would report "passed" without having asked a single
+            # question.
+            failures.append(NO_QUESTIONS)
+        if done.measured_nothing:
+            # A full pass over the set, zero verdicts — and without this line
+            # the job would report "passed" after twenty seconds in which
+            # nothing was measured. The failed call travels with it: the code
+            # says only that nothing was graded, and the cause is in the text
+            # the provider sent back.
+            failures.append(_with_sample(NOTHING_GRADED, done.failure_sample))
+
+        # The card is built from the verdicts that are in the database on
+        # the same terms whether or not it is going anywhere: "how did this
+        # run go" must not depend on the answer to "does anyone else get to
+        # see it". A thin sample is not hidden but named — `trust.flags`
+        # carries `few_samples`, and the reader sees how many questions the
+        # numbers stand on. Cancelled is a different matter: a run cut off
+        # halfway was not a statement. Deferred is a third: there is not a
+        # single verdict yet to build anything from — that is judge_stage's
+        # job, once the owner runs it.
+        if not reporter.cancelled and not request.defer_judging:
+            reporter.phase(JobPhase.PUBLISH)
+            card = build_card(space.key, space.endpoint, settings=node_conf)
+            if card is None:
+                failures.append(NO_CARD)
+            else:
+                card_payload = payload_for(card)
+                # Publishing — handing the card to the Space, and from
+                # there to whatever marketplace it is registered with — is
+                # the one part that is optional: the owner ticks it per
+                # run, and its refusal (benchmarks_mode off, an old Space)
+                # is a failure of that step alone, not of the measurement
+                # the card already describes.
+                if request.publish:
+                    sent = publish(space, card)
+                    if not sent.ok:
+                        failures.append(f"{PUBLISH_REFUSED}: {sent.detail}")
 
     state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
-    _finish(job_id, state, error="; ".join(failures), card=card_payload, settings=conf)
+    _finish(
+        job_id,
+        state,
+        error="; ".join(failures),
+        card=card_payload,
+        settings=base_settings,
+    )
+
+
+def _execute_filter(
+    job_id: str,
+    space: SpaceConfig,
+    node_conf: Settings,
+    params: dict[str, Any],
+    *,
+    base_settings: Settings,
+) -> None:
+    """Screen this target's pending pairs on their own — no fresh generate."""
+    request = FilterRequest.model_validate(params)
+    reporter = Reporter(job_id, base_settings)
+    reporter.phase(JobPhase.FILTER)
+    outcome = filter_and_rotate(
+        space,
+        generator=request.generator,
+        cohort=request.cohort,
+        limit=request.limit,
+        settings=node_conf,
+        retrieve=endpoint_retriever(space, node_conf),
+        should_stop=reporter.stop_requested,
+    )
+    reporter.phase(JobPhase.FILTER, outcome.line())
+    state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
+    _finish(job_id, state, error="; ".join(outcome.notes), settings=base_settings)
+
+
+def _execute_judge(
+    job_id: str,
+    space: SpaceConfig,
+    node_conf: Settings,
+    params: dict[str, Any],
+    *,
+    base_settings: Settings,
+) -> None:
+    """Grade this target's pending verdicts on their own — no fresh evaluate."""
+    request = JudgeRequest.model_validate(params)
+    reporter = Reporter(job_id, base_settings)
+    reporter.phase(JobPhase.JUDGE)
+    outcome = judge_pending(
+        space,
+        limit=request.limit,
+        settings=node_conf,
+        should_stop=reporter.stop_requested,
+        watch=reporter.watcher(f"{space.key}/judging"),
+    )
+    reporter.phase(JobPhase.JUDGE, outcome.line())
+    state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
+    _finish(job_id, state, error="; ".join(outcome.notes), settings=base_settings)
 
 
 def _finish(

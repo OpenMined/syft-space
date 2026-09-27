@@ -83,30 +83,33 @@ two level. In detail — [05-judging.md](05-judging.md).
 
 ---
 
-## 3. The pipeline: eight stages
+## 3. The pipeline: nine stages
 
-Almost every stage is its own CLI command; which set is used is chosen by flags
-on `generate` and `evaluate`, and judging happens inside `evaluate`, becoming a
-separate command only where a human does the judging. Publishing is
-deliberately not stitched onto the tail of a run: a run can be interrupted
-halfway, and there is no point putting out half the results.
+Every stage is its own CLI command, its own control-API route and its own
+block in the console. Which set is used is chosen by flags on `generate` and
+`evaluate`; judging can happen inline inside `evaluate` or as its own pass over
+what a deferred run left pending. Publishing is deliberately not stitched onto
+the tail of a run: a run can be interrupted halfway, and there is no point
+putting out half the results.
 
 ```mermaid
 flowchart TB
     A["chunks / doctor<br/><i>stage 1: is everything in place</i>"] -.-> B
-    B["generate<br/>stage 2"] --> S["selection into the measurement<br/>stage 3"]
+    B["generate<br/>stage 2"] --> FI["filter<br/>stage 3"]
+    FI --> S["selection into the measurement<br/>stage 4"]
     S --> C["evaluate -m closed_book<br/>arm A"]
     S --> D["evaluate -m open_book<br/>arm B"]
     S --> H["evaluate -m model_with_context<br/>arm C"]
-    C --> J["judging<br/>stage 5"]
+    C --> J["judging<br/>stage 6"]
     D --> J
     H --> J
-    J --> E["report<br/>stage 6"]
-    E -.-> AU["audit<br/>stage 7"]
-    E --> F["publish<br/>stage 8"]
+    J --> E["report<br/>stage 7"]
+    E -.-> AU["audit<br/>stage 8"]
+    E --> F["publish<br/>stage 9"]
     F -.-> G["retract<br/><i>retraction</i>"]
 
-    B --- b1["reads the Space's index,<br/>builds both halves of the set,<br/>screens out gold answers and negatives"]
+    B --- b1["reads the Space's index,<br/>builds both halves of the set,<br/>every pair lands pending"]
+    FI --- fi1["grounds the gold answer,<br/>re-checks the control gate live;<br/>only pending pairs are touched"]
     S --- s1["set mode, cohort,<br/>frozen slice, limit"]
     J --- j1["three outcomes; by the letter,<br/>by the facts, by behaviour,<br/>by a judge; a panel"]
     E --- e1["the latest verdict per question,<br/>cut by arm, by half of the set,<br/>by block, by model and by judge"]
@@ -114,6 +117,7 @@ flowchart TB
     F --- f1["aggregates into the Space"]
 
     style b1 fill:#fff,stroke-dasharray: 3 3
+    style fi1 fill:#fff,stroke-dasharray: 3 3
     style s1 fill:#fff,stroke-dasharray: 3 3
     style j1 fill:#fff,stroke-dasharray: 3 3
     style e1 fill:#fff,stroke-dasharray: 3 3
@@ -124,13 +128,14 @@ flowchart TB
 | Stage | What does it | What happens | Document |
 | ---: | --- | --- | --- |
 | 1 | `doctor`, `chunks`, `spaces` | the rig, the model roles, the bounds of the perimeter | [01-setup.md](01-setup.md) |
-| 2 | `generate` | ten generators build both halves of the set, double screening | [02-generation.md](02-generation.md) |
-| 3 | `generate --mode`, `freeze`, `--limit`, `cohorts` | which set exactly goes into the measurement and stays in it | [03-dataset.md](03-dataset.md) |
-| 4 | `evaluate`, `status` | three arms across three blocks across the models under test | [04-evaluation.md](04-evaluation.md) |
-| 5 | inside `evaluate`; `export-judging` / `import-judging` | reducing an answer to one of the three outcomes | [05-judging.md](05-judging.md) |
-| 6 | `report` | metrics, cuts, Markdown and docx | [06-report.md](06-report.md) |
-| 7 | `audit` | the measurement's raw records for inspection | [07-audit.md](07-audit.md) |
-| 8 | `publish`, `retract` | the aggregates go to the Space, and it publishes them | [08-publish.md](08-publish.md) |
+| 2 | `generate` | ten generators build both halves of the set; every pair lands `pending` | [02-generation.md](02-generation.md) |
+| 3 | `filter` | screens `pending` pairs into `active`/`rejected`; a manual override is possible | [02-generation.md](02-generation.md) |
+| 4 | `generate --mode`, `freeze`, `--limit`, `cohorts` | which set exactly goes into the measurement and stays in it | [03-dataset.md](03-dataset.md) |
+| 5 | `evaluate`, `status` | three arms across three blocks across the models under test | [04-evaluation.md](04-evaluation.md) |
+| 6 | inside `evaluate`; `judge`; `export-judging` / `import-judging` | reducing an answer to one of the three outcomes | [05-judging.md](05-judging.md) |
+| 7 | `report` | metrics, cuts, Markdown and docx | [06-report.md](06-report.md) |
+| 8 | `audit` | the measurement's raw records for inspection | [07-audit.md](07-audit.md) |
+| 9 | `publish`, `retract` | the aggregates go to the Space, and it publishes them | [08-publish.md](08-publish.md) |
 
 ---
 
@@ -186,10 +191,10 @@ control API, [control-api.md](control-api.md).
 | File | About |
 | --- | --- |
 | [01-setup.md](01-setup.md) | the rig, the database, the Space registry, the three model roles, the model catalogue, the perimeter, `doctor` |
-| [02-generation.md](02-generation.md) | ten generators, both halves of the set, the pipeline and the double screening |
+| [02-generation.md](02-generation.md) | ten generators, both halves of the set, the pipeline, and filtering as its own stage |
 | [03-dataset.md](03-dataset.md) | set mode and the freshness window, cohorts, the frozen slice, the limit |
 | [04-evaluation.md](04-evaluation.md) | three arms, three blocks, the cost of a run, resuming, `status`, the manual path |
-| [05-judging.md](05-judging.md) | three outcomes, what an answer is judged by, the panel of judges, judging without an API |
+| [05-judging.md](05-judging.md) | three outcomes, what an answer is judged by, the panel of judges, live and console-based judging |
 | [06-report.md](06-report.md) | metrics and the denominator, comparative quantities, cuts, the two forms of the report |
 | [07-audit.md](07-audit.md) | the audit log and the export of raw records |
 | [08-publish.md](08-publish.md) | the card in the Space, the `reliable` gate, retraction |
@@ -233,11 +238,13 @@ src/syft_benchmark/
     language.py        the document's language from spaCy's function words
     rotation.py        the rolling set: what is in the measurement now and what has left it
     cohort.py          a cohort: the same material, a different pool of questions
-    quality.py         screening of QUESTIONS by item class
+    quality.py         screening of QUESTIONS by item class, at generation time
     validate.py        screening of GOLD ANSWERS: grounding in the chunk
+    filter_stage.py     STAGE 3: screens pending pairs; no corpus access of its own
+    pairs.py           listing, reading and deleting pairs, scoped to one target
     pair.py            an item: provenance, fingerprint, labels
-    pipeline.py        the incremental generation run
-  runs/                STAGES 4 and 5
+    pipeline.py        the incremental generation run; hosts filter_and_rotate()
+  runs/                STAGES 5 and 6
     execute.py         three arms, context assembly, the panel inside a run
     endpoint.py        the entire conversation with the foreign node: retrieval, prose, mode
     parallel.py        lanes of calls and a cache of what has already been asked
@@ -246,9 +253,10 @@ src/syft_benchmark/
     questionset.py     the frozen slice: that exact set, not a similar one
     textmetrics.py     BLEU, ROUGE, BERTScore — a second opinion beside the judge
     judge.py           three outcomes; by the letter, by the facts, by behaviour, by a judge
+    judge_stage.py     STAGE 6 on its own: grades pending verdicts, insert-only
     blocks.py          denial_loop and monte_carlo
     console.py         the manual path through a chat: both the model and the judge
-  report/              STAGES 6 and 7
+  report/              STAGES 7 and 8
     metrics.py         the latest verdict per question, the cuts, the Markdown report
     card.py            the card for the Space: aggregates, the reliable gate
     slices.py          by item type and by judge agreement: where and whom to trust
@@ -257,17 +265,19 @@ src/syft_benchmark/
     narrative.py       computed observations and the analyst's paragraph
     document.py        docx: tables, charts, observations, conclusion
     audit.py           the measurement's raw records: question, arms, prompts
-  publish/space.py     STAGE 8: the card into the Space; retraction
+  publish/space.py     STAGE 9: the card into the Space; retraction
   control/             CONTROL FROM OUTSIDE
-    app.py             the HTTP routes, the key, the soft refusal without one
+    app.py             the HTTP routes: service routes under the installation key, console routes under a session token
     schemas.py         the shape of the settings fields, served from /schema
     formfields.py      field types, bounds and groups
     compose.py         three layers of settings: installation → tool → node probe
     targets.py         the registry of nodes under test; seeded from config/spaces.json
-    jobs.py            the job queue and the states of a measurement
+    session.py         short-lived, signed session tokens scoped to one target — no table, no lookup
+    jobs.py            the job queue, Job.kind and the states of a measurement
     ticker.py          the schedule: when to measure without being asked, in UTC
     check.py           the roads to the index, to the node and to the models
-tests/                 481 tests, including the invariants as executable checks
+frontend/              the console: one screen per target, reached through a session link
+tests/                 515 tests, including the invariants as executable checks
     conftest.py        the test database, made and chosen here, never inherited
 alembic/versions/      the schema: the initial migration and what came after
 Dockerfile             the service's image: API, queue and schedule in one process

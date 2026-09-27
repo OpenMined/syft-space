@@ -1,27 +1,45 @@
 """The control API: targets, settings and launching a measurement.
 
-This is the only door through which the benchmark is driven from outside. Not a
-single question and not a single reference answer passes through it — only
-targets, settings and job state. The invariant is the same as for publishing:
-shares, counters and identifiers leave the perimeter, while text born of
-someone else's documents stays inside.
+This is the only door through which the benchmark is driven from outside, and
+it has two rooms behind it now, guarded differently.
 
-A key is mandatory. The launch route raises work worth hours and money, and an
-open port would mean that anyone who reached the network could spend someone
-else's budget. Without a key the service still comes up, answers ``/health``
-and tells everything else that it is not configured — exactly like a Space with
-benchmarks_mode off: not "you may not", but "there is nothing here".
+The **service routes** — everything except ``/console/*`` — keep the original
+invariant: not a single question and not a single reference answer passes
+through them, only targets, settings and job state. One shared
+``control_token`` guards all of it, for the whole installation, and it is
+handed only to something that already deserves that much reach — the Space's
+own backend, never a browser.
+
+The **console routes** are the deliberate exception: an owner reviewing what
+was generated, filtered or judged has to see the actual text, so
+``/console/*`` does return question and reference-answer text, verdicts and
+reasoning. What keeps that narrow is *who* can ask: not ``control_token``, but
+a short-lived session token (``control/session.py``) minted for one target at
+a time by something that already holds the installation token. A leaked
+console link exposes one target until it expires; it does not reach the rest
+of the installation.
+
+A key is mandatory for the service routes. The launch route raises work worth
+hours and money, and an open port would mean that anyone who reached the
+network could spend someone else's budget. Without a key the service still
+comes up, answers ``/health`` and tells everything else that it is not
+configured — exactly like a Space with benchmarks_mode off: not "you may
+not", but "there is nothing here".
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from hmac import compare_digest
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -29,43 +47,62 @@ from sqlalchemy import select
 from syft_benchmark.config import (
     ContextMode,
     EvalBlock,
+    JobKind,
     Settings,
     TextMetric,
     get_settings,
     stored_fields,
 )
 from syft_benchmark.control import jobs as job_queue
+from syft_benchmark.control import session as console_session_tokens
 from syft_benchmark.control import targets as registry
 from syft_benchmark.control.check import Check, check
 from syft_benchmark.control.compose import settings_for
 from syft_benchmark.control.formfields import catalogue
 from syft_benchmark.control.schemas import (
     Capabilities,
+    FilterRequest,
     Instrument,
     JobView,
+    JudgeRequest,
     ModelCatalogView,
+    PairPage,
+    PairResponse,
+    PairStatusUpdate,
     Probe,
     ProviderInfo,
+    ResultPage,
+    ResultResponse,
     RoleProvider,
     RunRequest,
     SecretValue,
     SecretView,
+    SessionView,
     SettingsDocument,
     TargetSpec,
     TargetView,
+    VerdictOverride,
 )
+from syft_benchmark.control.session import InvalidSession
 from syft_benchmark.control.ticker import Ticker
 from syft_benchmark.db import store
 from syft_benchmark.db.crypto import SecretsNotConfigured
 from syft_benchmark.db.models import Job, Target
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.db.store import SettingRejected
-from syft_benchmark.generation import GENERATORS
+from syft_benchmark.generation import GENERATORS, get_pair, list_pairs
+from syft_benchmark.generation import delete_pair as delete_pair_row
+from syft_benchmark.generation import override_status as override_pair_status
 from syft_benchmark.llm import catalog, judge_providers, subject_providers
 from syft_benchmark.llm import openrouter as openrouter_catalogue
 from syft_benchmark.llm.catalog import ModelEntry
 from syft_benchmark.llm.ollama import installed_models
 from syft_benchmark.llm.providers import ProviderKind, kind_for_url
+from syft_benchmark.publish import owner_payload_for, payload_for
+from syft_benchmark.publish import publish as publish_card
+from syft_benchmark.publish import retract as retract_card
+from syft_benchmark.report.card import build as build_card
+from syft_benchmark.runs import get_result, list_results, override_verdict
 
 # How many recent jobs to hand back per target. The history is there to show
 # that yesterday's measurement failed — and is not needed deeper than a few
@@ -144,6 +181,43 @@ def authorised(
 Guard = Annotated[Settings, Depends(authorised)]
 
 
+@dataclass(frozen=True, slots=True)
+class ConsoleAuth:
+    """What a console session token resolves to: one target, current settings."""
+
+    target_key: str
+    settings: Settings
+
+
+def console_session(
+    request: Request, authorization: Annotated[str, Header()] = ""
+) -> ConsoleAuth:
+    """Check a console session token and resolve it to the one target it names.
+
+    Deliberately a different check from `authorised`: a session token is never
+    compared against `control_token` itself, only verified against it (see
+    `control/session.py`) — the two are not interchangeable even though both
+    travel as `Authorization: Bearer`.
+    """
+    conf: Settings = request.app.state.settings
+    if not conf.control_token:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "control is not configured: set BENCH_CONTROL_TOKEN",
+        )
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "no session token was given")
+    try:
+        target_key = console_session_tokens.verify(token, conf)
+    except InvalidSession as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
+    return ConsoleAuth(target_key=target_key, settings=store.apply(conf))
+
+
+ConsoleGuard = Annotated[ConsoleAuth, Depends(console_session)]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Assemble the control API application."""
     conf = settings or get_settings()
@@ -165,6 +239,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+        )
+
+    # The console's own frontend, a sibling package — mounted only if it has
+    # actually been built. `check_dir=False` because StaticFiles otherwise
+    # refuses to import at all when the directory is missing, and a service
+    # started before `npm run build` has ever been run must still come up:
+    # the console is one more door into it, not a dependency of it.
+    console_dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    if console_dist.exists():
+        app.mount(
+            "/ui", StaticFiles(directory=str(console_dist), html=True, check_dir=False)
         )
 
     # --- what this service is -----------------------------------------------
@@ -303,52 +388,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         actually in force — and the owner would see "not configured" instead of
         "top-5".
         """
-        dumped = conf.model_dump(mode="json")
-        return {
-            "instrument": Instrument(
-                arms=conf.arms,
-                blocks=conf.blocks,
-                denial_rounds=conf.denial_rounds,
-                monte_carlo_temperatures=conf.monte_carlo_temperatures,
-                monte_carlo_trials=conf.monte_carlo_trials,
-                context_source=conf.context_source,
-                context_docs=conf.context_docs,
-                generator_model=conf.generator_model,
-                subject_models=[p.model for p in subject_providers(conf)],
-                judge_model=conf.judge_model,
-                judge_models=[p.model for p in judge_providers(conf)],
-                judge_policy=conf.judge_policy,
-                key_facts_threshold=conf.key_facts_threshold,
-                answer_coverage_threshold=conf.answer_coverage_threshold,
-                consistency_floor=conf.consistency_floor,
-                text_metrics=conf.text_metrics,
-                extractive_mode=conf.extractive_mode,
-                methodology_profile=conf.methodology_profile,
-                max_consecutive_failures=conf.max_consecutive_failures,
-                reuse_answers=conf.reuse_answers,
-                audit_log=conf.audit_log,
-            ),
-            "probe": Probe(
-                dataset_mode=conf.dataset_mode,
-                document_window_days=conf.document_window_days,
-                dataset_max_pairs=conf.dataset_max_pairs,
-                disabled_generators=conf.disabled_generators,
-                chunks_per_run=conf.chunks_per_run,
-                pairs_per_chunk=conf.pairs_per_chunk,
-                min_chunk_chars=conf.min_chunk_chars,
-                generate_in_cycle=conf.generate_in_cycle,
-                retrieval_top_k=conf.retrieval_top_k,
-                similarity_threshold=conf.similarity_threshold,
-                endpoint_max_tokens=conf.endpoint_max_tokens,
-                endpoint_temperature=conf.endpoint_temperature,
-                endpoint_concurrency=conf.endpoint_concurrency,
-            ),
-            # The bottom layer, after the row has been applied. Asked of the
-            # settings rather than listed again — a second list would fall
-            # behind on the first field added. No secret can appear: the
-            # question "may this be stored" is answered in one place.
-            "installation": {field: dumped[field] for field in sorted(stored_fields())},
-        }
+        return _effective_defaults(conf)
 
     # --- the installation's own settings ------------------------------------
 
@@ -543,6 +583,102 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             job = job_queue.enqueue(session, row, request)
             return JobView.model_validate(job)
 
+    @app.post("/targets/{key}/filter", response_model=JobView, status_code=202)
+    def start_filter(key: str, request: FilterRequest, conf: Guard) -> JobView:
+        """Put a filter pass in the queue: screen this target's pending pairs.
+
+        202, same reasoning as `/runs`: a control item's gate is a model call
+        of its own, and a large pending set can take a while.
+        """
+        with session_scope(conf) as session:
+            row = _target_or_404(session, key)
+            if not row.enabled:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"target {key} is disabled — enable it before measuring",
+                )
+            job = job_queue.enqueue(session, row, request, kind=JobKind.FILTER)
+            return JobView.model_validate(job)
+
+    @app.post("/targets/{key}/judge", response_model=JobView, status_code=202)
+    def start_judge(key: str, request: JudgeRequest, conf: Guard) -> JobView:
+        """Put a judging pass in the queue: grade this target's pending verdicts."""
+        with session_scope(conf) as session:
+            row = _target_or_404(session, key)
+            if not row.enabled:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"target {key} is disabled — enable it before measuring",
+                )
+            job = job_queue.enqueue(session, row, request, kind=JobKind.JUDGE)
+            return JobView.model_validate(job)
+
+    @app.post("/targets/{key}/report")
+    def build_report(key: str, conf: Guard) -> dict[str, Any]:
+        """Rebuild this target's card from what is active and graded right now.
+
+        Synchronous, unlike a measurement: this reads what is already in the
+        database and calls neither a model nor the node, so there is nothing
+        here worth a queued job.
+        """
+        with session_scope(conf) as session:
+            row = _target_or_404(session, key)
+            node_conf, space = settings_for(row, conf)
+        card = build_card(space.key, space.endpoint, settings=node_conf)
+        if card is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "there is nothing gradable yet to build a card from",
+            )
+        return payload_for(card)
+
+    @app.post("/targets/{key}/publish")
+    def publish_report(key: str, conf: Guard) -> dict[str, Any]:
+        """Build the current card and hand it to the Space.
+
+        Always builds fresh rather than reusing whatever `/report` last
+        returned: publishing a card the owner has not actually looked at
+        again would risk sending out something stale.
+        """
+        with session_scope(conf) as session:
+            row = _target_or_404(session, key)
+            node_conf, space = settings_for(row, conf)
+        card = build_card(space.key, space.endpoint, settings=node_conf)
+        if card is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "there is nothing gradable yet to build a card from",
+            )
+        sent = publish_card(space, card)
+        if not sent.ok:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, sent.detail)
+        return payload_for(card)
+
+    @app.post("/targets/{key}/retract", status_code=status.HTTP_204_NO_CONTENT)
+    def retract_report(key: str, conf: Guard) -> None:
+        """Retract the target's published card through the Space."""
+        with session_scope(conf) as session:
+            row = _target_or_404(session, key)
+            _, space = settings_for(row, conf)
+        outcome = retract_card(space)
+        if not outcome.ok:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, outcome.detail)
+
+    @app.post("/targets/{key}/session", response_model=SessionView)
+    def start_console_session(key: str, conf: Guard) -> SessionView:
+        """Mint a short-lived console session, scoped to this one target.
+
+        Only ever called by something that already holds `control_token` —
+        the Space's own backend, on the owner's request — never by a
+        browser directly. See `control/session.py` and the module docstring.
+        """
+        with session_scope(conf) as session:
+            _target_or_404(session, key)
+        token, expires_at = console_session_tokens.mint(key, conf)
+        return SessionView(
+            token=token, expires_at=datetime.fromtimestamp(expires_at, tz=UTC)
+        )
+
     @app.get("/targets/{key}/jobs", response_model=list[JobView])
     def target_jobs(key: str, conf: Guard) -> list[JobView]:
         with session_scope(conf) as session:
@@ -599,6 +735,261 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status.HTTP_409_CONFLICT,
                 f"job {job_id} is still queued or running — cancel it first",
             )
+
+    # --- the console: everything under a session token, scoped to one target
+
+    def _console_target(session: Any, auth: ConsoleAuth) -> Target:
+        """The one target a console session may act on.
+
+        A 404 here, not a 401: the session's signature already checked out —
+        what is missing is the target itself, exactly as `_target_or_404`
+        reports it for the service routes.
+        """
+        row: Target | None = session.get(Target, auth.target_key)
+        if row is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"there is no target {auth.target_key}"
+            )
+        return row
+
+    def _ensure_enabled(row: Target) -> None:
+        if not row.enabled:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"target {row.key} is disabled — enable it before measuring",
+            )
+
+    @app.get("/console/probe")
+    def console_get_probe(auth: ConsoleGuard) -> dict[str, Any]:
+        """This target's own probe layer, its fields, and what an unset field
+        resolves to.
+
+        The instrument is not here: it is pushed alike to every target of one
+        connection, and a single endpoint's session has no business changing
+        what makes endpoints of the same connection comparable.
+        """
+        with session_scope(auth.settings) as session:
+            row = _console_target(session, auth)
+            current = registry.view(row)
+        return {
+            "probe": current.probe.overrides(),
+            "inherited": _effective_defaults(auth.settings)["probe"],
+            "fields": catalogue()["probe"],
+        }
+
+    @app.put("/console/probe")
+    def console_save_probe(body: Probe, auth: ConsoleGuard) -> dict[str, Any]:
+        with session_scope(auth.settings) as session:
+            row = registry.update_probe(session, auth.target_key, body)
+            if row is None:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND, f"there is no target {auth.target_key}"
+                )
+            current = registry.view(row)
+        return {
+            "probe": current.probe.overrides(),
+            "inherited": _effective_defaults(auth.settings)["probe"],
+            "fields": catalogue()["probe"],
+        }
+
+    @app.get("/console/pairs", response_model=PairPage)
+    def console_list_pairs(
+        auth: ConsoleGuard,
+        status_filter: str | None = None,
+        cohort: str | None = None,
+        generator: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PairPage:
+        items, total = list_pairs(
+            auth.target_key,
+            status=status_filter,
+            cohort=cohort,
+            generator=generator,
+            limit=limit,
+            offset=offset,
+            settings=auth.settings,
+        )
+        pairs = [PairResponse.model_validate(v) for v in items]
+        return PairPage(items=pairs, total=total)
+
+    @app.get("/console/pairs/{pair_id}", response_model=PairResponse)
+    def console_get_pair(pair_id: str, auth: ConsoleGuard) -> PairResponse:
+        view = get_pair(pair_id, target_key=auth.target_key, settings=auth.settings)
+        if view is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"there is no pair {pair_id}"
+            )
+        return PairResponse.model_validate(view)
+
+    @app.patch("/console/pairs/{pair_id}", response_model=PairResponse)
+    def console_update_pair(
+        pair_id: str, body: PairStatusUpdate, auth: ConsoleGuard
+    ) -> PairResponse:
+        """Override one pair's status by hand — the Filtering block's undo.
+
+        Works on a pair in any status, not only `pending`: this is the one
+        place a human overrules a verdict, automatic or manual, that came
+        before it.
+        """
+        changed = override_pair_status(
+            pair_id,
+            body.status,
+            note=body.note,
+            target_key=auth.target_key,
+            settings=auth.settings,
+        )
+        if not changed:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"there is no pair {pair_id}"
+            )
+        view = get_pair(pair_id, target_key=auth.target_key, settings=auth.settings)
+        assert view is not None  # just written, under the same target
+        return PairResponse.model_validate(view)
+
+    @app.delete("/console/pairs/{pair_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def console_delete_pair(pair_id: str, auth: ConsoleGuard) -> None:
+        """Remove a pair outright — only when nothing has measured it yet.
+
+        409, not a silent retire: the owner asked for a delete specifically,
+        and a pair with results needs a status change instead — see PATCH.
+        """
+        outcome = delete_pair_row(
+            pair_id, target_key=auth.target_key, settings=auth.settings
+        )
+        if outcome == "not_found":
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"there is no pair {pair_id}"
+            )
+        if outcome == "has_results":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "this pair already has results — change its status instead "
+                "of deleting it, or its measurement history would go with it",
+            )
+
+    @app.get("/console/results", response_model=ResultPage)
+    def console_list_results(
+        auth: ConsoleGuard,
+        verdict: str | None = None,
+        qa_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> ResultPage:
+        items, total = list_results(
+            auth.target_key,
+            verdict=verdict,
+            qa_id=qa_id,
+            limit=limit,
+            offset=offset,
+            settings=auth.settings,
+        )
+        return ResultPage(
+            items=[ResultResponse.model_validate(v) for v in items], total=total
+        )
+
+    @app.post("/console/results/{result_id}/verdict", response_model=ResultResponse)
+    def console_override_verdict(
+        result_id: str, body: VerdictOverride, auth: ConsoleGuard
+    ) -> ResultResponse:
+        """Record a verdict by hand — inserted, never a rewrite of the original."""
+        new_id = override_verdict(
+            result_id,
+            body.verdict,
+            reasoning=body.reasoning,
+            owner="console",
+            target_key=auth.target_key,
+            settings=auth.settings,
+        )
+        if new_id is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"there is no result {result_id}"
+            )
+        overridden = get_result(
+            new_id, target_key=auth.target_key, settings=auth.settings
+        )
+        assert overridden is not None  # just written, under the same target
+        return ResultResponse.model_validate(overridden)
+
+    @app.post("/console/runs", response_model=JobView, status_code=202)
+    def console_start_run(request: RunRequest, auth: ConsoleGuard) -> JobView:
+        """The console's own `/runs`: Preparation and Testing both go through
+        this, with different flags — see `RunRequest`."""
+        with session_scope(auth.settings) as session:
+            row = _console_target(session, auth)
+            _ensure_enabled(row)
+            job = job_queue.enqueue(session, row, request)
+            return JobView.model_validate(job)
+
+    @app.post("/console/filter", response_model=JobView, status_code=202)
+    def console_start_filter(request: FilterRequest, auth: ConsoleGuard) -> JobView:
+        with session_scope(auth.settings) as session:
+            row = _console_target(session, auth)
+            _ensure_enabled(row)
+            job = job_queue.enqueue(session, row, request, kind=JobKind.FILTER)
+            return JobView.model_validate(job)
+
+    @app.post("/console/judge", response_model=JobView, status_code=202)
+    def console_start_judge(request: JudgeRequest, auth: ConsoleGuard) -> JobView:
+        with session_scope(auth.settings) as session:
+            row = _console_target(session, auth)
+            _ensure_enabled(row)
+            job = job_queue.enqueue(session, row, request, kind=JobKind.JUDGE)
+            return JobView.model_validate(job)
+
+    @app.get("/console/jobs", response_model=list[JobView])
+    def console_jobs(auth: ConsoleGuard) -> list[JobView]:
+        with session_scope(auth.settings) as session:
+            rows = session.scalars(
+                select(Job)
+                .where(Job.target == auth.target_key)
+                .order_by(Job.created_at.desc())
+                .limit(JOBS_PER_TARGET)
+            )
+            return [JobView.model_validate(row) for row in rows]
+
+    @app.post("/console/report")
+    def console_build_report(auth: ConsoleGuard) -> dict[str, Any]:
+        """The owner's own view of the card — see `owner_payload_for`.
+
+        Not what `/console/publish` sends onward: this stays behind the
+        session token, on the owner's own console.
+        """
+        with session_scope(auth.settings) as session:
+            row = _console_target(session, auth)
+            node_conf, space = settings_for(row, auth.settings)
+        card = build_card(space.key, space.endpoint, settings=node_conf)
+        if card is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "there is nothing gradable yet to build a card from",
+            )
+        return owner_payload_for(card)
+
+    @app.post("/console/publish")
+    def console_publish(auth: ConsoleGuard) -> dict[str, Any]:
+        with session_scope(auth.settings) as session:
+            row = _console_target(session, auth)
+            node_conf, space = settings_for(row, auth.settings)
+        card = build_card(space.key, space.endpoint, settings=node_conf)
+        if card is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "there is nothing gradable yet to build a card from",
+            )
+        sent = publish_card(space, card)
+        if not sent.ok:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, sent.detail)
+        return payload_for(card)
+
+    @app.post("/console/retract", status_code=status.HTTP_204_NO_CONTENT)
+    def console_retract(auth: ConsoleGuard) -> None:
+        with session_scope(auth.settings) as session:
+            row = _console_target(session, auth)
+            _, space = settings_for(row, auth.settings)
+        outcome = retract_card(space)
+        if not outcome.ok:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, outcome.detail)
 
     return app
 
@@ -659,6 +1050,61 @@ def _provider(conf: Settings) -> ProviderInfo:
             for role, url, key in roles
         ],
     )
+
+
+def _effective_defaults(conf: Settings) -> dict[str, Any]:
+    """What an unset instrument or probe field resolves to, at each layer.
+
+    Read by ``/defaults`` (the whole shape, for the connection-wide settings
+    form) and by the console's own ``/console/schema`` (the probe layer
+    only, for one target's own overrides).
+    """
+    dumped = conf.model_dump(mode="json")
+    return {
+        "instrument": Instrument(
+            arms=conf.arms,
+            blocks=conf.blocks,
+            denial_rounds=conf.denial_rounds,
+            monte_carlo_temperatures=conf.monte_carlo_temperatures,
+            monte_carlo_trials=conf.monte_carlo_trials,
+            context_source=conf.context_source,
+            context_docs=conf.context_docs,
+            generator_model=conf.generator_model,
+            subject_models=[p.model for p in subject_providers(conf)],
+            judge_model=conf.judge_model,
+            judge_models=[p.model for p in judge_providers(conf)],
+            judge_policy=conf.judge_policy,
+            key_facts_threshold=conf.key_facts_threshold,
+            answer_coverage_threshold=conf.answer_coverage_threshold,
+            consistency_floor=conf.consistency_floor,
+            text_metrics=conf.text_metrics,
+            extractive_mode=conf.extractive_mode,
+            methodology_profile=conf.methodology_profile,
+            max_consecutive_failures=conf.max_consecutive_failures,
+            reuse_answers=conf.reuse_answers,
+            audit_log=conf.audit_log,
+        ),
+        "probe": Probe(
+            dataset_mode=conf.dataset_mode,
+            document_window_days=conf.document_window_days,
+            dataset_max_pairs=conf.dataset_max_pairs,
+            disabled_generators=conf.disabled_generators,
+            chunks_per_run=conf.chunks_per_run,
+            pairs_per_chunk=conf.pairs_per_chunk,
+            min_chunk_chars=conf.min_chunk_chars,
+            generate_in_cycle=conf.generate_in_cycle,
+            retrieval_top_k=conf.retrieval_top_k,
+            similarity_threshold=conf.similarity_threshold,
+            endpoint_max_tokens=conf.endpoint_max_tokens,
+            endpoint_temperature=conf.endpoint_temperature,
+            endpoint_concurrency=conf.endpoint_concurrency,
+        ),
+        # The bottom layer, after the row has been applied. Asked of the
+        # settings rather than listed again — a second list would fall
+        # behind on the first field added. No secret can appear: the
+        # question "may this be stored" is answered in one place.
+        "installation": {field: dumped[field] for field in sorted(stored_fields())},
+    }
 
 
 def _target_or_404(session: Any, key: str) -> Target:

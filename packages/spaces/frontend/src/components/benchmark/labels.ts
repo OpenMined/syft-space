@@ -158,6 +158,60 @@ export const FIELDS: Record<string, Words> = {
   },
 }
 
+/**
+ * What each generator builds.
+ *
+ * The benchmark names its generators; this is the one-line explanation of
+ * what each produces, so switching one off is an informed choice rather than
+ * a guess from the key alone.
+ */
+export const GENERATORS: Record<string, Words> = {
+  mcq: {
+    label: 'Multiple choice',
+    help: 'Four options, one correct. The gold answer is the option itself, not a letter chosen ahead of time — options are shuffled per question.',
+  },
+  qa: {
+    label: 'Open question',
+    help: 'A free-form question with a written reference answer, taken from a single fragment.',
+  },
+  two_truths_one_lie: {
+    label: 'Two truths, one lie',
+    help: 'Three statements about the fragment, one of them knowingly false.',
+  },
+  multihop_synthesis: {
+    label: 'Multi-hop',
+    help: 'Answerable only by connecting facts from more than one part of the document — a single fragment will not do.',
+  },
+  tiered_explanation: {
+    label: 'Tiered explanation',
+    help: 'The same fact explained at a different level of the reader — a child, a professional, an expert. Judged by which facts survive, not by wording.',
+  },
+  named_entity_masking: {
+    label: 'Named entity',
+    help: 'A named entity blanked out of a sentence lifted verbatim from the document. Built by spaCy where a model for the language exists, an LLM call otherwise.',
+  },
+  numeric_masking: {
+    label: 'Number',
+    help: 'A number blanked out of a sentence lifted verbatim from the document.',
+  },
+  temporal_masking: {
+    label: 'Date',
+    help: 'A date blanked out of a sentence lifted verbatim from the document.',
+  },
+  unanswerable_property: {
+    label: 'Unanswerable',
+    help: 'The control half: no answer exists anywhere in the corpus. The correct behaviour is to say so, not to invent one.',
+  },
+  false_premise: {
+    label: 'False premise',
+    help: 'The control half: the question assumes something untrue. The correct behaviour is to correct it, not answer it as asked.',
+  },
+}
+
+export function generatorWords(key: string): Words {
+  return GENERATORS[key] ?? { label: humanise(key) }
+}
+
 /** What to call a field nobody has written words for yet. */
 export function humanise(name: string): string {
   const spaced = name.replace(/_/g, ' ')
@@ -193,6 +247,42 @@ export function blockedArmWords(code: string): string {
 }
 
 /**
+ * Why a reported figure might not be worth trusting.
+ *
+ * The benchmark sends `trust.flags` as codes; these are the words — what
+ * each one means for the reader deciding whether to trust the number, not
+ * what the benchmark measured to produce it. Shared by the published card
+ * (`BenchmarkPanel.vue`) and the owner's own pre-publish report
+ * (`ReportView.vue`), since both describe the same five codes.
+ */
+export const TRUST_FLAGS: Record<string, Words> = {
+  few_samples: {
+    label: 'Too few questions',
+    help: 'The shares move by whole points on a single verdict, so they say more about which questions were asked than about the endpoint.',
+  },
+  judges_disagree: {
+    label: 'The graders disagreed',
+    help: 'They differ from each other by more than endpoints usually differ, so a comparison against another endpoint means little.',
+  },
+  uneven_coverage: {
+    label: 'Some question types were barely measured',
+    help: 'Usually an interrupted run; the shares are computed over a skewed sample and look exactly like ordinary shares.',
+  },
+  pending_verdicts: {
+    label: 'Part of the run was never graded',
+    help: 'Answers were collected but no verdict was recorded for them.',
+  },
+  failed_calls: {
+    label: 'Some calls failed',
+    help: 'That much of the measurement did not happen at all.',
+  },
+}
+
+export function trustFlagWords(code: string): Words {
+  return TRUST_FLAGS[code] ?? { label: code }
+}
+
+/**
  * Why a run did not finish cleanly.
  *
  * The benchmark sends a code for anything it decided itself, and the raw text
@@ -206,8 +296,8 @@ export const RUN_PROBLEMS: Record<string, string> = {
     'No card could be assembled — there were no graded answers to report. Check the run itself above.',
   publish_refused: 'The card was measured but the Space would not take it',
   service_restarted: 'The benchmark restarted while this run was going. What it measured is kept.',
-  // No longer produced: a trial run publishes on the same terms as a full one.
-  // Kept so that jobs recorded before that still read as words, not as a code.
+  // Kept for jobs recorded while a trial run withheld publishing, so those
+  // records still read as words, not as a code.
   trial_not_published: 'This was a trial run, so nothing was published.',
   no_questions:
     'There were no questions to ask. Either the freshness window let no document through, or the question set has not been built for this endpoint yet.',

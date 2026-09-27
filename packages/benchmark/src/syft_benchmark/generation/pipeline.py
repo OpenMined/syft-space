@@ -54,13 +54,14 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import ProcessedUnit, QaPair, session_scope
 from syft_benchmark.generation import cohort as cohorts
-from syft_benchmark.generation.control import Retriever, gate_unanswerable
+from syft_benchmark.generation.control import Retriever
 from syft_benchmark.generation.extractive import (
     COMBINED_SYSTEM,
     Masked,
     mask_with_spacy,
     parse_combined,
 )
+from syft_benchmark.generation.filter_stage import FilterSummary, filter_pending
 from syft_benchmark.generation.generators import (
     EXTRACTIVE_CATEGORIES,
     EXTRACTIVE_KEYS,
@@ -74,13 +75,11 @@ from syft_benchmark.generation.language import pick_spacy_model
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.rotation import RotationReport, fresh_ids, rotate
-from syft_benchmark.generation.validate import review_answer, review_claims
 from syft_benchmark.llm import (
     LLMError,
     Provider,
     chat,
     generator_provider,
-    judge_providers,
     parse_json_list,
     parse_json_object,
 )
@@ -106,13 +105,16 @@ REASONING_HEADROOM = 800
 
 @dataclass(slots=True)
 class GenerationReport:
-    """What came out of one generation run."""
+    """What came out of one generation run.
+
+    Every pair this run stores lands pending — whether it turns out active or
+    rejected is filtering's verdict, not generation's, so there is nothing
+    here to split ``pairs_made`` into. See ``filter_stage.FilterSummary``.
+    """
 
     space: str
     units_seen: int = 0
     pairs_made: int = 0
-    pairs_active: int = 0
-    pairs_rejected: int = 0
     duplicates: int = 0
     failures: int = 0
     # The text of one failed generator call, whichever came first: the count
@@ -201,72 +203,6 @@ def _mark_processed(
         )
 
 
-def _screen(
-    pair: Pair,
-    fragment: str,
-    generator: Generator,
-    gate: Retriever | None,
-    conf: Settings,
-    judge: Provider | None,
-) -> tuple[PairStatus, str, float, dict[str, Any]]:
-    """Let an item into the measurement or reject it.
-
-    There are two paths, and they check the opposite things.
-
-    For an ordinary item what is checked is GROUNDING: does the reference
-    answer rest on the chunk. The generator sometimes fills the answer in from
-    memory, and such a reference answer silently drags down the score of a good
-    endpoint.
-
-    For a control item it is the other way round — the ABSENCE of an answer:
-    the question is put to live retrieval and we watch whether it actually
-    answers. Running a negative through the grounding check would reject the
-    entire control set: by construction it has no reference answer.
-
-    Returns:
-        The status, an explanation, the coverage and what to add to meta
-    """
-    if not generator.is_control:
-        # We check what claims to be taken from the source. For most items that
-        # is the reference answer itself. Where the reference answer
-        # deliberately differs from the text — reworded (tiered, multihop) or
-        # bound to contradict it (two truths and a lie) — the generator lists
-        # what exactly must follow from the chunk.
-        claims = pair.meta.get("claims")
-        verdict = (
-            review_claims([str(c) for c in claims], fragment, conf)
-            if claims
-            else review_answer(pair.answer, fragment, conf)
-        )
-        status = PairStatus.ACTIVE if verdict.grounded else PairStatus.REJECTED
-        return status, verdict.note, verdict.coverage, {}
-
-    if gate is None:
-        # An unchecked negative is an unfounded accusation of fabrication: the
-        # generator saw one chunk, while retrieval searches the whole
-        # collection. Such a candidate is kept as rejected rather than thrown
-        # away: it is material for tuning the prompt.
-        return (
-            PairStatus.REJECTED,
-            "control question not checked: retrieval is unavailable",
-            0.0,
-            {"gate": "not checked"},
-        )
-
-    outcome = gate_unanswerable(pair.question, gate, settings=conf, judge=judge)
-    status = PairStatus.ACTIVE if outcome.clear else PairStatus.REJECTED
-    return (
-        status,
-        outcome.note,
-        0.0,
-        {
-            "gate": outcome.note,
-            "gate_checked": outcome.checked,
-            "gate_fragments": outcome.fragments,
-        },
-    )
-
-
 def _store(
     space: SpaceConfig,
     doc: Document,
@@ -280,19 +216,17 @@ def _store(
     *,
     conf: Settings,
     cohort: str = "",
-    gate: Retriever | None = None,
-    judge: Provider | None = None,
 ) -> None:
-    """Write the items down, checking each one.
+    """Write the items down as pending.
 
-    The check lives here rather than in a separate pass: the chunk is already
-    at hand, and there is no point reading it out of ChromaDB a second time for
-    the same check.
+    Nothing here decides whether an item is fit to measure with — that moved
+    to its own pass, ``filter_stage.filter_pending()``, which reads the
+    grounding and the control gate off what is stored here rather than off
+    the fresh candidate. So every pair below lands ``pending``, whatever its
+    answer or its question turn out to be worth; only the filtering pass
+    calls one ``active`` or ``rejected``.
     """
     for pair in pairs:
-        status, note, coverage, gate_meta = _screen(
-            pair, fragment, generator, gate, conf, judge
-        )
         try:
             with session_scope() as session:
                 session.add(
@@ -314,12 +248,10 @@ def _store(
                         expected_behavior=generator.expected.value,
                         meta={
                             **pair.meta,
-                            **gate_meta,
-                            "coverage": round(coverage, 3),
                             "grading": pair.meta.get("grading", generator.grading),
                         },
-                        status=status.value,
-                        status_note=note,
+                        status=PairStatus.PENDING.value,
+                        status_note="",
                         model=model,
                         question_hash=question_hash(pair.question),
                     )
@@ -334,10 +266,6 @@ def _store(
         report.by_generator[generator.key] = (
             report.by_generator.get(generator.key, 0) + 1
         )
-        if status is PairStatus.ACTIVE:
-            report.pairs_active += 1
-        else:
-            report.pairs_rejected += 1
 
 
 def _masked_to_pairs(
@@ -470,12 +398,15 @@ def generate_for_space(
     collection: str | None = None,
     limit: int | None = None,
     settings: Settings | None = None,
-    retrieve: Retriever | None = None,
     new_cohort: bool = False,
     cohort_label: str = "",
     should_stop: Callable[[], bool] | None = None,
 ) -> GenerationReport:
     """Build items from the not-yet-parsed material of one Space.
+
+    Every item lands ``pending``: whether it is fit to measure with — grounded,
+    and for a control item not in fact answered by retrieval — is decided by
+    its own pass, ``filter_stage.filter_pending()``, not by this one.
 
     Args:
         space: The node under test
@@ -484,11 +415,6 @@ def generate_for_space(
             failing that, the node's key
         limit: How many units to take; defaults to the settings
         settings: Process settings
-        retrieve: What to check control questions with — the question goes to
-            live retrieval, the texts found come back. Without it the control
-            generators run for nothing: a negative that retrieval has not
-            checked does not enter the measurement, and that is said out loud
-            rather than implied
         new_cohort: Build the question pool afresh, as a separate cohort, from
             the same material. In rebuild mode this is implied
         cohort_label: The new cohort's name; empty — the date and time of the build
@@ -546,17 +472,13 @@ def generate_for_space(
     # call.
     provider = generator_provider(conf)
 
-    # The control set's gate is judged by the judge, not by the generator:
-    # deciding whether retrieval answers your own question is work for an
-    # independent model.
     control = [spec for spec in specs if spec.is_control]
-    gatekeeper = judge_providers(conf)[0] if control else None
-    if control and retrieve is None:
+    if control:
         report.notes.append(
             "control generators ("
             + ", ".join(spec.key for spec in control)
-            + ") have no access to retrieval: their questions will be rejected — "
-            "an unchecked negative does not enter the measurement"
+            + ") were built as pending — whether retrieval in fact answers "
+            "one of them is for filtering to decide, not this pass"
         )
 
     client = ChromaClient(space, conf)
@@ -636,8 +558,6 @@ def generate_for_space(
                     report,
                     conf=conf,
                     cohort=cohort,
-                    gate=retrieve,
-                    judge=gatekeeper,
                 )
             _mark_processed(
                 space.key,
@@ -688,8 +608,6 @@ def generate_for_space(
                 report,
                 conf=conf,
                 cohort=cohort,
-                gate=retrieve,
-                judge=gatekeeper,
             )
             _mark_processed(
                 space.key, spec.key, chunk.chunk_id, "chunk", len(good), cohort
@@ -731,8 +649,6 @@ def generate_for_space(
                 report,
                 conf=conf,
                 cohort=cohort,
-                gate=retrieve,
-                judge=gatekeeper,
             )
             _mark_processed(
                 space.key, spec.key, doc.doc_id, "document", len(good), cohort
@@ -760,4 +676,77 @@ def generate_for_space(
     if conf.dataset_mode is not DatasetMode.INCREMENTAL or rebuilding:
         report.notes.append(f"set: {report.rotation.line()}")
 
+    return report
+
+
+def filter_and_rotate(
+    space: SpaceConfig,
+    *,
+    generator: str | None = None,
+    cohort: str | None = None,
+    collection: str | None = None,
+    limit: int | None = None,
+    settings: Settings | None = None,
+    retrieve: Retriever | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> FilterSummary:
+    """Screen pending pairs, then reconcile the window, the cohort and the cap.
+
+    ``filter_stage.filter_pending`` decides grounding and the control gate on
+    its own, without ever reading the corpus (invariant 1). What it cannot
+    decide the same way is whether a pair it just turned active belongs in
+    THIS measurement: that needs the document dates, and reading them is this
+    module's business, the same as it always has been for ``generate_for_space``.
+    Without this second step a rebuild's new cohort and the one it supersedes
+    would sit active side by side until the next generation happened to run.
+
+    Args:
+        space: The node under test
+        generator: Screen only this generator's pairs; None — every generator
+        cohort: Screen only this cohort, and reconcile the set around it; None
+            — every cohort, reconciled around whichever is current
+        collection: ChromaDB collection to read document dates from; empty —
+            the node's own name, and failing that, its key
+        limit: How many pending pairs to screen; None — all of them
+        settings: The process settings
+        retrieve: What to check control questions with; None — the control
+            set is rejected outright
+        should_stop: Asked before every pair whether the owner has called the
+            pass off
+
+    Returns:
+        What was screened, and what became of the window/cohort/cap once it
+        joined the active pairs. ``rotation`` stays None when nothing was
+        screened active: an empty pass has nothing new to reconcile, and
+        reading the index for it would be a round trip spent confirming
+        nothing changed.
+    """
+    conf = settings or get_settings()
+    report = filter_pending(
+        space,
+        generator=generator,
+        cohort=cohort,
+        limit=limit,
+        settings=conf,
+        retrieve=retrieve,
+        should_stop=should_stop,
+    )
+    if not report.checked or not report.active:
+        return report
+
+    client = ChromaClient(space, conf)
+    name = collection or space.collection or space.key
+    collection_id = client.collection_id(name)
+    dated = (
+        {doc.doc_id: doc.dated_at for doc in load_documents(client, collection_id)}
+        if collection_id is not None
+        else {}
+    )
+    report.rotation = rotate(
+        space.key,
+        dated,
+        cohort=cohort or cohorts.current(space.key, conf),
+        settings=conf,
+    )
+    report.notes += report.rotation.notes
     return report

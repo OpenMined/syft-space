@@ -1,11 +1,10 @@
 """Shuffling the answer options.
 
-The position of the correct option used to be set by the generator model, and
-the distribution came out as anything but uniform: in the original the false
-statement of "two truths and a lie" stood at position C in 26 cases out of 26,
-and MCQ's guessing base turned out to be 0.60 instead of 0.25. A model always
-answering "C" got excellent accuracy on such a dataset while knowing nothing
-about the corpus.
+Left to the generator model, the position of the correct option comes out
+anything but uniform: the false statement of "two truths and a lie" can land
+at position C in 26 cases out of 26, and MCQ's guessing base can turn out to
+be 0.60 instead of 0.25. A model always answering "C" would get excellent
+accuracy on such a dataset while knowing nothing about the corpus.
 
 For the measurement this breaks the main thing: a correct answer in arm A has
 to mean that the corpus is known to the model — whereas it would mean a match

@@ -44,7 +44,9 @@ from syft_benchmark.config import (
     DatasetMode,
     EvalBlock,
     JudgePolicy,
+    PairStatus,
     TextMetric,
+    Verdict,
 )
 from syft_benchmark.llm.catalog import ModelEntry
 
@@ -359,12 +361,30 @@ class RunRequest(BaseModel):
             "re-measurement is needed"
         ),
     )
+    filter: bool | None = Field(
+        default=None,
+        description=(
+            "Screen the pending pairs generation just built. None — follow "
+            "`generate`, so a launch that built a dataset also decides what "
+            "of it is fit. A launch that only wants to see the raw "
+            "candidates passes this `false` explicitly"
+        ),
+    )
     evaluate: bool | None = Field(
         default=None,
         description=(
             "Ask and grade after the dataset is built. None — yes. Turned off "
             "for a launch that only wants the question set refreshed: building "
             "it is cheap, asking a model about every item in it is not"
+        ),
+    )
+    defer_judging: bool = Field(
+        default=False,
+        description=(
+            "Collect the answers without calling a judge, leaving every "
+            "verdict `pending` for the judge phase to grade afterwards. When "
+            "true, no card is built at the end of this launch either — "
+            "there is nothing gradable to build one from yet"
         ),
     )
     publish: bool = Field(
@@ -384,6 +404,122 @@ class RunRequest(BaseModel):
     )
 
 
+class FilterRequest(BaseModel):
+    """A request to screen this target's pending pairs now, on their own.
+
+    Unlike a `RunRequest` with `filter=true`, this never touches generation
+    — it screens whatever is already `pending`, however it got there.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    generator: str | None = Field(
+        default=None, description="Screen only this generator's pairs; empty — all"
+    )
+    cohort: str | None = Field(
+        default=None, description="Screen only this cohort; empty — all"
+    )
+    limit: int | None = Field(
+        default=None, ge=1, description="How many pending pairs to screen; empty — all"
+    )
+
+
+class JudgeRequest(BaseModel):
+    """A request to grade this target's pending verdicts now, on their own."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int | None = Field(
+        default=None, ge=1, description="How many pending answers to grade; empty — all"
+    )
+
+
+class SessionView(BaseModel):
+    """A freshly minted console session: one target, until it expires."""
+
+    token: str
+    expires_at: datetime
+
+
+class PairResponse(BaseModel):
+    """One generated pair, as the console's Generation/Filtering review shows it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    generator: str
+    task_type: str
+    cohort: str
+    status: str
+    status_note: str
+    question: str
+    answer: str
+    context: str
+    expected_behavior: str
+    document_title: str
+    file_name: str
+    meta: dict[str, Any]
+    created_at: datetime
+    has_results: bool = Field(
+        description="Whether any Result points at this pair — deletable only if not"
+    )
+
+
+class PairPage(BaseModel):
+    """A page of pairs, and how many the filters match in total."""
+
+    items: list[PairResponse]
+    total: int
+
+
+class PairStatusUpdate(BaseModel):
+    """A manual override of one pair's status, by hand, whatever it is now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: PairStatus
+    note: str = Field(default="", description="Why, for the record")
+
+
+class ResultResponse(BaseModel):
+    """One verdict, as the console's Judging review shows it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    qa_id: str
+    question: str
+    answer: str
+    generator: str
+    verdict: str
+    reasoning: str
+    judge_model: str
+    context_mode: str
+    block: str
+    model: str
+    created_at: datetime
+    is_latest: bool = Field(
+        description="Whether this is the row every other reader treats as "
+        "the current verdict for its question"
+    )
+
+
+class ResultPage(BaseModel):
+    """A page of results, and how many the filters match in total."""
+
+    items: list[ResultResponse]
+    total: int
+
+
+class VerdictOverride(BaseModel):
+    """A manual verdict for one result, recorded as a new row, never a rewrite."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: Verdict
+    reasoning: str = Field(default="", description="Why, for the record")
+
+
 class JobView(BaseModel):
     """The state of a launch — what the owner watches while a measurement runs."""
 
@@ -393,6 +529,10 @@ class JobView(BaseModel):
     target: str
     state: str
     phase: str
+    # What operation this job is, as opposed to `phase` (where it is now). See
+    # `JobKind` — `pipeline` for the original uninterrupted run, one of the
+    # five phases on its own, or one of the two console-facing groups.
+    kind: str = "pipeline"
     # Runs: how many are finished out of how many. The full extent is not known
     # at once, and a zero in total means "still counting", not "nothing to do".
     done: int

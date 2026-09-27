@@ -2,8 +2,8 @@
 
 Two kinds pass through this service and neither is its own: the keys to the
 model providers, which cost money, and the Space tokens, which speak for their
-owner. Both used to sit in the environment, and the Space tokens in a plain text
-column — which put them in every dump, backup and replica.
+owner. Neither belongs in a plain-text column — that would put it in every
+dump, backup and replica.
 
 AES-256-GCM, with the credential's name as associated data. The name binds a
 ciphertext to its slot: without it, somebody who can write to the table but

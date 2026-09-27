@@ -9,6 +9,7 @@ reading as one that scored zero.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -25,6 +26,7 @@ from syft_space.components.benchmarks.handlers import BenchmarkHandler
 from syft_space.components.benchmarks.schemas import (
     ConnectionRequest,
     ConnectionSettings,
+    ProviderUrls,
     RunRequest,
     TargetRequest,
 )
@@ -72,6 +74,9 @@ class _Client:
         self.known_jobs: list[dict] = []
         self.known_next_run: str | None = None
         self.snapshots = 0
+        self.settings_values: dict[str, object] = {}
+        self.credentials: dict[str, str] = {}
+        self.console_calls: list[tuple[str, str, object, dict]] = []
 
     async def snapshot(self) -> SimpleNamespace:
         self.snapshots += 1
@@ -164,6 +169,60 @@ class _Client:
             )
         return Reply(ok=True, data={"models": [], "total": 0})
 
+    async def mint_session(self, key: str) -> Reply:
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        return Reply(
+            ok=True,
+            data={"token": f"token-for-{key}", "expires_at": "2026-09-24T18:00:00Z"},
+        )
+
+    async def get_settings(self) -> Reply:
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        return Reply(ok=True, data={"values": dict(self.settings_values)})
+
+    async def put_settings(self, values: dict) -> Reply:
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        self.settings_values.update(values)
+        return Reply(ok=True, data={"values": dict(self.settings_values)})
+
+    async def list_credentials(self) -> Reply:
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        return Reply(
+            ok=True,
+            data=[
+                {"name": name, "updated_at": "2026-09-24T18:00:00Z"}
+                for name in self.credentials
+            ],
+        )
+
+    async def put_credential(self, name: str, value: str) -> Reply:
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        self.credentials[name] = value
+        return Reply(ok=True)
+
+    async def delete_credential(self, name: str) -> Reply:
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        self.credentials.pop(name, None)
+        return Reply(ok=True)
+
+    async def raw(
+        self, method: str, path: str, *, body: object = None, params: dict | None = None
+    ) -> Reply:
+        self.console_calls.append((method, path, body, params or {}))
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        if method == "GET" and path in ("/console/pairs", "/console/results"):
+            return Reply(ok=True, data={"items": [], "total": 0})
+        if method == "DELETE":
+            return Reply(ok=True, data=None)
+        return Reply(ok=True, data={"ok": True})
+
 
 def _handler(
     client: _Client | None = None,
@@ -217,6 +276,7 @@ def _handler(
         settings_repository=settings_repo,
     )
     handler._client = lambda connection: talker  # type: ignore[method-assign]
+    handler._console_client = lambda connection, token: talker  # type: ignore[method-assign]
     return handler, talker
 
 
@@ -427,17 +487,109 @@ async def test_a_run_is_started_against_settings_the_benchmark_has_been_told() -
     handler, client = _handler(connections=[row], target=target)
     await handler.start_run(TENANT, "support-kb", RunRequest(limit=2))
     assert client.targets["support-kb"]["probe"] == {"retrieval_top_k": 5}
-    assert client.runs == [("support-kb", {"publish": True, "limit": 2})]
+    assert client.runs == [
+        ("support-kb", {"publish": True, "limit": 2, "defer_judging": False})
+    ]
+
+
+# --- the console session ------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_an_endpoint_layer_cannot_carry_the_instrument() -> None:
-    """Judges and thresholds are what the card declares in ``instrument``.
+async def test_a_console_session_is_a_link_into_the_stored_connection_url() -> None:
+    """The Space hands back a ready-to-open link, not the token on its own."""
+    row = _connection(url="http://benchmark:8200")
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, _ = _handler(connections=[row], target=target)
+    session = await handler.start_console_session(TENANT, "support-kb")
+    assert session.url == "http://benchmark:8200/ui/?token=token-for-support-kb"
 
-    Letting one endpoint use different ones would make two endpoints of the
-    same Space quietly incomparable while the card still promised otherwise.
-    """
-    assert "instrument" not in TargetRequest.model_fields
+
+@pytest.mark.asyncio
+async def test_a_paused_endpoint_gets_no_console_session_either() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id,
+        endpoint_id=ENDPOINT_ID,
+        connection_id=row.id,
+        enabled=False,
+    )
+    handler, _ = _handler(connections=[row], target=target)
+    with pytest.raises(HTTPException) as refused:
+        await handler.start_console_session(TENANT, "support-kb")
+    assert refused.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_a_benchmark_that_is_down_refuses_a_console_session_cleanly() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, _ = _handler(
+        client=_Client(reachable=False), connections=[row], target=target
+    )
+    with pytest.raises(HTTPException) as refused:
+        await handler.start_console_session(TENANT, "support-kb")
+    assert refused.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_measuring_needs_a_benchmark_to_be_connected_before_a_session_too() -> (
+    None
+):
+    handler, _ = _handler(connections=[])
+    with pytest.raises(HTTPException) as refused:
+        await handler.start_console_session(TENANT, "support-kb")
+    assert refused.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_the_endpoint_layer_lies_on_top_of_the_space_wide_instrument() -> None:
+    """Same rule as ``probe``: the nearer layer wins, the rest still applies."""
+    row = _connection(
+        instrument={"judge_model": "gemma3-4b-gpu", "arms": ["open_book"]}
+    )
+    handler, client = _handler(connections=[row])
+    await handler.save_target(
+        TENANT, "support-kb", TargetRequest(instrument={"judge_model": "gpt-4o"})
+    )
+    sent = client.targets["support-kb"]["instrument"]
+    assert sent == {"judge_model": "gpt-4o", "arms": ["open_book"]}
+
+
+@pytest.mark.asyncio
+async def test_the_endpoint_instrument_round_trips_through_get_target() -> None:
+    row = _connection(instrument={"judge_model": "gemma3-4b-gpu"})
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id,
+        endpoint_id=ENDPOINT_ID,
+        connection_id=row.id,
+        instrument={"judge_model": "gpt-4o"},
+    )
+    handler, _ = _handler(connections=[row], target=target)
+    view = await handler.get_target(TENANT, "support-kb")
+    assert view.instrument == {"judge_model": "gpt-4o"}
+    assert view.connection_instrument == {"judge_model": "gemma3-4b-gpu"}
+
+
+@pytest.mark.asyncio
+async def test_the_endpoint_page_gets_the_connections_capabilities_too() -> None:
+    """So it can list the generators without a second request."""
+    # A recent checked_at, or _if_stale asks the (fake) benchmark afresh and
+    # overwrites capabilities with whatever snapshot() answers instead.
+    row = _connection(
+        capabilities={"generators": ["mcq", "qa"]},
+        checked_at=datetime.now(timezone.utc),
+    )
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, _ = _handler(connections=[row], target=target)
+    view = await handler.get_target(TENANT, "support-kb")
+    assert view.capabilities["generators"] == ["mcq", "qa"]
 
 
 # --- job history -------------------------------------------------------------
@@ -721,3 +873,189 @@ async def test_a_benchmark_that_is_down_leaves_the_page_standing() -> None:
     # reason to say so on the page, not to forget how it is configured.
     assert listed[0].fields["instrument"][0]["name"] == "judge_models"
     assert listed[0].reachable is False
+
+
+# --- the model providers ------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_provider_view_pairs_the_url_override_with_the_key_presence() -> None:
+    row = _connection(defaults={"subject_url": "http://localhost:11434"})
+    client = _Client()
+    client.settings_values = {"subject_url": "https://openrouter.ai/api/v1"}
+    client.credentials = {"subject_key": "sealed-already"}
+    handler, _ = _handler(client=client, connections=[row])
+
+    view = await handler.get_provider(TENANT, row.id)
+
+    assert view.subject.url == "https://openrouter.ai/api/v1"
+    assert view.subject.url_default == "http://localhost:11434"
+    assert view.subject.key_set is True
+    assert view.generator.key_set is False
+
+
+@pytest.mark.asyncio
+async def test_saving_provider_urls_reaches_the_benchmarks_settings() -> None:
+    row = _connection()
+    handler, client = _handler(connections=[row])
+
+    await handler.save_provider(
+        TENANT, row.id, ProviderUrls(subject_url="https://openrouter.ai/api/v1")
+    )
+
+    assert client.settings_values["subject_url"] == "https://openrouter.ai/api/v1"
+
+
+@pytest.mark.asyncio
+async def test_a_provider_key_is_sent_sealed_and_never_read_back() -> None:
+    row = _connection()
+    handler, client = _handler(connections=[row])
+
+    view = await handler.save_provider_credential(
+        TENANT, row.id, "subject_key", "sk-live-something"
+    )
+
+    assert client.credentials["subject_key"] == "sk-live-something"
+    assert view.subject.key_set is True
+    assert "sk-live-something" not in view.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_credential_name_is_refused_before_it_reaches_the_benchmark() -> (
+    None
+):
+    row = _connection()
+    handler, client = _handler(connections=[row])
+
+    with pytest.raises(HTTPException) as refused:
+        await handler.save_provider_credential(TENANT, row.id, "database_url", "x")
+
+    assert refused.value.status_code == 404
+    assert client.credentials == {}
+
+
+@pytest.mark.asyncio
+async def test_clearing_a_provider_key_falls_back_to_the_shared_default() -> None:
+    row = _connection()
+    client = _Client()
+    client.credentials = {"judge_key": "sk-old"}
+    handler, _ = _handler(client=client, connections=[row])
+
+    view = await handler.delete_provider_credential(TENANT, row.id, "judge_key")
+
+    assert "judge_key" not in client.credentials
+    assert view.judge.key_set is False
+
+
+# --- the console, embedded ----------------------------------------------------
+
+
+def test_the_console_client_reaches_the_benchmark_by_its_own_address() -> None:
+    """Never `console_url`: that address is for a browser to open directly,
+    and on a rig where the two run in separate containers it is not reachable
+    from this backend's own process — `url` is what every other call in this
+    file already uses to reach the benchmark, and this one is no different.
+    """
+    handler = BenchmarkHandler(None, None, None, None, None)  # type: ignore[arg-type]
+    row = _connection(url="http://benchmark:8200", console_url="http://localhost:8200")
+
+    client = handler._console_client(row, "session-token")
+
+    assert client.url == "http://benchmark:8200"
+
+
+@pytest.mark.asyncio
+async def test_listing_pairs_mints_a_session_scoped_to_this_target() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+
+    await handler.list_pairs(TENANT, "support-kb", {"status": "pending"})
+
+    assert client.console_calls == [
+        ("GET", "/console/pairs", None, {"status": "pending"})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_pair_proxies_through_the_console() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+
+    await handler.delete_pair(TENANT, "support-kb", "pair-1")
+
+    assert client.console_calls == [("DELETE", "/console/pairs/pair-1", None, {})]
+
+
+@pytest.mark.asyncio
+async def test_filtering_a_paused_endpoint_is_refused_like_starting_a_run() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id,
+        endpoint_id=ENDPOINT_ID,
+        connection_id=row.id,
+        enabled=False,
+    )
+    handler, client = _handler(connections=[row], target=target)
+
+    with pytest.raises(HTTPException) as refused:
+        await handler.run_filter(TENANT, "support-kb", {})
+
+    assert refused.value.status_code == 409
+    assert client.console_calls == []
+
+
+@pytest.mark.asyncio
+async def test_overriding_a_verdict_proxies_the_body_untouched() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+
+    await handler.override_verdict(
+        TENANT, "support-kb", "result-1", {"verdict": "correct", "reasoning": "checked"}
+    )
+
+    assert client.console_calls == [
+        (
+            "POST",
+            "/console/results/result-1/verdict",
+            {"verdict": "correct", "reasoning": "checked"},
+            {},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_retracting_the_report_proxies_through_the_console_too() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+
+    await handler.retract_report(TENANT, "support-kb")
+
+    assert client.console_calls == [("POST", "/console/retract", None, {})]
+
+
+@pytest.mark.asyncio
+async def test_a_console_call_a_paused_benchmark_refuses_surfaces_as_502() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, _ = _handler(
+        client=_Client(reachable=False), connections=[row], target=target
+    )
+
+    with pytest.raises(HTTPException) as refused:
+        await handler.list_results(TENANT, "support-kb", {})
+
+    assert refused.value.status_code == 502

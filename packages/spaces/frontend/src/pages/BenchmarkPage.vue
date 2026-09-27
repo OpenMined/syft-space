@@ -52,6 +52,25 @@
         <div class="space-y-1.5">
           <Label for="bm-url">Benchmark URL</Label>
           <Input id="bm-url" v-model="form.url" placeholder="http://benchmark:8200" class="h-9" />
+          <p class="text-xs text-muted-foreground">
+            Where this Space reaches the benchmark's API. On a rig where the
+            two run in separate containers, this is a Docker-internal address.
+          </p>
+        </div>
+        <div class="space-y-1.5">
+          <Label for="bm-console-url">Console URL</Label>
+          <Input
+            id="bm-console-url"
+            v-model="form.console_url"
+            placeholder="Same as Benchmark URL"
+            class="h-9"
+          />
+          <p class="text-xs text-muted-foreground">
+            Where a browser reaches the console — fill this in only when it
+            differs from the Benchmark URL above, e.g. <code>http://localhost:8200</code>
+            for a published port that the address above cannot reach from
+            outside the containers.
+          </p>
         </div>
         <div class="space-y-1.5 sm:col-span-2">
           <Label for="bm-token">Control key</Label>
@@ -179,155 +198,72 @@
       </div>
     </section>
 
-    <!-- Who does the counting, and who is billed for it. Shown, never edited:
-         the key lives in that service's environment and does not leave it —
-         this Space never calls the provider, so a copy here would be a second
-         secret in a service that has no use for it. -->
-    <section v-if="provider && !connecting" class="border border-border/50 rounded-lg p-5">
-      <div class="flex items-start justify-between gap-4 flex-wrap">
-        <div class="space-y-1">
-          <h2 class="heading-3 text-foreground flex items-center gap-2">
-            <KeyRound class="h-5 w-5 text-muted-foreground" />
-            Models provider
-          </h2>
-          <p class="text-xs text-muted-foreground max-w-2xl">
-            The benchmark does the asking and the grading, so the bill lands
-            with whoever owns this key. It is set in that service's own
-            environment and is never sent here — this page can only tell you
-            whether there is one.
-          </p>
-        </div>
-        <span
-          class="text-xs px-2 py-1 rounded-md"
-          :class="
-            provider.key_set
-              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-              : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-          "
-        >
-          {{ provider.key_set ? 'Key is set' : 'No key' }}
-        </span>
-      </div>
-
-      <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-2 mt-4 text-xs">
-        <div class="flex justify-between gap-4 border-b border-border/30 py-1">
-          <dt class="text-muted-foreground">Endpoint</dt>
-          <dd class="text-foreground text-right break-all">{{ provider.url }}</dd>
-        </div>
-        <div class="flex justify-between gap-4 border-b border-border/30 py-1">
-          <dt class="text-muted-foreground">Identifies itself as</dt>
-          <dd class="text-foreground text-right">{{ provider.app_name || '—' }}</dd>
-        </div>
-      </dl>
-
-      <!-- Roles are listed one by one because each has its own address and key.
-           A single "the provider is X" can be plainly wrong: the question
-           writer usually has to stay inside the perimeter while the models
-           under test almost never do. -->
-      <div v-if="ownRoles.length" class="mt-4 space-y-1">
-        <p class="text-xs font-medium text-foreground">Roles with their own provider</p>
-        <p v-for="role in ownRoles" :key="role.role" class="text-xs text-muted-foreground">
-          {{ roleWords(role.role) }} — {{ role.url }}
-          <span v-if="!role.key_set"> · no key</span>
+    <!-- The provider: who does the asking and the grading, and who is billed
+         for it. Installation-wide rather than per endpoint — one benchmark
+         process has one environment — so an edit here changes the bill for
+         every Space that shares this benchmark, not only this one. -->
+    <section v-if="providerView && !connecting" class="border border-border/50 rounded-lg p-5 space-y-5">
+      <div>
+        <h2 class="heading-3 text-foreground flex items-center gap-2">
+          <KeyRound class="h-5 w-5 text-muted-foreground" />
+          Models provider
+        </h2>
+        <p class="text-xs text-muted-foreground mt-1 max-w-2xl">
+          The benchmark does the asking and the grading, so the bill lands
+          with whoever owns this key. Three roles, because each can point
+          at a different provider: the question writer usually has to stay
+          inside the perimeter, models under test almost never do.
         </p>
       </div>
 
       <div
         v-if="current?.capabilities.external_models"
-        class="mt-4 text-xs rounded-md px-3 py-2 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+        class="text-xs rounded-md px-3 py-2 bg-amber-500/10 text-amber-700 dark:text-amber-400"
       >
-        This installation may call models outside its own perimeter<span
-          v-if="provider.external_hosts.length"
-        >
-          — allowed: {{ provider.external_hosts.join(', ') }}</span
-        >. The question writer reads your documents, and questions often quote
-        them nearly verbatim.
+        This installation may call models outside its own perimeter. The
+        question writer reads your documents, and questions often quote them
+        nearly verbatim.
       </div>
 
-      <p class="mt-3 text-xs text-muted-foreground">
-        To change any of this, edit the benchmark service's environment and
-        restart it.
-      </p>
-    </section>
-
-    <!-- The Space-wide settings. Everything here applies to every endpoint
-         this benchmark measures unless that endpoint says otherwise. -->
-    <section v-if="current && !connecting" class="border border-border/50 rounded-lg p-5 space-y-5">
-      <div>
-        <h2 class="heading-3 text-foreground">How it measures</h2>
-        <p class="text-xs text-muted-foreground mt-1 max-w-2xl">
-          One setting for the whole Space. Anything left at its default is
-          decided by the benchmark, and a benchmark that changes its default
-          changes it here too — which is the point: these are the settings you
-          overrode, not a copy of everything.
-        </p>
-      </div>
-
-      <div v-if="!hasFields" class="text-xs text-muted-foreground">
-        The benchmark has not described its settings yet. Check the connection
-        above; until it answers, there is nothing to draw a form from.
-      </div>
-
-      <template v-else>
-        <div class="border-b border-border/50 pb-1">
-          <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            The instrument
-          </p>
-          <p class="text-xs text-muted-foreground mt-1 max-w-2xl mb-2">
-            Judges, arms and thresholds. Deliberately not settable per endpoint:
-            a card declares the instrument it was measured with, and two
-            endpoints graded differently would be quietly incomparable while the
-            card still promised otherwise.
-          </p>
-        </div>
-        <LayerForm
-          v-model="instrument"
-          :fields="current.fields.instrument ?? []"
-          :inherited="current.defaults.instrument ?? {}"
-          :connection-id="current.id"
+      <div class="space-y-4">
+        <ProviderRow
+          v-for="role in providerRoles"
+          :key="role.key"
+          :label="role.label"
+          :help="role.help"
+          v-model:url="providerForm[role.key].url"
+          :url-default="providerView[role.key].url_default"
+          :key-set="providerView[role.key].key_set"
+          :busy="providerBusy === role.key"
+          @save-key="(value) => saveProviderKey(role.key, value)"
+          @clear-key="clearProviderKey(role.key)"
         />
+      </div>
 
-        <div class="border-b border-border/50 pb-1 pt-2">
-          <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Questioning a node
-          </p>
-          <p class="text-xs text-muted-foreground mt-1 max-w-2xl mb-2">
-            The starting point for every endpoint. Any of these can be set
-            differently on a single endpoint, on its own Benchmark tab.
-          </p>
-        </div>
-        <LayerForm
-          v-model="probe"
-          :fields="current.fields.probe ?? []"
-          :inherited="current.defaults.probe ?? {}"
-          :connection-id="current.id"
-        />
-
-        <div class="flex items-center gap-3 pt-2">
-          <Button size="sm" :disabled="savingSettings" @click="saveSettings">
-            {{ savingSettings ? 'Saving…' : 'Save settings' }}
-          </Button>
-          <span v-if="dirty" class="text-xs text-muted-foreground">Unsaved changes</span>
-        </div>
-      </template>
+      <div class="flex items-center gap-2">
+        <Button size="sm" :disabled="savingProvider" @click="saveProviderUrls">
+          {{ savingProvider ? 'Saving…' : 'Save addresses' }}
+        </Button>
+        <span v-if="providerUrlsDirty" class="text-xs text-muted-foreground">Unsaved changes</span>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * Connecting a benchmark and saying how it should measure.
+ * Connecting a benchmark, and who it asks and grades with.
  *
  * The order on this page is the order of the decisions: **where is it**, then
- * **can it reach me**, then **how should it measure**. Whether a given endpoint
- * is measured at all is not decided here — that is a property of the endpoint
- * and lives on its own page, next to everything else about it.
+ * **can it reach me**, then **who does the counting**. How a measurement is
+ * actually built and run — generators, arms, judges — lives on each
+ * endpoint's own Benchmark tab now, next to that endpoint's own results.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { CheckCircle2, FlaskConical, KeyRound, Plus, TriangleAlert } from 'lucide-vue-next'
 
-import LayerForm from '@/components/benchmark/LayerForm.vue'
+import ProviderRow from '@/components/benchmark/ProviderRow.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -335,11 +271,10 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
 import { settingsApi } from '@/api/endpoints/settings'
-import type { BenchmarkConnection, BenchmarkLayer } from '@/api/types'
+import type { BenchmarkConnection, ProviderResponse, ProviderRole } from '@/api/types'
 
 const loading = ref(true)
 const saving = ref(false)
-const savingSettings = ref(false)
 const checking = ref(false)
 const connecting = ref(false)
 const editing = ref(false)
@@ -347,12 +282,10 @@ const editing = ref(false)
 const connections = ref<BenchmarkConnection[]>([])
 const current = computed(() => connections.value[0] ?? null)
 
-const instrument = ref<BenchmarkLayer>({})
-const probe = ref<BenchmarkLayer>({})
-
 const form = ref({
   name: '',
   url: '',
+  console_url: '',
   token: '',
   space_url: '',
   chroma_host: '',
@@ -361,48 +294,11 @@ const form = ref({
 })
 
 // Compared rather than flagged: a flag has to be cleared in every path that
-// saves, reloads or discards, and the one path somebody forgets is the one
-// that leaves "Unsaved changes" showing over saved settings.
-const stable = (layer: BenchmarkLayer): string =>
-  JSON.stringify(Object.fromEntries(Object.entries(layer).sort(([a], [b]) => a.localeCompare(b))))
-
-const dirty = computed(
-  () =>
-    stable(instrument.value) !== stable(current.value?.instrument ?? {}) ||
-    stable(probe.value) !== stable(current.value?.probe ?? {}),
-)
-
-const provider = computed(() => current.value?.capabilities?.provider ?? null)
-
-// Only the roles that were pointed somewhere of their own: listing all three
-// when they all inherit the same address would be three ways of saying one
-// thing.
-const ownRoles = computed(() => (provider.value?.roles ?? []).filter((role) => role.own))
-
-function roleWords(role: string): string {
-  switch (role) {
-    case 'generator':
-      return 'Question writer'
-    case 'subject':
-      return 'Models under test'
-    case 'judge':
-      return 'Graders'
-    default:
-      return role
-  }
-}
-
-const hasFields = computed(
-  () =>
-    (current.value?.fields?.instrument?.length ?? 0) > 0 ||
-    (current.value?.fields?.probe?.length ?? 0) > 0,
-)
-
 async function load() {
   loading.value = true
   try {
     connections.value = await benchmarksApi.listConnections()
-    adopt()
+    await loadProvider()
   } catch {
     toast.error('Could not read the benchmark settings')
   } finally {
@@ -410,9 +306,128 @@ async function load() {
   }
 }
 
-function adopt() {
-  instrument.value = { ...current.value?.instrument }
-  probe.value = { ...current.value?.probe }
+// --- the model providers ------------------------------------------------
+
+type ProviderKey = 'shared' | 'generator' | 'subject' | 'judge'
+
+const providerRoles: { key: ProviderKey; label: string; help: string }[] = [
+  {
+    key: 'shared',
+    label: 'Shared default',
+    help: 'Used by any role below left blank.',
+  },
+  {
+    key: 'generator',
+    label: 'Question writer',
+    help: 'Reads your documents to build questions — usually stays inside the perimeter.',
+  },
+  {
+    key: 'subject',
+    label: 'Models under test',
+    help: 'What the benchmark asks. Almost always external.',
+  },
+  {
+    key: 'judge',
+    label: 'Graders',
+    help: 'Must not share a provider with a model under test, or the grading is not independent.',
+  },
+]
+
+const providerView = ref<ProviderResponse | null>(null)
+const providerForm = reactive<Record<ProviderKey, { url: string }>>({
+  shared: { url: '' },
+  generator: { url: '' },
+  subject: { url: '' },
+  judge: { url: '' },
+})
+const savingProvider = ref(false)
+const providerBusy = ref<ProviderKey | null>(null)
+
+const providerUrlsDirty = computed(() => {
+  if (!providerView.value) return false
+  return providerRoles.some(
+    ({ key }) => providerForm[key].url !== providerView.value![key].url,
+  )
+})
+
+function adoptProvider(view: ProviderResponse) {
+  providerView.value = view
+  for (const { key } of providerRoles) {
+    providerForm[key].url = view[key].url
+  }
+}
+
+async function loadProvider() {
+  if (!current.value) {
+    providerView.value = null
+    return
+  }
+  try {
+    adoptProvider(await benchmarksApi.getProvider(current.value.id))
+  } catch {
+    providerView.value = null
+  }
+}
+
+async function saveProviderUrls() {
+  if (!current.value) return
+  savingProvider.value = true
+  try {
+    adoptProvider(
+      await benchmarksApi.saveProvider(current.value.id, {
+        ollama_url: providerForm.shared.url,
+        generator_url: providerForm.generator.url,
+        subject_url: providerForm.subject.url,
+        judge_url: providerForm.judge.url,
+      }),
+    )
+    toast.success('Saved')
+  } catch {
+    toast.error('Could not save those addresses')
+  } finally {
+    savingProvider.value = false
+  }
+}
+
+const PROVIDER_KEY_NAMES: Record<ProviderKey, string> = {
+  shared: 'llm_api_key',
+  generator: 'generator_key',
+  subject: 'subject_key',
+  judge: 'judge_key',
+}
+
+async function saveProviderKey(role: ProviderKey, value: string) {
+  if (!current.value) return
+  providerBusy.value = role
+  try {
+    adoptProvider(
+      await benchmarksApi.saveProviderCredential(
+        current.value.id,
+        PROVIDER_KEY_NAMES[role],
+        value,
+      ),
+    )
+    toast.success('Key stored')
+  } catch {
+    toast.error('Could not store that key')
+  } finally {
+    providerBusy.value = null
+  }
+}
+
+async function clearProviderKey(role: ProviderKey) {
+  if (!current.value) return
+  providerBusy.value = role
+  try {
+    adoptProvider(
+      await benchmarksApi.deleteProviderCredential(current.value.id, PROVIDER_KEY_NAMES[role]),
+    )
+    toast.success('Key cleared')
+  } catch {
+    toast.error('Could not clear that key')
+  } finally {
+    providerBusy.value = null
+  }
 }
 
 async function startConnecting() {
@@ -420,6 +435,7 @@ async function startConnecting() {
   form.value = {
     name: '',
     url: '',
+    console_url: '',
     token: '',
     // A sensible first guess at how the benchmark sees us, so the commonest
     // case needs no typing at all.
@@ -437,6 +453,7 @@ function startEditing() {
   form.value = {
     name: current.value.name,
     url: current.value.url,
+    console_url: current.value.console_url,
     // Never prefilled: the key is not sent to this form, and a blank box here
     // means "keep the stored one" rather than "clear it".
     token: '',
@@ -463,6 +480,7 @@ async function submit() {
     const body = {
       name: form.value.name,
       url: form.value.url,
+      console_url: form.value.console_url,
       space_url: form.value.space_url,
       chroma_host: form.value.chroma_host,
       chroma_port: form.value.chroma_port || 0,
@@ -497,24 +515,6 @@ async function check() {
     toast.error('Could not reach the benchmark')
   } finally {
     checking.value = false
-  }
-}
-
-async function saveSettings() {
-  if (!current.value) return
-  savingSettings.value = true
-  try {
-    const updated = await benchmarksApi.saveSettings(current.value.id, {
-      instrument: instrument.value,
-      probe: probe.value,
-    })
-    connections.value = connections.value.map((row) => (row.id === updated.id ? updated : row))
-    adopt()
-    toast.success('Settings saved and handed to the benchmark')
-  } catch {
-    toast.error('Could not save the settings')
-  } finally {
-    savingSettings.value = false
   }
 }
 

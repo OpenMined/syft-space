@@ -18,7 +18,7 @@ reach this route at all. See ``SettingsRepository.enable_benchmarks_if_untouched
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from syft_space.components.benchmarks.handlers import BenchmarkHandler
 from syft_space.components.benchmarks.schemas import (
@@ -27,7 +27,11 @@ from syft_space.components.benchmarks.schemas import (
     ConnectionResponse,
     ConnectionSettings,
     JobResponse,
+    ProviderCredential,
+    ProviderResponse,
+    ProviderUrls,
     RunRequest,
+    SessionResponse,
     TargetRequest,
     TargetResponse,
 )
@@ -172,6 +176,62 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         """
         return await handler.refresh_models(tenant, connection_id)
 
+    # --- the model providers -------------------------------------------------
+
+    @router.get(
+        "/connections/{connection_id}/provider", response_model=ProviderResponse
+    )
+    async def get_provider(
+        connection_id: UUID,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> ProviderResponse:
+        """The shared default provider, and the three role overrides."""
+        return await handler.get_provider(tenant, connection_id)
+
+    @router.put(
+        "/connections/{connection_id}/provider", response_model=ProviderResponse
+    )
+    async def save_provider(
+        connection_id: UUID,
+        urls: ProviderUrls,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> ProviderResponse:
+        """Change where each role's provider is reached. Keys are separate —
+        see the ``/provider/credentials/{name}`` routes."""
+        return await handler.save_provider(tenant, connection_id, urls)
+
+    @router.put(
+        "/connections/{connection_id}/provider/credentials/{name}",
+        response_model=ProviderResponse,
+    )
+    async def save_provider_credential(
+        connection_id: UUID,
+        name: str,
+        credential: ProviderCredential,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> ProviderResponse:
+        """Set one provider key, sealed on the benchmark's side. It never
+        travels back — only whether it is set."""
+        return await handler.save_provider_credential(
+            tenant, connection_id, name, credential.value
+        )
+
+    @router.delete(
+        "/connections/{connection_id}/provider/credentials/{name}",
+        response_model=ProviderResponse,
+    )
+    async def delete_provider_credential(
+        connection_id: UUID,
+        name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> ProviderResponse:
+        """Clear one provider key — that role falls back to the shared default."""
+        return await handler.delete_provider_credential(tenant, connection_id, name)
+
     # --- per endpoint ------------------------------------------------------
 
     @router.get("/endpoints/{slug}", response_model=TargetResponse)
@@ -228,6 +288,162 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
     ) -> JobResponse:
         """Measure now. 202: the work is accepted, not done — it takes hours."""
         return await handler.start_run(tenant, slug, request)
+
+    @router.post("/endpoints/{slug}/session", response_model=SessionResponse)
+    async def start_console_session(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> SessionResponse:
+        """Open the benchmark's own standalone console for this endpoint.
+
+        The routes below reach the same console API and return its data
+        directly, for this Space's own embedded view; this one instead
+        hands back a link, scoped to this one endpoint and good for an
+        hour, for opening the benchmark's console on its own.
+        """
+        return await handler.start_console_session(tenant, slug)
+
+    # --- the console, embedded: pairs, results, filtering, judging, report --
+
+    @router.get("/endpoints/{slug}/console/pairs")
+    async def list_pairs(
+        slug: str,
+        pair_status: str = Query(default="", alias="status"),
+        cohort: str = "",
+        generator: str = "",
+        limit: int = 0,
+        offset: int = 0,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """This endpoint's question/answer pairs, filterable and paged."""
+        return await handler.list_pairs(
+            tenant,
+            slug,
+            {
+                "status": pair_status,
+                "cohort": cohort,
+                "generator": generator,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+
+    @router.get("/endpoints/{slug}/console/pairs/{pair_id}")
+    async def get_pair(
+        slug: str,
+        pair_id: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """One pair in full — question, answer, context, status."""
+        return await handler.get_pair(tenant, slug, pair_id)
+
+    @router.patch("/endpoints/{slug}/console/pairs/{pair_id}")
+    async def update_pair(
+        slug: str,
+        pair_id: str,
+        body: dict,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """Override a pair's status by hand — ``{"status": ..., "note": ...}``."""
+        return await handler.update_pair(tenant, slug, pair_id, body)
+
+    @router.delete(
+        "/endpoints/{slug}/console/pairs/{pair_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def delete_pair(
+        slug: str,
+        pair_id: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> None:
+        """Remove a pair outright — refused if anything has measured it yet."""
+        await handler.delete_pair(tenant, slug, pair_id)
+
+    @router.post(
+        "/endpoints/{slug}/console/filter", status_code=status.HTTP_202_ACCEPTED
+    )
+    async def run_filter(
+        slug: str,
+        body: dict,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """Screen this endpoint's pending pairs, on their own, in one job."""
+        return await handler.run_filter(tenant, slug, body)
+
+    @router.get("/endpoints/{slug}/console/results")
+    async def list_results(
+        slug: str,
+        verdict: str = "",
+        qa_id: str = "",
+        limit: int = 0,
+        offset: int = 0,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """This endpoint's graded answers, filterable and paged."""
+        return await handler.list_results(
+            tenant,
+            slug,
+            {"verdict": verdict, "qa_id": qa_id, "limit": limit, "offset": offset},
+        )
+
+    @router.post("/endpoints/{slug}/console/results/{result_id}/verdict")
+    async def override_verdict(
+        slug: str,
+        result_id: str,
+        body: dict,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """Record a verdict by hand — inserted, never a rewrite of the last one."""
+        return await handler.override_verdict(tenant, slug, result_id, body)
+
+    @router.post(
+        "/endpoints/{slug}/console/judge", status_code=status.HTTP_202_ACCEPTED
+    )
+    async def run_judge(
+        slug: str,
+        body: dict,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """Grade this endpoint's pending verdicts, on their own, in one job."""
+        return await handler.run_judge(tenant, slug, body)
+
+    @router.post("/endpoints/{slug}/console/report")
+    async def build_report(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """Rebuild the card from what is active and graded right now."""
+        return await handler.build_report(tenant, slug)
+
+    @router.post("/endpoints/{slug}/console/publish")
+    async def publish_report(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """Hand the current card to the Space, from the endpoint's own review."""
+        return await handler.publish_report(tenant, slug)
+
+    @router.post(
+        "/endpoints/{slug}/console/retract", status_code=status.HTTP_204_NO_CONTENT
+    )
+    async def retract_report(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> None:
+        """Take the published card back."""
+        await handler.retract_report(tenant, slug)
 
     @router.get("/endpoints/{slug}/jobs", response_model=list[JobResponse])
     async def list_jobs(

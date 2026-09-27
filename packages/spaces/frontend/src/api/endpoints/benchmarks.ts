@@ -5,10 +5,20 @@ import type {
   BenchmarkConnectionRequest,
   BenchmarkJob,
   BenchmarkModelCatalog,
+  BenchmarkPair,
+  BenchmarkPairPage,
+  BenchmarkPairStatus,
+  BenchmarkReport,
+  BenchmarkResult,
+  BenchmarkResultPage,
   BenchmarkRunRequest,
+  BenchmarkSession,
   BenchmarkSettingsRequest,
   BenchmarkTarget,
   BenchmarkTargetRequest,
+  BenchmarkVerdict,
+  ProviderResponse,
+  ProviderUrls,
 } from '../types'
 
 export const benchmarksApi = {
@@ -50,6 +60,43 @@ export const benchmarksApi = {
 
   disconnect: async (id: string): Promise<void> => {
     await apiClient.delete(`/benchmarks/connections/${id}`)
+  },
+
+  // --- the model providers ---------------------------------------------------
+
+  getProvider: async (connectionId: string): Promise<ProviderResponse> => {
+    const response = await apiClient.get(`/benchmarks/connections/${connectionId}/provider`)
+    return response.data
+  },
+
+  saveProvider: async (connectionId: string, urls: ProviderUrls): Promise<ProviderResponse> => {
+    const response = await apiClient.put(
+      `/benchmarks/connections/${connectionId}/provider`,
+      urls,
+    )
+    return response.data
+  },
+
+  saveProviderCredential: async (
+    connectionId: string,
+    name: string,
+    value: string,
+  ): Promise<ProviderResponse> => {
+    const response = await apiClient.put(
+      `/benchmarks/connections/${connectionId}/provider/credentials/${name}`,
+      { value },
+    )
+    return response.data
+  },
+
+  deleteProviderCredential: async (
+    connectionId: string,
+    name: string,
+  ): Promise<ProviderResponse> => {
+    const response = await apiClient.delete(
+      `/benchmarks/connections/${connectionId}/provider/credentials/${name}`,
+    )
+    return response.data
   },
 
   // --- the model catalogue ---------------------------------------------------
@@ -108,5 +155,88 @@ export const benchmarksApi = {
 
   deleteJob: async (slug: string, jobId: string): Promise<void> => {
     await apiClient.delete(`/benchmarks/endpoints/${slug}/jobs/${jobId}`)
+  },
+
+  // --- the console, embedded: pairs, results, filtering, judging, report ---
+
+  listPairs: async (
+    slug: string,
+    filters: { status?: string; cohort?: string; generator?: string; limit?: number; offset?: number },
+  ): Promise<BenchmarkPairPage> => {
+    const response = await apiClient.get(`/benchmarks/endpoints/${slug}/console/pairs`, {
+      params: filters,
+    })
+    return response.data
+  },
+
+  updatePairStatus: async (
+    slug: string,
+    pairId: string,
+    status: BenchmarkPairStatus,
+    note = '',
+  ): Promise<BenchmarkPair> => {
+    const response = await apiClient.patch(
+      `/benchmarks/endpoints/${slug}/console/pairs/${pairId}`,
+      { status, note },
+    )
+    return response.data
+  },
+
+  deletePair: async (slug: string, pairId: string): Promise<void> => {
+    await apiClient.delete(`/benchmarks/endpoints/${slug}/console/pairs/${pairId}`)
+  },
+
+  runFilter: async (slug: string): Promise<BenchmarkJob> => {
+    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/console/filter`, {})
+    return response.data
+  },
+
+  listResults: async (
+    slug: string,
+    filters: { verdict?: string; qa_id?: string; limit?: number; offset?: number },
+  ): Promise<BenchmarkResultPage> => {
+    const response = await apiClient.get(`/benchmarks/endpoints/${slug}/console/results`, {
+      params: filters,
+    })
+    return response.data
+  },
+
+  overrideVerdict: async (
+    slug: string,
+    resultId: string,
+    verdict: BenchmarkVerdict,
+    reasoning = '',
+  ): Promise<BenchmarkResult> => {
+    const response = await apiClient.post(
+      `/benchmarks/endpoints/${slug}/console/results/${resultId}/verdict`,
+      { verdict, reasoning },
+    )
+    return response.data
+  },
+
+  runJudge: async (slug: string): Promise<BenchmarkJob> => {
+    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/console/judge`, {})
+    return response.data
+  },
+
+  buildReport: async (slug: string): Promise<BenchmarkReport> => {
+    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/console/report`)
+    return response.data
+  },
+
+  publishReport: async (slug: string): Promise<BenchmarkReport> => {
+    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/console/publish`)
+    return response.data
+  },
+
+  retractReport: async (slug: string): Promise<void> => {
+    await apiClient.post(`/benchmarks/endpoints/${slug}/console/retract`)
+  },
+
+  // A link into the benchmark's own console for this endpoint — generation,
+  // filtering, execution, judging and the report, all in one place.
+  openConsoleSession: async (slug: string): Promise<BenchmarkSession> => {
+    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/session`)
+    return response.data
   },
 }

@@ -21,7 +21,7 @@ from syft_benchmark.config import (
     Settings,
     SpaceConfig,
 )
-from syft_benchmark.publish import payload_for, publish
+from syft_benchmark.publish import owner_payload_for, payload_for, publish
 from syft_benchmark.report import Metrics
 from syft_benchmark.report.card import (
     ANSWERING,
@@ -263,6 +263,25 @@ def test_no_published_string_can_hold_a_sentence() -> None:
         assert isinstance(value, str), f"{path}: unexpected type {type(value)}"
         assert " " not in value, f"{path}: text ended up in the payload — {value!r}"
         assert len(value) <= 120, f"{path}: too long for an identifier"
+
+
+def test_the_owner_payload_adds_prose_the_public_one_must_never_carry() -> None:
+    """The console route is the one place `Trust.doubts` — full sentences —
+    is allowed to appear: it never leaves the owner's own Space, unlike
+    `payload_for`'s shape, which `test_no_published_string_can_hold_a_sentence`
+    holds to one word per leaf.
+    """
+    owner_payload = owner_payload_for(_card())
+
+    assert owner_payload["score_label"] == "correct"
+    assert owner_payload["trust"]["doubts"] == ["failed calls: 1"]
+    # Everything `payload_for` itself returns is still there, untouched.
+    public_payload = payload_for(_card())
+    for key, value in public_payload.items():
+        if key == "trust":
+            continue
+        assert owner_payload[key] == value
+    assert owner_payload["trust"]["flags"] == public_payload["trust"]["flags"]
 
 
 def test_a_card_without_verdicts_is_not_published() -> None:

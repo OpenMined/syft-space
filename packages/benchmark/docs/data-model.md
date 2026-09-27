@@ -1,6 +1,6 @@
 # The data schema
 
-Four tables for the measurement and two for the control API. Here: the design,
+Four tables for the measurement and three for the control API. Here: the design,
 and the decisions, each of which is entailed by the construction of the
 measurement rather than chosen out of taste.
 
@@ -151,9 +151,11 @@ the conditions for comparing two.
 * **`retrieval_hit` / `retrieval_rank`** — for `raw` mode this is the
   measurement itself: no model takes part, and "the accuracy of the answer"
   means whether the gold answer landed in the retrieval and in which position.
-* **`results.qa_id` with a cascade** — which is why an item cannot be deleted
-  without carrying off the history of measurements with it. Hence `retired`
-  instead of deletion.
+* **`results.qa_id` with a cascade** — a pair with results attached carries off
+  the history of measurements if it is deleted, so deletion is refused once any
+  `Result` references it; `retired` is the way out for such a pair. A `pending`
+  or `rejected` pair with no results behind it has nothing to lose and can be
+  deleted outright.
 
 ---
 
@@ -162,6 +164,10 @@ the conditions for comparing two.
 `targets` is the registry of nodes under test, `jobs` is the job queue and the
 jobs' states — both belong to the service (`serve`), not to the measurement
 itself; see [control-api.md](control-api.md).
+
+**`jobs.kind`** distinguishes a full pipeline run from a narrow one scoped to a
+single stage (`filter`, `judge`): a narrow job neither reads nor writes what a
+pipeline run's phase would, so the two cannot be told apart by `phase` alone.
 
 What a target stores is **overrides**, not the full set of settings: a full
 snapshot would freeze the installation's defaults as of the day the target was

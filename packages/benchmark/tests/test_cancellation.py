@@ -201,7 +201,8 @@ class _Built:
     """What generate_for_space gives back, reduced to what measure reads."""
 
     pairs_made = 0
-    pairs_active = 0
+    failures = 0
+    failure_sample = ""
 
 
 # --- within a pass ----------------------------------------------------------

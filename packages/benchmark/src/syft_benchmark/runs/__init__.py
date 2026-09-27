@@ -1,4 +1,4 @@
-"""Stages 2-4: the runs and judging."""
+"""Stages 3-4: the runs and judging."""
 
 from syft_benchmark.runs.blocks import (
     DENIAL_PHRASES,
@@ -40,6 +40,14 @@ from syft_benchmark.runs.judge import (
     grade_mcq,
     is_error,
 )
+from syft_benchmark.runs.judge_stage import (
+    JudgeSummary,
+    ResultView,
+    get_result,
+    judge_pending,
+    list_results,
+    override_verdict,
+)
 from syft_benchmark.runs.parallel import Pool, Progress, RunCache, Savings
 from syft_benchmark.runs.resume import done_units, window_start
 
@@ -61,9 +69,11 @@ __all__ = [
     "run_monte_carlo",
     "ENDPOINT_ARMS",
     "ERROR_PREFIX",
+    "JudgeSummary",
     "MODEL_ARMS",
     "Asked",
     "Grade",
+    "ResultView",
     "RunReport",
     "arm_blocker",
     "ask_endpoint",
@@ -74,11 +84,15 @@ __all__ = [
     "detect_abstain",
     "endpoint_mode",
     "endpoint_retriever",
+    "get_result",
     "grade",
     "grade_behavior",
     "grade_key_facts",
     "grade_mcq",
     "is_error",
+    "judge_pending",
+    "list_results",
+    "override_verdict",
     "pick_pairs",
     "run_pass",
     "with_context_prompt",

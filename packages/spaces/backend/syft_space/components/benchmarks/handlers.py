@@ -23,7 +23,7 @@ from loguru import logger
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from syft_space.components.benchmarks.client import BenchmarkClient, Snapshot
+from syft_space.components.benchmarks.client import BenchmarkClient, Reply, Snapshot
 from syft_space.components.benchmarks.entities import (
     BenchmarkConnection,
     BenchmarkTarget,
@@ -38,7 +38,11 @@ from syft_space.components.benchmarks.schemas import (
     ConnectionResponse,
     ConnectionSettings,
     JobResponse,
+    ProviderResponse,
+    ProviderRole,
+    ProviderUrls,
     RunRequest,
+    SessionResponse,
     TargetRequest,
     TargetResponse,
 )
@@ -59,6 +63,14 @@ from syft_space.components.tenants.entities import Tenant
 # morning misconfigured until tomorrow.
 SNAPSHOT_MAX_AGE = timedelta(hours=1)
 
+# The four secret slots a provider role can occupy on the benchmark, as
+# `config.py` names them there. Checked here too, ahead of the benchmark's own
+# refusal, so a typo in a route reads as "not a provider key" rather than
+# a raw 422 from a service the owner never sees directly.
+PROVIDER_KEY_NAMES = frozenset(
+    {"llm_api_key", "generator_key", "subject_key", "judge_key"}
+)
+
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
@@ -75,6 +87,25 @@ def _parsed(model: type[ModelT], data: Any) -> ModelT:
             status_code=502,
             detail=f"benchmark sent an unreadable {model.__name__}: {exc}",
         ) from exc
+
+
+def _console_dict(reply: Reply) -> dict[str, Any]:
+    """A console call's JSON body, or the refusal that stands in for it."""
+    if not reply.ok:
+        raise HTTPException(
+            status_code=reply.status if reply.status >= 400 else 502,
+            detail=reply.detail or "the benchmark's console did not answer",
+        )
+    return reply.data if isinstance(reply.data, dict) else {}
+
+
+def _console_empty(reply: Reply) -> None:
+    """A console call with nothing to return — a delete, a retraction."""
+    if not reply.ok:
+        raise HTTPException(
+            status_code=reply.status if reply.status >= 400 else 502,
+            detail=reply.detail or "the benchmark's console did not answer",
+        )
 
 
 class BenchmarkHandler:
@@ -137,6 +168,7 @@ class BenchmarkHandler:
             tenant_id=tenant.id,
             name=request.name,
             url=request.url,
+            console_url=request.console_url,
             token=request.token or "",
             space_url=request.space_url or await self._own_url(),
             chroma_host=request.chroma_host,
@@ -159,6 +191,7 @@ class BenchmarkHandler:
         row = await self._connection_or_404(tenant, connection_id)
         row.name = request.name
         row.url = request.url
+        row.console_url = request.console_url
         # The form was never told the key, so it cannot send it back. Without
         # this rule, renaming a connection would silently revoke its access.
         if request.token is not None:
@@ -252,6 +285,91 @@ class BenchmarkHandler:
             )
         return reply.data or {}
 
+    # --- the model providers -------------------------------------------------
+    #
+    # Installation-wide, not per connection: one benchmark process has one
+    # environment. An owner editing this from a Space it shares with others
+    # changes the bill for all of them — a deliberate trade against the
+    # alternative of a key nobody could ever enter from here at all.
+
+    async def get_provider(
+        self, tenant: Tenant, connection_id: UUID
+    ) -> ProviderResponse:
+        row = await self._connection_or_404(tenant, connection_id)
+        client = self._client(row)
+        settings_reply = await client.get_settings()
+        if not settings_reply.ok:
+            raise HTTPException(
+                status_code=502,
+                detail=settings_reply.detail or "the benchmark would not say",
+            )
+        values = (settings_reply.data or {}).get("values", {})
+        defaults = row.defaults or {}
+        secrets_reply = await client.list_credentials()
+        updated: dict[str, datetime] = {}
+        if secrets_reply.ok:
+            for item in secrets_reply.data or []:
+                updated[item["name"]] = item["updated_at"]
+
+        def role(url_field: str, key_field: str) -> ProviderRole:
+            return ProviderRole(
+                url=values.get(url_field, "") or "",
+                url_default=defaults.get(url_field, "") or "",
+                key_set=key_field in updated,
+                key_updated_at=updated.get(key_field),
+            )
+
+        return ProviderResponse(
+            shared=role("ollama_url", "llm_api_key"),
+            generator=role("generator_url", "generator_key"),
+            subject=role("subject_url", "subject_key"),
+            judge=role("judge_url", "judge_key"),
+        )
+
+    async def save_provider(
+        self, tenant: Tenant, connection_id: UUID, urls: ProviderUrls
+    ) -> ProviderResponse:
+        row = await self._connection_or_404(tenant, connection_id)
+        reply = await self._client(row).put_settings(urls.model_dump())
+        if not reply.ok:
+            raise HTTPException(
+                status_code=reply.status if reply.status >= 400 else 502,
+                detail=reply.detail or "the benchmark refused those addresses",
+            )
+        return await self.get_provider(tenant, connection_id)
+
+    async def save_provider_credential(
+        self, tenant: Tenant, connection_id: UUID, name: str, value: str
+    ) -> ProviderResponse:
+        if name not in PROVIDER_KEY_NAMES:
+            raise HTTPException(
+                status_code=404, detail=f"{name!r} is not a provider key"
+            )
+        row = await self._connection_or_404(tenant, connection_id)
+        reply = await self._client(row).put_credential(name, value)
+        if not reply.ok:
+            raise HTTPException(
+                status_code=reply.status if reply.status >= 400 else 502,
+                detail=reply.detail or "the benchmark refused that key",
+            )
+        return await self.get_provider(tenant, connection_id)
+
+    async def delete_provider_credential(
+        self, tenant: Tenant, connection_id: UUID, name: str
+    ) -> ProviderResponse:
+        if name not in PROVIDER_KEY_NAMES:
+            raise HTTPException(
+                status_code=404, detail=f"{name!r} is not a provider key"
+            )
+        row = await self._connection_or_404(tenant, connection_id)
+        reply = await self._client(row).delete_credential(name)
+        if not reply.ok:
+            raise HTTPException(
+                status_code=reply.status if reply.status >= 400 else 502,
+                detail=reply.detail or "the benchmark could not clear that key",
+            )
+        return await self.get_provider(tenant, connection_id)
+
     # --- targets -----------------------------------------------------------
 
     async def get_target(self, tenant: Tenant, slug: str) -> TargetResponse:
@@ -273,6 +391,8 @@ class BenchmarkHandler:
             out.fields = connection.fields or {}
             out.defaults = connection.defaults or {}
             out.connection_probe = connection.probe or {}
+            out.connection_instrument = connection.instrument or {}
+            out.capabilities = connection.capabilities or {}
             out.reachable = connection.reachable
             out.detail = connection.detail
         if target is None:
@@ -281,6 +401,7 @@ class BenchmarkHandler:
         out.enabled = target.enabled
         out.collection = target.collection
         out.probe = target.probe or {}
+        out.instrument = target.instrument or {}
         out.schedule = target.schedule
         out.schedule_at = target.schedule_at
         out.synced_at = target.synced_at
@@ -305,6 +426,7 @@ class BenchmarkHandler:
             target.enabled = request.enabled
             target.collection = request.collection
             target.probe = request.probe or None
+            target.instrument = request.instrument or None
             target.schedule = request.schedule
             target.schedule_at = request.schedule_at
             target.updated_at = datetime.now(timezone.utc)
@@ -388,6 +510,160 @@ class BenchmarkHandler:
         await self.targets.remember_job(target.id, job.model_dump(mode="json"))
         return job
 
+    async def start_console_session(self, tenant: Tenant, slug: str) -> SessionResponse:
+        """A link into the benchmark's own console for this one endpoint.
+
+        The benchmark mints the token — this Space never sees the installation
+        key that would let it mint one itself, and never validates the token
+        it hands back either; it only asks for one and appends it to the
+        address a browser can reach the console at. That is `console_url`
+        when the owner set one, and `url` otherwise: `url` is what THIS
+        backend calls the benchmark by, which on a rig where the two run in
+        separate containers is a Docker-internal hostname a browser on the
+        host cannot resolve.
+        """
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        target, connection = await self._pair_or_404(tenant, endpoint, slug)
+        if not target.enabled:
+            raise HTTPException(
+                status_code=409,
+                detail="Measuring is paused for this endpoint",
+            )
+        reply = await self._client(connection).mint_session(slug)
+        if not reply.ok:
+            raise HTTPException(
+                status_code=502,
+                detail=reply.detail or "the benchmark would not open a console session",
+            )
+        token = reply.data.get("token") if isinstance(reply.data, dict) else None
+        expires_at = (
+            reply.data.get("expires_at") if isinstance(reply.data, dict) else None
+        )
+        if not token or not expires_at:
+            raise HTTPException(
+                status_code=502,
+                detail="the benchmark sent an unreadable session",
+            )
+        base = connection.console_url or connection.url
+        return SessionResponse(
+            url=f"{base.rstrip('/')}/ui/?token={token}",
+            expires_at=expires_at,
+        )
+
+    async def _console(
+        self, connection: BenchmarkConnection, target_key: str
+    ) -> BenchmarkClient:
+        """A client authenticated with a session token scoped to one target.
+
+        Minted fresh for every call rather than cached: verifying it costs a
+        signature check on the benchmark's side, not a database row, so
+        there is nothing to gain by keeping one around and a stale one
+        served past its hour would only fail later, harder to explain.
+        """
+        reply = await self._client(connection).mint_session(target_key)
+        token = reply.data.get("token") if isinstance(reply.data, dict) else None
+        if not reply.ok or not token:
+            raise HTTPException(
+                status_code=502,
+                detail=reply.detail or "the benchmark would not open a console session",
+            )
+        return self._console_client(connection, token)
+
+    # --- the console: pairs, results, filtering, judging, the report -------
+    #
+    # Proxied through the session-token door the benchmark's own standalone
+    # console already opens through (`_console` above) — this Space's UI
+    # just never sends the owner's browser there itself. Passed through
+    # unshaped, by the same rule as `/schema`: naming every field here is the
+    # coupling that leaves this page unable to show something the benchmark
+    # already returns.
+
+    async def list_pairs(
+        self, tenant: Tenant, slug: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        return _console_dict(await console.raw("GET", "/console/pairs", params=query))
+
+    async def get_pair(self, tenant: Tenant, slug: str, pair_id: str) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        return _console_dict(await console.raw("GET", f"/console/pairs/{pair_id}"))
+
+    async def update_pair(
+        self, tenant: Tenant, slug: str, pair_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        reply = await console.raw("PATCH", f"/console/pairs/{pair_id}", body=body)
+        return _console_dict(reply)
+
+    async def delete_pair(self, tenant: Tenant, slug: str, pair_id: str) -> None:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        _console_empty(await console.raw("DELETE", f"/console/pairs/{pair_id}"))
+
+    async def run_filter(
+        self, tenant: Tenant, slug: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        target, connection = await self._pair_or_404(tenant, endpoint, slug)
+        if not target.enabled:
+            raise HTTPException(409, "Measuring is paused for this endpoint")
+        console = await self._console(connection, slug)
+        return _console_dict(await console.raw("POST", "/console/filter", body=body))
+
+    async def list_results(
+        self, tenant: Tenant, slug: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        return _console_dict(await console.raw("GET", "/console/results", params=query))
+
+    async def override_verdict(
+        self, tenant: Tenant, slug: str, result_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        reply = await console.raw(
+            "POST", f"/console/results/{result_id}/verdict", body=body
+        )
+        return _console_dict(reply)
+
+    async def run_judge(
+        self, tenant: Tenant, slug: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        target, connection = await self._pair_or_404(tenant, endpoint, slug)
+        if not target.enabled:
+            raise HTTPException(409, "Measuring is paused for this endpoint")
+        console = await self._console(connection, slug)
+        return _console_dict(await console.raw("POST", "/console/judge", body=body))
+
+    async def build_report(self, tenant: Tenant, slug: str) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        return _console_dict(await console.raw("POST", "/console/report"))
+
+    async def publish_report(self, tenant: Tenant, slug: str) -> dict[str, Any]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        return _console_dict(await console.raw("POST", "/console/publish"))
+
+    async def retract_report(self, tenant: Tenant, slug: str) -> None:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        _console_empty(await console.raw("POST", "/console/retract"))
+
     async def list_jobs(self, tenant: Tenant, slug: str) -> list[JobResponse]:
         endpoint = await self._endpoint_or_404(tenant, slug)
         target = await self.targets.for_endpoint(endpoint.id)
@@ -439,6 +715,17 @@ class BenchmarkHandler:
     def _client(self, connection: BenchmarkConnection) -> BenchmarkClient:
         return BenchmarkClient(connection.url, connection.token)
 
+    def _console_client(
+        self, connection: BenchmarkConnection, token: str
+    ) -> BenchmarkClient:
+        """A client for THIS backend's own calls to the console — never the
+        browser's. `console_url`, when the owner set one, is deliberately
+        not used here: it exists for `start_console_session` to hand a
+        browser a reachable address, and this process reaches the benchmark
+        the same way every other call in this file does, by `url`.
+        """
+        return BenchmarkClient(connection.url, token)
+
     async def _if_stale(self, row: BenchmarkConnection) -> BenchmarkConnection:
         """Refresh a description that has aged out, and never fail over it.
 
@@ -483,6 +770,7 @@ class BenchmarkHandler:
             id=row.id,
             name=row.name,
             url=row.url,
+            console_url=row.console_url,
             has_token=bool(row.token),
             space_url=row.space_url,
             chroma_host=row.chroma_host,
@@ -554,10 +842,13 @@ class BenchmarkHandler:
             "chroma_port": connection.chroma_port,
             "collection": target.collection
             or await self._collection_for(tenant, endpoint),
-            "instrument": connection.instrument or {},
             # Two layers flattened into one: the benchmark merges what it is
             # given over its own defaults, and the order between Space-wide and
             # per-endpoint is settled here, where both are known.
+            "instrument": {
+                **(connection.instrument or {}),
+                **(target.instrument or {}),
+            },
             "probe": {**(connection.probe or {}), **(target.probe or {})},
             "enabled": target.enabled,
             "schedule": target.schedule,

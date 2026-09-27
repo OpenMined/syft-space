@@ -92,31 +92,36 @@ shown, under its own name.
 | Layer | What | Where it is set |
 | --- | --- | --- |
 | Installation defaults | everything | the benchmark's own environment |
-| Instrument | arms, checks, judges, subject models, thresholds | once per Space |
+| Instrument | arms, checks, judges, subject models, thresholds | per Space, refined per endpoint |
 | Probe | dataset shape, search and answer limits | per Space, refined per endpoint |
 
 An unset field means *take it from the layer above*, never zero. Without that
 difference a settings form, opened and closed without a single edit, would zero
 the freshness window and the similarity threshold.
 
-**The instrument cannot be overridden on one endpoint.** It is what the card
-declares in `instrument`, and endpoints measured with the same one are exactly
-the endpoints that compare. Letting one endpoint use a different panel would
-make two endpoints of the same Space quietly incomparable while the card still
-promised otherwise.
+**An endpoint's own instrument overrides the Space-wide one**, the same way its
+probe already does — both are flattened here, on this side, before being
+handed to the benchmark as one document. The card declares the instrument
+each run actually used, so a reader comparing two cards can tell whether they
+were measured the same way rather than assuming it.
 
 ### The key that pays for it
 
 The benchmark does the asking and the grading, so the bill lands with whoever
-owns the model provider's key. The Benchmark page therefore shows which
-provider the installation uses, what it calls itself there, whether a key is
-set, and which hosts it is allowed to reach.
+owns the model provider's key. The Benchmark page lets the owner set an
+address and a key for each of the three roles — generator, subject, judge —
+plus the shared default any role left blank falls back to, proxied to the
+benchmark's own `PUT /settings` and `PUT/DELETE /credentials/{name}`.
 
-**The key itself never comes here — not as a value, and not into this Space's
-database.** A Space never calls the provider, so a copy of that secret would be
-extra exposure rather than convenience. The field is read-only: the provider is
-configured in the benchmark service's own environment, and changing it means
-editing that environment and restarting it.
+**A key, once set, is never read back — not as a value, and not stored in
+this Space's own database.** It travels straight through to the benchmark on
+the one call that sets it, sealed there; what this page keeps afterward is
+only whether one is set and since when, the same thing the benchmark's own
+`GET /credentials` says about itself. Because these four slots are
+installation-wide rather than per-connection, setting one from a Space that
+shares its benchmark with others changes the bill for all of them — a
+trade-off the owner accepts by using the field, not a technical restriction
+this page hides from him.
 
 Roles are listed one by one when they differ, because each has its own address
 and key. A single "the provider is X" can be plainly wrong: the question writer
@@ -138,9 +143,20 @@ ChromaDB would be asking him to know an implementation detail of his own Space.
 
 ### What the endpoint's page adds
 
-On the endpoint's **Benchmark** tab, above the card: whether anyone measures it,
-whether both roads work, what is happening right now, and — folded away, because
-most endpoints differ in nothing — what differs about this one.
+On the endpoint's **Benchmark** tab, above the card: whether anyone measures
+it, whether both roads work, and the whole measurement itself — generation,
+filtering, execution, judging and the report — each as its own collapsible
+block with its own settings, its own run button and its own results,
+embedded on this page rather than reached through a separate console. Two
+composite launches sit above the five: **Preparation** (generate, then
+filter) and **Testing** (execute, judge inline, and build the report).
+
+Every call this page makes for the five blocks is proxied: the Space mints a
+session token scoped to this one target and calls the benchmark's own
+`/console/*` routes with it, the same routes `packages/benchmark/frontend`
+calls directly from a browser holding the token itself — see
+[control-api.md](../../../benchmark/docs/control-api.md#the-console). The token
+never reaches this page's own browser; only the data it returns does.
 
 Pausing is not the same as stopping. Unticking keeps the settings and the
 history and stops new runs; taking the endpoint out removes it from the
@@ -228,10 +244,10 @@ the wording belongs to whoever renders them, in his reader's language. Known
 codes: `few_samples`, `judges_disagree`, `uneven_coverage`, `pending_verdicts`,
 `failed_calls`.
 
-**`instrument` is what makes comparison honest.** Endpoints measured by one
-benchmark installation share a grader, a panel and a list of subject models, and
-so compare with each other. Between two installations nothing is guaranteed — and
-a marketplace lists both.
+**`instrument` is what makes comparison honest.** It names the grader, the
+panel and the subject models the card was actually built with, so a reader
+comparing two cards — of two endpoints, or the same endpoint over time — can
+tell whether they were measured the same way rather than assuming it.
 
 ### What is refused
 

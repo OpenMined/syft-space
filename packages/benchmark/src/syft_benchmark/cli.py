@@ -37,6 +37,7 @@ from syft_benchmark.db.models import Result
 from syft_benchmark.generation import (
     GENERATORS,
     enabled_generators,
+    filter_and_rotate,
     generate_for_space,
     spacy_available,
 )
@@ -73,6 +74,7 @@ from syft_benchmark.runs import (
     arm_blocker,
     endpoint_mode,
     endpoint_retriever,
+    judge_pending,
     questionset,
     run_pass,
 )
@@ -692,22 +694,60 @@ def generate(
             collection=collection,
             limit=limit,
             settings=settings,
-            # Control questions are checked with the same retrieval that is
-            # later measured: "there is no answer" only means something
-            # relative to this endpoint, not to an abstract corpus.
-            retrieve=endpoint_retriever(target, settings),
             new_cohort=new_cohort,
             cohort_label=cohort_label,
         )
         typer.echo(
-            f"units {outcome.units_seen}, items {outcome.pairs_made} "
-            f"(usable {outcome.pairs_active}, rejected {outcome.pairs_rejected}), "
-            f"duplicates {outcome.duplicates}, failures {outcome.failures}"
+            f"units {outcome.units_seen}, items {outcome.pairs_made} pending"
+            + (" — run `filter` to screen them" if outcome.pairs_made else "")
+            + f", duplicates {outcome.duplicates}, failures {outcome.failures}"
         )
         for key, count in sorted(outcome.by_generator.items()):
             typer.echo(f"  {key:24} {count}")
         if outcome.cohort:
             typer.echo(f"  cohort {outcome.cohort}")
+        if outcome.rotation is not None:
+            typer.echo(f"  set: {outcome.rotation.line()}")
+        for note in outcome.notes[:10]:
+            typer.echo(f"  {note}")
+
+
+@app.command("filter")
+def filter_cmd(
+    space: SpaceKeys = None,
+    generator: Annotated[
+        str | None,
+        typer.Option("--generator", "-g", help="Screen only this generator's pairs"),
+    ] = None,
+    cohort: Annotated[
+        str | None, typer.Option("--cohort", help="Screen only this cohort")
+    ] = None,
+    limit: Annotated[
+        int | None,
+        typer.Option(help="How many pending pairs to screen; all by default"),
+    ] = None,
+) -> None:
+    """Stage 2: decide which pending pairs are fit to measure with.
+
+    Everything `generate` builds lands `pending`; this is what turns a
+    pending pair `active` or `rejected` — grounding for an ordinary item,
+    live retrieval for a control one. Only pending pairs are ever touched: an
+    existing verdict stands until the console overturns it by hand.
+    """
+    for node_conf, target in _targets(space):
+        outcome = filter_and_rotate(
+            target,
+            generator=generator,
+            cohort=cohort,
+            limit=limit,
+            settings=node_conf,
+            # "There is no answer" means something only relative to this
+            # endpoint, not to an abstract corpus, so the control gate is
+            # checked against this same endpoint's own retrieval.
+            retrieve=endpoint_retriever(target, node_conf),
+        )
+        typer.echo(f"--- {target.name}")
+        typer.echo(f"  {outcome.line()}")
         if outcome.rotation is not None:
             typer.echo(f"  set: {outcome.rotation.line()}")
         for note in outcome.notes[:10]:
@@ -762,7 +802,7 @@ def evaluate(
         ),
     ] = False,
 ) -> None:
-    """Stages 2-4: ask the questions and judge the answers.
+    """Stages 3-4: ask the questions and judge the answers.
 
     Without --mode every arm from the settings is taken, without --block every
     block. denial_loop applies to the arms where a model answers: it requires a
@@ -973,6 +1013,29 @@ def _evaluate_arm(
                 )
                 for note in outcome.notes:
                     typer.echo(f"    {note}")
+
+
+@app.command()
+def judge(
+    space: SpaceKeys = None,
+    limit: Annotated[
+        int | None,
+        typer.Option(help="How many pending answers to grade; all by default"),
+    ] = None,
+) -> None:
+    """Stage 4 on its own: grade the answers a deferred pass left pending.
+
+    `evaluate --defer-judging` records answers without calling a judge. This
+    is the other half: it grades what is pending, live, the same way
+    `export-judging`/`import-judging` do by hand — a new run per (arm,
+    source, block, model), a new result per verdict, nothing overwritten.
+    """
+    for node_conf, target in _targets(space):
+        outcome = judge_pending(target, limit=limit, settings=node_conf)
+        typer.echo(f"--- {target.name}")
+        typer.echo(f"  {outcome.line()}")
+        for note in outcome.notes:
+            typer.echo(f"  {note}")
 
 
 @app.command()

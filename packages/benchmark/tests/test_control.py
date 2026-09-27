@@ -798,3 +798,66 @@ def test_a_phase_that_writes_nothing_can_still_ask_whether_to_stop(clean: Any) -
 
     with session_scope() as session:
         session.execute(delete(Job).where(Job.id == "pytest-ask"))
+
+
+# --- the phase routes: filter, judge, report, publish, retract ---------------
+
+
+@needs_db
+def test_filter_and_judge_queue_a_job_of_their_own_kind(
+    client: TestClient, clean: Any
+) -> None:
+    """Unlike `/runs`, these never touch generation or evaluation."""
+    client.put(
+        f"/targets/{KEY}",
+        json=TargetSpec(key=KEY, url="http://space.invalid").model_dump(mode="json"),
+        headers=AUTH,
+    )
+
+    filtered = client.post(f"/targets/{KEY}/filter", json={}, headers=AUTH)
+    assert filtered.status_code == 202, filtered.text
+    assert filtered.json()["kind"] == "filter"
+
+    with session_scope() as session:
+        session.execute(delete(Job).where(Job.target == KEY))
+
+    judged = client.post(f"/targets/{KEY}/judge", json={}, headers=AUTH)
+    assert judged.status_code == 202, judged.text
+    assert judged.json()["kind"] == "judge"
+
+
+@needs_db
+def test_filter_is_refused_for_a_disabled_target(
+    client: TestClient, clean: Any
+) -> None:
+    spec = TargetSpec(key=KEY, url="http://space.invalid", enabled=False)
+    client.put(f"/targets/{KEY}", json=spec.model_dump(mode="json"), headers=AUTH)
+    refused = client.post(f"/targets/{KEY}/filter", json={}, headers=AUTH)
+    assert refused.status_code == 409
+
+
+@needs_db
+def test_report_with_nothing_graded_yet_is_a_conflict(
+    client: TestClient, clean: Any
+) -> None:
+    """There is nothing to fold into a card until something has been graded."""
+    client.put(
+        f"/targets/{KEY}",
+        json=TargetSpec(key=KEY, url="http://space.invalid").model_dump(mode="json"),
+        headers=AUTH,
+    )
+    assert client.post(f"/targets/{KEY}/report", headers=AUTH).status_code == 409
+    assert client.post(f"/targets/{KEY}/publish", headers=AUTH).status_code == 409
+
+
+@needs_db
+def test_retract_against_an_unreachable_space_is_a_bad_gateway(
+    client: TestClient, clean: Any
+) -> None:
+    """The Space at this URL cannot really be reached — retract must say so, not 200."""
+    client.put(
+        f"/targets/{KEY}",
+        json=TargetSpec(key=KEY, url="http://space.invalid").model_dump(mode="json"),
+        headers=AUTH,
+    )
+    assert client.post(f"/targets/{KEY}/retract", headers=AUTH).status_code == 502

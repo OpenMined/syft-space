@@ -3,7 +3,7 @@
 The benchmark can be driven from a console, or from the Space's UI. This
 document is about the second way: what the benchmark exposes, what it accepts
 and why it is like that. The measurement itself meanwhile goes the same way as
-the daily cycle — stages 1–8 in [README.md](README.md).
+the daily cycle — stages 1–9 in [README.md](README.md).
 
 ## Who decides what
 
@@ -36,7 +36,7 @@ There are some sixty-five settings, and they belong to different owners.
 | Layer | What is in it | Where it is set |
 | --- | --- | --- |
 | **Installation** | the defaults under everything: addresses, models, concurrency, thresholds | one row in this service's database — `PUT /settings` |
-| **Instrument** | arms, blocks, judges, models under test, thresholds | one per Space |
+| **Instrument** | arms, blocks, judges, models under test, thresholds | per Space, and optionally per individual node — see below |
 | **Probe** | set mode, window, generators, `top_k`, similarity threshold | per Space and per individual node |
 
 All three are rows in this service's database. A value that can be written in
@@ -82,11 +82,13 @@ node.
 distinction a settings form opened and closed without a single edit would zero
 out the freshness window and the similarity threshold.
 
-**The instrument is not overridden on an individual node.** The card declares
-it in the `instrument` block, and the endpoints that can be compared with one
-another are exactly those whose instrument matched; allowing the judge to be
-changed on one node would mean quietly making two nodes non-comparable while
-leaving a promise of the opposite in their cards.
+**`target.instrument` carries a per-node override, the same way `target.probe`
+does** — `compose.py` merges it over the connection's own instrument with more
+authority, before either reaches the installation's defaults. Nothing here
+enforces that every node of one Space share an instrument; the card declares
+the instrument each run actually used, in its own `instrument` block, so a
+reader can always tell whether two cards are comparable rather than assuming
+they must be.
 
 ## A key is mandatory
 
@@ -216,7 +218,13 @@ reason of their own.
 | `GET /targets` | All registered targets as a list |
 | `GET/PUT/DELETE /targets/{key}` | One target: read, create or amend, remove |
 | `POST /targets/{key}/check` | Are the index, the node and every configured model reachable |
-| `POST /targets/{key}/runs` | Put a measurement in the queue |
+| `POST /targets/{key}/runs` | Put a measurement in the queue — any combination of building the set, filtering it and evaluating it, in one job |
+| `POST /targets/{key}/filter` | Screen this node's pending pairs on their own, in a job of their own |
+| `POST /targets/{key}/judge` | Grade this node's pending verdicts on their own, in a job of their own |
+| `POST /targets/{key}/report` | Rebuild the card from what is active and graded right now — synchronous, no job |
+| `POST /targets/{key}/publish` | Build the current card and hand it to the Space — synchronous |
+| `POST /targets/{key}/retract` | Retract the published card through the Space — synchronous |
+| `POST /targets/{key}/session` | Mint a short-lived, single-target token for the console — see [The console](#the-console) |
 | `GET /targets/{key}/jobs` | The node's measurement history |
 | `GET /jobs/{id}` | One job: its state, progress and card |
 | `POST /jobs/{id}/cancel` | Stop a queued or running job |
@@ -277,6 +285,65 @@ Models this rig has pulled itself are added live from Ollama and stand first in
 the list: they are inside the perimeter, which is where the generator belongs.
 They are asked for only when the shared address is an Ollama — a gateway has no
 such route.
+
+## The console
+
+Everything above is a door for a service that already holds
+`BENCH_CONTROL_TOKEN`. The session token this section describes opens a
+second, narrower door — scoped to one target — reached two ways: the Space's
+own UI mints one per request and proxies through it, so its owner reviews a
+target from the endpoint's own page without a browser ever holding the
+token; the benchmark's own frontend (`packages/benchmark/frontend`) instead
+hands the token straight to the browser, for reviewing a target without a
+Space in front of it at all.
+
+```mermaid
+sequenceDiagram
+    participant O as Owner's browser
+    participant Sp as Syft Space
+    participant B as Benchmark
+    O->>Sp: "open the console" for one endpoint
+    Sp->>B: POST /targets/{key}/session (with BENCH_CONTROL_TOKEN)
+    B-->>Sp: a signed, single-target token
+    Sp-->>O: the console's URL, token attached
+    O->>B: GET /ui, then every /console/* call with that token
+```
+
+A session token is a signed claim, not a database row — verifying it costs a
+signature check, not a query, and there is nothing to expire in a table. It
+names exactly one target and carries its own expiry (`control/session.py`);
+holding it grants that one target's data and controls, never the rest of the
+installation. `POST /targets/{key}/session` is itself one of the routes
+above, guarded the ordinary way — only something that already holds the
+installation's own token can mint one.
+
+Under that narrower guard, `/console/*` deliberately returns what the routes
+above never do — the text of a pair's question and answer, a result's
+reasoning — because a review screen with none of that would have nothing to
+show:
+
+| Route | What it does |
+| --- | --- |
+| `GET /console/pairs` | This target's pairs, filterable by status, cohort, generator |
+| `GET/PATCH/DELETE /console/pairs/{id}` | Read one pair; override its status by hand; remove it outright if nothing has measured it yet |
+| `GET /console/results` | This target's results, filterable by verdict or pair |
+| `POST /console/results/{id}/verdict` | Record a verdict by hand — inserted, never a rewrite |
+| `GET/PUT /console/probe` | This target's own probe layer, its fields, and what an unset field resolves to |
+| `POST /console/runs` / `/filter` / `/judge` | The same launches as the service routes, scoped to this one target |
+| `GET /console/jobs` | This target's job history |
+| `POST /console/report` / `/publish` / `/retract` | The same report actions as the service routes |
+
+`/console/probe` is deliberately narrower than `PUT /targets/{key}`: it
+changes only the probe layer, never the url, the credentials or the
+instrument. A per-target instrument override is set the same way probe's
+Space-wide layer is — through `PUT /targets/{key}`'s full spec, called by
+whoever assembles it — rather than through a session scoped to one target.
+
+`POST /console/report` carries two fields the service route and
+`/console/publish` do not: `score_label` and `trust.doubts` — the same
+reasons as `trust.flags`, spelled out in prose. Both stay behind the session
+token; a published card only ever carries the codes
+([owner_payload_for](../src/syft_benchmark/publish/space.py)).
 
 ## The model provider
 
@@ -385,23 +452,30 @@ while the report called the result accuracy. A thin sample is not hidden but
 named: the card carries `few_samples` in `trust.flags`, and the reader sees how
 many questions the numbers stand on.
 
-### Building the set and asking it questions are two different launches
+### Building the set, filtering it and asking it questions are separate steps
 
-`generate` and `evaluate` answer two different questions, and a launch chooses
-either or both:
+`generate`, `filter` and `evaluate` answer three different questions, and a
+launch chooses any combination of them:
 
 | Field | Answers |
 | --- | --- |
 | `generate` | Build the question set from the corpus before anything else? None — as configured on the target |
+| `filter` | Screen the pending pairs `generate` just built? None — follow `generate`, so a launch that built a set also decides what of it is fit |
 | `evaluate` | Ask and grade against the set that results? None — yes |
+| `defer_judging` | Collect answers without calling a judge, leaving every verdict `pending`? Default `false` |
 
-`evaluate: false` is the launch that only wants the set refreshed: it costs one
-pass over the corpus and nothing else — no model under test is asked a single
-question, so there is nothing to grade and no card. `job.total` stays `0`
-throughout it for exactly that reason: no passes were ever planned. The
-opposite, `generate: false, evaluate: true`, asks and grades against whatever
-is already in the set without rebuilding it first — the ordinary shape of a
-launch that wants to test, not to refresh.
+`evaluate: false` is the launch that only wants the set refreshed and
+screened: no model under test is asked a single question, so there is nothing
+to grade and no card, and `job.total` stays `0` for exactly that reason — no
+passes were ever planned. `generate: false, evaluate: true` asks and grades
+against whatever is already active in the set without rebuilding it first.
+`defer_judging: true` narrows that further to asking alone, leaving every
+verdict `pending` for `POST /targets/{key}/judge` to grade afterwards — the
+live equivalent of `export-judging`/`import-judging` ([05-judging.md](05-judging.md)).
+
+`POST /targets/{key}/filter` and `POST /targets/{key}/judge` run either step
+on its own, over whatever is already stored, without a fresh `generate` or
+`evaluate` alongside it.
 
 ### The card is not the same decision as publishing it
 
@@ -413,12 +487,19 @@ are already in the database, and withholding the one readable summary of a run
 until someone agrees to make it public would mean "how did this go" has no
 answer of its own.
 
-`publish` decides one thing only: whether the card is also handed to the Space
+`publish` on `POST /targets/{key}/runs` decides one thing only: whether the
+card built at the end of that run is also handed to the Space
 (`POST /endpoints/{slug}/quality`), from where it may reach a marketplace. A
 run with `publish: false`, or one the Space refused (`publish_refused`,
 `benchmarks_mode` off), still has its `card` — read it from `GET /jobs/{id}` or
-`GET /targets/{key}/jobs`, decide from it, and publish afterwards by launching
-a new run with `publish: true` against the same, unchanged dataset.
+`GET /targets/{key}/jobs`.
+
+Reviewing before publishing does not need a new run at all:
+`POST /targets/{key}/report` rebuilds the card synchronously from whatever is
+active and graded right now, `POST /targets/{key}/publish` hands the current
+card to the Space, and `POST /targets/{key}/retract` takes it back — three
+plain HTTP calls, none of them a queued job, since none of them asks a model
+or the node under test.
 
 `DELETE /jobs/{id}` discards a finished job — its own row, the runs it opened
 and their verdicts, card included. Not the question set: `qa_pairs` belongs to

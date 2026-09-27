@@ -94,7 +94,8 @@ a cascade: deleting a question means carrying off the history of measurements
 along with it — precisely the thing the benchmark is kept for. So what leaves
 is moved to `retired`: out of the measurement, not out of the database.
 Screening (`rejected`) is a different matter: it is a verdict on the gold
-answer, and such an item never comes back.
+answer, and automatic filtering never revisits it — a person can, by hand, if
+the verdict turns out wrong.
 
 **What returns returns for free.** A one-week window, shifting by a day, keeps
 six sevenths of yesterday's documents inside it. Building items over them again
@@ -339,7 +340,9 @@ It rests on three things:
   does not slide when `generate` adds new ones: the earlier ones stay in place,
   and tomorrow's run is comparable with today's;
 * **the composition of the set does not change between model runs**: `evaluate`
-  generates nothing, and the rolling set is recomputed only in `generate`.
+  neither generates nor filters, and the rolling set is recomputed only in
+  `generate` and in `filter` — the two steps that can change which pairs are
+  `active`.
 
 What this does NOT guarantee is a match between launches on different days if
 something changed in between: `generate` added items from a new generator,

@@ -15,8 +15,8 @@
     </h3>
     <p class="text-xs text-muted-foreground max-w-md mx-auto mb-4">
       <template v-if="hasBenchmark">
-        Nothing is grading this endpoint yet. Turn it on and the benchmark will build questions from
-        its index and ask them back.
+        Nothing is grading this endpoint yet. Turn it on to build a question set and start
+        measuring.
       </template>
       <template v-else>
         Measuring is a separate service, and this Space is not wired to one yet.
@@ -31,7 +31,7 @@
     </Button>
   </section>
 
-  <section v-else class="border border-border/50 rounded-lg p-5 space-y-5">
+  <section v-else class="border border-border/50 rounded-lg p-5 space-y-4">
     <div class="flex items-start justify-between gap-4 flex-wrap">
       <div class="space-y-1">
         <h2 class="heading-3 text-foreground flex items-center gap-2">
@@ -49,154 +49,9 @@
           </span>
         </p>
       </div>
-      <div class="flex items-center gap-2">
-        <Button variant="outline" size="sm" :disabled="checking" @click="check">
-          {{ checking ? 'Checking…' : 'Check access' }}
-        </Button>
-        <Button
-          v-if="running"
-          variant="outline"
-          size="sm"
-          class="text-destructive hover:text-destructive"
-          :disabled="cancelling"
-          @click="cancel"
-        >
-          <Square class="h-4 w-4 mr-1.5" />
-          {{ cancelling ? 'Stopping…' : 'Stop' }}
-        </Button>
-        <template v-else>
-          <Button
-            variant="outline"
-            size="sm"
-            :disabled="generating || starting || !target?.enabled"
-            @click="runGenerate"
-          >
-            <RefreshCw class="h-4 w-4 mr-1.5" />
-            {{ generating ? 'Building…' : 'Generate questions' }}
-          </Button>
-          <Button
-            size="sm"
-            :disabled="generating || starting || !target?.enabled"
-            @click="runEvaluate"
-          >
-            <Play class="h-4 w-4 mr-1.5" />
-            {{ starting ? 'Starting…' : limit ? 'Trial run' : 'Run test' }}
-          </Button>
-        </template>
-      </div>
-    </div>
-
-    <!-- Two actions rather than one because asking is the expensive half: it
-         calls a paid model once per question, per arm, per model under test.
-         A launch that only wanted a fresh set must not be charged for it. -->
-    <p v-if="!running" class="text-xs text-muted-foreground -mt-2">
-      <strong class="text-foreground">Generate questions</strong> builds the question set from the
-      index and nothing else — no model under test is asked anything, and there is no card.
-      <strong class="text-foreground">Run test</strong> asks the questions already in the set and
-      grades the answers; it never rebuilds the set itself, so run
-      <strong class="text-foreground">Generate questions</strong> first if the corpus has changed.
-    </p>
-
-    <!-- How much to ask for. Empty means the whole set; a number turns the run
-         into a trial. It caps both actions — chunks read per generator while
-         building, questions asked per generator while testing. Publishing is
-         a separate decision on top of testing: a thin sample is not hidden but
-         named on the card itself. -->
-    <div v-if="!running" class="flex flex-wrap items-end gap-4">
-      <div class="space-y-1.5">
-        <Label for="bm-limit" class="text-sm">Questions per generator</Label>
-        <Input
-          id="bm-limit"
-          v-model="limit"
-          type="number"
-          min="1"
-          placeholder="all of them"
-          class="h-9 w-44"
-        />
-      </div>
-      <label class="flex items-center gap-2 text-xs text-foreground pb-2.5 cursor-pointer">
-        <Checkbox v-model="publish" />
-        Publish the card when the test finishes
-      </label>
-      <p class="text-xs text-muted-foreground pb-2.5 max-w-md">
-        <template v-if="limit">
-          A trial: {{ limit }} per generator, for either button. Each generator is a separate skill,
-          so the cap is per generator rather than overall — a total cap would quietly drop whole
-          skills from the figures. A card published from so few questions carries that on its face.
-        </template>
-        <template v-else>
-          The whole set, every arm and check that is configured. Running the test this way takes
-          hours and costs money at the provider.
-        </template>
-      </p>
-    </div>
-
-    <!-- A run in flight. Two counts, because they are two different things:
-         passes are what the run is made of, questions are what a pass is made
-         of, and one bar for both would misreport both. -->
-    <div v-if="job" class="rounded-md bg-muted/40 px-4 py-3 space-y-2.5">
-      <div class="flex items-center justify-between gap-3 text-xs">
-        <span class="font-medium text-foreground">{{ stateWords(job) }}</span>
-        <span class="text-muted-foreground">
-          <template v-if="running && elapsed">{{ elapsed }} so far</template>
-          <template v-else-if="!running">{{ ago(job.finished_at ?? job.created_at) }}</template>
-        </span>
-      </div>
-
-      <!-- Passes: what the run is made of. -->
-      <div v-if="job.total" class="space-y-1">
-        <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>
-            Pass {{ Math.min(job.done + (running ? 1 : 0), job.total) }} of {{ job.total }}
-          </span>
-          <span v-if="job.arm">{{ armWords(job.arm) }}</span>
-        </div>
-        <div class="h-1.5 rounded-full bg-border overflow-hidden">
-          <div
-            class="h-full rounded-full transition-all"
-            :class="running ? 'bg-primary' : 'bg-muted-foreground/40'"
-            :style="{ width: passShare }"
-          />
-        </div>
-      </div>
-
-      <!-- Questions inside the pass that is running. -->
-      <div v-if="running && job.step_total" class="space-y-1">
-        <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>
-            {{ job.step_done }} of {{ job.step_total }} questions
-            <span v-if="job.block"> · {{ blockWords(job.block) }}</span>
-            <span v-if="job.model"> · {{ job.model }}</span>
-          </span>
-          <span v-if="stepLeft">≈ {{ stepLeft }} left in this pass</span>
-        </div>
-        <div class="h-1 rounded-full bg-border overflow-hidden">
-          <div
-            class="h-full rounded-full bg-primary/50 transition-all"
-            :style="{ width: stepShare }"
-          />
-        </div>
-      </div>
-
-      <p v-if="running && questionsTotal" class="text-xs text-muted-foreground">
-        {{ questionsDone }} of {{ questionsTotal }} questions overall. There is no estimate for the
-        whole run on purpose: a pass that pushes back, or repeats at several temperatures, costs
-        several times one that asks once, and a single average would be wrong in both directions.
-      </p>
-      <p
-        v-else-if="running && !job.total && job.phase !== 'generate'"
-        class="text-xs text-muted-foreground"
-      >
-        Working out what to run.
-      </p>
-      <p v-if="job.message" class="text-xs text-muted-foreground">{{ job.message }}</p>
-      <p
-        v-for="problem in problems"
-        :key="problem"
-        class="text-xs text-amber-700 dark:text-amber-400"
-      >
-        {{ runProblemWords(problem) }}
-      </p>
+      <Button variant="outline" size="sm" :disabled="checking" @click="check">
+        {{ checking ? 'Checking…' : 'Check access' }}
+      </Button>
     </div>
 
     <!-- What the benchmark found when it tried both roads. -->
@@ -213,87 +68,18 @@
       <p v-if="access.endpoint">
         Endpoint answers in <code>{{ access.response_type }}</code> mode.
       </p>
-      <p v-for="(code, arm) in access.blocked_arms" :key="arm">
-        Arm {{ arm }}: {{ blockedArmWords(code) }}
-      </p>
       <p v-for="problem in access.problems" :key="problem">{{ problem }}</p>
-      <div v-if="access.available.length" class="pt-1">
-        <span>Collections in the index: </span>
-        <button
-          v-for="name in access.available"
-          :key="name"
-          type="button"
-          class="underline underline-offset-2 mr-2"
-          @click="useCollection(name)"
-        >
-          {{ name }}
-        </button>
-      </div>
     </div>
 
-    <!-- Every past launch of this endpoint, generate-only ones included. This
-         is where "what actually happened" lives once a run is no longer the
-         one in progress — the box above only ever shows the latest. -->
-    <details v-if="history.length" class="group">
+    <details
+      class="group/settings"
+      :open="sections.settings"
+      @toggle="sections.settings = ($event.target as HTMLDetailsElement).open"
+    >
       <summary
         class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
       >
-        <ChevronRight class="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
-        Measurement history ({{ history.length }})
-      </summary>
-
-      <div class="pt-3 space-y-3">
-        <p class="text-xs text-muted-foreground max-w-2xl">
-          Every launch against this endpoint, whether it built the question set, tested it, or both.
-          Deleting one removes its own passes and verdicts — the question set itself belongs to the
-          endpoint, not to any one launch, and is not touched.
-        </p>
-        <ul class="divide-y divide-border/50">
-          <li
-            v-for="row in history"
-            :key="row.id"
-            class="py-2.5 flex items-start justify-between gap-3 text-xs"
-          >
-            <div class="space-y-0.5 min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-medium text-foreground">{{ stateWords(row) }}</span>
-                <span class="text-muted-foreground">· {{ historyKindWords(row) }}</span>
-                <span v-if="row.trigger === 'schedule'" class="text-muted-foreground">
-                  · scheduled
-                </span>
-              </div>
-              <p class="text-muted-foreground">
-                {{ ago(row.finished_at ?? row.created_at) }}
-              </p>
-              <p v-if="row.card" class="text-muted-foreground">
-                {{ cardSummaryWords(row.card) }}
-              </p>
-              <p v-else-if="row.message" class="text-muted-foreground">{{ row.message }}</p>
-              <p v-if="row.error" class="text-amber-700 dark:text-amber-400">{{ row.error }}</p>
-            </div>
-            <Button
-              v-if="settled(row)"
-              variant="ghost"
-              size="sm"
-              class="text-destructive hover:text-destructive shrink-0 h-7 w-7 p-0"
-              :disabled="deletingId === row.id"
-              :aria-label="`Delete this run (${ago(row.finished_at ?? row.created_at)})`"
-              @click="removeJob(row)"
-            >
-              <Trash2 class="h-3.5 w-3.5" />
-            </Button>
-          </li>
-        </ul>
-      </div>
-    </details>
-
-    <!-- What differs about this endpoint. Everything unset is inherited, and
-         the inherited value is shown rather than implied. -->
-    <details class="group">
-      <summary
-        class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
-      >
-        <ChevronRight class="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+        <ChevronRight class="h-3.5 w-3.5 transition-transform group-open/settings:rotate-90" />
         Settings for this endpoint
       </summary>
 
@@ -333,7 +119,7 @@
                 v-model="schedule"
                 class="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="">By hand, from here</option>
+                <option value="">By hand, below</option>
                 <option value="24h">Every day</option>
                 <option value="12h">Every 12 hours</option>
                 <option value="6h">Every 6 hours</option>
@@ -356,8 +142,7 @@
                 The step runs from the previous launch, not from an hour of the day.
               </template>
               <template v-else>
-                Nothing runs until you press Measure. A corpus that changes daily usually wants a
-                nightly run; one kept for reference, far less.
+                Nothing runs on a schedule. Start a phase below by hand.
               </template>
             </p>
             <p v-if="nextRun" class="text-xs text-muted-foreground">Next run {{ nextRun }}.</p>
@@ -367,30 +152,8 @@
           </div>
         </div>
 
-        <div v-if="probeFields.length" class="space-y-4">
-          <div class="border-b border-border/50 pb-1">
-            <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              What differs here
-            </p>
-            <p class="text-xs text-muted-foreground mt-1 max-w-2xl mb-2">
-              Anything left at its default follows the Space-wide setting. Judges, arms and
-              thresholds are not here on purpose: they are what the card declares, and two endpoints
-              graded differently would be quietly incomparable.
-            </p>
-          </div>
-          <!-- The probe names no models, so nothing here reaches the
-               catalogue. Passed anyway: which fields carry one is the
-               benchmark's to decide. -->
-          <LayerForm
-            v-model="probe"
-            :fields="probeFields"
-            :inherited="inheritedProbe"
-            :connection-id="target?.connection_id ?? ''"
-          />
-        </div>
-
         <div class="flex items-center gap-3">
-          <Button size="sm" :disabled="saving" @click="save">
+          <Button size="sm" :disabled="saving" @click="persistTarget">
             {{ saving ? 'Saving…' : 'Save' }}
           </Button>
           <Button
@@ -404,128 +167,397 @@
         </div>
       </div>
     </details>
+
+    <PhaseGroup
+      title="Preparation"
+      status="Generation, then filtering"
+      :action-label="preparationAction.label"
+      :action-disabled="preparationAction.disabled"
+      :action-destructive="preparationAction.destructive"
+      v-model:open="sections.preparation"
+      @action="preparationAction.run"
+    >
+      <PhaseBlock
+        title="Generation"
+        help="Builds new question/answer pairs from the corpus. Everything it builds lands pending — nothing here decides whether a pair is any good, that is Filtering's job."
+        :status="jobStateWords(generationJob)"
+        :progress="progressOf(generationJob)"
+        :action-label="generationAction.label"
+        :action-disabled="generationAction.disabled"
+        :action-destructive="generationAction.destructive"
+        v-model:open="sections.generation"
+        @action="generationAction.run"
+      >
+        <details
+          v-if="generatorKeys.length"
+          class="group/generators"
+          :open="sections.generators"
+          @toggle="sections.generators = ($event.target as HTMLDetailsElement).open"
+        >
+          <summary
+            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
+          >
+            <ChevronRight class="h-3.5 w-3.5 transition-transform group-open/generators:rotate-90" />
+            Generators ({{ enabledGeneratorCount }} of {{ generatorKeys.length }} enabled)
+          </summary>
+          <div class="pt-3 space-y-3">
+            <GeneratorToggles
+              v-model="disabledGenerators"
+              :generators="generatorKeys"
+              :inherited="inheritedDisabledGenerators"
+            />
+            <Button size="sm" :disabled="saving" @click="persistTarget">
+              {{ saving ? 'Saving…' : 'Save' }}
+            </Button>
+          </div>
+        </details>
+
+        <details
+          class="group/probe"
+          :open="sections.probe"
+          @toggle="sections.probe = ($event.target as HTMLDetailsElement).open"
+        >
+          <summary
+            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
+          >
+            <ChevronRight class="h-3.5 w-3.5 transition-transform group-open/probe:rotate-90" />
+            Dataset settings
+          </summary>
+          <div class="pt-3 space-y-3">
+            <LayerForm
+              v-model="probeForm"
+              :fields="fieldsFor('generation', 'probe')"
+              :inherited="inheritedProbe"
+              :connection-id="target?.connection_id ?? ''"
+            />
+            <LayerForm
+              v-model="instrumentForm"
+              :fields="fieldsFor('generation', 'instrument')"
+              :inherited="inheritedInstrument"
+              :connection-id="target?.connection_id ?? ''"
+            />
+            <Button size="sm" :disabled="saving" @click="persistTarget">
+              {{ saving ? 'Saving…' : 'Save' }}
+            </Button>
+          </div>
+        </details>
+        <PairList :slug="props.slug" :refresh-key="refreshKey" :generators="generatorKeys" />
+      </PhaseBlock>
+
+      <PhaseBlock
+        title="Filtering"
+        help="Screens pending pairs for grounding and, for control items, checks live retrieval again. Only pending pairs are touched automatically — overturn a verdict by hand below."
+        :status="jobStateWords(filterJob)"
+        :progress="progressOf(filterJob)"
+        :action-label="filteringAction.label"
+        :action-disabled="filteringAction.disabled"
+        :action-destructive="filteringAction.destructive"
+        v-model:open="sections.filtering"
+        @action="filteringAction.run"
+      >
+        <details
+          v-if="fieldsFor('filtering', 'instrument').length"
+          class="group/filterset"
+          :open="sections.filteringSettings"
+          @toggle="sections.filteringSettings = ($event.target as HTMLDetailsElement).open"
+        >
+          <summary
+            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
+          >
+            <ChevronRight
+              class="h-3.5 w-3.5 transition-transform group-open/filterset:rotate-90"
+            />
+            Filtering settings
+          </summary>
+          <div class="pt-3 space-y-3">
+            <LayerForm
+              v-model="instrumentForm"
+              :fields="fieldsFor('filtering', 'instrument')"
+              :inherited="inheritedInstrument"
+              :connection-id="target?.connection_id ?? ''"
+            />
+            <Button size="sm" :disabled="saving" @click="persistTarget">
+              {{ saving ? 'Saving…' : 'Save' }}
+            </Button>
+          </div>
+        </details>
+        <PairList
+          :slug="props.slug"
+          status="pending"
+          :refresh-key="refreshKey"
+          :generators="generatorKeys"
+        />
+      </PhaseBlock>
+    </PhaseGroup>
+
+    <PhaseGroup
+      title="Testing"
+      status="Execution, judging and the report"
+      :action-label="testingAction.label"
+      :action-disabled="testingAction.disabled"
+      :action-destructive="testingAction.destructive"
+      v-model:open="sections.testing"
+      @action="testingAction.run"
+    >
+      <PhaseBlock
+        title="Execution"
+        help="Asks the active questions. Run on its own, it defers judging so the Judging block has pending verdicts to grade — Testing above grades inline instead."
+        :status="jobStateWords(executionJob)"
+        :progress="progressOf(executionJob)"
+        :action-label="executionAction.label"
+        :action-disabled="executionAction.disabled"
+        :action-destructive="executionAction.destructive"
+        v-model:open="sections.execution"
+        @action="executionAction.run"
+      >
+        <details
+          class="group/instrument"
+          :open="sections.instrument"
+          @toggle="sections.instrument = ($event.target as HTMLDetailsElement).open"
+        >
+          <summary
+            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
+          >
+            <ChevronRight class="h-3.5 w-3.5 transition-transform group-open/instrument:rotate-90" />
+            Execution settings
+          </summary>
+          <div class="pt-3 space-y-3">
+            <LayerForm
+              v-model="probeForm"
+              :fields="fieldsFor('execution', 'probe')"
+              :inherited="inheritedProbe"
+              :connection-id="target?.connection_id ?? ''"
+            />
+            <LayerForm
+              v-model="instrumentForm"
+              :fields="fieldsFor('execution', 'instrument')"
+              :inherited="inheritedInstrument"
+              :connection-id="target?.connection_id ?? ''"
+            />
+            <Button size="sm" :disabled="saving" @click="persistTarget">
+              {{ saving ? 'Saving…' : 'Save' }}
+            </Button>
+          </div>
+        </details>
+        <p class="text-xs text-muted-foreground">
+          Answers are graded in the Judging block below, or reviewed on the target's published card
+          once Testing has run.
+        </p>
+        <ResultList :slug="props.slug" :refresh-key="refreshKey" :generators="generatorKeys" />
+      </PhaseBlock>
+
+      <PhaseBlock
+        title="Judging"
+        help="Grades pending verdicts — the ones Execution left ungraded. Never rewrites a verdict, only adds a new one; every reader already takes the freshest."
+        :status="jobStateWords(judgeJob)"
+        :progress="progressOf(judgeJob)"
+        :action-label="judgingAction.label"
+        :action-disabled="judgingAction.disabled"
+        :action-destructive="judgingAction.destructive"
+        v-model:open="sections.judging"
+        @action="judgingAction.run"
+      >
+        <details
+          v-if="fieldsFor('judging', 'instrument').length"
+          class="group/judgeset"
+          :open="sections.judgingSettings"
+          @toggle="sections.judgingSettings = ($event.target as HTMLDetailsElement).open"
+        >
+          <summary
+            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
+          >
+            <ChevronRight
+              class="h-3.5 w-3.5 transition-transform group-open/judgeset:rotate-90"
+            />
+            Judging settings
+          </summary>
+          <div class="pt-3 space-y-3">
+            <LayerForm
+              v-model="instrumentForm"
+              :fields="fieldsFor('judging', 'instrument')"
+              :inherited="inheritedInstrument"
+              :connection-id="target?.connection_id ?? ''"
+            />
+            <Button size="sm" :disabled="saving" @click="persistTarget">
+              {{ saving ? 'Saving…' : 'Save' }}
+            </Button>
+          </div>
+        </details>
+        <ResultList :slug="props.slug" :refresh-key="refreshKey" :generators="generatorKeys" />
+      </PhaseBlock>
+
+      <PhaseBlock
+        title="Report"
+        help="Builds the card from what is active and graded right now — no fresh run needed. Publishing is a separate, explicit step."
+        status=""
+        action-label="Build"
+        :action-disabled="reportLoading"
+        v-model:open="sections.report"
+        @action="doBuildReport"
+      >
+        <details
+          v-if="fieldsFor('report', 'instrument').length"
+          class="group/reportset"
+          :open="sections.reportSettings"
+          @toggle="sections.reportSettings = ($event.target as HTMLDetailsElement).open"
+        >
+          <summary
+            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
+          >
+            <ChevronRight
+              class="h-3.5 w-3.5 transition-transform group-open/reportset:rotate-90"
+            />
+            Report settings
+          </summary>
+          <div class="pt-3 space-y-3">
+            <LayerForm
+              v-model="instrumentForm"
+              :fields="fieldsFor('report', 'instrument')"
+              :inherited="inheritedInstrument"
+              :connection-id="target?.connection_id ?? ''"
+            />
+            <Button size="sm" :disabled="saving" @click="persistTarget">
+              {{ saving ? 'Saving…' : 'Save' }}
+            </Button>
+          </div>
+        </details>
+        <div v-if="report" class="space-y-4">
+          <ReportView :report="report" />
+          <div class="flex gap-2">
+            <Button size="sm" :disabled="reportLoading" @click="doPublish">Publish</Button>
+            <Button variant="outline" size="sm" :disabled="reportLoading" @click="doRetract">
+              Retract
+            </Button>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            Publishing sends only the aggregates above to the hub card — never a question, an
+            answer or corpus text.
+          </p>
+        </div>
+        <p v-else class="text-sm text-muted-foreground">Not built yet.</p>
+      </PhaseBlock>
+    </PhaseGroup>
   </section>
 </template>
 
 <script setup lang="ts">
 /**
- * Measuring one endpoint: whether, how, and go.
- *
- * This sits above the card on the endpoint's Benchmark tab, and the order is
- * the order of the owner's questions — is anyone measuring this, can they
- * reach it, what is happening right now, and only then what exactly differs
- * about it. The settings are folded away because most endpoints differ in
- * nothing, and a form nobody needs should not be the first thing on the page.
- *
- * While a run is going the job is polled. A measurement takes hours, so the
- * poll is slow on purpose: it is watching for a phase to change, not for a
- * number to tick.
+ * Measuring one endpoint, end to end: whether, when, and everything about
+ * how — generation, filtering, execution, judging, the report — embedded
+ * here rather than reached through a separate console.
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import {
-  CheckCircle2,
-  ChevronRight,
-  Gauge,
-  Play,
-  RefreshCw,
-  Square,
-  Trash2,
-  TriangleAlert,
-} from 'lucide-vue-next'
+import { CheckCircle2, ChevronRight, Gauge, Play, TriangleAlert } from 'lucide-vue-next'
 
+import { FIELD_PLACEMENT } from '@/components/benchmark/fieldPlacement'
+import GeneratorToggles from '@/components/benchmark/GeneratorToggles.vue'
 import LayerForm from '@/components/benchmark/LayerForm.vue'
-import {
-  armWords,
-  blockWords,
-  blockedArmWords,
-  runProblemWords,
-} from '@/components/benchmark/labels'
+import PairList from '@/components/benchmark/PairList.vue'
+import PhaseBlock from '@/components/benchmark/PhaseBlock.vue'
+import PhaseGroup from '@/components/benchmark/PhaseGroup.vue'
+import ReportView from '@/components/benchmark/ReportView.vue'
+import ResultList from '@/components/benchmark/ResultList.vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
+import { jobStateWords, useBenchmarkJobs } from '@/composables/useBenchmarkJobs'
+import { usePersistedSections } from '@/composables/usePersistedSections'
 import { apiErrorDetail } from '@/lib/errors'
 import { formatTimeAgo } from '@/lib/formatters'
 import type {
-  BenchmarkCard,
   BenchmarkCheck,
+  BenchmarkField,
   BenchmarkJob,
   BenchmarkLayer,
+  BenchmarkReport,
+  BenchmarkRunRequest,
   BenchmarkTarget,
 } from '@/api/types'
-
-// Five seconds. A run takes hours and its phases last minutes; polling faster
-// would be asking the benchmark a question whose answer cannot have changed.
-const POLL_MS = 5000
+import type { PhaseBlockKey } from '@/components/benchmark/fieldPlacement'
 
 const props = defineProps<{ slug: string }>()
-const emit = defineEmits<{ finished: [] }>()
+const emit = defineEmits<{ 'card-changed': [] }>()
 
 const router = useRouter()
 
+// Which collapsible sections the owner left open, remembered per endpoint
+// so a reload — or coming back tomorrow — does not fold everything again.
+const sections = usePersistedSections(`benchmark-console:${props.slug}`, {
+  settings: false,
+  preparation: false,
+  generation: false,
+  generators: false,
+  probe: false,
+  filtering: false,
+  filteringSettings: false,
+  testing: false,
+  execution: false,
+  instrument: false,
+  judging: false,
+  judgingSettings: false,
+  report: false,
+  reportSettings: false,
+})
+
 const loading = ref(true)
 const saving = ref(false)
-const starting = ref(false)
-const generating = ref(false)
 const checking = ref(false)
-const cancelling = ref(false)
-const deletingId = ref('')
 
 const target = ref<BenchmarkTarget | null>(null)
-const job = ref<BenchmarkJob | null>(null)
-// Every launch of this endpoint, newest first — `job` is only ever the first
-// of these, kept apart because the running box reads it every poll and the
-// history list does not need to re-render just because a step count ticked.
-const history = ref<BenchmarkJob[]>([])
 const access = ref<BenchmarkCheck | null>(null)
 
 const enabled = ref(true)
 const collection = ref('')
 const schedule = ref('')
 const scheduleAt = ref('')
-const probe = ref<BenchmarkLayer>({})
-
-// How many questions to ask. Empty means the whole set; a number makes the run a trial.
-const limit = ref<string>('')
-const publish = ref(true)
-
-// Pace baseline: when, and at which question, we first saw THIS pass.
-// Kept locally rather than taken from the job, because the question is not how
-// long the job has been going but how fast it is going right now: a pass under
-// pressure or with retries counts several times slower than usual, and an
-// average over the whole job would mislead in both directions.
-const paceKey = ref('')
-const paceFrom = ref(0)
-const paceAt = ref(0)
-const now = ref(Date.now())
-
-let timer: ReturnType<typeof setInterval> | null = null
-let clock: ReturnType<typeof setInterval> | null = null
+const probeForm = ref<BenchmarkLayer>({})
+const instrumentForm = ref<BenchmarkLayer>({})
 
 const hasBenchmark = computed(() => Boolean(target.value?.connection_id))
 
-// Mirrors JobState.final in the benchmark itself (packages/benchmark,
-// src/syft_benchmark/config.py): these three are the states a job never moves
-// out of again.
-//
-// Named as the terminal set rather than as the in-flight one on purpose. The
-// two mistakes are not symmetric: reading a live run as finished stops the
-// poll, freezes the progress the owner is watching and reports a failure that
-// did not happen, while reading a finished run as live only re-reads a row
-// that no longer changes.
-const TERMINAL_STATES = new Set<BenchmarkJob['state']>(['succeeded', 'failed', 'cancelled'])
+const inheritedProbe = computed<BenchmarkLayer>(() => ({
+  ...target.value?.defaults?.probe,
+  ...target.value?.connection_probe,
+}))
+const inheritedInstrument = computed<BenchmarkLayer>(() => ({
+  ...target.value?.defaults?.instrument,
+  ...target.value?.connection_instrument,
+}))
 
-/** Whether this run is over. A stamped end counts even if the state is new to us. */
-function settled(current: BenchmarkJob | null): boolean {
-  return Boolean(current && (TERMINAL_STATES.has(current.state) || current.finished_at))
+// --- generators ------------------------------------------------------------
+
+const generatorKeys = computed(() => target.value?.capabilities?.generators ?? [])
+
+/** A layer's fields belonging to one phase block — see fieldPlacement.ts. */
+function fieldsFor(block: PhaseBlockKey, layer: 'probe' | 'instrument'): BenchmarkField[] {
+  const names: readonly string[] = FIELD_PLACEMENT[block][layer]
+  const all = target.value?.fields[layer] ?? []
+  return all.filter((field) => names.includes(field.name))
 }
 
-const running = computed(() => Boolean(job.value) && !settled(job.value))
-const probeFields = computed(() => target.value?.fields?.probe ?? [])
+const disabledGenerators = computed<string[] | undefined>({
+  get: () => probeForm.value.disabled_generators as string[] | undefined,
+  set: (value) => {
+    const out = { ...probeForm.value }
+    if (value === undefined) delete out.disabled_generators
+    else out.disabled_generators = value
+    probeForm.value = out
+  },
+})
+
+const inheritedDisabledGenerators = computed<string[] | undefined>(
+  () => inheritedProbe.value.disabled_generators as string[] | undefined,
+)
+
+const enabledGeneratorCount = computed(() => {
+  const off = new Set(disabledGenerators.value ?? inheritedDisabledGenerators.value ?? [])
+  return generatorKeys.value.filter((key) => !off.has(key)).length
+})
 
 /**
  * When the benchmark says it will next measure, in the reader's own time zone.
@@ -542,133 +574,22 @@ const nextRun = computed(() => {
   return Number.isNaN(moment.valueOf()) ? '' : moment.toLocaleString()
 })
 
-// The benchmark joins what went wrong with semicolons; split back so each
-// reason is its own line rather than one long run-on.
-const problems = computed(() =>
-  (job.value?.error ?? '')
-    .split(';')
-    .map((part) => part.trim())
-    .filter(Boolean),
-)
-
-/** What this endpoint falls back to: the Space-wide layer, then the installation. */
-const inheritedProbe = computed(() => ({
-  ...target.value?.defaults?.probe,
-  ...target.value?.connection_probe,
-}))
-
-const questionsTotal = computed(() => (job.value ? job.value.step_total * job.value.total : 0))
-const questionsDone = computed(() =>
-  job.value ? job.value.step_total * job.value.done + job.value.step_done : 0,
-)
-
-const passShare = computed(() => {
-  const current = job.value
-  if (!current?.total) return '0%'
-  return `${Math.min(100, (current.done / current.total) * 100)}%`
-})
-
-const stepShare = computed(() => {
-  const current = job.value
-  if (!current?.step_total) return '0%'
-  return `${Math.min(100, (current.step_done / current.step_total) * 100)}%`
-})
-
-/** How long the job has been running. */
-const elapsed = computed(() => {
-  const started = job.value?.started_at
-  if (!started) return ''
-  return duration(now.value - new Date(started).getTime())
-})
-
-/**
- * How much is left in the current pass — from the pace measured on that pass itself.
- *
- * While too few questions have gone by there is no estimate at all: a number
- * built on two points looks just as confident as one built on a hundred, and lies.
- */
-const stepLeft = computed(() => {
-  const current = job.value
-  if (!current?.step_total || !paceAt.value) return ''
-  const asked = current.step_done - paceFrom.value
-  const spent = now.value - paceAt.value
-  if (asked < 3 || spent < 5000) return ''
-  const left = current.step_total - current.step_done
-  if (left <= 0) return ''
-  return duration((spent / asked) * left)
-})
-
-function duration(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000))
-  if (seconds < 60) return `${seconds} s`
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes} min`
-  const hours = Math.floor(minutes / 60)
-  return `${hours} h ${minutes % 60} min`
-}
-
-const accessTone = computed(() =>
-  access.value?.ok
-    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-    : 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
-)
-
 async function load() {
   try {
     const fresh = await benchmarksApi.getTarget(props.slug)
     target.value = fresh
-    job.value = fresh.last_job
     enabled.value = fresh.enabled
     collection.value = fresh.collection
     schedule.value = fresh.schedule
     scheduleAt.value = fresh.schedule_at
-    probe.value = { ...fresh.probe }
+    probeForm.value = { ...fresh.probe }
+    instrumentForm.value = { ...fresh.instrument }
   } catch {
     toast.error('Could not read the benchmark settings for this endpoint')
   } finally {
     loading.value = false
   }
 }
-
-async function refreshJob() {
-  try {
-    const jobs = await benchmarksApi.listJobs(props.slug)
-    history.value = jobs
-    const latest = jobs[0] ?? null
-    const wasRunning = running.value
-    trackPace(latest)
-    job.value = latest
-    // The card only exists once a run has finished, so the panel below is told
-    // to re-read itself rather than keep showing yesterday's figures.
-    if (wasRunning && settled(latest)) {
-      emit('finished')
-    }
-  } catch {
-    // Left alone on purpose: a benchmark that blinked should not wipe the
-    // progress the owner is watching.
-  }
-}
-
-function startPolling() {
-  if (timer) return
-  timer = setInterval(refreshJob, POLL_MS)
-  // The clock ticks separately from polling: "running for 4 minutes" should grow
-  // every second, not jump in fives along with the service's replies.
-  clock = setInterval(() => (now.value = Date.now()), 1000)
-}
-
-function stopPolling() {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
-  }
-  if (clock) {
-    clearInterval(clock)
-    clock = null
-  }
-}
-
-watch(running, (isRunning) => (isRunning ? startPolling() : stopPolling()), { immediate: true })
 
 async function startMeasuring() {
   saving.value = true
@@ -683,24 +604,19 @@ async function startMeasuring() {
   }
 }
 
-/** Push the settings on screen and re-read them. No toast: callers decide that. */
-async function persist(): Promise<void> {
-  await benchmarksApi.saveTarget(props.slug, {
-    enabled: enabled.value,
-    collection: collection.value,
-    probe: probe.value,
-    schedule: schedule.value,
-    // The hour only means anything to a daily interval; sending it with a
-    // six-hourly one would leave a value in the form that decides nothing.
-    schedule_at: schedule.value === '24h' ? scheduleAt.value : '',
-  })
-  await load()
-}
-
-async function save() {
+async function persistTarget() {
   saving.value = true
   try {
-    await persist()
+    target.value = await benchmarksApi.saveTarget(props.slug, {
+      enabled: enabled.value,
+      collection: collection.value,
+      probe: probeForm.value,
+      instrument: instrumentForm.value,
+      schedule: schedule.value,
+      // The hour only means anything to a daily interval; sending it with a
+      // six-hourly one would leave a value in the form that decides nothing.
+      schedule_at: schedule.value === '24h' ? scheduleAt.value : '',
+    })
     toast.success('Saved')
   } catch (error) {
     toast.error(apiErrorDetail(error, 'Could not save'))
@@ -712,7 +628,6 @@ async function save() {
 async function stopMeasuring() {
   try {
     await benchmarksApi.stopMeasuring(props.slug)
-    access.value = null
     await load()
     toast.success('Taken out of the benchmark. Published figures were not touched.')
   } catch {
@@ -731,184 +646,246 @@ async function check() {
   }
 }
 
-/**
- * Ask and grade — never rebuilds the question set. `Generate questions` is
- * the button for that, kept separate on purpose: asking is the expensive
- * half, and a launch meant only to refresh the set must not be charged for it.
- */
-async function runEvaluate() {
-  starting.value = true
-  const capped = Number(limit.value) || null
-  try {
-    // Against what is on screen, not whatever was last saved - a probe edit
-    // followed by "Run test" must not silently measure the old settings.
-    await persist()
-    const started = await benchmarksApi.startRun(props.slug, {
-      generate: false,
-      limit: capped,
-      publish: publish.value,
-    })
-    onLaunched(started)
-    toast.success(capped ? 'Trial run queued' : 'Run queued')
-  } catch (error) {
-    toast.error(apiErrorDetail(error, 'The benchmark did not take the run'))
-  } finally {
-    starting.value = false
-  }
-}
-
-/** Build the question set from the index. Nothing is asked, nothing graded. */
-async function runGenerate() {
-  generating.value = true
-  const capped = Number(limit.value) || null
-  try {
-    // Same reasoning as runEvaluate: the set is built from the probe on
-    // screen, not from whatever was last saved.
-    await persist()
-    const started = await benchmarksApi.startRun(props.slug, {
-      generate: true,
-      evaluate: false,
-      limit: capped,
-      publish: false,
-    })
-    onLaunched(started)
-    toast.success('Building the question set')
-  } catch (error) {
-    toast.error(apiErrorDetail(error, 'The benchmark did not take the run'))
-  } finally {
-    generating.value = false
-  }
-}
-
-/** Common to both buttons: show it at once, poll it, and put it at the top of the history. */
-function onLaunched(started: BenchmarkJob) {
-  job.value = started
-  history.value = [started, ...history.value.filter((row) => row.id !== started.id)]
-  resetPace()
-  startPolling()
-}
-
-function resetPace() {
-  paceKey.value = ''
-  paceFrom.value = 0
-  paceAt.value = 0
-}
-
-/** Notice when the pass changes: pace is measured per pass. */
-function trackPace(current: BenchmarkJob | null) {
-  if (!current || current.state !== 'running') return resetPace()
-  const key = `${current.arm}/${current.block}/${current.model}`
-  if (key !== paceKey.value) {
-    paceKey.value = key
-    paceFrom.value = current.step_done
-    paceAt.value = Date.now()
-  }
-}
-
-async function cancel() {
-  if (!job.value) return
-  cancelling.value = true
-  try {
-    job.value = await benchmarksApi.cancelRun(props.slug, job.value.id)
-    toast.success('Asked it to stop. It finishes the question in hand and comes out.')
-  } catch (error) {
-    toast.error(apiErrorDetail(error, 'Could not stop the run'))
-  } finally {
-    cancelling.value = false
-  }
-}
-
-function useCollection(name: string) {
-  collection.value = name
-  toast.info('Collection filled in — save to hand it over')
-}
-
-function stateWords(current: BenchmarkJob): string {
-  switch (current.state) {
-    case 'queued':
-      return 'Queued — one run at a time per benchmark'
-    case 'running':
-      return phaseWords(current.phase)
-    case 'succeeded':
-      return current.error ? 'Finished, but not entirely' : 'Finished'
-    case 'cancelled':
-      return 'Stopped — what it measured is kept'
-    case 'failed':
-      return 'Did not finish'
-    default:
-      // A state this build has never heard of. `settled` reads it as still
-      // going, so say what the phase says rather than declare a failure the
-      // benchmark never reported.
-      return phaseWords(current.phase)
-  }
-}
-
-/** The phases of JobPhase, in the order they run. */
-function phaseWords(phase: string): string {
-  switch (phase) {
-    case 'pending':
-      return 'Getting ready'
-    case 'generate':
-      return 'Building questions from the corpus'
-    case 'evaluate':
-      return 'Asking and grading'
-    case 'report':
-      return 'Folding the verdicts into figures'
-    case 'publish':
-      return 'Handing the card over'
-    case 'done':
-      return 'Finishing up'
-    default:
-      return 'Running'
-  }
-}
-
-/** What kind of launch a row in the history was, for the reader who was not watching it live. */
-function historyKindWords(row: BenchmarkJob): string {
-  if (row.arm) return armWords(row.arm)
-  // No pass was ever planned and the job still reached the end: nothing was
-  // asked because nothing was meant to be. A run that stopped short has a zero
-  // here too, and calling that one a set refresh would misreport it.
-  if (row.state === 'succeeded' && !row.total) return 'question set only'
-  return 'measurement'
-}
-
-/** The one line a graded run leaves behind, once its card exists. */
-function cardSummaryWords(card: BenchmarkCard): string {
-  const label = card.kind === 'retrieval' ? 'found' : 'correct'
-  const score = card.score == null ? '—' : `${Math.round(card.score * 100)}%`
-  return `${score} ${label} · ${card.samples} graded`
-}
-
-async function removeJob(row: BenchmarkJob) {
-  // A native confirm rather than a second click hidden in the row: deleting a
-  // run cannot be undone, and the passes and verdicts it holds are gone with
-  // it, not just the summary shown here.
-  if (!window.confirm('Delete this run for good? Its passes and verdicts go with it.')) {
-    return
-  }
-  deletingId.value = row.id
-  try {
-    await benchmarksApi.deleteJob(props.slug, row.id)
-    history.value = history.value.filter((item) => item.id !== row.id)
-    toast.success('Run deleted')
-  } catch (error) {
-    toast.error(apiErrorDetail(error, 'Could not delete this run'))
-  } finally {
-    deletingId.value = ''
-  }
-}
+const accessTone = computed(() =>
+  access.value?.ok
+    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+    : 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+)
 
 function ago(stamp: string | null): string {
   return stamp ? formatTimeAgo(stamp) : ''
 }
 
+// --- the phases -----------------------------------------------------------
+
+const { jobs, running, refresh: refreshJobs, latestOf } = useBenchmarkJobs(props.slug)
+
+// Bumped so PairList/ResultList reload without each of them polling the job
+// queue on their own — on every poll while something is running, since
+// generation and filtering write pairs one at a time as they go and the
+// owner watching Generation should see them appear rather than wait for the
+// whole pass to end; and once more on the exact tick a job finishes, in case
+// the last poll landed a beat before its final row.
+const refreshKey = ref(0)
+const seenFinal = new Set<string>()
+watch(
+  jobs,
+  (current) => {
+    let sawFinal = false
+    for (const job of current) {
+      const final = job.state === 'succeeded' || job.state === 'failed' || job.state === 'cancelled'
+      if (final && !seenFinal.has(job.id)) {
+        seenFinal.add(job.id)
+        sawFinal = true
+      }
+    }
+    if (sawFinal || running.value) {
+      refreshKey.value += 1
+    }
+  },
+  { deep: true },
+)
+
+// `kind` alone cannot tell a generation-only pipeline job from an
+// execution-only one — both are `pipeline`, and the benchmark leaves
+// `phase` at `done` once either finishes, so a job's own fields cannot
+// say afterwards which block started it either. So each block that can
+// start a `pipeline` job remembers the id of the one IT started, and reads
+// that job's current state back out of the poll — rather than the latest
+// job of its kind, which might belong to a different block entirely.
+const startedJobId = ref<Record<string, string>>({})
+
+function jobFor(name: string): BenchmarkJob | undefined {
+  const id = startedJobId.value[name]
+  return id ? jobs.value.find((job) => job.id === id) : undefined
+}
+
+const preparationJob = computed(() => jobFor('preparation'))
+const generationJob = computed(() => jobFor('generation'))
+const testingJob = computed(() => jobFor('testing'))
+const executionJob = computed(() => jobFor('execution'))
+const filterJob = computed(() => latestOf('filter'))
+const judgeJob = computed(() => latestOf('judge'))
+
+function progressOf(job: BenchmarkJob | undefined): number | 'indeterminate' | null {
+  if (!job || job.state !== 'running') return null
+  // The finer of the two counters wins: `step_total` is a count of
+  // questions within whatever is running now (a pass, a judging batch),
+  // and moves continuously, where `total` only moves once a whole pass
+  // ends. Generation and filtering report neither — "running with no
+  // total" still means something is happening, just not how far along.
+  if (job.step_total) return Math.round((job.step_done / job.step_total) * 100)
+  if (!job.total) return 'indeterminate'
+  return Math.round((job.done / job.total) * 100)
+}
+
+const acting = ref<string | null>(null)
+
+async function act(name: string, fn: () => Promise<BenchmarkJob>): Promise<void> {
+  acting.value = name
+  try {
+    const job = await fn()
+    startedJobId.value[name] = job.id
+    await refreshJobs()
+  } catch (error) {
+    toast.error(apiErrorDetail(error, `Could not start ${name}`))
+  } finally {
+    acting.value = null
+  }
+}
+
+const busy = computed(() => acting.value !== null || running.value)
+
+function startRun(body: BenchmarkRunRequest) {
+  return benchmarksApi.startRun(props.slug, body)
+}
+
+function runFilter() {
+  return benchmarksApi.runFilter(props.slug)
+}
+
+function runJudge() {
+  return benchmarksApi.runJudge(props.slug)
+}
+
+// --- stopping a run in progress ---------------------------------------------
+
+function isActive(job: BenchmarkJob | undefined): boolean {
+  return job?.state === 'queued' || job?.state === 'running'
+}
+
+const cancellingId = ref<string | null>(null)
+
+async function cancelJob(job: BenchmarkJob | undefined): Promise<void> {
+  if (!job) return
+  cancellingId.value = job.id
+  try {
+    await benchmarksApi.cancelRun(props.slug, job.id)
+    await refreshJobs()
+    toast.success('Stopping — it finishes the question it is on, then exits')
+  } catch (error) {
+    toast.error(apiErrorDetail(error, 'Could not stop this run'))
+  } finally {
+    cancellingId.value = null
+  }
+}
+
+/**
+ * The run button for one block: "Run" (or the given label) while nothing of
+ * its own is in flight, "Cancel" in its place once something is — starting a
+ * second run while one is already going is refused by the queue anyway, so
+ * the button that would have done that becomes the one thing still useful:
+ * stopping the one that is running.
+ */
+function actionFor(
+  job: BenchmarkJob | undefined,
+  startLabel: string,
+  start: () => Promise<unknown>,
+) {
+  if (isActive(job)) {
+    return {
+      label: 'Cancel',
+      disabled: cancellingId.value === job?.id,
+      destructive: true,
+      run: () => cancelJob(job),
+    }
+  }
+  return {
+    label: startLabel,
+    disabled: busy.value,
+    destructive: false,
+    run: start,
+  }
+}
+
+const preparationAction = computed(() =>
+  actionFor(preparationJob.value, 'Run preparation', () =>
+    act('preparation', () => startRun({ generate: true, evaluate: false })),
+  ),
+)
+const generationAction = computed(() =>
+  actionFor(generationJob.value, 'Run', () =>
+    act('generation', () => startRun({ generate: true, evaluate: false, filter: false })),
+  ),
+)
+const filteringAction = computed(() =>
+  actionFor(filterJob.value, 'Run', () => act('filter', () => runFilter())),
+)
+const testingAction = computed(() =>
+  actionFor(testingJob.value, 'Run testing', () =>
+    act('testing', () => startRun({ generate: false, evaluate: true })),
+  ),
+)
+const executionAction = computed(() =>
+  actionFor(executionJob.value, 'Run', () =>
+    act('execution', () =>
+      startRun({ generate: false, evaluate: true, defer_judging: true, publish: false }),
+    ),
+  ),
+)
+const judgingAction = computed(() =>
+  actionFor(judgeJob.value, 'Run', () => act('judge', () => runJudge())),
+)
+
+// Report state, rebuilt on demand rather than polled: it is a fast,
+// synchronous call, not a queued job — and never stored, so it is gone
+// after a reload unless something loads it back.
+const report = ref<BenchmarkReport | null>(null)
+const reportLoading = ref(false)
+
+async function doBuildReport(): Promise<void> {
+  reportLoading.value = true
+  try {
+    report.value = await benchmarksApi.buildReport(props.slug)
+  } catch (error) {
+    toast.error(apiErrorDetail(error, 'Could not build the report'))
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+/**
+ * The same rebuild, run quietly on load: an endpoint with nothing gradable
+ * yet answers 409, which is the ordinary state of a page nobody has
+ * measured, not a failure worth a toast over.
+ */
+async function loadReport(): Promise<void> {
+  try {
+    report.value = await benchmarksApi.buildReport(props.slug)
+  } catch (error) {
+    const status = (error as { response?: { status?: number } })?.response?.status
+    if (status !== 409) toast.error(apiErrorDetail(error, 'Could not load the report'))
+  }
+}
+
+async function doPublish(): Promise<void> {
+  reportLoading.value = true
+  try {
+    report.value = await benchmarksApi.publishReport(props.slug)
+    toast.success('Published')
+    emit('card-changed')
+  } catch (error) {
+    toast.error(apiErrorDetail(error, 'Could not publish'))
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+async function doRetract(): Promise<void> {
+  reportLoading.value = true
+  try {
+    await benchmarksApi.retractReport(props.slug)
+    toast.success('Retracted')
+    emit('card-changed')
+  } catch (error) {
+    toast.error(apiErrorDetail(error, 'Could not retract'))
+  } finally {
+    reportLoading.value = false
+  }
+}
+
 onMounted(async () => {
   await load()
-  // The history list is not part of `load()`'s target read — it comes from
-  // the benchmark's own job table, and the target has no business caching a
-  // list rather than the one last job it already remembers.
-  await refreshJob()
+  if (hasBenchmark.value) await loadReport()
 })
-onUnmounted(stopPolling)
 </script>

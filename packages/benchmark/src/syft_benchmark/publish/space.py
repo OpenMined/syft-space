@@ -147,6 +147,25 @@ def payload_for(card: Card) -> dict[str, Any]:
     return body
 
 
+def owner_payload_for(card: Card) -> dict[str, Any]:
+    """The same card, as its own owner reads it on the console.
+
+    `payload_for` is the one boundary anything leaving the perimeter crosses,
+    and a storefront reads `trust.flags` as codes because it writes its own
+    words for them in its own language. The owner is not a storefront: this
+    adds `trust.doubts`, the same reasons already spelled out in prose for
+    exactly this reader (see `Trust.doubts`), and `score_label` so the
+    console does not have to re-derive "correct" vs. "finds" from `kind`
+    itself. Never hand this to `publish()` — only `payload_for`'s shape may
+    leave the perimeter.
+    """
+    body = payload_for(card)
+    body["score_label"] = card.score_label
+    if card.trust is not None:
+        body["trust"]["doubts"] = card.trust.doubts
+    return body
+
+
 def publish(
     space: SpaceConfig, card: Card, *, timeout: float = 120.0
 ) -> PublishOutcome:
