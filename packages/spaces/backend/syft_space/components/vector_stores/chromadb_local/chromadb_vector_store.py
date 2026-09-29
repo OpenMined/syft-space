@@ -78,7 +78,10 @@ def _chromadb_available() -> bool:
         return False
 
 
-DEFAULT_SIMILARITY_THRESHOLD = 0.5
+# The threshold is applied after the HNSW query, so fetch a multiple of
+# ``limit`` and truncate afterwards; otherwise rows 6-10 that would pass the
+# threshold are never seen when rows 1-5 include misses.
+_OVERFETCH_FACTOR = 4
 
 # Embedding model — same as Weaviate (all-MiniLM-L6-v2).
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
@@ -337,10 +340,12 @@ class ChromaDBLocalVectorStore:
         results: dict,
         dataset_id: str,
         similarity_threshold: float,
+        limit: int,
     ) -> tuple[list[SearchedDocument], set[str]]:
         """Convert raw ChromaDB query results into SearchedDocuments.
 
-        Applies similarity threshold filtering and builds image URLs.
+        Applies the similarity threshold, keeps the first ``limit`` survivors
+        (results arrive nearest-first) and builds image URLs.
 
         Returns:
             Tuple of (matched documents, set of matched chunk IDs).
@@ -352,6 +357,8 @@ class ChromaDBLocalVectorStore:
             return documents, matched_ids
 
         for i, doc_id in enumerate(results["ids"][0]):
+            if len(documents) >= limit:
+                break
             distance = results["distances"][0][i] if results["distances"] else 0.0
             # ChromaDB cosine distance: 0 = identical, 2 = opposite.
             similarity_score = 1.0 - (distance / 2.0)
@@ -427,12 +434,6 @@ class ChromaDBLocalVectorStore:
         if params is None:
             params = SearchParameters()
 
-        similarity_threshold = (
-            params.similarity_threshold
-            if params.similarity_threshold is not None
-            else DEFAULT_SIMILARITY_THRESHOLD
-        )
-
         try:
             client = await self.get_client()
 
@@ -450,12 +451,12 @@ class ChromaDBLocalVectorStore:
 
             results = await collection.query(
                 query_embeddings=query_embedding,
-                n_results=params.limit,
+                n_results=params.limit * _OVERFETCH_FACTOR,
                 include=["documents", "metadatas", "distances"],
             )
 
             documents, matched_ids = self._process_query_results(
-                results, ctx.dataset_id, similarity_threshold
+                results, ctx.dataset_id, params.similarity_threshold, params.limit
             )
 
             if documents:

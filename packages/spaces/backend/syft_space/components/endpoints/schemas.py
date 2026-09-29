@@ -338,7 +338,13 @@ class QueryEndpointRequest(BaseModel):
         ..., description="Messages or conversation string"
     )
     similarity_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="Similarity threshold for matching"
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum similarity score, where score = 1 - cosine_distance / 2. "
+            "0.5 keeps documents with cosine similarity above 0; 0.75 above 0.5."
+        ),
     )
     limit: int = Field(
         default=5, ge=1, description="Maximum number of results to return"

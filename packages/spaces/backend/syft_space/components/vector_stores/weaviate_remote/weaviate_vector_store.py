@@ -27,7 +27,6 @@ from syft_space.components.vector_stores.weaviate_remote.filters import (
     build_filter_node,
 )
 from syft_space.components.vector_stores.weaviate_remote.schemas import (
-    DEFAULT_SIMILARITY_THRESHOLD,
     RemoteWeaviateVectorStoreConfiguration,
 )
 
@@ -142,12 +141,6 @@ class WeaviateVectorStore:
 
         documents = []
 
-        similarity_threshold = (
-            params.similarity_threshold
-            if params.similarity_threshold is not None
-            else DEFAULT_SIMILARITY_THRESHOLD
-        )
-
         async with weaviate.use_async_with_custom(
             http_host=self.config.http_url.host,
             http_port=self.config.http_url.port,
@@ -164,10 +157,10 @@ class WeaviateVectorStore:
             results = await collection.query.near_text(
                 query=query,
                 limit=params.limit,
-                certainty=similarity_threshold,
+                certainty=params.similarity_threshold,
                 filters=weaviate_filters,
                 return_metadata=MetadataQuery(
-                    distance=True, score=True, creation_time=True
+                    distance=True, certainty=True, creation_time=True
                 ),
             )
             for result in results.objects:
@@ -202,7 +195,9 @@ class WeaviateVectorStore:
                         document_id=str(result.uuid),
                         content=content,
                         metadata=metadata,
-                        similarity_score=result.metadata.score or 0.0,
+                        # ``certainty`` is Weaviate's own 1 - distance/2 similarity;
+                        # ``score`` is only set for BM25/hybrid, so it was always 0.0.
+                        similarity_score=result.metadata.certainty or 0.0,
                     )
                 )
 

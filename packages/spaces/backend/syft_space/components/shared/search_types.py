@@ -23,7 +23,13 @@ class SearchParameters(BaseModel):
     """Domain contract for search parameters."""
 
     similarity_threshold: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Similarity threshold for matching"
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum similarity score, where score = 1 - cosine_distance / 2 "
+            "(so 0.5 is cosine similarity 0). Both stores use this mapping."
+        ),
     )
     limit: int = Field(
         default=5, ge=1, description="Maximum number of results to return"
@@ -45,7 +51,10 @@ class SearchedDocument(BaseModel):
         default_factory=dict, description="Document metadata"
     )
     similarity_score: float = Field(
-        ..., ge=0.0, le=1.0, description="Similarity score for the document"
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="1 - cosine_distance / 2: 1 is identical, 0.5 is orthogonal",
     )
 
 
