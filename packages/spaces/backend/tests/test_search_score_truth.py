@@ -8,6 +8,9 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from syft_space.components.shared.search_types import SearchContext, SearchParameters
+from syft_space.components.vector_stores.chromadb_local import (
+    chromadb_vector_store as store_module,
+)
 from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store import (
     _OVERFETCH_FACTOR,
     ChromaDBLocalVectorStore,
@@ -60,7 +63,9 @@ def test_chroma_score_is_one_minus_half_distance():
     assert [d.similarity_score for d in docs] == [1.0, 0.5]
 
 
-async def test_chroma_search_overfetches_then_returns_at_most_limit():
+async def test_chroma_search_overfetches_then_returns_at_most_limit(monkeypatch):
+    # The collection is stubbed; don't require the chromadb package itself.
+    monkeypatch.setattr(store_module, "_chromadb_available", lambda: True)
     captured: dict = {}
 
     class _Collection:
