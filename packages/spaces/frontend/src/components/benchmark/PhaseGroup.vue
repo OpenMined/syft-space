@@ -10,7 +10,14 @@ import { Button } from '@/components/ui/button'
 defineProps<{
   title: string
   status: string
-  actionLabel: string
+  /**
+   * 0-100 while the launch this group started is running,
+   * `'indeterminate'` while it is running with no total to divide by,
+   * null/absent while nothing of its own is going.
+   */
+  progress?: number | 'indeterminate' | null
+  /** Absent where the group has nothing of its own to run — no button is drawn. */
+  actionLabel?: string
   actionDisabled?: boolean
   actionTitle?: string
   /** Styled as a stop rather than a start — the run button turns into this
@@ -34,6 +41,7 @@ const emit = defineEmits<{ action: []; 'update:open': [boolean] }>()
       <span class="font-semibold text-foreground">{{ title }}</span>
       <span class="text-sm text-muted-foreground truncate">{{ status }}</span>
       <Button
+        v-if="actionLabel"
         :variant="actionDestructive ? 'destructive' : 'default'"
         size="sm"
         class="ml-auto shrink-0"
@@ -44,8 +52,30 @@ const emit = defineEmits<{ action: []; 'update:open': [boolean] }>()
         {{ actionLabel }}
       </Button>
     </summary>
+    <div v-if="progress != null" class="h-0.5 bg-muted overflow-hidden">
+      <div
+        v-if="progress === 'indeterminate'"
+        class="h-full w-1/3 bg-primary phase-progress-indeterminate"
+      />
+      <div v-else class="h-full bg-primary transition-[width]" :style="{ width: `${progress}%` }" />
+    </div>
     <div class="border-t border-border p-4 space-y-4">
       <slot />
     </div>
   </details>
 </template>
+
+<style scoped>
+.phase-progress-indeterminate {
+  animation: phase-progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes phase-progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+</style>

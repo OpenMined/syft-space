@@ -216,6 +216,8 @@ def _store(
     *,
     conf: Settings,
     cohort: str = "",
+    job: str = "",
+    cap: int | None = None,
 ) -> None:
     """Write the items down as pending.
 
@@ -226,6 +228,17 @@ def _store(
     answer or its question turn out to be worth; only the filtering pass
     calls one ``active`` or ``rejected``.
     """
+    if cap is not None:
+        # A trial run builds a couple of questions per generator and asks those
+        # — the same cap on both halves, so a configuration can be tried end to
+        # end for the price of a handful of calls. Counted per generator, like
+        # the one on asking: a total divided between them would simply drop
+        # some skills out of the trial.
+        room = cap - report.by_generator.get(generator.key, 0)
+        if room <= 0:
+            return
+        pairs = pairs[:room]
+
     for pair in pairs:
         try:
             with session_scope() as session:
@@ -234,6 +247,10 @@ def _store(
                         id=uuid.uuid4().hex,
                         space=space.key,
                         cohort=cohort,
+                        # Empty where nothing named the launch — the CLI, a
+                        # console call. NULL rather than "", so that "this
+                        # launch's questions" cannot accidentally match them.
+                        job_id=job or None,
                         collection=collection,
                         generator=generator.key,
                         task_type=generator.task_type,
@@ -401,6 +418,9 @@ def generate_for_space(
     new_cohort: bool = False,
     cohort_label: str = "",
     should_stop: Callable[[], bool] | None = None,
+    job: str = "",
+    per_generator: int | None = None,
+    on_unit: Callable[[str, int, int, int], None] | None = None,
 ) -> GenerationReport:
     """Build items from the not-yet-parsed material of one Space.
 
@@ -418,6 +438,16 @@ def generate_for_space(
         new_cohort: Build the question pool afresh, as a separate cohort, from
             the same material. In rebuild mode this is implied
         cohort_label: The new cohort's name; empty — the date and time of the build
+        job: The launch these items belong to; empty — none that can be named
+        per_generator: Stop at this many items from each generator — a trial
+            run. The walk over the material stops as soon as every generator
+            has its fill, so a trial does not mark chunks processed that it
+            never really used and leave a later full run nothing to build from
+        on_unit: Told before every unit which generator is being built, which
+            unit of its batch this is, how big that batch is, and how many
+            questions exist so far. A build runs for minutes on a paid model
+            and reported nothing while it did; this is what a console draws
+            its position from
         should_stop: Asked before every unit whether the owner has called the
             build off. A unit is one generator call on a paid model, so this is
             where stopping is worth something; mid-unit there is nothing left
@@ -447,6 +477,18 @@ def generate_for_space(
     report = GenerationReport(space=space.key, cohort=cohort)
 
     stopped = False
+
+    def filled() -> bool:
+        """Whether every generator asked for has reached the cap.
+
+        Checked before each unit rather than after: a trial that has what it
+        needs must not parse one more chunk, because parsing marks it processed
+        and a later full run would find nothing there to build from.
+        """
+        if per_generator is None:
+            return False
+        wanted = [s.key for s in specs]
+        return all(report.by_generator.get(key, 0) >= per_generator for key in wanted)
 
     def called_off() -> bool:
         """Whether to stop before the next unit. Said once, in the report."""
@@ -528,10 +570,12 @@ def generate_for_space(
         if not batch:
             report.notes.append("masking: there are no new chunks")
 
-        for doc, chunk in batch:
-            if called_off():
+        for index, (doc, chunk) in enumerate(batch, start=1):
+            if called_off() or filled():
                 break
             report.units_seen += 1
+            if on_unit is not None:
+                on_unit("masking", index, len(batch), report.pairs_made)
             whole = document_text(doc)
 
             by_key, path, error = _extractive_for_chunk(
@@ -558,6 +602,8 @@ def generate_for_space(
                     report,
                     conf=conf,
                     cohort=cohort,
+                    job=job,
+                    cap=per_generator,
                 )
             _mark_processed(
                 space.key,
@@ -572,7 +618,7 @@ def generate_for_space(
     # generator plugged in second skips everything the first has already
     # parsed, and spends model calls on certain duplicates.
     for spec in per_chunk:
-        if called_off():
+        if called_off() or filled():
             break
         processed = _processed_ids(space.key, spec.key, cohort)
         batch = pick_chunks(documents, processed, budget)
@@ -580,10 +626,12 @@ def generate_for_space(
             report.notes.append(f"{spec.key}: there are no new chunks")
             continue
 
-        for doc, chunk in batch:
-            if called_off():
+        for index, (doc, chunk) in enumerate(batch, start=1):
+            if called_off() or filled():
                 break
             report.units_seen += 1
+            if on_unit is not None:
+                on_unit(spec.key, index, len(batch), report.pairs_made)
             whole = document_text(doc)
 
             items, error = _run_llm_generator(spec, doc, chunk, conf, provider)
@@ -608,6 +656,8 @@ def generate_for_space(
                 report,
                 conf=conf,
                 cohort=cohort,
+                job=job,
+                cap=per_generator,
             )
             _mark_processed(
                 space.key, spec.key, chunk.chunk_id, "chunk", len(good), cohort
@@ -615,7 +665,7 @@ def generate_for_space(
 
     # --- by document ------------------------------------------------------
     for spec in per_document:
-        if called_off():
+        if called_off() or filled():
             break
         processed = _processed_ids(space.key, spec.key, cohort)
         pending = [d for d in documents if d.doc_id not in processed][:budget]
@@ -623,10 +673,12 @@ def generate_for_space(
             report.notes.append(f"{spec.key}: there are no new documents")
             continue
 
-        for doc in pending:
-            if called_off():
+        for index, doc in enumerate(pending, start=1):
+            if called_off() or filled():
                 break
             report.units_seen += 1
+            if on_unit is not None:
+                on_unit(spec.key, index, len(pending), report.pairs_made)
             whole = document_text(doc)
             items, error = _run_llm_generator(spec, doc, None, conf, provider)
             if error:
@@ -649,6 +701,8 @@ def generate_for_space(
                 report,
                 conf=conf,
                 cohort=cohort,
+                job=job,
+                cap=per_generator,
             )
             _mark_processed(
                 space.key, spec.key, doc.doc_id, "document", len(good), cohort

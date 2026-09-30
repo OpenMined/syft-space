@@ -79,6 +79,7 @@ def list_pairs(
     status: str | None = None,
     cohort: str | None = None,
     generator: str | None = None,
+    job: str | None = None,
     limit: int = 50,
     offset: int = 0,
     settings: Settings | None = None,
@@ -90,6 +91,9 @@ def list_pairs(
         status: Only pairs with this status; None — every status
         cohort: Only this cohort; None — every cohort
         generator: Only this generator's pairs; None — every generator
+        job: Only what this launch generated; None — everything the node has.
+            Pairs older than the column, or built outside the queue, belong to
+            no launch and are matched by no value of this
         limit: Page size, capped at `MAX_PAGE`
         offset: How many to skip, for paging
         settings: The process settings
@@ -108,6 +112,8 @@ def list_pairs(
             base = base.where(QaPair.cohort == cohort)
         if generator:
             base = base.where(QaPair.generator == generator)
+        if job:
+            base = base.where(QaPair.job_id == job)
 
         total = session.execute(
             select(func.count()).select_from(base.subquery())

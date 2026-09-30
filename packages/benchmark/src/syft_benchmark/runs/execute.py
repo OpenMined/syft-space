@@ -1051,6 +1051,8 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
             "flipped": denial.flipped,
             "flip_round": denial.flip_round,
             "note": denial.note,
+            "limit": denial.limit,
+            "log": denial.log,
         }
         if denial.flipped:
             # An answer given up is not counted as correct: in a conversation with an
@@ -1071,6 +1073,7 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
             "consistency": trials.consistency,
             "by_temperature": trials.by_temperature,
             "note": trials.note,
+            "log": trials.log,
         }
 
     # The mechanical resemblance to the gold answer — a second view of the same answer,

@@ -68,6 +68,16 @@ class QaPair(Base):
         String(32), nullable=False, default="", index=True
     )
 
+    # Which launch built this pair — what makes "what did this run generate"
+    # answerable at all. `cohort` cannot: an incremental launch adds to the pool
+    # that is already there, so two launches a day apart share one.
+    #
+    # NULL is not a gap: a pair written by the CLI, or before the column
+    # existed, belongs to no launch anyone can name.
+    job_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, default=None, index=True
+    )
+
     generator: Mapped[str] = mapped_column(
         String(64), nullable=False, comment="Item type: masking, MCQ and so on"
     )

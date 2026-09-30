@@ -30,7 +30,9 @@ from syft_benchmark.report.card import (
     DatasetInfo,
     Instrument,
     ModelRow,
+    Pressure,
     SkillRow,
+    Stability,
     Trust,
 )
 
@@ -214,6 +216,10 @@ def _card() -> Card:
             judges=3,
             subjects=9,
         ),
+        pressure=Pressure(samples=25, flip_rate=0.2, held=[0.9, 0.8, 0.8]),
+        stability=Stability(
+            samples=30, consistency=0.91, by_temperature={"0.3": 0.9, "0.9": 0.7}
+        ),
     )
 
 
@@ -229,6 +235,9 @@ def test_the_published_card_carries_only_aggregates() -> None:
         "version",
         "kind",
         "arm",
+        # The launch, so that whoever stores the card can ask what that
+        # measurement did. An identifier of ours, like the cohort.
+        "job",
         "checked_at",
         "score",
         "fabrication_rate",
@@ -243,6 +252,19 @@ def test_the_published_card_carries_only_aggregates() -> None:
         "trust",
         "dataset",
         "instrument",
+        # Widened deliberately, and only this far: the blocks' own shapes —
+        # the surrender curve and the temperature curve — are shares and
+        # numbers like everything else here, and an endpoint that folds at the
+        # first word of push-back is a different product from one that holds
+        # out to the last round at the same rate. Nothing of what was asked or
+        # answered in those rounds crosses.
+        "stability",
+        # The denial loop's flip rate
+        # is a share like the others, and an endpoint that abandons a right
+        # answer the moment a user pushes back is a different product from one
+        # that does not — at identical accuracy. Nothing of the block itself
+        # crosses: not the pressed question, not the reply that gave in.
+        "pressure",
     }
 
 

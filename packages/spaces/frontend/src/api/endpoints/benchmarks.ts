@@ -70,10 +70,7 @@ export const benchmarksApi = {
   },
 
   saveProvider: async (connectionId: string, urls: ProviderUrls): Promise<ProviderResponse> => {
-    const response = await apiClient.put(
-      `/benchmarks/connections/${connectionId}/provider`,
-      urls,
-    )
+    const response = await apiClient.put(`/benchmarks/connections/${connectionId}/provider`, urls)
     return response.data
   },
 
@@ -161,7 +158,15 @@ export const benchmarksApi = {
 
   listPairs: async (
     slug: string,
-    filters: { status?: string; cohort?: string; generator?: string; limit?: number; offset?: number },
+    filters: {
+      status?: string
+      cohort?: string
+      generator?: string
+      /** One launch's questions — what it generated, rejected ones included. */
+      job?: string
+      limit?: number
+      offset?: number
+    },
   ): Promise<BenchmarkPairPage> => {
     const response = await apiClient.get(`/benchmarks/endpoints/${slug}/console/pairs`, {
       params: filters,
@@ -193,7 +198,14 @@ export const benchmarksApi = {
 
   listResults: async (
     slug: string,
-    filters: { verdict?: string; qa_id?: string; limit?: number; offset?: number },
+    filters: {
+      verdict?: string
+      qa_id?: string
+      /** One launch's answers — what it asked and what came back. */
+      job?: string
+      limit?: number
+      offset?: number
+    },
   ): Promise<BenchmarkResultPage> => {
     const response = await apiClient.get(`/benchmarks/endpoints/${slug}/console/results`, {
       params: filters,
@@ -212,6 +224,17 @@ export const benchmarksApi = {
       { verdict, reasoning },
     )
     return response.data
+  },
+
+  /**
+   * Take back a verdict recorded by hand — the panel's stands again.
+   *
+   * The one thing in this console that deletes rather than adds, and it removes
+   * nothing that was measured: an override is the owner's own statement, and a
+   * misclick has to be undoable to something.
+   */
+  withdrawVerdict: async (slug: string, resultId: string): Promise<void> => {
+    await apiClient.delete(`/benchmarks/endpoints/${slug}/console/results/${resultId}/verdict`)
   },
 
   runJudge: async (slug: string): Promise<BenchmarkJob> => {

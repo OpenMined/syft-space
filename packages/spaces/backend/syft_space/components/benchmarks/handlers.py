@@ -636,6 +636,12 @@ class BenchmarkHandler:
         )
         return _console_dict(reply)
 
+    async def withdraw_verdict(self, tenant: Tenant, slug: str, result_id: str) -> None:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        console = await self._console(connection, slug)
+        await console.raw("DELETE", f"/console/results/{result_id}/verdict")
+
     async def run_judge(
         self, tenant: Tenant, slug: str, body: dict[str, Any]
     ) -> dict[str, Any]:

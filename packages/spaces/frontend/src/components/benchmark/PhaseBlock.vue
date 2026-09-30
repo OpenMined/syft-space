@@ -8,7 +8,8 @@ import InfoTip from './InfoTip.vue'
 defineProps<{
   title: string
   help: string
-  status: string
+  /** Absent where the block runs nothing of its own — it holds settings. */
+  status?: string
   /**
    * 0-100 while a job with a known total is running; `'indeterminate'`
    * while one is running but has no notion of a total to divide by
@@ -16,7 +17,8 @@ defineProps<{
    * over arms/blocks/models does); null/absent hides the bar.
    */
   progress?: number | 'indeterminate' | null
-  actionLabel: string
+  /** Absent where the phase has nothing to run yet — no button is drawn. */
+  actionLabel?: string
   actionDisabled?: boolean
   /** Styled as a stop rather than a start — the run button turns into this
    * while this block's own job is queued or running. */
@@ -40,6 +42,7 @@ const emit = defineEmits<{ action: []; 'update:open': [boolean] }>()
       <InfoTip :text="help" />
       <span class="text-xs text-muted-foreground truncate">{{ status }}</span>
       <Button
+        v-if="actionLabel"
         variant="outline"
         size="sm"
         class="ml-auto shrink-0 h-7 px-2.5 text-xs"

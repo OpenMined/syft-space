@@ -191,6 +191,7 @@ def by_generator(
     model: str | None = None,
     judge: str | None = None,
     expected: ExpectedBehavior | None = ExpectedBehavior.ANSWER,
+    job: str | None = None,
 ) -> list[GeneratorSlice]:
     """The shares per generator within one arm.
 
@@ -205,11 +206,16 @@ def by_generator(
         model: The answerer; None — all
         judge: The judge; None — every verdict alike
         expected: Which half of the set; None — both (rarely meaningful)
+        job: Narrow it to one launch; None — whatever is graded now
 
     Returns:
         One row per generator, from the worst accuracy to the best
+
+    A generator switched off before a launch has no row in that launch's
+    slice at all — as against a row at zero, which says it was asked and
+    got everything wrong. The two must not look alike.
     """
-    rows = _latest_results(space, mode, block, model, judge, expected)
+    rows = _latest_results(space, mode, block, model, judge, expected, job=job)
     if not rows:
         return []
 
@@ -263,6 +269,7 @@ def judge_agreement(
     block: EvalBlock = EvalBlock.DIRECT,
     model: str | None = None,
     expected: ExpectedBehavior | None = ExpectedBehavior.ANSWER,
+    job: str | None = None,
 ) -> list[JudgePair]:
     """How far the judges agreed, pairwise.
 
@@ -276,17 +283,18 @@ def judge_agreement(
         block: The test block
         model: The answerer; None — all
         expected: Which half of the set
+        job: Narrow it to one launch; None — whatever is graded now
 
     Returns:
         One row per pair of judges; empty if there is only one judge
     """
-    judges = judges_seen(space, mode, block)
+    judges = judges_seen(space, mode, block, job)
     if len(judges) < 2:
         return []
 
     verdicts: dict[str, dict[str, str]] = {}
     for name in judges:
-        rows = _latest_results(space, mode, block, model, name, expected)
+        rows = _latest_results(space, mode, block, model, name, expected, job=job)
         verdicts[name] = {
             row.qa_id: row.verdict
             for row in rows

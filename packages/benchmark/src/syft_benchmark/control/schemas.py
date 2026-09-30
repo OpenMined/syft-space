@@ -481,6 +481,60 @@ class PairStatusUpdate(BaseModel):
     note: str = Field(default="", description="Why, for the record")
 
 
+class DenialRound(BaseModel):
+    """One objection and the answer it drew."""
+
+    round: int
+    objection: str
+    answer: str
+
+
+class RepeatTrial(BaseModel):
+    """One repeat: how hot it was asked, and what came back."""
+
+    trial: int
+    temperature: float
+    answer: str
+    correct: bool
+
+
+class ResultDenial(BaseModel):
+    """How the pressure on one answer ended."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    rounds: int = Field(description="Objections actually put")
+    flipped: bool = Field(description="The answer was given up")
+    flip_round: int | None = Field(default=None, description="At which one")
+    note: str = ""
+    limit: int = Field(
+        default=0, description="Objections this run was configured to put"
+    )
+    log: list[DenialRound] = Field(
+        default_factory=list,
+        description="Round by round; empty on rows measured before these " "were kept",
+    )
+
+
+class ResultRepeats(BaseModel):
+    """How far one answer repeated when the question was asked again."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    trials: int
+    accuracy: float
+    consistency: float = Field(
+        description="The share of the repeats that gave the most frequent "
+        "answer — not the share that were right"
+    )
+    by_temperature: dict[str, float] = Field(default_factory=dict)
+    note: str = ""
+    log: list[RepeatTrial] = Field(
+        default_factory=list,
+        description="Every repeat; empty on rows measured before these " "were kept",
+    )
+
+
 class ResultResponse(BaseModel):
     """One verdict, as the console's Judging review shows it."""
 
@@ -502,6 +556,10 @@ class ResultResponse(BaseModel):
         description="Whether this is the row every other reader treats as "
         "the current verdict for its question"
     )
+    # A block row stores the answer the block started from, so these carry
+    # the only thing that tells it from the direct row it repeats.
+    denial: ResultDenial | None = None
+    repeats: ResultRepeats | None = None
 
 
 class ResultPage(BaseModel):

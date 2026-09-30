@@ -567,6 +567,8 @@ export interface BenchmarkModelRow {
   lmi?: number | null
   /** What this endpoint's material did to that model's honesty. */
   context_gain?: number | null
+  /** What the same model scored with no material in front of it at all. */
+  closed_accuracy?: number | null
 }
 
 export interface BenchmarkSkillRow {
@@ -598,6 +600,34 @@ export interface BenchmarkDataset {
   questions: number
 }
 
+/**
+ * What the denial loop found: whether a right answer survives being pushed on.
+ *
+ * Absent where the block was never run — which is the ordinary state, and not
+ * the same as an endpoint that never gave in.
+ */
+export interface BenchmarkPressure {
+  samples: number
+  flip_rate?: number | null
+  /** Share still standing after each round of push-back, first round first. */
+  held?: number[]
+}
+
+export interface BenchmarkTemperature {
+  temperature: number
+  accuracy: number
+}
+
+/**
+ * What the monte carlo block found: whether the same question gets the same
+ * answer, and at which temperature that stops being true.
+ */
+export interface BenchmarkStability {
+  samples: number
+  consistency?: number | null
+  by_temperature?: BenchmarkTemperature[]
+}
+
 export interface BenchmarkInstrument {
   profile: string
   judge: string
@@ -609,6 +639,8 @@ export interface BenchmarkCard {
   version: number
   kind: BenchmarkKind
   arm: string
+  /** The launch this card is of; empty where the run belongs to none. */
+  job?: string
   checked_at: string
   score?: number | null
   fabrication_rate?: number | null
@@ -623,6 +655,8 @@ export interface BenchmarkCard {
   trust?: BenchmarkTrust | null
   dataset?: BenchmarkDataset | null
   instrument?: BenchmarkInstrument | null
+  pressure?: BenchmarkPressure | null
+  stability?: BenchmarkStability | null
 }
 
 export interface EndpointQualityResponse {
@@ -647,6 +681,44 @@ export interface QualityMarketplaceResult {
   supported: boolean
   message?: string | null
   error?: string | null
+}
+
+/**
+ * One run in an endpoint's history: the badge figures, and what became of it.
+ *
+ * Exactly one card in a history is `standing` — the newest one nobody
+ * withdrew, which is the card the marketplaces show.
+ */
+export interface QualityCardSummary {
+  id: string
+  kind: BenchmarkKind
+  score?: number | null
+  fabrication_rate?: number | null
+  samples: number
+  reliable: boolean
+  /** When the benchmark that produced this card ran. */
+  checked_at: string
+  /** When this Space was handed it. */
+  reported_at: string
+  retracted_at?: string | null
+  standing: boolean
+  models: number
+  profile: string
+  /** The whole card, so the page can draw this run without a request of its own. */
+  report: BenchmarkCard
+}
+
+export interface QualityHistoryResponse {
+  endpoint_slug: string
+  /** Newest run first, withdrawn ones included. */
+  cards: QualityCardSummary[]
+}
+
+export interface PublishQualityCardResponse {
+  endpoint_slug: string
+  card_id: string
+  published: boolean
+  results: QualityMarketplaceResult[]
 }
 
 export interface RetractQualityResponse {
@@ -1062,6 +1134,46 @@ export interface BenchmarkPairPage {
   total: number
 }
 
+/** One objection and the answer it drew. */
+export interface BenchmarkDenialRound {
+  round: number
+  objection: string
+  answer: string
+}
+
+/** How the pressure on one answer ended (`denial_loop`). */
+export interface BenchmarkDenial {
+  /** Objections actually put — the loop stops at the one the model gives in on. */
+  rounds: number
+  flipped: boolean
+  flip_round: number | null
+  note: string
+  /** Objections the run was configured to put, which `rounds` is read against. */
+  limit: number
+  /** Empty on rows measured before transcripts were kept. */
+  log: BenchmarkDenialRound[]
+}
+
+/** One repeat: how hot it was asked, and what came back. */
+export interface BenchmarkRepeatTrial {
+  trial: number
+  temperature: number
+  answer: string
+  correct: boolean
+}
+
+/** How far one answer repeated when the question was asked again (`monte_carlo`). */
+export interface BenchmarkRepeats {
+  trials: number
+  accuracy: number
+  /** The share that gave the most frequent answer — not the share that were right. */
+  consistency: number
+  by_temperature: Record<string, number>
+  note: string
+  /** Empty on rows measured before transcripts were kept. */
+  log: BenchmarkRepeatTrial[]
+}
+
 export interface BenchmarkResult {
   id: string
   qa_id: string
@@ -1076,6 +1188,16 @@ export interface BenchmarkResult {
   model: string
   created_at: string
   is_latest: boolean
+  /**
+   * What the block did, where it did anything beyond asking.
+   *
+   * Both blocks record the answer they STARTED from, so without these a
+   * pressure row and a repeat row are the direct row printed again — and the
+   * `hallucinate` on a pressure row, which means the answer was given up rather
+   * than wrong, reads as the judge contradicting itself.
+   */
+  denial?: BenchmarkDenial | null
+  repeats?: BenchmarkRepeats | null
 }
 
 export interface BenchmarkResultPage {
@@ -1103,6 +1225,7 @@ export interface BenchmarkReportModelRow {
   fabrication: number | null
   lmi: number | null
   context_gain: number | null
+  closed_accuracy?: number | null
 }
 
 export interface BenchmarkReportSkillRow {
@@ -1146,6 +1269,8 @@ export interface BenchmarkReport {
   version: number
   kind: 'answering' | 'retrieval'
   arm: string
+  /** The launch this card is of; empty where the run belongs to none. */
+  job?: string
   checked_at: string
   score: number | null
   score_label?: string
@@ -1161,6 +1286,8 @@ export interface BenchmarkReport {
   trust?: BenchmarkReportTrust
   dataset?: BenchmarkReportDataset
   instrument?: BenchmarkReportInstrument
+  pressure?: BenchmarkPressure | null
+  stability?: BenchmarkStability | null
 }
 
 /**

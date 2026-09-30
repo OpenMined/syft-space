@@ -47,6 +47,7 @@ from syft_benchmark.runs.judge_stage import (
     judge_pending,
     list_results,
     override_verdict,
+    withdraw_override,
 )
 from syft_benchmark.runs.parallel import Pool, Progress, RunCache, Savings
 from syft_benchmark.runs.resume import done_units, window_start
@@ -93,6 +94,7 @@ __all__ = [
     "judge_pending",
     "list_results",
     "override_verdict",
+    "withdraw_override",
     "pick_pairs",
     "run_pass",
     "with_context_prompt",

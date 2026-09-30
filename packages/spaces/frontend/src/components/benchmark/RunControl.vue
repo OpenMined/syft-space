@@ -36,7 +36,7 @@
       <div class="space-y-1">
         <h2 class="heading-3 text-foreground flex items-center gap-2">
           <Gauge class="h-5 w-5 text-muted-foreground" />
-          Measuring
+          Measure this endpoint
         </h2>
         <p class="text-xs text-muted-foreground">
           {{ target?.connection_name || 'Benchmark' }}
@@ -141,9 +141,7 @@
               <template v-else-if="schedule">
                 The step runs from the previous launch, not from an hour of the day.
               </template>
-              <template v-else>
-                Nothing runs on a schedule. Start a phase below by hand.
-              </template>
+              <template v-else> Nothing runs on a schedule. Start a phase below by hand. </template>
             </p>
             <p v-if="nextRun" class="text-xs text-muted-foreground">Next run {{ nextRun }}.</p>
             <p v-else-if="schedule" class="text-xs text-muted-foreground">
@@ -169,24 +167,35 @@
     </details>
 
     <PhaseGroup
-      title="Preparation"
-      status="Generation, then filtering"
-      :action-label="preparationAction.label"
-      :action-disabled="preparationAction.disabled"
-      :action-destructive="preparationAction.destructive"
-      v-model:open="sections.preparation"
-      @action="preparationAction.run"
+      title="Full run"
+      :status="jobStateWords(fullJob) || 'Generate, filter, execute, judge, report'"
+      :progress="progressOf(fullJob)"
+      :action-label="fullAction.label"
+      :action-disabled="fullAction.disabled"
+      :action-destructive="fullAction.destructive"
+      v-model:open="sections.full"
+      @action="fullAction.run"
     >
+      <div class="flex flex-wrap items-baseline gap-2">
+        <Label for="bm-ask-limit" class="text-xs text-foreground">At most</Label>
+        <Input
+          id="bm-ask-limit"
+          v-model="askLimit"
+          type="number"
+          min="1"
+          placeholder="all"
+          class="h-8 w-20"
+        />
+        <span class="text-xs text-muted-foreground flex-1 min-w-48">
+          questions <strong class="text-foreground">per generator</strong> — built and asked. Blank
+          takes all of them.
+        </span>
+      </div>
+
       <PhaseBlock
-        title="Generation"
-        help="Builds new question/answer pairs from the corpus. Everything it builds lands pending — nothing here decides whether a pair is any good, that is Filtering's job."
-        :status="jobStateWords(generationJob)"
-        :progress="progressOf(generationJob)"
-        :action-label="generationAction.label"
-        :action-disabled="generationAction.disabled"
-        :action-destructive="generationAction.destructive"
-        v-model:open="sections.generation"
-        @action="generationAction.run"
+        title="Generate"
+        help="Builds question/answer pairs from the corpus and screens them."
+        v-model:open="sections.generate"
       >
         <details
           v-if="generatorKeys.length"
@@ -197,7 +206,9 @@
           <summary
             class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
           >
-            <ChevronRight class="h-3.5 w-3.5 transition-transform group-open/generators:rotate-90" />
+            <ChevronRight
+              class="h-3.5 w-3.5 transition-transform group-open/generators:rotate-90"
+            />
             Generators ({{ enabledGeneratorCount }} of {{ generatorKeys.length }} enabled)
           </summary>
           <div class="pt-3 space-y-3">
@@ -226,13 +237,13 @@
           <div class="pt-3 space-y-3">
             <LayerForm
               v-model="probeForm"
-              :fields="fieldsFor('generation', 'probe')"
+              :fields="fieldsFor('generate', 'probe')"
               :inherited="inheritedProbe"
               :connection-id="target?.connection_id ?? ''"
             />
             <LayerForm
               v-model="instrumentForm"
-              :fields="fieldsFor('generation', 'instrument')"
+              :fields="fieldsFor('generate', 'instrument')"
               :inherited="inheritedInstrument"
               :connection-id="target?.connection_id ?? ''"
             />
@@ -241,200 +252,57 @@
             </Button>
           </div>
         </details>
-        <PairList :slug="props.slug" :refresh-key="refreshKey" :generators="generatorKeys" />
       </PhaseBlock>
 
       <PhaseBlock
-        title="Filtering"
-        help="Screens pending pairs for grounding and, for control items, checks live retrieval again. Only pending pairs are touched automatically — overturn a verdict by hand below."
-        :status="jobStateWords(filterJob)"
-        :progress="progressOf(filterJob)"
-        :action-label="filteringAction.label"
-        :action-disabled="filteringAction.disabled"
-        :action-destructive="filteringAction.destructive"
-        v-model:open="sections.filtering"
-        @action="filteringAction.run"
+        title="Filter"
+        help="Its own screening is still to be written. Generate screens what it builds."
+        v-model:open="sections.filter"
       >
-        <details
-          v-if="fieldsFor('filtering', 'instrument').length"
-          class="group/filterset"
-          :open="sections.filteringSettings"
-          @toggle="sections.filteringSettings = ($event.target as HTMLDetailsElement).open"
-        >
-          <summary
-            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
-          >
-            <ChevronRight
-              class="h-3.5 w-3.5 transition-transform group-open/filterset:rotate-90"
-            />
-            Filtering settings
-          </summary>
-          <div class="pt-3 space-y-3">
-            <LayerForm
-              v-model="instrumentForm"
-              :fields="fieldsFor('filtering', 'instrument')"
-              :inherited="inheritedInstrument"
-              :connection-id="target?.connection_id ?? ''"
-            />
-            <Button size="sm" :disabled="saving" @click="persistTarget">
-              {{ saving ? 'Saving…' : 'Save' }}
-            </Button>
-          </div>
-        </details>
-        <PairList
-          :slug="props.slug"
-          status="pending"
-          :refresh-key="refreshKey"
-          :generators="generatorKeys"
+        <p class="text-xs text-muted-foreground">Nothing here yet.</p>
+      </PhaseBlock>
+
+      <PhaseBlock
+        title="Execute"
+        help="Asks the active questions with these settings."
+        v-model:open="sections.execute"
+      >
+        <LayerForm
+          v-model="probeForm"
+          :fields="fieldsFor('execute', 'probe')"
+          :inherited="inheritedProbe"
+          :connection-id="target?.connection_id ?? ''"
         />
+        <LayerForm
+          v-model="instrumentForm"
+          :fields="fieldsFor('execute', 'instrument')"
+          :inherited="inheritedInstrument"
+          :connection-id="target?.connection_id ?? ''"
+        />
+        <Button size="sm" :disabled="saving" @click="persistTarget">
+          {{ saving ? 'Saving…' : 'Save' }}
+        </Button>
       </PhaseBlock>
-    </PhaseGroup>
 
-    <PhaseGroup
-      title="Testing"
-      status="Execution, judging and the report"
-      :action-label="testingAction.label"
-      :action-disabled="testingAction.disabled"
-      :action-destructive="testingAction.destructive"
-      v-model:open="sections.testing"
-      @action="testingAction.run"
-    >
       <PhaseBlock
-        title="Execution"
-        help="Asks the active questions. Run on its own, it defers judging so the Judging block has pending verdicts to grade — Testing above grades inline instead."
-        :status="jobStateWords(executionJob)"
-        :progress="progressOf(executionJob)"
-        :action-label="executionAction.label"
-        :action-disabled="executionAction.disabled"
-        :action-destructive="executionAction.destructive"
-        v-model:open="sections.execution"
-        @action="executionAction.run"
+        title="Judge"
+        help="Grades the answers. Adds a verdict, never rewrites one."
+        v-model:open="sections.judge"
       >
-        <details
-          class="group/instrument"
-          :open="sections.instrument"
-          @toggle="sections.instrument = ($event.target as HTMLDetailsElement).open"
-        >
-          <summary
-            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
-          >
-            <ChevronRight class="h-3.5 w-3.5 transition-transform group-open/instrument:rotate-90" />
-            Execution settings
-          </summary>
-          <div class="pt-3 space-y-3">
-            <LayerForm
-              v-model="probeForm"
-              :fields="fieldsFor('execution', 'probe')"
-              :inherited="inheritedProbe"
-              :connection-id="target?.connection_id ?? ''"
-            />
-            <LayerForm
-              v-model="instrumentForm"
-              :fields="fieldsFor('execution', 'instrument')"
-              :inherited="inheritedInstrument"
-              :connection-id="target?.connection_id ?? ''"
-            />
-            <Button size="sm" :disabled="saving" @click="persistTarget">
-              {{ saving ? 'Saving…' : 'Save' }}
-            </Button>
-          </div>
-        </details>
+        <LayerForm
+          v-model="instrumentForm"
+          :fields="fieldsFor('judge', 'instrument')"
+          :inherited="inheritedInstrument"
+          :connection-id="target?.connection_id ?? ''"
+        />
+        <Button size="sm" :disabled="saving" @click="persistTarget">
+          {{ saving ? 'Saving…' : 'Save' }}
+        </Button>
         <p class="text-xs text-muted-foreground">
-          Answers are graded in the Judging block below, or reviewed on the target's published card
-          once Testing has run.
+          Answers and verdicts are read on
+          <strong class="text-foreground">Benchmark results</strong>, where the card is built and
+          published. Only aggregates ever leave.
         </p>
-        <ResultList :slug="props.slug" :refresh-key="refreshKey" :generators="generatorKeys" />
-      </PhaseBlock>
-
-      <PhaseBlock
-        title="Judging"
-        help="Grades pending verdicts — the ones Execution left ungraded. Never rewrites a verdict, only adds a new one; every reader already takes the freshest."
-        :status="jobStateWords(judgeJob)"
-        :progress="progressOf(judgeJob)"
-        :action-label="judgingAction.label"
-        :action-disabled="judgingAction.disabled"
-        :action-destructive="judgingAction.destructive"
-        v-model:open="sections.judging"
-        @action="judgingAction.run"
-      >
-        <details
-          v-if="fieldsFor('judging', 'instrument').length"
-          class="group/judgeset"
-          :open="sections.judgingSettings"
-          @toggle="sections.judgingSettings = ($event.target as HTMLDetailsElement).open"
-        >
-          <summary
-            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
-          >
-            <ChevronRight
-              class="h-3.5 w-3.5 transition-transform group-open/judgeset:rotate-90"
-            />
-            Judging settings
-          </summary>
-          <div class="pt-3 space-y-3">
-            <LayerForm
-              v-model="instrumentForm"
-              :fields="fieldsFor('judging', 'instrument')"
-              :inherited="inheritedInstrument"
-              :connection-id="target?.connection_id ?? ''"
-            />
-            <Button size="sm" :disabled="saving" @click="persistTarget">
-              {{ saving ? 'Saving…' : 'Save' }}
-            </Button>
-          </div>
-        </details>
-        <ResultList :slug="props.slug" :refresh-key="refreshKey" :generators="generatorKeys" />
-      </PhaseBlock>
-
-      <PhaseBlock
-        title="Report"
-        help="Builds the card from what is active and graded right now — no fresh run needed. Publishing is a separate, explicit step."
-        status=""
-        action-label="Build"
-        :action-disabled="reportLoading"
-        v-model:open="sections.report"
-        @action="doBuildReport"
-      >
-        <details
-          v-if="fieldsFor('report', 'instrument').length"
-          class="group/reportset"
-          :open="sections.reportSettings"
-          @toggle="sections.reportSettings = ($event.target as HTMLDetailsElement).open"
-        >
-          <summary
-            class="text-xs font-medium text-foreground cursor-pointer select-none flex items-center gap-1.5"
-          >
-            <ChevronRight
-              class="h-3.5 w-3.5 transition-transform group-open/reportset:rotate-90"
-            />
-            Report settings
-          </summary>
-          <div class="pt-3 space-y-3">
-            <LayerForm
-              v-model="instrumentForm"
-              :fields="fieldsFor('report', 'instrument')"
-              :inherited="inheritedInstrument"
-              :connection-id="target?.connection_id ?? ''"
-            />
-            <Button size="sm" :disabled="saving" @click="persistTarget">
-              {{ saving ? 'Saving…' : 'Save' }}
-            </Button>
-          </div>
-        </details>
-        <div v-if="report" class="space-y-4">
-          <ReportView :report="report" />
-          <div class="flex gap-2">
-            <Button size="sm" :disabled="reportLoading" @click="doPublish">Publish</Button>
-            <Button variant="outline" size="sm" :disabled="reportLoading" @click="doRetract">
-              Retract
-            </Button>
-          </div>
-          <p class="text-xs text-muted-foreground">
-            Publishing sends only the aggregates above to the hub card — never a question, an
-            answer or corpus text.
-          </p>
-        </div>
-        <p v-else class="text-sm text-muted-foreground">Not built yet.</p>
       </PhaseBlock>
     </PhaseGroup>
   </section>
@@ -443,8 +311,16 @@
 <script setup lang="ts">
 /**
  * Measuring one endpoint, end to end: whether, when, and everything about
- * how — generation, filtering, execution, judging, the report — embedded
- * here rather than reached through a separate console.
+ * how — generate, filter, execute, judge, report — embedded here rather
+ * than reached through a separate console.
+ *
+ * One launch, one button. The blocks below it hold the settings each phase
+ * reads, and start nothing of their own: which phases a launch performs is
+ * a property of the launch, not five separate starts that can each leave a
+ * card measured on something other than what these settings say.
+ *
+ * Nothing on this page reads a result either: what a run produced is read on
+ * the endpoint's Benchmark results tab, which is also where it is published.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -454,11 +330,8 @@ import { CheckCircle2, ChevronRight, Gauge, Play, TriangleAlert } from 'lucide-v
 import { FIELD_PLACEMENT } from '@/components/benchmark/fieldPlacement'
 import GeneratorToggles from '@/components/benchmark/GeneratorToggles.vue'
 import LayerForm from '@/components/benchmark/LayerForm.vue'
-import PairList from '@/components/benchmark/PairList.vue'
 import PhaseBlock from '@/components/benchmark/PhaseBlock.vue'
 import PhaseGroup from '@/components/benchmark/PhaseGroup.vue'
-import ReportView from '@/components/benchmark/ReportView.vue'
-import ResultList from '@/components/benchmark/ResultList.vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -474,14 +347,12 @@ import type {
   BenchmarkField,
   BenchmarkJob,
   BenchmarkLayer,
-  BenchmarkReport,
   BenchmarkRunRequest,
   BenchmarkTarget,
 } from '@/api/types'
 import type { PhaseBlockKey } from '@/components/benchmark/fieldPlacement'
 
 const props = defineProps<{ slug: string }>()
-const emit = defineEmits<{ 'card-changed': [] }>()
 
 const router = useRouter()
 
@@ -489,19 +360,13 @@ const router = useRouter()
 // so a reload — or coming back tomorrow — does not fold everything again.
 const sections = usePersistedSections(`benchmark-console:${props.slug}`, {
   settings: false,
-  preparation: false,
-  generation: false,
+  full: false,
+  generate: false,
   generators: false,
   probe: false,
-  filtering: false,
-  filteringSettings: false,
-  testing: false,
-  execution: false,
-  instrument: false,
-  judging: false,
-  judgingSettings: false,
-  report: false,
-  reportSettings: false,
+  filter: false,
+  execute: false,
+  judge: false,
 })
 
 const loading = ref(true)
@@ -658,54 +523,18 @@ function ago(stamp: string | null): string {
 
 // --- the phases -----------------------------------------------------------
 
-const { jobs, running, refresh: refreshJobs, latestOf } = useBenchmarkJobs(props.slug)
+const { jobs, running, refresh: refreshJobs } = useBenchmarkJobs(props.slug)
 
-// Bumped so PairList/ResultList reload without each of them polling the job
-// queue on their own — on every poll while something is running, since
-// generation and filtering write pairs one at a time as they go and the
-// owner watching Generation should see them appear rather than wait for the
-// whole pass to end; and once more on the exact tick a job finishes, in case
-// the last poll landed a beat before its final row.
-const refreshKey = ref(0)
-const seenFinal = new Set<string>()
-watch(
-  jobs,
-  (current) => {
-    let sawFinal = false
-    for (const job of current) {
-      const final = job.state === 'succeeded' || job.state === 'failed' || job.state === 'cancelled'
-      if (final && !seenFinal.has(job.id)) {
-        seenFinal.add(job.id)
-        sawFinal = true
-      }
-    }
-    if (sawFinal || running.value) {
-      refreshKey.value += 1
-    }
-  },
-  { deep: true },
+// The latest job of a kind is not this page's job: a schedule fires the same
+// kind, and the benchmark leaves `phase` at `done` once any of them finishes,
+// so a finished job cannot say afterwards who started it. So the button
+// remembers the id of the launch IT started and reads that one back out of
+// the poll.
+const startedJobId = ref<string>('')
+
+const fullJob = computed(() =>
+  startedJobId.value ? jobs.value.find((job) => job.id === startedJobId.value) : undefined,
 )
-
-// `kind` alone cannot tell a generation-only pipeline job from an
-// execution-only one — both are `pipeline`, and the benchmark leaves
-// `phase` at `done` once either finishes, so a job's own fields cannot
-// say afterwards which block started it either. So each block that can
-// start a `pipeline` job remembers the id of the one IT started, and reads
-// that job's current state back out of the poll — rather than the latest
-// job of its kind, which might belong to a different block entirely.
-const startedJobId = ref<Record<string, string>>({})
-
-function jobFor(name: string): BenchmarkJob | undefined {
-  const id = startedJobId.value[name]
-  return id ? jobs.value.find((job) => job.id === id) : undefined
-}
-
-const preparationJob = computed(() => jobFor('preparation'))
-const generationJob = computed(() => jobFor('generation'))
-const testingJob = computed(() => jobFor('testing'))
-const executionJob = computed(() => jobFor('execution'))
-const filterJob = computed(() => latestOf('filter'))
-const judgeJob = computed(() => latestOf('judge'))
 
 function progressOf(job: BenchmarkJob | undefined): number | 'indeterminate' | null {
   if (!job || job.state !== 'running') return null
@@ -719,33 +548,40 @@ function progressOf(job: BenchmarkJob | undefined): number | 'indeterminate' | n
   return Math.round((job.done / job.total) * 100)
 }
 
-const acting = ref<string | null>(null)
+/**
+ * How many questions a launch asks of each generator.
+ *
+ * Deliberately not a saved setting and deliberately not remembered across a
+ * reload: it belongs to one launch. A cap left lying about in the settings is
+ * the kind of thing that quietly makes every nightly measurement a sample of
+ * four questions, and the figures would not look wrong — only thin.
+ */
+const askLimit = ref('')
 
-async function act(name: string, fn: () => Promise<BenchmarkJob>): Promise<void> {
-  acting.value = name
+/** The cap as the benchmark takes it: a whole number of at least one, or nothing. */
+const askLimitBody = computed<{ limit?: number }>(() => {
+  const asked = Math.floor(Number(askLimit.value))
+  return Number.isFinite(asked) && asked >= 1 ? { limit: asked } : {}
+})
+
+const acting = ref(false)
+
+async function act(fn: () => Promise<BenchmarkJob>): Promise<void> {
+  acting.value = true
   try {
-    const job = await fn()
-    startedJobId.value[name] = job.id
+    startedJobId.value = (await fn()).id
     await refreshJobs()
   } catch (error) {
-    toast.error(apiErrorDetail(error, `Could not start ${name}`))
+    toast.error(apiErrorDetail(error, 'Could not start this run'))
   } finally {
-    acting.value = null
+    acting.value = false
   }
 }
 
-const busy = computed(() => acting.value !== null || running.value)
+const busy = computed(() => acting.value || running.value)
 
 function startRun(body: BenchmarkRunRequest) {
   return benchmarksApi.startRun(props.slug, body)
-}
-
-function runFilter() {
-  return benchmarksApi.runFilter(props.slug)
-}
-
-function runJudge() {
-  return benchmarksApi.runJudge(props.slug)
 }
 
 // --- stopping a run in progress ---------------------------------------------
@@ -771,17 +607,19 @@ async function cancelJob(job: BenchmarkJob | undefined): Promise<void> {
 }
 
 /**
- * The run button for one block: "Run" (or the given label) while nothing of
- * its own is in flight, "Cancel" in its place once something is — starting a
- * second run while one is already going is refused by the queue anyway, so
- * the button that would have done that becomes the one thing still useful:
- * stopping the one that is running.
+ * The whole thing in one launch: build the questions, screen them, ask them,
+ * grade them, write the card.
+ *
+ * "Run" while nothing is in flight, "Cancel" in its place once something is —
+ * a second launch is refused by the queue anyway, so the button that would
+ * have started one becomes the one thing still useful.
+ *
+ * The cap applies to both halves — two questions per generator built, those
+ * two asked — so a configuration can be tried end to end for the price of a
+ * handful of calls.
  */
-function actionFor(
-  job: BenchmarkJob | undefined,
-  startLabel: string,
-  start: () => Promise<unknown>,
-) {
+const fullAction = computed(() => {
+  const job = fullJob.value
   if (isActive(job)) {
     return {
       label: 'Cancel',
@@ -791,101 +629,12 @@ function actionFor(
     }
   }
   return {
-    label: startLabel,
+    label: 'Run',
     disabled: busy.value,
     destructive: false,
-    run: start,
+    run: () => act(() => startRun({ generate: true, evaluate: true, ...askLimitBody.value })),
   }
-}
-
-const preparationAction = computed(() =>
-  actionFor(preparationJob.value, 'Run preparation', () =>
-    act('preparation', () => startRun({ generate: true, evaluate: false })),
-  ),
-)
-const generationAction = computed(() =>
-  actionFor(generationJob.value, 'Run', () =>
-    act('generation', () => startRun({ generate: true, evaluate: false, filter: false })),
-  ),
-)
-const filteringAction = computed(() =>
-  actionFor(filterJob.value, 'Run', () => act('filter', () => runFilter())),
-)
-const testingAction = computed(() =>
-  actionFor(testingJob.value, 'Run testing', () =>
-    act('testing', () => startRun({ generate: false, evaluate: true })),
-  ),
-)
-const executionAction = computed(() =>
-  actionFor(executionJob.value, 'Run', () =>
-    act('execution', () =>
-      startRun({ generate: false, evaluate: true, defer_judging: true, publish: false }),
-    ),
-  ),
-)
-const judgingAction = computed(() =>
-  actionFor(judgeJob.value, 'Run', () => act('judge', () => runJudge())),
-)
-
-// Report state, rebuilt on demand rather than polled: it is a fast,
-// synchronous call, not a queued job — and never stored, so it is gone
-// after a reload unless something loads it back.
-const report = ref<BenchmarkReport | null>(null)
-const reportLoading = ref(false)
-
-async function doBuildReport(): Promise<void> {
-  reportLoading.value = true
-  try {
-    report.value = await benchmarksApi.buildReport(props.slug)
-  } catch (error) {
-    toast.error(apiErrorDetail(error, 'Could not build the report'))
-  } finally {
-    reportLoading.value = false
-  }
-}
-
-/**
- * The same rebuild, run quietly on load: an endpoint with nothing gradable
- * yet answers 409, which is the ordinary state of a page nobody has
- * measured, not a failure worth a toast over.
- */
-async function loadReport(): Promise<void> {
-  try {
-    report.value = await benchmarksApi.buildReport(props.slug)
-  } catch (error) {
-    const status = (error as { response?: { status?: number } })?.response?.status
-    if (status !== 409) toast.error(apiErrorDetail(error, 'Could not load the report'))
-  }
-}
-
-async function doPublish(): Promise<void> {
-  reportLoading.value = true
-  try {
-    report.value = await benchmarksApi.publishReport(props.slug)
-    toast.success('Published')
-    emit('card-changed')
-  } catch (error) {
-    toast.error(apiErrorDetail(error, 'Could not publish'))
-  } finally {
-    reportLoading.value = false
-  }
-}
-
-async function doRetract(): Promise<void> {
-  reportLoading.value = true
-  try {
-    await benchmarksApi.retractReport(props.slug)
-    toast.success('Retracted')
-    emit('card-changed')
-  } catch (error) {
-    toast.error(apiErrorDetail(error, 'Could not retract'))
-  } finally {
-    reportLoading.value = false
-  }
-}
-
-onMounted(async () => {
-  await load()
-  if (hasBenchmark.value) await loadReport()
 })
+
+onMounted(load)
 </script>

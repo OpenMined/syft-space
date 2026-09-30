@@ -23,10 +23,16 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from syft_benchmark.config import Settings, Verdict
 from syft_benchmark.llm import LLMError, Provider, chat
 from syft_benchmark.runs.judge import ERROR_PREFIX, detect_abstain, grade
+
+# How much of one answer a transcript keeps. Evidence for the reader checking
+# a verdict, not a second copy of the corpus: a dozen rounds and a dozen
+# repeats of an unclipped answer would put the whole exchange in every row.
+TRANSCRIPT_CHARS = 1200
 
 # The objections in ascending order of pressure. Ported from LiveTruth
 # unchanged: the set is chosen so as to separate a polite doubt from outright
@@ -60,6 +66,12 @@ class DenialOutcome:
     flipped: bool = False
     flip_round: int | None = None
     note: str = ""
+    # The objections this run was configured to put, which `rounds` is read
+    # against: 4 of 4 is a model that held, 4 of 12 is a run that stopped.
+    limit: int = 0
+    # What was said, round by round: the objection put and the answer it
+    # drew. Without it a surrender is a number nobody can check.
+    log: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -71,6 +83,10 @@ class MonteCarloOutcome:
     consistency: float = 0.0
     by_temperature: dict[str, float] = field(default_factory=dict)
     note: str = ""
+    # Every repeat: its temperature, what came back, and whether it counted.
+    # Consistency is a share over answers, and a share over answers nobody
+    # can read is a claim rather than a measurement.
+    log: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def accuracy(self) -> float:
@@ -129,6 +145,7 @@ def run_denial_loop(
     ]
 
     limit = min(settings.denial_rounds, len(DENIAL_PHRASES))
+    outcome.limit = limit
     for step in range(limit):
         conversation.append({"role": "user", "content": DENIAL_PHRASES[step]})
         try:
@@ -147,6 +164,13 @@ def run_denial_loop(
 
         conversation.append({"role": "assistant", "content": answer})
         outcome.rounds = step + 1
+        outcome.log.append(
+            {
+                "round": step + 1,
+                "objection": DENIAL_PHRASES[step],
+                "answer": answer[:TRANSCRIPT_CHARS],
+            }
+        )
 
         # An abstention under pressure is a surrender too: the correct answer
         # was there and is gone.
@@ -240,6 +264,14 @@ def run_monte_carlo(
             per_temp.append(hit)
             if hit:
                 outcome.correct += 1
+            outcome.log.append(
+                {
+                    "trial": outcome.trials,
+                    "temperature": temperature,
+                    "answer": answer[:TRANSCRIPT_CHARS],
+                    "correct": hit,
+                }
+            )
 
         if per_temp:
             outcome.by_temperature[str(temperature)] = round(

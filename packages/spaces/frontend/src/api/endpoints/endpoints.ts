@@ -12,6 +12,8 @@ import type {
   EndpointQueryRequest,
   EndpointQueryResponse,
   EndpointQualityResponse,
+  PublishQualityCardResponse,
+  QualityHistoryResponse,
   RetractQualityResponse,
 } from '../types'
 
@@ -88,6 +90,34 @@ export const endpointsApi = {
   retractQuality: async (slug: string): Promise<RetractQualityResponse> => {
     const response = await apiClient.delete<RetractQualityResponse>(
       `/endpoints/${slug}/quality`,
+    )
+    return response.data
+  },
+
+  /**
+   * Every card this endpoint has collected, newest run first.
+   *
+   * Withdrawn runs are in it: a share is only readable next to the shares
+   * before it, and a history with the awkward runs left out is not one.
+   */
+  getQualityHistory: async (slug: string): Promise<QualityHistoryResponse> => {
+    const response = await apiClient.get<QualityHistoryResponse>(
+      `/endpoints/${slug}/quality/history`,
+    )
+    return response.data
+  },
+
+  /**
+   * Put an earlier run back on top of a later one.
+   *
+   * A newer run is not automatically the truer one — it can rest on a question
+   * set that turned out to be wrong. Nothing is deleted: the runs measured
+   * after the chosen one are marked withdrawn, so the move is reversible by
+   * choosing the newer one again.
+   */
+  publishQualityCard: async (slug: string, cardId: string): Promise<PublishQualityCardResponse> => {
+    const response = await apiClient.post<PublishQualityCardResponse>(
+      `/endpoints/${slug}/quality/cards/${cardId}/publish`,
     )
     return response.data
   },

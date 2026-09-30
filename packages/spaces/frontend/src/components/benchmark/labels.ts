@@ -212,6 +212,19 @@ export function generatorWords(key: string): Words {
   return GENERATORS[key] ?? { label: humanise(key) }
 }
 
+/**
+ * A model's own name, without the house that serves it.
+ *
+ * `openai/gpt-4.1` reads as `gpt-4.1`. The vendor matters where independence
+ * is decided — a grader from the same house as a model under test is a
+ * conflict of interest — and nowhere in a list of verdicts, where it is the
+ * same prefix repeated down the page.
+ */
+export function shortModel(name: string): string {
+  const cut = name.lastIndexOf('/')
+  return cut === -1 ? name : name.slice(cut + 1)
+}
+
 /** What to call a field nobody has written words for yet. */
 export function humanise(name: string): string {
   const spaced = name.replace(/_/g, ' ')
@@ -252,8 +265,8 @@ export function blockedArmWords(code: string): string {
  * The benchmark sends `trust.flags` as codes; these are the words — what
  * each one means for the reader deciding whether to trust the number, not
  * what the benchmark measured to produce it. Shared by the published card
- * (`BenchmarkPanel.vue`) and the owner's own pre-publish report
- * (`ReportView.vue`), since both describe the same five codes.
+ * (`BenchmarkResults.vue`), whichever of the two sets of figures that page
+ * is showing, since both describe the same five codes.
  */
 export const TRUST_FLAGS: Record<string, Words> = {
   few_samples: {
@@ -363,4 +376,84 @@ export function armWords(arm: string): string {
 
 export function blockWords(block: string): string {
   return BLOCKS[block] ?? block
+}
+
+/**
+ * The same two facts in the space of a line.
+ *
+ * A heading can afford "Arm A — the model on its own · repeated at several
+ * temperatures". A label in front of every answer cannot: it would be longer
+ * than most of the answers and identical down the page. The full wording stays
+ * a hover away, which is where a reader who does not know the letters looks.
+ */
+export function armBrief(arm: string): string {
+  const letter = ARM_LETTERS[arm]
+  return letter ? `Arm ${letter}` : arm
+}
+
+/**
+ * The arms as the difference they make, not as their place in the methodology.
+ *
+ * "Arm A" and "Arm C" are the right names in a report, where the letters are
+ * defined on the page and the same three comparisons recur in a fixed order. In
+ * front of one answer they are a lookup the reader has to perform to understand
+ * what he is looking at, and the thing he is looking up — did the model have the
+ * endpoint's material or not — is the whole point of the comparison.
+ */
+export const ARM_TILES: Record<string, string> = {
+  closed_book: 'Without data',
+  open_book: "The endpoint's own answer",
+  model_with_context: 'With data',
+}
+
+export function armTileWords(arm: string): string {
+  return ARM_TILES[arm] ?? arm
+}
+
+export const BLOCKS_BRIEF: Record<string, string> = {
+  direct: 'asked once',
+  denial_loop: 'pushed back on',
+  monte_carlo: 'repeated',
+}
+
+export function blockBrief(block: string): string {
+  return BLOCKS_BRIEF[block] ?? block
+}
+
+/**
+ * The checks as column headings, where there is room for two letters.
+ *
+ * A table of judges against checks is read down its columns, and a heading as
+ * wide as its cells would set the width of the whole thing. The words are on
+ * hover, where a reader who does not know the codes looks.
+ */
+export const BLOCK_CODES: Record<string, string> = {
+  direct: 'D',
+  denial_loop: 'DL',
+  monte_carlo: 'MC',
+}
+
+export function blockCode(block: string): string {
+  return BLOCK_CODES[block] ?? block
+}
+
+/**
+ * Where a launch is now, named for the block whose button does the same
+ * thing: an owner watching the console should be reading one word, not
+ * matching the service's vocabulary against this page's.
+ *
+ * `pending` and `done` are left out on purpose — the job's own state word
+ * already says queued or finished, and saying it twice reads as two facts.
+ */
+export const PHASES: Record<string, string> = {
+  generate: 'Generate',
+  filter: 'Filter',
+  evaluate: 'Execute',
+  judge: 'Judge',
+  report: 'Report',
+  publish: 'Publish',
+}
+
+export function phaseWords(phase: string): string {
+  return PHASES[phase] ?? ''
 }

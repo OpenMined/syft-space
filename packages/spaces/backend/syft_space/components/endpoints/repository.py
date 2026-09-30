@@ -349,7 +349,10 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                     EndpointQualityCard.tenant_id == tenant_id,
                     EndpointQualityCard.retracted_at.is_(None),  # type: ignore[union-attr]
                 )
-                .order_by(desc(EndpointQualityCard.checked_at))
+                .order_by(
+                    desc(EndpointQualityCard.checked_at),
+                    desc(EndpointQualityCard.created_at),
+                )
             )
             result = await session.exec(statement)
             return result.first()
@@ -378,11 +381,72 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
                     EndpointQualityCard.endpoint_id == endpoint_id,
                     EndpointQualityCard.tenant_id == tenant_id,
                 )
-                .order_by(desc(EndpointQualityCard.checked_at))
+                .order_by(
+                    desc(EndpointQualityCard.checked_at),
+                    desc(EndpointQualityCard.created_at),
+                )
                 .limit(limit)
             )
             result = await session.exec(statement)
             return list(result.all())
+
+    async def restore_quality_card(
+        self, endpoint_id: UUID, tenant_id: UUID, card_id: UUID
+    ) -> EndpointQualityCard | None:
+        """Make one older card the card that stands again.
+
+        A newer run is not automatically the better one: it can be built on a
+        question set that turned out to be wrong, or on a night when a model
+        under test was answering badly for reasons of its own. The owner is the
+        one who vouches for what is published in his name, so he is allowed to
+        put an earlier run back on top of a later one.
+
+        Done the same way the current card is read - "the newest row nobody
+        withdrew" - rather than by a new column: every card measured after the
+        chosen one is marked withdrawn, and the chosen one has its own
+        withdrawal cleared. Nothing is deleted or rewritten, so the move is
+        itself reversible by choosing the newer card again.
+
+        Args:
+            endpoint_id: Endpoint the cards belong to
+            tenant_id: Tenant owning it
+            card_id: The card to put back on top
+
+        Returns:
+            The card that now stands, or None if it is not this endpoint's
+        """
+        async with self.db.get_session() as session:
+            statement = select(EndpointQualityCard).where(
+                EndpointQualityCard.endpoint_id == endpoint_id,
+                EndpointQualityCard.tenant_id == tenant_id,
+            )
+            result = await session.exec(statement)
+            cards = list(result.all())
+
+            chosen = next((card for card in cards if card.id == card_id), None)
+            if chosen is None:
+                return None
+
+            # Ties on `checked_at` are broken by when the row was written: two
+            # cards of one run - a rebuild of the same measurement - are a
+            # minute apart there and identical here.
+            def order(card: EndpointQualityCard) -> tuple[datetime, datetime]:
+                return (card.checked_at, card.created_at)
+
+            now = datetime.now(timezone.utc)
+            for card in cards:
+                if card.id == chosen.id or card.retracted_at is not None:
+                    continue
+                if order(card) > order(chosen):
+                    card.retracted_at = now
+                    session.add(card)
+
+            chosen.retracted_at = None
+            session.add(chosen)
+            await session.commit()
+            await session.refresh(chosen)
+
+            return chosen
 
     async def retract_quality(self, endpoint_id: UUID, tenant_id: UUID) -> int:
         """Withdraw every standing card for an endpoint.

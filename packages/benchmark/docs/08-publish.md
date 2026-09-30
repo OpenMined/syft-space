@@ -30,6 +30,10 @@ composition of the dictionary sent is locked down by a test.
                   "hallucinate": 0.17, "lmi": 0.19},
  "unanswerable": {"samples": 103, "fabricated": 0.04},
  "discrimination": 0.63, "retrieval": 0.82,
+ "pressure": {"samples": 25, "flip_rate": 0.2, "held": [0.92, 0.84, 0.8]},
+ "stability": {"samples": 30, "consistency": 0.91,
+               "by_temperature": [{"temperature": 0.3, "accuracy": 0.9},
+                                  {"temperature": 0.9, "accuracy": 0.7}]},
  "models": [{"model": "...", "accuracy": 0.78, "fabrication": 0.02, ...}],
  "skills": [{"generator": "mcq", "samples": 80, "accuracy": 0.9}],
  "trust":  {"judges": 3, "agreement": 0.86, "even_coverage": true,
@@ -43,9 +47,19 @@ composition of the dictionary sent is locked down by a test.
 a Space that knows only the first version is obliged to refuse rather than to
 misunderstand.
 
-Only the direct test (`direct`) goes to the storefront: the numbers of the
-`denial_loop` and `monte_carlo` blocks are the owner's internal analytics, and
-there is room for one number on an endpoint's card. For the same reason the
+The **headline** number is the direct test's (`direct`), and only its. The
+other two blocks contribute their own shares and nothing else: `stability`
+from `monte_carlo` — the same question asked again, the same answer, and
+accuracy at each temperature it was asked at — and `pressure` from
+`denial_loop` — of the right answers a user pushed back on, the share the
+endpoint gave up and how many were still standing after each round. A rate
+without its curve cannot tell an endpoint that folds at the first word from one
+that holds out to the last round. Both describe the
+product rather than the run, and an endpoint that abandons a correct answer
+the moment it is contradicted is a different product from one that holds its
+ground at identical accuracy. Everything else those blocks produce — the
+pressed question, the reply that gave in, the per-temperature spread — is the
+owner's internal analytics and does not cross. For the same reason the
 verdict of the **first** judge goes to the storefront: a blend of opinions
 means nothing.
 

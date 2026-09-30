@@ -312,12 +312,17 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         pair_status: str = Query(default="", alias="status"),
         cohort: str = "",
         generator: str = "",
+        job: str = "",
         limit: int = 0,
         offset: int = 0,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> dict:
-        """This endpoint's question/answer pairs, filterable and paged."""
+        """This endpoint's question/answer pairs, filterable and paged.
+
+        ``job`` narrows them to one launch — what that run generated, rejected
+        ones included. It is how a run's own page is drawn.
+        """
         return await handler.list_pairs(
             tenant,
             slug,
@@ -325,6 +330,7 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
                 "status": pair_status,
                 "cohort": cohort,
                 "generator": generator,
+                "job": job,
                 "limit": limit,
                 "offset": offset,
             },
@@ -381,16 +387,27 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         slug: str,
         verdict: str = "",
         qa_id: str = "",
+        job: str = "",
         limit: int = 0,
         offset: int = 0,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> dict:
-        """This endpoint's graded answers, filterable and paged."""
+        """This endpoint's graded answers, filterable and paged.
+
+        ``job`` narrows them to one launch — what that run asked and what came
+        back.
+        """
         return await handler.list_results(
             tenant,
             slug,
-            {"verdict": verdict, "qa_id": qa_id, "limit": limit, "offset": offset},
+            {
+                "verdict": verdict,
+                "qa_id": qa_id,
+                "job": job,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @router.post("/endpoints/{slug}/console/results/{result_id}/verdict")
@@ -403,6 +420,19 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
     ) -> dict:
         """Record a verdict by hand — inserted, never a rewrite of the last one."""
         return await handler.override_verdict(tenant, slug, result_id, body)
+
+    @router.delete(
+        "/endpoints/{slug}/console/results/{result_id}/verdict",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def withdraw_verdict(
+        slug: str,
+        result_id: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> None:
+        """Take back a verdict recorded by hand — the panel's stands again."""
+        await handler.withdraw_verdict(tenant, slug, result_id)
 
     @router.post(
         "/endpoints/{slug}/console/judge", status_code=status.HTTP_202_ACCEPTED

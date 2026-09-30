@@ -348,6 +348,12 @@ def judge_pending(
     return report
 
 
+# What an owner's own verdict is recorded under, in place of a judge.
+# Reading verdicts has to tell it from a grader's opinion: an override
+# stands over the whole panel rather than beside it.
+OWNER_OVERRIDE = "owner override"
+
+
 def override_verdict(
     result_id: str,
     verdict: Verdict,
@@ -412,7 +418,12 @@ def override_verdict(
                 block=str(run_row["block"] or ""),
                 model=str(run_row["model"] or ""),
                 model_vendor=str(run_row["model_vendor"] or ""),
-                judge_model="owner override",
+                # The override belongs to the launch whose answer it
+                # overrides. Without this it belongs to no launch, and the
+                # run's own page — which reads one launch — would show the
+                # verdict it replaced and not the owner's.
+                job_id=run_row["job_id"],
+                judge_model=OWNER_OVERRIDE,
                 note=f"manual override by {owner}" if owner else "manual override",
             )
         )
@@ -441,10 +452,144 @@ def override_verdict(
                 latency_s=0.0,
                 model=str(result_row["model"] or ""),
                 served_by=str(result_row["served_by"] or ""),
-                judge_model="owner override",
+                judge_model=OWNER_OVERRIDE,
             )
         )
     return new_id
+
+
+def withdraw_override(
+    result_id: str,
+    *,
+    target_key: str | None = None,
+    settings: Settings | None = None,
+) -> bool:
+    """Take back a verdict the owner recorded by hand.
+
+    The one deletion in this module, and it removes nothing that was
+    measured: an override is the owner's own statement, and a statement its
+    author withdraws should not go on standing over a panel that never
+    changed its mind. The graders' verdicts underneath it were never
+    touched, so they simply stand again.
+
+    Args:
+        result_id: The override to remove; anything else counts as not found
+        target_key: If given, a result belonging to a different target counts
+            as not found, same reason as everywhere else in this module
+        settings: The process settings
+
+    Returns:
+        Whether there was such an override to remove
+    """
+    conf = settings or get_settings()
+    with session_scope(conf) as session:
+        query = select(Result).where(
+            Result.id == result_id,
+            # Only ever the owner's own row. A judge's verdict is a record of
+            # what was said and is not ours to erase.
+            Result.judge_model == OWNER_OVERRIDE,
+        )
+        if target_key is not None:
+            query = query.where(Result.space == target_key)
+        row = session.execute(query).scalar_one_or_none()
+        if row is None:
+            return False
+        run_id = row.run_id
+        session.delete(row)
+        # The run was opened for this one verdict and holds nothing else.
+        run = session.get(Run, run_id)
+        if run is not None and run.judge_model == OWNER_OVERRIDE:
+            session.delete(run)
+    return True
+
+
+@dataclass(slots=True)
+class DenialView:
+    """How the pressure on one answer ended, as the console needs to read it.
+
+    `rounds` is how many objections were actually put — the loop stops at the
+    one the model gives in on, so a flipped outcome has `rounds == flip_round`
+    and a held one ran the full configured number.
+    """
+
+    rounds: int
+    flipped: bool
+    flip_round: int | None
+    note: str
+    # The objections configured for the run `rounds` belongs to: without it
+    # "held 4 rounds" cannot be told from "the run stopped after 4".
+    limit: int
+    # Round by round: the objection put and the answer it drew.
+    log: list[dict[str, Any]]
+
+
+@dataclass(slots=True)
+class RepeatsView:
+    """How far one answer repeated when the question was asked again.
+
+    `consistency` is the share of the repeats that gave the most frequent
+    answer, not the share that were correct: a model that says the same wrong
+    thing every time is consistent, and that is a different fact from accuracy.
+    """
+
+    trials: int
+    accuracy: float
+    consistency: float
+    by_temperature: dict[str, float]
+    note: str
+    # Every repeat: its temperature, what came back, whether it counted.
+    log: list[dict[str, Any]]
+
+
+def _log_of(block: dict[str, Any]) -> list[dict[str, Any]]:
+    """A block's transcript, or nothing where it was recorded before this.
+
+    Rows measured before transcripts were kept carry none, and that is not a
+    gap to fill in: the exchange was not recorded and cannot be reconstructed.
+    """
+    log = block.get("log")
+    return (
+        [entry for entry in log if isinstance(entry, dict)]
+        if isinstance(log, list)
+        else []
+    )
+
+
+def _denial_of(extra: Any) -> DenialView | None:
+    """The denial block's outcome out of `Result.extra`, if it ran."""
+    block = extra.get("denial") if isinstance(extra, dict) else None
+    if not isinstance(block, dict):
+        return None
+    flip_round = block.get("flip_round")
+    return DenialView(
+        rounds=int(block.get("rounds") or 0),
+        flipped=bool(block.get("flipped")),
+        flip_round=int(flip_round) if flip_round is not None else None,
+        note=str(block.get("note") or ""),
+        limit=int(block.get("limit") or 0),
+        log=_log_of(block),
+    )
+
+
+def _repeats_of(extra: Any) -> RepeatsView | None:
+    """The monte carlo block's outcome out of `Result.extra`, if it ran."""
+    block = extra.get("monte_carlo") if isinstance(extra, dict) else None
+    if not isinstance(block, dict):
+        return None
+    by_temperature = block.get("by_temperature")
+    return RepeatsView(
+        trials=int(block.get("trials") or 0),
+        accuracy=float(block.get("accuracy") or 0.0),
+        consistency=float(block.get("consistency") or 0.0),
+        by_temperature={
+            str(key): float(value)
+            for key, value in (
+                by_temperature.items() if isinstance(by_temperature, dict) else ()
+            )
+        },
+        note=str(block.get("note") or ""),
+        log=_log_of(block),
+    )
 
 
 @dataclass(slots=True)
@@ -467,6 +612,13 @@ class ResultView:
     # treats as "the" verdict for its (arm, source, block, model, question) —
     # the freshest by `created_at`. Overriding only ever makes sense for one.
     is_latest: bool
+
+    # What the block did, where it was one that does something beyond asking.
+    # The answer stored on a block row is the one the block STARTED from, so
+    # without these two a pressure row and a repeat row are the direct row
+    # printed again, and the verdict on them looks unaccountable.
+    denial: DenialView | None = None
+    repeats: RepeatsView | None = None
 
 
 def get_result(
@@ -501,17 +653,36 @@ def get_result(
             Run.block == run.block,
             Run.model == run.model,
         )
-        freshest_id = session.execute(
+        # An override stands over the whole panel; failing that, each grader's
+        # own freshest verdict stands for that grader. `list_results` says the
+        # same thing over a page of rows.
+        override_id = session.execute(
             select(Result.id)
             .join(Run, Run.id == Result.run_id)
             .where(
                 Result.space == result.space,
                 Result.qa_id == result.qa_id,
+                Result.judge_model == OWNER_OVERRIDE,
                 *key_columns,
             )
             .order_by(Result.created_at.desc())
             .limit(1)
         ).scalar_one_or_none()
+        freshest_id = (
+            override_id
+            or session.execute(
+                select(Result.id)
+                .join(Run, Run.id == Result.run_id)
+                .where(
+                    Result.space == result.space,
+                    Result.qa_id == result.qa_id,
+                    Result.judge_model == result.judge_model,
+                    *key_columns,
+                )
+                .order_by(Result.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        )
 
         return ResultView(
             id=result.id,
@@ -527,6 +698,8 @@ def get_result(
             model=run.model,
             created_at=result.created_at,
             is_latest=freshest_id == result.id,
+            denial=_denial_of(result.extra),
+            repeats=_repeats_of(result.extra),
         )
 
 
@@ -535,6 +708,7 @@ def list_results(
     *,
     verdict: str | None = None,
     qa_id: str | None = None,
+    job: str | None = None,
     limit: int = 50,
     offset: int = 0,
     settings: Settings | None = None,
@@ -545,6 +719,7 @@ def list_results(
         target_key: The node under test
         verdict: Only results with this verdict; None — every verdict
         qa_id: Only results for this pair; None — every pair
+        job: Only what this launch asked; None — everything the node has
         limit: Page size, capped at `MAX_PAGE`
         offset: How many to skip, for paging
         settings: The process settings
@@ -565,6 +740,8 @@ def list_results(
             base = base.where(Result.verdict == verdict)
         if qa_id:
             base = base.where(Result.qa_id == qa_id)
+        if job:
+            base = base.where(Run.job_id == job)
 
         total = session.execute(
             select(func.count()).select_from(base.subquery())
@@ -587,11 +764,19 @@ def list_results(
 
         # The freshest row per key, over the whole history rather than just
         # this page, so `is_latest` is accurate on page two as well.
+        #
+        # The judge is part of the key, and has to be: a panel grades one
+        # answer several times over, and without it the second judge's opinion
+        # would read as having replaced the first — "superseded" — when it
+        # replaced nothing. The report has always cut by judge for the same
+        # reason (see `judge_agreement`); only this listing did not.
         freshest: dict[tuple[str, ...], str] = {}
+        overridden: dict[tuple[str, ...], str] = {}
         history = session.execute(
             select(
                 Result.id,
                 Result.qa_id,
+                Result.judge_model,
                 Run.context_mode,
                 Run.context_source,
                 Run.block,
@@ -602,14 +787,16 @@ def list_results(
             .order_by(Result.created_at)
         ).all()
         for row in history:
-            key = (
+            answer = (
                 row.context_mode,
                 row.context_source,
                 row.block,
                 row.model,
                 row.qa_id,
             )
-            freshest[key] = row.id
+            freshest[(*answer, row.judge_model)] = row.id
+            if row.judge_model == OWNER_OVERRIDE:
+                overridden[answer] = row.id
 
         # Built while the session is still open: `rows` holds ORM instances,
         # and reading their columns after the block exits would touch a
@@ -617,12 +804,17 @@ def list_results(
         views = []
         for result, run in rows:
             pair = pairs.get(result.qa_id)
-            key = (
+            answer = (
                 run.context_mode,
                 run.context_source,
                 run.block,
                 run.model,
                 result.qa_id,
+            )
+            # An override stands over the whole panel; failing that, each
+            # grader's own freshest verdict stands for that grader.
+            stands = overridden.get(answer) or freshest.get(
+                (*answer, result.judge_model)
             )
             views.append(
                 ResultView(
@@ -638,7 +830,9 @@ def list_results(
                     block=run.block,
                     model=run.model,
                     created_at=result.created_at,
-                    is_latest=freshest.get(key) == result.id,
+                    is_latest=stands == result.id,
+                    denial=_denial_of(result.extra),
+                    repeats=_repeats_of(result.extra),
                 )
             )
     return views, total

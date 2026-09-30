@@ -132,6 +132,8 @@ def _handler(
     benchmarks_mode: str = "local",
     current: EndpointQualityCard | None = None,
     standing: int = 0,
+    history: list[EndpointQualityCard] | None = None,
+    restored: EndpointQualityCard | None = None,
 ) -> PublishEndpointHandler:
     """A handler with just enough around it to answer one call."""
     endpoints = SimpleNamespace(
@@ -139,6 +141,8 @@ def _handler(
         record_quality=AsyncMock(return_value=_stored_card()),
         get_current_quality=AsyncMock(return_value=current),
         retract_quality=AsyncMock(return_value=standing),
+        get_quality_history=AsyncMock(return_value=history or []),
+        restore_quality_card=AsyncMock(return_value=restored),
     )
     settings = SimpleNamespace(
         get_benchmarks_mode=AsyncMock(return_value=benchmarks_mode)
@@ -436,3 +440,136 @@ async def test_an_endpoint_nobody_measured_says_so_rather_than_showing_a_zero() 
     assert got.reported is False
     assert got.score is None
     assert got.report is None
+
+
+# ============== the history, and putting an earlier run back on top ==============
+
+
+@pytest.mark.asyncio
+async def test_the_history_marks_exactly_one_card_as_standing() -> None:
+    """The table and the section above it must not disagree.
+
+    "Which run is published" is read here the same way `get_current_quality`
+    reads it — the newest row nobody withdrew — rather than worked out again
+    from the dates.
+    """
+    newest = _stored_card(
+        score=0.71,
+        checked_at=datetime(2026, 9, 14, 3, tzinfo=timezone.utc),
+        retracted_at=datetime(2026, 9, 15, 9, tzinfo=timezone.utc),
+    )
+    middle = _stored_card(
+        score=0.78, checked_at=datetime(2026, 8, 14, 3, tzinfo=timezone.utc)
+    )
+    oldest = _stored_card(
+        score=0.64, checked_at=datetime(2026, 7, 14, 3, tzinfo=timezone.utc)
+    )
+    handler = _handler(_endpoint(), history=[newest, middle, oldest])
+
+    got = await handler.get_quality_history(
+        "kb",
+        SimpleNamespace(id=TENANT_ID),  # type: ignore[arg-type]
+    )
+
+    assert [card.standing for card in got.cards] == [False, True, False]
+    # A withdrawn run stays in the history: it is a fact about this endpoint,
+    # and a history with the awkward runs left out is not one.
+    assert got.cards[0].retracted_at is not None
+    assert got.cards[1].models == 1
+    assert got.cards[1].profile == "default"
+
+
+@pytest.mark.asyncio
+async def test_the_history_is_readable_after_reporting_is_switched_off() -> None:
+    """Same rule as reading the standing card: this is the owner's own view."""
+    handler = _handler(_endpoint(), benchmarks_mode="off", history=[_stored_card()])
+
+    got = await handler.get_quality_history(
+        "kb",
+        SimpleNamespace(id=TENANT_ID),  # type: ignore[arg-type]
+    )
+
+    assert len(got.cards) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_earlier_run_can_be_published_over_a_later_one() -> None:
+    """A newer run is not automatically the truer one.
+
+    It can rest on a question set that turned out to be wrong. Which figures
+    stand in the owner's name is his decision, so the card he chooses is both
+    made the standing one here and sent on to the marketplaces.
+    """
+    chosen = _stored_card(score=0.78)
+    handler = _handler(_endpoint(), restored=chosen)
+    handler._marketplaces_for = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    got = await handler.publish_quality_card(
+        "kb",
+        chosen.id,
+        SimpleNamespace(id=TENANT_ID),  # type: ignore[arg-type]
+    )
+
+    assert got.published is True
+    assert got.card_id == chosen.id
+    handler.endpoint_repository.restore_quality_card.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_publishing_a_card_of_another_endpoint_is_refused() -> None:
+    """Nothing is made to stand on the strength of an id alone."""
+    handler = _handler(_endpoint(), restored=None)
+
+    with pytest.raises(HTTPException) as refused:
+        await handler.publish_quality_card(
+            "kb",
+            uuid4(),
+            SimpleNamespace(id=TENANT_ID),  # type: ignore[arg-type]
+        )
+
+    assert refused.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_the_history_carries_the_whole_card() -> None:
+    """One request, every run drawn.
+
+    The page draws each run in full — its figures and its charts — so a history
+    that carried only the badge numbers would mean a request per row of the
+    table.
+    """
+    handler = _handler(_endpoint(), history=[_stored_card()])
+
+    got = await handler.get_quality_history(
+        "kb",
+        SimpleNamespace(id=TENANT_ID),  # type: ignore[arg-type]
+    )
+
+    assert got.cards[0].report["trust"]["judges"] == 3
+    assert got.cards[0].report["skills"][0]["generator"] == "mcq"
+
+
+def test_the_denial_loop_figure_is_accepted_on_a_card() -> None:
+    """Accuracy and backbone are different products.
+
+    The block presses on an answer the endpoint got right and counts how often
+    it gives it up. An endpoint that folds the moment a user pushes back is not
+    the same product as one that holds its ground at identical accuracy.
+    """
+    card = ReportQualityRequest.model_validate(
+        _card(pressure={"samples": 25, "flip_rate": 0.2})
+    )
+
+    assert card.pressure is not None
+    assert card.pressure.flip_rate == 0.2
+
+
+def test_a_card_from_a_benchmark_that_never_ran_that_block_is_still_a_card() -> None:
+    """denial_loop is switched on separately and costs several times as much.
+
+    Not running it is the ordinary state, and a zero flip rate would read as
+    "it never gave in" — a claim nobody measured.
+    """
+    card = ReportQualityRequest.model_validate(_card())
+
+    assert card.pressure is None

@@ -221,8 +221,8 @@ reason of their own.
 | `POST /targets/{key}/runs` | Put a measurement in the queue — any combination of building the set, filtering it and evaluating it, in one job |
 | `POST /targets/{key}/filter` | Screen this node's pending pairs on their own, in a job of their own |
 | `POST /targets/{key}/judge` | Grade this node's pending verdicts on their own, in a job of their own |
-| `POST /targets/{key}/report` | Rebuild the card from what is active and graded right now — synchronous, no job |
-| `POST /targets/{key}/publish` | Build the current card and hand it to the Space — synchronous |
+| `POST /targets/{key}/report` | Rebuild the card of the newest measurement — synchronous, no job |
+| `POST /targets/{key}/publish` | Build that same card and hand it to the Space — synchronous |
 | `POST /targets/{key}/retract` | Retract the published card through the Space — synchronous |
 | `POST /targets/{key}/session` | Mint a short-lived, single-target token for the console — see [The console](#the-console) |
 | `GET /targets/{key}/jobs` | The node's measurement history |
@@ -326,7 +326,7 @@ show:
 | --- | --- |
 | `GET /console/pairs` | This target's pairs, filterable by status, cohort, generator |
 | `GET/PATCH/DELETE /console/pairs/{id}` | Read one pair; override its status by hand; remove it outright if nothing has measured it yet |
-| `GET /console/results` | This target's results, filterable by verdict or pair |
+| `GET /console/results` | This target's results, filterable by verdict, pair or launch |
 | `POST /console/results/{id}/verdict` | Record a verdict by hand — inserted, never a rewrite |
 | `GET/PUT /console/probe` | This target's own probe layer, its fields, and what an unset field resolves to |
 | `POST /console/runs` / `/filter` / `/judge` | The same launches as the service routes, scoped to this one target |
@@ -338,6 +338,15 @@ changes only the probe layer, never the url, the credentials or the
 instrument. A per-target instrument override is set the same way probe's
 Space-wide layer is — through `PUT /targets/{key}`'s full spec, called by
 whoever assembles it — rather than through a session scoped to one target.
+
+A result from `denial_loop` or `monte_carlo` also carries `denial` or
+`repeats` — the round the model gave its answer up on, how many times the
+question was repeated and how far the repeats agreed. Both blocks record the
+answer they **started from**, so without these a block result is the direct one
+repeated, and its verdict is unaccountable: `hallucinate` on a pressure row
+means the answer was given up, not that it was wrong. They come out of
+`Result.extra`, behind the session token like the rest of this section; a
+published card carries none of it.
 
 `POST /console/report` carries two fields the service route and
 `/console/publish` do not: `score_label` and `trust.doubts` — the same
@@ -495,11 +504,21 @@ run with `publish: false`, or one the Space refused (`publish_refused`,
 `GET /targets/{key}/jobs`.
 
 Reviewing before publishing does not need a new run at all:
-`POST /targets/{key}/report` rebuilds the card synchronously from whatever is
-active and graded right now, `POST /targets/{key}/publish` hands the current
-card to the Space, and `POST /targets/{key}/retract` takes it back — three
-plain HTTP calls, none of them a queued job, since none of them asks a model
-or the node under test.
+`POST /targets/{key}/report` rebuilds the card synchronously,
+`POST /targets/{key}/publish` hands it to the Space, and
+`POST /targets/{key}/retract` takes it back — three plain HTTP calls, none of
+them a queued job, since none of them asks a model or the node under test.
+
+**A card is of one launch.** Both routes build it from the runs of the newest
+measurement, not from every verdict standing in the database: otherwise a
+generator switched off yesterday would still speak on today's card, two cards
+an hour apart could differ because a judging pass finished in between rather
+than because anything was measured, and no two of them would be comparable.
+Which launch that is follows the **newest run**, not the newest job: a run
+opened outside the queue — by the CLI, or before the job table existed —
+belongs to no launch, and the card is then the node as of now, as it always
+was. Filtering, generating and judging open no runs, so none of them starts a
+new card: grading yesterday's answers improves yesterday's card.
 
 `DELETE /jobs/{id}` discards a finished job — its own row, the runs it opened
 and their verdicts, card included. Not the question set: `qa_pairs` belongs to

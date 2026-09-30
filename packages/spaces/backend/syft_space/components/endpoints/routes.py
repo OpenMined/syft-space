@@ -1,6 +1,7 @@
 """Endpoint API routes."""
 
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -22,6 +23,8 @@ from syft_space.components.endpoints.schemas import (
     EndpointQualityResponse,
     PublishEndpointRequest,
     PublishEndpointResponse,
+    PublishQualityCardResponse,
+    QualityHistoryResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
     RejectionResponse,
@@ -256,6 +259,36 @@ def build_endpoint_routes(
         name even after he has closed the door on new reports.
         """
         return await handler.get_quality(slug, tenant)
+
+    @router.get("/{slug}/quality/history", response_model=QualityHistoryResponse)
+    async def get_quality_history(
+        slug: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PublishEndpointHandler = Depends(get_publish_handler),
+    ) -> QualityHistoryResponse:
+        """Every card this endpoint has collected, newest run first.
+
+        Withdrawn cards included: a share is only readable next to the shares
+        before it, and a history with the awkward runs left out is not one.
+        """
+        return await handler.get_quality_history(slug, tenant)
+
+    @router.post(
+        "/{slug}/quality/cards/{card_id}/publish",
+        response_model=PublishQualityCardResponse,
+    )
+    async def publish_quality_card(
+        slug: str,
+        card_id: UUID,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: PublishEndpointHandler = Depends(get_publish_handler),
+    ) -> PublishQualityCardResponse:
+        """Put an earlier run back on top of a later one.
+
+        Always available to the owner, like retraction: which figures stand in
+        his name is his decision, not the benchmark's.
+        """
+        return await handler.publish_quality_card(slug, card_id, tenant)
 
     @router.delete("/{slug}/quality", response_model=RetractQualityResponse)
     async def retract_quality(

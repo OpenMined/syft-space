@@ -271,6 +271,13 @@
             <FlaskConical class="h-4 w-4" />
             Benchmark
           </TabsTrigger>
+          <TabsTrigger
+            value="results"
+            class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
+          >
+            <BarChart3 class="h-4 w-4" />
+            Benchmark results
+          </TabsTrigger>
         </TabsList>
 
         <!-- Overview Tab -->
@@ -853,9 +860,14 @@
           </Card>
         </TabsContent>
 
-        <!-- Benchmark Tab -->
+        <!-- Benchmark Tab: whether it is measured, and every phase of a run -->
         <TabsContent value="benchmark" class="space-y-4 pt-6 mt-0">
-          <BenchmarkPanel :slug="routeSlug" />
+          <RunControl :slug="routeSlug" />
+        </TabsContent>
+
+        <!-- Benchmark results Tab: what the runs found, and what is published -->
+        <TabsContent value="results" class="space-y-4 pt-6 mt-0">
+          <BenchmarkResults :slug="routeSlug" />
         </TabsContent>
       </Tabs>
     </div>
@@ -959,6 +971,7 @@ import {
   Layout,
   Shield,
   FileText,
+  BarChart3,
   Database,
   Plus,
   ExternalLink,
@@ -985,7 +998,8 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import BenchmarkPanel from '@/components/BenchmarkPanel.vue'
+import BenchmarkResults from '@/components/BenchmarkResults.vue'
+import RunControl from '@/components/benchmark/RunControl.vue'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -1057,7 +1071,7 @@ const endpoint = ref<EndpointResponse | null>(null)
 const routeSlug = computed(() => route.params.slug as string)
 // The active tab lives in the URL, not only in memory — otherwise a reload,
 // or a link sent to someone else, always lands back on Overview.
-const KNOWN_TABS = new Set(['overview', 'access', 'transactions', 'benchmark'])
+const KNOWN_TABS = new Set(['overview', 'access', 'transactions', 'benchmark', 'results'])
 const requestedTab = route.query.tab
 const activeTab = ref(
   typeof requestedTab === 'string' && KNOWN_TABS.has(requestedTab) ? requestedTab : 'overview',

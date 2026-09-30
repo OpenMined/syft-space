@@ -31,98 +31,113 @@
     </div>
 
     <!-- The connection form: where it is, and how it reaches this Space. -->
-    <section v-if="connecting" class="border border-border/50 rounded-lg p-5 space-y-5">
-      <div>
-        <h2 class="heading-3 text-foreground">
-          {{ editing ? 'Connection' : 'Connect a benchmark' }}
-        </h2>
-        <p class="text-xs text-muted-foreground mt-1 max-w-2xl">
-          Two addresses, because the benchmark needs two roads. It reaches this
-          Space's API over HTTP, and the index directly — ChromaDB's own port,
-          or the container when that port is not published. Corpus text never
-          travels through this Space's API, and there is no route for it.
-        </p>
+    <section v-if="connecting" class="border border-border/50 rounded-lg p-5 space-y-6">
+      <h2 class="heading-3 text-foreground">
+        {{ editing ? 'Connection' : 'Connect a benchmark' }}
+      </h2>
+
+      <!-- Group 1: reaching the benchmark itself — the three fields every
+           connection needs, regardless of how it is deployed. -->
+      <div class="space-y-4">
+        <p class="text-xs font-medium text-foreground">The benchmark</p>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <Label for="bm-name">Name</Label>
+            <Input id="bm-name" v-model="form.name" placeholder="Local benchmark" class="h-9" />
+          </div>
+          <div class="space-y-1.5">
+            <Label for="bm-url">Benchmark URL</Label>
+            <Input id="bm-url" v-model="form.url" placeholder="http://benchmark:8200" class="h-9" />
+            <p class="text-xs text-muted-foreground">
+              Where this Space reaches the benchmark's API — a Docker-internal
+              address when the two run in separate containers of the same rig.
+            </p>
+          </div>
+          <div class="space-y-1.5 sm:col-span-2">
+            <Label for="bm-token">Control key</Label>
+            <Input
+              id="bm-token"
+              v-model="form.token"
+              type="password"
+              :placeholder="editing && current?.has_token ? 'Stored — leave blank to keep it' : ''"
+              class="h-9"
+            />
+            <p class="text-xs text-muted-foreground">
+              The benchmark refuses everything without it. A run costs hours and
+              money, so an open port would mean anyone who can reach the network
+              can spend your budget.
+            </p>
+          </div>
+          <div class="space-y-1.5 sm:col-span-2">
+            <Label for="bm-console-url">Console URL (optional)</Label>
+            <Input
+              id="bm-console-url"
+              v-model="form.console_url"
+              placeholder="Same as Benchmark URL"
+              class="h-9"
+            />
+            <p class="text-xs text-muted-foreground">
+              Only when a browser cannot reach the address above — e.g.
+              <code>http://localhost:8200</code> for a port published to the host
+              while the address above is a Docker-internal one.
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div class="grid sm:grid-cols-2 gap-4">
-        <div class="space-y-1.5">
-          <Label for="bm-name">Name</Label>
-          <Input id="bm-name" v-model="form.name" placeholder="Local benchmark" class="h-9" />
-        </div>
-        <div class="space-y-1.5">
-          <Label for="bm-url">Benchmark URL</Label>
-          <Input id="bm-url" v-model="form.url" placeholder="http://benchmark:8200" class="h-9" />
-          <p class="text-xs text-muted-foreground">
-            Where this Space reaches the benchmark's API. On a rig where the
-            two run in separate containers, this is a Docker-internal address.
-          </p>
-        </div>
-        <div class="space-y-1.5">
-          <Label for="bm-console-url">Console URL</Label>
-          <Input
-            id="bm-console-url"
-            v-model="form.console_url"
-            placeholder="Same as Benchmark URL"
-            class="h-9"
-          />
-          <p class="text-xs text-muted-foreground">
-            Where a browser reaches the console — fill this in only when it
-            differs from the Benchmark URL above, e.g. <code>http://localhost:8200</code>
-            for a published port that the address above cannot reach from
-            outside the containers.
-          </p>
-        </div>
-        <div class="space-y-1.5 sm:col-span-2">
-          <Label for="bm-token">Control key</Label>
-          <Input
-            id="bm-token"
-            v-model="form.token"
-            type="password"
-            :placeholder="editing && current?.has_token ? 'Stored — leave blank to keep it' : ''"
-            class="h-9"
-          />
-          <p class="text-xs text-muted-foreground">
-            The benchmark refuses everything without it. A run costs hours and
-            money, so an open port would mean anyone who can reach the network
-            can spend your budget.
-          </p>
-        </div>
-
-        <div class="space-y-1.5 sm:col-span-2">
-          <Label for="bm-space-url">This Space, as the benchmark sees it</Label>
-          <Input
-            id="bm-space-url"
-            v-model="form.space_url"
-            placeholder="http://space:8081"
-            class="h-9"
-          />
-        </div>
-        <div class="space-y-1.5">
-          <Label for="bm-chroma-host">Index host</Label>
-          <Input id="bm-chroma-host" v-model="form.chroma_host" placeholder="space" class="h-9" />
-        </div>
-        <div class="space-y-1.5">
-          <Label for="bm-chroma-port">Index port</Label>
-          <Input
-            id="bm-chroma-port"
-            v-model.number="form.chroma_port"
-            type="number"
-            placeholder="8100"
-            class="h-9"
-          />
-          <p class="text-xs text-muted-foreground">0 — not published; use the container instead.</p>
-        </div>
-        <div class="space-y-1.5 sm:col-span-2">
-          <Label for="bm-container">Container name</Label>
-          <Input
-            id="bm-container"
-            v-model="form.container"
-            placeholder="syft-space"
-            class="h-9"
-          />
-          <p class="text-xs text-muted-foreground">
-            The fallback road to the index, used when its port is not published.
-          </p>
+      <!-- Group 2: reaching this Space and its index — needed because the
+           benchmark reads the corpus directly rather than through this
+           Space's API, which has no route for it. -->
+      <div class="space-y-4 border-t border-border/50 pt-5">
+        <p class="text-xs font-medium text-foreground">Reaching this Space's index</p>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div class="space-y-1.5 sm:col-span-2">
+            <Label for="bm-space-url">This Space's own address</Label>
+            <Input
+              id="bm-space-url"
+              v-model="form.space_url"
+              placeholder="http://space:8081"
+              class="h-9"
+            />
+            <p class="text-xs text-muted-foreground">
+              Where the benchmark reaches this Space's API, to ask an endpoint a
+              question and hand back the card. Filled in for you when the address
+              is known; change it only if this Space answers elsewhere.
+            </p>
+          </div>
+          <div class="space-y-1.5">
+            <Label for="bm-chroma-host">Index host</Label>
+            <Input id="bm-chroma-host" v-model="form.chroma_host" placeholder="space" class="h-9" />
+            <p class="text-xs text-muted-foreground">
+              This Space's <strong class="text-foreground">container name</strong> on
+              the shared network — never <code>localhost</code>, which inside a
+              container means the benchmark itself.
+            </p>
+          </div>
+          <div class="space-y-1.5">
+            <Label for="bm-chroma-port">Index port</Label>
+            <Input
+              id="bm-chroma-port"
+              v-model.number="form.chroma_port"
+              type="number"
+              placeholder="8100"
+              class="h-9"
+            />
+            <p class="text-xs text-muted-foreground">0 — not published; use the container name below instead.</p>
+          </div>
+          <div class="space-y-1.5 sm:col-span-2">
+            <Label for="bm-container">Container name</Label>
+            <Input
+              id="bm-container"
+              v-model="form.container"
+              placeholder="syft-space"
+              class="h-9"
+            />
+            <p class="text-xs text-muted-foreground">
+              The fallback road to the index, reached with <code>docker exec</code>
+              when the port above is not published.
+            </p>
+          </div>
         </div>
       </div>
 

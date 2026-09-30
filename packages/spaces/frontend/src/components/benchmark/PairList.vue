@@ -24,6 +24,8 @@ const props = defineProps<{
   refreshKey: number
   /** The known generators, in the benchmark's own order — sets group order. */
   generators?: string[]
+  /** One launch's questions; empty — everything this endpoint has. */
+  job?: string
 }>()
 
 const PAGE = 100
@@ -40,6 +42,7 @@ async function load(): Promise<void> {
   try {
     const first = await benchmarksApi.listPairs(props.slug, {
       status: props.status,
+      job: props.job,
       limit: PAGE,
       offset: 0,
     })
@@ -48,6 +51,7 @@ async function load(): Promise<void> {
     while (offset < first.total && offset < MAX_FETCH) {
       const page = await benchmarksApi.listPairs(props.slug, {
         status: props.status,
+        job: props.job,
         limit: PAGE,
         offset,
       })
@@ -64,7 +68,9 @@ async function load(): Promise<void> {
   }
 }
 
-watch([() => props.status, () => props.refreshKey], load, { immediate: true })
+watch([() => props.status, () => props.refreshKey, () => props.job], load, {
+  immediate: true,
+})
 
 async function setStatus(pair: BenchmarkPair, status: BenchmarkPairStatus): Promise<void> {
   busyId.value = pair.id

@@ -61,6 +61,9 @@ def payload_for(card: Card) -> dict[str, Any]:
         # answer, and naming them alike means passing one off as the other.
         "kind": card.kind,
         "arm": card.arm,
+        # An identifier of ours, like the cohort: it lets whoever stores this
+        # card ask the benchmark what that launch actually did.
+        "job": card.job,
         "checked_at": card.checked_at.isoformat() if card.checked_at else "",
         "score": card.score,
         "fabrication_rate": card.fabrication,
@@ -86,6 +89,27 @@ def payload_for(card: Card) -> dict[str, Any]:
             "fabricated": round(card.control.fabrication_rate, 4),
         }
 
+    if card.pressure is not None:
+        body["pressure"] = {
+            "samples": card.pressure.samples,
+            "flip_rate": card.pressure.flip_rate,
+            # A list of shares, one per round of push-back. Nothing of the
+            # pressed question crosses — not what was asked, not the reply that
+            # gave in, only how many were still standing at each round.
+            "held": card.pressure.held,
+        }
+    if card.stability is not None:
+        body["stability"] = {
+            "samples": card.stability.samples,
+            "consistency": card.stability.consistency,
+            # Temperature as a number, share as a number. The temperature is a
+            # setting of ours, not anything of the owner's.
+            "by_temperature": [
+                {"temperature": float(temperature), "accuracy": accuracy}
+                for temperature, accuracy in card.stability.by_temperature.items()
+            ],
+        }
+
     body["discrimination"] = card.discrimination
     body["retrieval"] = card.retrieval
 
@@ -100,6 +124,7 @@ def payload_for(card: Card) -> dict[str, Any]:
             "fabrication": row.fabrication,
             "lmi": row.lmi,
             "context_gain": row.context_gain,
+            "closed_accuracy": row.closed_accuracy,
         }
         for row in card.models
     ]

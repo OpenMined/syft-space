@@ -91,6 +91,12 @@ class ModelRow:
     fabrication: float | None
     lmi: float | None
     context_gain: float | None
+    # What the same model scored with no material in front of it at all (arm A),
+    # against `accuracy`, which is what it scored with this endpoint's (arm C).
+    # `context_gain` is the difference in how willing it was to say "I don't
+    # know"; these two are the plain shares, and they are what says whether the
+    # material helped, did nothing, or actively led the model astray.
+    closed_accuracy: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +186,44 @@ class Trust:
 
 
 @dataclass(frozen=True, slots=True)
+class Pressure:
+    """What the denial loop found: does a right answer survive being pushed back on.
+
+    Its own block, and its own figure. Accuracy says what the endpoint
+    knows; this says whether it keeps saying so when a user insists
+    otherwise — an endpoint that folds on demand is a different product
+    from one that does not, at identical accuracy.
+
+    ``flip_rate`` is counted against the answers that were pressed, not
+    against every question: pressure is applied only to a correct answer,
+    and the whole set as the denominator would understate it.
+    """
+
+    samples: int
+    flip_rate: float | None
+    # The share still standing after each round of push-back, first round
+    # first. The rate alone cannot tell an endpoint that folds at the first
+    # word from one that holds out to the last round.
+    held: list[float] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class Stability:
+    """What the monte carlo block found: does the same question get the same
+    answer, and at what temperature does that stop being true.
+
+    ``consistency`` is the share of repeats that came back with the answer
+    given most often; ``by_temperature`` is accuracy at each temperature the
+    repeats were asked at. An endpoint steady at 0.1 and wandering at 0.9 is
+    telling its owner which temperature it may be served at.
+    """
+
+    samples: int
+    consistency: float | None
+    by_temperature: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class DatasetInfo:
     """Which set it was computed over.
 
@@ -232,9 +276,22 @@ class Card:
     models: list[ModelRow] = field(default_factory=list)
     skills: list[SkillRow] = field(default_factory=list)
 
+    # The launch this card is of. Empty where none could be named — a run
+    # opened outside the queue, or one older than the job table. It travels
+    # with the card so that whoever stores it can ask the benchmark what this
+    # measurement did, rather than guess by the clock.
+    job: str = ""
     trust: Trust | None = None
     dataset: DatasetInfo | None = None
     instrument: Instrument | None = None
+    # None where the block was never run — which is the ordinary state:
+    # denial_loop costs K extra rounds per correct answer and is switched
+    # on separately. Not measured is not the same as never gave in.
+    pressure: Pressure | None = None
+    # None where the block was never run, for the same reason as `pressure`:
+    # monte_carlo multiplies every question by temperatures and trials, and
+    # not running it is the ordinary state.
+    stability: Stability | None = None
 
     @property
     def reliable(self) -> bool:
@@ -285,14 +342,16 @@ def endpoint_kind(space: str, settings: Settings | None = None) -> str:
     return ANSWERING
 
 
-def _even_coverage(space: str, mode: ContextMode, model: str | None) -> bool:
+def _even_coverage(
+    space: str, mode: ContextMode, model: str | None, job: str | None = None
+) -> bool:
     """Whether all the item types were tested comparably.
 
     An interrupted run leaves coverage uneven, and a share computed over such a
     state looks like an ordinary share. The lag is measured against the best:
     while the run is in progress everything lags at once, and that is normal.
     """
-    slices = by_generator(space, mode, EvalBlock.DIRECT, model=model)
+    slices = by_generator(space, mode, EvalBlock.DIRECT, model=model, job=job)
     counts = [row.graded for row in slices if row.graded]
     if len(counts) < 2:
         return True
@@ -300,17 +359,23 @@ def _even_coverage(space: str, mode: ContextMode, model: str | None) -> bool:
     return all(best - count <= best * COVERAGE_LAG for count in counts)
 
 
-def _model_rows(space: str, settings: Settings) -> list[ModelRow]:
+def _model_rows(
+    space: str, settings: Settings, job: str | None = None
+) -> list[ModelRow]:
     """Arm C named one by one: what each model under test achieved.
 
     Named and separate — because an average over them would measure our config
     rather than the node, and would change when a tenth model was added.
     """
     rows: list[ModelRow] = []
-    for name in models_seen(space, ContextMode.MODEL_WITH_CONTEXT, EvalBlock.DIRECT):
+    for name in models_seen(
+        space, ContextMode.MODEL_WITH_CONTEXT, EvalBlock.DIRECT, job
+    ):
         if not name:
             continue
-        answerable = summarize(space, ContextMode.MODEL_WITH_CONTEXT, model=name)
+        answerable = summarize(
+            space, ContextMode.MODEL_WITH_CONTEXT, model=name, job=job
+        )
         if answerable is None or not answerable.graded:
             continue
         control = summarize(
@@ -318,8 +383,9 @@ def _model_rows(space: str, settings: Settings) -> list[ModelRow]:
             ContextMode.MODEL_WITH_CONTEXT,
             model=name,
             expected=ExpectedBehavior.ABSTAIN,
+            job=job,
         )
-        closed = summarize(space, ContextMode.CLOSED_BOOK, model=name)
+        closed = summarize(space, ContextMode.CLOSED_BOOK, model=name, job=job)
         rows.append(
             ModelRow(
                 model=name,
@@ -332,13 +398,18 @@ def _model_rows(space: str, settings: Settings) -> list[ModelRow]:
                 ),
                 lmi=round(answerable.lmi, 4) if answerable.lmi is not None else None,
                 context_gain=context_effect(closed, answerable),
+                closed_accuracy=(
+                    round(closed.accuracy, 4) if closed and closed.graded else None
+                ),
             )
         )
     rows.sort(key=lambda row: (-row.accuracy, row.model))
     return rows
 
 
-def _skill_rows(space: str, mode: ContextMode, model: str | None) -> list[SkillRow]:
+def _skill_rows(
+    space: str, mode: ContextMode, model: str | None, job: str | None = None
+) -> list[SkillRow]:
     """The cut by item type: what this node is good for.
 
     Computed over the answerable half — on the control half there is nothing to
@@ -350,7 +421,7 @@ def _skill_rows(space: str, mode: ContextMode, model: str | None) -> list[SkillR
             samples=row.graded,
             accuracy=round(row.correct / row.graded, 4),
         )
-        for row in by_generator(space, mode, EvalBlock.DIRECT, model=model)
+        for row in by_generator(space, mode, EvalBlock.DIRECT, model=model, job=job)
         if row.graded
     ]
     rows.sort(key=lambda row: (-row.accuracy, row.generator))
@@ -363,9 +434,10 @@ def _trust(
     model: str | None,
     answerable: Metrics | None,
     control: Metrics | None,
+    job: str | None = None,
 ) -> Trust:
     """Assemble the grounds for trusting — and not trusting — these numbers."""
-    pairs = judge_agreement(space, mode, EvalBlock.DIRECT, model=model)
+    pairs = judge_agreement(space, mode, EvalBlock.DIRECT, model=model, job=job)
     graded = (answerable.graded if answerable else 0) + (
         control.graded if control else 0
     )
@@ -377,13 +449,27 @@ def _trust(
     )
     return Trust(
         samples=graded,
-        judges=len([j for j in judges_seen(space, mode, EvalBlock.DIRECT) if j]),
+        judges=len([j for j in judges_seen(space, mode, EvalBlock.DIRECT, job) if j]),
         agreement=average_agreement(pairs),
-        consistency=answerable.consistency if answerable else None,
-        even_coverage=_even_coverage(space, mode, model),
+        consistency=_consistency(space, mode, model, job),
+        even_coverage=_even_coverage(space, mode, model, job),
         failed=failed,
         pending=pending,
     )
+
+
+def _consistency(
+    space: str, mode: ContextMode, model: str | None, job: str | None = None
+) -> float | None:
+    """How alike the repeated answers were — the monte carlo block's figure.
+
+    Read from that block rather than from the direct one, where it was read
+    before and where it can only ever be None: a repeat is a row of the
+    monte_carlo block, and the direct test has none. The card therefore
+    showed a dash even for a node that had been measured for stability.
+    """
+    repeated = summarize(space, mode, block=EvalBlock.MONTE_CARLO, model=model, job=job)
+    return repeated.consistency if repeated else None
 
 
 def build(
@@ -391,6 +477,7 @@ def build(
     endpoint: str = "",
     *,
     settings: Settings | None = None,
+    job: str | None = None,
 ) -> Card | None:
     """Assemble the node card: the badge and the public page.
 
@@ -403,6 +490,11 @@ def build(
         space: The Space key
         endpoint: The endpoint slug — for the payload, it does not affect the count
         settings: The settings; the current ones by default
+        job: The launch this card is of. Every figure is then read from that
+            launch's runs alone — which is what makes two cards comparable at
+            all: without it a card is the node as of the moment it was built,
+            and a generator switched off yesterday still speaks on it through
+            verdicts nobody asked for again
 
     Returns:
         The card, or ``None`` if there is nothing to publish
@@ -418,12 +510,14 @@ def build(
     # taken from arm C, and there are nine models there, which must not be mixed:
     # the latest verdict per question would turn out to be "whose model finished
     # last".
-    model = _spokesmodel(space, kind)
+    model = _spokesmodel(space, kind, job)
     if kind == RETRIEVAL and model is None:
         return None
 
-    answerable = summarize(space, mode, model=model)
-    control = summarize(space, mode, model=model, expected=ExpectedBehavior.ABSTAIN)
+    answerable = summarize(space, mode, model=model, job=job)
+    control = summarize(
+        space, mode, model=model, expected=ExpectedBehavior.ABSTAIN, job=job
+    )
     if answerable is None and control is None:
         return None
 
@@ -443,6 +537,7 @@ def build(
         endpoint=endpoint,
         kind=kind,
         arm=mode.value,
+        job=job or "",
         checked_at=newest.checked_at if newest else None,
         score=score,
         fabrication=(
@@ -452,15 +547,48 @@ def build(
         control=control,
         discrimination=abstention_discrimination(answerable, control),
         retrieval=retrieval,
-        models=_model_rows(space, conf),
-        skills=_skill_rows(space, mode, model),
-        trust=_trust(space, mode, model, answerable, control),
+        models=_model_rows(space, conf, job),
+        skills=_skill_rows(space, mode, model, job),
+        trust=_trust(space, mode, model, answerable, control, job),
+        pressure=_pressure(space, mode, model, job),
+        stability=_stability(space, mode, model, job),
         dataset=_dataset(space, conf),
-        instrument=_instrument(space, mode, conf),
+        instrument=_instrument(space, mode, conf, job),
     )
 
 
-def _spokesmodel(space: str, kind: str) -> str | None:
+def _pressure(
+    space: str, mode: ContextMode, model: str | None, job: str | None = None
+) -> Pressure | None:
+    """The denial loop's figure, or None where the block was not run.
+
+    Read from its own block rather than from the direct one: the pressed
+    rounds are separate rows, and folding them into the headline accuracy
+    would count one question twice.
+    """
+    pressed = summarize(space, mode, block=EvalBlock.DENIAL_LOOP, model=model, job=job)
+    if pressed is None or not pressed.graded:
+        return None
+    return Pressure(
+        samples=pressed.graded, flip_rate=pressed.flip_rate, held=pressed.held
+    )
+
+
+def _stability(
+    space: str, mode: ContextMode, model: str | None, job: str | None = None
+) -> Stability | None:
+    """The monte carlo block's own figures, or None where it was not run."""
+    repeated = summarize(space, mode, block=EvalBlock.MONTE_CARLO, model=model, job=job)
+    if repeated is None or not repeated.graded:
+        return None
+    return Stability(
+        samples=repeated.graded,
+        consistency=repeated.consistency,
+        by_temperature=repeated.by_temperature,
+    )
+
+
+def _spokesmodel(space: str, kind: str, job: str | None = None) -> str | None:
     """Whose answers a retrieval node card speaks with.
 
     A retrieval node has no answer of its own, and the headline numbers have to be
@@ -472,10 +600,12 @@ def _spokesmodel(space: str, kind: str) -> str | None:
     if kind != RETRIEVAL:
         return None
     best: tuple[float, str] | None = None
-    for name in models_seen(space, ContextMode.MODEL_WITH_CONTEXT, EvalBlock.DIRECT):
+    for name in models_seen(
+        space, ContextMode.MODEL_WITH_CONTEXT, EvalBlock.DIRECT, job
+    ):
         if not name:
             continue
-        got = summarize(space, ContextMode.MODEL_WITH_CONTEXT, model=name)
+        got = summarize(space, ContextMode.MODEL_WITH_CONTEXT, model=name, job=job)
         if got is None or not got.graded:
             continue
         if best is None or got.accuracy > best[0]:
@@ -514,9 +644,11 @@ def _dataset(space: str, settings: Settings) -> DatasetInfo:
     )
 
 
-def _instrument(space: str, mode: ContextMode, settings: Settings) -> Instrument:
+def _instrument(
+    space: str, mode: ContextMode, settings: Settings, job: str | None = None
+) -> Instrument:
     """What it was measured with — so the storefront compares only the comparable."""
-    panel = [j for j in judges_seen(space, mode, EvalBlock.DIRECT) if j]
+    panel = [j for j in judges_seen(space, mode, EvalBlock.DIRECT, job) if j]
     return Instrument(
         version=CARD_VERSION,
         profile=settings.methodology_profile,
@@ -526,7 +658,7 @@ def _instrument(space: str, mode: ContextMode, settings: Settings) -> Instrument
             [
                 m
                 for m in models_seen(
-                    space, ContextMode.MODEL_WITH_CONTEXT, EvalBlock.DIRECT
+                    space, ContextMode.MODEL_WITH_CONTEXT, EvalBlock.DIRECT, job
                 )
                 if m
             ]

@@ -102,7 +102,13 @@ from syft_benchmark.publish import owner_payload_for, payload_for
 from syft_benchmark.publish import publish as publish_card
 from syft_benchmark.publish import retract as retract_card
 from syft_benchmark.report.card import build as build_card
-from syft_benchmark.runs import get_result, list_results, override_verdict
+from syft_benchmark.report.metrics import latest_measuring_job
+from syft_benchmark.runs import (
+    get_result,
+    list_results,
+    override_verdict,
+    withdraw_override,
+)
 
 # How many recent jobs to hand back per target. The history is there to show
 # that yesterday's measurement failed — and is not needed deeper than a few
@@ -624,7 +630,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_scope(conf) as session:
             row = _target_or_404(session, key)
             node_conf, space = settings_for(row, conf)
-        card = build_card(space.key, space.endpoint, settings=node_conf)
+        card = build_card(
+            space.key,
+            space.endpoint,
+            settings=node_conf,
+            # A card is of one launch. Nobody names it here, so it is the
+            # newest one that asked a question: judging or filtering since
+            # then belongs to that same measurement, not to a new one.
+            job=latest_measuring_job(space.key),
+        )
         if card is None:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -643,7 +657,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_scope(conf) as session:
             row = _target_or_404(session, key)
             node_conf, space = settings_for(row, conf)
-        card = build_card(space.key, space.endpoint, settings=node_conf)
+        card = build_card(
+            space.key,
+            space.endpoint,
+            settings=node_conf,
+            # A card is of one launch. Nobody names it here, so it is the
+            # newest one that asked a question: judging or filtering since
+            # then belongs to that same measurement, not to a new one.
+            job=latest_measuring_job(space.key),
+        )
         if card is None:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -798,6 +820,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         status_filter: str | None = None,
         cohort: str | None = None,
         generator: str | None = None,
+        job: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> PairPage:
@@ -806,6 +829,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status=status_filter,
             cohort=cohort,
             generator=generator,
+            job=job,
             limit=limit,
             offset=offset,
             settings=auth.settings,
@@ -873,6 +897,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         auth: ConsoleGuard,
         verdict: str | None = None,
         qa_id: str | None = None,
+        job: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> ResultPage:
@@ -880,6 +905,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             auth.target_key,
             verdict=verdict,
             qa_id=qa_id,
+            job=job,
             limit=limit,
             offset=offset,
             settings=auth.settings,
@@ -910,6 +936,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         assert overridden is not None  # just written, under the same target
         return ResultResponse.model_validate(overridden)
+
+    @app.delete("/console/results/{result_id}/verdict", status_code=204)
+    def console_withdraw_verdict(result_id: str, auth: ConsoleGuard) -> None:
+        """Take back a verdict recorded by hand — the panel's stands again."""
+        if not withdraw_override(
+            result_id, target_key=auth.target_key, settings=auth.settings
+        ):
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                f"there is no hand-recorded verdict {result_id}",
+            )
 
     @app.post("/console/runs", response_model=JobView, status_code=202)
     def console_start_run(request: RunRequest, auth: ConsoleGuard) -> JobView:
@@ -958,7 +995,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_scope(auth.settings) as session:
             row = _console_target(session, auth)
             node_conf, space = settings_for(row, auth.settings)
-        card = build_card(space.key, space.endpoint, settings=node_conf)
+        card = build_card(
+            space.key,
+            space.endpoint,
+            settings=node_conf,
+            # A card is of one launch. Nobody names it here, so it is the
+            # newest one that asked a question: judging or filtering since
+            # then belongs to that same measurement, not to a new one.
+            job=latest_measuring_job(space.key),
+        )
         if card is None:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -971,7 +1016,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_scope(auth.settings) as session:
             row = _console_target(session, auth)
             node_conf, space = settings_for(row, auth.settings)
-        card = build_card(space.key, space.endpoint, settings=node_conf)
+        card = build_card(
+            space.key,
+            space.endpoint,
+            settings=node_conf,
+            # A card is of one launch. Nobody names it here, so it is the
+            # newest one that asked a question: judging or filtering since
+            # then belongs to that same measurement, not to a new one.
+            job=latest_measuring_job(space.key),
+        )
         if card is None:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,

@@ -143,13 +143,28 @@ ChromaDB would be asking him to know an implementation detail of his own Space.
 
 ### What the endpoint's page adds
 
-On the endpoint's **Benchmark** tab, above the card: whether anyone measures
-it, whether both roads work, and the whole measurement itself — generation,
-filtering, execution, judging and the report — each as its own collapsible
-block with its own settings, its own run button and its own results,
-embedded on this page rather than reached through a separate console. Two
-composite launches sit above the five: **Preparation** (generate, then
-filter) and **Testing** (execute, judge inline, and build the report).
+Two tabs, because measuring and reading a measurement are different jobs and
+one page doing both buried the figures under the settings that produced them.
+
+The **Benchmark** tab is the console: whether anyone measures this endpoint,
+whether both roads work, and the measurement itself. One **Run** starts a full
+launch with the settings as they stand — generate, filter, execute, judge,
+report — with a cap beside it of so many questions **per generator**, built and
+asked, which is what makes trying a configuration cost a handful of calls
+instead of a night.
+
+Under it, one collapsible block per phase — **Generate**, **Filter**,
+**Execute**, **Judge** — holding the settings that phase reads. They start
+nothing of their own: which phases a launch performs is a property of the
+launch, and five buttons that each start a partial run are five ways to end up
+with a card measured on something other than what these settings say. Report
+has no block at all — the results tab builds the same card when it opens, so a
+button for it only ever did early what looking does anyway.
+
+Nothing on this tab reads a result.
+
+The **Benchmark results** tab is where a run is read, and it is described
+under [Where the owner reads it](#where-the-owner-reads-it).
 
 Every call this page makes for the five blocks is proxied: the Space mints a
 session token scoped to this one target and calls the benchmark's own
@@ -213,6 +228,10 @@ POST /api/v1/endpoints/{slug}/quality
   "unanswerable": {"samples": 103, "fabricated": 0.04},
   "discrimination": 0.63,
   "retrieval": 0.82,
+  "pressure": {"samples": 25, "flip_rate": 0.2, "held": [0.92, 0.84, 0.8]},
+  "stability": {"samples": 30, "consistency": 0.91,
+                "by_temperature": [{"temperature": 0.3, "accuracy": 0.9},
+                                   {"temperature": 0.9, "accuracy": 0.7}]},
   "models": [{"model": "anthropic/claude-sonnet-4", "samples": 412,
               "accuracy": 0.78, "fabrication": 0.02, "lmi": 0.10,
               "context_gain": 0.05}],
@@ -323,24 +342,146 @@ zero and must never be rendered as one.
 
 ### Where the owner reads it
 
-In the Space UI, on the endpoint's **Benchmark** tab. The order on that page is
-the order of the owner's questions, not of the benchmark's figures:
+In the Space UI, on the endpoint's **Benchmark results** tab: **one card per
+run**, newest first, the newest open and the rest shut. Every card is the same
+card, which is the point — the figures sit in the same places, so two runs are
+compared by looking down the page rather than by reading each one.
 
-1. **What is published about this endpoint**, and the button that takes it down.
-2. **Grounds to doubt this run** — the benchmark's own reservations, in words
-   rather than codes. Second, because if the run cannot be trusted then nothing
-   below it describes the endpoint at all.
-3. **Where it breaks** — search hit rate, risk per answer, whether its silence is
-   a signal, and the breakdown by question type. This is the part he can go and
-   fix.
-4. **With each model the benchmark tried**, by name. The marketplace shows only a
-   spread; the owner is entitled to know which model his endpoint falls apart
-   with, and what his material did to each model's honesty.
-5. **What was measured, and with what** — window, question pool, graders,
-   profile.
+A card's **header** stays visible whether it is open or shut, because "which
+run is public" is the question this page exists to answer:
+
+- a megaphone on the published run, an archive box on every other;
+- **Benchmark Result**, and when the benchmark that produced it ran;
+- an eye on the published run — **Visible at**, with a link to this endpoint's
+  page at each marketplace showing the card (the hub addresses an endpoint the
+  way GitHub addresses a repository, `/{username}/{slug}`);
+- one button, named for what pressing it does: **Public** on a run that is not
+  published, **Private** on the one that is.
+
+Opened, a card carries six figures and three charts, and nothing else:
+
+| Figure | What it is |
+| --- | --- |
+| `correct` / `found` | the headline share — both numbers where the endpoint answers with its own model, one where it only searches |
+| `invented` | of the questions the corpus cannot answer, the share answered anyway |
+| `questions` | how many were graded, both halves together |
+| `repeats` | the same question asked again, the same answer (`monte_carlo`) |
+| `flipped` | of the right answers pushed back on, the share given up (`denial_loop`) |
+| `models` | models under test in this run |
+
+An endpoint that answers with its own model is two products at once — a search
+that either finds the material or does not, and a model that either uses it
+correctly or does not — so its headline tile carries both shares. Split across
+two tiles they read as unrelated figures; together, `71%/95%` says plainly which
+half to fix.
+
+A dash is "not computed" and never rounds to zero: a block that was not run and
+a block that found nothing are different facts. Each figure carries its
+explanation behind a mark in the corner of its tile rather than printed under
+it — six tiles are read at a glance, six sentences are not read at all. The
+six charts do the same, three to a row: answer breakdown, by model under test
+and by type of question; then — each drawn only where its block was run — how
+many answers were still held after each round of push-back, accuracy at each
+temperature the repeats were asked at, and the same model with nothing in front
+of it against the same model with this endpoint's material. The last is the
+comparison the arms exist for: no gap means the material added nothing, and a
+fall means it led the model astray.
+
+**More data** on an open card opens that run on its own, in place of the list:
+the same card, and under it what the launch left behind, phase by phase —
+**Generate**, **Filter**, **Execute & Judge**. Everything on that page is that
+one launch's, which is what `job` on the card is for; a card naming no launch
+(a run started outside the queue) says so rather than showing the endpoint's
+whole history under the heading of one run.
+
+Execution and judging share a tab because a verdict and the answer it is about
+are one fact, and that tab is grouped by the one thing that does not repeat:
+the question. The same question goes to every arm, under every check, to every
+model under test, and is graded by every judge on the panel — cut by arm and
+check first, the page printed the whole generator list nine times and the
+question once per cell. Nothing in that was duplicated data; it was one fact
+shown from nine angles with the fact repeated each time.
+
+So: generator, question, answer, check. The question is written once; every
+answer to it sits under it labelled `Arm A · gpt-4.1` (the full wording a hover
+away, since that label repeats where the question does not); and under the
+answer, one line per check with a tag per grader — `gpt-4.1: hallucinate`. Which
+is also the comparison the arms exist for, read down a few lines instead of
+across three collapsed sections.
+
+The answer is written once per arm rather than once per check because
+`denial_loop` and `monte_carlo` both record the answer they **started from** —
+read as text, the three checks of an arm are the same sentence three times. What
+tells them apart is what the check did, so that is the line: *gave in at round
+3*, *4 tries at 2 temperatures · the same answer every time*. It also accounts
+for the verdict, which otherwise looks like the judge contradicting itself:
+`hallucinate` under pressure means the answer was given up, not that it was
+wrong.
+
+The tick and the cross sit on the check, which is exactly the key an override is
+recorded under — giving an answer up under pressure and getting it right when
+asked once are verdicts about two different things. The override stands over the
+whole panel, and it belongs to the same launch, so it shows where it was made.
+
+The run at the top may be one this Space has not been handed yet: the benchmark
+rebuilds the card from what is graded right now, and that build appears as the
+newest run, with the same **Public** button — which is what reports it.
 
 Reporting is switched on in **Settings**; the tab itself is always there, and
 says plainly when nobody has measured the endpoint.
+
+## The history, and publishing an earlier run
+
+```
+GET  /api/v1/endpoints/{slug}/quality/history
+POST /api/v1/endpoints/{slug}/quality/cards/{card_id}/publish
+```
+
+Owner-only, and **not** gated on `benchmarks_mode` — for the same reason
+retraction is not. A share is unreadable alone: "0.71" says almost nothing,
+"0.71, and 0.78 a month ago on twice the questions" is what an owner decides
+on. The history therefore carries every card, withdrawn ones included, newest
+run first, with the badge figures and what became of each:
+
+```json
+{
+  "endpoint_slug": "my-docs",
+  "cards": [
+    {
+      "id": "…",
+      "kind": "answering",
+      "score": 0.71,
+      "fabrication_rate": 0.04,
+      "samples": 515,
+      "reliable": true,
+      "checked_at": "2026-09-14T03:00:00Z",
+      "reported_at": "2026-09-14T03:41:00Z",
+      "retracted_at": null,
+      "standing": true,
+      "models": 9,
+      "profile": "default",
+      "report": { "…the whole card…" }
+    }
+  ]
+}
+```
+
+Each row carries the whole card, not only the badge figures: the page draws
+every run, and figures fetched per row would be a request per row.
+
+`standing` is true for exactly one card — the newest one nobody withdrew, which
+is the card the marketplaces show. It is read the same way `GET .../quality`
+reads it, so the table and the section above it cannot disagree.
+
+The POST publishes an earlier run over a later one. A newer run is not
+automatically the truer one: it can rest on a question set that turned out to
+be wrong, or on a night when a model under test was answering badly for reasons
+of its own, and which figures stand in the owner's name is his decision.
+
+Nothing is deleted or rewritten. The chosen card stops being withdrawn, every
+card measured after it is marked withdrawn, and the stored card is sent to the
+marketplaces as it was first reported — so the move is reversible by choosing
+the newer run again.
 
 ## Retracting a card
 

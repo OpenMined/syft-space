@@ -68,6 +68,7 @@ from syft_benchmark.report import (
 )
 from syft_benchmark.report.card import RETRIEVAL
 from syft_benchmark.report.card import build as build_card
+from syft_benchmark.report.metrics import latest_measuring_job
 from syft_benchmark.runs import (
     MODEL_ARMS,
     RunCache,
@@ -1428,7 +1429,9 @@ def publish(
     for _, target in _targets(space):
         # What goes to the storefront is the direct check: the numbers of the
         # blocks are the owner's internal analytics.
-        card = build_card(target.key, target.endpoint)
+        card = build_card(
+            target.key, target.endpoint, job=latest_measuring_job(target.key)
+        )
         if card is None:
             typer.echo(f"{target.key}: no verdicts — nothing to publish")
             continue

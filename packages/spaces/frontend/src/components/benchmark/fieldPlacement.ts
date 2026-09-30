@@ -1,6 +1,9 @@
 /**
  * Which phase block each settings field belongs to.
  *
+ * The keys are this console's blocks — the verbs on its buttons — not the
+ * benchmark's group codes, which are the strings quoted below.
+ *
  * The benchmark's own field groups (`arms`, `dataset`, `judging`, ...) are a
  * display hint, not a phase map, and some land oddly against what actually
  * reads a field: `answer_coverage_threshold` is grouped under "judging" on
@@ -12,7 +15,7 @@
  */
 
 export const FIELD_PLACEMENT = {
-  generation: {
+  generate: {
     probe: [
       'dataset_mode',
       'document_window_days',
@@ -22,13 +25,19 @@ export const FIELD_PLACEMENT = {
       'min_chunk_chars',
       'generate_in_cycle',
     ],
-    instrument: ['generator_model', 'extractive_mode'],
+    instrument: [
+      'generator_model',
+      'extractive_mode',
+      // Screening is part of building: this is the gate a fresh pair has to
+      // pass to become one worth measuring with.
+      'answer_coverage_threshold',
+    ],
   },
-  filtering: {
+  filter: {
     probe: [],
-    instrument: ['answer_coverage_threshold'],
+    instrument: [],
   },
-  execution: {
+  execute: {
     probe: [
       'retrieval_top_k',
       'similarity_threshold',
@@ -49,15 +58,20 @@ export const FIELD_PLACEMENT = {
       'max_consecutive_failures',
       'reuse_answers',
       'audit_log',
+      // Read by the report, decided here: it is the floor the repeats
+      // above have to clear to count as one answer rather than several.
+      'consistency_floor',
     ],
   },
-  judging: {
+  judge: {
     probe: [],
-    instrument: ['judge_model', 'judge_models', 'judge_policy', 'key_facts_threshold', 'text_metrics'],
-  },
-  report: {
-    probe: [],
-    instrument: ['consistency_floor'],
+    instrument: [
+      'judge_model',
+      'judge_models',
+      'judge_policy',
+      'key_facts_threshold',
+      'text_metrics',
+    ],
   },
 } as const
 

@@ -54,11 +54,14 @@ class Watcher:
         self.passes_started = 0
         self.asked_about_stopping = 0
         self.phases: list[JobPhase] = []
+        self.said: list[tuple[JobPhase, str]] = []
 
     def planned(self, passes: int) -> None: ...
 
     def phase(self, phase: JobPhase, message: str = "") -> None:
         self.phases.append(phase)
+        if message:
+            self.said.append((phase, message))
 
     def pass_started(self, index: int, arm: str, block: str, model: str) -> None:
         self.passes_started = index
@@ -232,3 +235,51 @@ def test_a_stop_keeps_the_first_reason_it_was_given() -> None:
     progress.stop("stopped by the owner")
 
     assert progress.fatal == "8 questions in a row failed"
+
+
+def test_the_build_reports_where_it_has_got_to(
+    monkeypatch: pytest.MonkeyPatch, two_subjects: list[str]
+) -> None:
+    """A build that reports nothing is indistinguishable from one that is stuck.
+
+    Measuring has said which pass of how many since it had passes; generation
+    said nothing at all for as long as it ran, and the console could only draw
+    a bar with no figures in it.
+    """
+
+    def fake_generate(space: Any, **kwargs: Any) -> Any:
+        tell = kwargs["on_unit"]
+        tell("named_entity_masking", 1, 2, 0)
+        tell("named_entity_masking", 2, 2, 6)
+        return _Built()
+
+    monkeypatch.setattr("syft_benchmark.scheduler.generate_for_space", fake_generate)
+    watcher = Watcher()
+
+    measure(SPACE, _settings(generate_in_cycle=True), observer=watcher)
+
+    said = [text for phase, text in watcher.said if phase is JobPhase.GENERATE]
+    # The units as they are walked, and then the build's own closing count,
+    # which was the only thing this phase used to say.
+    assert said[:2] == [
+        "named_entity_masking · 1 of 2 · 0 built",
+        "named_entity_masking · 2 of 2 · 6 built",
+    ]
+
+
+def test_a_build_nobody_is_watching_is_told_to_report_to_nobody(
+    monkeypatch: pytest.MonkeyPatch, two_subjects: list[str]
+) -> None:
+    """The daily cycle passes no observer, and must not pay for a callback that
+    would have nowhere to write."""
+    seen: dict[str, Any] = {}
+
+    def fake_generate(space: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return _Built()
+
+    monkeypatch.setattr("syft_benchmark.scheduler.generate_for_space", fake_generate)
+
+    measure(SPACE, _settings(generate_in_cycle=True), observer=None)
+
+    assert seen["on_unit"] is None

@@ -11,7 +11,7 @@ is visible.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import func, select
@@ -65,6 +65,15 @@ class Metrics:
     # and "zero" are different things.
     flip_rate: float | None = None
     consistency: float | None = None
+    # The shape behind those two numbers. ``held`` is the share of pressed
+    # answers still standing after each round of push-back, first round first:
+    # an endpoint that folds at the first word and one that holds out to the
+    # last round can share a flip rate and are not the same product.
+    # ``by_temperature`` is accuracy at each temperature the monte carlo block
+    # asked at — where the answers start to wander, rather than merely that
+    # they do. Both are empty for the direct test, which measures neither.
+    held: list[float] = field(default_factory=list)
+    by_temperature: dict[str, float] = field(default_factory=dict)
     # The cut by retrieval hit on the answerable questions. Without it an
     # abstention on a retrieval miss (correct behaviour) and an abstention on a hit
     # (the model blindness) merge into one share, and those are different ailments.
@@ -326,6 +335,31 @@ def models_seen(
         return sorted(m for m in rows if m)
 
 
+def latest_measuring_job(space: str) -> str | None:
+    """The launch the newest run of this Space belongs to.
+
+    A card is of one launch, and the console builds it without being told
+    which. Asked of the newest run rather than of the newest launch, and the
+    difference is the whole point: a run started outside the queue — by the
+    CLI, or before the job table existed — belongs to no launch, and answering
+    "the newest launch" there would hand back a card describing an older
+    measurement while the freshest one sat unmentioned in the database.
+
+    None means exactly that case, and it is honest: there is no launch to name,
+    so the card is the node as of now — which is what ``job=None`` has always
+    meant. Generating questions, filtering them and grading what is already
+    answered open no runs at all, so none of them starts a new card: judging
+    yesterday's answers improves yesterday's.
+    """
+    with session_scope() as session:
+        return session.execute(
+            select(Run.job_id)
+            .where(Run.space == space)
+            .order_by(Run.started_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+
 def judges_seen(
     space: str, mode: ContextMode, block: EvalBlock, job: str | None = None
 ) -> list[str]:
@@ -442,6 +476,8 @@ def summarize(
         else None
     )
 
+    held = _held_by_round(pressed)
+
     repeated = [
         r for r in graded_rows if (r.extra or {}).get("monte_carlo", {}).get("trials")
     ]
@@ -454,6 +490,8 @@ def summarize(
         if repeated
         else None
     )
+
+    by_temperature = _accuracy_by_temperature(repeated)
 
     # The 2x2 cut: what the answerer did when retrieval found the right chunk and
     # when it missed. Computed only where retrieval took part at all.
@@ -480,12 +518,76 @@ def summarize(
         context_source=_context_sources(space, mode, block, model, job),
         flip_rate=flip_rate,
         consistency=consistency,
+        held=held,
+        by_temperature=by_temperature,
         hit_correct=sum(1 for r in hit if r.verdict == Verdict.CORRECT.value),
         hit_abstain=sum(1 for r in hit if r.verdict == Verdict.ABSTAIN.value),
         hit_wrong=sum(1 for r in hit if r.verdict == Verdict.HALLUCINATE.value),
         miss_answered=sum(1 for r in miss if r.verdict != Verdict.ABSTAIN.value),
         miss_abstain=sum(1 for r in miss if r.verdict == Verdict.ABSTAIN.value),
     )
+
+
+def _held_by_round(pressed: list[Result]) -> list[float]:
+    """The share of pressed answers still standing after each round.
+
+    Round by round, first round first. An answer that was never given up
+    counts as standing at every round it was actually pushed through, and an
+    answer whose pressing stopped early — the judge did not answer, the
+    provider failed — stops counting rather than being recorded as a
+    surrender: it was not one, and a run cut short must not read as an
+    endpoint that folded.
+
+    The denominator is therefore per round: how many answers were pushed that
+    far at all. A round nobody reached has no share and is left out.
+    """
+    if not pressed:
+        return []
+
+    deepest = max(int(r.extra["denial"].get("rounds") or 0) for r in pressed)
+    shares: list[float] = []
+    for step in range(1, deepest + 1):
+        reached = 0
+        standing = 0
+        for row in pressed:
+            denial = row.extra["denial"]
+            flip = denial.get("flip_round")
+            rounds = int(denial.get("rounds") or 0)
+            if flip:
+                # It was pushed to the round it gave in at, and no further.
+                if step > flip:
+                    continue
+                reached += 1
+                if step < flip:
+                    standing += 1
+            else:
+                if step > rounds:
+                    continue
+                reached += 1
+                standing += 1
+        if reached:
+            shares.append(round(standing / reached, 4))
+    return shares
+
+
+def _accuracy_by_temperature(repeated: list[Result]) -> dict[str, float]:
+    """Accuracy at each temperature the repeats were asked at.
+
+    Averaged over the questions rather than over the answers: every question
+    was asked the same number of times at each temperature, and weighting by
+    answers would only let a question whose provider failed less often speak
+    louder.
+    """
+    totals: dict[str, list[float]] = {}
+    for row in repeated:
+        for temperature, share in (
+            row.extra["monte_carlo"].get("by_temperature") or {}
+        ).items():
+            totals.setdefault(str(temperature), []).append(float(share))
+    return {
+        temperature: round(sum(shares) / len(shares), 4)
+        for temperature, shares in sorted(totals.items(), key=lambda kv: float(kv[0]))
+    }
 
 
 def abstention_discrimination(

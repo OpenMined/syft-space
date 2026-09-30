@@ -10,7 +10,11 @@ from loguru import logger
 
 from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.repository import DatasetRepository
-from syft_space.components.endpoints.entities import Endpoint, ResponseType
+from syft_space.components.endpoints.entities import (
+    Endpoint,
+    EndpointQualityCard,
+    ResponseType,
+)
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.schemas import (
     KIND_ANSWERING,
@@ -18,7 +22,10 @@ from syft_space.components.endpoints.schemas import (
     EndpointQualityResponse,
     MarketplaceAvailabilityResult,
     PublishEndpointResponse,
+    PublishQualityCardResponse,
     PublishResult,
+    QualityCardSummary,
+    QualityHistoryResponse,
     QualityMarketplaceResult,
     ReportQualityRequest,
     ReportQualityResponse,
@@ -274,6 +281,133 @@ class PublishEndpointHandler:
             checked_at=card.checked_at,
             published_to=list(endpoint.published_to or []),
             report=card.report,
+        )
+
+    async def get_quality_history(
+        self, slug: str, tenant: Tenant
+    ) -> QualityHistoryResponse:
+        """Every card this endpoint has collected, newest run first.
+
+        Not gated on the benchmarks ``mode`` setting, for the same reason
+        reading the standing card is not: this is the owner reading what has
+        been said in his name, and switching reporting off must not hide it.
+
+        Withdrawn cards are in the list. A share is unreadable alone - "0.71"
+        says almost nothing, "0.71, and 0.78 a month ago on twice the
+        questions" is what an owner decides on - and a history with the
+        awkward runs left out would be worth less than no history.
+
+        Args:
+            slug: Endpoint to read
+            tenant: Tenant owning it
+
+        Returns:
+            QualityHistoryResponse; an empty list means nobody ever measured it
+
+        Raises:
+            HTTPException: 404 if the endpoint is unknown
+        """
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        cards = await self.endpoint_repository.get_quality_history(
+            endpoint.id, tenant.id
+        )
+        # The card that stands is read exactly as `get_current_quality` reads
+        # it - the first one, in this same order, that nobody withdrew - so the
+        # table and the section above it can never disagree about which run is
+        # the published one.
+        standing = next((card for card in cards if card.retracted_at is None), None)
+
+        return QualityHistoryResponse(
+            endpoint_slug=slug,
+            cards=[
+                self._card_summary(card, standing_id=standing.id if standing else None)
+                for card in cards
+            ],
+        )
+
+    async def publish_quality_card(
+        self,
+        slug: str,
+        card_id: UUID,
+        tenant: Tenant,
+    ) -> PublishQualityCardResponse:
+        """Put an earlier run back on top of a later one.
+
+        A newer run is not automatically the truer one: it can rest on a
+        question set that turned out to be wrong, or on a night when a model
+        under test was answering badly for reasons of its own. Which figures
+        stand in the owner's name is the owner's decision, so this is not
+        gated on the benchmarks ``mode`` setting either - by the same rule as
+        retraction, a claim already made stays the owner's to manage.
+
+        Nothing is rewritten: the chosen card stops being withdrawn, every card
+        measured after it is marked withdrawn, and the move is reversible by
+        choosing the newer one again.
+
+        Args:
+            slug: Endpoint whose card is chosen
+            card_id: The card to publish over whatever stands now
+            tenant: Tenant owning the endpoint
+
+        Returns:
+            PublishQualityCardResponse with one result per marketplace
+
+        Raises:
+            HTTPException: 404 if the endpoint or the card is unknown
+        """
+        endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
+        if not endpoint:
+            raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
+
+        # Local first, as in `report_quality`: a marketplace may be down, and
+        # what the owner chose to stand behind must not depend on it.
+        card = await self.endpoint_repository.restore_quality_card(
+            endpoint.id, tenant.id, card_id
+        )
+        if card is None:
+            raise HTTPException(
+                status_code=404, detail=f"No such card for endpoint '{slug}'"
+            )
+
+        payload: dict[str, Any] = {"slug": endpoint.slug, **card.report}
+        results: list[QualityMarketplaceResult] = []
+        for marketplace in await self._marketplaces_for(endpoint, tenant):
+            results.append(await self._push_quality(marketplace, payload))
+
+        return PublishQualityCardResponse(
+            endpoint_slug=slug, card_id=card.id, published=True, results=results
+        )
+
+    @staticmethod
+    def _card_summary(
+        card: EndpointQualityCard, *, standing_id: UUID | None
+    ) -> QualityCardSummary:
+        """One row of the history table.
+
+        ``models`` and ``profile`` are dug out of the stored card rather than
+        kept as columns: they are read in a table and never filtered or sorted
+        on, and a run measured with three models under test on one profile is
+        not the same measurement as one made with nine on another.
+        """
+        report = card.report or {}
+        instrument = report.get("instrument") or {}
+        return QualityCardSummary(
+            id=card.id,
+            kind=card.kind,
+            score=card.score,
+            fabrication_rate=card.fabrication_rate,
+            samples=card.samples,
+            reliable=card.reliable,
+            checked_at=card.checked_at,
+            reported_at=card.created_at,
+            retracted_at=card.retracted_at,
+            standing=card.id == standing_id,
+            models=len(report.get("models") or []),
+            profile=str(instrument.get("profile") or ""),
+            report=report,
         )
 
     async def retract_quality(

@@ -416,7 +416,7 @@ def _execute_pipeline(
         # job, once the owner runs it.
         if not reporter.cancelled and not request.defer_judging:
             reporter.phase(JobPhase.PUBLISH)
-            card = build_card(space.key, space.endpoint, settings=node_conf)
+            card = build_card(space.key, space.endpoint, settings=node_conf, job=job_id)
             if card is None:
                 failures.append(NO_CARD)
             else:

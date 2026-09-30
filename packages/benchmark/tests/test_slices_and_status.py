@@ -142,7 +142,15 @@ def test_a_failed_call_never_lands_in_a_generator_share(monkeypatch: Any) -> Non
 def _judged(monkeypatch: Any, verdicts: dict[str, dict[str, str]]) -> None:
     monkeypatch.setattr(slices_mod, "judges_seen", lambda *a, **k: sorted(verdicts))
 
-    def latest(space: Any, mode: Any, block: Any, model: Any, judge: Any, exp: Any):
+    def latest(
+        space: Any,
+        mode: Any,
+        block: Any,
+        model: Any,
+        judge: Any,
+        exp: Any,
+        **_: Any,
+    ):
         return [_Row(qa, v) for qa, v in verdicts[judge].items()]
 
     monkeypatch.setattr(slices_mod, "_latest_results", latest)

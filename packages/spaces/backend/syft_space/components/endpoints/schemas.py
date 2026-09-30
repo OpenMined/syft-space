@@ -692,6 +692,16 @@ class CardModel(BaseModel):
             "Positive means the context made it bolder, not better"
         ),
     )
+    closed_accuracy: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "What the same model scored with no material in front of it at "
+            "all. Against `accuracy` — what it scored with this endpoint's — "
+            "it says whether the material helped, did nothing, or led it astray"
+        ),
+    )
 
 
 class CardSkill(BaseModel):
@@ -700,6 +710,55 @@ class CardSkill(BaseModel):
     generator: str = Field(..., max_length=64, description="Task type identifier")
     samples: int = Field(..., ge=0)
     accuracy: float = Field(..., ge=0.0, le=1.0)
+
+
+class CardPressure(BaseModel):
+    """What the denial loop found: does a right answer survive being pushed on.
+
+    Accuracy says what the endpoint knows; this says whether it keeps
+    saying so when a user insists otherwise. Two endpoints can agree to
+    the decimal on accuracy and differ entirely here.
+    """
+
+    samples: int = Field(
+        default=0, ge=0, description="Correct answers that were pushed back on"
+    )
+    flip_rate: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Of those, the share the endpoint gave up. Empty where the block was not run — which is not the same as never giving in"
+        ),
+    )
+    held: list[float] = Field(
+        default_factory=list,
+        max_length=12,
+        description=(
+            "The share still standing after each round of push-back, first "
+            "round first. The rate alone cannot tell an endpoint that folds at "
+            "the first word from one that holds out to the last round"
+        ),
+    )
+
+
+class CardTemperature(BaseModel):
+    """Accuracy at one temperature the repeats were asked at."""
+
+    temperature: float = Field(..., ge=0.0, le=2.0)
+    accuracy: float = Field(..., ge=0.0, le=1.0)
+
+
+class CardStability(BaseModel):
+    """What the monte carlo block found: does the same question get the same answer.
+
+    An endpoint steady at 0.1 and wandering at 0.9 is telling its owner which
+    temperature it may be served at.
+    """
+
+    samples: int = Field(default=0, ge=0)
+    consistency: float | None = Field(default=None, ge=0.0, le=1.0)
+    by_temperature: list[CardTemperature] = Field(default_factory=list, max_length=16)
 
 
 class CardTrust(BaseModel):
@@ -780,6 +839,14 @@ class ReportQualityRequest(BaseModel):
     arm: str = Field(
         default="", max_length=32, description="Which measurement produced this"
     )
+    job: str = Field(
+        default="",
+        max_length=64,
+        description=(
+            "The launch this card is of, as the benchmark names it. Empty "
+            "where none could be named — a run opened outside its queue"
+        ),
+    )
     checked_at: datetime = Field(..., description="When the benchmark ran")
 
     score: float | None = Field(
@@ -811,6 +878,8 @@ class ReportQualityRequest(BaseModel):
         ),
     )
     retrieval: float | None = Field(default=None, ge=0.0, le=1.0)
+    pressure: CardPressure | None = None
+    stability: CardStability | None = None
     models: list[CardModel] = Field(default_factory=list, max_length=64)
     skills: list[CardSkill] = Field(default_factory=list, max_length=32)
     trust: CardTrust | None = None
@@ -949,6 +1018,80 @@ class EndpointQualityResponse(BaseModel):
     )
     report: dict[str, Any] | None = Field(
         default=None, description="The whole card as the benchmark reported it"
+    )
+
+
+class QualityCardSummary(BaseModel):
+    """One card in an endpoint's history: a run, and what became of it.
+
+    The badge figures only - not the whole card. A history is read as a table,
+    and the detail of a run is one click away on the card that stands.
+    """
+
+    id: UUID = Field(..., description="The card, for putting it back on top")
+    kind: str = Field(..., description="What kind of product this run measured")
+    score: float | None = Field(
+        default=None, description="Headline share for that kind"
+    )
+    fabrication_rate: float | None = Field(default=None)
+    samples: int = Field(..., description="How many questions this run graded")
+    reliable: bool = Field(
+        ..., description="Whether the benchmark vouched for these figures"
+    )
+    checked_at: datetime = Field(..., description="When the benchmark that made it ran")
+    reported_at: datetime = Field(
+        ..., description="When this Space was handed the card"
+    )
+    retracted_at: datetime | None = Field(
+        default=None,
+        description="When it was withdrawn; empty means it was never taken down",
+    )
+    standing: bool = Field(
+        ...,
+        description=(
+            "Whether this is the card that currently stands - the newest one "
+            "nobody withdrew. Exactly one card in a history can be standing"
+        ),
+    )
+    models: int = Field(
+        default=0, description="How many models under test this run covered"
+    )
+    profile: str = Field(
+        default="", description="The methodology profile the run was made with"
+    )
+    report: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "The whole card as the benchmark reported it. Carried here rather than fetched per row: the page draws every run, and a request per run would be a request per row of a table"
+        ),
+    )
+
+
+class QualityHistoryResponse(BaseModel):
+    """Every card an endpoint has collected, newest run first.
+
+    Withdrawn cards are in it: taking a card down at the marketplaces does not
+    unsay it to the owner, and a history with the awkward runs removed is not a
+    history.
+    """
+
+    endpoint_slug: str = Field(..., description="Slug of the endpoint")
+    cards: list[QualityCardSummary] = Field(
+        default_factory=list, description="The cards, newest run first"
+    )
+
+
+class PublishQualityCardResponse(BaseModel):
+    """Response model for putting an earlier card back on top."""
+
+    endpoint_slug: str = Field(..., description="Slug of the endpoint")
+    card_id: UUID = Field(..., description="The card that now stands")
+    published: bool = Field(
+        ..., description="Whether the card was made the standing one locally"
+    )
+    results: list[QualityMarketplaceResult] = Field(
+        default_factory=list,
+        description="Results for each marketplace the endpoint is published to",
     )
 
 

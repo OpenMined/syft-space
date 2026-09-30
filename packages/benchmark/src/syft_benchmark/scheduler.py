@@ -42,6 +42,7 @@ from syft_benchmark.llm import (
 from syft_benchmark.publish import publish
 from syft_benchmark.report import Metrics, build_docx, render_markdown, summarize
 from syft_benchmark.report.card import build as build_card
+from syft_benchmark.report.metrics import latest_measuring_job
 from syft_benchmark.runs import (
     MODEL_ARMS,
     Progress,
@@ -212,7 +213,9 @@ def measure(
             every ``Result`` with ``verdict = pending`` for ``judge_stage`` to
             grade afterwards. False everywhere judging still happens inline,
             as it always has
-        limit: How many questions to ask in a run; None — all the active ones
+        limit: A trial run's size: how many questions to build from each
+            generator and then ask of each. None — build as the settings say
+            and ask every active question
         observer: Who to report progress to
         job_id: The launch this measurement belongs to. It is written on every run
             it opens, and that is what later makes the report and the audit of
@@ -249,12 +252,34 @@ def measure(
     if generate_effective:
         if observer is not None:
             observer.phase(JobPhase.GENERATE)
+
+        def built(generator: str, index: int, of: int, pairs: int) -> None:
+            """Where the build has got to, for whoever is watching it.
+
+            Through `phase` rather than `watcher`: a watcher reports a
+            position within one run of the measurement, and generation is
+            not one — it walks a different queue per generator, each with
+            its own length, so there is no single count to be at N of.
+            """
+            if observer is not None:
+                observer.phase(
+                    JobPhase.GENERATE,
+                    f"{generator} · {index} of {of} · {pairs} built",
+                )
+
         try:
             made = generate_for_space(
                 space,
                 generators=enabled_generators(conf.disabled_generators),
                 settings=conf,
                 should_stop=observer.stop_requested if observer else None,
+                job=job_id or "",
+                # The same cap on both halves of a trial: build this many
+                # questions per generator, then ask those. One number, so that
+                # "two each" means two built and two asked rather than two
+                # asked out of the usual fifty built.
+                per_generator=limit,
+                on_unit=built if observer is not None else None,
             )
             # Nothing built AND something refused: nothing built on its own
             # means no new chunks since the last pass.
@@ -525,7 +550,12 @@ def run_cycle(
     # product: a retrieval node has no arm B, and a setting would leave it with
     # nothing.
     for node_conf, space in nodes:
-        card = build_card(space.key, space.endpoint, settings=node_conf)
+        card = build_card(
+            space.key,
+            space.endpoint,
+            settings=node_conf,
+            job=latest_measuring_job(space.key),
+        )
         if card is None:
             continue
         sent = publish(space, card)
