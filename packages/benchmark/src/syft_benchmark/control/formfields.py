@@ -49,6 +49,10 @@ GROUPS: dict[str, str] = {
     "monte_carlo_trials": ARMS,
     "context_source": ARMS,
     "context_docs": ARMS,
+    "fragment_max_chars": ARMS,
+    # A parameter of the measurement: it decides whether a long answer is
+    # graded whole or graded cut off.
+    "answer_max_tokens": ARMS,
     "generator_model": MODELS,
     "subject_models": MODELS,
     "judge_model": MODELS,
@@ -89,7 +93,6 @@ GROUPS: dict[str, str] = {
     "llm_app_name": PROVIDERS,
     "llm_timeout": PROVIDERS,
     "llm_temperature": PROVIDERS,
-    "answer_max_tokens": PROVIDERS,
     "bertscore_model": PROVIDERS,
     # The Space's index, as this installation reaches it.
     "chroma_tenant": INDEX,

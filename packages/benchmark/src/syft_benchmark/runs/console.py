@@ -61,7 +61,7 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.llm import judge_provider
-from syft_benchmark.runs.judge import ERROR_PREFIX, grade, grade_behavior
+from syft_benchmark.runs.judge import grade, grade_behavior, is_technical
 
 _HEADER = """\
 Below are {count} questions. Answer each one from your own knowledge.
@@ -407,7 +407,8 @@ def _judging_tasks(
         row
         for key, row in freshest.items()
         if key not in judged
-        and not str(row.answer or "").startswith(ERROR_PREFIX)
+        # Nothing to grade: the call did not happen.
+        and not is_technical(row.verdict, str(row.answer or ""))
         and (not only_pending or row.verdict == Verdict.PENDING.value)
     ]
     wanted.sort(key=lambda row: (row.context_mode, row.block, row.model, row.qa_id))

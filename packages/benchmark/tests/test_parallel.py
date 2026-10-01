@@ -1008,7 +1008,7 @@ def test_the_database_order_is_total() -> None:
     source = pathlib.Path("src/syft_benchmark/runs/execute.py").read_text(
         encoding="utf-8"
     )
-    order_by = re.search(r"\.order_by\(QaPair\.([^)]+)\)", source)
+    order_by = re.search(r"\.order_by\((QaPair.+)\)$", source, re.M)
     assert order_by is not None
     assert "created_at" in order_by.group(1)
     assert "id" in order_by.group(1), "the order is partial: time without a tiebreak"

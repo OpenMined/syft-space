@@ -279,7 +279,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             profile=conf.methodology_profile,
             arms=[m.value for m in ContextMode],
             blocks=[b.value for b in EvalBlock],
-            generators=sorted(GENERATORS),
+            # The registry's order, which is the reading order everywhere this
+            # list is drawn. It ends with the control set, whose correct answer
+            # is a refusal — not what to meet first.
+            generators=list(GENERATORS),
             subject_models=[p.model for p in subject_providers(conf)],
             judge_models=[p.model for p in judge_providers(conf)],
             text_metrics=[m.value for m in TextMetric],
@@ -900,7 +903,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         job: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        prompts: bool = False,
     ) -> ResultPage:
+        """This target's verdicts, filterable and paged.
+
+        `prompts` adds the audit trail and the chunks found. Off by default —
+        the trail runs to `audit_max_chars` per field, so a page of a hundred
+        rows with it is megabytes. Ask for it with `qa_id`.
+        """
         items, total = list_results(
             auth.target_key,
             verdict=verdict,
@@ -908,6 +918,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             job=job,
             limit=limit,
             offset=offset,
+            prompts=prompts,
             settings=auth.settings,
         )
         return ResultPage(
@@ -1122,6 +1133,8 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
             monte_carlo_trials=conf.monte_carlo_trials,
             context_source=conf.context_source,
             context_docs=conf.context_docs,
+            fragment_max_chars=conf.fragment_max_chars,
+            answer_max_tokens=conf.answer_max_tokens,
             generator_model=conf.generator_model,
             subject_models=[p.model for p in subject_providers(conf)],
             judge_model=conf.judge_model,

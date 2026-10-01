@@ -86,7 +86,6 @@ class Grade:
 
     verdict: Verdict
     reasoning: str
-    failed: bool = False  # the call did not happen: not in the metrics denominator
     # The provider refused the judge outright — the key, the money, the name.
     # Every later question gets the same answer, so the run stops rather than
     # buying the refusal once per item.
@@ -97,6 +96,11 @@ class Grade:
     # Which upstream served the judge. Empty where no model was called at all:
     # a matched option letter, a recognised abstention.
     served_by: str = ""
+
+    @property
+    def failed(self) -> bool:
+        """Nothing was measured: the row speaks about the rig, not the model."""
+        return self.verdict is Verdict.TECHNICAL
 
 
 def deferred(system: str, user: str) -> Grade:
@@ -121,6 +125,16 @@ def deferred(system: str, user: str) -> Grade:
 def is_error(answer: str) -> bool:
     """The answer is a failure message rather than an answer."""
     return answer.strip().startswith(ERROR_PREFIX)
+
+
+def is_technical(verdict: str, answer: str) -> bool:
+    """Whether a stored row measured nothing.
+
+    Two arms: rows carrying the verdict, and older rows carrying
+    ``hallucinate`` with an ``ERROR:`` answer. Counting only one of them would
+    move every published figure without anything being remeasured.
+    """
+    return verdict == Verdict.TECHNICAL.value or is_error(answer)
 
 
 def detect_abstain(answer: str) -> bool:
@@ -151,7 +165,7 @@ def grade_behavior(answer: str) -> Grade:
     re-run.
     """
     if is_error(answer):
-        return Grade(Verdict.HALLUCINATE, answer[:300], failed=True)
+        return Grade(Verdict.TECHNICAL, answer[:300])
     if detect_abstain(answer):
         return Grade(Verdict.ABSTAIN, "abstained — there is no answer in the corpus")
     return Grade(
@@ -247,14 +261,15 @@ def grade(
             still run as usual — there is no point deferring what is free
 
     Returns:
-        A Grade with one of the three outcomes; failed=True if the call did not happen
+        A Grade with one of the three outcomes, or ``technical`` where no
+        call happened at all
     """
     conf = settings or get_settings()
 
     if is_error(answer):
         # A failed call speaks about the rig, not about the quality of the
         # answers, and has no business in the metrics denominator.
-        return Grade(Verdict.HALLUCINATE, answer[:300], failed=True)
+        return Grade(Verdict.TECHNICAL, answer[:300])
 
     if detect_abstain(answer):
         return Grade(Verdict.ABSTAIN, "refused to answer")
@@ -288,9 +303,8 @@ def grade(
         data = parse_json_object(raw)
     except LLMError as exc:
         return Grade(
-            Verdict.HALLUCINATE,
+            Verdict.TECHNICAL,
             f"the judge did not answer: {exc}",
-            failed=True,
             fatal=isinstance(exc, LLMFatalError),
             judge_system=_JUDGE_SYSTEM,
             judge_user=user,
@@ -333,11 +347,11 @@ def grade_key_facts(
     conf = settings or get_settings()
 
     if is_error(answer):
-        return Grade(Verdict.HALLUCINATE, answer[:300], failed=True)
+        return Grade(Verdict.TECHNICAL, answer[:300])
     if detect_abstain(answer):
         return Grade(Verdict.ABSTAIN, "refused to explain")
     if not facts:
-        return Grade(Verdict.HALLUCINATE, "the item has no key facts", failed=True)
+        return Grade(Verdict.TECHNICAL, "the item has no key facts")
 
     listed = "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(facts))
     user = f"Facts:\n{listed}\n\nExplanation:\n{answer}\n\nWhich facts are covered?"
@@ -356,9 +370,8 @@ def grade_key_facts(
         data = parse_json_object(raw)
     except LLMError as exc:
         return Grade(
-            Verdict.HALLUCINATE,
+            Verdict.TECHNICAL,
             f"the judge did not answer: {exc}",
-            failed=True,
             fatal=isinstance(exc, LLMFatalError),
             judge_system=_KEY_FACTS_SYSTEM,
             judge_user=user,
@@ -367,9 +380,8 @@ def grade_key_facts(
     covered = [bool(x) for x in (data.get("covered") or [])][: len(facts)]
     if not covered:
         return Grade(
-            Verdict.HALLUCINATE,
+            Verdict.TECHNICAL,
             "the judge did not parse the facts",
-            failed=True,
             judge_system=_KEY_FACTS_SYSTEM,
             judge_user=user,
             judge_raw=raw,

@@ -145,7 +145,9 @@ def endpoint_retriever(
     return retrieve
 
 
-def check_retrieval(documents: list[dict[str, Any]], pair: QaPair) -> dict[str, Any]:
+def check_retrieval(
+    documents: list[dict[str, Any]], pair: QaPair, *, max_chars: int = 2000
+) -> dict[str, Any]:
     """The rank, among what was found, of the document the question grew from.
 
     For ``raw`` mode this is the measurement itself: no model takes part, and
@@ -154,6 +156,14 @@ def check_retrieval(documents: list[dict[str, Any]], pair: QaPair) -> dict[str, 
     uninterpretable: an abstention on a retrieval miss is correct behaviour by
     the model, an abstention on a hit is its blindness, and in one share they
     are indistinguishable.
+
+    Args:
+        documents: What the endpoint returned, in its own order
+        pair: The item, for recognising the chunk it grew from
+        max_chars: The ceiling on one chunk's text. Not a storage limit: arm
+            C's prompt is assembled from what this returns, so it decides what
+            the model is shown. Callers inside a run pass
+            ``fragment_max_chars``.
     """
     rank = 0
     for position, doc in enumerate(documents, start=1):
@@ -175,7 +185,9 @@ def check_retrieval(documents: list[dict[str, Any]], pair: QaPair) -> dict[str, 
                 # content field, and without it there is nothing to ground an
                 # answer in: a judge shown a list of file names issues a verdict
                 # about nothing. In arm C this same text goes into the model prompt.
-                "content": str(doc.get("content") or "")[:2000],
+                "content": str(doc.get("content") or "")[:max_chars],
+                # The length before the cut, so a shortened chunk can say so.
+                "chars": len(str(doc.get("content") or "")),
             }
             for doc in documents
         ],

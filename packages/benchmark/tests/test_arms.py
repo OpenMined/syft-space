@@ -8,6 +8,8 @@ answer.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from syft_benchmark.config import (
     ARM_LETTER,
     ContextMode,
@@ -25,11 +27,13 @@ from syft_benchmark.runs import (
     pick_pairs,
     with_context_prompt,
 )
+from syft_benchmark.runs.endpoint import check_retrieval
 from syft_benchmark.runs.execute import (
     _CLOSED_BOOK_SYSTEM,
     _NEEDS_ANSWER,
     _WITH_CONTEXT_SYSTEM,
     RETRIEVAL_ONLY_TOKENS,
+    _material_for,
 )
 
 FRAGMENTS = [
@@ -391,3 +395,67 @@ def test_pairs_without_a_generator_still_get_picked() -> None:
 
     rows = [_Old(i) for i in range(10)]
     assert len(pick_pairs(rows, 4)) == 4  # type: ignore[arg-type]
+
+
+def test_the_chunk_ceiling_decides_what_the_model_sees() -> None:
+    """Not a storage limit. The arm C prompt is built from the cut text.
+
+    `check_retrieval` shortens each chunk and `_material_for` assembles the
+    context out of what it returned, so a chunk longer than the ceiling
+    reaches the model truncated while the endpoint in arm B saw it whole.
+    `chars` keeps the length before the cut.
+    """
+    long_text = "x" * 5000
+    documents = [
+        {
+            "metadata": {"file_name": "long.md", "doc_id": "d1"},
+            "similarity_score": 0.9,
+            "content": long_text,
+        }
+    ]
+    pair = SimpleNamespace(doc_id="d1", file_name="long.md", context="")
+
+    retrieval = check_retrieval(documents, pair, max_chars=500)  # type: ignore[arg-type]
+    (fragment,) = retrieval["retrieved"]
+    assert len(fragment["content"]) == 500
+    assert fragment["chars"] == 5000
+
+    whole = check_retrieval(documents, pair, max_chars=20000)  # type: ignore[arg-type]
+    assert len(whole["retrieved"][0]["content"]) == 5000
+
+    # And the same number reaches the prompt, which is the point of it.
+    _, context = _material_for(
+        pair,  # type: ignore[arg-type]
+        {"documents": documents, "answer": ""},
+        source=ContextSource.ENDPOINT_FRAGMENTS,
+        settings=Settings(fragment_max_chars=500),
+    )
+    assert context.count("x") == 500
+
+
+def test_only_context_docs_of_what_was_found_reach_the_prompt() -> None:
+    """Five chunks found, three mixed in — and the other two are not a miss.
+
+    `retrieval_top_k` and `context_docs` are two different numbers: everything
+    found is kept, only the top of it is shown to the model.
+    """
+    documents = [
+        {
+            "metadata": {"file_name": f"f{number}.md", "doc_id": f"d{number}"},
+            "similarity_score": 0.9 - number / 100,
+            "content": f"fragment number {number}",
+        }
+        for number in range(1, 6)
+    ]
+    pair = SimpleNamespace(doc_id="d4", file_name="f4.md", context="")
+
+    retrieval, context = _material_for(
+        pair,  # type: ignore[arg-type]
+        {"documents": documents, "answer": ""},
+        source=ContextSource.ENDPOINT_FRAGMENTS,
+        settings=Settings(context_docs=3),
+    )
+    assert len(retrieval["retrieved"]) == 5
+    assert retrieval["retrieval_rank"] == 4
+    assert "fragment number 3" in context
+    assert "fragment number 4" not in context

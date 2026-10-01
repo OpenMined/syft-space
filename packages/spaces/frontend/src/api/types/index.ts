@@ -1109,7 +1109,14 @@ export interface BenchmarkRunRequest {
 }
 
 export type BenchmarkPairStatus = 'pending' | 'active' | 'rejected' | 'retired'
-export type BenchmarkVerdict = 'correct' | 'abstain' | 'hallucinate' | 'pending'
+/**
+ * The three outcomes, and the two states that are not outcomes.
+ *
+ * `pending` — no judge has looked yet. `technical` — nothing was measured:
+ * the endpoint unreachable, the provider refusing, the judge silent. Neither
+ * enters a share, and neither can be recorded by hand.
+ */
+export type BenchmarkVerdict = 'correct' | 'abstain' | 'hallucinate' | 'pending' | 'technical'
 
 export interface BenchmarkPair {
   id: string
@@ -1174,6 +1181,50 @@ export interface BenchmarkRepeats {
   log: BenchmarkRepeatTrial[]
 }
 
+/** One chunk the endpoint's retrieval returned for a question. */
+export interface BenchmarkFragment {
+  file_name: string
+  score: number
+  content: string
+  /** The length before the ceiling. Longer than `content` — the model was
+   * shown a shortened chunk. */
+  chars?: number | null
+}
+
+/**
+ * How the call that produced an answer ended.
+ *
+ * The budget doubles until the answer fits or reaches `answer_max_tokens`, so
+ * `truncated` means it reached that number and still did not finish. It is
+ * graded like any other. Absent with `audit_log` off, which is not "not cut".
+ */
+export interface BenchmarkCall {
+  truncated: boolean
+  finish_reason: string
+  /** The budget the call ended on, after any doubling — the number to raise. */
+  max_tokens: number | null
+  length_retries: number
+}
+
+/**
+ * What was actually sent — for the answer, and for the verdict on it.
+ *
+ * Any field can be empty: nothing is kept with the benchmark's `audit_log`
+ * off, and the judge fields are empty wherever the verdict cost no call —
+ * which `judged_without_model` tells apart from a record never written.
+ */
+export interface BenchmarkPrompts {
+  responder_system: string
+  responder_prompt: string
+  /** The material mixed into the "With data" prompt, on its own. */
+  context: string
+  judge_system: string
+  judge_prompt: string
+  /** The judge's answer before it was parsed into a verdict. */
+  judge_raw: string
+  judged_without_model: boolean
+}
+
 export interface BenchmarkResult {
   id: string
   qa_id: string
@@ -1198,6 +1249,24 @@ export interface BenchmarkResult {
    */
   denial?: BenchmarkDenial | null
   repeats?: BenchmarkRepeats | null
+  /**
+   * Whether the chunk the question grew from was found, and where. An
+   * abstention cannot be read without them: on a miss it is correct
+   * behaviour, on a hit it is blindness. Null where nothing was retrieved.
+   */
+  retrieval_hit?: boolean | null
+  retrieval_rank?: number | null
+  call?: BenchmarkCall | null
+  /** The run's two ceilings. Null where the run does not carry them. */
+  context_docs?: number | null
+  fragment_max_chars?: number | null
+  /**
+   * Only on a listing asked for with `prompts`: megabytes over a whole page,
+   * so fetched one question at a time. Null with `audit_log` off, and
+   * `fragments` null where nothing was retrieved at all.
+   */
+  prompts?: BenchmarkPrompts | null
+  fragments?: BenchmarkFragment[] | null
 }
 
 export interface BenchmarkResultPage {

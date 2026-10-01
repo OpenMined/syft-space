@@ -239,8 +239,9 @@ def pick_pairs(rows: list[QaPair], limit: int | None) -> list[QaPair]:
     make that choice and must not: selection by a silent decision is the worst kind
     of configuration.
 
-    The order within a generator is by time, as they arrived; with a limit larger
-    than the set the whole set is returned.
+    The order within a generator is the order given — newest first, as
+    ``active_pairs`` returns them; with a limit larger than the set the whole set
+    is returned.
     """
     if limit is None:
         return rows
@@ -257,26 +258,26 @@ def pick_pairs(rows: list[QaPair], limit: int | None) -> list[QaPair]:
 
 
 def active_pairs(space: str, settings: Settings | None = None) -> list[QaPair]:
-    """All the active items of a Space, by time.
+    """All the active items of a Space, newest first.
 
     Only ``active``: a screened-out gold answer understates a good endpoint score,
     and letting it into the measurement means measuring our own generator.
 
-    The order is total rather than partial: time plus identifier. The order here
-    decides which items the limit takes, and the limit is applied anew for every run
-    — one run per arm, block and model under test. If two items had equal
-    timestamps, the database would be free to return them in a different order to
-    different queries, and the models would be compared on different questions with
-    nothing to show for it. Items are written each in its own transaction, so equal
-    timestamps are unlikely — but "unlikely" and "impossible" are one line of
-    difference apart here.
+    The order is total — time plus identifier. The limit is applied anew for every
+    run, so on equal timestamps the database would be free to hand different
+    queries different items and the models would be compared on different
+    questions.
+
+    TEMPORARY: descending, so a limited run measures what this launch generated.
+    The selection is to be reworked; the answer is a question set
+    (``question_set``) or a sampling rule, not a direction.
     """
     conf = settings or get_settings()
     with session_scope(conf) as session:
         stmt = (
             select(QaPair)
             .where(QaPair.space == space, QaPair.status == PairStatus.ACTIVE.value)
-            .order_by(QaPair.created_at, QaPair.id)
+            .order_by(QaPair.created_at.desc(), QaPair.id.desc())
         )
         rows = list(session.execute(stmt).scalars())
         for row in rows:
@@ -559,7 +560,9 @@ def _material_for(
         retrieval = _empty_retrieval()
         endpoint_answer = ""
     else:
-        retrieval = check_retrieval(outcome["documents"], pair)
+        retrieval = check_retrieval(
+            outcome["documents"], pair, max_chars=settings.fragment_max_chars
+        )
         endpoint_answer = str(outcome["answer"])
 
     context = build_context(

@@ -41,7 +41,7 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.report.metrics import Metrics, _latest_results, judges_seen
-from syft_benchmark.runs.judge import is_error
+from syft_benchmark.runs.judge import is_technical
 from syft_benchmark.runs.textmetrics import average
 
 # Below this judge agreement comparing models with one another is meaningless:
@@ -235,10 +235,8 @@ def by_generator(
         counts = tally.setdefault(
             key, {"correct": 0, "abstain": 0, "hallucinate": 0, "failed": 0}
         )
-        # A failed call is filtered out by the same mark as in the summary: it is
-        # recorded with the hallucinate verdict, otherwise it could not be saved —
-        # and they cannot be told apart by the verdict.
-        if is_error(row.answer):
+        # Out of the denominator, by the same mark as in the summary.
+        if is_technical(row.verdict, row.answer):
             counts["failed"] += 1
         elif row.verdict == Verdict.CORRECT.value:
             counts["correct"] += 1
@@ -299,7 +297,8 @@ def judge_agreement(
             row.qa_id: row.verdict
             for row in rows
             # A failure is not a judge opinion, and cannot be a disagreement.
-            if not is_error(row.answer) and row.verdict != Verdict.PENDING.value
+            if not is_technical(row.verdict, row.answer)
+            and row.verdict != Verdict.PENDING.value
         }
 
     pairs: list[JudgePair] = []

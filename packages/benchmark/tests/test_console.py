@@ -218,6 +218,115 @@ def test_overriding_a_verdict_inserts_and_is_visible_as_latest(
 
 
 @needs_db
+def test_the_audit_trail_is_only_sent_when_it_is_asked_for(
+    client: TestClient, clean: Any
+) -> None:
+    """The prompts are the check on a verdict, and a cost on every other read.
+
+    Each field runs to `audit_max_chars`, so a page of a hundred rows is
+    megabytes: the trail travels only on a request that names it.
+
+    The retrieval scalars are the exception and are always there — an
+    abstention cannot be read without them.
+    """
+    _register(client, KEY)
+    session_a = _session_for(client, KEY)
+
+    with session_scope() as db:
+        db.add(_pair("pair-audit", KEY, status=PairStatus.ACTIVE.value))
+        db.add(
+            Run(
+                id="run-audit",
+                space=KEY,
+                context_mode="model_with_context",
+                model="m",
+            )
+        )
+        db.add(
+            Result(
+                id="result-audit",
+                run_id="run-audit",
+                qa_id="pair-audit",
+                space=KEY,
+                verdict=Verdict.CORRECT.value,
+                retrieval_hit=True,
+                retrieval_rank=2,
+                retrieved=[
+                    {"file_name": "atlantic.md", "score": 0.81, "content": "a chunk"}
+                ],
+                audit={
+                    "responder_system": "you answer",
+                    "responder_prompt": "context: a chunk\n\nquestion?",
+                    "context": "a chunk",
+                    "judge_system": "you grade",
+                    "judge_prompt": "was it right?",
+                    "judge_raw": "VERDICT: correct",
+                },
+            )
+        )
+
+    params = {"qa_id": "pair-audit"}
+    plain = client.get("/console/results", params=params, headers=session_a)
+    assert plain.status_code == 200, plain.text
+    (row,) = plain.json()["items"]
+    assert row["prompts"] is None
+    assert row["fragments"] is None
+    assert row["retrieval_hit"] is True
+    assert row["retrieval_rank"] == 2
+
+    full = client.get(
+        "/console/results", params={**params, "prompts": "true"}, headers=session_a
+    )
+    assert full.status_code == 200, full.text
+    (detailed,) = full.json()["items"]
+    assert detailed["prompts"]["responder_system"] == "you answer"
+    assert detailed["prompts"]["context"] == "a chunk"
+    assert detailed["prompts"]["judge_raw"] == "VERDICT: correct"
+    assert detailed["prompts"]["judged_without_model"] is False
+    assert detailed["fragments"] == [
+        {"file_name": "atlantic.md", "score": 0.81, "content": "a chunk", "chars": None}
+    ]
+
+
+@needs_db
+def test_a_row_with_no_audit_kept_says_so_rather_than_inventing_one(
+    client: TestClient, clean: Any
+) -> None:
+    """Null, not an empty prompt.
+
+    A run with `audit_log` off keeps nothing, and an empty string would read
+    as "the model was sent nothing". `fragments` is null for the same reason
+    where no search was made at all.
+    """
+    _register(client, KEY)
+    session_a = _session_for(client, KEY)
+
+    with session_scope() as db:
+        db.add(_pair("pair-bare", KEY, status=PairStatus.ACTIVE.value))
+        db.add(Run(id="run-bare", space=KEY, context_mode="closed_book", model="m"))
+        db.add(
+            Result(
+                id="result-bare",
+                run_id="run-bare",
+                qa_id="pair-bare",
+                space=KEY,
+                verdict=Verdict.CORRECT.value,
+            )
+        )
+
+    reply = client.get(
+        "/console/results",
+        params={"qa_id": "pair-bare", "prompts": "true"},
+        headers=session_a,
+    )
+    assert reply.status_code == 200, reply.text
+    (row,) = reply.json()["items"]
+    assert row["prompts"] is None
+    assert row["fragments"] is None
+    assert row["retrieval_hit"] is None
+
+
+@needs_db
 def test_console_runs_filter_and_judge_queue_the_right_kind(
     client: TestClient, clean: Any
 ) -> None:

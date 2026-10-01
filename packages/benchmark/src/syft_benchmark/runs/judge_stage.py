@@ -44,10 +44,10 @@ from syft_benchmark.config import (
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.llm import Provider, judge_providers
 from syft_benchmark.runs.judge import (
-    ERROR_PREFIX,
     grade,
     grade_behavior,
     grade_key_facts,
+    is_technical,
 )
 from syft_benchmark.runs.parallel import Progress
 
@@ -146,7 +146,8 @@ def _pending_tasks(
             pair
             for key, pair in freshest.items()
             if key not in judged
-            and not str(pair[0].answer or "").startswith(ERROR_PREFIX)
+            # Nothing to grade: the call did not happen.
+            and not is_technical(pair[0].verdict, str(pair[0].answer or ""))
             and pair[0].verdict == Verdict.PENDING.value
         ]
         wanted.sort(
@@ -593,6 +594,119 @@ def _repeats_of(extra: Any) -> RepeatsView | None:
 
 
 @dataclass(slots=True)
+class FragmentView:
+    """One chunk the endpoint's retrieval returned for a question."""
+
+    file_name: str
+    score: float
+    content: str
+
+
+@dataclass(slots=True)
+class PromptsView:
+    """What was actually sent — for the answer, and for the verdict on it.
+
+    Straight out of ``Result.audit``: a prompt depends on the settings of the
+    moment and cannot be rebuilt later. Any field can be empty — the record is
+    absent with ``audit_log`` off, the judge fields wherever the verdict cost
+    no call.
+
+    SENSITIVE, hence not in the ordinary listing: in arm C
+    ``responder_prompt`` carries the text of the chunks that were found.
+    """
+
+    responder_system: str
+    responder_prompt: str
+    # The material mixed into the arm C prompt, on its own as well: the reader
+    # wants both the prompt as sent and the part of it that came from the data.
+    context: str
+    judge_system: str
+    judge_prompt: str
+    judge_raw: str
+    # The verdict was reached without asking a model at all — an option letter
+    # matched arithmetically, an abstention recognised by a regex. An empty
+    # judge prompt then means nothing was asked, not that nothing was kept.
+    judged_without_model: bool
+
+
+@dataclass(slots=True)
+class CallView:
+    """How the call that produced an answer ended.
+
+    The budget doubles until the answer fits or reaches ``answer_max_tokens``,
+    so ``truncated`` means it reached that ceiling and still did not finish. A
+    truncated answer is judged like any other, which is why this travels with
+    every row. Read out of the audit record, so absent with ``audit_log`` off.
+    """
+
+    truncated: bool
+    finish_reason: str
+    # The budget the call ended on, after any doubling — the number to raise.
+    max_tokens: int | None
+    length_retries: int
+
+
+def _call_of(audit: Any) -> CallView | None:
+    """How the answerer's call ended, where the record was kept."""
+    call = audit.get("call") if isinstance(audit, dict) else None
+    if not isinstance(call, dict):
+        return None
+    tokens = call.get("max_tokens")
+    return CallView(
+        truncated=bool(call.get("truncated")),
+        finish_reason=str(call.get("finish_reason") or ""),
+        max_tokens=int(tokens) if isinstance(tokens, int) else None,
+        length_retries=int(call.get("length_retries") or 0),
+    )
+
+
+def _params_int(params: Any, name: str) -> int | None:
+    """One number out of a run's methodology snapshot, where it has one.
+
+    None where the run does not carry it: a default here would be a claim
+    about how that run was measured.
+    """
+    value = params.get(name) if isinstance(params, dict) else None
+    return int(value) if isinstance(value, int) else None
+
+
+def _prompts_of(audit: Any) -> PromptsView | None:
+    """The audit trail of one row, or None where none was kept."""
+    if not isinstance(audit, dict) or not audit:
+        return None
+    return PromptsView(
+        responder_system=str(audit.get("responder_system") or ""),
+        responder_prompt=str(audit.get("responder_prompt") or ""),
+        context=str(audit.get("context") or ""),
+        judge_system=str(audit.get("judge_system") or ""),
+        judge_prompt=str(audit.get("judge_prompt") or ""),
+        judge_raw=str(audit.get("judge_raw") or ""),
+        judged_without_model=bool(audit.get("judged_without_model")),
+    )
+
+
+def _fragments_of(result: Result) -> list[FragmentView] | None:
+    """What the endpoint found for this row, or None where nothing was asked.
+
+    None rather than an empty list: nothing is asked in the closed-book arm,
+    and a panel saying "0 fragments" there would read as a retrieval that came
+    back empty — which is a different fact, and a worse one.
+    """
+    rows = result.retrieved if isinstance(result.retrieved, list) else []
+    if not rows and result.retrieval_hit is None:
+        return None
+    return [
+        FragmentView(
+            file_name=str(doc.get("file_name") or ""),
+            score=float(doc.get("score") or 0.0),
+            content=str(doc.get("content") or ""),
+        )
+        for doc in rows
+        if isinstance(doc, dict)
+    ]
+
+
+@dataclass(slots=True)
 class ResultView:
     """One verdict, as an owner reviewing judging needs to see it."""
 
@@ -619,6 +733,23 @@ class ResultView:
     # printed again, and the verdict on them looks unaccountable.
     denial: DenialView | None = None
     repeats: RepeatsView | None = None
+
+    # Whether the chunk the question grew from was found, and where. Without
+    # them an abstention is unreadable: on a miss it is correct behaviour, on a
+    # hit it is blindness. NULL where nothing was retrieved, as in closed book.
+    retrieval_hit: bool | None = None
+    retrieval_rank: int | None = None
+
+    # How the call ended, and the two ceilings of its run. Scalars, so they
+    # travel with every row.
+    call: CallView | None = None
+    context_docs: int | None = None
+    fragment_max_chars: int | None = None
+
+    # Asked for by name: the trail runs to `audit_max_chars` per field, which
+    # over a hundred rows is megabytes. Fetched one question at a time.
+    prompts: PromptsView | None = None
+    fragments: list[FragmentView] | None = None
 
 
 def get_result(
@@ -700,6 +831,11 @@ def get_result(
             is_latest=freshest_id == result.id,
             denial=_denial_of(result.extra),
             repeats=_repeats_of(result.extra),
+            retrieval_hit=result.retrieval_hit,
+            retrieval_rank=result.retrieval_rank,
+            call=_call_of(result.audit),
+            context_docs=_params_int(run.params, "context_docs"),
+            fragment_max_chars=_params_int(run.params, "fragment_max_chars"),
         )
 
 
@@ -711,6 +847,7 @@ def list_results(
     job: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    prompts: bool = False,
     settings: Settings | None = None,
 ) -> tuple[list[ResultView], int]:
     """This target's results, newest first.
@@ -722,6 +859,11 @@ def list_results(
         job: Only what this launch asked; None — everything the node has
         limit: Page size, capped at `MAX_PAGE`
         offset: How many to skip, for paging
+        prompts: Also return the audit trail and the text of the chunks that
+            were found. Off by default and deliberately so — the trail is
+            capped at `audit_max_chars` per field, so a hundred rows of it is
+            a download rather than a listing. Meant to be asked for with
+            `qa_id`, one question at a time.
         settings: The process settings
 
     Returns:
@@ -833,6 +975,13 @@ def list_results(
                     is_latest=stands == result.id,
                     denial=_denial_of(result.extra),
                     repeats=_repeats_of(result.extra),
+                    retrieval_hit=result.retrieval_hit,
+                    retrieval_rank=result.retrieval_rank,
+                    call=_call_of(result.audit),
+                    context_docs=_params_int(run.params, "context_docs"),
+                    fragment_max_chars=_params_int(run.params, "fragment_max_chars"),
+                    prompts=_prompts_of(result.audit) if prompts else None,
+                    fragments=_fragments_of(result) if prompts else None,
                 )
             )
     return views, total

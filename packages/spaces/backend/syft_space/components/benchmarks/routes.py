@@ -390,13 +390,17 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         job: str = "",
         limit: int = 0,
         offset: int = 0,
+        prompts: bool = False,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> dict:
         """This endpoint's graded answers, filterable and paged.
 
         ``job`` narrows them to one launch — what that run asked and what came
-        back.
+        back. ``prompts`` adds what was actually sent to the answering model
+        and to each judge, together with the chunks retrieval found; it is
+        heavy enough that the benchmark keeps it off by default, so it is
+        asked for one question at a time, with ``qa_id``.
         """
         return await handler.list_results(
             tenant,
@@ -407,6 +411,9 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
                 "job": job,
                 "limit": limit,
                 "offset": offset,
+                # Sent only when it is wanted: the console client drops empty
+                # values, and a literal `False` would travel as "False".
+                "prompts": "true" if prompts else "",
             },
         )
 

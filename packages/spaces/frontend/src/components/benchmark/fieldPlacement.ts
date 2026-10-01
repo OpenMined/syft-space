@@ -53,6 +53,11 @@ export const FIELD_PLACEMENT = {
       'monte_carlo_trials',
       'context_source',
       'context_docs',
+      // Two ceilings on what the measurement contains: how much of a found
+      // chunk the model is shown, and whether a long answer is graded whole
+      // or graded cut off.
+      'fragment_max_chars',
+      'answer_max_tokens',
       'subject_models',
       'methodology_profile',
       'max_consecutive_failures',

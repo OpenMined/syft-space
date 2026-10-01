@@ -275,6 +275,23 @@ def test_without_a_key_the_control_api_does_not_exist() -> None:
 
 
 @needs_db
+def test_the_generators_are_offered_in_the_registry_order(client: TestClient) -> None:
+    """The order the list arrives in is the order every page draws it in.
+
+    The registry ends with the control generators, whose correct answer is a
+    refusal: they qualify the measurement, they are not the first sight of it.
+    """
+    from syft_benchmark.generation.generators import CONTROL_KEYS, GENERATORS
+
+    reply = client.get("/capabilities", headers=AUTH)
+    assert reply.status_code == 200, reply.text
+    offered = reply.json()["generators"]
+    assert offered == list(GENERATORS)
+    assert set(offered[-len(CONTROL_KEYS) :]) == set(CONTROL_KEYS)
+    assert offered[-1] == "false_premise"
+
+
+@needs_db
 def test_a_wrong_key_is_refused(client: TestClient) -> None:
     assert (
         client.get("/targets", headers={"Authorization": "Bearer no"}).status_code

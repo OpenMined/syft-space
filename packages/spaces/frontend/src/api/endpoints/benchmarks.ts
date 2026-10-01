@@ -205,6 +205,12 @@ export const benchmarksApi = {
       job?: string
       limit?: number
       offset?: number
+      /**
+       * Also bring back what was sent to the model and to each judge, and the
+       * chunks retrieval found. Heavy — ask for it with `qa_id`, never over a
+       * whole page.
+       */
+      prompts?: boolean
     },
   ): Promise<BenchmarkResultPage> => {
     const response = await apiClient.get(`/benchmarks/endpoints/${slug}/console/results`, {

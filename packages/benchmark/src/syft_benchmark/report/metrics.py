@@ -27,7 +27,7 @@ from syft_benchmark.config import (
     get_settings,
 )
 from syft_benchmark.db import QaPair, Result, Run, session_scope
-from syft_benchmark.runs.judge import is_error
+from syft_benchmark.runs.judge import is_technical
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,20 +437,15 @@ def summarize(
     if not rows:
         return None
 
-    # A failed call is filtered out BEFORE counting rather than subtracted
-    # afterwards. Such rows are written with the hallucinate verdict — otherwise
-    # they could not be saved — and after-the-fact subtraction would silently break
-    # the moment a judge once gave them a different class.
-    failed_rows = [r for r in rows if is_error(r.answer)]
+    # Filtered out BEFORE counting rather than subtracted afterwards: a
+    # subtraction breaks the moment such a row carries a different class.
+    failed_rows = [r for r in rows if is_technical(r.verdict, r.answer)]
+    rest = [r for r in rows if not is_technical(r.verdict, r.answer)]
     # There is an answer but no verdict. It cannot be counted as an outcome —
     # nobody issued one — and throwing it away silently means showing a share over
     # part of the set without saying which part.
-    pending_rows = [
-        r for r in rows if not is_error(r.answer) and r.verdict == Verdict.PENDING.value
-    ]
-    graded_rows = [
-        r for r in rows if not is_error(r.answer) and r.verdict != Verdict.PENDING.value
-    ]
+    pending_rows = [r for r in rest if r.verdict == Verdict.PENDING.value]
+    graded_rows = [r for r in rest if r.verdict != Verdict.PENDING.value]
 
     correct = sum(1 for r in graded_rows if r.verdict == Verdict.CORRECT.value)
     abstain = sum(1 for r in graded_rows if r.verdict == Verdict.ABSTAIN.value)

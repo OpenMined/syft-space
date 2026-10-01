@@ -108,20 +108,25 @@ BEHAVIOUR_LABEL: dict[str, str] = {
 
 
 class Verdict(StrEnum):
-    """The three outcomes a judge reduces any answer to, and one expectation.
+    """The three outcomes a judge reduces any answer to, and two non-outcomes.
 
-    ``PENDING`` is not an outcome and takes no part in the shares: it is an answer
-    that was received but not yet judged. The state exists for the sake of deferred
-    judging — the answers are collected by machine and the verdicts are issued by a
-    console judge later — and so that such an answer is visible. Without it an
-    answer with no verdict would have to be either thrown away or recorded as an
-    outcome nobody issued.
+    ``PENDING`` — an answer received but not yet judged, for deferred judging:
+    answers collected by machine, verdicts issued from the console later.
+
+    ``TECHNICAL`` — nothing was measured: the endpoint unreachable, the provider
+    refusing, the key out, the retrieval empty, the judge itself silent. Such a
+    row says something about the rig and nothing about the model.
+
+    Neither enters a share, and neither may be issued by hand. Rows older than
+    ``TECHNICAL`` carry ``HALLUCINATE`` with an ``ERROR:`` answer, so filters
+    accept both — see ``runs.judge.is_technical``.
     """
 
     CORRECT = "correct"
     ABSTAIN = "abstain"
     HALLUCINATE = "hallucinate"
     PENDING = "pending"
+    TECHNICAL = "technical"
 
 
 class TextMetric(StrEnum):
@@ -445,6 +450,15 @@ class Settings(BaseSettings):
         ge=1,
         le=20,
         description="How many top chunks found to put into the arm C prompt",
+    )
+    fragment_max_chars: int = Field(
+        default=2000,
+        ge=200,
+        le=20000,
+        description=(
+            "The ceiling on one chunk's text, applied before the arm C prompt is "
+            "assembled: it decides what the model sees, not only what is kept"
+        ),
     )
 
     # --- The parameters of the request to the endpoint.
@@ -904,6 +918,9 @@ class Settings(BaseSettings):
             "similarity_threshold": threshold,
             "context_source": self.context_source.value,
             "context_docs": self.context_docs,
+            # A ceiling on what the model was shown, not on what was stored.
+            "fragment_max_chars": self.fragment_max_chars,
+            "answer_max_tokens": self.answer_max_tokens,
             "endpoint_max_tokens": self.endpoint_max_tokens,
             "endpoint_temperature": self.endpoint_temperature,
             "key_facts_threshold": self.key_facts_threshold,

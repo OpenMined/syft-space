@@ -131,6 +131,24 @@ class Instrument(Layer):
         default=None, description="What to mix into the question in arm C"
     )
     context_docs: int | None = Field(default=None, ge=1, le=20)
+    fragment_max_chars: int | None = Field(
+        default=None,
+        ge=200,
+        le=20000,
+        description=(
+            "The ceiling on one chunk's text, applied before the arm C prompt is "
+            "assembled: it decides what the model is shown"
+        ),
+    )
+    answer_max_tokens: int | None = Field(
+        default=None,
+        ge=64,
+        description=(
+            "The ceiling on any model answer — the model under test, the judge, "
+            "the grounding check. A cut-off call is retried with a doubled budget "
+            "up to this"
+        ),
+    )
 
     # --- Who takes part
     generator_model: str | None = None
@@ -535,6 +553,63 @@ class ResultRepeats(BaseModel):
     )
 
 
+class ResultFragment(BaseModel):
+    """One chunk the endpoint's retrieval returned."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    file_name: str = ""
+    score: float = 0.0
+    content: str = ""
+    chars: int | None = Field(
+        default=None, description="The chunk's length before the ceiling"
+    )
+
+
+class ResultCall(BaseModel):
+    """How the call that produced an answer ended."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    truncated: bool = Field(
+        default=False,
+        description="The model reached `answer_max_tokens` and did not finish",
+    )
+    finish_reason: str = ""
+    max_tokens: int | None = Field(
+        default=None, description="The budget the call ended on, after any doubling"
+    )
+    length_retries: int = Field(
+        default=0, description="How many times the budget had to be doubled"
+    )
+
+
+class ResultPrompts(BaseModel):
+    """What was actually sent — for the answer, and for the verdict on it.
+
+    SENSITIVE: in arm C the answerer's prompt carries the text of the chunks
+    that were found. Returned only when the caller asks for it by name.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    responder_system: str = ""
+    responder_prompt: str = ""
+    context: str = Field(
+        default="", description="The material mixed into the arm C prompt, on its own"
+    )
+    judge_system: str = ""
+    judge_prompt: str = ""
+    judge_raw: str = Field(
+        default="", description="The judge's answer before it was parsed"
+    )
+    judged_without_model: bool = Field(
+        default=False,
+        description="The verdict cost no call — an empty judge prompt here "
+        "means nothing was asked, not that nothing was kept",
+    )
+
+
 class ResultResponse(BaseModel):
     """One verdict, as the console's Judging review shows it."""
 
@@ -556,10 +631,36 @@ class ResultResponse(BaseModel):
         description="Whether this is the row every other reader treats as "
         "the current verdict for its question"
     )
+    # An abstention cannot be read without them: on a miss it is correct
+    # behaviour, on a hit it is blindness.
+    retrieval_hit: bool | None = Field(
+        default=None, description="Whether the chunk the question grew from was found"
+    )
+    retrieval_rank: int | None = Field(
+        default=None, description="At which position, if it was"
+    )
+    # Null with `audit_log` off, which is not "the answer was not cut".
+    call: ResultCall | None = None
+    # The run's two ceilings, from its methodology snapshot. Null where the run
+    # does not carry them.
+    context_docs: int | None = Field(
+        default=None, description="How many of the chunks found went into the prompt"
+    )
+    fragment_max_chars: int | None = Field(
+        default=None, description="The ceiling one chunk's text was cut at"
+    )
     # A block row stores the answer the block started from, so these carry
     # the only thing that tells it from the direct row it repeats.
     denial: ResultDenial | None = None
     repeats: ResultRepeats | None = None
+
+    # Only with `prompts=true`; null everywhere else, and with `audit_log` off.
+    prompts: ResultPrompts | None = None
+    fragments: list[ResultFragment] | None = Field(
+        default=None,
+        description="The chunks retrieval returned; null where nothing was "
+        "retrieved at all, which is not the same as none being found",
+    )
 
 
 class ResultPage(BaseModel):
@@ -576,6 +677,22 @@ class VerdictOverride(BaseModel):
 
     verdict: Verdict
     reasoning: str = Field(default="", description="Why, for the record")
+
+    @field_validator("verdict")
+    @classmethod
+    def _an_outcome_not_a_state(cls, value: Verdict) -> Verdict:
+        """Only the three outcomes can be issued by hand.
+
+        ``pending`` and ``technical`` are states of the machinery, not opinions
+        about an answer; ``technical`` would also take the row out of the
+        shares, which is a way to make a verdict disappear rather than disagree.
+        """
+        if value in (Verdict.PENDING, Verdict.TECHNICAL):
+            raise ValueError(
+                f"{value.value} is a state of the measurement, not a verdict on "
+                "an answer: it cannot be recorded by hand"
+            )
+        return value
 
 
 class JobView(BaseModel):
