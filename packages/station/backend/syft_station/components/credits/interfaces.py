@@ -1,33 +1,22 @@
 """Seams the credits component depends on (consumer-owned interfaces).
 
-The wallet rollout walks the space registry and patches k8s Secrets, but
-the credits component never imports the spaces component — it declares the
-minimal shape it needs here, and the spaces repository satisfies it
-structurally.
+Money views attribute earnings to spaces, and replacing the wallet flags
+the spaces carrying its old facts — but the credits component never imports
+the spaces component. It declares the minimal shapes it needs here, and the
+spaces repository satisfies them structurally.
 """
 
 from typing import Protocol
 from uuid import UUID
 
 
-class SpaceRecord(Protocol):
-    """The slice of a space the credits component reads and writes."""
+class SpaceFlags(Protocol):
+    """The one registry call the wallet save needs: flag the spaces carrying
+    facts this save has just changed."""
 
-    id: UUID
-    name: str
-    subdomain: str
-    owner_email: str
-    wallet_id: UUID | None
-    wallet_opt_out: bool
-    restart_required: bool
-
-
-class SpaceDirectory(Protocol):
-    """Registry access for the wallet rollout."""
-
-    async def get_all(self) -> list[SpaceRecord]: ...
-
-    async def update(self, space: SpaceRecord) -> SpaceRecord: ...
+    async def flag_wallet_stale(
+        self, message: str, wallet_id: UUID | None = None
+    ) -> int: ...
 
 
 class SpaceIdentity(Protocol):
@@ -48,16 +37,3 @@ class SpaceIdentities(Protocol):
     """
 
     async def space_identities(self) -> dict[UUID, SpaceIdentity]: ...
-
-
-class SecretPatcher(Protocol):
-    """The provisioner slice the rollout needs: patch the Secret, then
-    restart the space so the patch takes effect."""
-
-    async def update_space_secret(self, subdomain: str, data: dict[str, str]) -> None:
-        """Merge keys into the space's Secret (applies on restart)."""
-        ...
-
-    async def restart(self, subdomain: str) -> None:
-        """Roll the space's pods so they start with the current Secret."""
-        ...

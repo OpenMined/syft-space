@@ -1,406 +1,114 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import {
-  Banknote,
-  Coins,
-  Copy,
-  ExternalLink,
-  HandCoins,
-  Pencil,
-  TrendingUp,
-  Wallet,
-  Webhook,
-} from 'lucide-vue-next'
+import { computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useDocumentVisibility } from '@vueuse/core'
+import { BarChart3, HandCoins, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import ConfigureWalletDialog from '@/components/ConfigureWalletDialog.vue'
-import RecordPayoutDialog from '@/components/RecordPayoutDialog.vue'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { DOCS } from '@/lib/docs'
-import { formatMoney } from '@/lib/types'
+import AnalyticsPanel from '@/components/AnalyticsPanel.vue'
+import PaymentSettings from '@/components/PaymentSettings.vue'
+import PayoutsPanel from '@/components/PayoutsPanel.vue'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import MoneyEmptyState from '@/components/MoneyEmptyState.vue'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useStationStore } from '@/stores/station'
 
 const station = useStationStore()
-const walletOpen = ref(false)
+const route = useRoute()
+const router = useRouter()
 
-const payoutOpen = ref(false)
-const payoutTarget = ref<{
-  spaceId: string
-  slug: string
-  spaceName: string
-  ownerEmail: string
-  payable: number
-} | null>(null)
+/**
+ * One destination for the money system, three views of it. The tab rides in
+ * the URL (`/admin/earnings/payouts`) so it survives a refresh and the back
+ * button moves between tabs, like the sections above it.
+ */
+const TABS = [
+  // `load` is the tab's data: a new tab brings its own fetches, so nothing
+  // downstream has to learn about it.
+  { id: 'wallet', label: 'Wallet', icon: Wallet, load: () => [] },
+  {
+    id: 'payouts',
+    label: 'Payouts',
+    icon: HandCoins,
+    load: () => [station.loadEarnings(), station.loadSpaceEarnings(), station.loadPayouts()],
+  },
+  {
+    id: 'analytics',
+    label: 'Analytics',
+    icon: BarChart3,
+    load: () => [station.loadEarnings(), station.loadTopUps(), station.loadBalances()],
+  },
+] as const
 
-function openPayout(row: {
-  spaceId: string
-  slug: string
-  spaceName: string
-  ownerEmail: string
-  payable: number
-}) {
-  payoutTarget.value = row
-  payoutOpen.value = true
+type EarningsTab = (typeof TABS)[number]['id']
+const DEFAULT_TAB: EarningsTab = 'wallet'
+
+const activeTab = computed<EarningsTab>(() => {
+  const tab = route.params.tab as EarningsTab | undefined
+  return tab && TABS.some((t) => t.id === tab) ? tab : DEFAULT_TAB
+})
+
+function goTab(tab: string | number): void {
+  router.push({ name: 'admin', params: { section: 'earnings', tab: String(tab) } })
 }
 
-onMounted(() => {
-  Promise.all([station.loadWallet(), station.loadEarnings()]).catch(() =>
+/**
+ * Refetch around the data that's already on screen rather than clearing it:
+ * the panels keep rendering the last response while this resolves, so
+ * switching tabs never flashes an empty state.
+ */
+function revalidate(): void {
+  const tab = TABS.find((t) => t.id === activeTab.value) ?? TABS[0]
+  Promise.all([station.loadWallet(), ...tab.load()]).catch(() =>
     toast.error('Could not load earnings'),
   )
-})
-
-const CHART_DAYS = 14
-
-/** Where the payment provider must deliver its events. */
-const webhookUrl = computed(
-  () => `${window.location.origin}/api/v1/credits/webhooks/${station.wallet?.provider ?? 'xendit'}`,
-)
-
-const isStripe = computed(() => station.wallet?.provider === 'stripe')
-
-/** The provider's dashboard page where the webhook endpoint is set up. */
-const webhookDashboard = computed(() =>
-  isStripe.value
-    ? 'the Stripe Dashboard under Developers → Webhooks'
-    : 'the Xendit dashboard under Settings → Developers → Webhooks',
-)
-
-function copyWebhookUrl() {
-  navigator.clipboard.writeText(webhookUrl.value)
-  toast('Webhook URL copied', {
-    description: `Paste it in ${webhookDashboard.value}.`,
-  })
 }
 
-const chart = computed(() => {
-  const days = station.earnedByDay(CHART_DAYS)
-  const max = Math.max(...days.map((d) => d.total), 1)
-  return days.map((d) => ({
-    ...d,
-    pct: Math.round((d.total / max) * 100),
-    label: new Date(d.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-  }))
+onMounted(revalidate)
+
+// Money moves from other sessions — a member's space charges a query, a
+// buyer tops up — so switching tabs refetches, mirroring the section-change
+// watch in AdminPage. (The Wallet tab also reloads itself on mount.)
+watch(activeTab, revalidate)
+
+// A dashboard left open on a second monitor goes stale silently; coming back
+// to it is the moment the numbers matter most.
+const visibility = useDocumentVisibility()
+watch(visibility, (state) => {
+  if (state === 'visible') revalidate()
 })
 
-const earningSpaceCount = computed(() => station.earnedBySpace.length)
-
-const recentTopUps = computed(() => station.topUps.slice(0, 6))
-
-const currency = computed(() => station.wallet?.currency ?? 'USD')
-
-function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
+/** Money views are empty until someone has actually bought credits. */
+const noMoneyYet = computed(() => station.totalCollected === 0)
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Wallet summary (the shared wallet is optional) -->
-    <Card v-if="station.wallet">
-      <CardContent class="flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="flex items-center gap-2">
-            <Wallet class="h-4 w-4 text-muted-foreground" />
-            <span class="font-medium capitalize">{{ station.wallet.provider }}</span>
-            <Badge variant="secondary">{{ station.wallet.currency }}</Badge>
-            <Badge
-              v-if="station.identity?.connected"
-              variant="secondary"
-              title="The wallet holds a SyftHub API token and can verify buyers' sign-ins"
-            >
-              SyftHub connected
-            </Badge>
-            <Badge
-              v-else
-              variant="destructive"
-              title="Buyers can't be verified. Replace the wallet and connect SyftHub"
-            >
-              SyftHub not connected
-            </Badge>
-          </div>
-          <button
-            class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
-            :title="`Payment events are delivered here. Set it in ${webhookDashboard}`"
-            @click="copyWebhookUrl"
-          >
-            <Webhook class="h-3 w-3" />
-            {{ webhookUrl }}
-            <Copy class="h-3 w-3" />
-          </button>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Users buy credits at the first link;
-            {{ isStripe ? 'Stripe' : 'Xendit' }} reports payments to the second (set it in
-            {{ webhookDashboard }}, with the
-            {{ isStripe ? 'signing secret' : 'callback token' }} from the same page). The gateway
-            key stays at the station.
-          </p>
-        </div>
-        <Button size="sm" variant="outline" @click="walletOpen = true">
-          <Pencil class="mr-1.5 h-3.5 w-3.5" />
-          Replace
-        </Button>
-      </CardContent>
-    </Card>
+  <Tabs :model-value="activeTab" class="gap-6" @update:model-value="goTab">
+    <!-- Anchored: the tabs stay put while the panel below them changes, so a
+         switch never moves the control you just clicked. z-20 keeps it over
+         the tables' own sticky headers. -->
+    <div class="sticky top-0 z-20 -mt-2 bg-background py-2">
+      <TabsList>
+        <TabsTrigger v-for="tab in TABS" :key="tab.id" :value="tab.id">
+          <component :is="tab.icon" class="h-3.5 w-3.5" />
+          {{ tab.label }}
+        </TabsTrigger>
+      </TabsList>
+    </div>
 
-    <Card v-else>
-      <CardContent class="flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0">
-          <p class="flex items-center gap-2 text-sm font-medium">
-            <Wallet class="h-4 w-4 text-muted-foreground" />
-            No shared wallet (optional)
-          </p>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Add one payment account (Xendit or Stripe) to sell credits that work at every space. You
-            collect the money and pay members for what users spend. Without a wallet, each space
-            handles its own payments.
-            <a
-              :href="DOCS.creditsAndPayouts"
-              target="_blank"
-              rel="noopener"
-              class="inline-flex items-center gap-1 whitespace-nowrap underline underline-offset-2 hover:text-foreground"
-            >
-              How credits work
-              <ExternalLink class="h-3 w-3" />
-            </a>
-          </p>
-        </div>
-        <Button size="sm" @click="walletOpen = true">
-          <Wallet class="mr-1.5 h-3.5 w-3.5" />
-          Add shared wallet
-        </Button>
-      </CardContent>
-    </Card>
+    <TabsContent value="wallet">
+      <PaymentSettings />
+    </TabsContent>
 
-    <template v-if="station.topUps.length > 0">
-      <!-- Stat cards: the money at a glance, with what's owed to members up front -->
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent>
-            <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Banknote class="h-3.5 w-3.5" />
-              Credits sold
-            </p>
-            <p class="mt-1 text-2xl font-semibold tracking-tight">
-              {{ formatMoney(station.totalCollected, currency) }}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent>
-            <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <TrendingUp class="h-3.5 w-3.5" />
-              Earned by spaces
-            </p>
-            <p class="mt-1 text-2xl font-semibold tracking-tight">
-              {{ formatMoney(station.totalEarned, currency) }}
-              <span class="text-base font-normal text-muted-foreground">
-                · {{ earningSpaceCount }} space{{ earningSpaceCount === 1 ? '' : 's' }}</span
-              >
-            </p>
-          </CardContent>
-        </Card>
-        <Card class="border-primary/30 bg-primary/8">
-          <CardContent>
-            <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <HandCoins class="h-3.5 w-3.5" />
-              Owed to members
-            </p>
-            <p class="mt-1 text-2xl font-semibold tracking-tight">
-              {{ formatMoney(station.totalPayable, currency) }}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent>
-            <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Coins class="h-3.5 w-3.5" />
-              Unspent user credit
-            </p>
-            <p class="mt-1 text-2xl font-semibold tracking-tight">
-              {{ formatMoney(station.totalUserCredit, currency) }}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+    <TabsContent value="payouts">
+      <Skeleton v-if="!station.earningsLoaded" class="h-64 w-full" />
+      <MoneyEmptyState v-else-if="noMoneyYet" @set-up="goTab('wallet')" />
+      <PayoutsPanel v-else />
+    </TabsContent>
 
-      <!-- ===== Pay members (the primary action) ===== -->
-      <section class="space-y-3">
-        <h2 class="text-sm font-medium text-muted-foreground">Pay members</h2>
-
-        <!-- Earned by space (payout basis) -->
-        <Card>
-          <CardHeader>
-            <CardTitle class="text-sm">Member payouts</CardTitle>
-            <p class="text-xs text-muted-foreground">
-              Payouts are based on what users actually spend at each space (per-query price ×
-              queries). Record each payout you make so payable amounts stay accurate.
-            </p>
-          </CardHeader>
-          <CardContent class="divide-y p-0">
-            <div
-              v-for="row in station.earnedBySpace"
-              :key="row.slug"
-              class="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-            >
-              <div class="min-w-0">
-                <span class="text-sm font-medium">{{ row.spaceName }}</span>
-                <Badge v-if="row.deleted" variant="outline" class="ml-2 text-xs">deleted</Badge>
-                <span class="ml-2 text-xs text-muted-foreground">{{ row.ownerEmail }}</span>
-                <div class="mt-0.5 text-xs text-muted-foreground">
-                  {{ row.queries.toLocaleString() }} paid quer{{
-                    row.queries === 1 ? 'y' : 'ies'
-                  }}
-                  · last active {{ formatDay(row.lastActiveAt) }}
-                </div>
-              </div>
-              <div class="flex shrink-0 items-center gap-4">
-                <div class="text-right text-xs text-muted-foreground">
-                  <div>earned {{ formatMoney(row.earned, currency) }}</div>
-                  <div>paid out {{ formatMoney(row.paidOut, currency) }}</div>
-                </div>
-                <span
-                  class="w-20 text-right text-sm font-semibold tabular-nums"
-                  :class="row.payable > 0 ? '' : 'text-muted-foreground'"
-                >
-                  {{ formatMoney(row.payable, currency) }}
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  :disabled="row.payable <= 0"
-                  @click="openPayout(row)"
-                >
-                  <HandCoins class="mr-1.5 h-3.5 w-3.5" />
-                  Record payout
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <!-- Payout history -->
-        <Card v-if="station.payouts.length > 0">
-          <CardHeader>
-            <CardTitle class="text-sm">Payout history</CardTitle>
-          </CardHeader>
-          <CardContent class="divide-y p-0">
-            <div
-              v-for="payout in station.payouts"
-              :key="payout.id"
-              class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
-            >
-              <div class="min-w-0">
-                <span class="font-medium tabular-nums">
-                  {{ formatMoney(payout.amount, currency) }}
-                </span>
-                <span class="text-muted-foreground">
-                  → {{ station.spaceById(payout.spaceId)?.name ?? 'Deleted space' }}</span
-                >
-                <span v-if="payout.note" class="text-xs text-muted-foreground">
-                  · {{ payout.note }}</span
-                >
-              </div>
-              <span class="text-xs text-muted-foreground">{{ formatDay(payout.paidAt) }}</span>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
-
-      <!-- ===== Activity (trend + reference) ===== -->
-      <section class="space-y-3">
-        <h2 class="text-sm font-medium text-muted-foreground">Activity</h2>
-
-        <!-- Earned by date -->
-        <Card>
-          <CardHeader>
-            <CardTitle class="text-sm">Earned by date</CardTitle>
-            <p class="text-xs text-muted-foreground">
-              Daily query spend across all spaces, last {{ CHART_DAYS }} days.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div class="flex h-36 items-end gap-1.5">
-              <div
-                v-for="day in chart"
-                :key="day.date"
-                class="group relative flex h-full flex-1 flex-col justify-end"
-                :title="`${day.label}: ${formatMoney(day.total, currency)}`"
-              >
-                <div
-                  class="rounded-t bg-primary/80 transition-colors group-hover:bg-primary"
-                  :style="{ height: `${day.pct}%`, minHeight: day.total > 0 ? '4px' : '1px' }"
-                />
-              </div>
-            </div>
-            <div class="mt-1.5 flex justify-between text-[10px] text-muted-foreground">
-              <span>{{ chart[0]?.label }}</span>
-              <span>{{ chart[chart.length - 1]?.label }}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <!-- Money in: recent top-ups + user credit, side by side -->
-        <div class="grid gap-3 lg:grid-cols-2">
-          <!-- Recent top-ups -->
-          <Card>
-            <CardHeader>
-              <CardTitle class="text-sm">Recent top-ups</CardTitle>
-              <p class="text-xs text-muted-foreground">
-                Credits bought at the station checkout. The station is notified directly, so spaces
-                are never involved in payments.
-              </p>
-            </CardHeader>
-            <CardContent class="divide-y p-0">
-              <div
-                v-for="t in recentTopUps"
-                :key="t.id"
-                class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
-              >
-                <div class="min-w-0">
-                  <span class="font-medium tabular-nums">
-                    {{ formatMoney(t.amount, t.currency) }}
-                  </span>
-                  <span class="text-muted-foreground"> · {{ t.userEmail }}</span>
-                </div>
-                <span class="text-xs text-muted-foreground">{{ formatDay(t.paidAt) }}</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <!-- User credit balances -->
-          <Card>
-            <CardHeader>
-              <CardTitle class="text-sm">User credit</CardTitle>
-              <p class="text-xs text-muted-foreground">
-                Unspent credit is money the station holds for users. It isn't payable to members
-                until it's spent on queries.
-              </p>
-            </CardHeader>
-            <CardContent class="divide-y p-0">
-              <div
-                v-for="user in station.userBalances"
-                :key="user.email"
-                class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
-              >
-                <span class="min-w-0 truncate">{{ user.email }}</span>
-                <div class="flex items-center gap-4">
-                  <span class="text-xs text-muted-foreground">
-                    bought {{ formatMoney(user.toppedUp, currency) }} · spent
-                    {{ formatMoney(user.spent, currency) }}
-                  </span>
-                  <span class="w-16 text-right font-medium tabular-nums">
-                    {{ formatMoney(user.balance, currency) }}
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-    </template>
-  </div>
-
-  <ConfigureWalletDialog v-model:open="walletOpen" />
-  <RecordPayoutDialog v-model:open="payoutOpen" :target="payoutTarget" :currency="currency" />
+    <TabsContent value="analytics">
+      <Skeleton v-if="!station.earningsLoaded" class="h-64 w-full" />
+      <MoneyEmptyState v-else-if="noMoneyYet" @set-up="goTab('wallet')" />
+      <AnalyticsPanel v-else />
+    </TabsContent>
+  </Tabs>
 </template>

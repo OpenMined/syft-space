@@ -76,10 +76,10 @@ const webhookUrl = computed(
   () => `${window.location.origin}/api/v1/credits/webhooks/${provider.value}`,
 )
 
-async function save(): Promise<{ spacesAttached: number; spacesFailed: number } | null> {
+async function save(): Promise<boolean> {
   if (apiKey.value.trim().length < 8) {
     toast.error('A valid secret API key is required')
-    return null
+    return false
   }
   if (!webhookSecret.value.trim()) {
     toast.error(
@@ -87,7 +87,7 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
         ? 'The webhook signing secret is required'
         : 'The webhook callback token is required',
     )
-    return null
+    return false
   }
   // Buyers are verified with the station's SyftHub token, so a wallet saved
   // without one cannot take a payment — and the failure would surface as a
@@ -95,7 +95,7 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
   if (station.identity === null) await station.loadIdentity().catch(() => {})
   if (!station.identity?.connected) {
     toast.error('Connect SyftHub first. The station verifies buyers with its API token')
-    return null
+    return false
   }
   // Credential keys are provider-specific; each gateway validates its own.
   const credentials: Record<string, string> =
@@ -104,20 +104,23 @@ async function save(): Promise<{ spacesAttached: number; spacesFailed: number } 
       : { api_key: apiKey.value.trim(), callback_token: webhookSecret.value.trim() }
   saving.value = true
   try {
-    return await station.setupWallet({
+    await station.setupWallet({
       provider: provider.value,
       currency: currency.value,
       credentials,
     })
+    return true
   } catch (error) {
     toast.error(error instanceof ApiError ? error.message : 'Could not save the wallet')
-    return null
+    return false
   } finally {
     saving.value = false
   }
 }
 
-defineExpose({ save, saving })
+// The dialog needs the pick before the save, to warn about what a provider
+// change does to spaces already carrying this wallet's price list.
+defineExpose({ save, saving, provider })
 </script>
 
 <template>
@@ -196,13 +199,13 @@ defineExpose({ save, saving })
       />
       <p v-if="provider === 'stripe'" class="text-xs text-muted-foreground">
         In the Stripe Dashboard (Developers → Webhooks), add an endpoint for
-        <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
+        <code class="rounded-sm bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
         listening to the <code class="font-mono text-[11px]">checkout.session.*</code> events, and
         copy its signing secret here.
       </p>
       <p v-else class="text-xs text-muted-foreground">
         In the Xendit dashboard (Settings → Developers → Webhooks), set the webhook URL to
-        <code class="rounded bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
+        <code class="rounded-sm bg-muted px-1 font-mono text-[11px]">{{ webhookUrl }}</code>
         and copy its verification token here.
       </p>
     </div>

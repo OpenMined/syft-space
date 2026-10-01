@@ -27,10 +27,6 @@ from syft_station.components.credits.handlers import (
     WalletAdminHandler,
     WebhookHandler,
 )
-from syft_station.components.credits.provisioning import (
-    SpaceCreditsService,
-    WalletRollout,
-)
 from syft_station.components.credits.repository import (
     CreditsLedger,
     PayoutRepository,
@@ -42,7 +38,6 @@ from syft_station.components.credits.tokens import (
     generate_credit_token,
     hash_credit_token,
 )
-from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.shared.database import AsyncDatabase
 from syft_station.components.spaces.repository import SpaceRepository
@@ -115,21 +110,10 @@ async def testbed(db: AsyncDatabase) -> CreditsTestbed:
     # The buyer/admin/webhook handlers are exercised in test_credits_checkout;
     # here they only satisfy the router signature.
     gateways: dict = {}
-    rollout = WalletRollout(
-        SpaceRepository(db),
-        MockProvisioner(),
-        SpaceCreditsService(
-            wallets,
-            tokens,
-            SetupRepository(db),
-            "http://station.test",
-            "http://pub.test",
-        ),
-    )
     app.include_router(
         build_credits_routes(
             handler,
-            WalletAdminHandler(wallets, gateways, rollout),
+            WalletAdminHandler(wallets, gateways, SpaceRepository(db)),
             CheckoutHandler(
                 db, wallets, gateways, StubHubIdentity(), SetupRepository(db)
             ),  # type: ignore[arg-type]

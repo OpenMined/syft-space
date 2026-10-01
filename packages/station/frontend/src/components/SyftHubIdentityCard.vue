@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ApiError } from '@/api/client'
 import { useStationStore } from '@/stores/station'
@@ -69,11 +70,17 @@ function adopt() {
   <div class="space-y-3">
     <div class="flex items-center gap-2">
       <Label>SyftHub identity</Label>
-      <Badge v-if="connected" variant="secondary">Connected</Badge>
+      <Badge v-if="station.identityLoaded && connected" variant="secondary">Connected</Badge>
+    </div>
+
+    <!-- Still asking: a placeholder, never the not-connected form. -->
+    <div v-if="!station.identityLoaded" class="flex items-center gap-2">
+      <Skeleton class="h-5 flex-1" />
+      <Skeleton class="h-8 w-24" />
     </div>
 
     <!-- Connected and idle: one line, plus a way back in. -->
-    <div v-if="collapsed" class="flex items-center gap-2">
+    <div v-else-if="collapsed" class="flex items-center gap-2">
       <p class="min-w-0 flex-1 truncate text-sm text-muted-foreground">
         <span v-if="station.identity?.username" class="font-medium text-foreground">
           {{ station.identity.username }}

@@ -19,7 +19,6 @@ appearing in polls) and a "subscribe to a whole post type" mode.
 from __future__ import annotations
 
 import asyncio
-import html
 import logging
 import os
 import tempfile
@@ -34,6 +33,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.sources.article import article_html, html_to_text
 from syft_space.components.sources.errors import (
     SourceAuthError,
     SourceError,
@@ -260,7 +260,7 @@ def _to_source_item(post_type: str, parent_id: str, item: dict[str, Any]) -> Sou
     # WordPress returns titles HTML-encoded (e.g. ``&#8217;``); decode so the
     # picker shows real text instead of entities.
     title = (
-        html.unescape(rendered) if rendered else (item.get("slug") or str(item["id"]))
+        html_to_text(rendered) if rendered else (item.get("slug") or str(item["id"]))
     )
     return SourceItem(
         external_id=_external_id(post_type, item["id"]),
@@ -422,43 +422,46 @@ class WordPressSource:
             r.raise_for_status()
             post = r.json()
         html: str = (post.get("content") or {}).get("rendered", "")
-        title: str = (post.get("title") or {}).get("rendered", "")
+        # ``rendered`` is HTML; the heading and the metadata want words.
+        title = html_to_text((post.get("title") or {}).get("rendered", ""))
         slug: str = post.get("slug") or str(post_id)
 
         modified_gmt = post.get("modified_gmt")
         if modified_gmt:
             self._fingerprints[external_id] = modified_gmt
 
+        metadata = {
+            "source": WordPressProvider.NAME,
+            "title": title,
+            "url": post.get("link"),
+            "author": _embedded_author(post),
+            # Datetimes, not raw strings: the vector store turns each
+            # into an ISO value plus a filterable epoch int.
+            "published": parse_datetime(post.get("date_gmt")),
+            "updated": parse_datetime(modified_gmt),
+            # Categories and tags are both topical labels; the
+            # canonical field flattens them.
+            "tags": _embedded_terms(post),
+            "post_type": post_type,
+            "post_id": post_id,
+            "slug": slug,
+            "status": post.get("status"),
+            "author_id": post.get("author"),
+        }
+
         fd, tmp_str = tempfile.mkstemp(
             prefix=f"wp_{post_type}_{post_id}_", suffix=".html"
         )
         os.close(fd)
         tmp_path = Path(tmp_str)
-        tmp_path.write_text(html, encoding="utf-8")
+        tmp_path.write_text(article_html(title, html, metadata), encoding="utf-8")
         try:
             yield IngestFile(
                 external_id=external_id,
                 path=tmp_path,
                 filename=f"{slug}.html",
                 file_size=tmp_path.stat().st_size,
-                metadata={
-                    "source": WordPressProvider.NAME,
-                    "title": title,
-                    "url": post.get("link"),
-                    "author": _embedded_author(post),
-                    # Datetimes, not raw strings: the vector store turns each
-                    # into an ISO value plus a filterable epoch int.
-                    "published": parse_datetime(post.get("date_gmt")),
-                    "updated": parse_datetime(modified_gmt),
-                    # Categories and tags are both topical labels; the
-                    # canonical field flattens them.
-                    "tags": _embedded_terms(post),
-                    "post_type": post_type,
-                    "post_id": post_id,
-                    "slug": slug,
-                    "status": post.get("status"),
-                    "author_id": post.get("author"),
-                },
+                metadata=metadata,
             )
         finally:
             tmp_path.unlink(missing_ok=True)

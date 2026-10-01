@@ -23,7 +23,6 @@ from loguru import logger
 
 from syft_station.components.credits.bundles import PREPAID_BUNDLES
 from syft_station.components.credits.entities import SpaceCreditToken
-from syft_station.components.credits.interfaces import SecretPatcher, SpaceDirectory
 from syft_station.components.credits.repository import (
     SpaceCreditTokenRepository,
     WalletRepository,
@@ -128,68 +127,3 @@ class SpaceCreditsService:
         revoked = await self.credit_tokens.revoke_for_space(space_id)
         if revoked:
             logger.info(f"Revoked {revoked} credits token(s) for space {space_id}")
-
-
-class WalletRollout:
-    """Attach a newly configured wallet to spaces that predate it.
-
-    Runs after the admin creates (or replaces) the wallet: every space that
-    is neither attached nor opted out gets a token minted, its Secret
-    patched with the credits keys, and an automatic restart so the wallet
-    takes effect immediately. A space whose restart fails is flagged
-    restart_required — never silently left running on the old env.
-    """
-
-    def __init__(
-        self,
-        spaces: SpaceDirectory,
-        provisioner: SecretPatcher,
-        credits: SpaceCreditsService,
-    ):
-        self.spaces = spaces
-        self.provisioner = provisioner
-        self.credits = credits
-
-    async def attach_unbound_spaces(self, wallet_id: UUID) -> tuple[int, int]:
-        """Returns (attached, failed). Failures are logged per space and
-        never abort the sweep — the admin re-runs by saving the wallet again."""
-        attached = failed = 0
-        for space in await self.spaces.get_all():
-            if space.wallet_id is not None or space.wallet_opt_out:
-                continue
-            try:
-                grant = await self.credits.grant_for_space(space.id, wallet_id)
-                if grant is None:  # wallet vanished mid-sweep
-                    break
-                data = {
-                    "SYFT_CLUSTER_CREDITS_URL": grant.url,
-                    "SYFT_CLUSTER_CREDITS_TOKEN": grant.token,
-                    "SYFT_CLUSTER_CREDITS_CURRENCY": grant.currency,
-                    "SYFT_CLUSTER_CREDITS_WALLET_ID": grant.wallet_id,
-                    "SYFT_CLUSTER_PUBLIC_URL": grant.public_url,
-                }
-                # Optional keys are omitted rather than sent empty — the
-                # space parses them as int/JSON, and "" would crash it.
-                if grant.wallet_owner:
-                    data["SYFT_CLUSTER_WALLET_OWNER"] = grant.wallet_owner
-                if grant.bundles:
-                    data["SYFT_CLUSTER_BUNDLES"] = grant.bundles
-                await self.provisioner.update_space_secret(space.subdomain, data)
-                space.wallet_id = wallet_id
-                # The pod reads its Secret at start — restart so the wallet
-                # takes effect now. A restart failure still counts as
-                # attached (the Secret is in place); the flag tells the UI.
-                try:
-                    await self.provisioner.restart(space.subdomain)
-                    space.restart_required = False
-                except Exception:
-                    logger.exception(f"Auto-restart failed for '{space.subdomain}'")
-                    space.restart_required = True
-                await self.spaces.update(space)
-                attached += 1
-            except Exception:
-                logger.exception(f"Wallet attach failed for space '{space.subdomain}'")
-                failed += 1
-        if attached or failed:
-            logger.info(f"Wallet rollout: attached {attached}, failed {failed}")
-        return attached, failed

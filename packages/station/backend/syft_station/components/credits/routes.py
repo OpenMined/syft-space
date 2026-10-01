@@ -42,16 +42,24 @@ from syft_station.components.credits.schemas import (
     DebitResponse,
     EarningsResponse,
     MemberEarningsResponse,
-    OutstandingBalancesResponse,
+    OutstandingBalance,
+    Page,
+    PayoutInfo,
     PayoutRequest,
     PayoutResponse,
     RefundRequest,
     RefundResponse,
     ReversalResponse,
+    SpaceEarnings,
+    TopUpInfo,
     WalletSetupRequest,
-    WalletSetupResponse,
     WalletStatusResponse,
 )
+
+# Small enough that a page needs no inner scroll; the ceiling keeps a
+# hand-written limit from pulling the whole table back.
+_PAGE_SIZE = 10
+_MAX_PAGE_SIZE = 200
 
 
 def build_credits_routes(
@@ -183,27 +191,69 @@ def build_credits_routes(
         """Wallet state, never credentials."""
         return await admin_handler.get()
 
-    @router.put("/admin/wallet", response_model=WalletSetupResponse)
+    @router.put("/admin/wallet", response_model=WalletStatusResponse)
     async def setup_wallet(
         body: WalletSetupRequest,
         user: SessionUser = Depends(require_admin),
-    ) -> WalletSetupResponse:
-        """Create or replace the station wallet; attaches unbound spaces."""
+    ) -> WalletStatusResponse:
+        """Create or replace the station wallet. Existing spaces are not
+        swept onto it — the admin attaches them per space."""
         return await admin_handler.setup(body, user.email)
 
     @router.get("/admin/earnings", response_model=EarningsResponse)
     async def earnings(
+        days: int = Query(default=14, ge=1, le=365),
         user: SessionUser = Depends(require_admin),
     ) -> EarningsResponse:
-        """Ledger-derived money dashboard: totals, per-space, per-endpoint, daily."""
-        return await earnings_handler.earnings()
+        """Totals, per-space earnings, and the daily series for the chart."""
+        return await earnings_handler.earnings(days)
 
-    @router.get("/admin/balances", response_model=OutstandingBalancesResponse)
+    @router.get("/admin/balances", response_model=Page[OutstandingBalance])
     async def outstanding_balances(
+        limit: int = Query(default=_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+        offset: int = Query(default=0, ge=0),
         user: SessionUser = Depends(require_admin),
-    ) -> OutstandingBalancesResponse:
-        """Unspent user credit — the station's liability."""
-        return await earnings_handler.outstanding_balances()
+    ) -> Page[OutstandingBalance]:
+        """Unspent user credit — the station's liability, one page at a time."""
+        return await earnings_handler.outstanding_balances(limit, offset)
+
+    @router.get("/admin/earnings/spaces", response_model=Page[SpaceEarnings])
+    async def space_earnings(
+        limit: int = Query(default=_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+        offset: int = Query(default=0, ge=0),
+        user: SessionUser = Depends(require_admin),
+    ) -> Page[SpaceEarnings]:
+        """What each space earned and is still owed, biggest payable first."""
+        return await earnings_handler.space_earnings_page(limit, offset)
+
+    @router.get("/admin/earnings/spaces/{space_id}", response_model=SpaceEarnings)
+    async def space_earning(
+        space_id: UUID,
+        user: SessionUser = Depends(require_admin),
+    ) -> SpaceEarnings:
+        """One space's money row — 404 when it has never charged."""
+        row = await earnings_handler.space_earning(space_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="No earnings for this space")
+        return row
+
+    @router.get("/admin/payouts", response_model=Page[PayoutInfo])
+    async def list_payouts(
+        limit: int = Query(default=_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+        offset: int = Query(default=0, ge=0),
+        user: SessionUser = Depends(require_admin),
+    ) -> Page[PayoutInfo]:
+        """Recorded payouts, newest first."""
+        return await earnings_handler.payouts_page(limit, offset)
+
+    @router.get("/admin/top-ups", response_model=Page[TopUpInfo])
+    async def list_top_ups(
+        limit: int = Query(default=_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+        offset: int = Query(default=0, ge=0),
+        user: SessionUser = Depends(require_admin),
+    ) -> Page[TopUpInfo]:
+        """Settled credit purchases, newest first."""
+        return await earnings_handler.top_ups_page(limit, offset)
 
     @router.post("/admin/payouts", response_model=PayoutResponse)
     async def record_payout(

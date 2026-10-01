@@ -261,10 +261,14 @@ dev *args="up":
     if [ -z "$admin_email" ]; then
         echo "WARNING: no admin email set — every sign-in gets the member role."
     fi
-    # Space image: default self-seeds :dev (build only if absent); an explicit
-    # space=TAG forces a rebuild; space=none runs on published images only.
+    # Space image: default self-seeds :dev (build only if absent); space=TAG
+    # forces a rebuild; space=pull:TAG deploys a PUBLISHED tag without
+    # building; space=none runs on published images only.
     if [ "$space_tag" = "none" ]; then
         :
+    elif [ "${space_tag#pull:}" != "$space_tag" ]; then
+        export SYFT_STATION_SPACE_VERSION="${space_tag#pull:}"
+        echo "Deploying published syft-space:${space_tag#pull:} (kubelet pulls it)."
     elif [ -n "$space_tag" ]; then
         just space-image "$space_tag"
         export SYFT_STATION_SPACE_VERSION="$space_tag"
@@ -337,8 +341,9 @@ ensure-space-image tag:
 # name that resolves in browsers and in pods alike):
 #   just up you@org.com
 #   just up admin=you@org.com hub=https://syfthub.staging.org
-#   just up you@org.com space=mytag   # force-build a local syft-space image
-#   just up you@org.com space=none    # published space images only
+#   just up you@org.com space=mytag        # force-build a local syft-space image
+#   just up you@org.com space=pull:4982e8d # deploy a PUBLISHED tag, no build
+#   just up you@org.com space=none         # touch no image; station picks the version
 
 # One command, everything included — cluster, deps, station image, and the
 # syft-space :dev image (self-seeded when missing, so fresh clusters need no
@@ -356,9 +361,13 @@ up admin="" hub="" space="": ensure-cluster station-image
         echo "         Use: just up you@org.com"
     fi
     # Space image: same policy as `just dev` — default self-seeds :dev,
-    # space=TAG force-rebuilds, space=none skips local images.
+    # space=TAG force-rebuilds it, space=pull:TAG deploys a PUBLISHED tag and
+    # lets kubelet fetch it (nothing is built), space=none skips both.
     if [ "$space_tag" = "none" ]; then
         space_tag=""
+    elif [ "${space_tag#pull:}" != "$space_tag" ]; then
+        space_tag="${space_tag#pull:}"
+        echo "Deploying published syft-space:$space_tag (kubelet pulls it)."
     elif [ -n "$space_tag" ]; then
         just space-image "$space_tag"
     else

@@ -120,6 +120,22 @@ export interface PatchRequestBody {
   wallet_id?: string
 }
 
+/**
+ * Derived from the space row, never stored: `attached` = bound to a wallet,
+ * `declined` = the admin chose "no wallet" at approval, `unattached` = neither
+ * (usually approved before the station had a wallet).
+ */
+export type WalletStatus = 'attached' | 'declined' | 'unattached'
+
+/** Something about a space that needs an admin action. */
+export type SpaceConditionType = 'restart_required' | 'wallet_stale'
+
+export interface SpaceConditionResponse {
+  type: SpaceConditionType
+  message: string
+  created_at: string
+}
+
 export interface SpaceResponse {
   id: string
   request_id: string | null
@@ -128,8 +144,9 @@ export interface SpaceResponse {
   owner_email: string
   url: string
   version: string
-  /** A Secret patch is waiting for a restart the station couldn't do itself. */
-  restart_required: boolean
+  /** Everything needing an admin action — a space can need several at once. */
+  conditions: SpaceConditionResponse[]
+  wallet_status: WalletStatus
   created_at: string
 }
 
@@ -151,6 +168,11 @@ export type SpaceRuntimeStatus = 'running' | 'paused' | 'unavailable' | 'not_fou
 
 export interface SpaceStatusResponse {
   status: SpaceRuntimeStatus
+}
+
+export interface SpaceStatusesResponse {
+  /** Live status per space id — one read for every space the caller sees. */
+  statuses: Record<string, SpaceRuntimeStatus>
 }
 
 export interface SpaceLogsResponse {
@@ -187,11 +209,6 @@ export interface WalletSetupBody {
   credentials: Record<string, string>
 }
 
-export interface WalletSetupResponse extends WalletStatusResponse {
-  spaces_attached: number
-  spaces_failed: number
-}
-
 export interface TopUpResponse {
   invoice_id: string
   user_email: string
@@ -221,18 +238,21 @@ export interface SpaceEarningsResponse {
   query_count: number
   paid_out: number
   payable: number
+  /** When the space last charged — the payout table's 'last active'. */
+  last_active_at: string
 }
 
-export interface EndpointEarningsResponse {
-  space_id: string
-  endpoint: string
-  earned: number
-  query_count: number
+/** One window over a list that grows without bound; `total` counts every
+ *  matching row, not the page. */
+export interface Page<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface DailyEarningsResponse {
   day: string
-  space_id: string
   earned: number
   query_count: number
 }
@@ -249,10 +269,7 @@ export interface EarningsResponse {
   currency: string
   totals: EarningsTotalsResponse
   spaces: SpaceEarningsResponse[]
-  endpoints: EndpointEarningsResponse[]
   daily: DailyEarningsResponse[]
-  recent_top_ups: TopUpResponse[]
-  payouts: PayoutInfoResponse[]
 }
 
 export interface MemberSpaceEarningsResponse {
@@ -280,11 +297,6 @@ export interface OutstandingBalanceResponse {
   topped_up: number
   spent: number
   balance: number
-}
-
-export interface OutstandingBalancesResponse {
-  total: number
-  balances: OutstandingBalanceResponse[]
 }
 
 export interface PayoutBody {

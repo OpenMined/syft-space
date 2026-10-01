@@ -55,6 +55,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.sources.article import article_html
 from syft_space.components.sources.errors import (
     SourceAuthError,
     SourceError,
@@ -524,7 +525,7 @@ class BlogspotSource:
 
     @asynccontextmanager
     async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:
-        """Download a post's HTML body to a tempfile and yield it.
+        """Download a post and write it as an article document to a tempfile.
 
         Caches the post's ``updated`` as a fingerprint on the way.
         """
@@ -545,32 +546,34 @@ class BlogspotSource:
         # title. Full identity travels in metadata.
         filename = f"{_slugify(title)}_{post_id}.html"
 
+        metadata = {
+            "source": BlogspotProvider.NAME,
+            "blog_id": blog_id,
+            "post_id": post_id,
+            "title": title,
+            "url": post.get("url"),
+            # Datetimes, not raw strings: the vector store turns each
+            # into an ISO value plus a filterable epoch int. The
+            # fingerprint above still uses the raw `updated`.
+            "updated": parse_datetime(updated),
+            "published": parse_datetime(post.get("published")),
+            "tags": post.get("labels"),
+            "author": (post.get("author") or {}).get("displayName"),
+        }
+
         fd, tmp_str = tempfile.mkstemp(
             prefix=f"blogspot_{blog_id}_{post_id}_", suffix=".html"
         )
         os.close(fd)
         tmp_path = Path(tmp_str)
-        tmp_path.write_text(body, encoding="utf-8")
+        tmp_path.write_text(article_html(title, body, metadata), encoding="utf-8")
         try:
             yield IngestFile(
                 external_id=external_id,
                 path=tmp_path,
                 filename=filename,
                 file_size=tmp_path.stat().st_size,
-                metadata={
-                    "source": BlogspotProvider.NAME,
-                    "blog_id": blog_id,
-                    "post_id": post_id,
-                    "title": title,
-                    "url": post.get("url"),
-                    # Datetimes, not raw strings: the vector store turns each
-                    # into an ISO value plus a filterable epoch int. The
-                    # fingerprint above still uses the raw `updated`.
-                    "updated": parse_datetime(updated),
-                    "published": parse_datetime(post.get("published")),
-                    "tags": post.get("labels"),
-                    "author": (post.get("author") or {}).get("displayName"),
-                },
+                metadata=metadata,
             )
         finally:
             tmp_path.unlink(missing_ok=True)

@@ -14,11 +14,13 @@ from fastapi import HTTPException
 
 from syft_station.components.credits.bundles import PREPAID_BUNDLES
 from syft_station.components.credits.entities import Wallet
+from syft_station.components.credits.handlers import WalletAdminHandler
 from syft_station.components.credits.provisioning import SpaceCreditsService
 from syft_station.components.credits.repository import (
     SpaceCreditTokenRepository,
     WalletRepository,
 )
+from syft_station.components.credits.schemas import WalletSetupRequest
 from syft_station.components.credits.tokens import hash_credit_token
 from syft_station.components.provision.interfaces import ProvisionError, SpaceSpec
 from syft_station.components.requests.handlers import RequestHandler
@@ -30,6 +32,7 @@ from syft_station.components.requests.schemas import (
     SubmitRequestBody,
 )
 from syft_station.components.setup.repository import SetupRepository
+from syft_station.components.spaces.entities import Space
 from syft_station.components.spaces.provisioning import SpaceConverger
 from tests.conftest import ADMIN, MEMBER
 
@@ -319,3 +322,76 @@ async def test_delete_revokes_credit_tokens(
     await handler.transition(req.id, PatchRequestBody(status="approved"), ADMIN)
 
     assert await credit_tokens.get_active_for_space(space_id) is None
+
+
+# ============== Wallet replace flags the spaces carrying its facts ==========
+
+
+class StubGateway:
+    """Accepts any credentials — the seam under test is what a provider
+    change does to attached spaces, not credential validation."""
+
+    def validate_credentials(self, credentials: dict, currency: str) -> dict:
+        return dict(credentials)
+
+
+@pytest.fixture
+def wallet_admin(wallets, space_repository) -> WalletAdminHandler:
+    return WalletAdminHandler(
+        wallets, {"xendit": StubGateway(), "stripe": StubGateway()}, space_repository
+    )
+
+
+async def attached_space(space_repository, wallet, subdomain="alpha"):
+    return await space_repository.create(
+        Space(
+            name=subdomain.capitalize(),
+            subdomain=subdomain,
+            owner_email=f"{subdomain}@test.com",
+            url=f"https://{subdomain}.spaces.test.org",
+            wallet_id=wallet.id,
+        )
+    )
+
+
+async def test_changing_the_provider_flags_every_attached_space(
+    wallet_admin, wallets, space_repository
+):
+    wallet = await make_wallet(wallets, currency="SGD")
+    on_wallet = await attached_space(space_repository, wallet)
+    unattached = await space_repository.create(
+        Space(name="Beta", subdomain="beta", owner_email="beta@test.com")
+    )
+
+    await wallet_admin.setup(
+        WalletSetupRequest(
+            provider="stripe", currency="SGD", credentials={"secret_key": "sk"}
+        ),
+        ADMIN.email,
+    )
+
+    by_space = await space_repository.conditions_for([on_wallet.id, unattached.id])
+    [condition] = by_space[on_wallet.id]
+    assert condition.type == "wallet_stale"
+    # The message names both sides: the catalog the space still publishes,
+    # and the one the wallet moved to.
+    assert "xendit" in condition.message and "stripe" in condition.message
+    assert unattached.id not in by_space
+
+
+async def test_rotating_credentials_flags_nothing(
+    wallet_admin, wallets, space_repository
+):
+    # Gateway credentials never reach a space, so a rotation needs no
+    # restart anywhere.
+    wallet = await make_wallet(wallets, currency="SGD")
+    on_wallet = await attached_space(space_repository, wallet)
+
+    await wallet_admin.setup(
+        WalletSetupRequest(
+            provider="xendit", currency="SGD", credentials={"api_key": "rotated"}
+        ),
+        ADMIN.email,
+    )
+
+    assert await space_repository.conditions_for([on_wallet.id]) == {}

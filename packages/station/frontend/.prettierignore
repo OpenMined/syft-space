@@ -1,0 +1,3 @@
+# Vendored from brand.openmined.org — kept byte-identical so it stays
+# diffable against the canonical source (see src/brand/brand-version.txt).
+src/brand/tokens/

@@ -53,6 +53,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.sources.article import UNTITLED, article_html, html_to_text
 from syft_space.components.sources.errors import SourceError
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
@@ -363,6 +364,12 @@ def _entry_guid(entry: dict[str, Any]) -> str:
     return f"{entry.get('title') or ''}|{entry.get('published') or ''}"
 
 
+def _entry_title(entry: dict[str, Any]) -> str:
+    """Title as text. feedparser hands back sanitised HTML for a title it
+    types as html; the heading and the metadata both want words."""
+    return html_to_text(entry.get("title") or "")
+
+
 def _entry_body(entry: dict[str, Any]) -> str:
     """The item's HTML body: full content if present, else the summary.
 
@@ -400,7 +407,7 @@ def _entry_metadata(feed: _Feed, entry: dict[str, Any]) -> dict[str, Any]:
         "source": RssProvider.NAME,
         "feed_url": feed.url,
         "feed_title": feed.title or None,
-        "title": entry.get("title") or None,
+        "title": _entry_title(entry) or None,
         "url": entry.get("link") or None,
         "comments_url": entry.get("comments") or None,
         "author": (entry.get("author") or "").strip() or None,
@@ -526,21 +533,18 @@ class RssSource:
 
     @asynccontextmanager
     async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:
-        """Write the item's HTML body to a tempfile and yield it.
+        """Write the item as an article document to a tempfile and yield it.
 
-        The title becomes an ``<h1>`` so the chunker, which splits on
-        headings, names every chunk of a long article. The body is the
-        publisher's HTML passed through, and is dropped when it holds
-        nothing but link labels.
+        The body is the publisher's HTML passed through, and is dropped
+        when it holds nothing but link labels.
         """
         feed_hash, item_hash = _parse_item_id(external_id)
         entry, feed = await self._take(external_id, feed_hash)
 
         body = _entry_body(entry)
-        title = entry.get("title") or "(untitled)"
-        document = f"<h1>{title}</h1>"
-        if _has_prose(body):
-            document = f"{document}\n{body}"
+        title = _entry_title(entry) or UNTITLED
+        metadata = _entry_metadata(feed, entry)
+        document = article_html(title, body if _has_prose(body) else "", metadata)
 
         fd, tmp_str = tempfile.mkstemp(prefix=f"rss_{item_hash}_", suffix=".html")
         os.close(fd)
@@ -552,7 +556,7 @@ class RssSource:
                 path=tmp_path,
                 filename=f"{_slugify(title)}_{item_hash}.html",
                 file_size=tmp_path.stat().st_size,
-                metadata=_entry_metadata(feed, entry),
+                metadata=metadata,
             )
         finally:
             tmp_path.unlink(missing_ok=True)

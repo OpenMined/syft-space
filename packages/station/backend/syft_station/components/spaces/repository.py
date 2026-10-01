@@ -1,12 +1,18 @@
 """Space registry repository."""
 
 import secrets
+from collections.abc import Iterable, Sequence
 from uuid import UUID
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from syft_station.components.shared.database import AsyncBaseRepository, AsyncDatabase
-from syft_station.components.spaces.entities import Space, SpaceToken
+from syft_station.components.spaces.entities import (
+    Space,
+    SpaceCondition,
+    SpaceConditionType,
+    SpaceToken,
+)
 
 
 def generate_space_token() -> str:
@@ -33,7 +39,11 @@ class SpaceRepository(AsyncBaseRepository[Space]):
             return result.first()
 
     async def delete_space(self, space_id: UUID) -> None:
-        """Remove a space and its token rows from the registry."""
+        """Remove a space and its token rows.
+
+        Conditions go with the space through the relationship's cascade;
+        tokens have no relationship, so they're removed here.
+        """
         async with self.db.get_session() as session:
             tokens = await session.exec(
                 select(SpaceToken).where(SpaceToken.space_id == space_id)
@@ -73,3 +83,85 @@ class SpaceRepository(AsyncBaseRepository[Space]):
             await session.commit()
             await session.refresh(fresh)
             return fresh
+
+    # --- Conditions ---
+
+    async def raise_condition(
+        self, space_id: UUID, type_: SpaceConditionType, message: str
+    ) -> SpaceCondition:
+        """Flag something the admin has to act on; re-raising rewrites the
+        message so the newest cause is the one shown."""
+        async with self.db.get_session() as session:
+            statement = select(SpaceCondition).where(
+                SpaceCondition.space_id == space_id,
+                SpaceCondition.type == type_.value,
+            )
+            result = await session.exec(statement)
+            row = result.first()
+            if row is None:
+                row = SpaceCondition(
+                    space_id=space_id, type=type_.value, message=message
+                )
+                session.add(row)
+            else:
+                row.message = message
+            await session.commit()
+            await session.refresh(row)
+            return row
+
+    async def flag_wallet_stale(
+        self, message: str, wallet_id: UUID | None = None
+    ) -> int:
+        """Flag every space carrying wallet facts that have since changed;
+        returns how many. Optionally narrowed to one wallet's spaces.
+
+        Named for the seams that call it — the wallet save and the SyftHub
+        identity — neither of which knows the conditions vocabulary.
+        """
+        async with self.db.get_session() as session:
+            statement = select(Space.id).where(col(Space.wallet_id).is_not(None))
+            if wallet_id is not None:
+                statement = statement.where(Space.wallet_id == wallet_id)
+            result = await session.exec(statement)
+            space_ids = list(result.all())
+        for space_id in space_ids:
+            await self.raise_condition(
+                space_id, SpaceConditionType.WALLET_STALE, message
+            )
+        return len(space_ids)
+
+    async def clear_conditions(
+        self, space_id: UUID, types: Iterable[SpaceConditionType]
+    ) -> int:
+        """Resolve conditions of these types; returns how many were cleared."""
+        values = [t.value for t in types]
+        if not values:
+            return 0
+        async with self.db.get_session() as session:
+            statement = select(SpaceCondition).where(
+                SpaceCondition.space_id == space_id,
+                col(SpaceCondition.type).in_(values),
+            )
+            result = await session.exec(statement)
+            rows = result.all()
+            for row in rows:
+                await session.delete(row)
+            await session.commit()
+            return len(rows)
+
+    async def conditions_for(
+        self, space_ids: Sequence[UUID]
+    ) -> dict[UUID, list[SpaceCondition]]:
+        """Conditions keyed by space — bulk, because the list endpoints
+        would otherwise read them one space at a time."""
+        if not space_ids:
+            return {}
+        async with self.db.get_session() as session:
+            statement = select(SpaceCondition).where(
+                col(SpaceCondition.space_id).in_(list(space_ids))
+            )
+            result = await session.exec(statement)
+            by_space: dict[UUID, list[SpaceCondition]] = {}
+            for row in result.all():
+                by_space.setdefault(row.space_id, []).append(row)
+            return by_space

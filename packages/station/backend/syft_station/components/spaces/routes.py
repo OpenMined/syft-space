@@ -12,8 +12,10 @@ from syft_station.components.auth.session import (
 from syft_station.components.spaces.handlers import SpaceHandler
 from syft_station.components.spaces.schemas import (
     AdminUrlResponse,
+    AttachWalletBody,
     SpaceLogsResponse,
     SpaceResponse,
+    SpaceStatusesResponse,
     SpaceStatusResponse,
     UpdateAllResponse,
 )
@@ -41,6 +43,14 @@ def build_space_routes(handler: SpaceHandler) -> APIRouter:
     ) -> list[SpaceResponse]:
         """The signed-in member's spaces."""
         return await handler.list_mine(user.email)
+
+    @router.get("/statuses", response_model=SpaceStatusesResponse)
+    async def runtime_statuses(
+        user: SessionUser = Depends(get_current_user),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> SpaceStatusesResponse:
+        """Every visible space's live status in one read, for the dashboard."""
+        return await handler.runtime_statuses(user)
 
     @router.get("/{space_id}/status", response_model=SpaceStatusResponse)
     async def runtime_status(
@@ -105,6 +115,17 @@ def build_space_routes(handler: SpaceHandler) -> APIRouter:
     ) -> UpdateAllResponse:
         """Redeploy every outdated space sequentially (admin)."""
         return await handler.update_all()
+
+    @router.post("/{space_id}/wallet", response_model=SpaceResponse)
+    async def attach_wallet(
+        space_id: UUID,
+        body: AttachWalletBody = AttachWalletBody(),
+        user: SessionUser = Depends(require_admin),
+        handler: SpaceHandler = Depends(get_handler),
+    ) -> SpaceResponse:
+        """Put an already-running space on the station wallet; it restarts
+        to pick up the credentials (admin)."""
+        return await handler.attach_wallet(space_id, body.wallet_id, body.reapply)
 
     @router.get("/{space_id}/admin-url", response_model=AdminUrlResponse)
     async def admin_url(

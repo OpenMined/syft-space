@@ -11,7 +11,12 @@ from syft_station.components.provision.interfaces import (
     SpaceRuntimeStatus,
 )
 from syft_station.components.setup.repository import SetupRepository
-from syft_station.components.spaces.entities import Space
+from syft_station.components.spaces.entities import (
+    CLEARED_BY_RESTART,
+    Space,
+    SpaceConditionType,
+)
+from syft_station.components.spaces.interfaces import CreditsService
 from syft_station.components.spaces.provisioning import SpaceConverger
 from syft_station.components.spaces.repository import (
     SpaceRepository,
@@ -21,6 +26,7 @@ from syft_station.components.spaces.schemas import (
     AdminUrlResponse,
     SpaceLogsResponse,
     SpaceResponse,
+    SpaceStatusesResponse,
     SpaceStatusResponse,
     SpaceUpdateResult,
     UpdateAllResponse,
@@ -36,19 +42,22 @@ class SpaceHandler:
         provisioner: Provisioner,
         setup_repository: SetupRepository,
         converger: SpaceConverger,
+        credits: CreditsService,
     ):
         self.repository = repository
         self.provisioner = provisioner
         self.setup_repository = setup_repository
         self.converger = converger
+        self.credits = credits
 
     async def list_spaces(self) -> list[SpaceResponse]:
-        spaces = await self.repository.get_all()
-        return [SpaceResponse.model_validate(s.model_dump()) for s in spaces]
+        return [
+            SpaceResponse.model_validate(s) for s in await self.repository.get_all()
+        ]
 
     async def list_mine(self, owner_email: str) -> list[SpaceResponse]:
         spaces = await self.repository.list_by_owner(owner_email)
-        return [SpaceResponse.model_validate(s.model_dump()) for s in spaces]
+        return [SpaceResponse.model_validate(s) for s in spaces]
 
     async def _get_owned_space(self, space_id: UUID, user: SessionUser) -> Space:
         space = await self.repository.get_by_id(space_id)
@@ -76,6 +85,30 @@ class SpaceHandler:
                 detail="Could not read the space status",
             ) from e
         return SpaceStatusResponse(status=str(status_))
+
+    async def runtime_statuses(self, user: SessionUser) -> SpaceStatusesResponse:
+        """Live status for every space the caller can see, in one read."""
+        spaces = (
+            await self.repository.get_all()
+            if user.role == ROLE_ADMIN
+            else await self.repository.list_by_owner(user.email)
+        )
+        try:
+            by_subdomain = await self.provisioner.statuses(
+                [s.subdomain for s in spaces]
+            )
+        except Exception as e:
+            logger.exception("Bulk status read failed")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not read the space statuses",
+            ) from e
+        return SpaceStatusesResponse(
+            statuses={
+                s.id: str(by_subdomain.get(s.subdomain, SpaceRuntimeStatus.NOT_FOUND))
+                for s in spaces
+            }
+        )
 
     async def logs(
         self, space_id: UUID, user: SessionUser, tail_lines: int
@@ -156,7 +189,7 @@ class SpaceHandler:
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Update failed: {outcome.detail}",
             )
-        return SpaceResponse.model_validate(space.model_dump())
+        return SpaceResponse.model_validate(space)
 
     async def update_all(self) -> UpdateAllResponse:
         """Redeploy every outdated space, one at a time (admin).
@@ -195,9 +228,70 @@ class SpaceHandler:
         return SpaceUpdateResult(space_id=space.id, name=space.name, outcome="updated")
 
     async def _clear_restart_flag(self, space: Space) -> None:
-        if space.restart_required:
-            space.restart_required = False
-            await self.repository.update(space)
+        """A pod that just came up is running the current Secret."""
+        await self.repository.clear_conditions(space.id, CLEARED_BY_RESTART)
+
+    # --- Wallet attachment ---
+
+    async def attach_wallet(
+        self, space_id: UUID, wallet_id: UUID | None, reapply: bool = False
+    ) -> SpaceResponse:
+        """Put an already-running space on the station wallet (admin).
+
+        Re-renders the whole bundle rather than patching the Secret: spaces
+        provisioned by an older station have no env refs for the optional
+        credits keys, and a patch would leave them billable but without the
+        wallet_owner the hub reads. The PVC is untouched; the pod restarts.
+
+        The attachment is written to the row by converge, so a failure
+        leaves the space unattached and a retry mints a fresh token.
+
+        `reapply` re-runs this for a space already on the wallet — the only
+        way to refresh facts the wallet has since changed, since the
+        injected copy cannot be patched in place.
+        """
+        space = await self.repository.get_by_id(space_id)
+        if not space:
+            raise HTTPException(status_code=404, detail="Space not found")
+        if space.wallet_id is not None and not reapply:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This space is already on the wallet",
+            )
+        if not space.url:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This space hasn't been created yet",
+            )
+        resolved = await self.credits.choose_wallet(wallet_id)
+        if resolved is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The station has no wallet — add one first",
+            )
+        # Converge applies the bundle at one replica, which would silently
+        # un-pause the space.
+        if await self.provisioner.get_status(space.subdomain) == (
+            SpaceRuntimeStatus.PAUSED
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The space is paused — resume it before attaching",
+            )
+
+        space.wallet_id = resolved
+        space.wallet_opt_out = False
+        try:
+            # Current version, not the supported one: attaching a wallet is
+            # not an upgrade.
+            await self.converger.converge(space, version=space.version)
+        except Exception as e:
+            logger.exception(f"Wallet attach failed for '{space.subdomain}'")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Attaching the wallet failed: {e}",
+            ) from e
+        return SpaceResponse.model_validate(space)
 
     async def admin_url(self, space_id: UUID, user: SessionUser) -> AdminUrlResponse:
         """The space URL with the admin key as authToken (owner or admin).
@@ -237,15 +331,18 @@ class SpaceHandler:
 
     async def _restart_to_apply(self, space: Space) -> None:
         """Restart after a Secret patch; flag the space if it fails."""
-        flagged = False
         try:
             await self.provisioner.restart(space.subdomain)
         except Exception:
             logger.exception(f"Auto-restart failed for '{space.subdomain}'")
-            flagged = True
-        if space.restart_required != flagged:
-            space.restart_required = flagged
-            await self.repository.update(space)
+            await self.repository.raise_condition(
+                space.id,
+                SpaceConditionType.RESTART_REQUIRED,
+                "Settings were changed but the space could not be restarted "
+                "to apply them",
+            )
+            return
+        await self.repository.clear_conditions(space.id, CLEARED_BY_RESTART)
 
     @staticmethod
     def _admin_url(space_url: str, token: str) -> str:

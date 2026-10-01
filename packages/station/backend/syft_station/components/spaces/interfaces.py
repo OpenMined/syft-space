@@ -1,8 +1,8 @@
 """Seams the spaces component depends on (consumer-owned interfaces).
 
-Converging a space needs a fresh credits grant, but the spaces component
-never imports the credits component — it declares the one capability it
-needs here, and the credits SpaceCreditsService satisfies it structurally.
+Attaching a wallet and converging a space both need the credits component,
+but the spaces component never imports it — it declares the capabilities it
+needs here, and the credits SpaceCreditsService satisfies them structurally.
 """
 
 from typing import Protocol
@@ -11,8 +11,12 @@ from uuid import UUID
 from syft_station.components.provision.interfaces import CreditsGrant
 
 
-class CreditsGranter(Protocol):
-    """The one wallet capability converging a space needs."""
+class CreditsService(Protocol):
+    """The wallet capabilities converging and attaching a space need."""
+
+    async def choose_wallet(self, requested_id: UUID | None) -> UUID | None:
+        """Resolve a wallet pick; None means the station wallet, if any."""
+        ...
 
     async def grant_for_space(
         self, space_id: UUID, wallet_id: UUID

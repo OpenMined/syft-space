@@ -26,6 +26,11 @@ const config: Record<SpaceHealth, { label: string; classes: string; dot: string 
     classes: 'bg-warning/15 text-foreground border-warning/40',
     dot: '',
   },
+  checking: {
+    label: 'Checking…',
+    classes: 'bg-muted text-muted-foreground border-transparent',
+    dot: '',
+  },
   paused: {
     label: 'Paused',
     classes: 'bg-muted text-muted-foreground border-transparent',
@@ -36,7 +41,10 @@ const config: Record<SpaceHealth, { label: string; classes: string; dot: string 
 
 <template>
   <Badge variant="outline" :class="['gap-1.5 font-normal', config[health].classes]">
-    <Loader2 v-if="health === 'restarting' || health === 'starting'" class="h-3 w-3 animate-spin" />
+    <Loader2
+      v-if="health === 'restarting' || health === 'starting' || health === 'checking'"
+      class="h-3 w-3 animate-spin"
+    />
     <span v-else :class="['h-2 w-2 rounded-full', config[health].dot]" />
     {{ config[health].label }}
   </Badge>

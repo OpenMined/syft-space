@@ -30,10 +30,6 @@ from syft_station.components.credits.handlers import (
     WalletAdminHandler,
     WebhookHandler,
 )
-from syft_station.components.credits.provisioning import (
-    SpaceCreditsService,
-    WalletRollout,
-)
 from syft_station.components.credits.repository import (
     CreditsLedger,
     PayoutRepository,
@@ -41,7 +37,6 @@ from syft_station.components.credits.repository import (
     WalletRepository,
 )
 from syft_station.components.credits.routes import build_credits_routes
-from syft_station.components.provision.mock import MockProvisioner
 from syft_station.components.requests.entities import (
     Request,
     RequestStatus,
@@ -179,23 +174,12 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
         )
     )
 
-    rollout = WalletRollout(
-        SpaceRepository(db),
-        MockProvisioner(),
-        SpaceCreditsService(
-            wallets,
-            tokens,
-            SetupRepository(db),
-            "http://station.test",
-            "http://pub.test",
-        ),
-    )
     hub = StubHubIdentity()
     app = FastAPI()
     app.include_router(
         build_credits_routes(
             CreditsHandler(db, wallets, tokens),
-            WalletAdminHandler(wallets, {}, rollout),
+            WalletAdminHandler(wallets, {}, SpaceRepository(db)),
             CheckoutHandler(db, wallets, {}, hub, SetupRepository(db)),  # type: ignore[arg-type]
             WebhookHandler(db, wallets, {}),
             EarningsHandler(db, wallets, PayoutRepository(db), RequestRepository(db)),
@@ -211,7 +195,7 @@ async def testbed(db: AsyncDatabase) -> EarningsTestbed:
 # ============== Earnings aggregates ==============
 
 
-async def test_earnings_reconcile_across_spaces_endpoints_and_days(
+async def test_earnings_reconcile_across_spaces_and_days(
     testbed: EarningsTestbed,
 ):
     await testbed.seed_paid_invoice(500.0)
@@ -240,7 +224,8 @@ async def test_earnings_reconcile_across_spaces_endpoints_and_days(
     )
 
     async with testbed.client() as client:
-        response = await client.get("/api/v1/credits/admin/earnings")
+        # The movements are seeded in the past, so widen the chart window.
+        response = await client.get("/api/v1/credits/admin/earnings?days=365")
 
     assert response.status_code == 200
     body = response.json()
@@ -252,28 +237,27 @@ async def test_earnings_reconcile_across_spaces_endpoints_and_days(
         "outstanding_balance": 500.0,
     }
 
-    spaces = {row["space_id"]: row for row in body["spaces"]}
+    async with testbed.client() as client:
+        page = (await client.get("/api/v1/credits/admin/earnings/spaces")).json()
+    spaces = {row["space_id"]: row for row in page["items"]}
     assert spaces[str(SPACE_A)]["earned"] == 1.0
     assert spaces[str(SPACE_A)]["query_count"] == 1  # refunded query nets out
     assert spaces[str(SPACE_A)]["payable"] == 1.0
     assert spaces[str(SPACE_B)]["earned"] == 5.0
 
-    endpoints = {(row["space_id"], row["endpoint"]): row for row in body["endpoints"]}
-    assert endpoints[(str(SPACE_A), "ask")]["earned"] == 1.0
-    assert endpoints[(str(SPACE_A), "search")]["earned"] == 0.0  # fully refunded
-    assert endpoints[(str(SPACE_B), "ask")]["earned"] == 5.0
-
-    daily = {(row["day"], row["space_id"]): row["earned"] for row in body["daily"]}
-    assert daily[("2026-07-20", str(SPACE_A))] == 3.0  # both debits
-    assert daily[("2026-07-21", str(SPACE_A))] == -2.0  # the reversal day
-    assert daily[("2026-07-21", str(SPACE_B))] == 5.0
+    # One series across every space: day 1 is A's two debits, day 2 is the
+    # reversal netted against B's query.
+    daily = {row["day"]: row["earned"] for row in body["daily"]}
+    assert daily == {"2026-07-20": 3.0, "2026-07-21": 3.0}
 
 
 async def test_earnings_empty_station(testbed: EarningsTestbed):
     async with testbed.client() as client:
         body = (await client.get("/api/v1/credits/admin/earnings")).json()
+        page = (await client.get("/api/v1/credits/admin/earnings/spaces")).json()
     assert body["totals"]["earned"] == 0.0
-    assert body["spaces"] == [] and body["daily"] == []
+    assert body["daily"] == []
+    assert page["items"] == [] and page["total"] == 0
 
 
 # ============== Payouts ==============
@@ -309,8 +293,10 @@ async def test_payout_capped_at_payable(testbed: EarningsTestbed):
 
     async with testbed.client() as client:
         earnings = (await client.get("/api/v1/credits/admin/earnings")).json()
-    row = earnings["spaces"][0]
+        page = (await client.get("/api/v1/credits/admin/earnings/spaces")).json()
+    row = page["items"][0]
     assert row["paid_out"] == 10.0 and row["payable"] == 0.0
+    # The headline is its own aggregate, not a sum over the page.
     assert earnings["totals"]["paid_out"] == 10.0
 
 
@@ -346,8 +332,8 @@ async def test_reversal_refunds_user_and_shrinks_earnings(testbed: EarningsTestb
     assert await testbed.get_balance(USER) == 100.0
 
     async with testbed.client() as client:
-        earnings = (await client.get("/api/v1/credits/admin/earnings")).json()
-    assert earnings["spaces"][0]["earned"] == 0.0  # the space lost the revenue
+        page = (await client.get("/api/v1/credits/admin/earnings/spaces")).json()
+    assert page["items"][0]["earned"] == 0.0  # the space lost the revenue
 
 
 # ============== Outstanding balances ==============
@@ -366,14 +352,14 @@ async def test_outstanding_balances_lists_liability(testbed: EarningsTestbed):
     async with testbed.client() as client:
         body = (await client.get("/api/v1/credits/admin/balances")).json()
 
-    assert body["total"] == 570.0
-    assert body["balances"][0] == {
+    assert (body["total"], body["limit"], body["offset"]) == (2, 10, 0)
+    assert body["items"][0] == {
         "user_email": "rich@test.com",
         "topped_up": 500.0,
         "spent": 0.0,
         "balance": 500.0,
     }
-    assert body["balances"][1] == {
+    assert body["items"][1] == {
         "user_email": USER,
         "topped_up": 100.0,
         "spent": 30.0,
@@ -421,7 +407,7 @@ async def test_buyer_balance_fresh_user_is_zero(testbed: EarningsTestbed):
 # ============== Feeds + member earnings ==============
 
 
-async def test_earnings_includes_topup_and_payout_feeds(testbed: EarningsTestbed):
+async def test_top_up_and_payout_feeds_are_their_own_pages(testbed: EarningsTestbed):
     await testbed.seed_paid_invoice(500.0)
     await testbed.seed_movement(space_id=SPACE_A, amount=10.0)
     async with testbed.client() as client:
@@ -429,14 +415,33 @@ async def test_earnings_includes_topup_and_payout_feeds(testbed: EarningsTestbed
             "/api/v1/credits/admin/payouts",
             json={"space_id": str(SPACE_A), "amount": 4.0, "note": "wire #1"},
         )
-        body = (await client.get("/api/v1/credits/admin/earnings")).json()
+        top_ups = (await client.get("/api/v1/credits/admin/top-ups")).json()
+        payouts = (await client.get("/api/v1/credits/admin/payouts")).json()
 
-    assert len(body["recent_top_ups"]) == 1
-    assert body["recent_top_ups"][0]["amount"] == 500.0
-    assert body["recent_top_ups"][0]["status"] == "paid"
-    assert len(body["payouts"]) == 1
-    assert body["payouts"][0]["space_id"] == str(SPACE_A)
-    assert body["payouts"][0]["note"] == "wire #1"
+    assert top_ups["total"] == 1
+    assert top_ups["items"][0]["amount"] == 500.0
+    assert top_ups["items"][0]["status"] == "paid"
+    assert payouts["total"] == 1
+    assert payouts["items"][0]["space_id"] == str(SPACE_A)
+    assert payouts["items"][0]["note"] == "wire #1"
+
+
+async def test_pages_window_their_rows(testbed: EarningsTestbed):
+    for i in range(5):
+        await testbed.seed_paid_invoice(10.0 + i, user=f"u{i}@test.com")
+
+    async with testbed.client() as client:
+        first = (await client.get("/api/v1/credits/admin/top-ups?limit=2")).json()
+        second = (
+            await client.get("/api/v1/credits/admin/top-ups?limit=2&offset=2")
+        ).json()
+
+    # total counts every matching row, not the page.
+    assert first["total"] == second["total"] == 5
+    assert len(first["items"]) == len(second["items"]) == 2
+    assert {i["user_email"] for i in first["items"]}.isdisjoint(
+        {i["user_email"] for i in second["items"]}
+    )
 
 
 async def test_member_earnings_mine_scoped_to_owned_spaces(testbed: EarningsTestbed):
@@ -480,9 +485,9 @@ async def test_admin_earnings_attribute_live_spaces(testbed: EarningsTestbed):
     await testbed.seed_movement(space_id=SPACE_A, amount=15.0)
 
     async with testbed.client() as client:
-        body = (await client.get("/api/v1/credits/admin/earnings")).json()
+        body = (await client.get("/api/v1/credits/admin/earnings/spaces")).json()
 
-    row = body["spaces"][0]
+    row = body["items"][0]
     assert row["name"] == "Webbing"
     assert row["owner_email"] == USER
     assert row["deleted"] is False
@@ -498,9 +503,9 @@ async def test_deleted_space_keeps_name_owner_and_flag(testbed: EarningsTestbed)
     await testbed.seed_movement(space_id=SPACE_A, amount=15.0)
 
     async with testbed.client() as client:
-        body = (await client.get("/api/v1/credits/admin/earnings")).json()
+        body = (await client.get("/api/v1/credits/admin/earnings/spaces")).json()
 
-    row = body["spaces"][0]
+    row = body["items"][0]
     assert row["name"] == "Webbing"
     assert row["subdomain"] == "webbing"
     assert row["owner_email"] == USER
@@ -535,8 +540,8 @@ async def test_earnings_without_request_row_degrade_to_id_stub(
     await testbed.seed_movement(space_id=SPACE_A, amount=5.0)
 
     async with testbed.client() as client:
-        body = (await client.get("/api/v1/credits/admin/earnings")).json()
+        body = (await client.get("/api/v1/credits/admin/earnings/spaces")).json()
 
-    row = body["spaces"][0]
+    row = body["items"][0]
     assert row["name"] == str(SPACE_A)[:8]
     assert row["deleted"] is True

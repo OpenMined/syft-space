@@ -79,8 +79,11 @@ and the next poll re-indexes it.
 
 ## What lands in the index
 
-The post's HTML body as Blogger returns it. The filename is built from the
-post's title plus its id, since Blogger has no slug field.
+The post's title as an `<h1>`, a one-line byline (author, date, labels), then
+the post's HTML body as Blogger returns it. The byline puts those facts into
+the first chunk's text, so a query naming one of them can match on it. The
+filename is built from the post's title plus its id, since Blogger has no slug
+field.
 
 Stored alongside, and searchable: `title`, `url`, `author`, `published`,
 `updated`, `tags` (Blogger labels), `blog_id`, `post_id`.

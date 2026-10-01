@@ -48,11 +48,37 @@ attempt is revoke-then-mint — a failed attempt never leaves a live
 credential behind, and the pod that comes up always has a token the
 station honors.
 
-`WalletRollout` handles the other direction: when the admin creates (or
-replaces) the wallet, every existing space that is neither attached nor
-opted out gets a token minted, its Secret patched, and an automatic
-restart. A space whose restart fails is flagged `restart_required` —
-never silently left running on the old env.
+A space that predates the wallet is attached the other way round, one at a
+time: `POST /spaces/{id}/wallet` resolves the wallet, writes the intent to
+the space row and re-converges the space at its current version. Saving the
+wallet sweeps nothing — every attachment is an admin's deliberate act, and
+each one restarts exactly one space. Converge (rather than a Secret patch)
+because spaces provisioned by an older station have no env refs for the
+optional credits keys; re-rendering the bundle cannot half-attach them.
+`reapply: true` re-runs it for a space already attached; without it that is
+a 409, so a stray click can never rotate a live credits token.
+
+### When a space's copy goes stale
+
+A space holds the wallet facts injected at its last converge, so changing one
+at the station leaves that copy behind. Two changes do, and each raises
+`wallet_stale` ([conditions](requests-and-spaces.md#space-conditions)) on
+*every* attached space — including the ones that can't be re-applied right
+now (paused, not yet created), which is what keeps the leftovers visible
+after a re-apply run.
+
+| change | site | what goes stale |
+|---|---|---|
+| provider | `WalletAdminHandler.setup` | `SYFT_CLUSTER_BUNDLES` — `PREPAID_BUNDLES` is keyed provider → currency, so the space publishes the old price list while checkout charges the new one |
+| SyftHub account | `StationIdentityHandler.connect` | `SYFT_CLUSTER_WALLET_OWNER` — the hub reads it to decide whose audience buyer tokens are minted for, and who is credited as host |
+
+The currency is immutable, so a provider swap is only reachable in a currency
+both gateways support. A *first* connect flags too: spaces attached before
+the station had an identity carry an empty owner, which the hub reads as "the
+publishing user".
+
+Gateway credentials are not on that list — they never leave the station, so
+rotating a key needs no space restart.
 
 ## The buyer flow
 

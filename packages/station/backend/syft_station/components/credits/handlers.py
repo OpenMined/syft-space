@@ -14,7 +14,7 @@ answered with the original outcome, never a second movement.
 
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from uuid import UUID, uuid4
 
@@ -41,8 +41,7 @@ from syft_station.components.credits.gateway.interfaces import (
     PaymentGateway,
     WebhookEnvelope,
 )
-from syft_station.components.credits.interfaces import SpaceIdentities
-from syft_station.components.credits.provisioning import WalletRollout
+from syft_station.components.credits.interfaces import SpaceFlags, SpaceIdentities
 from syft_station.components.credits.repository import (
     CreditsLedger,
     PayoutRepository,
@@ -59,11 +58,10 @@ from syft_station.components.credits.schemas import (
     DebitResponse,
     EarningsResponse,
     EarningsTotals,
-    EndpointEarnings,
     MemberEarningsResponse,
     MemberSpaceEarnings,
     OutstandingBalance,
-    OutstandingBalancesResponse,
+    Page,
     PayoutInfo,
     PayoutRequest,
     PayoutResponse,
@@ -72,7 +70,6 @@ from syft_station.components.credits.schemas import (
     SpaceEarnings,
     TopUpInfo,
     WalletSetupRequest,
-    WalletSetupResponse,
     WalletStatusResponse,
 )
 from syft_station.components.credits.tokens import hash_credit_token
@@ -259,24 +256,24 @@ def _wallet_status(wallet: Wallet | None) -> WalletStatusResponse:
 
 
 class WalletAdminHandler:
-    """Station wallet setup — create/replace plus the rollout to spaces."""
+    """Station wallet setup — create or replace the station's one wallet."""
 
     def __init__(
         self,
         wallets: WalletRepository,
         gateways: dict[str, PaymentGateway],
-        rollout: WalletRollout,
+        spaces: SpaceFlags,
     ):
         self.wallets = wallets
         self.gateways = gateways
-        self.rollout = rollout
+        self.spaces = spaces
 
     async def get(self) -> WalletStatusResponse:
         return _wallet_status(await self.wallets.get_active())
 
     async def setup(
         self, body: WalletSetupRequest, admin_email: str
-    ) -> WalletSetupResponse:
+    ) -> WalletStatusResponse:
         """Create the wallet, or replace its provider/credentials in place.
 
         Replacement keeps the wallet id, so existing space tokens stay
@@ -311,19 +308,33 @@ class WalletAdminHandler:
                     detail=f"The wallet currency is fixed at {wallet.currency} — "
                     "user balances are denominated in it",
                 )
+            previous_provider = wallet.provider
             wallet.provider = body.provider
             wallet.credentials = credentials
             wallet.updated_at = datetime.now(UTC)
             wallet = await self.wallets.update(wallet)
+            await self._flag_stale_spaces(wallet, previous_provider)
 
-        # Spaces approved before the wallet existed (and not opted out) get
-        # attached now; the rollout restarts each one so the wallet takes
-        # effect immediately.
-        attached, failed = await self.rollout.attach_unbound_spaces(wallet.id)
+        # Existing spaces are NOT swept onto the wallet — the admin attaches
+        # them deliberately (POST /spaces/{id}/wallet), one restart at a time.
+        return _wallet_status(wallet)
 
-        response = _wallet_status(wallet)
-        return WalletSetupResponse(
-            **response.model_dump(), spaces_attached=attached, spaces_failed=failed
+    async def _flag_stale_spaces(self, wallet: Wallet, previous: str) -> None:
+        """Flag every attached space when the provider changes.
+
+        Credentials never leave the station, so the provider is the only
+        thing a save changes that a space carries: the bundle catalog is
+        keyed by it, and each space holds the copy injected at its last
+        converge. Flagging all of them — including the ones that cannot be
+        re-applied right now — is what leaves the leftovers visible after a
+        re-apply run.
+        """
+        if previous == wallet.provider:
+            return
+        await self.spaces.flag_wallet_stale(
+            f"Publishes the {previous} price list; the wallet now uses "
+            f"{wallet.provider}",
+            wallet_id=wallet.id,
         )
 
 
@@ -614,88 +625,30 @@ class EarningsHandler:
         self.payouts = payouts
         self.identities = identities
 
-    async def earnings(self) -> EarningsResponse:
+    async def earnings(self, days: int) -> EarningsResponse:
         wallet = await self.wallets.get_active()
-        paid_out_by_space = await self.payouts.totals_by_space()
-        recent_payouts = await self.payouts.list_recent()
-        identities = await self.identities.space_identities()
+        since = datetime.now(UTC) - timedelta(days=days)
+        paid_out = await self.payouts.total_paid()
 
         async with CreditsLedger(self.db) as ledger:
-            by_space = await ledger.entries.earnings_by_space()
-            by_endpoint = await ledger.entries.earnings_by_endpoint()
-            by_day = await ledger.entries.earnings_by_day()
+            by_day = await ledger.entries.earnings_by_day(since)
             credits_sold = await ledger.invoices.total_paid()
             outstanding = await ledger.balances.total_outstanding()
-            recent_top_ups = await ledger.invoices.list_recent_paid()
+            earned = await ledger.entries.total_earned()
 
-        spaces = []
-        for row in by_space:
-            # A ledger row without a request row should not happen (every
-            # space is born from a request); degrade to an id stub rather
-            # than hide the money.
-            identity = identities.get(row.space_id)
-            spaces.append(
-                SpaceEarnings(
-                    space_id=row.space_id,
-                    name=identity.name if identity else str(row.space_id)[:8],
-                    subdomain=identity.subdomain if identity else "",
-                    owner_email=identity.owner_email if identity else "",
-                    deleted=identity.deleted if identity else True,
-                    earned=row.earned,
-                    query_count=row.query_count,
-                    paid_out=paid_out_by_space.get(row.space_id, 0.0),
-                    payable=row.earned - paid_out_by_space.get(row.space_id, 0.0),
-                )
-            )
         return EarningsResponse(
             currency=wallet.currency if wallet else "",
             totals=EarningsTotals(
                 credits_sold=credits_sold,
-                earned=sum(s.earned for s in spaces),
-                paid_out=sum(s.paid_out for s in spaces),
+                earned=earned,
+                paid_out=paid_out,
                 outstanding_balance=outstanding,
             ),
-            spaces=spaces,
-            endpoints=[
-                EndpointEarnings(
-                    space_id=row.space_id,
-                    endpoint=row.endpoint,
-                    earned=row.earned,
-                    query_count=row.query_count,
-                )
-                for row in by_endpoint
-            ],
             daily=[
                 DailyEarnings(
-                    day=row.day,
-                    space_id=row.space_id,
-                    earned=row.earned,
-                    query_count=row.query_count,
+                    day=row.day, earned=row.earned, query_count=row.query_count
                 )
                 for row in by_day
-            ],
-            recent_top_ups=[
-                TopUpInfo(
-                    invoice_id=i.id,
-                    user_email=i.user_email,
-                    bundle_name=i.bundle_name,
-                    amount=i.amount,
-                    currency=i.currency,
-                    status=i.status,
-                    created_at=i.created_at,
-                    paid_at=i.paid_at,
-                )
-                for i in recent_top_ups
-            ],
-            payouts=[
-                PayoutInfo(
-                    id=p.id,
-                    space_id=p.space_id,
-                    amount=p.amount,
-                    note=p.note,
-                    created_at=p.created_at,
-                )
-                for p in recent_payouts
             ],
         )
 
@@ -710,10 +663,13 @@ class EarningsHandler:
         identities = await self.identities.space_identities()
         paid_out_by_space = await self.payouts.totals_by_space()
 
+        mine = [
+            space_id
+            for space_id, identity in identities.items()
+            if identity.owner_email == owner_email
+        ]
         async with CreditsLedger(self.db) as ledger:
-            earned_rows = {
-                row.space_id: row for row in await ledger.entries.earnings_by_space()
-            }
+            earned_rows = await ledger.entries.earnings_for_spaces(mine)
 
         spaces = []
         for space_id, identity in identities.items():
@@ -743,15 +699,18 @@ class EarningsHandler:
             total_payable=sum(s.payable for s in spaces),
         )
 
-    async def outstanding_balances(self) -> OutstandingBalancesResponse:
+    async def outstanding_balances(
+        self, limit: int, offset: int
+    ) -> Page[OutstandingBalance]:
+        """One page of the station's liability list. The headline figure is
+        in EarningsTotals.outstanding_balance, so it isn't repeated here."""
         async with CreditsLedger(self.db) as ledger:
-            rows = await ledger.balances.list_nonzero()
-            total = await ledger.balances.total_outstanding()
+            rows = await ledger.balances.list_nonzero(limit, offset)
+            total = await ledger.balances.count_nonzero()
             topped_up = await ledger.invoices.paid_totals_by_user()
             spent = await ledger.entries.net_spend_by_user()
-        return OutstandingBalancesResponse(
-            total=total,
-            balances=[
+        return Page(
+            items=[
                 OutstandingBalance(
                     user_email=r.user_email,
                     topped_up=topped_up.get(r.user_email, 0.0),
@@ -760,6 +719,102 @@ class EarningsHandler:
                 )
                 for r in rows
             ],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def space_earnings_page(self, limit: int, offset: int) -> Page[SpaceEarnings]:
+        """One page of the payout table, biggest payable first."""
+        identities = await self.identities.space_identities()
+        async with CreditsLedger(self.db) as ledger:
+            rows = await ledger.entries.earnings_by_space(limit, offset)
+            total = await ledger.entries.count_spaces()
+        items = []
+        for row in rows:
+            # A ledger row without a request row should not happen (every
+            # space is born from one); degrade to an id stub rather than
+            # hide the money.
+            identity = identities.get(row.space_id)
+            items.append(
+                SpaceEarnings(
+                    space_id=row.space_id,
+                    name=identity.name if identity else str(row.space_id)[:8],
+                    subdomain=identity.subdomain if identity else "",
+                    owner_email=identity.owner_email if identity else "",
+                    deleted=identity.deleted if identity else True,
+                    earned=row.earned,
+                    query_count=row.query_count,
+                    paid_out=row.paid_out,
+                    payable=row.earned - row.paid_out,
+                    last_active_at=row.last_active_at,
+                )
+            )
+        return Page(items=items, total=total, limit=limit, offset=offset)
+
+    async def space_earning(self, space_id: UUID) -> SpaceEarnings | None:
+        """One space's money row. The delete dialog warns on unpaid payable,
+        and the space may sit on any page of the table."""
+        identities = await self.identities.space_identities()
+        paid_out = (await self.payouts.totals_by_space()).get(space_id, 0.0)
+        async with CreditsLedger(self.db) as ledger:
+            rows = await ledger.entries.earnings_for_spaces([space_id])
+        row = rows.get(space_id)
+        if row is None:
+            return None
+        identity = identities.get(space_id)
+        return SpaceEarnings(
+            space_id=space_id,
+            name=identity.name if identity else str(space_id)[:8],
+            subdomain=identity.subdomain if identity else "",
+            owner_email=identity.owner_email if identity else "",
+            deleted=identity.deleted if identity else True,
+            earned=row.earned,
+            query_count=row.query_count,
+            paid_out=paid_out,
+            payable=row.earned - paid_out,
+            last_active_at=row.last_active_at,
+        )
+
+    async def payouts_page(self, limit: int, offset: int) -> Page[PayoutInfo]:
+        rows = await self.payouts.list_recent(limit, offset)
+        return Page(
+            items=[
+                PayoutInfo(
+                    id=p.id,
+                    space_id=p.space_id,
+                    amount=p.amount,
+                    note=p.note,
+                    created_at=p.created_at,
+                )
+                for p in rows
+            ],
+            total=await self.payouts.count(),
+            limit=limit,
+            offset=offset,
+        )
+
+    async def top_ups_page(self, limit: int, offset: int) -> Page[TopUpInfo]:
+        async with CreditsLedger(self.db) as ledger:
+            rows = await ledger.invoices.list_paid(limit, offset)
+            total = await ledger.invoices.count_paid()
+        return Page(
+            items=[
+                TopUpInfo(
+                    invoice_id=i.id,
+                    user_email=i.user_email,
+                    bundle_name=i.bundle_name,
+                    amount=i.amount,
+                    currency=i.currency,
+                    status=i.status,
+                    created_at=i.created_at,
+                    paid_at=i.paid_at,
+                )
+                for i in rows
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
         )
 
     async def record_payout(self, body: PayoutRequest) -> PayoutResponse:

@@ -36,6 +36,12 @@ IMAGE_ENDPOINT_PREFIX = "/api/v1/datasets"
 # HF tokenizer. See _build_hybrid_chunker.
 _TABULAR_EXTS = {".csv", ".xls", ".xlsx"}
 
+# Docling's default prose tokenizer. max_tokens is all-MiniLM-L6-v2's
+# max_seq_length, passed explicitly so docling does not fetch the config to
+# read it.
+_PROSE_TOKENIZER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+_PROSE_TOKENIZER_MAX_TOKENS = 256
+
 
 def _heuristic_count_tokens(text: str) -> int:
     """Approximate token count (~4 chars/token) — no model, no network.
@@ -105,34 +111,12 @@ def _extract_pictures_and_chunks(
     return chunks
 
 
-def _build_hybrid_chunker(heuristic: bool):
-    """Build a HybridChunker with either the accurate or the heuristic tokenizer.
-
-    Two tokenizers, picked by content kind:
-
-    - ``heuristic=False`` (prose: PDF/DOCX/HTML/...) — the default
-      ``all-MiniLM-L6-v2`` tokenizer from the HF Hub. Accurate token sizing, so
-      no chunk gets silently truncated at embed time. Wedge-safe here because
-      only a single multi-megabyte *table* item is pathologically slow to
-      tokenise, and prose documents don't contain one.
-
-    - ``heuristic=True`` (tabular: CSV/XLSX) — a dependency-free ~4-chars/token
-      counter. Docling models a whole sheet as one giant table item; tokenising
-      its serialisation with a real tokenizer wedges (600s+), so the heuristic
-      keeps it fast. Tabular text runs well above 4 chars/token, so the count
-      over-estimates and never under-splits into truncated chunks.
-
-    (Embeddings run on ChromaDB's local ONNX model, so they never touch HF.)
-    """
-    from docling_core.transforms.chunker import HybridChunker
-
-    if not heuristic:
-        return HybridChunker()
-
+def _heuristic_tokenizer():
+    """A dependency-free ~4-chars/token counter — no model, no network."""
     from docling_core.transforms.chunker.tokenizer.base import BaseTokenizer
 
     class _HeuristicTokenizer(BaseTokenizer):
-        max_tokens: int = 256
+        max_tokens: int = _PROSE_TOKENIZER_MAX_TOKENS
 
         def count_tokens(self, text: str) -> int:
             return _heuristic_count_tokens(text)
@@ -145,7 +129,77 @@ def _build_hybrid_chunker(heuristic: bool):
             # result as a token-counter callable, so return the counter itself.
             return _heuristic_count_tokens
 
-    return HybridChunker(tokenizer=_HeuristicTokenizer())
+    return _HeuristicTokenizer()
+
+
+def _build_prose_tokenizer():
+    """Load the prose tokenizer, or None if it cannot be had.
+
+    Never attaches a credential: the repo is public, so a token buys nothing,
+    while an expired one makes the Hub answer 401 — which transformers
+    re-raises as a fatal RepositoryNotFoundError even when every file is
+    already cached.
+    """
+    from docling_core.transforms.chunker.tokenizer.huggingface import (
+        HuggingFaceTokenizer,
+    )
+
+    def load(local_files_only: bool):
+        return HuggingFaceTokenizer.from_pretrained(
+            model_name=_PROSE_TOKENIZER_MODEL,
+            max_tokens=_PROSE_TOKENIZER_MAX_TOKENS,
+            token=False,
+            local_files_only=local_files_only,
+        )
+
+    try:
+        return load(local_files_only=True)
+    except Exception:
+        # An empty cache is the ordinary first-run case, so this is not yet a
+        # problem — but record why, since a corrupt cache lands here too.
+        logger.error("Prose tokenizer not loadable from cache.", exc_info=True)
+
+    try:
+        return load(local_files_only=False)
+    except Exception:
+        logger.warning(
+            "Prose tokenizer %s unavailable; chunking with the heuristic "
+            "counter, which sizes chunks approximately.",
+            _PROSE_TOKENIZER_MODEL,
+            exc_info=True,
+        )
+        return None
+
+
+def _build_hybrid_chunker(heuristic: bool):
+    """Build a HybridChunker with either the accurate or the heuristic tokenizer.
+
+    Two tokenizers, picked by content kind:
+
+    - ``heuristic=False`` (prose: PDF/DOCX/HTML/...) — the
+      ``all-MiniLM-L6-v2`` tokenizer, from the local HF cache when it is warm.
+      Accurate token sizing, so no chunk gets silently truncated at embed time.
+      Wedge-safe here because only a single multi-megabyte *table* item is
+      pathologically slow to tokenise, and prose documents don't contain one.
+      Falls back to the heuristic counter if the tokenizer cannot be loaded, so
+      a Hub problem costs chunk precision rather than the whole ingestion.
+
+    - ``heuristic=True`` (tabular: CSV/XLSX) — a dependency-free ~4-chars/token
+      counter. Docling models a whole sheet as one giant table item; tokenising
+      its serialisation with a real tokenizer wedges (600s+), so the heuristic
+      keeps it fast. Tabular text runs well above 4 chars/token, so the count
+      over-estimates and never under-splits into truncated chunks.
+
+    (Embeddings run on ChromaDB's local ONNX model, so they never touch HF.)
+    """
+    from docling_core.transforms.chunker import HybridChunker
+
+    if not heuristic:
+        tokenizer = _build_prose_tokenizer()
+        if tokenizer is not None:
+            return HybridChunker(tokenizer=tokenizer)
+
+    return HybridChunker(tokenizer=_heuristic_tokenizer())
 
 
 def _get_pdf_page_count(pdf_path: Path) -> int:
