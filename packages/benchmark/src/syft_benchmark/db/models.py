@@ -110,6 +110,11 @@ class QaPair(Base):
         String(16), nullable=False, default="pending", index=True
     )
     status_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Machine code of why the pair is not active (``StatusReason``); NULL while
+    # it is pending or active.
+    status_reason: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, default=None
+    )
 
     model: Mapped[str] = mapped_column(String(120), nullable=False)
     question_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -533,14 +538,18 @@ class Job(Base):
 
     # The snapshot of the settings the job was launched with. The configuration gets
     # changed between launches, and without a snapshot there is nothing to explain
-    # yesterday figures with.
+    # yesterday figures with. Besides the request it holds the judging the job ran
+    # with (``judge_panel``, ``judge_policy``) and, once fixed, ``primary_judge``
+    # — see ``run_view.primary_judge``.
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     trigger: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
 
     # The card assembled right after measuring, in the shape the Space accepts
     # it in — set regardless of whether ``request.publish`` was ticked or the
     # Space took it: "how did this run go" is answered from here, not from
-    # whether the card ever left the perimeter.
+    # whether the card ever left the perimeter. Replaced by each card of the job
+    # that is published (or built with ``record``): the baseline of
+    # ``card_outdated``.
     card: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True, default=None
     )
@@ -561,6 +570,38 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
+
+
+class RunExclusion(Base):
+    """A question the owner left out of one run's figures."""
+
+    __tablename__ = "run_exclusions"
+
+    job_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    qa_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("qa_pairs.id", ondelete="CASCADE"), primary_key=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class RunAggregate(Base):
+    """The cached figures of one run; no row means they are to be recomputed."""
+
+    __tablename__ = "run_aggregates"
+
+    job_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
 
 
 class InstallationSettings(Base):

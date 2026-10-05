@@ -14,8 +14,10 @@ settings page refuse to save.
 """
 
 import asyncio
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, TypeVar
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -48,7 +50,9 @@ from syft_space.components.benchmarks.schemas import (
 )
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint
+from syft_space.components.endpoints.publish_handler import PublishEndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
+from syft_space.components.endpoints.schemas import ReportQualityRequest
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.tenants.entities import Tenant
 
@@ -108,6 +112,43 @@ def _console_empty(reply: Reply) -> None:
         )
 
 
+RUN_STATUSES = frozenset({"all", "published", "private"})
+
+
+def _seg(value: str) -> str:
+    """One path segment, escaped."""
+    return quote(value, safe="")
+
+
+@dataclass
+class _RunCards:
+    """Which runs have a card here, and which run's card is published."""
+
+    standing_job: str | None = None
+    standing_card: UUID | None = None
+    by_job: dict[str, UUID] = field(default_factory=dict)
+
+    @classmethod
+    def from_rows(cls, rows: list[tuple[UUID, str, datetime | None]]) -> "_RunCards":
+        """From `quality_card_jobs` rows, newest first."""
+        out = cls()
+        for card_id, job, retracted_at in rows:
+            if out.standing_card is None and retracted_at is None:
+                out.standing_card = card_id
+                out.standing_job = job or None
+                if job:
+                    out.by_job[job] = card_id
+            if job:
+                out.by_job.setdefault(job, card_id)
+        return out
+
+    def mark(self, run: dict[str, Any]) -> None:
+        job = run.get("job_id")
+        run["published"] = bool(job) and job == self.standing_job
+        card = self.by_job.get(job) if job else None
+        run["card_id"] = str(card) if card else None
+
+
 class BenchmarkHandler:
     """Everything the benchmark pages do."""
 
@@ -119,6 +160,7 @@ class BenchmarkHandler:
         dataset_repository: DatasetRepository,
         dataset_registry: Any,
         settings_repository: SettingsRepository | None = None,
+        publish_handler: PublishEndpointHandler | None = None,
     ) -> None:
         self.connections = connection_repository
         self.targets = target_repository
@@ -126,6 +168,7 @@ class BenchmarkHandler:
         self.datasets = dataset_repository
         self.dataset_registry = dataset_registry
         self.settings = settings_repository
+        self.publisher = publish_handler
 
     # --- connections -------------------------------------------------------
 
@@ -669,6 +712,192 @@ class BenchmarkHandler:
         _, connection = await self._pair_or_404(tenant, endpoint, slug)
         console = await self._console(connection, slug)
         _console_empty(await console.raw("POST", "/console/retract"))
+
+    # --- benchmark results: runs, their reports, publishing ------------------
+    #
+    # The benchmark knows the runs; this Space knows which of them is published,
+    # because the quality cards are stored here. Every run summary leaving these
+    # routes carries both.
+
+    async def list_report_runs(
+        self, tenant: Tenant, slug: str, status: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        if status not in RUN_STATUSES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"status must be one of {', '.join(sorted(RUN_STATUSES))}",
+            )
+        endpoint, console = await self._report_console(tenant, slug)
+        cards = await self._run_cards(tenant, endpoint)
+        params = dict(query)
+        nothing_published = status == "published" and cards.standing_job is None
+        if status == "published" and cards.standing_job is not None:
+            params["job_ids"] = cards.standing_job
+        elif status == "private" and cards.standing_job is not None:
+            params["exclude_job_ids"] = cards.standing_job
+        elif nothing_published:
+            # Still asked: `in_progress` is shown whatever the filter.
+            params["limit"] = 1
+            params["offset"] = 0
+        data = _console_dict(
+            await console.raw("GET", "/console/report/runs", params=params)
+        )
+        if nothing_published:
+            data["items"] = []
+            data["total"] = 0
+        for run in data.get("items") or []:
+            cards.mark(run)
+        return data
+
+    async def get_report_run(
+        self, tenant: Tenant, slug: str, job_id: str
+    ) -> dict[str, Any]:
+        endpoint, console = await self._report_console(tenant, slug)
+        data = _console_dict(
+            await console.raw("GET", f"/console/report/runs/{_seg(job_id)}")
+        )
+        if isinstance(data.get("run"), dict):
+            (await self._run_cards(tenant, endpoint)).mark(data["run"])
+        return data
+
+    async def list_run_questions(
+        self, tenant: Tenant, slug: str, job_id: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        _, console = await self._report_console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/questions"
+        return _console_dict(await console.raw("GET", path, params=query))
+
+    async def get_run_question(
+        self, tenant: Tenant, slug: str, job_id: str, qa_id: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        _, console = await self._report_console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}"
+        return _console_dict(await console.raw("GET", path, params=query))
+
+    async def get_run_question_fragments(
+        self, tenant: Tenant, slug: str, job_id: str, qa_id: str, query: dict[str, Any]
+    ) -> list[Any]:
+        _, console = await self._report_console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}/fragments"
+        reply = await console.raw("GET", path, params=query)
+        _console_empty(reply)
+        return reply.data if isinstance(reply.data, list) else []
+
+    async def exclude_run_question(
+        self, tenant: Tenant, slug: str, job_id: str, qa_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        _, console = await self._report_console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}/exclusion"
+        return _console_dict(await console.raw("PUT", path, body=body))
+
+    async def restore_run_question(
+        self, tenant: Tenant, slug: str, job_id: str, qa_id: str
+    ) -> None:
+        _, console = await self._report_console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}/exclusion"
+        _console_empty(await console.raw("DELETE", path))
+
+    async def download_run_summary(
+        self, tenant: Tenant, slug: str, job_id: str
+    ) -> tuple[bytes, dict[str, str]]:
+        """The run's summary document and the headers it came with."""
+        _, console = await self._report_console(tenant, slug)
+        reply = await console.download(
+            f"/console/report/runs/{_seg(job_id)}/summary.docx"
+        )
+        _console_empty(reply)
+        return reply.data or b"", reply.headers
+
+    async def publish_run(
+        self, tenant: Tenant, slug: str, job_id: str
+    ) -> dict[str, Any]:
+        """Make this run's card the published one, whatever the run's age.
+
+        Always built afresh by the benchmark from the run's live figures, so
+        overrides and exclusions since the last card are in it. The new card is
+        stored as a reported card is and put on top: newer cards are withdrawn
+        and the marketplaces get it once.
+        """
+        publisher = self._publisher()
+        endpoint, console = await self._report_console(tenant, slug)
+        built = _console_dict(
+            await console.raw(
+                "POST",
+                "/console/report",
+                # Both: the job is named whichever way the benchmark reads it.
+                # `record`: this card becomes the run's published baseline.
+                params={"job": job_id, "record": "true"},
+                body={"job": job_id, "record": True},
+            )
+        )
+        if built.get("job") != job_id:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"the benchmark built a card of run {built.get('job')!r} "
+                    f"instead of {job_id!r}"
+                ),
+            )
+        # Only the fields a published card has: the owner's extras
+        # (`score_label`, `trust.doubts`) are dropped here.
+        report = _parsed(ReportQualityRequest, built)
+        stored = await publisher.store_quality(endpoint, tenant, report)
+        if stored is None:
+            raise HTTPException(status_code=404, detail="Endpoint not found")
+        result = await publisher.publish_quality_card(slug, stored.id, tenant)
+        return {
+            "published": True,
+            "card_id": str(result.card_id),
+            "refused": [
+                item.model_dump(mode="json")
+                for item in result.results
+                if not item.success
+            ],
+        }
+
+    async def unpublish_run(
+        self, tenant: Tenant, slug: str, job_id: str
+    ) -> dict[str, Any]:
+        """Withdraw the published card, if it is this run's."""
+        publisher = self._publisher()
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        cards = await self._run_cards(tenant, endpoint)
+        if cards.standing_job != job_id:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This run is not the published one"
+                    if cards.standing_job
+                    else "No run of this endpoint is published"
+                ),
+            )
+        result = await publisher.retract_quality(slug, tenant)
+        return {
+            "published": False,
+            "refused": [
+                item.model_dump(mode="json")
+                for item in result.results
+                if not item.success
+            ],
+        }
+
+    async def _report_console(
+        self, tenant: Tenant, slug: str
+    ) -> tuple[Endpoint, BenchmarkClient]:
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        return endpoint, await self._console(connection, slug)
+
+    async def _run_cards(self, tenant: Tenant, endpoint: Endpoint) -> _RunCards:
+        rows = await self.endpoints.quality_card_jobs(endpoint.id, tenant.id)
+        return _RunCards.from_rows(rows)
+
+    def _publisher(self) -> PublishEndpointHandler:
+        if self.publisher is None:
+            raise HTTPException(
+                status_code=503, detail="Publishing is not available in this Space"
+            )
+        return self.publisher
 
     async def list_jobs(self, tenant: Tenant, slug: str) -> list[JobResponse]:
         endpoint = await self._endpoint_or_404(tenant, slug)

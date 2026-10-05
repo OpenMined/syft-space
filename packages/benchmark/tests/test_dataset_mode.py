@@ -97,6 +97,8 @@ class _Store:
 def _install(monkeypatch: Any, pairs: list[_Pair]) -> _Store:
     store = _Store(pairs)
     monkeypatch.setattr(rotation, "session_scope", store)
+    # No runs exist in the fake store, so there is no cache to drop.
+    monkeypatch.setattr(rotation, "invalidate_runs_with_pairs", lambda *_: None)
     return store
 
 

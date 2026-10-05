@@ -867,7 +867,7 @@
 
         <!-- Benchmark results Tab: what the runs found, and what is published -->
         <TabsContent value="results" class="space-y-4 pt-6 mt-0">
-          <BenchmarkResults :slug="routeSlug" />
+          <ResultsHome :slug="routeSlug" />
         </TabsContent>
       </Tabs>
     </div>
@@ -998,7 +998,8 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import BenchmarkResults from '@/components/BenchmarkResults.vue'
+import ResultsHome from '@/components/benchmark/report/ResultsHome.vue'
+import { RESULTS_TAB, withoutResultsQuery } from '@/components/benchmark/report/routing'
 import RunControl from '@/components/benchmark/RunControl.vue'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
@@ -1081,7 +1082,8 @@ watch(activeTab, (tab) => {
   if (tab === 'transactions') {
     fetchTransactions()
   }
-  const query = { ...route.query, tab: tab === 'overview' ? undefined : tab }
+  const kept = tab === RESULTS_TAB ? route.query : withoutResultsQuery(route.query)
+  const query = { ...kept, tab: tab === 'overview' ? undefined : tab }
   router.replace({ query })
 })
 

@@ -390,6 +390,41 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
             result = await session.exec(statement)
             return list(result.all())
 
+    async def quality_card_jobs(
+        self, endpoint_id: UUID, tenant_id: UUID
+    ) -> list[tuple[UUID, str, datetime | None]]:
+        """Every card's id, benchmark job and retraction, newest first.
+
+        In the order `get_current_quality` reads, so the first row with no
+        retraction is the standing card. The report itself is not loaded.
+
+        Args:
+            endpoint_id: Endpoint to read
+            tenant_id: Tenant owning it
+
+        Returns:
+            (card id, job id or "", retracted_at) per card
+        """
+        async with self.db.get_session() as session:
+            job = EndpointQualityCard.report["job"].as_string()  # type: ignore[index]
+            statement = (
+                select(
+                    EndpointQualityCard.id,
+                    job,
+                    EndpointQualityCard.retracted_at,
+                )
+                .where(
+                    EndpointQualityCard.endpoint_id == endpoint_id,
+                    EndpointQualityCard.tenant_id == tenant_id,
+                )
+                .order_by(
+                    desc(EndpointQualityCard.checked_at),
+                    desc(EndpointQualityCard.created_at),
+                )
+            )
+            result = await session.exec(statement)
+            return [(row[0], row[1] or "", row[2]) for row in result.all()]
+
     async def restore_quality_card(
         self, endpoint_id: UUID, tenant_id: UUID, card_id: UUID
     ) -> EndpointQualityCard | None:

@@ -52,7 +52,7 @@ export function useBenchmarkJobs(slug: string) {
  * pass at all — they have no notion of one — and then this is the phase
  * alone rather than nothing.
  */
-function runningDetail(job: BenchmarkJob): string {
+export function runningDetail(job: BenchmarkJob): string {
   const parts: string[] = []
   const phase = phaseWords(job.phase)
   if (phase) parts.push(phase)

@@ -26,6 +26,9 @@ TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 # much material is there. It walks the whole collection.
 CHECK_TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 
+# A generated document: built from a cached aggregate, but still a file.
+DOWNLOAD_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
+
 
 @dataclass
 class Reply:
@@ -35,6 +38,8 @@ class Reply:
     data: Any = None
     status: int = 0
     detail: str = ""
+    # Set only by `download`: the headers a file is passed on with.
+    headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def missing(self) -> bool:
@@ -232,6 +237,31 @@ class BenchmarkClient:
         clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
         suffix = f"?{urlencode(clean)}" if clean else ""
         return await self._call(method, f"{path}{suffix}", body=body)
+
+    async def download(
+        self, path: str, *, params: dict[str, Any] | None = None
+    ) -> Reply:
+        """A file from the console: bytes in `data`, type and name in `headers`."""
+        clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+        suffix = f"?{urlencode(clean)}" if clean else ""
+        url = f"{self.url}{path}{suffix}"
+        try:
+            async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT) as http:
+                resp = await http.get(url, headers=self._headers)
+        except httpx.HTTPError as exc:
+            logger.warning(f"benchmark {url}: {exc}")
+            return Reply(ok=False, detail=str(exc))
+        if resp.status_code >= 400:
+            return Reply(ok=False, status=resp.status_code, detail=_detail(resp))
+        kept = ("content-type", "content-disposition")
+        return Reply(
+            ok=True,
+            data=resp.content,
+            status=resp.status_code,
+            headers={
+                k.lower(): v for k, v in resp.headers.items() if k.lower() in kept
+            },
+        )
 
 
 def _detail(resp: httpx.Response) -> str:

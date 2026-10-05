@@ -5,12 +5,8 @@ owner reviewing the outcome needs instead — the actual question and answer,
 and a way to take a pair out of the set entirely rather than merely change its
 status.
 
-**Deletion is gated, not free.** A `QaPair` with no `Result` row pointing at
-it has no history to lose, and removing it outright is safe. One a `Run` has
-already measured is a different matter: `results.qa_id` cascades at the
-database level (`ondelete="CASCADE"`, not `RESTRICT`), so nothing there stops
-an ordinary delete from silently taking a measurement's history with it. This
-module is the one place a pair is ever deleted, and it checks first.
+**Deletion is gated, not free.** Only a pair that never took part in a run
+may be deleted; the guard is ``db.pair_guard.delete_pairs``.
 """
 
 from __future__ import annotations
@@ -19,11 +15,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete as sa_delete
 from sqlalchemy import exists, func, select
 
 from syft_benchmark.config import Settings, get_settings
 from syft_benchmark.db import QaPair, Result, session_scope
+from syft_benchmark.db.pair_guard import delete_pairs
 
 # A page any larger stops being something a person reviews and starts being
 # something a person scrolls past.
@@ -40,6 +36,7 @@ class PairView:
     cohort: str
     status: str
     status_note: str
+    status_reason: str | None
     question: str
     answer: str
     context: str
@@ -61,6 +58,7 @@ def _view(row: QaPair, *, has_results: bool) -> PairView:
         cohort=row.cohort,
         status=row.status,
         status_note=row.status_note,
+        status_reason=row.status_reason,
         question=row.question,
         answer=row.answer,
         context=row.context,
@@ -181,10 +179,4 @@ def delete_pair(
         row = session.get(QaPair, pair_id)
         if row is None or (target_key is not None and row.space != target_key):
             return "not_found"
-        has_results = session.execute(
-            select(exists().where(Result.qa_id == pair_id))
-        ).scalar_one()
-        if has_results:
-            return "has_results"
-        session.execute(sa_delete(QaPair).where(QaPair.id == pair_id))
-        return "deleted"
+        return "deleted" if delete_pairs(session, [pair_id]).deleted else "has_results"

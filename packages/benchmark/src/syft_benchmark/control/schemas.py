@@ -470,6 +470,10 @@ class PairResponse(BaseModel):
     cohort: str
     status: str
     status_note: str
+    status_reason: str | None = Field(
+        default=None,
+        description="Why the pair is not active, as a code; null while it is",
+    )
     question: str
     answer: str
     context: str
@@ -693,6 +697,30 @@ class VerdictOverride(BaseModel):
                 "an answer: it cannot be recorded by hand"
             )
         return value
+
+
+class ExclusionRequest(BaseModel):
+    """Leave one question out of one run's figures."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(default="", max_length=2000)
+    retire: bool = Field(
+        default=False, description="Also retire the pair so future runs skip it"
+    )
+
+
+class CardRequest(BaseModel):
+    """Which launch to build or publish the card of; none — the newest.
+
+    ``record``: keep the card on the job as its published one, the baseline of
+    ``card_outdated``. Publishing always records.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job: str | None = None
+    record: bool = False
 
 
 class JobView(BaseModel):

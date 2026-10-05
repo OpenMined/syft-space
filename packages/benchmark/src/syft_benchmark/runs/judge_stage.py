@@ -42,6 +42,7 @@ from syft_benchmark.config import (
     get_settings,
 )
 from syft_benchmark.db import QaPair, Result, Run, session_scope
+from syft_benchmark.db.run_cache import invalidate_run, invalidate_runs
 from syft_benchmark.llm import Provider, judge_providers
 from syft_benchmark.runs.judge import (
     grade,
@@ -242,108 +243,117 @@ def judge_pending(
 
     progress = Progress(total=len(tasks), label=f"{space.key}/judging", watch=watch)
     runs: dict[tuple[str, ...], str] = {}
-    for task in tasks:
-        if should_stop is not None and should_stop():
-            report.notes.append("judging was stopped at the owner's request")
-            break
+    try:
+        for task in tasks:
+            if should_stop is not None and should_stop():
+                report.notes.append("judging was stopped at the owner's request")
+                break
 
-        if task.grading == "behavior":
-            # A control question: no correct answer exists, and behaviour is
-            # read off the text alone — no model is called for it.
-            verdict = grade_behavior(task.answer)
-        elif task.grading == "key_facts":
-            verdict = grade_key_facts(
-                task.answer, task.key_facts, settings=conf, judge=seat
-            )
-        else:
-            verdict = grade(
-                task.question,
-                task.expected,
-                task.answer,
-                is_mcq=task.is_mcq,
-                settings=conf,
-                judge=seat,
-            )
+            if task.grading == "behavior":
+                # A control question: no correct answer exists, and behaviour is
+                # read off the text alone — no model is called for it.
+                verdict = grade_behavior(task.answer)
+            elif task.grading == "key_facts":
+                verdict = grade_key_facts(
+                    task.answer, task.key_facts, settings=conf, judge=seat
+                )
+            else:
+                verdict = grade(
+                    task.question,
+                    task.expected,
+                    task.answer,
+                    is_mcq=task.is_mcq,
+                    settings=conf,
+                    judge=seat,
+                )
 
-        key = (
-            str(task.run_row["context_mode"]),
-            str(task.run_row["context_source"]),
-            str(task.run_row["block"]),
-            str(task.run_row["model"]),
-        )
-        if key not in runs:
-            run_id = uuid.uuid4().hex
-            runs[key] = run_id
+            job_id = task.run_row["job_id"]
+            key = (
+                str(task.run_row["context_mode"]),
+                str(task.run_row["context_source"]),
+                str(task.run_row["block"]),
+                str(task.run_row["model"]),
+                str(job_id or ""),
+            )
+            if key not in runs:
+                run_id = uuid.uuid4().hex
+                runs[key] = run_id
+                with session_scope(conf) as session:
+                    session.add(
+                        Run(
+                            id=run_id,
+                            space=space.key,
+                            endpoint=str(task.run_row["endpoint"] or ""),
+                            context_mode=key[0],
+                            context_source=key[1],
+                            profile=str(task.run_row["profile"] or ""),
+                            params=dict(task.run_row["params"] or {}),
+                            block=key[2],
+                            model=key[3],
+                            model_vendor=str(task.run_row["model_vendor"] or ""),
+                            # The verdict belongs to the launch whose answer it grades.
+                            job_id=job_id,
+                            judge_model=seat.model,
+                            note="deferred judging",
+                        )
+                    )
+
+            audit = dict(task.result_row["audit"] or {})
+            if verdict.judge_system:
+                audit["judge_system"] = verdict.judge_system
+            if verdict.judge_user:
+                audit["judge_user"] = verdict.judge_user
+            if verdict.judge_raw:
+                audit["judge_raw"] = verdict.judge_raw
+
             with session_scope(conf) as session:
                 session.add(
-                    Run(
-                        id=run_id,
+                    Result(
+                        id=uuid.uuid4().hex,
+                        run_id=runs[key],
+                        qa_id=task.qa_id,
                         space=space.key,
-                        endpoint=str(task.run_row["endpoint"] or ""),
-                        context_mode=key[0],
-                        context_source=key[1],
-                        profile=str(task.run_row["profile"] or ""),
-                        params=dict(task.run_row["params"] or {}),
-                        block=key[2],
-                        model=key[3],
-                        model_vendor=str(task.run_row["model_vendor"] or ""),
+                        endpoint=str(task.result_row["endpoint"] or ""),
+                        endpoint_response_type=str(
+                            task.result_row["endpoint_response_type"] or ""
+                        ),
+                        answer=str(task.result_row["answer"] or ""),
+                        verdict=verdict.verdict.value,
+                        reasoning=verdict.reasoning,
+                        expected_behavior=str(
+                            task.result_row["expected_behavior"] or "answer"
+                        ),
+                        grounded=task.result_row["grounded"],
+                        grounded_note=str(task.result_row["grounded_note"] or ""),
+                        retrieval_hit=task.result_row["retrieval_hit"],
+                        retrieval_rank=task.result_row["retrieval_rank"],
+                        retrieved=task.result_row["retrieved"] or [],
+                        extra=dict(task.result_row["extra"] or {}),
+                        audit=audit,
+                        latency_s=0.0,
+                        model=str(task.result_row["model"] or ""),
+                        # The same answer, so the same upstream. Only the grader
+                        # changed.
+                        served_by=str(task.result_row["served_by"] or ""),
                         judge_model=seat.model,
-                        note="deferred judging",
+                        judge_served_by=verdict.served_by,
                     )
                 )
 
-        audit = dict(task.result_row["audit"] or {})
-        if verdict.judge_system:
-            audit["judge_system"] = verdict.judge_system
-        if verdict.judge_user:
-            audit["judge_user"] = verdict.judge_user
-        if verdict.judge_raw:
-            audit["judge_raw"] = verdict.judge_raw
-
-        with session_scope(conf) as session:
-            session.add(
-                Result(
-                    id=uuid.uuid4().hex,
-                    run_id=runs[key],
-                    qa_id=task.qa_id,
-                    space=space.key,
-                    endpoint=str(task.result_row["endpoint"] or ""),
-                    endpoint_response_type=str(
-                        task.result_row["endpoint_response_type"] or ""
-                    ),
-                    answer=str(task.result_row["answer"] or ""),
-                    verdict=verdict.verdict.value,
-                    reasoning=verdict.reasoning,
-                    expected_behavior=str(
-                        task.result_row["expected_behavior"] or "answer"
-                    ),
-                    grounded=task.result_row["grounded"],
-                    grounded_note=str(task.result_row["grounded_note"] or ""),
-                    retrieval_hit=task.result_row["retrieval_hit"],
-                    retrieval_rank=task.result_row["retrieval_rank"],
-                    retrieved=task.result_row["retrieved"] or [],
-                    extra=dict(task.result_row["extra"] or {}),
-                    audit=audit,
-                    latency_s=0.0,
-                    model=str(task.result_row["model"] or ""),
-                    # The same answer, so the same upstream. Only the grader
-                    # changed.
-                    served_by=str(task.result_row["served_by"] or ""),
-                    judge_model=seat.model,
-                    judge_served_by=verdict.served_by,
-                )
-            )
-
-        report.checked += 1
-        if verdict.failed:
-            report.failed += 1
-        elif verdict.verdict is Verdict.CORRECT:
-            report.correct += 1
-        elif verdict.verdict is Verdict.ABSTAIN:
-            report.abstain += 1
-        else:
-            report.hallucinate += 1
-        progress.step(failed=verdict.failed)
+            report.checked += 1
+            if verdict.failed:
+                report.failed += 1
+            elif verdict.verdict is Verdict.CORRECT:
+                report.correct += 1
+            elif verdict.verdict is Verdict.ABSTAIN:
+                report.abstain += 1
+            else:
+                report.hallucinate += 1
+            progress.step(failed=verdict.failed)
+    finally:
+        if runs:
+            with session_scope(conf) as session:
+                invalidate_runs(session, {key[4] for key in runs})
 
     logger.info(f"{space.key}: judging — {report.line()}")
     return report
@@ -456,6 +466,7 @@ def override_verdict(
                 judge_model=OWNER_OVERRIDE,
             )
         )
+        invalidate_run(session, run_row["job_id"])
     return new_id
 
 
@@ -499,8 +510,10 @@ def withdraw_override(
         session.delete(row)
         # The run was opened for this one verdict and holds nothing else.
         run = session.get(Run, run_id)
-        if run is not None and run.judge_model == OWNER_OVERRIDE:
-            session.delete(run)
+        if run is not None:
+            invalidate_run(session, run.job_id)
+            if run.judge_model == OWNER_OVERRIDE:
+                session.delete(run)
     return True
 
 

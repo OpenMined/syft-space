@@ -36,9 +36,11 @@ from syft_benchmark.control.compose import merge, settings_for
 from syft_benchmark.control.schemas import FilterRequest, JudgeRequest, RunRequest
 from syft_benchmark.db import store
 from syft_benchmark.db.models import Job, Run, Target
+from syft_benchmark.db.run_cache import invalidate_run
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation import filter_and_rotate
 from syft_benchmark.publish import payload_for, publish
+from syft_benchmark.report import run_view
 from syft_benchmark.report.card import build as build_card
 from syft_benchmark.runs import endpoint_retriever, judge_pending
 from syft_benchmark.runs.parallel import Progress
@@ -326,7 +328,11 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
                 job.finished_at = datetime.now(UTC)
                 return
             kind = job.kind or JobKind.PIPELINE.value
-            params = dict(job.params or {})
+            params = {
+                k: v
+                for k, v in (job.params or {}).items()
+                if k not in run_view.SNAPSHOT_KEYS
+            }
             job.state = JobState.RUNNING.value
             job.started_at = datetime.now(UTC)
             node_conf, space = settings_for(target, conf)
@@ -365,6 +371,7 @@ def _execute_pipeline(
     extra = [x for x in (request.instrument, request.probe) if x is not None]
     if extra:
         node_conf = merge(node_conf, *extra)
+    _snapshot_judging(job_id, node_conf, base_settings)
 
     # None means "yes" — the ordinary shape of a launch that measures. False
     # is for a launch that only wants the question set refreshed: the runs
@@ -452,6 +459,7 @@ def _execute_filter(
 ) -> None:
     """Screen this target's pending pairs on their own — no fresh generate."""
     request = FilterRequest.model_validate(params)
+    _snapshot_judging(job_id, node_conf, base_settings)
     reporter = Reporter(job_id, base_settings)
     reporter.phase(JobPhase.FILTER)
     outcome = filter_and_rotate(
@@ -478,6 +486,7 @@ def _execute_judge(
 ) -> None:
     """Grade this target's pending verdicts on their own — no fresh evaluate."""
     request = JudgeRequest.model_validate(params)
+    _snapshot_judging(job_id, node_conf, base_settings)
     reporter = Reporter(job_id, base_settings)
     reporter.phase(JobPhase.JUDGE)
     outcome = judge_pending(
@@ -490,6 +499,14 @@ def _execute_judge(
     reporter.phase(JobPhase.JUDGE, outcome.line())
     state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
     _finish(job_id, state, error="; ".join(outcome.notes), settings=base_settings)
+
+
+def _snapshot_judging(job_id: str, conf: Settings, settings: Settings) -> None:
+    """Keep the judge panel and policy the job runs with in its params."""
+    with session_scope(settings) as session:
+        job = session.get(Job, job_id)
+        if job is not None:
+            job.params = {**(job.params or {}), **run_view.judging_snapshot(conf)}
 
 
 def _finish(
@@ -519,10 +536,12 @@ def _finish(
         job.error = error
         job.card = card
         job.finished_at = datetime.now(UTC)
+        invalidate_run(session, job_id)
         # There is no separate "passed, but not whole" message here: it is
         # visible from the pair "state + a non-empty reason" itself, and a
         # phrase invented for it would be a third place where the same thing is
         # said differently.
+    run_view.warm(job_id, settings)
 
 
 def sweep(settings: Settings | None = None) -> int:

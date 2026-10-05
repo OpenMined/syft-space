@@ -698,6 +698,7 @@ benchmark_handler = BenchmarkHandler(
     dataset_repository=dataset_repository,
     dataset_registry=DATASET_TYPE_REGISTRY,
     settings_repository=settings_repository,
+    publish_handler=publish_endpoint_handler,
 )
 
 # Initialize ingestion manager and handler

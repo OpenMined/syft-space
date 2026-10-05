@@ -60,8 +60,15 @@ from datetime import UTC, datetime, timedelta
 from loguru import logger
 from sqlalchemy import select, update
 
-from syft_benchmark.config import DatasetMode, PairStatus, Settings, get_settings
+from syft_benchmark.config import (
+    DatasetMode,
+    PairStatus,
+    Settings,
+    StatusReason,
+    get_settings,
+)
 from syft_benchmark.db import QaPair, session_scope
+from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
 
 
 @dataclass(slots=True)
@@ -364,6 +371,7 @@ def rotate(
                 .values(
                     status=PairStatus.ACTIVE.value,
                     status_note="returned into the freshness window",
+                    status_reason=None,
                 )
             )
         if to_retire:
@@ -372,6 +380,7 @@ def rotate(
                 .where(QaPair.id.in_(to_retire))
                 .values(
                     status=PairStatus.RETIRED.value,
+                    status_reason=StatusReason.ROTATION.value,
                     status_note=(
                         f"cohort {cohort} replaced the previous one"
                         if cohort
@@ -382,6 +391,7 @@ def rotate(
                     ),
                 )
             )
+        invalidate_runs_with_pairs(session, [*to_activate, *to_retire])
 
     report.revived = len(to_activate)
     report.retired = len(to_retire)

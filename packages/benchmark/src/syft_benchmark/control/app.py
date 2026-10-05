@@ -37,7 +37,7 @@ from hmac import compare_digest
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -49,6 +49,7 @@ from syft_benchmark.config import (
     EvalBlock,
     JobKind,
     Settings,
+    SpaceConfig,
     TextMetric,
     get_settings,
     stored_fields,
@@ -61,6 +62,7 @@ from syft_benchmark.control.compose import settings_for
 from syft_benchmark.control.formfields import catalogue
 from syft_benchmark.control.schemas import (
     Capabilities,
+    CardRequest,
     FilterRequest,
     Instrument,
     JobView,
@@ -101,6 +103,8 @@ from syft_benchmark.llm.providers import ProviderKind, kind_for_url
 from syft_benchmark.publish import owner_payload_for, payload_for
 from syft_benchmark.publish import publish as publish_card
 from syft_benchmark.publish import retract as retract_card
+from syft_benchmark.report import run_view
+from syft_benchmark.report.card import Card
 from syft_benchmark.report.card import build as build_card
 from syft_benchmark.report.metrics import latest_measuring_job
 from syft_benchmark.runs import (
@@ -222,6 +226,17 @@ def console_session(
 
 
 ConsoleGuard = Annotated[ConsoleAuth, Depends(console_session)]
+
+
+def _record_card(settings: Settings, card: Card) -> None:
+    """Keep the card on its finished job as the published one: `card_outdated`
+    of the run is measured against it."""
+    if not card.job:
+        return
+    with session_scope(settings) as session:
+        built = session.get(Job, card.job)
+        if built is not None and built.state not in run_view.ACTIVE_STATES:
+            built.card = payload_for(card)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -677,6 +692,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         sent = publish_card(space, card)
         if not sent.ok:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, sent.detail)
+        _record_card(conf, card)
         return payload_for(card)
 
     @app.post("/targets/{key}/retract", status_code=status.HTTP_204_NO_CONTENT)
@@ -820,6 +836,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/console/pairs", response_model=PairPage)
     def console_list_pairs(
         auth: ConsoleGuard,
+        status_value: Annotated[str | None, Query(alias="status")] = None,
         status_filter: str | None = None,
         cohort: str | None = None,
         generator: str | None = None,
@@ -829,7 +846,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> PairPage:
         items, total = list_pairs(
             auth.target_key,
-            status=status_filter,
+            status=status_value or status_filter,
             cohort=cohort,
             generator=generator,
             job=job,
@@ -996,54 +1013,67 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             return [JobView.model_validate(row) for row in rows]
 
+    def _console_card(
+        auth: ConsoleAuth,
+        body: CardRequest | None,
+        job: str | None,
+    ) -> tuple[Card, SpaceConfig]:
+        """The card of the named launch, or of the newest one that asked a
+        question when none is named."""
+        wanted = (body.job if body is not None else None) or job
+        with session_scope(auth.settings) as session:
+            row = _console_target(session, auth)
+            node_conf, space = settings_for(row, auth.settings)
+            if wanted is not None:
+                owned = session.get(Job, wanted)
+                if owned is None or owned.target != auth.target_key:
+                    raise HTTPException(
+                        status.HTTP_404_NOT_FOUND, f"there is no job {wanted}"
+                    )
+        card = build_card(
+            space.key,
+            space.endpoint,
+            settings=node_conf,
+            # Judging or filtering since the newest measuring launch belongs
+            # to that same measurement, not to a new one.
+            job=wanted if wanted is not None else latest_measuring_job(space.key),
+        )
+        if card is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "there is nothing gradable yet to build a card from",
+            )
+        return card, space
+
     @app.post("/console/report")
-    def console_build_report(auth: ConsoleGuard) -> dict[str, Any]:
+    def console_build_report(
+        auth: ConsoleGuard,
+        body: CardRequest | None = None,
+        job: str | None = None,
+        record: bool = False,
+    ) -> dict[str, Any]:
         """The owner's own view of the card — see `owner_payload_for`.
 
         Not what `/console/publish` sends onward: this stays behind the
-        session token, on the owner's own console.
+        session token, on the owner's own console. `job` (body or query)
+        names the launch; without it, the newest one that measured.
+        `record` (body or query) keeps the card as the job's published one:
+        a caller that publishes it elsewhere sets it.
         """
-        with session_scope(auth.settings) as session:
-            row = _console_target(session, auth)
-            node_conf, space = settings_for(row, auth.settings)
-        card = build_card(
-            space.key,
-            space.endpoint,
-            settings=node_conf,
-            # A card is of one launch. Nobody names it here, so it is the
-            # newest one that asked a question: judging or filtering since
-            # then belongs to that same measurement, not to a new one.
-            job=latest_measuring_job(space.key),
-        )
-        if card is None:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "there is nothing gradable yet to build a card from",
-            )
+        card, _ = _console_card(auth, body, job)
+        if record or (body is not None and body.record):
+            _record_card(auth.settings, card)
         return owner_payload_for(card)
 
     @app.post("/console/publish")
-    def console_publish(auth: ConsoleGuard) -> dict[str, Any]:
-        with session_scope(auth.settings) as session:
-            row = _console_target(session, auth)
-            node_conf, space = settings_for(row, auth.settings)
-        card = build_card(
-            space.key,
-            space.endpoint,
-            settings=node_conf,
-            # A card is of one launch. Nobody names it here, so it is the
-            # newest one that asked a question: judging or filtering since
-            # then belongs to that same measurement, not to a new one.
-            job=latest_measuring_job(space.key),
-        )
-        if card is None:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "there is nothing gradable yet to build a card from",
-            )
+    def console_publish(
+        auth: ConsoleGuard, body: CardRequest | None = None, job: str | None = None
+    ) -> dict[str, Any]:
+        card, space = _console_card(auth, body, job)
         sent = publish_card(space, card)
         if not sent.ok:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, sent.detail)
+        _record_card(auth.settings, card)
         return payload_for(card)
 
     @app.post("/console/retract", status_code=status.HTTP_204_NO_CONTENT)
@@ -1054,6 +1084,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         outcome = retract_card(space)
         if not outcome.ok:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, outcome.detail)
+
+    # Imported here: the router module takes the console guard from this one.
+    from syft_benchmark.control.report_routes import router as report_router
+
+    app.include_router(report_router)
 
     return app
 

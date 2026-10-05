@@ -11,8 +11,10 @@ is visible.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 
@@ -524,49 +526,62 @@ def summarize(
 
 
 def _held_by_round(pressed: list[Result]) -> list[float]:
-    """The share of pressed answers still standing after each round.
+    """The share of pressed answers still standing after each round."""
+    if not pressed:
+        return []
+    denials = [r.extra["denial"] for r in pressed]
+    deepest = max(int(d.get("rounds") or 0) for d in denials)
+    return held_by_round(denials, deepest)
 
-    Round by round, first round first. An answer that was never given up
-    counts as standing at every round it was actually pushed through, and an
-    answer whose pressing stopped early — the judge did not answer, the
+
+def held_by_round(denials: Iterable[dict[str, Any]], limit: int) -> list[float]:
+    """The share of pressed answers still standing after each of ``limit`` rounds.
+
+    Round by round, first round first. An answer that gave in counts as fallen
+    from that round on. An answer that was never given up counts as standing
+    at every round it was actually pushed through, and an answer whose
+    pressing stopped early — the judge did not answer, the
     provider failed — stops counting rather than being recorded as a
     surrender: it was not one, and a run cut short must not read as an
     endpoint that folded.
 
     The denominator is therefore per round: how many answers were pushed that
-    far at all. A round nobody reached has no share and is left out.
+    far at all. A round nobody reached repeats the share before it.
     """
-    if not pressed:
-        return []
-
-    deepest = max(int(r.extra["denial"].get("rounds") or 0) for r in pressed)
+    rows = list(denials)
     shares: list[float] = []
-    for step in range(1, deepest + 1):
+    for step in range(1, limit + 1):
         reached = 0
         standing = 0
-        for row in pressed:
-            denial = row.extra["denial"]
+        for denial in rows:
             flip = denial.get("flip_round")
             rounds = int(denial.get("rounds") or 0)
             if flip:
-                # It was pushed to the round it gave in at, and no further.
-                if step > flip:
-                    continue
+                # Fallen from the round it gave in at onwards.
                 reached += 1
-                if step < flip:
+                if step < int(flip):
                     standing += 1
-            else:
-                if step > rounds:
-                    continue
+            elif step <= rounds:
                 reached += 1
                 standing += 1
         if reached:
             shares.append(round(standing / reached, 4))
+        elif shares:
+            shares.append(shares[-1])
     return shares
 
 
 def _accuracy_by_temperature(repeated: list[Result]) -> dict[str, float]:
-    """Accuracy at each temperature the repeats were asked at.
+    """Accuracy at each temperature the repeats were asked at."""
+    return accuracy_by_temperature(
+        row.extra["monte_carlo"].get("by_temperature") or {} for row in repeated
+    )
+
+
+def accuracy_by_temperature(
+    breakdowns: Iterable[dict[str, Any]],
+) -> dict[str, float]:
+    """Accuracy at each temperature, from each question's own breakdown.
 
     Averaged over the questions rather than over the answers: every question
     was asked the same number of times at each temperature, and weighting by
@@ -574,10 +589,8 @@ def _accuracy_by_temperature(repeated: list[Result]) -> dict[str, float]:
     louder.
     """
     totals: dict[str, list[float]] = {}
-    for row in repeated:
-        for temperature, share in (
-            row.extra["monte_carlo"].get("by_temperature") or {}
-        ).items():
+    for breakdown in breakdowns:
+        for temperature, share in breakdown.items():
             totals.setdefault(str(temperature), []).append(float(share))
     return {
         temperature: round(sum(shares) / len(shares), 4)

@@ -8,10 +8,18 @@ import type {
   BenchmarkPair,
   BenchmarkPairPage,
   BenchmarkPairStatus,
+  BenchmarkQuestionDetail,
+  BenchmarkQuestionPage,
+  BenchmarkQuestionQuery,
   BenchmarkReport,
+  BenchmarkReportFragment,
   BenchmarkResult,
   BenchmarkResultPage,
+  BenchmarkRunList,
+  BenchmarkRunPublishResponse,
+  BenchmarkRunReport,
   BenchmarkRunRequest,
+  BenchmarkRunStatusFilter,
   BenchmarkSession,
   BenchmarkSettingsRequest,
   BenchmarkTarget,
@@ -20,6 +28,20 @@ import type {
   ProviderResponse,
   ProviderUrls,
 } from '../types'
+
+function reportPath(slug: string, jobId?: string): string {
+  const base = `/benchmarks/endpoints/${slug}/report/runs`
+  return jobId ? `${base}/${jobId}` : base
+}
+
+/** The file name from a `Content-Disposition` header, if it carries one. */
+export function dispositionFileName(header: unknown): string | null {
+  if (typeof header !== 'string') return null
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (star?.[1]) return decodeURIComponent(star[1])
+  const plain = /filename="?([^";]+)"?/i.exec(header)
+  return plain?.[1] ?? null
+}
 
 export const benchmarksApi = {
   // --- connections ---------------------------------------------------------
@@ -266,6 +288,103 @@ export const benchmarksApi = {
   // filtering, execution, judging and the report, all in one place.
   openConsoleSession: async (slug: string): Promise<BenchmarkSession> => {
     const response = await apiClient.post(`/benchmarks/endpoints/${slug}/session`)
+    return response.data
+  },
+
+  // --- results: one run's report, served aggregated --------------------------
+
+  listReportRuns: async (
+    slug: string,
+    params: {
+      from?: string
+      to?: string
+      status?: BenchmarkRunStatusFilter
+      limit?: number
+      offset?: number
+    } = {},
+  ): Promise<BenchmarkRunList> => {
+    const response = await apiClient.get(reportPath(slug), { params })
+    return response.data
+  },
+
+  getRunReport: async (slug: string, jobId: string): Promise<BenchmarkRunReport> => {
+    const response = await apiClient.get(reportPath(slug, jobId))
+    return response.data
+  },
+
+  listRunQuestions: async (
+    slug: string,
+    jobId: string,
+    params: BenchmarkQuestionQuery,
+  ): Promise<BenchmarkQuestionPage> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/questions`, { params })
+    return response.data
+  },
+
+  getRunQuestion: async (
+    slug: string,
+    jobId: string,
+    qaId: string,
+    model: string,
+  ): Promise<BenchmarkQuestionDetail> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/questions/${qaId}`, {
+      params: { model },
+    })
+    return response.data
+  },
+
+  listQuestionFragments: async (
+    slug: string,
+    jobId: string,
+    qaId: string,
+    model: string,
+  ): Promise<BenchmarkReportFragment[]> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/questions/${qaId}/fragments`, {
+      params: { model },
+    })
+    return response.data
+  },
+
+  excludeQuestion: async (
+    slug: string,
+    jobId: string,
+    qaId: string,
+    body: { reason: string; retire: boolean },
+  ): Promise<BenchmarkQuestionDetail> => {
+    const response = await apiClient.put(
+      `${reportPath(slug, jobId)}/questions/${qaId}/exclusion`,
+      body,
+    )
+    return response.data
+  },
+
+  restoreQuestion: async (slug: string, jobId: string, qaId: string): Promise<void> => {
+    await apiClient.delete(`${reportPath(slug, jobId)}/questions/${qaId}/exclusion`)
+  },
+
+  // Fetched as a blob: the route needs the bearer token, which a plain link cannot carry.
+  downloadRunSummary: async (
+    slug: string,
+    jobId: string,
+  ): Promise<{ blob: Blob; fileName: string | null }> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/summary.docx`, {
+      responseType: 'blob',
+    })
+    return {
+      blob: response.data,
+      fileName: dispositionFileName(response.headers?.['content-disposition']),
+    }
+  },
+
+  /** Publishes the card of that run, whatever its age. */
+  publishRun: async (slug: string, jobId: string): Promise<BenchmarkRunPublishResponse> => {
+    const response = await apiClient.post(`${reportPath(slug, jobId)}/publish`)
+    return response.data
+  },
+
+  /** 409 when this run is not the published one. */
+  unpublishRun: async (slug: string, jobId: string): Promise<BenchmarkRunPublishResponse> => {
+    const response = await apiClient.post(`${reportPath(slug, jobId)}/unpublish`)
     return response.data
   },
 }

@@ -199,18 +199,46 @@ class PublishEndpointHandler:
         # the owner is free to switch response_type between runs. Say so rather
         # than refusing: the card describes what was measured, and a stale kind
         # is information, not a fault.
-        if not self._kind_matches(endpoint, report.kind):
-            logger.info(
-                f"Benchmark reports '{report.kind}' for {slug}, which now "
-                f"serves '{endpoint.response_type}' - storing as reported"
-            )
-
-        card = report.model_dump(mode="json")
-
         # Local first. A marketplace may be down, and the run that produced
         # these figures may have taken hours - losing them to a network blip
         # would be the expensive kind of mistake.
-        stored = await self.endpoint_repository.record_quality(
+        stored = await self.store_quality(endpoint, tenant, report)
+
+        results: list[QualityMarketplaceResult] = []
+        if stored is None:
+            # The endpoint was deleted between the check above and this write
+            # - nothing to publish under a name that no longer exists.
+            logger.info(f"Endpoint '{slug}' vanished before its card could be stored")
+        else:
+            payload: dict[str, Any] = {
+                "slug": endpoint.slug,
+                **report.model_dump(mode="json"),
+            }
+            for marketplace in await self._marketplaces_for(endpoint, tenant):
+                results.append(await self._push_quality(marketplace, payload))
+
+        return ReportQualityResponse(
+            endpoint_slug=slug, stored=stored is not None, results=results
+        )
+
+    async def store_quality(
+        self, endpoint: Endpoint, tenant: Tenant, report: ReportQualityRequest
+    ) -> EndpointQualityCard | None:
+        """Record a card locally, without publishing it anywhere.
+
+        Returns:
+            The stored card, or None if the endpoint is gone
+        """
+        # A benchmark may measure an endpoint in a mode it no longer serves -
+        # the owner is free to switch response_type between runs. Say so rather
+        # than refusing: the card describes what was measured, and a stale kind
+        # is information, not a fault.
+        if not self._kind_matches(endpoint, report.kind):
+            logger.info(
+                f"Benchmark reports '{report.kind}' for {endpoint.slug}, which "
+                f"now serves '{endpoint.response_type}' - storing as reported"
+            )
+        return await self.endpoint_repository.record_quality(
             endpoint.id,
             tenant.id,
             kind=report.kind,
@@ -219,21 +247,7 @@ class PublishEndpointHandler:
             samples=report.samples,
             reliable=report.reliable,
             checked_at=report.checked_at,
-            report=card,
-        )
-
-        results: list[QualityMarketplaceResult] = []
-        if stored is None:
-            # The endpoint was deleted between the check above and this write
-            # - nothing to publish under a name that no longer exists.
-            logger.info(f"Endpoint '{slug}' vanished before its card could be stored")
-        else:
-            payload: dict[str, Any] = {"slug": endpoint.slug, **card}
-            for marketplace in await self._marketplaces_for(endpoint, tenant):
-                results.append(await self._push_quality(marketplace, payload))
-
-        return ReportQualityResponse(
-            endpoint_slug=slug, stored=stored is not None, results=results
+            report=report.model_dump(mode="json"),
         )
 
     async def get_quality(self, slug: str, tenant: Tenant) -> EndpointQualityResponse:

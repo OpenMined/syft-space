@@ -1369,3 +1369,247 @@ export interface BenchmarkSession {
   url: string
   expires_at: string
 }
+
+// --- Benchmark results: the per-run report ------------------------------------
+
+/** A queued or running job, as the runs list shows it. */
+export interface BenchmarkRunProgress {
+  job_id: string
+  state: 'queued' | 'running'
+  trigger: string
+  kind: string
+  phase: string
+  block: string
+  model: string
+  step_done: number
+  step_total: number
+  done: number
+  total: number
+  message: string
+  created_at: string | null
+  started_at: string | null
+}
+
+/** One model's figures in a run. Rates are 0..1; lift is in points, −100..100. */
+export interface BenchmarkModelFigures {
+  model: string
+  asked: number
+  graded_alone: number
+  graded_with: number
+  right_alone: number
+  right_with: number
+  rate_alone: number | null
+  rate_with: number | null
+  lift: number | null
+  made_up_alone: number | null
+  made_up_with: number | null
+  pending: number
+  technical: number
+}
+
+/** A finished run. Lifts are in points. */
+export interface BenchmarkRunSummary {
+  job_id: string
+  created_at: string | null
+  finished_at: string | null
+  trigger: string
+  window_days: number | null
+  articles: number | null
+  questions: number | null
+  models: BenchmarkModelFigures[]
+  lift_lo: number | null
+  lift_hi: number | null
+  /** The published card differs from the live figures. */
+  card_outdated: boolean
+  published: boolean
+  card_id: string | null
+}
+
+export type BenchmarkRunStatusFilter = 'all' | 'published' | 'private'
+
+export interface BenchmarkRunList {
+  /** Every queued or running job; never paged or filtered. */
+  in_progress: BenchmarkRunProgress[]
+  items: BenchmarkRunSummary[]
+  total: number
+}
+
+export interface BenchmarkTally {
+  correct: number
+  abstain: number
+  hallucinate: number
+  pending: number
+  technical: number
+  graded: number
+}
+
+export type BenchmarkQuestionGroup = 'fixed' | 'either' | 'still' | 'worse'
+
+export interface BenchmarkKindFigures {
+  generator: string
+  asked: number
+  graded_alone: number
+  graded_with: number
+  right_alone: number
+  right_with: number
+  rate_alone: number | null
+  rate_with: number | null
+  lift: number | null
+}
+
+export interface BenchmarkRunChecks {
+  challenged: number
+  denial_limit: number | null
+  /** Length `denial_limit`; element k is the share still right after round k + 1. */
+  held_by_round: number[]
+  kept_right: number | null
+  repeated: number
+  same_answer: number | null
+  by_temperature: { t: number; accuracy: number }[]
+  trick_asked: number
+  trick_answered: number
+  /** The trick check for the model on its own; null when not measured. */
+  trick_alone_asked: number | null
+  trick_alone_answered: number | null
+  searched: number
+  search_found: number | null
+  missed: number
+  answers: number
+  judges_agreed: number
+  agreement: number | null
+}
+
+export interface BenchmarkModelReport extends BenchmarkModelFigures {
+  tally: { alone: BenchmarkTally; with: BenchmarkTally }
+  /** Sorted by lift, highest first. */
+  kinds: BenchmarkKindFigures[]
+  groups: Record<BenchmarkQuestionGroup, number>
+  checks: BenchmarkRunChecks
+}
+
+export interface BenchmarkRunFunnel {
+  /** Null when the run reused earlier questions. */
+  written: number | null
+  removed: Record<string, number>
+  removed_total: number | null
+  asked: number
+  trick: number
+}
+
+export interface BenchmarkRunMethod {
+  articles_from: string | null
+  articles_to: string | null
+  generator_model: string | null
+  kinds: string[]
+  trick: number
+  context_docs: number | null
+  judges: string[]
+  profile: string | null
+  next_run_at: string | null
+}
+
+export interface BenchmarkRunReport {
+  run: BenchmarkRunSummary
+  funnel: BenchmarkRunFunnel
+  models: BenchmarkModelReport[]
+  /** Primary first. */
+  judges: string[]
+  method: BenchmarkRunMethod
+}
+
+export interface BenchmarkQuestionRow {
+  n: number
+  qa_id: string
+  generator: string
+  document_title: string
+  file_name: string
+  question: string
+  gold_answer: string
+  status: string
+  verdict_alone: BenchmarkVerdict | null
+  verdict_with: BenchmarkVerdict | null
+  group: BenchmarkQuestionGroup | null
+  overridden: boolean
+  excluded: boolean
+}
+
+export type BenchmarkExcludedFilter = 'include' | 'only' | 'hide'
+
+export interface BenchmarkQuestionQuery {
+  model: string
+  group?: BenchmarkQuestionGroup
+  generator?: string
+  q?: string
+  excluded?: BenchmarkExcludedFilter
+  limit?: number
+  offset?: number
+}
+
+export interface BenchmarkQuestionPage {
+  items: BenchmarkQuestionRow[]
+  total: number
+  /** Respect `generator`, `q` and `excluded`, not `group`. */
+  counts: { all: number } & Record<BenchmarkQuestionGroup, number>
+}
+
+export interface BenchmarkVerdictOverride {
+  id: string
+  verdict: BenchmarkVerdict
+  reasoning: string
+  created_at: string
+}
+
+export interface BenchmarkArmDetail {
+  answer: string
+  verdict: BenchmarkVerdict
+  reasoning: string
+  /** The row to post an override against. */
+  result_id: string
+  override: BenchmarkVerdictOverride | null
+  retrieval: { hit: boolean | null; rank: number | null; context_docs: number | null } | null
+  denial: { rounds: number; flipped: boolean; flip_round: number | null; limit: number } | null
+  repeats: {
+    trials: number
+    right: number
+    consistency: number
+    by_temperature: Record<string, number>
+  } | null
+}
+
+export interface BenchmarkQuestionJudge {
+  model: string
+  primary: boolean
+  alone: BenchmarkVerdict | null
+  with: BenchmarkVerdict | null
+}
+
+export interface BenchmarkQuestionExclusion {
+  reason: string
+  created_at: string
+}
+
+export interface BenchmarkQuestionDetail {
+  question: BenchmarkQuestionRow
+  /** The gold source paragraph. */
+  context: string
+  arms: { alone: BenchmarkArmDetail | null; with: BenchmarkArmDetail | null }
+  judges: BenchmarkQuestionJudge[]
+  judges_agreed: boolean | null
+  exclusion: BenchmarkQuestionExclusion | null
+}
+
+/** A passage sent with the with-data answer. */
+export interface BenchmarkReportFragment {
+  file_name: string
+  document_title: string
+  score: number
+  content: string
+  is_source: boolean
+}
+
+export interface BenchmarkRunPublishResponse {
+  published: boolean
+  card_id?: string | null
+  /** Marketplaces that did not accept the change. */
+  refused: QualityMarketplaceResult[]
+}

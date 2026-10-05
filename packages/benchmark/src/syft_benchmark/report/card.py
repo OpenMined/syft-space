@@ -366,7 +366,14 @@ def _model_rows(
 
     Named and separate — because an average over them would measure our config
     rather than the node, and would change when a tenth model was added.
+
+    A card of a named launch takes them from ``run_view``, the one source of
+    a run's figures, so the card and the run report never disagree.
     """
+    if job:
+        from_run = _run_model_rows(job, settings)
+        if from_run is not None:
+            return from_run
     rows: list[ModelRow] = []
     for name in models_seen(
         space, ContextMode.MODEL_WITH_CONTEXT, EvalBlock.DIRECT, job
@@ -403,6 +410,27 @@ def _model_rows(
                 ),
             )
         )
+    rows.sort(key=lambda row: (-row.accuracy, row.model))
+    return rows
+
+
+def _run_model_rows(job: str, settings: Settings) -> list[ModelRow] | None:
+    """The model rows of one launch, from its live aggregate; None — no such job."""
+    from syft_benchmark.db import Job, session_scope
+    from syft_benchmark.report import run_view
+
+    with session_scope(settings) as session:
+        row = session.get(Job, job)
+        if row is None:
+            return None
+        report = run_view.report_part(
+            session, row, configured=run_view.configured_panel(settings)
+        )
+    rows = [
+        ModelRow(**{**run_view.card_models(model), "accuracy": model["rate_with"]})
+        for model in report["models"]
+        if model["graded_with"]
+    ]
     rows.sort(key=lambda row: (-row.accuracy, row.model))
     return rows
 
@@ -644,15 +672,33 @@ def _dataset(space: str, settings: Settings) -> DatasetInfo:
     )
 
 
+def _job_primary(job: str, settings: Settings) -> str | None:
+    """The launch's own primary judge, fixed once — see ``run_view.primary_judge``."""
+    from syft_benchmark.db import Job, session_scope
+    from syft_benchmark.report import run_view
+
+    with session_scope(settings) as session:
+        row = session.get(Job, job)
+        if row is None:
+            return None
+        return run_view.primary_judge(
+            session, row, configured=run_view.configured_panel(settings)
+        )
+
+
 def _instrument(
     space: str, mode: ContextMode, settings: Settings, job: str | None = None
 ) -> Instrument:
     """What it was measured with — so the storefront compares only the comparable."""
     panel = [j for j in judges_seen(space, mode, EvalBlock.DIRECT, job) if j]
+    primary = _job_primary(job, settings) if job else None
+    if primary is None:
+        configured = settings.judge_models or [settings.judge_model]
+        primary = next((j for j in configured if j in panel), None)
     return Instrument(
         version=CARD_VERSION,
         profile=settings.methodology_profile,
-        judge=panel[0] if panel else settings.judge_model,
+        judge=primary or (panel[0] if panel else settings.judge_model),
         judges=len(panel),
         subjects=len(
             [

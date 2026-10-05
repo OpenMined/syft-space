@@ -45,13 +45,23 @@ from typing import Any, cast
 from loguru import logger
 from sqlalchemy import CursorResult, select, update
 
-from syft_benchmark.config import PairStatus, Settings, SpaceConfig, get_settings
+from syft_benchmark.config import (
+    PairStatus,
+    Settings,
+    SpaceConfig,
+    StatusReason,
+    get_settings,
+)
 from syft_benchmark.db import QaPair, session_scope
+from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
 from syft_benchmark.generation.control import Retriever, gate_unanswerable
 from syft_benchmark.generation.generators import GENERATORS, Generator
 from syft_benchmark.generation.rotation import RotationReport
 from syft_benchmark.generation.validate import review_answer, review_claims
 from syft_benchmark.llm import Provider, judge_providers
+
+# Statuses that carry no status_reason.
+_IN_PLAY = frozenset({PairStatus.PENDING, PairStatus.ACTIVE})
 
 
 @dataclass(slots=True)
@@ -84,8 +94,8 @@ def _screen_pair(
     gate: Retriever | None,
     conf: Settings,
     judge: Provider | None,
-) -> tuple[PairStatus, str, dict[str, Any]]:
-    """The verdict on one pending pair, and what to fold into its ``meta``.
+) -> tuple[PairStatus, StatusReason | None, str, dict[str, Any]]:
+    """The verdict on one pending pair, why, and what to fold into its ``meta``.
 
     Reads the persisted ``context``/``meta`` rather than a fresh candidate's
     fragment and claims — see the module docstring for why.
@@ -97,8 +107,9 @@ def _screen_pair(
             if claims
             else review_answer(row.answer, row.context, conf)
         )
-        status = PairStatus.ACTIVE if verdict.grounded else PairStatus.REJECTED
-        return status, verdict.note, {}
+        if verdict.grounded:
+            return PairStatus.ACTIVE, None, verdict.note, {}
+        return PairStatus.REJECTED, StatusReason.GROUNDING, verdict.note, {}
 
     if gate is None:
         # An unchecked negative is an unfounded accusation of fabrication, same
@@ -106,14 +117,15 @@ def _screen_pair(
         # forever, and it stays material for tuning the prompt.
         return (
             PairStatus.REJECTED,
+            StatusReason.RETRIEVAL_GATE,
             "control question not checked: retrieval is unavailable",
             {"gate": "not checked"},
         )
 
     outcome = gate_unanswerable(row.question, gate, settings=conf, judge=judge)
-    status = PairStatus.ACTIVE if outcome.clear else PairStatus.REJECTED
     return (
-        status,
+        PairStatus.ACTIVE if outcome.clear else PairStatus.REJECTED,
+        None if outcome.clear else StatusReason.RETRIEVAL_GATE,
         outcome.note,
         {
             "gate": outcome.note,
@@ -182,10 +194,11 @@ def filter_pending(
             # The generator that made this pair no longer exists: there is
             # nothing left to re-check it against.
             status: PairStatus = PairStatus.REJECTED
+            reason: StatusReason | None = StatusReason.OTHER
             note: str = f"generator {row.generator!r} is no longer known"
             meta: dict[str, Any] = {}
         else:
-            status, note, meta = _screen_pair(row, spec, retrieve, conf, judge)
+            status, reason, note, meta = _screen_pair(row, spec, retrieve, conf, judge)
 
         with session_scope(conf) as session:
             session.execute(
@@ -194,9 +207,11 @@ def filter_pending(
                 .values(
                     status=status.value,
                     status_note=note,
+                    status_reason=reason.value if reason else None,
                     meta={**row.meta, **meta},
                 )
             )
+            invalidate_runs_with_pairs(session, [row.id])
 
         report.checked += 1
         if status is PairStatus.ACTIVE:
@@ -224,6 +239,8 @@ def override_status(
     rejection too strict, or an active pair not good enough, and this is the
     one place that can say so regardless of the pair's current status.
 
+    A non-active status is recorded with the reason ``owner``.
+
     Args:
         pair_id: The pair to change
         status: The status to set
@@ -241,8 +258,16 @@ def override_status(
         query = update(QaPair).where(QaPair.id == pair_id)
         if target_key is not None:
             query = query.where(QaPair.space == target_key)
+        reason = None if status in _IN_PLAY else StatusReason.OWNER.value
         result = cast(
             "CursorResult[Any]",
-            session.execute(query.values(status=status.value, status_note=note)),
+            session.execute(
+                query.values(
+                    status=status.value, status_note=note, status_reason=reason
+                )
+            ),
         )
-        return result.rowcount > 0
+        if result.rowcount == 0:
+            return False
+        invalidate_runs_with_pairs(session, [pair_id])
+        return True

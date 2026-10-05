@@ -198,6 +198,22 @@ class PairStatus(StrEnum):
     RETIRED = "retired"
 
 
+class StatusReason(StrEnum):
+    """Why a pair is not active, as a code (``qa_pairs.status_reason``)."""
+
+    GROUNDING = "grounding"
+    RETRIEVAL_GATE = "retrieval_gate"
+    # No row is stored for a duplicate (the unique index refuses it); the code
+    # exists for the report's funnel.
+    DUPLICATE = "duplicate"
+    OWNER = "owner"
+    # Taken out by the freshness window, a newer cohort or the set cap.
+    ROTATION = "rotation"
+    # Reserved for the web check, which does not exist yet.
+    WEB_ANSWERABLE = "web_answerable"
+    OTHER = "other"
+
+
 class JobState(StrEnum):
     """The state of a job launched from outside.
 
