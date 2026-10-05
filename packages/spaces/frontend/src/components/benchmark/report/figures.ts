@@ -43,6 +43,12 @@ function parse(iso: string | null | undefined): Date | null {
 
 const two = (n: number) => String(n).padStart(2, '0')
 
+/** `30 Sep 2026`, in the reader's time zone. */
+export function day(iso: string | null | undefined): string | null {
+  const d = parse(iso)
+  return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : null
+}
+
 /** `30 Sep 2026, 06:00`, in the reader's time zone. */
 export function dayTime(iso: string | null | undefined): string {
   const d = parse(iso)

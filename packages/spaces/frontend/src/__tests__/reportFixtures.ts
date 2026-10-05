@@ -152,6 +152,8 @@ export function runReport(extra: Partial<BenchmarkRunReport> = {}): BenchmarkRun
       judges: [],
       profile: null,
       next_run_at: null,
+      denial_rounds: null,
+      repeats: null,
     },
     ...extra,
   }

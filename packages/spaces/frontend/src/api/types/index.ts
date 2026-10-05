@@ -1481,7 +1481,7 @@ export interface BenchmarkRunChecks {
 
 export interface BenchmarkModelReport extends BenchmarkModelFigures {
   tally: { alone: BenchmarkTally; with: BenchmarkTally }
-  /** Sorted by lift, highest first. */
+  /** In generator registry order. */
   kinds: BenchmarkKindFigures[]
   groups: Record<BenchmarkQuestionGroup, number>
   checks: BenchmarkRunChecks
@@ -1506,6 +1506,10 @@ export interface BenchmarkRunMethod {
   judges: string[]
   profile: string | null
   next_run_at: string | null
+  /** The challenge limit per right answer; null when the block did not run. */
+  denial_rounds: number | null
+  /** Repeats per temperature and the temperatures, ascending; null when the block did not run. */
+  repeats: { trials: number; temperatures: number[] } | null
 }
 
 export interface BenchmarkRunReport {
@@ -1581,6 +1585,9 @@ export interface BenchmarkQuestionJudge {
   primary: boolean
   alone: BenchmarkVerdict | null
   with: BenchmarkVerdict | null
+  /** Absent from servers that predate per-judge reasoning. */
+  alone_reasoning?: string | null
+  with_reasoning?: string | null
 }
 
 export interface BenchmarkQuestionExclusion {

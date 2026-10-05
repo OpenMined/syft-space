@@ -17,10 +17,6 @@ export interface RunContext {
   model: ComputedRef<string | null>
   /** The selected model's figures. */
   modelReport: ComputedRef<BenchmarkModelReport | null>
-  selectModel: (model: string) => void
-  /** The kind of question the questions list is filtered to; null for all. */
-  kind: Ref<string | null>
-  setKind: (kind: string | null) => void
   reload: () => Promise<void>
 }
 

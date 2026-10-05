@@ -1,10 +1,11 @@
 <template>
   <BenchmarkResults v-if="view.kind === 'technical'" :slug="slug" />
   <RunReport
-    v-else-if="view.kind === 'report'"
+    v-else-if="view.kind === 'run'"
     :key="view.jobId"
     :slug="slug"
     :job-id="view.jobId"
+    :screen="view.screen"
     :model-id="view.modelId"
   />
   <RunsList v-else :slug="slug" />

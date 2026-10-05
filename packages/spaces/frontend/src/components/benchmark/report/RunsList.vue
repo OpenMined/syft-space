@@ -1,7 +1,7 @@
 <template>
   <section class="space-y-5" aria-labelledby="runs-title">
     <div class="space-y-1">
-      <h2 id="runs-title" class="heading-3">Benchmark runs</h2>
+      <h1 id="runs-title" class="heading-3">Benchmark runs</h1>
       <p v-if="schedule" class="text-sm text-muted-foreground" data-testid="schedule">
         {{ schedule }}
       </p>
@@ -73,7 +73,7 @@
             data-testid="run-in-progress"
           >
             <td class="px-4 py-3 align-top">
-              <div class="font-medium tabular-nums">{{ dayTime(utcStamp(run.created_at)) }}</div>
+              <div class="font-semibold tabular-nums">{{ dayTime(utcStamp(run.created_at)) }}</div>
               <div
                 v-if="progressShare(run) !== null"
                 class="mt-2 h-1 w-full max-w-48 overflow-hidden rounded-full bg-muted"
@@ -113,8 +113,8 @@
           >
             <td class="px-4 py-3">
               <RouterLink
-                :to="runReportLocation(run.job_id)"
-                class="font-medium tabular-nums hover:underline focus-visible:underline"
+                :to="runLocation(run.job_id)"
+                class="font-semibold tabular-nums hover:underline focus-visible:underline"
                 @click.stop
               >
                 {{ dayTime(utcStamp(run.created_at)) }}
@@ -179,7 +179,7 @@
     </div>
 
     <div
-      v-if="report.total.value > RUNS_PAGE"
+      v-if="report.total.value > 0"
       class="flex flex-wrap items-center justify-between gap-3 text-sm"
       data-testid="pager"
     >
@@ -228,7 +228,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useReport } from './context'
 import { count, DASH, dayTime, pointsRange, scheduleText } from './figures'
-import { runReportLocation } from './routing'
+import { runLocation } from './routing'
 import { progressShare, progressText, utcStamp } from './selectors'
 import { RUNS_PAGE } from './useRunReport'
 
@@ -265,6 +265,6 @@ function rangeStyle(lo: number, hi: number): Record<string, string> {
 }
 
 function open(jobId: string): void {
-  void router.push(runReportLocation(jobId))
+  void router.push(runLocation(jobId))
 }
 </script>

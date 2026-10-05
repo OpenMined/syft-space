@@ -51,7 +51,7 @@ describe('RunsList', () => {
     const wrapper = mountList(report)
 
     const live = wrapper.get('[data-testid="run-in-progress"]')
-    expect(live.text()).toContain('question 3 of 12')
+    expect(live.text()).toContain('Step 3 of 12')
     expect(live.text()).toContain('Results when the run finishes')
     expect(live.text()).toContain('Running')
     expect(live.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('25')
@@ -99,6 +99,13 @@ describe('RunsList', () => {
     expect(wrapper.get('[data-testid="runs-empty"]').text()).toContain(
       'No runs match these filters',
     )
+  })
+
+  it('always shows the count of runs, with paging disabled on one page', () => {
+    const wrapper = mountList(fakeReport([runSummary('a'), runSummary('b')]))
+    const pager = wrapper.get('[data-testid="pager"]')
+    expect(pager.text()).toContain('Showing 1–2 of 2 runs')
+    expect(pager.findAll('button').every((b) => b.attributes('disabled') !== undefined)).toBe(true)
   })
 
   it('pages finished runs on the server', async () => {

@@ -39,13 +39,24 @@ export function kindDescription(generator: string): string {
 export const VERDICT_LABEL: Record<string, string> = {
   correct: 'Right',
   abstain: 'Didn’t know',
-  hallucinate: 'Made it up',
+  hallucinate: 'Hallucinated',
   pending: 'Not graded yet',
   technical: 'Not measured',
 }
 
 export function verdictLabel(verdict: string): string {
   return VERDICT_LABEL[verdict] ?? verdict
+}
+
+const VERDICT_TONE: Record<string, string> = {
+  correct: 'border-transparent bg-primary/10 text-primary',
+  abstain: 'border-transparent bg-muted text-muted-foreground',
+  hallucinate: 'border-transparent bg-warning/20 text-foreground',
+}
+
+/** Badge classes for a verdict pill. */
+export function verdictTone(verdict: string): string {
+  return VERDICT_TONE[verdict] ?? 'border-transparent bg-muted text-muted-foreground'
 }
 
 export const GROUP_LABEL: Record<Group, string> = {

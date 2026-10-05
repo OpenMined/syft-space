@@ -55,7 +55,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 3
+AGGREGATE_VERSION = 4
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -416,6 +416,9 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
             Run.profile,
             Run.params["context_docs"],
             Run.params["denial_rounds"],
+            Run.block,
+            Run.params["monte_carlo_trials"],
+            Run.params["monte_carlo_temperatures"],
         )
         .where(Run.job_id == job.id, Run.judge_model != OWNER_OVERRIDE)
         .distinct()
@@ -472,12 +475,12 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
             blocks[(model, block)].append(counted)
 
     denial_limit_param = max(
-        (int(d) for *_, d in run_params if isinstance(d, int)), default=None
+        (int(p[3]) for p in run_params if isinstance(p[3], int)), default=None
     )
     context_docs = max(
-        (int(c) for _, _, c, _ in run_params if isinstance(c, int)), default=None
+        (int(p[2]) for p in run_params if isinstance(p[2], int)), default=None
     )
-    profile = next((p for _, p, _, _ in run_params if p), None)
+    profile = next((p[1] for p in run_params if p[1]), None)
 
     reports: list[dict[str, Any]] = []
     for model in models:
@@ -587,6 +590,8 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
         "judges": judges,
         "profile": profile,
         "next_run_at": None,
+        "denial_rounds": _denial_rounds(rows, run_params),
+        "repeats": _repeats(rows, run_params),
     }
 
     titles = {qa: title for qa, _, title, _, _ in pairs}
@@ -620,6 +625,54 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
         "method": method,
         "questions": index,
     }
+
+
+def _denial_rounds(rows: Sequence[_Row], run_params: Sequence[Any]) -> int | None:
+    """The challenge limit of the run's denial_loop block; None — it did not run."""
+    seen = [
+        int(r.denial.get("limit") or 0)
+        for r in rows
+        if r.block == EvalBlock.DENIAL_LOOP.value and r.denial
+    ]
+    if max(seen, default=0):
+        return max(seen)
+    params = [
+        int(p[3])
+        for p in run_params
+        if p[4] == EvalBlock.DENIAL_LOOP.value and isinstance(p[3], int)
+    ]
+    return max(params, default=None)
+
+
+def _repeats(rows: Sequence[_Row], run_params: Sequence[Any]) -> dict[str, Any] | None:
+    """Repeats per temperature and the temperatures of the run's monte_carlo
+    block; None — it did not run."""
+    mc = [p for p in run_params if p[4] == EvalBlock.MONTE_CARLO.value]
+    trials = max((int(p[5]) for p in mc if isinstance(p[5], int)), default=0)
+    temps = {
+        float(t)
+        for p in mc
+        if isinstance(p[6], list)
+        for t in p[6]
+        if isinstance(t, int | float)
+    }
+    if trials and temps:
+        return {"trials": trials, "temperatures": sorted(temps)}
+    seen = [
+        r.repeats
+        for r in rows
+        if r.block == EvalBlock.MONTE_CARLO.value
+        and r.repeats
+        and r.repeats.get("trials")
+    ]
+    if not seen:
+        return None
+    by_temp = [m.get("by_temperature") or {} for m in seen]
+    temps = {float(t) for bt in by_temp if isinstance(bt, dict) for t in bt}
+    if not temps:
+        return None
+    per_temp = max(-(-int(m["trials"]) // len(temps)) for m in seen)
+    return {"trials": per_temp, "temperatures": sorted(temps)}
 
 
 def _figures(

@@ -239,17 +239,20 @@ def _judges(
     rows: list[tuple[Result, Run]], judges: Sequence[str]
 ) -> tuple[list[dict[str, Any]], bool | None]:
     latest: dict[tuple[str, str], str] = {}
+    reasoning: dict[tuple[str, str], str | None] = {}
     for result, run in rows:
         if run.block == EvalBlock.DIRECT.value and result.judge_model in judges:
-            latest[(result.judge_model, ARM_OF[run.context_mode])] = (
-                run_view.verdict_of(result.verdict, result.answer)
-            )
+            key = (result.judge_model, ARM_OF[run.context_mode])
+            latest[key] = run_view.verdict_of(result.verdict, result.answer)
+            reasoning[key] = result.reasoning or None
     out = [
         {
             "model": judge,
             "primary": n == 0,
             "alone": latest.get((judge, ALONE)),
             "with": latest.get((judge, WITH)),
+            "alone_reasoning": reasoning.get((judge, ALONE)),
+            "with_reasoning": reasoning.get((judge, WITH)),
         }
         for n, judge in enumerate(judges)
     ]

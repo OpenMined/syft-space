@@ -1,37 +1,22 @@
 <template>
-  <div class="space-y-8">
-    <ReportRunBar v-bind="sectionProps" />
-    <template v-if="!running">
+  <div class="space-y-6">
+    <ReportCrumbs :crumbs="crumbs" />
+    <Alert v-if="running" data-testid="run-running">
+      <AlertDescription
+        >This run is still in progress. Results appear here when it finishes.</AlertDescription
+      >
+    </Alert>
+    <template v-else>
       <Alert v-if="error" variant="destructive" data-testid="run-error">
         <AlertDescription class="flex flex-wrap items-center justify-between gap-3">
           <span>{{ error }}</span>
           <Button variant="outline" size="sm" @click="reload">Try again</Button>
         </AlertDescription>
       </Alert>
-      <div v-if="data" class="space-y-8">
-        <ReportSummary v-bind="sectionProps" />
-        <ReportModels v-bind="sectionProps" />
-        <div class="grid grid-cols-1 gap-8 *:min-w-0 lg:grid-cols-2">
-          <ReportAnswered v-bind="sectionProps" />
-          <ReportKinds v-bind="sectionProps" />
-        </div>
-        <ReportChecks v-bind="sectionProps" />
-        <ReportQuestions v-bind="sectionProps" />
-        <ReportMethod v-bind="sectionProps" />
-        <RouterLink
-          :to="technicalLocation()"
-          class="inline-block text-sm text-primary underline-offset-4 hover:underline"
-          data-testid="technical-link"
-        >
-          Full technical breakdown for researchers
-        </RouterLink>
-      </div>
+      <component :is="SCREENS[screen]" v-if="data" />
       <div v-else-if="!error" class="space-y-4" aria-busy="true" data-testid="run-loading">
         <span class="sr-only">Loading this run</span>
-        <Skeleton class="h-6 w-40" />
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Skeleton v-for="n in 4" :key="n" class="h-24" />
-        </div>
+        <Skeleton class="h-6 w-60" />
         <Skeleton class="h-48" />
       </div>
     </template>
@@ -39,28 +24,41 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, shallowRef, watch, type Component } from 'vue'
+import type { RouteLocationRaw } from 'vue-router'
 import type { BenchmarkRunReport } from '@/api/types'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { apiErrorDetail } from '@/lib/errors'
-import ReportAnswered from './ReportAnswered.vue'
-import ReportChecks from './ReportChecks.vue'
-import ReportKinds from './ReportKinds.vue'
-import ReportMethod from './ReportMethod.vue'
-import ReportModels from './ReportModels.vue'
-import ReportQuestions from './ReportQuestions.vue'
-import ReportRunBar from './ReportRunBar.vue'
-import ReportSummary from './ReportSummary.vue'
+import ChecksPage from './ChecksPage.vue'
+import ModelPage from './ModelPage.vue'
+import QuestionsPage from './QuestionsPage.vue'
+import ReportCrumbs from './ReportCrumbs.vue'
+import RunMethodPage from './RunMethodPage.vue'
+import RunSummaryPage from './RunSummaryPage.vue'
 import { provideRun, useReport } from './context'
-import { runReportLocation, technicalLocation } from './routing'
+import { day as dayOf } from './figures'
+import { modelName } from './labels'
+import { utcStamp } from './selectors'
+import { modelLocation, runLocation, runsListLocation, type RunScreen } from './routing'
 
-const props = defineProps<{ slug: string; jobId: string; modelId: string | null }>()
+const props = defineProps<{
+  slug: string
+  jobId: string
+  screen: RunScreen
+  modelId: string | null
+}>()
+
+const SCREENS: Record<RunScreen, Component> = {
+  run: RunSummaryPage,
+  method: RunMethodPage,
+  model: ModelPage,
+  questions: QuestionsPage,
+  checks: ChecksPage,
+}
 
 const report = useReport()
-const router = useRouter()
 const data = shallowRef<BenchmarkRunReport | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -82,22 +80,8 @@ async function reload(): Promise<void> {
 
 watch([() => report.revision.value, running], reload, { immediate: true })
 
-const model = computed(() => {
-  const models = data.value?.models.map((m) => m.model) ?? []
-  if (props.modelId && models.includes(props.modelId)) return props.modelId
-  return models[0] ?? props.modelId
-})
-
+const model = computed(() => props.modelId)
 const modelReport = computed(() => data.value?.models.find((m) => m.model === model.value) ?? null)
-
-function selectModel(id: string): void {
-  void router.replace(runReportLocation(props.jobId, id))
-}
-
-const kind = ref<string | null>(null)
-function setKind(k: string | null): void {
-  kind.value = k
-}
 
 provideRun({
   jobId: props.jobId,
@@ -107,15 +91,28 @@ provideRun({
   running,
   model,
   modelReport,
-  selectModel,
-  kind,
-  setKind,
   reload,
 })
 
-const sectionProps = computed(() => ({
-  slug: props.slug,
-  jobId: props.jobId,
-  modelId: model.value,
-}))
+const SCREEN_TITLE: Partial<Record<RunScreen, string>> = {
+  method: 'How this was tested',
+  questions: 'Every question and answer',
+  checks: 'Reliability checks',
+}
+
+const crumbs = computed(() => {
+  const created =
+    data.value?.run.created_at ??
+    report.runs.value.find((r) => r.job_id === props.jobId)?.created_at
+  const day = dayOf(utcStamp(created))
+  const list: { label: string; to?: RouteLocationRaw }[] = [
+    { label: 'Benchmark runs', to: runsListLocation() },
+    { label: day ? `Run of ${day}` : 'Run', to: runLocation(props.jobId) },
+  ]
+  if (props.modelId)
+    list.push({ label: modelName(props.modelId), to: modelLocation(props.jobId, props.modelId) })
+  const title = SCREEN_TITLE[props.screen]
+  if (title) list.push({ label: title })
+  return list
+})
 </script>

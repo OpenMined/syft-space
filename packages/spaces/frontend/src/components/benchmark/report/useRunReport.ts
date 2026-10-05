@@ -22,7 +22,6 @@ import type {
   BenchmarkRunStatusFilter,
   BenchmarkRunSummary,
   BenchmarkTarget,
-  BenchmarkVerdict,
   QualityMarketplaceResult,
 } from '@/api/types'
 
@@ -241,49 +240,9 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     return { refused: result?.refused ?? [] }
   }
 
-  /** Fails with the server's reason when this run is not the published one. */
-  async function unpublish(jobId: string): Promise<PublishOutcome> {
-    const result = await benchmarksApi.unpublishRun(toValue(slug), jobId)
-    changed(jobId)
-    return { refused: result?.refused ?? [] }
-  }
-
   async function downloadSummary(jobId: string): Promise<void> {
     const { blob, fileName } = await benchmarksApi.downloadRunSummary(toValue(slug), jobId)
     saveBlob(blob, fileName ?? `${toValue(slug)}-${jobId}.docx`)
-  }
-
-  /** Set the verdict of one answer by hand; `resultId` is the arm's `result_id`. */
-  async function overrideVerdict(
-    jobId: string,
-    resultId: string,
-    verdict: BenchmarkVerdict,
-    reasoning = '',
-  ): Promise<void> {
-    await benchmarksApi.overrideVerdict(toValue(slug), resultId, verdict, reasoning)
-    changed(jobId)
-  }
-
-  /** Remove an override; `overrideId` is the arm's `override.id`. */
-  async function withdrawOverride(jobId: string, overrideId: string): Promise<void> {
-    await benchmarksApi.withdrawVerdict(toValue(slug), overrideId)
-    changed(jobId)
-  }
-
-  /** Leave a question out of this run's figures; `retire` also skips it in future runs. */
-  async function excludeQuestion(
-    jobId: string,
-    qaId: string,
-    reason: string,
-    retire: boolean,
-  ): Promise<void> {
-    await benchmarksApi.excludeQuestion(toValue(slug), jobId, qaId, { reason, retire })
-    changed(jobId)
-  }
-
-  async function restoreQuestion(jobId: string, qaId: string): Promise<void> {
-    await benchmarksApi.restoreQuestion(toValue(slug), jobId, qaId)
-    changed(jobId)
   }
 
   return {
@@ -306,12 +265,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     loadQuestion,
     loadFragments,
     publish,
-    unpublish,
     downloadSummary,
-    overrideVerdict,
-    withdrawOverride,
-    excludeQuestion,
-    restoreQuestion,
   }
 }
 

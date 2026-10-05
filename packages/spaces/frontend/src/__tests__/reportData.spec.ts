@@ -16,13 +16,8 @@ vi.mock('@/api/endpoints/benchmarks', async (importOriginal) => ({
     listRunQuestions: vi.fn(),
     getRunQuestion: vi.fn(),
     listQuestionFragments: vi.fn(),
-    excludeQuestion: vi.fn(),
-    restoreQuestion: vi.fn(),
     downloadRunSummary: vi.fn(),
     publishRun: vi.fn(),
-    unpublishRun: vi.fn(),
-    overrideVerdict: vi.fn(),
-    withdrawVerdict: vi.fn(),
   },
 }))
 
@@ -52,7 +47,7 @@ describe('labels and formatting', () => {
   it('uses the customer verdict wording', () => {
     expect(verdictLabel('correct')).toBe('Right')
     expect(verdictLabel('abstain')).toBe('Didn’t know')
-    expect(verdictLabel('hallucinate')).toBe('Made it up')
+    expect(verdictLabel('hallucinate')).toBe('Hallucinated')
   })
 
   it('derives model and vendor names from ids', () => {
@@ -88,7 +83,7 @@ describe('labels and formatting', () => {
   it('describes an in-progress run', () => {
     expect(progressText(progress('q', { state: 'queued' }))).toBe('Queued')
     expect(progressText(progress('r', { phase: 'evaluate', step_done: 3, step_total: 10 }))).toBe(
-      'Execute · question 3 of 10',
+      'Step 3 of 10',
     )
   })
 
@@ -168,43 +163,29 @@ describe('useRunReport', () => {
     scope.stop()
   })
 
-  it('caches a run’s report until an action invalidates it', async () => {
+  it('caches a run’s report until publishing invalidates it', async () => {
     api.getRunReport.mockResolvedValue(runReport())
-    api.excludeQuestion.mockResolvedValue({} as never)
+    api.publishRun.mockResolvedValue({ published: true, card_id: 'c1', refused: [] })
     const { report, scope } = start()
     await report.loadReport('j1')
     await report.loadReport('j1')
     expect(api.getRunReport).toHaveBeenCalledTimes(1)
-
-    await report.excludeQuestion('j1', 'q1', 'Ambiguous', true)
-    expect(api.excludeQuestion).toHaveBeenCalledWith('s', 'j1', 'q1', {
-      reason: 'Ambiguous',
-      retire: true,
-    })
+    await report.publish('j1')
     await report.loadReport('j1')
     expect(api.getRunReport).toHaveBeenCalledTimes(2)
-
-    await report.restoreQuestion('j1', 'q1')
-    expect(api.restoreQuestion).toHaveBeenCalledWith('s', 'j1', 'q1')
     scope.stop()
   })
 
-  it('caches question details and refetches them after a verdict change', async () => {
+  it('caches question details', async () => {
     api.getRunQuestion.mockResolvedValue({} as never)
     const { report, scope } = start()
     await report.loadQuestion('j1', 'q1', 'm')
     await report.loadQuestion('j1', 'q1', 'm')
     expect(api.getRunQuestion).toHaveBeenCalledTimes(1)
-    await report.overrideVerdict('j1', 'r1', 'abstain', 'why')
-    expect(api.overrideVerdict).toHaveBeenCalledWith('s', 'r1', 'abstain', 'why')
-    await report.loadQuestion('j1', 'q1', 'm')
-    expect(api.getRunQuestion).toHaveBeenCalledTimes(2)
-    await report.withdrawOverride('j1', 'ov1')
-    expect(api.withdrawVerdict).toHaveBeenCalledWith('s', 'ov1')
     scope.stop()
   })
 
-  it('publishes and unpublishes a run by job, returning refusals', async () => {
+  it('publishes a run by job, returning refusals', async () => {
     const refused = [
       {
         marketplace_id: 'm',
@@ -215,12 +196,9 @@ describe('useRunReport', () => {
       },
     ]
     api.publishRun.mockResolvedValue({ published: true, card_id: 'c1', refused })
-    api.unpublishRun.mockResolvedValue({ published: false, refused: [] })
     const { report, scope } = start()
     await expect(report.publish('j1')).resolves.toEqual({ refused })
     expect(api.publishRun).toHaveBeenCalledWith('s', 'j1')
-    await expect(report.unpublish('j1')).resolves.toEqual({ refused: [] })
-    expect(api.unpublishRun).toHaveBeenCalledWith('s', 'j1')
     scope.stop()
   })
 

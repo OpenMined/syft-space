@@ -10,7 +10,7 @@ vi.mock('vue-router', () => ({ useRoute: () => route }))
 function stub(name: string) {
   return defineComponent({
     name,
-    props: ['slug', 'jobId', 'modelId'],
+    props: ['slug', 'jobId', 'screen', 'modelId'],
     setup: (props) => () => h('div', { 'data-view': name }, JSON.stringify({ ...props })),
   })
 }
@@ -40,7 +40,7 @@ describe('ResultsHome', () => {
     await wrapper.vm.$nextTick()
     expect(shown(wrapper)).toEqual({
       name: 'RunReport',
-      props: { slug: 'ep', jobId: 'j1', modelId: 'm1' },
+      props: { slug: 'ep', jobId: 'j1', screen: 'model', modelId: 'm1' },
     })
 
     route.query = { tab: 'results', job: 'j1' }

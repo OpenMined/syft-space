@@ -129,6 +129,8 @@ class Seed:
         hit: bool | None = None,
         rank: int | None = None,
         retrieved: list[dict[str, Any]] | None = None,
+        reasoning: str = "",
+        params: dict[str, Any] | None = None,
     ) -> str:
         self.n += 1
         self.clock += timedelta(seconds=1)
@@ -144,7 +146,11 @@ class Seed:
                 block=block,
                 model=model,
                 judge_model=judge,
-                params={"context_docs": 2, "denial_rounds": 3},
+                params=(
+                    params
+                    if params is not None
+                    else {"context_docs": 2, "denial_rounds": 3}
+                ),
             )
         )
         self.rows.append(
@@ -156,6 +162,7 @@ class Seed:
                 answer=answer,
                 endpoint_response_type=self.response_type,
                 verdict=verdict,
+                reasoning=reasoning,
                 judge_model=judge,
                 model=model,
                 retrieval_hit=hit,
@@ -536,6 +543,108 @@ def test_checks_from_the_extra_blocks(client: TestClient, clean: Any) -> None:
         "context_docs": 2,
     }
     assert detail["arms"]["alone"] is None
+
+
+def test_each_judge_carries_its_reasoning(client: TestClient, clean: Any) -> None:
+    auth = _console(client)
+    seed = Seed()
+    seed.pair("q1")
+    seed.answer("q1", M1, "alone", "correct", judge=J1, reasoning="old")
+    seed.answer("q1", M1, "alone", "abstain", judge=J1, reasoning="J1 alone")
+    seed.answer("q1", M1, "with", "correct", judge=J1, reasoning="J1 with")
+    seed.answer("q1", M1, "alone", "correct", judge=J2, reasoning="J2 alone")
+    seed.answer(
+        "q1", M1, "with", "correct", judge=J2, block="denial_loop", reasoning="no"
+    )
+    seed.save()
+
+    detail = client.get(
+        f"/console/report/runs/{JOB}/questions/q1", params={"model": M1}, headers=auth
+    ).json()
+    j1, j2 = detail["judges"]
+    assert (j1["alone"], j1["alone_reasoning"]) == ("abstain", "J1 alone")
+    assert j1["with_reasoning"] == "J1 with"
+    assert j2["alone_reasoning"] == "J2 alone"
+    assert (j2["with"], j2["with_reasoning"]) == (None, None)
+
+
+def test_method_reports_denial_rounds_and_repeats(
+    client: TestClient, clean: Any
+) -> None:
+    auth = _console(client)
+    plain = Seed("rv-plain")
+    plain.pair("p1")
+    plain.answer("p1", M1, "with", "correct")
+    plain.save()
+    method = _report(client, auth, "rv-plain")["method"]
+    assert method["denial_rounds"] is None and method["repeats"] is None
+
+    # The limit seen in the answers wins over the snapshot; the repeats come
+    # from the snapshot of the monte_carlo runs.
+    seed = Seed()
+    seed.pair("q1")
+    seed.answer("q1", M1, "with", "correct")
+    seed.answer(
+        "q1",
+        M1,
+        "with",
+        "correct",
+        block="denial_loop",
+        extra={"denial": {"rounds": 5, "flipped": False, "limit": 5}},
+    )
+    seed.answer(
+        "q1",
+        M1,
+        "with",
+        "correct",
+        block="monte_carlo",
+        params={
+            "denial_rounds": 3,
+            "monte_carlo_trials": 2,
+            "monte_carlo_temperatures": [0.7, 0.0, 1],
+        },
+        extra={"monte_carlo": {"trials": 5, "by_temperature": {"0.0": 1.0}}},
+    )
+    seed.save()
+    method = _report(client, auth)["method"]
+    assert method["denial_rounds"] == 5
+    assert method["repeats"] == {"trials": 2, "temperatures": [0.0, 0.7, 1.0]}
+
+
+def test_method_falls_back_when_one_source_is_missing(
+    client: TestClient, clean: Any
+) -> None:
+    auth = _console(client)
+    seed = Seed()
+    seed.pair("q1")
+    seed.answer("q1", M1, "with", "correct")
+    seed.answer(
+        "q1",
+        M1,
+        "with",
+        "correct",
+        block="denial_loop",
+        params={"denial_rounds": 4},
+        extra={"denial": {"rounds": 1, "flipped": True, "flip_round": 1}},
+    )
+    seed.answer(
+        "q1",
+        M1,
+        "with",
+        "correct",
+        block="monte_carlo",
+        params={},
+        extra={
+            "monte_carlo": {
+                "trials": 5,
+                "by_temperature": {"0.2": 1.0, "0.8": 0.5},
+            }
+        },
+    )
+    seed.save()
+    method = _report(client, auth)["method"]
+    assert method["denial_rounds"] == 4
+    assert method["repeats"] == {"trials": 3, "temperatures": [0.2, 0.8]}
 
 
 def test_fragments_mark_the_source(client: TestClient, clean: Any) -> None:
