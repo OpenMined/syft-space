@@ -193,6 +193,11 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
                 "Removed by quality checks",
                 _count(funnel["removed_total"]) + (f" ({removed})" if removed else ""),
             ],
+            *(
+                [["Not asked: web check pending", _count(funnel["unchecked"])]]
+                if funnel.get("unchecked")
+                else []
+            ),
             ["Questions asked", str(funnel["asked"])],
             ["Trick questions", str(funnel["trick"])],
             ["Questions written by", method["generator_model"] or "—"],

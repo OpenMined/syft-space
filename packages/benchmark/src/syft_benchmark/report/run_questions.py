@@ -232,6 +232,9 @@ def _arm(
         ),
         "denial": _denial(block_extra(EvalBlock.DENIAL_LOOP.value)),
         "repeats": _repeats(block_extra(EvalBlock.MONTE_CARLO.value)),
+        # Web search evidence of the counted answer; empty where it did not search.
+        "citations": list((counted.audit or {}).get("citations") or []),
+        "web_search_unused": bool((counted.audit or {}).get("web_search_unused")),
     }
 
 

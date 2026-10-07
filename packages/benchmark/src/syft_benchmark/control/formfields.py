@@ -26,7 +26,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from syft_benchmark.config import Settings, stored_fields
+from syft_benchmark.config import (
+    MEASURED_ARMS,
+    JudgePolicy,
+    Settings,
+    stored_fields,
+)
 from syft_benchmark.control.schemas import Instrument, Probe
 from syft_benchmark.llm.catalog import MODEL_FIELDS
 
@@ -35,6 +40,7 @@ ARMS = "arms"
 MODELS = "models"
 JUDGING = "judging"
 DATASET = "dataset"
+FILTER = "filter"
 ENDPOINT = "endpoint"
 RUN = "run"
 PROVIDERS = "providers"
@@ -57,6 +63,17 @@ GROUPS: dict[str, str] = {
     "subject_models": MODELS,
     "judge_model": MODELS,
     "judge_models": MODELS,
+    "filter_model": FILTER,
+    "filter_judge_model": FILTER,
+    "manual_status_priority": FILTER,
+    # Web search sits where its role is set: the tested model with the arms,
+    # the question writer with the dataset, the judges with judging.
+    "web_search_engine": ARMS,
+    "web_search_closed_book": ARMS,
+    "web_search_with_context": ARMS,
+    "web_search_max_results": ARMS,
+    "web_search_generator": DATASET,
+    "web_search_judge": JUDGING,
     "judge_policy": JUDGING,
     "key_facts_threshold": JUDGING,
     "answer_coverage_threshold": JUDGING,
@@ -116,6 +133,13 @@ GROUPS: dict[str, str] = {
 # other side instead is the coupling ``/schema`` exists to prevent.
 CATALOGUES: dict[str, str] = dict.fromkeys(MODEL_FIELDS, "models")
 
+# Values a field still accepts but the form no longer offers: a stored row may
+# carry them, a new choice may not.
+OFFERED: dict[str, list[str]] = {
+    "arms": [arm.value for arm in MEASURED_ARMS],
+    "judge_policy": [JudgePolicy.STRICT.value, JudgePolicy.WARN.value],
+}
+
 
 def _unwrap(schema: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
     """Strip ``anyOf`` with null and unwrap a reference to an enum.
@@ -164,6 +188,8 @@ def describe(model: type[BaseModel]) -> list[dict[str, Any]]:
             field["item_type"] = item.get("type", "string")
             if "enum" in item:
                 field["choices"] = item["enum"]
+        if name in OFFERED and "choices" in field:
+            field["choices"] = list(OFFERED[name])
         out.append(field)
     return out
 
@@ -187,7 +213,17 @@ def installation_fields() -> list[dict[str, Any]]:
 def catalogue() -> dict[str, Any]:
     """All three layers at once — one request for the whole settings form."""
     return {
-        "groups": [ARMS, MODELS, JUDGING, DATASET, ENDPOINT, RUN, PROVIDERS, INDEX],
+        "groups": [
+            ARMS,
+            MODELS,
+            FILTER,
+            JUDGING,
+            DATASET,
+            ENDPOINT,
+            RUN,
+            PROVIDERS,
+            INDEX,
+        ],
         "installation": installation_fields(),
         "instrument": describe(Instrument),
         "probe": describe(Probe),

@@ -78,7 +78,8 @@ export function jobStateWords(job: BenchmarkJob | undefined): string {
       return job.message || detail || 'Running'
     }
     case 'succeeded':
-      return job.error ? `Done, with notes: ${job.error}` : 'Done'
+      if (job.error) return `Done, with notes: ${job.error}`
+      return job.message ? `Done · ${job.message}` : 'Done'
     case 'failed':
       return `Failed: ${job.error || 'no details given'}`
     case 'cancelled':

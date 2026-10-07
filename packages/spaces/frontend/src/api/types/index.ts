@@ -853,6 +853,16 @@ export interface LedgerEntryPage {
 
 export type BenchmarkLayer = Record<string, unknown>
 
+/** The instrument keys the Benchmark tab writes by name. */
+export type BenchmarkInstrumentLayer = BenchmarkLayer & {
+  /** Web check model (step 3). Unset means no web check. */
+  filter_model?: string | null
+  /** Who settles a question returned by hand: the web check, or the user. */
+  manual_status_priority?: 'filter' | 'manual'
+  /** Model calls in flight at once, 1..64. */
+  concurrency?: number
+}
+
 export interface BenchmarkField {
   name: string
   type: string
@@ -885,12 +895,22 @@ export interface BenchmarkModel {
   max_output_tokens: number | null
   input_modalities: string[]
   supports: string[]
+  /** Built-in search ("native"), the OpenRouter web plugin, or none. Absent on older servers. */
+  web_search?: BenchmarkWebSearch
   pricing: Record<string, string | null>
   retires_on: string | null
   routes: Record<string, string>
   aliases: Record<string, string>
   source: string
   local: boolean
+}
+
+export type BenchmarkWebSearch = 'native' | 'plugin' | 'none'
+
+/** A page the model cited for an answer it searched the web for. */
+export interface BenchmarkCitation {
+  url: string
+  title?: string | null
 }
 
 export interface BenchmarkModelCatalog {
@@ -1081,6 +1101,15 @@ export interface ProviderUrls {
   judge_url: string
 }
 
+/** Articles in the time window, counted by the benchmark's generation rule. */
+export interface BenchmarkWindow {
+  /** Articles in the window, undated ones included (generation keeps them). */
+  count: number
+  undated: number
+  total: number
+  window_days: number
+}
+
 export interface BenchmarkCheck {
   ok: boolean
   corpus: boolean
@@ -1267,6 +1296,10 @@ export interface BenchmarkResult {
    */
   prompts?: BenchmarkPrompts | null
   fragments?: BenchmarkFragment[] | null
+  /** Pages cited by an answer given with web search. */
+  citations?: BenchmarkCitation[] | null
+  /** Asked to search the web and cited nothing. */
+  web_search_unused?: boolean | null
 }
 
 export interface BenchmarkResultPage {
@@ -1578,6 +1611,10 @@ export interface BenchmarkArmDetail {
     consistency: number
     by_temperature: Record<string, number>
   } | null
+  /** Pages cited by an answer given with web search. */
+  citations?: BenchmarkCitation[] | null
+  /** Asked to search the web and cited nothing. */
+  web_search_unused?: boolean | null
 }
 
 export interface BenchmarkQuestionJudge {

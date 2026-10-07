@@ -25,7 +25,7 @@ import json
 import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -68,6 +68,9 @@ class Chunk:
     text: str
     file_name: str
     headings: str
+    # Dates the Space wrote into the chunk metadata (ISO strings, "" when absent).
+    published: str = ""
+    added_at: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,22 +83,35 @@ class Document:
     source: str
     file_name: str
     chunks: list[Chunk]
-    # The dates from the ETL header. Needed by the freshness window: the corpus
-    # grows while the interest is usually in the latest, and without dates "take
-    # the documents from the last week" is unexecutable.
+    # Publication date: the ETL header's published_date, else the Space
+    # source's "published". A date without a time names its whole day.
     published_at: datetime | None = None
+    published_whole_day: bool = False
+    # When the file was added to the Space (see load_documents for the source).
+    added_at: datetime | None = None
+    # The ETL header's ingested_at: when the scraper fetched the page.
     ingested_at: datetime | None = None
 
     @property
     def dated_at(self) -> datetime | None:
-        """The date by which the document counts as fresh.
+        """The date the time window reads; see article_date."""
+        return article_date(self)
 
-        Publication matters more than ingestion: an interest in freshness is an
-        interest in when the material came into the world, not in when our ETL
-        picked it up. Reindexing the corpus shifts ingestion for everything at
-        once and would thereby zero out any window.
-        """
-        return self.published_at or self.ingested_at
+
+def article_date(doc: Document) -> datetime | None:
+    """The single rule for "is this article in the time window".
+
+    The article's date is its publication date; without one, the time its file
+    was added to the Space; the ETL scrape time only when neither is known.
+    A publication date without a time stands for the whole day (UTC), so the
+    day's last moment is returned: the article is in the window when any
+    moment of that day is.
+    """
+    if doc.published_at is not None:
+        if doc.published_whole_day:
+            return doc.published_at + timedelta(days=1) - timedelta(microseconds=1)
+        return doc.published_at
+    return doc.added_at or doc.ingested_at
 
 
 class ChromaClient:
@@ -227,6 +243,8 @@ class ChromaClient:
                     text=(documents[i] if i < len(documents) else "") or "",
                     file_name=str(meta.get("file_name") or ""),
                     headings=str(meta.get("headings") or ""),
+                    published=str(meta.get("published") or ""),
+                    added_at=_added_at(meta),
                 )
             if len(ids) < _PAGE:
                 return
@@ -252,6 +270,8 @@ _HEADER_KEYS = frozenset(
         "tags",
         "category",
         "updated_at",
+        "type",
+        "feed_id",
     }
 )
 
@@ -297,29 +317,53 @@ _DATE_FORMATS = (
 )
 
 
-def parse_date(raw: str) -> datetime | None:
-    """The date from the document header, or None if it cannot be parsed.
+def parse_day(raw: str) -> tuple[datetime, bool] | None:
+    """The date and whether it names a whole day (no time given), or None.
 
-    Always returned with a time zone: a naive time cannot be compared with the
-    window boundary, and there is no reason to die over that mid-generation.
+    Always returned with a time zone (naive means UTC): a naive time cannot be
+    compared with the window boundary.
     """
     text = (raw or "").strip().strip('"').strip("'")
     if not text:
         return None
 
+    whole_day = False
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        whole_day = len(text) <= 10 and "T" not in text and ":" not in text
     except ValueError:
         parsed = None
         for form in _DATE_FORMATS:
             try:
                 parsed = datetime.strptime(text, form)
+                whole_day = True
                 break
             except ValueError:
                 continue
     if parsed is None:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return (parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)), whole_day
+
+
+def parse_date(raw: str) -> datetime | None:
+    """The date from the document header, or None if it cannot be parsed."""
+    found = parse_day(raw)
+    return found[0] if found else None
+
+
+def _added_at(meta: dict[str, Any]) -> str:
+    """When the Space added the file: its "added_at" stamp.
+
+    Files indexed before the Space wrote that stamp fall back to the file's
+    modification time, which the local-file source stores as "updated". For
+    other sources "updated" is the post's edit date, not an add time.
+    """
+    stamped = meta.get("added_at")
+    if stamped:
+        return str(stamped)
+    if meta.get("source") == "local_file" and meta.get("updated"):
+        return str(meta["updated"])
+    return ""
 
 
 def strip_header(text: str) -> tuple[str, dict[str, str]]:
@@ -378,6 +422,9 @@ def load_documents(
                 useful.append(replace(chunk, text=text))
 
         file_name = chunks[0].file_name
+        published = parse_day(header.get("published_date", "")) or parse_day(
+            chunks[0].published
+        )
         documents.append(
             Document(
                 doc_id=doc_id,
@@ -386,7 +433,9 @@ def load_documents(
                 source=header.get("source", ""),
                 file_name=file_name,
                 chunks=useful,
-                published_at=parse_date(header.get("published_date", "")),
+                published_at=published[0] if published else None,
+                published_whole_day=published[1] if published else False,
+                added_at=parse_date(chunks[0].added_at),
                 ingested_at=parse_date(header.get("ingested_at", "")),
             )
         )

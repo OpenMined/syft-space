@@ -648,16 +648,19 @@ def _dataset(space: str, settings: Settings) -> DatasetInfo:
     from syft_benchmark.config import PairStatus
     from syft_benchmark.db import session_scope
     from syft_benchmark.db.models import QaPair
+    from syft_benchmark.runs.gate import evaluable
 
     with session_scope(settings) as session:
-        questions = int(
+        # The set as asked: active questions that pass the web check gate.
+        active = list(
             session.execute(
-                select(func.count(QaPair.id)).where(
+                select(QaPair).where(
                     QaPair.space == space,
                     QaPair.status == PairStatus.ACTIVE.value,
                 )
-            ).scalar_one()
+            ).scalars()
         )
+        questions = len(evaluable(active, settings))
         cohort = str(
             session.execute(
                 select(func.max(QaPair.cohort)).where(QaPair.space == space)

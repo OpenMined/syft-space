@@ -53,9 +53,10 @@ about content.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import select, update
@@ -69,6 +70,11 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
+from syft_benchmark.generation.web_check import filter_model, web_checked
+
+_EPOCH = datetime.min.replace(tzinfo=UTC)
+# The note on an item the set cap took out; the filter stage re-checks these.
+OVER_CAP_NOTE = "over the set cap"
 
 
 @dataclass(slots=True)
@@ -169,7 +175,8 @@ def fresh_ids(
     """The documents that fall inside the freshness window.
 
     Args:
-        dated: Document identifier -> its date; None means "there is no date"
+        dated: Document identifier -> its date by ``sources.article_date``
+            (a whole-day date is its last moment); None means "there is no date"
         settings: The process settings
         now: The moment to count from; None — now
 
@@ -184,15 +191,40 @@ def fresh_ids(
     undated = 0
     for doc_id, at in dated.items():
         if at is None:
-            # The header is written by the node ETL, and it is sometimes incomplete.
-            # Discarding a document because of a foreign format means emptying the
-            # set silently.
+            # No publication date and no add time: kept, so an incomplete header
+            # does not empty the set silently.
             undated += 1
             kept.add(doc_id)
             continue
         if at >= since:
             kept.add(doc_id)
     return kept, undated
+
+
+@dataclass(frozen=True, slots=True)
+class WindowCount:
+    """How many articles the time window holds, as generation will see it."""
+
+    count: int  # in the window, the undated included
+    undated: int
+    total: int
+    window_days: int
+
+
+def window_count(
+    dated: Mapping[str, datetime | None],
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+) -> WindowCount:
+    """The window as a count, by the same rule generation filters with."""
+    kept, undated = fresh_ids(dated, settings, now=now)
+    return WindowCount(
+        count=len(kept),
+        undated=undated,
+        total=len(dated),
+        window_days=settings.document_window_days,
+    )
 
 
 def _count_active(space: str, settings: Settings) -> int:
@@ -210,12 +242,46 @@ def _count_active(space: str, settings: Settings) -> int:
         )
 
 
-def _pick_within_cap(rows: list[QaPair], cap: int) -> set[str]:
+def _round_robin(rows: list[QaPair], cap: int) -> list[str]:
+    """Up to ``cap`` ids, one per generator in turn, each bucket in ``rows`` order."""
+    buckets: dict[str, list[QaPair]] = {}
+    for row in rows:
+        buckets.setdefault(row.generator or "", []).append(row)
+    picked: list[str] = []
+    while len(picked) < cap:
+        taken = False
+        for key in sorted(buckets):
+            bucket = buckets[key]
+            if not bucket:
+                continue
+            picked.append(bucket.pop(0).id)
+            taken = True
+            if len(picked) >= cap:
+                break
+        if not taken:
+            break
+    return picked
+
+
+def _pick_within_cap(
+    rows: list[QaPair],
+    cap: int,
+    *,
+    order: Callable[[QaPair], Any] | None = None,
+    checked: Callable[[QaPair], bool] | None = None,
+) -> set[str]:
     """Which items to keep in the measurement when there are more than the cap.
 
     The cap is a total, so it is divided round-robin across the generators: an item
     to each in turn, until either the budget or the items run out. That way all the
-    skills are represented rather than those that happened to come first.
+    skills are represented rather than those that happened to come first. Within a
+    generator the items go in ``order`` (default: already active first, then the
+    oldest, so a recompute does not reshuffle a set that still fits).
+
+    With ``checked`` (the web check is on) the items that passed it fill the cap
+    first, and an unchecked one only takes a place nobody checked wants. Only
+    active and retired items reach here: a question the web check rejected or one
+    still pending never takes a place.
 
     There is deliberately no round-robin over the halves of the set here, and that is
     not a simplification. Each generator produces items of exactly one half, so
@@ -226,24 +292,33 @@ def _pick_within_cap(rows: list[QaPair], cap: int) -> set[str]:
     if cap <= 0 or len(rows) <= cap:
         return {row.id for row in rows}
 
-    buckets: dict[str, list[QaPair]] = {}
-    for row in rows:
-        buckets.setdefault(row.generator or "", []).append(row)
+    ordered = sorted(rows, key=order or _stable_order)
+    if checked is None:
+        return set(_round_robin(ordered, cap))
+    first = _round_robin([row for row in ordered if checked(row)], cap)
+    rest = _round_robin([row for row in ordered if not checked(row)], cap - len(first))
+    return {*first, *rest}
 
-    picked: set[str] = set()
-    while len(picked) < cap:
-        taken = False
-        for key in sorted(buckets):
-            bucket = buckets[key]
-            if not bucket:
-                continue
-            picked.add(bucket.pop(0).id)
-            taken = True
-            if len(picked) >= cap:
-                break
-        if not taken:
-            break
-    return picked
+
+def _created(row: QaPair) -> datetime:
+    return getattr(row, "created_at", None) or _EPOCH
+
+
+def _stable_order(row: QaPair) -> tuple[bool, datetime, str]:
+    """Already active first, then the oldest."""
+    return (row.status != PairStatus.ACTIVE.value, _created(row), row.id)
+
+
+def _newest_order(
+    dated: Mapping[str, datetime | None],
+) -> Callable[[QaPair], tuple[float, float, str]]:
+    """The newest article first, then the newest pair: the set follows the news."""
+
+    def key(row: QaPair) -> tuple[float, float, str]:
+        at = dated.get(row.doc_id) or _EPOCH
+        return (-at.timestamp(), -_created(row).timestamp(), row.id)
+
+    return key
 
 
 def rotate(
@@ -311,8 +386,8 @@ def rotate(
         report.undated = undated
         if undated:
             report.notes.append(
-                f"{undated} documents have no date in the header — the window does "
-                f"not apply to them, and they stay in the set"
+                f"{undated} documents have no publication date or add time — the "
+                f"window does not apply to them, and they stay in the set"
             )
     else:
         # Without a window the document is beside the point: the set accumulates, and
@@ -349,7 +424,13 @@ def rotate(
         for row in rows
         if (row.cohort or "") != cohort and row.status == PairStatus.ACTIVE.value
     )
-    keep = _pick_within_cap(eligible, conf.dataset_max_pairs)
+    model = filter_model(conf)
+    keep = _pick_within_cap(
+        eligible,
+        conf.dataset_max_pairs,
+        order=_newest_order(dated) if windowed else None,
+        checked=(lambda row: web_checked(row, model)) if model else None,
+    )
     report.over_cap = len(eligible) - len(keep)
 
     to_activate = [
@@ -357,11 +438,22 @@ def rotate(
         for row in rows
         if row.id in keep and row.status == PairStatus.RETIRED.value
     ]
-    to_retire = [
-        row.id
+    retiring = [
+        row
         for row in rows
         if row.id not in keep and row.status == PairStatus.ACTIVE.value
     ]
+    to_retire = [row.id for row in retiring]
+    # Why each one leaves: a newer cohort, the window, or the cap.
+    reasons: dict[str, list[str]] = {}
+    for row in retiring:
+        if (row.cohort or "") != cohort:
+            why = f"cohort {cohort} replaced the previous one"
+        elif windowed and row.doc_id not in fresh:
+            why = f"the document is outside the {conf.document_window_days}-day window"
+        else:
+            why = OVER_CAP_NOTE
+        reasons.setdefault(why, []).append(row.id)
 
     with session_scope(conf) as session:
         if to_activate:
@@ -370,25 +462,18 @@ def rotate(
                 .where(QaPair.id.in_(to_activate))
                 .values(
                     status=PairStatus.ACTIVE.value,
-                    status_note="returned into the freshness window",
+                    status_note="back in the measurement",
                     status_reason=None,
                 )
             )
-        if to_retire:
+        for why, ids in reasons.items():
             session.execute(
                 update(QaPair)
-                .where(QaPair.id.in_(to_retire))
+                .where(QaPair.id.in_(ids))
                 .values(
                     status=PairStatus.RETIRED.value,
                     status_reason=StatusReason.ROTATION.value,
-                    status_note=(
-                        f"cohort {cohort} replaced the previous one"
-                        if cohort
-                        else f"the document is outside the "
-                        f"{conf.document_window_days}-day window"
-                        if conf.document_window_days
-                        else "over the set cap"
-                    ),
+                    status_note=why,
                 )
             )
         invalidate_runs_with_pairs(session, [*to_activate, *to_retire])

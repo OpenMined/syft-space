@@ -56,6 +56,7 @@ from loguru import logger
 
 from syft_benchmark.config import Settings, SpaceConfig
 from syft_benchmark.llm import Provider, chat
+from syft_benchmark.llm.ollama import search_mechanism
 from syft_benchmark.runs.endpoint import RETRIEVAL_ONLY_TOKENS, ask_endpoint
 
 T = TypeVar("T")
@@ -163,7 +164,10 @@ class RunCache:
         self.enabled = enabled
         self.savings = Savings()
         self._endpoint: dict[tuple[str, str], _Cached] = {}
-        self._answers: dict[tuple[str, str, str, str], tuple[str, dict[str, Any]]] = {}
+        self._answers: dict[
+            tuple[str, str, str, str, tuple[str, str, int] | None],
+            tuple[str, dict[str, Any]],
+        ] = {}
         self._running: dict[Any, asyncio.Task[Any]] = {}
 
     # --- the endpoint -----------------------------------------------------
@@ -232,6 +236,8 @@ class RunCache:
         *,
         pool: Pool,
         settings: Settings,
+        web_search: bool = False,
+        web_search_engine: str = "auto",
     ) -> tuple[str, dict[str, Any]]:
         """A model answer to a prompt at zero temperature.
 
@@ -247,7 +253,17 @@ class RunCache:
         cache — their temperature is different, and the spread is precisely what is
         being measured.
         """
-        key = (provider.url, provider.model, system, user)
+        # Searching or not, and how, changes the answer: all of it is in the key.
+        searching = (
+            (
+                web_search_engine,
+                search_mechanism(provider.model, settings),
+                settings.web_search_max_results,
+            )
+            if web_search
+            else None
+        )
+        key = (provider.url, provider.model, system, user, searching)
         cached = self._answers.get(key) if self.enabled else None
         if cached is not None:
             self.savings.model_reused += 1
@@ -264,6 +280,8 @@ class RunCache:
                 temperature=0.0,
                 max_tokens=settings.answer_max_tokens,
                 settings=settings,
+                web_search=web_search,
+                web_search_engine=web_search_engine,
             )
             # What the answer really cost. A reused answer would otherwise be
             # recorded as instantaneous: there was no call, and timing it would show

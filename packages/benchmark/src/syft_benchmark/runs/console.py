@@ -61,6 +61,7 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.llm import judge_provider
+from syft_benchmark.runs.gate import evaluable
 from syft_benchmark.runs.judge import grade, grade_behavior, is_technical
 
 _HEADER = """\
@@ -115,7 +116,7 @@ def export_questions(
     Returns:
         A ConsoleReport with the number of questions exported
     """
-    _ = settings or get_settings()
+    conf = settings or get_settings()
     with session_scope() as session:
         rows = list(
             session.execute(
@@ -125,10 +126,10 @@ def export_questions(
                     QaPair.status == PairStatus.ACTIVE.value,
                 )
                 .order_by(QaPair.created_at)
-                .limit(limit)
             ).scalars()
         )
-        pairs = [(r.id, r.question) for r in rows]
+        # Only questions that passed the web check are put to a model.
+        pairs = [(r.id, r.question) for r in evaluable(rows, conf)][:limit]
 
     lines = [_HEADER.format(count=len(pairs)), ""]
     for pair_id, question in pairs:

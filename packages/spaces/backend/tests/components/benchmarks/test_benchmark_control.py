@@ -124,6 +124,15 @@ class _Client:
             data={**self.targets.get(key, {}), "next_run_at": self.known_next_run},
         )
 
+    async def window(self, key: str, days: int | None = None) -> Reply:
+        self.window_asks = (key, days)
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        return Reply(
+            ok=True,
+            data={"count": 4, "undated": 1, "total": 9, "window_days": days or 1},
+        )
+
     async def jobs(self, key: str) -> Reply:
         if not self.reachable:
             return Reply(ok=False, detail="down")
@@ -769,6 +778,30 @@ async def test_the_catalogue_is_passed_through_unshaped() -> None:
     assert client.asked_for_models["q"] == "claude"
 
 
+def test_the_picker_filters_reach_the_benchmark() -> None:
+    """Search and temperature filters are the benchmark's to apply."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from syft_space.components.benchmarks.routes import build_benchmark_routes
+    from syft_space.components.tenants.dependency import get_tenant_dependency
+
+    connection = _connection()
+    handler, client = _handler(connections=[connection])
+    app = FastAPI()
+    app.include_router(build_benchmark_routes(handler))
+    app.dependency_overrides[get_tenant_dependency] = lambda: TENANT
+
+    answer = TestClient(app).get(
+        f"/benchmarks/connections/{connection.id}/models",
+        params={"web_search": "any", "lacks": "temperature"},
+    )
+
+    assert answer.status_code == 200, answer.text
+    assert client.asked_for_models["web_search"] == "any"
+    assert client.asked_for_models["lacks"] == "temperature"
+
+
 @pytest.mark.asyncio
 async def test_a_benchmark_that_is_down_does_not_look_like_an_empty_catalogue() -> None:
     """An empty list reads as "there are no models", and the owner would go
@@ -1059,3 +1092,208 @@ async def test_a_console_call_a_paused_benchmark_refuses_surfaces_as_502() -> No
         await handler.list_results(TENANT, "support-kb", {})
 
     assert refused.value.status_code == 502
+
+
+# --- the benchmark refusing the settings themselves ---------------------------
+
+CLASH = "Judge openai/gpt-5.1 and tested model openai/gpt-5.1 are from the same company"
+
+
+class _StrictClient(_Client):
+    """A benchmark under `strict` that refuses a judge from a tested model's company."""
+
+    def __init__(self, *, refuse_run: bool = False) -> None:
+        super().__init__()
+        self.refuse_run = refuse_run
+
+    async def put_target(self, key: str, spec: dict) -> Reply:
+        if "openai/gpt-5.1" in (spec.get("instrument") or {}).get("subject_models", []):
+            return Reply(ok=False, status=422, detail=CLASH)
+        return await super().put_target(key, spec)
+
+    async def start_run(self, key: str, request: dict) -> Reply:
+        if self.refuse_run:
+            return Reply(ok=False, status=422, detail=CLASH)
+        return await super().start_run(key, request)
+
+
+@pytest.mark.asyncio
+async def test_a_refused_save_reaches_the_browser_and_is_not_stored() -> None:
+    """Under `strict` the page cannot save a clash, and neither can the API."""
+    handler, client = _handler(client=_StrictClient(), connections=[_connection()])
+    with pytest.raises(HTTPException) as refused:
+        await handler.save_target(
+            TENANT,
+            "support-kb",
+            TargetRequest(instrument={"subject_models": ["openai/gpt-5.1"]}),
+        )
+    assert refused.value.status_code == 422
+    assert refused.value.detail == CLASH
+    handler.targets.create.assert_not_called()  # type: ignore[attr-defined]
+    assert client.targets == {}
+
+
+@pytest.mark.asyncio
+async def test_a_refused_push_before_a_run_reaches_the_browser() -> None:
+    row = _connection(instrument={"subject_models": ["openai/gpt-5.1"]})
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(client=_StrictClient(), connections=[row], target=target)
+    with pytest.raises(HTTPException) as refused:
+        await handler.start_run(TENANT, "support-kb", RunRequest())
+    assert refused.value.status_code == 422
+    assert refused.value.detail == CLASH
+    assert client.runs == []
+
+
+@pytest.mark.asyncio
+async def test_a_refused_run_reaches_the_browser_as_422_not_502() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, _ = _handler(
+        client=_StrictClient(refuse_run=True), connections=[row], target=target
+    )
+    with pytest.raises(HTTPException) as refused:
+        await handler.start_run(TENANT, "support-kb", RunRequest())
+    assert refused.value.status_code == 422
+    assert refused.value.detail == CLASH
+
+
+@pytest.mark.asyncio
+async def test_the_web_check_model_reaches_the_benchmark_untouched() -> None:
+    handler, client = _handler(connections=[_connection()])
+    await handler.save_target(
+        TENANT,
+        "support-kb",
+        TargetRequest(instrument={"filter_model": "openai/gpt-5.1"}),
+    )
+    assert client.targets["support-kb"]["instrument"] == {
+        "filter_model": "openai/gpt-5.1"
+    }
+    handler.targets.mark_synced.assert_awaited()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_the_web_search_settings_reach_the_benchmark_untouched() -> None:
+    handler, client = _handler(connections=[_connection()])
+    instrument = {
+        "web_search_engine": "plugin",
+        "web_search_closed_book": True,
+        "web_search_with_context": True,
+        "web_search_generator": False,
+        "web_search_judge": False,
+        "web_search_max_results": 7,
+        "filter_judge_model": "anthropic/claude-opus-5",
+    }
+    await handler.save_target(
+        TENANT, "support-kb", TargetRequest(instrument=instrument)
+    )
+    assert client.targets["support-kb"]["instrument"] == instrument
+
+
+def test_a_validation_refusal_reads_as_field_and_reason() -> None:
+    import httpx
+
+    from syft_space.components.benchmarks.client import _detail
+
+    resp = httpx.Response(
+        422,
+        json={
+            "detail": [
+                {"loc": ["body", "instrument", "arms"], "msg": "bad arm"},
+            ]
+        },
+    )
+    assert _detail(resp) == "instrument.arms: bad arm"
+
+
+# --- the time window ----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_window_count_is_the_benchmarks_not_computed_here() -> None:
+    """The page's count comes from the rule generation uses, with its window."""
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+
+    counted = await handler.window(TENANT, "support-kb", 2)
+
+    assert client.window_asks == ("support-kb", 2)
+    assert (counted.count, counted.undated, counted.total) == (4, 1, 9)
+    assert counted.window_days == 2
+
+
+@pytest.mark.asyncio
+async def test_a_benchmark_that_cannot_count_is_a_bad_gateway() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, _ = _handler(
+        client=_Client(reachable=False), connections=[row], target=target
+    )
+
+    with pytest.raises(HTTPException) as refused:
+        await handler.window(TENANT, "support-kb")
+    assert refused.value.status_code == 502
+
+
+# --- the mandatory web check ---------------------------------------------------
+
+NO_WEB_CHECK = "Choose a web check model"
+
+
+class _UnfilteredClient(_Client):
+    """A benchmark that refuses a launch or a scheduled save without a web check model."""
+
+    async def put_target(self, key: str, spec: dict) -> Reply:
+        if spec.get("schedule") and not (spec.get("instrument") or {}).get(
+            "filter_model"
+        ):
+            return Reply(ok=False, status=422, detail=NO_WEB_CHECK)
+        return await super().put_target(key, spec)
+
+    async def start_run(self, key: str, request: dict) -> Reply:
+        return Reply(ok=False, status=422, detail=NO_WEB_CHECK)
+
+
+@pytest.mark.asyncio
+async def test_a_run_without_a_web_check_model_reaches_the_browser_as_422() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(
+        client=_UnfilteredClient(), connections=[row], target=target
+    )
+    with pytest.raises(HTTPException) as refused:
+        await handler.start_run(TENANT, "support-kb", RunRequest())
+    assert refused.value.status_code == 422
+    assert refused.value.detail == NO_WEB_CHECK
+    assert client.runs == []
+
+
+@pytest.mark.asyncio
+async def test_a_scheduled_save_without_a_web_check_model_reaches_the_browser() -> None:
+    handler, client = _handler(client=_UnfilteredClient(), connections=[_connection()])
+    with pytest.raises(HTTPException) as refused:
+        await handler.save_target(TENANT, "support-kb", TargetRequest(schedule="24h"))
+    assert refused.value.status_code == 422
+    assert refused.value.detail == NO_WEB_CHECK
+    assert client.targets == {}
+
+
+@pytest.mark.asyncio
+async def test_the_new_run_settings_reach_the_benchmark_untouched() -> None:
+    handler, client = _handler(connections=[_connection()])
+    instrument = {"concurrency": 24, "manual_status_priority": "manual"}
+    await handler.save_target(
+        TENANT, "support-kb", TargetRequest(instrument=instrument)
+    )
+    assert client.targets["support-kb"]["instrument"] == instrument

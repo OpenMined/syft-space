@@ -180,6 +180,11 @@ class BenchmarkClient:
         """One target as the benchmark holds it — including when it next fires."""
         return await self._call("GET", f"/targets/{key}")
 
+    async def window(self, key: str, days: int | None = None) -> Reply:
+        """How many articles the target's time window holds."""
+        query = f"?days={days}" if days is not None else ""
+        return await self._call("GET", f"/targets/{key}/window{query}")
+
     async def jobs(self, key: str) -> Reply:
         return await self._call("GET", f"/targets/{key}/jobs")
 
@@ -273,4 +278,11 @@ def _detail(resp: httpx.Response) -> str:
     detail = body.get("detail") if isinstance(body, dict) else None
     if isinstance(detail, str):
         return detail
+    if isinstance(detail, list) and all(isinstance(item, dict) for item in detail):
+        # A validation refusal: one "field: reason" per problem.
+        return "; ".join(
+            f"{'.'.join(str(part) for part in item.get('loc', [])[1:])}: "
+            f"{item.get('msg', '')}"
+            for item in detail
+        )[:500]
     return str(detail or body)[:500]

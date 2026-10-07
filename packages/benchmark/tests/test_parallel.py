@@ -184,14 +184,19 @@ def test_the_rag_is_asked_once_even_when_everyone_starts_together(
     assert len(node.calls) == 1
 
 
-def test_arm_b_fills_the_cache_for_arm_c(monkeypatch: Any) -> None:
-    """Arm B has already been for this question — arm C has no reason to go.
+def test_closed_book_searches_the_web_and_context_does_not(monkeypatch: Any) -> None:
+    """Arm A is the model with its web search on; arm C is the model with excerpts.
 
-    The endpoint answer carries both the prose and the chunks that were found. Arm C
-    over chunks needs the second, and it already has it.
+    The same prompt in the two modes is not the same call, so the cache keeps them
+    apart.
     """
     node = _Node()
-    model = _Model()
+    calls: list[dict[str, Any]] = []
+
+    def model(system: str, user: str, **kwargs: Any) -> Any:
+        calls.append(kwargs)
+        return "Port 5442.", {"finish_reason": "stop"}
+
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", node)
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
 
@@ -202,11 +207,11 @@ def test_arm_b_fills_the_cache_for_arm_c(monkeypatch: Any) -> None:
     async def both_arms(pool: Pool) -> None:
         await aask_once(
             pair,  # type: ignore[arg-type]
-            ContextMode.OPEN_BOOK,
+            ContextMode.CLOSED_BOOK,
             space=SPACE,
             settings=conf,
-            subject=None,
-            source=ContextSource.ENDPOINT_OWN,
+            subject=_provider("vendor/model"),
+            source=ContextSource.NONE,
             pool=pool,
             cache=cache,
         )
@@ -222,8 +227,8 @@ def test_arm_b_fills_the_cache_for_arm_c(monkeypatch: Any) -> None:
         )
 
     _run(both_arms, conf)
-    assert len(node.calls) == 1
-    assert node.calls[0].get("max_tokens") is None, "arm B asks for the whole prose"
+    assert [call.get("web_search") for call in calls] == [True, False]
+    assert len(node.calls) == 1, "only arm C goes to the endpoint"
 
 
 def test_prose_is_fetched_when_the_cache_holds_only_retrieval(
@@ -607,7 +612,7 @@ def test_the_rag_is_asked_once_per_question_across_the_whole_run(
 ) -> None:
     """Exactly what made a run overrun a day.
 
-    Three models, arms B and C, the direct test and the repeats: previously every
+    Three models, arm C, the direct test and the repeats: previously every
     combination went to the node for its own copy of one and the same retrieval. Now
     the question goes there once for the whole launch.
     """
@@ -633,15 +638,6 @@ def test_the_rag_is_asked_once_per_question_across_the_whole_run(
     ]
     subjects = [_provider(f"vendor-{i}/m") for i in range(3)]
 
-    run_pass(
-        SPACE,
-        ContextMode.OPEN_BOOK,
-        settings=conf,
-        subject=None,
-        block=EvalBlock.DIRECT,
-        judges=judges,
-        cache=cache,
-    )
     for block in (EvalBlock.DIRECT, EvalBlock.DENIAL_LOOP, EvalBlock.MONTE_CARLO):
         for subject in subjects:
             run_pass(

@@ -25,9 +25,30 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from syft_benchmark.config import Settings, Verdict
-from syft_benchmark.llm import LLMError, Provider, chat
+from syft_benchmark.config import EvalBlock, Settings, Verdict
+from syft_benchmark.llm import LLMError, Provider, catalog, chat
 from syft_benchmark.runs.judge import ERROR_PREFIX, detect_abstain, grade
+
+
+def skips_monte_carlo(
+    block: EvalBlock, subject: Provider | None, settings: Settings
+) -> bool:
+    """A tested model that takes no temperature gets no monte_carlo block.
+
+    The block is nothing but varied temperature; such a model would answer the
+    same way at every one, and the consistency would be a constant.
+    """
+    return (
+        block is EvalBlock.MONTE_CARLO
+        and subject is not None
+        and not catalog.load(settings).takes_temperature(subject.model)
+    )
+
+
+def monte_carlo_skip_note(model: str) -> str:
+    """The run report's line for a skipped monte_carlo block."""
+    return f"{model}: no temperature, Monte Carlo skipped"
+
 
 # How much of one answer a transcript keeps. Evidence for the reader checking
 # a verdict, not a second copy of the corpus: a dozen rounds and a dozen
@@ -104,6 +125,8 @@ def run_denial_loop(
     is_mcq: bool = False,
     system: str = "",
     first_prompt: str | None = None,
+    web_search: bool = False,
+    web_search_engine: str = "auto",
 ) -> DenialOutcome:
     """Push at a correct answer until the model gives in or the rounds run out.
 
@@ -131,6 +154,8 @@ def run_denial_loop(
         system: The system role the first answer was obtained with
         first_prompt: The prompt the first answer was obtained with; None — the
             question itself
+        web_search: Keep the model's web search on, as it was for the first answer
+        web_search_engine: The engine the first answer searched with
 
     Returns:
         DenialOutcome: at which round the model gave up the correct answer
@@ -157,6 +182,8 @@ def run_denial_loop(
                 temperature=0.0,
                 max_tokens=settings.answer_max_tokens,
                 settings=settings,
+                web_search=web_search,
+                web_search_engine=web_search_engine,
             )
         except LLMError as exc:
             outcome.note = f"round {step + 1}: {exc}"

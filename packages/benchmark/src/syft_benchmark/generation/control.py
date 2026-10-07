@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from syft_benchmark.config import Settings, get_settings
 from syft_benchmark.llm import LLMError, Provider, chat, parse_json_object
+from syft_benchmark.llm.roles import web_search_for
 
 # What to query retrieval with: a question in, the texts of the chunks found
 # out. A callable rather than an endpoint client, for two reasons: generation
@@ -89,6 +90,9 @@ def gate_unanswerable(
 
     listed = "\n---\n".join(fragments)[:8000]
     user = f"Question:\n{question}\n\nFragments:\n{listed}\n\nIs it answered?"
+    searching, engine = web_search_for(
+        conf, "judge", judge.model if judge is not None else conf.judge_model
+    )
     try:
         raw, _usage = chat(
             _GATE_SYSTEM,
@@ -98,6 +102,8 @@ def gate_unanswerable(
             temperature=0.0,
             max_tokens=600,
             settings=conf,
+            web_search=searching,
+            web_search_engine=engine or "auto",
         )
         data = parse_json_object(raw)
     except LLMError as exc:

@@ -34,6 +34,7 @@ from syft_space.components.benchmarks.schemas import (
     SessionResponse,
     TargetRequest,
     TargetResponse,
+    WindowResponse,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -132,6 +133,8 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         q: str = "",
         vendor: str = "",
         supports: str = "",
+        lacks: str = "",
+        web_search: str = "",
         include_retired: bool = False,
         limit: int = 0,
         tenant: Tenant = Depends(get_tenant_dependency),
@@ -148,6 +151,8 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
             q: Free text over the identifier and the shown name
             vendor: One vendor only
             supports: Comma-separated request parameters the model must honour
+            lacks: Comma-separated request parameters the model must not take
+            web_search: native, plugin, none, or any (native or plugin)
             include_retired: Keep models the provider has dated for withdrawal
             limit: Cap on the answer; zero — everything
         """
@@ -158,6 +163,8 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
                 "q": q,
                 "vendor": vendor,
                 "supports": supports,
+                "lacks": lacks,
+                "web_search": web_search,
                 "include_retired": include_retired,
                 "limit": limit,
             },
@@ -274,6 +281,16 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
     ) -> CheckResponse:
         """Can the benchmark reach this endpoint's index, and the endpoint itself."""
         return await handler.check_target(tenant, slug)
+
+    @router.get("/endpoints/{slug}/window", response_model=WindowResponse)
+    async def get_window(
+        slug: str,
+        days: int | None = Query(default=None, ge=0),
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> WindowResponse:
+        """Articles in the time window; ``days`` overrides the saved window."""
+        return await handler.window(tenant, slug, days)
 
     @router.post(
         "/endpoints/{slug}/runs",

@@ -29,6 +29,7 @@ from syft_benchmark.config import (
     SpaceConfig,
     get_settings,
 )
+from syft_benchmark.generation.rotation import WindowCount, window_count
 from syft_benchmark.llm import (
     LLMError,
     check_model_available,
@@ -38,6 +39,10 @@ from syft_benchmark.llm import (
 from syft_benchmark.runs.endpoint import endpoint_mode
 from syft_benchmark.runs.execute import blocker_code
 from syft_benchmark.sources import ChromaClient, ChromaError, load_documents
+
+
+class IndexUnreachable(RuntimeError):
+    """The target's index could not be read."""
 
 
 @dataclass(slots=True)
@@ -140,6 +145,24 @@ def check(
         out.problems.extend(_unreachable_models(conf))
 
     return out
+
+
+def articles_in_window(space: SpaceConfig, settings: Settings) -> WindowCount:
+    """How many articles the time window holds, by the rule generation uses.
+
+    Counts only; no text leaves this function. A missing collection counts as
+    empty.
+
+    Raises:
+        IndexUnreachable: The index cannot be reached
+    """
+    try:
+        client = ChromaClient(space, settings)
+        collection_id = client.collection_id(space.collection or space.key)
+        documents = load_documents(client, collection_id) if collection_id else []
+    except ChromaError as exc:
+        raise IndexUnreachable(str(exc)) from exc
+    return window_count({doc.doc_id: doc.dated_at for doc in documents}, settings)
 
 
 def _unreachable_models(conf: Settings) -> list[str]:

@@ -272,6 +272,15 @@ class TargetResponse(BaseModel):
     detail: str = ""
 
 
+class WindowResponse(BaseModel):
+    """Articles in the time window, counted by the benchmark's generation rule."""
+
+    count: int = Field(0, description="Articles in the window, undated included")
+    undated: int = Field(0, description="Articles with no date; generation keeps them")
+    total: int = Field(0, description="Articles in the index")
+    window_days: int = Field(0, description="The window in days; 0 means no window")
+
+
 class CheckResponse(BaseModel):
     """Whether the benchmark can reach this endpoint's index and API.
 

@@ -274,7 +274,10 @@
                   class="flex items-start justify-between gap-4 px-4 py-3 bg-muted/40 border border-border/60 rounded-lg"
                 >
                   <div class="min-w-0 flex-1">
-                    <p class="body-sm font-mono text-foreground truncate">{{ item.id }}</p>
+                    <div class="flex items-baseline gap-2 min-w-0">
+                      <p class="body-sm font-mono text-foreground truncate">{{ item.id }}</p>
+                      <UtcStampHint :path="item.id" class="shrink-0" />
+                    </div>
                     <p v-if="item.description" class="text-xs text-muted-foreground mt-1 truncate">
                       {{ item.description }}
                     </p>
@@ -598,6 +601,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
 import AddSourceDialog from '@/components/AddSourceDialog.vue'
+import UtcStampHint from '@/components/UtcStampHint.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import type {

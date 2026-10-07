@@ -44,9 +44,12 @@ from syft_benchmark.config import (
     DatasetMode,
     EvalBlock,
     JudgePolicy,
+    ManualStatusPriority,
     PairStatus,
     TextMetric,
     Verdict,
+    WebSearchEngine,
+    measured_arms,
 )
 from syft_benchmark.llm.catalog import ModelEntry
 
@@ -116,8 +119,8 @@ class Instrument(Layer):
     arms: list[ContextMode] | None = Field(
         default=None,
         description=(
-            "The arms of the measurement. Arm B does not run on a node in raw "
-            "mode regardless of this setting: such a node does not compose answers"
+            "The arms of the measurement: closed_book (the model alone, with web "
+            "search) and model_with_context (the model with the node's excerpts)"
         ),
     )
     blocks: list[EvalBlock] | None = Field(
@@ -162,6 +165,39 @@ class Instrument(Layer):
         description="The panel of judges. Empty — a single judge_model grades",
     )
     judge_policy: JudgePolicy | None = None
+    filter_model: str | None = Field(
+        default=None,
+        description="The web check model. Empty — no web check",
+    )
+    filter_judge_model: str | None = Field(
+        default=None,
+        description="The web check's judge. Empty — the first judge",
+    )
+    manual_status_priority: ManualStatusPriority | None = Field(
+        default=None,
+        description=(
+            "A question returned by hand: filter (the web check may reject it "
+            "again) or manual (the user's choice wins)"
+        ),
+    )
+
+    # --- Web search, per role
+    web_search_engine: WebSearchEngine | None = Field(
+        default=None,
+        description=(
+            "auto (native when the model has it, else Exa), native, plugin (Exa)"
+        ),
+    )
+    web_search_closed_book: bool | None = None
+    web_search_with_context: bool | None = None
+    web_search_generator: bool | None = None
+    web_search_judge: bool | None = None
+    web_search_max_results: int | None = Field(
+        default=None,
+        ge=1,
+        le=20,
+        description="Results per search, for the Exa engine",
+    )
 
     # --- Judging thresholds
     key_facts_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -187,16 +223,31 @@ class Instrument(Layer):
         ),
     )
     max_consecutive_failures: int | None = Field(default=None, ge=0)
+    concurrency: int | None = Field(
+        default=None,
+        ge=1,
+        le=64,
+        description="How many model calls to keep in flight at once",
+    )
     reuse_answers: bool | None = None
     audit_log: bool | None = None
 
     # The models are the one group of settings whose values nobody can check
     # against a list: they are the provider's. So they are checked against what
     # a name cannot contain — see _model_name.
-    @field_validator("generator_model", "judge_model")
+    @field_validator(
+        "generator_model", "judge_model", "filter_model", "filter_judge_model"
+    )
     @classmethod
     def _one_model_name(cls, value: str | None) -> str | None:
         return None if value is None else _model_name(value)
+
+    @field_validator("arms")
+    @classmethod
+    def _measured_arms(
+        cls, value: list[ContextMode] | None
+    ) -> list[ContextMode] | None:
+        return None if value is None else measured_arms(value)
 
     @field_validator("subject_models", "judge_models")
     @classmethod
@@ -222,7 +273,14 @@ class Probe(Layer):
     disabled_generators: list[str] | None = Field(
         default=None, description="Generators not to run on this node"
     )
-    chunks_per_run: int | None = Field(default=None, ge=1)
+    chunks_per_run: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "The question budget: each kind writes at most chunks_per_run x "
+            "pairs_per_chunk questions per run, walking every passage in the window"
+        ),
+    )
     pairs_per_chunk: int | None = Field(default=None, ge=1)
     min_chunk_chars: int | None = Field(default=None, ge=0)
     generate_in_cycle: bool | None = Field(
@@ -459,6 +517,15 @@ class SessionView(BaseModel):
     expires_at: datetime
 
 
+class WindowView(BaseModel):
+    """How many articles the time window holds, by the rule generation uses."""
+
+    count: int = Field(..., description="Articles in the window, undated included")
+    undated: int = Field(..., description="Articles with no date, kept by generation")
+    total: int = Field(..., description="Articles in the index")
+    window_days: int = Field(..., description="The window; 0 means no window")
+
+
 class PairResponse(BaseModel):
     """One generated pair, as the console's Generation/Filtering review shows it."""
 
@@ -657,6 +724,12 @@ class ResultResponse(BaseModel):
     # the only thing that tells it from the direct row it repeats.
     denial: ResultDenial | None = None
     repeats: ResultRepeats | None = None
+    citations: list[dict[str, str]] = Field(
+        default_factory=list, description="The answer's web citations: url, title"
+    )
+    web_search_unused: bool = Field(
+        default=False, description="Search was offered and nothing was cited"
+    )
 
     # Only with `prompts=true`; null everywhere else, and with `audit_log` off.
     prompts: ResultPrompts | None = None

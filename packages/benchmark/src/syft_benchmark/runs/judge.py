@@ -26,6 +26,15 @@ from syft_benchmark.llm import (
     chat,
     parse_json_object,
 )
+from syft_benchmark.llm.roles import web_search_for
+
+
+def judge_web_search(conf: Settings, judge: Provider | None) -> tuple[bool, str]:
+    """Whether this judge searches the web while grading, and how."""
+    return web_search_for(
+        conf, "judge", judge.model if judge is not None else conf.judge_model
+    )
+
 
 # The judge answer ceiling — shared with the other answers, BENCH_ANSWER_MAX_TOKENS.
 #
@@ -291,6 +300,7 @@ def grade(
     if defer:
         return deferred(_JUDGE_SYSTEM, user)
     try:
+        searching, engine = judge_web_search(conf, judge)
         raw, usage = chat(
             _JUDGE_SYSTEM,
             user,
@@ -299,6 +309,8 @@ def grade(
             temperature=0.0,
             max_tokens=conf.answer_max_tokens,
             settings=conf,
+            web_search=searching,
+            web_search_engine=engine or "auto",
         )
         data = parse_json_object(raw)
     except LLMError as exc:
@@ -358,6 +370,7 @@ def grade_key_facts(
     if defer:
         return deferred(_KEY_FACTS_SYSTEM, user)
     try:
+        searching, engine = judge_web_search(conf, judge)
         raw, usage = chat(
             _KEY_FACTS_SYSTEM,
             user,
@@ -366,6 +379,8 @@ def grade_key_facts(
             temperature=0.0,
             max_tokens=conf.answer_max_tokens,
             settings=conf,
+            web_search=searching,
+            web_search_engine=engine or "auto",
         )
         data = parse_json_object(raw)
     except LLMError as exc:

@@ -135,8 +135,7 @@ def test_summary_endpoint_blocks_the_fragment_arm() -> None:
 
 
 def test_raw_endpoint_blocks_the_prose_arms() -> None:
-    """Raw mode does not compose an answer: arm B has nothing to grade."""
-    assert arm_blocker(ContextMode.OPEN_BOOK, "raw", ContextSource.ENDPOINT_OWN)
+    """Raw mode does not compose an answer: arm C has no prose to mix in."""
     assert (
         arm_blocker(
             ContextMode.MODEL_WITH_CONTEXT, "raw", ContextSource.ENDPOINT_ANSWER
@@ -154,7 +153,10 @@ def test_raw_endpoint_blocks_the_prose_arms() -> None:
 
 def test_unknown_endpoint_mode_does_not_block_the_run() -> None:
     """A failed diagnostic is not the same thing as a known incompatibility."""
-    assert arm_blocker(ContextMode.OPEN_BOOK, "", ContextSource.ENDPOINT_OWN) == ""
+    assert (
+        arm_blocker(ContextMode.MODEL_WITH_CONTEXT, "", ContextSource.ENDPOINT_ANSWER)
+        == ""
+    )
 
 
 def test_audit_keeps_prompts_and_the_judge_trail() -> None:

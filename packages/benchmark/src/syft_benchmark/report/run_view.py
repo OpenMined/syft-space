@@ -33,6 +33,7 @@ from syft_benchmark.config import (
     ContextMode,
     EvalBlock,
     JobState,
+    ManualStatusPriority,
     PairStatus,
     Settings,
     StatusReason,
@@ -50,12 +51,13 @@ from syft_benchmark.db.models import (
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.report.metrics import accuracy_by_temperature, held_by_round
+from syft_benchmark.runs.gate import passes
 from syft_benchmark.runs.judge import ERROR_PREFIX, is_technical
 from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 4
+AGGREGATE_VERSION = 5
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -189,15 +191,35 @@ def configured_panel(settings: Settings) -> list[str]:
 JUDGE_PANEL = "judge_panel"
 JUDGE_POLICY = "judge_policy"
 PRIMARY_JUDGE = "primary_judge"
-SNAPSHOT_KEYS = frozenset({JUDGE_PANEL, JUDGE_POLICY, PRIMARY_JUDGE})
+# The web check gate the launch asked through.
+WEB_CHECK_MODEL = "web_check_model"
+MANUAL_PRIORITY = "manual_status_priority"
+SNAPSHOT_KEYS = frozenset(
+    {JUDGE_PANEL, JUDGE_POLICY, PRIMARY_JUDGE, WEB_CHECK_MODEL, MANUAL_PRIORITY}
+)
 
 
 def judging_snapshot(settings: Settings) -> dict[str, Any]:
-    """The judging a launch goes by, for ``jobs.params``."""
+    """The judging and the web check gate a launch goes by, for ``jobs.params``."""
     return {
         JUDGE_PANEL: configured_panel(settings),
         JUDGE_POLICY: settings.judge_policy.value,
+        WEB_CHECK_MODEL: settings.filter_model or "",
+        MANUAL_PRIORITY: settings.manual_status_priority.value,
     }
+
+
+def job_gate(job: Job) -> Settings | None:
+    """The web check gate of the job's launch; None for a job without a snapshot."""
+    params = job.params or {}
+    if WEB_CHECK_MODEL not in params:
+        return None
+    return Settings.model_construct(
+        filter_model=str(params.get(WEB_CHECK_MODEL) or "") or None,
+        manual_status_priority=ManualStatusPriority(
+            params.get(MANUAL_PRIORITY) or ManualStatusPriority.FILTER.value
+        ),
+    )
 
 
 def job_panel(job: Job) -> list[str]:
@@ -347,19 +369,38 @@ def question_set_query(job_id: str) -> Any:
 
 
 def _funnel(
-    session: Session, job_id: str, took_part: set[str], asked: int, trick: int
+    session: Session,
+    job: Job,
+    took_part: set[str],
+    asked: int,
+    trick: int,
 ) -> dict[str, Any]:
-    """What the job wrote, what of it never took part and why, what was asked."""
+    """What the job wrote, what of it never took part and why, what was asked.
+
+    ``unchecked``: kept questions that were not asked because they had not
+    passed the web check (None for a job without a gate snapshot).
+    """
+    gate = job_gate(job)
     rows = session.connection().execute(
-        select(QaPair.id, QaPair.status, QaPair.status_reason).where(
-            QaPair.job_id == job_id, QaPair.generator != TRICK_GENERATOR
-        )
+        select(
+            QaPair.id,
+            QaPair.status,
+            QaPair.status_reason,
+            QaPair.task_type,
+            QaPair.meta,
+        ).where(QaPair.job_id == job.id, QaPair.generator != TRICK_GENERATOR)
     )
     written = 0
+    unchecked = 0
     removed: dict[str, int] = {}
-    for qa, status, reason in rows:
+    for qa, status, reason, task_type, meta in rows:
         written += 1
-        if qa in took_part or status not in REMOVED_STATUSES:
+        if qa in took_part:
+            continue
+        if status not in REMOVED_STATUSES:
+            probe = QaPair(id=qa, task_type=task_type, meta=meta or {})
+            if gate is not None and not passes(probe, gate):
+                unchecked += 1
             continue
         key = reason or StatusReason.OTHER.value
         removed[key] = removed.get(key, 0) + 1
@@ -367,6 +408,7 @@ def _funnel(
         "written": written or None,
         "removed": removed,
         "removed_total": sum(removed.values()) if written else None,
+        "unchecked": unchecked if gate is not None and written else None,
         "asked": asked,
         "trick": trick,
     }
@@ -618,7 +660,7 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     return {
         "run": run,
         "funnel": _funnel(
-            session, job.id, set(generator_of), len(counted_main), len(counted_trick)
+            session, job, set(generator_of), len(counted_main), len(counted_trick)
         ),
         "models": reports,
         "judges": judges,

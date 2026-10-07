@@ -19,14 +19,17 @@ whole text.
 from __future__ import annotations
 
 import json
+import random
+import threading
 import time
+from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from syft_benchmark.config import Settings, check_model_host, get_settings
 from syft_benchmark.llm import catalog
-from syft_benchmark.llm.providers import kind_for_url
+from syft_benchmark.llm.providers import ProviderKind, kind_for_url
 
 if TYPE_CHECKING:
     from syft_benchmark.llm.roles import Provider
@@ -51,6 +54,14 @@ class LLMTruncatedError(LLMError):
     """The answer hit the token cap and brought back nothing usable."""
 
 
+class LLMBusyError(LLMError):
+    """A rate limit or an overload: the same call later is likely to pass."""
+
+    def __init__(self, detail: str, retry_after: float | None = None) -> None:
+        super().__init__(detail)
+        self.retry_after = retry_after
+
+
 # The codes with nothing to retry: it is the request, the key or the money.
 _FATAL_STATUS = frozenset({400, 401, 402, 403, 404, 405, 422})
 
@@ -65,12 +76,53 @@ _FATAL_BODY = (
 )
 
 
-def _classify(status: int, detail: str) -> LLMError:
-    """A provider's refusal — fatal, or worth retrying."""
+# Replies that mean "busy, come back later": a rate limit or an overload.
+_BUSY_STATUS = frozenset({429, 500, 502, 503, 504, 529})
+
+# How many busy replies one call waits out, apart from ``retries``, and the
+# waits: exponential from the base, with jitter, never past the cap. A
+# Retry-After from the provider is honoured up to its own cap.
+BUSY_RETRIES = 5
+_BACKOFF_BASE = 2.0
+_BACKOFF_CAP = 60.0
+_RETRY_AFTER_CAP = 120.0
+
+
+def _classify(status: int, detail: str, retry_after: float | None = None) -> LLMError:
+    """A provider's refusal — fatal, busy, or worth retrying."""
     lowered = detail.lower()
     if status in _FATAL_STATUS or any(mark in lowered for mark in _FATAL_BODY):
         return LLMFatalError(detail)
+    if status in _BUSY_STATUS:
+        return LLMBusyError(detail, retry_after)
     return LLMError(detail)
+
+
+def retry_after_of(headers: httpx.Headers | dict[str, str] | None) -> float | None:
+    """The Retry-After header in seconds (a number or an HTTP date); None — absent."""
+    if not headers:
+        return None
+    raw = str(headers.get("retry-after") or headers.get("Retry-After") or "").strip()
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, when.timestamp() - time.time())
+
+
+def backoff_delay(attempt: int, retry_after: float | None = None) -> float:
+    """Seconds to wait before busy retry number ``attempt`` (from 1)."""
+    ceiling = min(_BACKOFF_CAP, _BACKOFF_BASE * 2 ** (attempt - 1))
+    delay = random.uniform(ceiling / 2, ceiling)  # noqa: S311 - jitter, not crypto
+    if retry_after is not None:
+        delay = max(delay, min(retry_after, _RETRY_AFTER_CAP))
+    return delay
 
 
 def _headers_for(api_key: str, app_name: str) -> dict[str, str]:
@@ -103,6 +155,156 @@ def _api_root(url: str) -> str:
     return url.rstrip("/").removesuffix("/v1")
 
 
+def supports_web_search(url: str) -> bool:
+    """Whether the provider at this address can search the web for a call.
+
+    Only OpenRouter. A local Ollama has no web access, and the other APIs name
+    the feature differently.
+    """
+    return kind_for_url(url) is ProviderKind.OPENROUTER
+
+
+# OpenRouter's web search server tool. It replaces the deprecated ``web``
+# plugin: https://openrouter.ai/docs/guides/features/server-tools/web-search
+WEB_SEARCH_TOOL = "openrouter:web_search"
+
+
+def web_plugin(engine: str, max_results: int) -> dict[str, Any]:
+    """OpenRouter's deprecated ``web`` plugin, for models that take no tools.
+
+    ``engine`` "native" is the provider's own search, anything else Exa;
+    ``max_results`` applies to Exa.
+    """
+    if engine == "native":
+        return {"id": "web", "engine": "native"}
+    return {"id": "web", "engine": "exa", "max_results": max_results}
+
+
+def web_search_tool(engine: str, max_results: int) -> dict[str, Any]:
+    """The ``openrouter:web_search`` tool entry for one engine.
+
+    "native" is the provider's own search (OpenRouter falls back to Exa where
+    there is none); anything else is Exa. ``max_results`` applies to Exa only.
+    """
+    if engine == "native":
+        parameters: dict[str, Any] = {"engine": "native"}
+    else:
+        parameters = {"engine": "exa", "max_results": max_results}
+    return {"type": WEB_SEARCH_TOOL, "parameters": parameters}
+
+
+def search_mechanism(model: str, conf: Settings) -> str:
+    """tool or plugin: how this model is given web search.
+
+    The server tool needs tool calling, so a model the catalogue lists without
+    ``tools`` gets the plugin. An unknown model gets the tool; a refusal of it
+    steps down to the plugin in chat().
+    """
+    entry = catalog.load(conf).get(model)
+    return "plugin" if entry is not None and "tools" not in entry.supports else "tool"
+
+
+# One step of web search: (mechanism, forcing). "required" makes the model call
+# a tool, and search is its only one; "named" names the tool in tool_choice,
+# which OpenRouter maps to the provider's own tool and some refuse; "" leaves
+# the choice to the model.
+_Step = tuple[str, str]
+_TOOL_STEPS: tuple[_Step, ...] = (
+    ("tool", "required"),
+    ("tool", "named"),
+    ("tool", ""),
+    ("plugin", ""),
+)
+_PLUGIN_STEPS: tuple[_Step, ...] = (("plugin", ""),)
+
+# (wire model, engine) -> how many steps its refusals have already cost. Kept
+# for the process, so a refused step is paid for once, not on every call.
+_STEPPED_DOWN: dict[tuple[str, str], int] = {}
+_STEPPED_LOCK = threading.Lock()
+
+
+def _search_steps(mechanism: str, wire: str, engine: str) -> list[_Step]:
+    """The steps left to try, the best first."""
+    if mechanism == "plugin":
+        return list(_PLUGIN_STEPS)
+    with _STEPPED_LOCK:
+        skipped = _STEPPED_DOWN.get((wire, engine), 0)
+    return list(_TOOL_STEPS[skipped:])
+
+
+def _step_down(wire: str, engine: str, steps: list[_Step]) -> None:
+    """Remember that this model refused its current step."""
+    key = (wire, engine)
+    skipped = len(_TOOL_STEPS) - len(steps) + 1
+    with _STEPPED_LOCK:
+        _STEPPED_DOWN[key] = max(_STEPPED_DOWN.get(key, 0), skipped)
+
+
+def _apply_search(body: dict[str, Any], step: _Step, engine: str, results: int) -> None:
+    """Put one web search step into the request body."""
+    for key in ("tools", "tool_choice", "plugins"):
+        body.pop(key, None)
+    mechanism, forcing = step
+    if mechanism == "plugin":
+        body["plugins"] = [web_plugin(engine, results)]
+        return
+    body["tools"] = [web_search_tool(engine, results)]
+    if forcing == "required":
+        body["tool_choice"] = "required"
+    elif forcing == "named":
+        body["tool_choice"] = {"type": WEB_SEARCH_TOOL}
+
+
+def _refuses_search(error: LLMFatalError, named: str) -> bool:
+    """A refusal about the search tool itself, which a lesser step may avoid."""
+    text = str(error).replace(named, "").lower()
+    return "tool" in text and "credit" not in text and "quota" not in text
+
+
+def search_requests(usage: dict[str, Any]) -> int | None:
+    """How many searches the provider reports for the call; None — not reported."""
+    for key in ("server_tool_use_details", "server_tool_use"):
+        found = usage.get(key)
+        if isinstance(found, dict) and found.get("web_search_requests") is not None:
+            try:
+                return int(found["web_search_requests"])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def search_unused(usage: dict[str, Any]) -> bool:
+    """Search was offered, and the answer shows no search and cites nothing."""
+    return (
+        bool(usage.get("web_search"))
+        and not usage.get("citations")
+        and not usage.get("web_search_requests")
+    )
+
+
+def _engine_for(asked: str, model: str, conf: Settings) -> str:
+    """native or plugin; "auto" goes by the catalogue."""
+    if asked in ("native", "plugin"):
+        return asked
+    return "native" if catalog.load(conf).web_search_of(model) == "native" else "plugin"
+
+
+def citations_of(message: dict[str, Any]) -> list[dict[str, str]]:
+    """The ``url_citation`` annotations of an answer, as {url, title}, deduplicated."""
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for note in message.get("annotations") or []:
+        if not isinstance(note, dict) or note.get("type") != "url_citation":
+            continue
+        cited = note.get("url_citation") or {}
+        url = str(cited.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append({"url": url, "title": str(cited.get("title") or "")})
+    return out
+
+
 def chat(
     system_prompt: str,
     user_prompt: str,
@@ -114,6 +316,9 @@ def chat(
     settings: Settings | None = None,
     provider: Provider | None = None,
     messages: list[dict[str, str]] | None = None,
+    web_search: bool = False,
+    web_search_engine: str = "auto",
+    max_results: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """A single call to the chat endpoint.
 
@@ -134,9 +339,23 @@ def chat(
         messages: A ready-made exchange instead of a system/user pair. denial_loop
             needs it: pressure only means something as a continuation of the same
             dialogue
+        web_search: Let the model search the web. Only OpenRouter offers it:
+            the ``openrouter:web_search`` tool, forced by tool_choice
+            "required", then by naming it, then unforced, then the ``web`` plugin,
+            stepping down
+            when the provider refuses a step (and straight to the plugin for a
+            model without tool calling). Elsewhere the call goes without it and
+            usage says ``web_search: False``
+        web_search_engine: "native", "plugin" (Exa) or "auto" (native when the
+            catalogue says the model has it, else Exa)
+        max_results: Results per search for Exa; None — the settings
 
     Returns:
-        The answer text and usage, extended with finish_reason
+        The answer text and usage, extended with finish_reason, web_search
+        (the engine used, or False), citations ([{url, title}]) and, when
+        searching, web_search_via (tool or plugin), web_search_forced
+        ("required", "named" or False) and
+        web_search_requests (the provider's count, or None)
 
     Raises:
         ExternalCallBlocked: the model's address is outside the perimeter
@@ -172,6 +391,13 @@ def chat(
             {"role": "user", "content": user_prompt},
         ],
     }
+    searched: str | bool = False
+    steps: list[_Step] = []
+    results = conf.web_search_max_results if max_results is None else max_results
+    if web_search and supports_web_search(base_url):
+        searched = _engine_for(web_search_engine, chosen, conf)
+        steps = _search_steps(search_mechanism(chosen, conf), wire, searched)
+        _apply_search(body, steps[0], searched, results)
     url = f"{_api_root(base_url)}/v1/chat/completions"
 
     last: Exception | None = None
@@ -186,6 +412,9 @@ def chat(
     # network.
     failures = 0
     attempts = 0
+    # Busy replies (429, overload) waited out, and the seconds spent waiting.
+    busy = 0
+    waited = 0.0
     while True:
         attempts += 1
         try:
@@ -199,6 +428,7 @@ def chat(
                 raise _classify(
                     resp.status_code,
                     f"{named} -> {resp.status_code}: {resp.text[:300]}",
+                    retry_after_of(resp.headers),
                 )
             data = resp.json()
             # The provider also hands a refusal back with HTTP 200, putting it
@@ -228,7 +458,17 @@ def chat(
                 length_retry=doublings > 0,
                 length_retries=doublings,
                 attempts=attempts,
+                busy_retries=busy,
+                backoff_seconds=round(waited, 1),
+                web_search=searched,
+                citations=citations_of(choice.get("message") or {}),
             )
+            if steps:
+                usage.update(
+                    web_search_via=steps[0][0],
+                    web_search_forced=steps[0][1] or False,
+                    web_search_requests=search_requests(usage),
+                )
 
             if finish == "length" and int(body["max_tokens"]) < ceiling:
                 # A reasoning model spends output tokens on reasoning BEFORE it
@@ -266,10 +506,28 @@ def chat(
             # truncated text can be graded, missing text cannot. Array parsing
             # can pull whole objects out of it.
             return content, usage
-        except LLMFatalError:
+        except LLMFatalError as exc:
+            # A refused search step: the next one down, at once. Forcing the
+            # tool or the tool itself can be refused where plain search works.
+            if len(steps) > 1 and _refuses_search(exc, named):
+                if steps[0][0] == "tool":
+                    _step_down(wire, str(searched), steps)
+                steps.pop(0)
+                _apply_search(body, steps[0], str(searched), results)
+                continue
             # There is nothing to retry: it is the key, access, the model name
             # or the money. We fail at once so the cause is visible.
             raise
+        except LLMBusyError as exc:
+            # A rate limit or an overload: wait, longer each time, as long as
+            # the provider asks, and try the same call again.
+            last = exc
+            busy += 1
+            if busy > BUSY_RETRIES:
+                break
+            delay = backoff_delay(busy, exc.retry_after)
+            waited += delay
+            time.sleep(delay)
         except (httpx.TimeoutException, httpx.TransportError, LLMError) as exc:
             last = exc
             failures += 1

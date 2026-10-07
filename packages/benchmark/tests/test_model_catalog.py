@@ -226,6 +226,68 @@ def test_the_filter_keeps_only_models_that_can_do_the_job() -> None:
     assert [entry.id for entry in found] == ["a/with-temperature"]
 
 
+def test_native_search_is_what_openrouter_prices_or_takes_options_for() -> None:
+    """Asking for native search where the provider has none is an error."""
+    built = _catalogue(
+        _raw(
+            "a/priced", pricing={"prompt": "0", "completion": "0", "web_search": "0.01"}
+        ),
+        _raw("b/options", supported_parameters=["web_search_options"]),
+        _raw("c/plain"),
+    )
+
+    assert built.web_search_of("a/priced") == "native"
+    assert built.web_search_of("b/options") == "native"
+    assert built.web_search_of("c/plain") == "plugin"
+
+
+def test_an_unknown_model_searches_by_plugin_and_takes_temperature() -> None:
+    built = _catalogue()
+
+    assert built.web_search_of("vendor/new") == "plugin"
+    assert built.web_search_of("llama3:8b") == "none"
+    assert built.takes_temperature("vendor/new") is True
+
+
+def test_a_local_model_has_no_search_and_takes_temperature() -> None:
+    entry = catalog.ModelEntry(id="llama3:8b", name="llama3:8b", local=True)
+
+    assert entry.web_search == "none"
+    assert entry.takes_temperature is True
+
+
+def test_a_row_stored_before_the_field_still_loads() -> None:
+    """It takes what the shipped snapshot knew, else the plugin."""
+    older = openrouter.snapshot(
+        [_raw("a/known", supported_parameters=["web_search_options"])]
+    )
+    stored = openrouter.snapshot([_raw("a/known"), _raw("b/only-stored")])
+    for entry in stored["models"]:
+        del entry["web_search"]
+
+    built = catalog.from_documents([older, stored])
+
+    assert built.web_search_of("a/known") == "native"
+    assert built.web_search_of("b/only-stored") == "plugin"
+
+
+def test_the_filter_reads_search_and_the_lack_of_temperature() -> None:
+    built = _catalogue(
+        _raw("a/native", supported_parameters=["temperature", "web_search_options"]),
+        _raw("b/plugin-cold", supported_parameters=["tools"]),
+    )
+
+    def ids(**filters: Any) -> list[str]:
+        return [entry.id for entry in built.search(**filters)]
+
+    assert ids(web_search="native") == ["a/native"]
+    assert ids(web_search="plugin") == ["b/plugin-cold"]
+    assert ids(web_search="any") == ["a/native", "b/plugin-cold"]
+    assert ids(web_search="none") == []
+    assert ids(lacks=("temperature",)) == ["b/plugin-cold"]
+    assert built.takes_temperature("b/plugin-cold") is False
+
+
 def test_a_withdrawn_model_is_out_of_the_way_but_not_gone() -> None:
     """It is still configured somewhere, so it must still be nameable."""
     built = _catalogue(
@@ -286,6 +348,31 @@ def test_the_form_is_offered_the_catalogue_over_the_wire() -> None:
     # The moving names travel too, with what they mean today beside them: the
     # form can offer the convenient name and still store the repeatable one.
     assert body["pins"]
+
+
+def test_the_form_can_filter_by_search_and_temperature() -> None:
+    client = _client()
+
+    native = client.get("/models", params={"web_search": "native"}, headers=AUTH)
+    cold = client.get("/models", params={"lacks": "temperature"}, headers=AUTH)
+    wrong = client.get("/models", params={"web_search": "maybe"}, headers=AUTH)
+
+    assert native.status_code == 200, native.text
+    assert native.json()["total"] > 0
+    assert {entry["web_search"] for entry in native.json()["models"]} == {"native"}
+    assert cold.json()["total"] > 0
+    assert all(
+        "temperature" not in entry["supports"] for entry in cold.json()["models"]
+    )
+    assert wrong.status_code == 422
+
+
+def test_every_shipped_model_says_how_it_searches() -> None:
+    document = catalog.shipped()
+
+    assert all(
+        entry.get("web_search") in ("native", "plugin") for entry in document["models"]
+    )
 
 
 def test_the_field_description_says_which_fields_have_a_catalogue() -> None:

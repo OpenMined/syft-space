@@ -37,6 +37,13 @@
               <span class="text-sm truncate min-w-0" :class="{ 'font-medium': isContainer }">
                 {{ node.name }}
               </span>
+              <span
+                v-if="stampHint"
+                class="text-xs text-muted-foreground flex-shrink-0 whitespace-nowrap"
+                data-testid="utc-stamp-hint"
+              >
+                {{ stampHint.label }}
+              </span>
               <Badge
                 v-if="node.status === 'private'"
                 variant="outline"
@@ -80,8 +87,9 @@
             </a>
           </div>
         </TooltipTrigger>
-        <TooltipContent v-if="node.modifiedTime" side="bottom" align="start">
-          modified {{ formatModified(node.modifiedTime) }}
+        <TooltipContent v-if="node.modifiedTime || stampHint" side="bottom" align="start">
+          <div v-if="stampHint">{{ stampHint.title }}</div>
+          <div v-if="node.modifiedTime">modified {{ formatModified(node.modifiedTime) }}</div>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -163,6 +171,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useFileIcon } from '@/composables/useFileIcon'
 import type { FileNode } from '@/composables/useSourceBrowser'
+import { utcStampHint } from '@/lib/utcStamp'
 
 const props = withDefaults(
   defineProps<{
@@ -188,6 +197,8 @@ const { getFileIcon, getFileIconColor, formatFileSize } = useFileIcon()
 
 const lockedSet = computed(() => new Set(props.lockedSelection))
 const isContainer = computed(() => props.node.type === 'directory')
+/** Local-time hint for UTC-stamped names (e.g. `2026-10-07_1900_UTC`); null otherwise. */
+const stampHint = computed(() => utcStampHint(props.node.name))
 const isExpanded = computed(() => props.expanded.has(props.node.path))
 /** Self-only sources are picked a container at a time; children are context. */
 const isPickable = computed(() => isContainer.value || props.containerMode !== 'self-only')

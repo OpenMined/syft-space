@@ -160,8 +160,37 @@
 
             <div :class="GRID_ROW" data-testid="row-answer">
               <span class="text-muted-foreground">Model’s answer</span>
-              <span class="break-words">{{ detail.arms.alone?.answer || DASH }}</span>
-              <span class="break-words">{{ detail.arms.with?.answer || DASH }}</span>
+              <span
+                v-for="arm in ARMS"
+                :key="arm"
+                class="flex flex-col items-start gap-1 break-words"
+                :data-testid="`answer-${arm}`"
+              >
+                <span>{{ armOf(detail, arm)?.answer || DASH }}</span>
+                <span
+                  v-if="armOf(detail, arm)?.web_search_unused"
+                  class="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                  title="Asked to search the web, but cited nothing."
+                  data-testid="searched-no"
+                  >Searched: no</span
+                >
+                <span
+                  v-if="armOf(detail, arm)?.citations?.length"
+                  class="flex flex-wrap gap-x-2 gap-y-0.5 text-xs"
+                  data-testid="citations"
+                >
+                  <a
+                    v-for="(cite, n) in armOf(detail, arm)!.citations"
+                    :key="`${n}-${cite.url}`"
+                    :href="safeUrl(cite.url)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="max-w-60 truncate text-primary hover:underline"
+                    :title="cite.url"
+                    >{{ cite.title || hostOf(cite.url) }}</a
+                  >
+                </span>
+              </span>
             </div>
 
             <div
@@ -543,6 +572,19 @@ function judgeReasoning(judge: BenchmarkQuestionJudge, arm: Arm): string | null 
 
 function armOf(d: BenchmarkQuestionDetail, arm: Arm) {
   return d.arms[ARM_KEY[arm]]
+}
+
+/** Only web links; anything else would run in the page. */
+function safeUrl(url: string): string | undefined {
+  return /^https?:\/\//i.test(url) ? url : undefined
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
 }
 
 function heldText(d: BenchmarkQuestionDetail, arm: Arm): string {

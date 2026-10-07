@@ -21,6 +21,7 @@ from syft_benchmark.db.models import Job, QaPair, Result, Run, Target
 from syft_benchmark.db.session import session_scope
 
 TOKEN = "test-console-token"
+WEB_CHECK_MODEL = "openai/gpt-5.1"
 KEY = "pytest-console-a"
 KEY2 = "pytest-console-b"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -59,7 +60,9 @@ def clean() -> Any:
 @pytest.fixture
 def client() -> Any:
     """Same reasoning as `test_control.py`'s: no worker thread in tests."""
-    conf = get_settings().model_copy(update={"control_token": TOKEN})
+    conf = get_settings().model_copy(
+        update={"control_token": TOKEN, "filter_model": WEB_CHECK_MODEL}
+    )
     return TestClient(create_app(conf))
 
 

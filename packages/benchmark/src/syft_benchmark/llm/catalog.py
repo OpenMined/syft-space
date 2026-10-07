@@ -22,10 +22,10 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import resources
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from syft_benchmark.config import Settings
 from syft_benchmark.llm.providers import ProviderKind
@@ -37,6 +37,8 @@ MODEL_FIELDS: tuple[str, ...] = (
     "judge_model",
     "subject_models",
     "judge_models",
+    "filter_model",
+    "filter_judge_model",
 )
 
 # The snapshot that ships with the code: the floor under the table, read
@@ -44,6 +46,12 @@ MODEL_FIELDS: tuple[str, ...] = (
 # with no way out of the perimeter still draw a form with models in it.
 DATA_PACKAGE = "syft_benchmark.data"
 SNAPSHOT_FILE = "models.json"
+
+
+# native: the provider's own search; plugin: OpenRouter's web plugin (Exa);
+# none: no way to search from here (a local model).
+WebSearch = Literal["native", "plugin", "none"]
+WEB_SEARCH_VALUES: tuple[str, ...] = ("native", "plugin", "none")
 
 
 class ModelEntry(BaseModel):
@@ -79,6 +87,24 @@ class ModelEntry(BaseModel):
     )
     source: str = Field(default="", description="Which catalogue it came from")
     local: bool = Field(default=False, description="Served from inside the perimeter")
+    web_search: WebSearch = Field(
+        default="none",
+        description="How it searches the web: native, the OpenRouter plugin, or not",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_web_search(cls, data: Any) -> Any:
+        """Rows stored before the field: plugin for OpenRouter, else none."""
+        if isinstance(data, dict) and data.get("web_search") is None:
+            remote = not data.get("local") and data.get("source") == "openrouter"
+            data = {**data, "web_search": "plugin" if remote else "none"}
+        return data
+
+    @property
+    def takes_temperature(self) -> bool:
+        """Whether it honours temperature; a local model always does."""
+        return self.local or "temperature" in self.supports
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +141,18 @@ class Catalog:
         head, sep, _ = self.pin(model).partition("/")
         return head.lower() if sep else ""
 
+    def web_search_of(self, model: str) -> str:
+        """native, plugin or none. Unknown: plugin with a namespace, else none."""
+        entry = self.get(model)
+        if entry is not None:
+            return entry.web_search
+        return "plugin" if "/" in self.pin(model) else "none"
+
+    def takes_temperature(self, model: str) -> bool:
+        """Whether a temperature can be set; an unknown model is assumed to."""
+        entry = self.get(model)
+        return True if entry is None else entry.takes_temperature
+
     def native(self, model: str, kind: ProviderKind) -> str:
         """The name to put in the request to this kind of provider.
 
@@ -149,6 +187,8 @@ class Catalog:
         query: str = "",
         vendor: str = "",
         supports: tuple[str, ...] = (),
+        lacks: tuple[str, ...] = (),
+        web_search: str = "",
         include_retired: bool = False,
         limit: int = 0,
     ) -> list[ModelEntry]:
@@ -158,6 +198,8 @@ class Catalog:
             query: Free text; matched against the identifier and the shown name
             vendor: Only this vendor
             supports: Only models honouring all of these request parameters
+            lacks: Only models honouring none of these
+            web_search: native, plugin or none; "any" — native or plugin
             include_retired: Whether to keep models with a withdrawal date
             limit: Cap on the answer; zero — no cap
 
@@ -178,7 +220,7 @@ class Catalog:
                 and needle not in entry.name.lower()
             ):
                 continue
-            if supports and not set(supports).issubset(entry.supports):
+            if not entry_matches(entry, supports, lacks, web_search):
                 continue
             if entry.retires_on and not include_retired:
                 continue
@@ -192,19 +234,48 @@ class Catalog:
         return sorted({entry.vendor for entry in self.models.values() if entry.vendor})
 
 
+def _honours(entry: ModelEntry, parameter: str) -> bool:
+    """Whether the entry takes this request parameter."""
+    if parameter == "temperature":
+        return entry.takes_temperature
+    return parameter in entry.supports
+
+
+def entry_matches(
+    entry: ModelEntry,
+    supports: tuple[str, ...] = (),
+    lacks: tuple[str, ...] = (),
+    web_search: str = "",
+) -> bool:
+    """Whether one entry passes the picker's capability filters."""
+    if not all(_honours(entry, item) for item in supports):
+        return False
+    if any(_honours(entry, item) for item in lacks):
+        return False
+    wanted = web_search.strip().lower()
+    if wanted == "any":
+        return entry.web_search != "none"
+    return not wanted or entry.web_search == wanted
+
+
 def _document_entries(
-    document: dict[str, Any],
+    document: dict[str, Any], known: dict[str, ModelEntry] | None = None
 ) -> tuple[list[ModelEntry], dict[str, str]]:
     """One catalogue document, validated into entries.
 
     A malformed entry is dropped with a line in the log: a catalogue that
-    refuses to load leaves the form with no models at all.
+    refuses to load leaves the form with no models at all. An entry stored
+    without ``web_search`` takes the value an earlier document knew.
     """
     source = str(document.get("source") or "")
     entries: list[ModelEntry] = []
     for raw in document.get("models") or []:
         try:
-            entries.append(ModelEntry.model_validate({**raw, "source": source}))
+            item = {**raw, "source": source}
+            earlier = (known or {}).get(str(raw.get("id") or ""))
+            if item.get("web_search") is None and earlier is not None:
+                item["web_search"] = earlier.web_search
+            entries.append(ModelEntry.model_validate(item))
         except ValueError as error:
             logger.warning(f"catalogue {source}: skipping a model — {error}")
     pins = {str(k): str(v) for k, v in (document.get("pins") or {}).items()}
@@ -222,7 +293,7 @@ def from_documents(documents: list[dict[str, Any]]) -> Catalog:
     fetched: dict[str, str] = {}
 
     for document in documents:
-        entries, document_pins = _document_entries(document)
+        entries, document_pins = _document_entries(document, models)
         for entry in entries:
             models[entry.id] = entry
         pins.update(document_pins)

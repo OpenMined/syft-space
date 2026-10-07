@@ -6,7 +6,8 @@
            than the field it belongs to reads as a different control. -->
       <PopoverAnchor as-child>
         <div
-          class="flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
+          class="flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
+          :class="warn ? 'border-amber-500' : 'border-input'"
         >
           <!-- Several models are chips, one is a line of text: a single model
                shown as a chip reads as "one of many".
@@ -15,11 +16,17 @@
                OUTSIDE the one that opens the list — nested inside it, a click
                would reach the button around it and open the picker. -->
           <template v-if="multiple">
-            <Badge v-for="id in selected" :key="id" variant="secondary" class="gap-1 font-normal">
-              {{ id }}
+            <Badge
+              v-for="id in selected"
+              :key="id"
+              variant="secondary"
+              class="gap-1 font-normal"
+              :title="id"
+            >
+              {{ label(id) }}
               <button
                 type="button"
-                :aria-label="`Remove ${id}`"
+                :aria-label="`Remove ${label(id)}`"
                 class="cursor-pointer rounded-xs opacity-60 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-1"
                 @click="toggle(id)"
               >
@@ -30,16 +37,18 @@
 
           <PopoverTrigger as-child>
             <button
+              :id="triggerId || undefined"
               type="button"
-              class="flex min-w-20 flex-1 cursor-pointer items-center justify-between gap-2 text-left outline-hidden"
+              :aria-describedby="describedBy || undefined"
+              class="flex min-w-20 flex-1 cursor-pointer items-center justify-between gap-2 text-left outline-hidden disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span v-if="!selected.length" class="text-muted-foreground">
                 {{ placeholder || 'Choose a model' }}
               </span>
-              <span v-else-if="!multiple" class="truncate text-foreground">
-                {{ selected[0] }}
+              <span v-else-if="!multiple" class="truncate text-foreground" :title="selected[0]">
+                {{ label(selected[0]!) }}
               </span>
-              <span v-else class="text-muted-foreground">Add another…</span>
+              <span v-else class="text-muted-foreground">{{ addLabel }}</span>
 
               <ChevronsUpDown class="size-4 shrink-0 opacity-50" />
             </button>
@@ -92,6 +101,28 @@
           </button>
         </div>
 
+        <div
+          class="flex flex-wrap gap-1 border-b border-border/50 px-2 py-2"
+          data-testid="model-filters"
+        >
+          <button
+            v-for="chip in MODEL_FILTERS"
+            :key="chip.value"
+            type="button"
+            class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors"
+            :class="
+              filters.includes(chip.value)
+                ? 'bg-secondary text-secondary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            :title="chip.help"
+            :aria-pressed="filters.includes(chip.value)"
+            @click="filters = toggleFilter(filters, chip.value)"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
+
         <div class="max-h-72 overflow-y-auto py-1">
           <p v-if="loading" class="px-3 py-6 text-center text-xs text-muted-foreground">
             Loading the catalogue…
@@ -130,13 +161,34 @@
                     class="size-3.5 shrink-0"
                     :class="selected.includes(entry.id) ? 'opacity-100' : 'opacity-0'"
                   />
-                  <span class="truncate text-sm text-foreground">{{ entry.name }}</span>
+                  <span class="truncate text-sm text-foreground">{{ modelName(entry.id, entry) }}</span>
                 </span>
                 <span class="block truncate pl-5 text-[11px] text-muted-foreground">
                   {{ entry.id }}{{ describe(entry) }}
                 </span>
               </span>
               <span class="flex shrink-0 items-center gap-1">
+                <Badge
+                  v-if="webSearchOf(entry) === 'native'"
+                  variant="outline"
+                  class="font-normal"
+                  title="Has built-in web search."
+                  >Web</Badge
+                >
+                <Badge
+                  v-else-if="webSearchOf(entry) === 'plugin'"
+                  variant="outline"
+                  class="font-normal"
+                  title="Searches through the OpenRouter web plugin."
+                  >Web plugin</Badge
+                >
+                <Badge
+                  v-if="!takesTemperature(entry)"
+                  variant="outline"
+                  class="font-normal"
+                  title="Takes no temperature setting."
+                  >No temperature</Badge
+                >
                 <Badge v-if="entry.local" variant="outline" class="font-normal">local</Badge>
                 <Badge v-if="entry.retires_on" variant="outline" class="font-normal">
                   retires {{ entry.retires_on }}
@@ -218,6 +270,15 @@ import { Check, ChevronsUpDown, Search, X } from 'lucide-vue-next'
 
 import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  MODEL_FILTERS,
+  matchesFilters,
+  modelName,
+  takesTemperature,
+  toggleFilter,
+  webSearchOf,
+} from '@/components/benchmark/setup/setupForm'
+import type { ModelFilter } from '@/components/benchmark/setup/setupForm'
 import { useModelCatalog } from '@/composables/useModelCatalog'
 import type { BenchmarkModel } from '@/api/types'
 
@@ -233,8 +294,25 @@ const props = withDefaults(
     /** Which benchmark's catalogue. Without it the picker still takes a typed name. */
     connectionId?: string
     placeholder?: string
+    /** Models not offered, such as the ones other slots already hold. */
+    exclude?: string[]
+    /** Amber border. */
+    warn?: boolean
+    /** Id of the control a `<label for>` points at. */
+    triggerId?: string
+    describedBy?: string
+    addLabel?: string
   }>(),
-  { multiple: false, connectionId: '', placeholder: '' },
+  {
+    multiple: false,
+    connectionId: '',
+    placeholder: '',
+    exclude: () => [],
+    warn: false,
+    triggerId: '',
+    describedBy: '',
+    addLabel: 'Add another…',
+  },
 )
 
 const emit = defineEmits<{ 'update:modelValue': [string | string[] | undefined] }>()
@@ -244,13 +322,14 @@ const { catalog, loading, refreshing, error, load, refresh } = useModelCatalog()
 const open = ref(false)
 const query = ref('')
 const vendor = ref('')
+const filters = ref<ModelFilter[]>([])
 
+// Loaded with the page: the chosen models are shown by their catalogue names.
+// The cache makes every picker on a page share one request.
 watch(
-  () => [open.value, props.connectionId] as const,
-  ([isOpen, id]) => {
-    // On first open, not on page draw: a form nobody scrolled that far down
-    // should not have paid for the list.
-    if (isOpen && id) void load(id)
+  () => props.connectionId,
+  (id) => {
+    if (id) void load(id)
   },
   { immediate: true },
 )
@@ -263,6 +342,10 @@ const selected = computed<string[]>(() => {
 
 const byId = computed(() => new Map(catalog.value.models.map((item) => [item.id, item])))
 
+function label(id: string): string {
+  return modelName(id, byId.value.get(id))
+}
+
 /** Chosen values the catalogue does not know — newer than it, or a typo. */
 const unknown = computed(() =>
   catalog.value.models.length ? selected.value.filter((id) => !byId.value.has(id)) : [],
@@ -272,7 +355,9 @@ const needle = computed(() => query.value.trim().toLowerCase())
 
 const matches = computed(() =>
   catalog.value.models.filter((entry) => {
+    if (props.exclude.includes(entry.id)) return false
     if (vendor.value && entry.vendor !== vendor.value) return false
+    if (!matchesFilters(entry, filters.value)) return false
     if (!needle.value) return true
     return (
       entry.id.toLowerCase().includes(needle.value) ||
@@ -286,15 +371,29 @@ const hidden = computed(() => matches.value.length - shown.value.length)
 
 const movingMatches = computed(() => {
   if (vendor.value) return []
+  // A moving name has no capabilities of its own; the model it means today does.
+  if (filters.value.length) {
+    return Object.entries(catalog.value.pins).filter(([name, target]) => {
+      const entry = byId.value.get(target)
+      return (
+        !!entry &&
+        !props.exclude.includes(target) &&
+        matchesFilters(entry, filters.value) &&
+        (!needle.value || name.toLowerCase().includes(needle.value))
+      )
+    })
+  }
   return Object.entries(catalog.value.pins).filter(
-    ([name]) => !needle.value || name.toLowerCase().includes(needle.value),
+    ([name, target]) =>
+      !props.exclude.includes(target) &&
+      (!needle.value || name.toLowerCase().includes(needle.value)),
   )
 })
 
 /** The typed text, when it is not already an entry — offered as it stands. */
 const custom = computed(() => {
   const typed = query.value.trim()
-  if (!typed || byId.value.has(typed)) return ''
+  if (!typed || byId.value.has(typed) || props.exclude.includes(typed)) return ''
   if (matches.value.some((entry) => entry.id === typed)) return ''
   return typed
 })
@@ -316,11 +415,6 @@ function describe(entry: BenchmarkModel): string {
     if (Number.isFinite(perMillion)) {
       parts.push(perMillion === 0 ? 'free' : `$${trim(perMillion)}/M in`)
     }
-  }
-  // Said only when missing: the monte_carlo block is nothing but varied
-  // temperature.
-  if (entry.supports.length && !entry.supports.includes('temperature')) {
-    parts.push('no temperature')
   }
   return parts.length ? ` · ${parts.join(' · ')}` : ''
 }

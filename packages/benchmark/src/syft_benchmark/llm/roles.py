@@ -42,6 +42,11 @@ class Provider:
         return vendor_of(self.model)
 
     @property
+    def company(self) -> str:
+        """Who made the model, with a vendor's several prefixes folded into one."""
+        return company_of(self.model)
+
+    @property
     def kind(self) -> ProviderKind:
         """Whose API answers at this address, and therefore how it names models."""
         return kind_for_url(self.url)
@@ -82,6 +87,66 @@ def vendor_of(model: str) -> str:
     return catalog.load().vendor_of(model)
 
 
+# A company that publishes under more than one prefix. The frontend mirrors this
+# map for its own same-company check.
+COMPANY_ALIASES: dict[str, str] = {
+    "x-ai": "xai",
+    "meta-llama": "meta",
+    "mistralai": "mistral",
+    "gemini": "google",
+    "bytedance-seed": "bytedance",
+}
+
+
+def company_of(model: str) -> str:
+    """The company behind a model: its vendor, through the alias map.
+
+    Empty for a local model, which has no vendor.
+    """
+    vendor = vendor_of(model)
+    return COMPANY_ALIASES.get(vendor, vendor)
+
+
+# The roles that may search the web, and the toggle each one reads. The web
+# check model always searches.
+WEB_SEARCH_TOGGLES: dict[str, str | None] = {
+    "closed_book": "web_search_closed_book",
+    "with_context": "web_search_with_context",
+    "generator": "web_search_generator",
+    "judge": "web_search_judge",
+    "filter": None,
+}
+
+
+def web_search_for(settings: Settings, role: str, model: str) -> tuple[bool, str]:
+    """Whether this role's call searches the web, and with which engine.
+
+    Args:
+        settings: The effective settings
+        role: closed_book, with_context, generator, judge or filter
+        model: The model making the call
+
+    Returns:
+        (enabled, engine): engine is "native" or "plugin" (Exa), "" when off. "auto"
+        takes native when the catalogue says the model has it; "native" asked of
+        a model without it falls back to Exa, so the model still searches.
+        A model the catalogue cannot search with (local) never searches.
+
+    Raises:
+        KeyError: an unknown role
+    """
+    toggle = WEB_SEARCH_TOGGLES[role]
+    if toggle is not None and not getattr(settings, toggle):
+        return False, ""
+    capability = catalog.load(settings).web_search_of(model)
+    if capability == "none":
+        return False, ""
+    wanted = str(settings.web_search_engine)
+    if wanted == "plugin" or capability != "native":
+        return True, "plugin"
+    return True, "native"
+
+
 def _resolve(role: str, url: str, key: str, model: str, settings: Settings) -> Provider:
     """Where this role is configured to call. No policy is applied here.
 
@@ -101,10 +166,12 @@ def _resolve(role: str, url: str, key: str, model: str, settings: Settings) -> P
 
 def configured_providers(settings: Settings) -> list[Provider]:
     """Every role as it is configured, without judging any of them."""
+    web_check = filter_provider(settings)
     return [
         generator_provider(settings),
         *subject_providers(settings),
         *judge_providers(settings),
+        *([web_check] if web_check is not None else []),
     ]
 
 
@@ -130,6 +197,19 @@ def generator_provider(settings: Settings) -> Provider:
         settings.generator_url,
         settings.generator_key,
         settings.generator_model,
+        settings,
+    )
+
+
+def filter_provider(settings: Settings) -> Provider | None:
+    """The web check model, at the subjects' provider. None — no web check."""
+    if not settings.filter_model:
+        return None
+    return _resolve(
+        "filter",
+        settings.subject_url,
+        settings.subject_key,
+        settings.filter_model,
         settings,
     )
 
@@ -185,13 +265,49 @@ def conflict_between(judge: Provider, subject: Provider) -> str | None:
     itself is covered by the same rule, and local models have no provider at all,
     in which case the names are compared.
     """
-    if judge.vendor and judge.vendor == subject.vendor:
+    if judge.company and judge.company == subject.company:
         return (
             f"the judge and the model under test are from one provider "
-            f"({judge.vendor}): the verdict is an interested one"
+            f"({judge.company}): the verdict is an interested one"
         )
     if not judge.vendor and not subject.vendor and judge.model == subject.model:
         return f"the model {judge.model!r} judges itself"
+    return None
+
+
+def judge_clashes(settings: Settings) -> list[str]:
+    """Every judge paired with a tested model from the same company, as sentences.
+
+    Judged on the effective settings: the panel and the models under test the
+    run would actually use. A local model clashes only with itself.
+    """
+    out: list[str] = []
+    for judge in judge_providers(settings):
+        for subject in subject_providers(settings):
+            if conflict_between(judge, subject) is not None:
+                out.append(
+                    f"Judge {judge.model} and tested model {subject.model} "
+                    f"are from the same company"
+                )
+    return out
+
+
+def clash_refusal(settings: Settings) -> str | None:
+    """Why a configuration may not be saved or launched, or None.
+
+    Only under ``strict``. Under ``warn`` a clash is allowed and logged.
+    """
+    clashes = judge_clashes(settings)
+    if not clashes:
+        return None
+    if settings.judge_policy is JudgePolicy.STRICT:
+        return (
+            "; ".join(clashes)
+            + ". Pick a judge from another company, or remove the model from the test."
+        )
+    if settings.judge_policy is JudgePolicy.WARN:
+        for line in clashes:
+            logger.warning(line)
     return None
 
 

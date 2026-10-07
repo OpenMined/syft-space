@@ -659,6 +659,17 @@ class CallView:
     length_retries: int
 
 
+def _citations_of(audit: Any) -> list[dict[str, str]]:
+    """The answer's web citations, where the record was kept."""
+    found = audit.get("citations") if isinstance(audit, dict) else None
+    return [c for c in found if isinstance(c, dict)] if isinstance(found, list) else []
+
+
+def _unused_search(audit: Any) -> bool:
+    """Search was offered and nothing was cited."""
+    return isinstance(audit, dict) and bool(audit.get("web_search_unused"))
+
+
 def _call_of(audit: Any) -> CallView | None:
     """How the answerer's call ended, where the record was kept."""
     call = audit.get("call") if isinstance(audit, dict) else None
@@ -759,6 +770,11 @@ class ResultView:
     context_docs: int | None = None
     fragment_max_chars: int | None = None
 
+    # Web search evidence, from the audit record: what the answer cited, and
+    # whether it was offered search and cited nothing.
+    citations: list[dict[str, str]] = field(default_factory=list)
+    web_search_unused: bool = False
+
     # Asked for by name: the trail runs to `audit_max_chars` per field, which
     # over a hundred rows is megabytes. Fetched one question at a time.
     prompts: PromptsView | None = None
@@ -847,6 +863,8 @@ def get_result(
             retrieval_hit=result.retrieval_hit,
             retrieval_rank=result.retrieval_rank,
             call=_call_of(result.audit),
+            citations=_citations_of(result.audit),
+            web_search_unused=_unused_search(result.audit),
             context_docs=_params_int(run.params, "context_docs"),
             fragment_max_chars=_params_int(run.params, "fragment_max_chars"),
         )
@@ -991,6 +1009,8 @@ def list_results(
                     retrieval_hit=result.retrieval_hit,
                     retrieval_rank=result.retrieval_rank,
                     call=_call_of(result.audit),
+                    citations=_citations_of(result.audit),
+                    web_search_unused=_unused_search(result.audit),
                     context_docs=_params_int(run.params, "context_docs"),
                     fragment_max_chars=_params_int(run.params, "fragment_max_chars"),
                     prompts=_prompts_of(result.audit) if prompts else None,

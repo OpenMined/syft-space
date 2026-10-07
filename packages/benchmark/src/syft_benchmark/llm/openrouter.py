@@ -44,6 +44,10 @@ KEPT_PARAMETERS = frozenset(
     }
 )
 
+# Native search: OpenRouter prices the provider's own search for the model
+# (pricing.web_search) or takes web_search_options; https://openrouter.ai/docs/guides/features/web-search
+NATIVE_SEARCH_PARAMETER = "web_search_options"
+
 # The suffix after the colon is the route, not the model.
 KNOWN_ROUTES = ("free", "batch")
 
@@ -111,6 +115,21 @@ def _price(pricing: dict[str, Any], key: str) -> str | None:
     return str(value)
 
 
+def web_search_of(raw: dict[str, Any]) -> str:
+    """How this model searches the web through OpenRouter: native or the plugin.
+
+    Any OpenRouter model can take the web plugin (Exa); "native" only where the
+    provider's own search is offered, since asking for it elsewhere errors.
+    """
+    pricing = raw.get("pricing") or {}
+    try:
+        priced = float(pricing.get("web_search") or 0) > 0
+    except (TypeError, ValueError):
+        priced = False
+    supported = raw.get("supported_parameters") or []
+    return "native" if priced or NATIVE_SEARCH_PARAMETER in supported else "plugin"
+
+
 def to_entries(
     models: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -158,6 +177,7 @@ def to_entries(
                     "prompt": _price(pricing, "prompt"),
                     "completion": _price(pricing, "completion"),
                 },
+                "web_search": web_search_of(raw),
                 "retires_on": raw.get("expiration_date") or None,
                 "routes": {},
                 "aliases": {SOURCE: base},

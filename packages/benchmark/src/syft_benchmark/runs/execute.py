@@ -1,23 +1,19 @@
-"""Three arms over one dataset.
+"""Two arms over one dataset.
 
-One and the same question is asked three ways, and each measures its own thing:
+One and the same question is asked two ways, and each measures its own thing:
 
-  * **A** (``closed_book``) — the model alone, without a single corpus chunk. By
-    assumption the corpus took no part in its training, so the honest answer is
-    "I do not know", and a confident answer means either a corpus leak or guessing.
-  * **B** (``open_book``) — the question to the endpoint, as the hub storefront
-    asks it. The whole endpoint answers: its retrieval, its model, its system
-    prompt. This is an assessment of the owner product.
+  * **A** (``closed_book``) — the model alone, without a single corpus chunk but
+    with its web search on. A correct answer means the question is answerable
+    without the publisher's data.
   * **C** (``model_with_context``) — the same model as in arm A, but what the
     endpoint returned is mixed in with the question. That is the model interaction
     with RAG.
 
-Comparability rests on A and C differing by EXACTLY the presence of context: one
-model, one style of instruction, one judge. Arm B answers a different question —
-"what is the product as a whole" — and paired with C it shows which is the weak
-link, retrieval or the model.
+Comparability rests on A and C differing by the publisher's context: one model,
+one style of instruction, one judge. Arm B (``open_book``, the endpoint answering
+by itself) is no longer measured; its results stay readable.
 
-All three write into one table, differing in the ``context_mode`` and
+Both write into one table, differing in the ``context_mode`` and
 ``context_source`` fields, and are judged by one panel.
 
 The questions go in a batch rather than one at a time: a run is busy waiting on a
@@ -37,6 +33,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
+from loguru import logger
 from sqlalchemy import select
 
 from syft_benchmark.config import (
@@ -60,11 +57,15 @@ from syft_benchmark.llm import (
     judge_providers,
     subject_providers,
 )
+from syft_benchmark.llm.ollama import search_unused
+from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.runs.blocks import (
     DenialOutcome,
     MonteCarloOutcome,
+    monte_carlo_skip_note,
     run_denial_loop,
     run_monte_carlo,
+    skips_monte_carlo,
 )
 from syft_benchmark.runs.endpoint import (
     RETRIEVAL_ONLY_TOKENS,
@@ -72,6 +73,7 @@ from syft_benchmark.runs.endpoint import (
     check_retrieval,
     endpoint_mode,
 )
+from syft_benchmark.runs.gate import evaluable, nothing_passed
 from syft_benchmark.runs.judge import (
     ERROR_PREFIX,
     Grade,
@@ -87,13 +89,11 @@ from syft_benchmark.runs.questionset import load as load_slice
 from syft_benchmark.runs.resume import done_units, window_start
 from syft_benchmark.runs.textmetrics import applies_to, score_text
 
-# The arms in which a model under test answers rather than the endpoint. Everything
-# depends on this: whether a subject is needed, whether denial_loop applies, whom
-# to check for the judge independence.
+# The arms in which a model under test answers. Every measured arm does.
 MODEL_ARMS = (ContextMode.CLOSED_BOOK, ContextMode.MODEL_WITH_CONTEXT)
 
 # The arms for which the endpoint has to be called.
-ENDPOINT_ARMS = (ContextMode.OPEN_BOOK, ContextMode.MODEL_WITH_CONTEXT)
+ENDPOINT_ARMS = (ContextMode.MODEL_WITH_CONTEXT,)
 
 # The context sources that need the chunks that were found. An endpoint in summary
 # mode cuts the references out of the answer — such an arm is not measurable with
@@ -290,12 +290,13 @@ def _active_pairs(
 ) -> list[QaPair]:
     """The pairs that go into the test.
 
-    The frozen slice, if one is set, is the whole selection: ``limit`` is not applied
+    Only active pairs that pass the web check gate (``runs.gate``). The frozen
+    slice, if one is set, is the whole selection: ``limit`` is not applied
     with it at all. The limit would select from what has already been selected and
     would bring back exactly the drift of the set the slice exists to prevent.
     """
     conf = settings or get_settings()
-    rows = active_pairs(space, conf)
+    rows = evaluable(active_pairs(space, conf), conf)
     if conf.question_set is not None:
         return apply_slice(
             load_slice(conf.question_set),
@@ -304,6 +305,19 @@ def _active_pairs(
             strict=conf.strict_question_set,
         )
     return pick_pairs(rows, limit)
+
+
+def evaluation_gate(space: str, settings: Settings | None = None) -> str:
+    """Why nothing can be asked on this Space; empty — something can.
+
+    Non-empty when active questions exist and none passes the web check gate.
+    An empty set is not this case: that is "nothing to ask" of its own.
+    """
+    conf = settings or get_settings()
+    rows = active_pairs(space, conf)
+    if not rows or evaluable(rows, conf):
+        return ""
+    return nothing_passed(len(rows), conf)
 
 
 def build_context(
@@ -363,6 +377,15 @@ def with_context_prompt(question: str, context: str) -> str:
     return f"Question:\n{question}\n\nMaterial:\n{context}\n\nAnswer the question."
 
 
+def arm_web_search(
+    mode: ContextMode, subject: Provider | None, settings: Settings
+) -> tuple[bool, str]:
+    """Whether the tested model searches the web in this arm, and how."""
+    role = "closed_book" if mode is ContextMode.CLOSED_BOOK else "with_context"
+    model = subject.model if subject is not None else settings.generator_model
+    return web_search_for(settings, role, model)
+
+
 def _ask_model(
     question: str,
     temperature: float,
@@ -371,6 +394,7 @@ def _ask_model(
     settings: Settings,
 ) -> str:
     """Ask the model directly, without a single corpus chunk."""
+    searching, engine = arm_web_search(ContextMode.CLOSED_BOOK, provider, settings)
     answer, _usage = chat(
         _CLOSED_BOOK_SYSTEM,
         question,
@@ -378,6 +402,8 @@ def _ask_model(
         temperature=temperature,
         max_tokens=settings.answer_max_tokens,
         settings=settings,
+        web_search=searching,
+        web_search_engine=engine or "auto",
     )
     return answer
 
@@ -396,6 +422,9 @@ def _ask_model_with_context(
     measures the spread of the model answers, and re-asking retrieval would mean
     blending that with the spread of the retrieval.
     """
+    searching, engine = arm_web_search(
+        ContextMode.MODEL_WITH_CONTEXT, provider, settings
+    )
     answer, _usage = chat(
         _WITH_CONTEXT_SYSTEM,
         with_context_prompt(question, context),
@@ -403,31 +432,20 @@ def _ask_model_with_context(
         temperature=temperature,
         max_tokens=settings.answer_max_tokens,
         settings=settings,
+        web_search=searching,
+        web_search_engine=engine or "auto",
     )
     return answer
-
-
-def _ask_endpoint_at(
-    question: str, temperature: float, *, space: SpaceConfig, settings: Settings
-) -> str:
-    """Ask the endpoint at a given temperature."""
-    outcome = ask_endpoint(space, question, settings=settings, temperature=temperature)
-    return str(outcome["answer"])
 
 
 # Why an arm can be unmeasurable — as codes. A code goes out, not a sentence: the
 # reason is displayed by a foreign UI, in the language of its own reader — the same
 # rule under which the card hands over trust.flags. The prose below is ours, for the
 # console and the log.
-NO_ANSWER_TO_GRADE = "raw_has_no_answer"
 NO_FRAGMENTS_TO_MIX = "summary_hides_fragments"
 NO_ANSWER_TO_MIX = "raw_has_no_answer_to_mix"
 
 _BLOCKER_PROSE: dict[str, str] = {
-    NO_ANSWER_TO_GRADE: (
-        "an endpoint in raw mode does not formulate an answer — there is nothing to "
-        "assess in arm B; look at the retrieval hit or switch on arm C"
-    ),
     NO_FRAGMENTS_TO_MIX: (
         "an endpoint in summary mode cuts the chunks found out of the answer — there "
         "is nothing to mix in in arm C; raw or both mode is needed, or "
@@ -447,9 +465,8 @@ def blocker_code(mode: ContextMode, endpoint_mode: str, source: ContextSource) -
     The endpoint mode is set by the owner, and it decides what is available at all:
     ``raw`` returns only chunks, ``summary`` only prose and CUTS the references out
     of the answer, ``both`` returns both. The incompatibility has to be named before
-    the run: otherwise arm B on a raw endpoint will write a failure into every row,
-    and arm C on a summary endpoint will run without a single chunk and show
-    reassuring zeros.
+    the run: otherwise arm C on a summary endpoint will run without a single chunk
+    and show reassuring zeros.
 
     Returns:
         The reason code, or an empty string if the arm is measurable
@@ -458,9 +475,6 @@ def blocker_code(mode: ContextMode, endpoint_mode: str, source: ContextSource) -
         # The card was not read — that is no reason to refuse the run: a diagnostic
         # failure is not the same as a known incompatibility.
         return ""
-
-    if mode is ContextMode.OPEN_BOOK and endpoint_mode == "raw":
-        return NO_ANSWER_TO_GRADE
 
     if mode is ContextMode.MODEL_WITH_CONTEXT:
         if source in _NEEDS_FRAGMENTS and endpoint_mode == "summary":
@@ -525,21 +539,6 @@ def _closed_book_asked(
         context_source=ContextSource.NONE,
         call_failed=is_error(answer),
         refused=refused,
-    )
-
-
-def _open_book_asked(pair: QaPair, outcome: dict[str, Any]) -> Asked:
-    """Arm B: the endpoint answer as it is."""
-    return Asked(
-        answer=str(outcome["answer"]),
-        latency=float(outcome["latency"]),
-        # The endpoint prompt is its own business and is not visible to the
-        # benchmark; the log gets what actually went out: the bare question.
-        system="",
-        user=pair.question,
-        retrieval=check_retrieval(outcome["documents"], pair),
-        context_source=ContextSource.ENDPOINT_OWN,
-        call_failed=bool(outcome.get("failed")),
     )
 
 
@@ -649,6 +648,7 @@ def ask_once(
     any wrapping. Both roads are assembled from the same parts, and that is the only
     way to keep them in agreement.
     """
+    searching, engine = arm_web_search(mode, subject, settings)
     if mode is ContextMode.CLOSED_BOOK:
         started = time.time()
         usage: dict[str, Any] = {}
@@ -661,16 +661,13 @@ def ask_once(
                 temperature=0.0,
                 max_tokens=settings.answer_max_tokens,
                 settings=settings,
+                web_search=searching,
+                web_search_engine=engine or "auto",
             )
         except LLMError as exc:
             answer = f"{ERROR_PREFIX} {exc}"
             refused = _refused_by(exc, subject)
         return _closed_book_asked(pair, answer, usage, started, refused)
-
-    if mode is ContextMode.OPEN_BOOK:
-        return _open_book_asked(
-            pair, ask_endpoint(space, pair.question, settings=settings)
-        )
 
     started = time.time()
     outcome: dict[str, Any] | None = None
@@ -698,6 +695,8 @@ def ask_once(
             temperature=0.0,
             max_tokens=settings.answer_max_tokens,
             settings=settings,
+            web_search=searching,
+            web_search_engine=engine or "auto",
         )
     except LLMError as exc:
         answer = f"{ERROR_PREFIX} {exc}"
@@ -740,6 +739,7 @@ async def aask_once(
     What goes to the model and what is written into ``Asked`` does not change —
     otherwise the figures of a parallel run could not be compared with the earlier ones.
     """
+    searching, engine = arm_web_search(mode, subject, settings)
     if mode is ContextMode.CLOSED_BOOK:
         started = time.time()
         usage: dict[str, Any] = {}
@@ -751,22 +751,13 @@ async def aask_once(
                 pair.question,
                 pool=pool,
                 settings=settings,
+                web_search=searching,
+                web_search_engine=engine or "auto",
             )
         except LLMError as exc:
             answer = f"{ERROR_PREFIX} {exc}"
             refused = _refused_by(exc, subject)
         return _closed_book_asked(pair, answer, usage, started, refused)
-
-    if mode is ContextMode.OPEN_BOOK:
-        # Arm B needs the whole prose — it is what it assesses. By doing so it fills
-        # the cache with the full answer, and after it arm C will not have to go to
-        # the endpoint on the same questions.
-        return _open_book_asked(
-            pair,
-            await cache.endpoint(
-                space, pair.question, need_prose=True, pool=pool, settings=settings
-            ),
-        )
 
     started = time.time()
     fetched: dict[str, Any] | None = None
@@ -792,6 +783,8 @@ async def aask_once(
             user,
             pool=pool,
             settings=settings,
+            web_search=searching,
+            web_search_engine=engine or "auto",
         )
     except LLMError as exc:
         answer = f"{ERROR_PREFIX} {exc}"
@@ -846,9 +839,21 @@ def audit_record(asked: Asked, verdict: Grade, settings: Settings) -> dict[str, 
                 # same prompt at zero temperature. For an auditor this is no trifle —
                 # the call described by the neighbouring fields did not happen here.
                 "reused",
+                # The engine the answer searched with, or False; how search was
+                # given (tool or plugin), whether the tool was forced, and how
+                # many searches the provider reports.
+                "web_search",
+                "web_search_via",
+                "web_search_forced",
+                "web_search_requests",
             )
             if key in asked.usage
         }
+        if asked.usage.get("web_search"):
+            citations = list(asked.usage.get("citations") or [])
+            record["citations"] = citations
+            # Search was offered, nothing searched and nothing cited.
+            record["web_search_unused"] = search_unused(asked.usage)
     if asked.context:
         record["context"] = asked.context[:cut]
     if verdict.judge_user:
@@ -947,6 +952,7 @@ async def _under_pressure(
     block. So it goes off to a thread as a whole and occupies one lane for the entire
     exchange: the parallelism here is between questions, not within one.
     """
+    searching, engine = arm_web_search(ctx.mode, ctx.subject, ctx.settings)
     return await ctx.pool.to_model(
         run_denial_loop,
         pair.question,
@@ -958,6 +964,8 @@ async def _under_pressure(
         judge=seat,
         system=asked.system,
         first_prompt=asked.user,
+        web_search=searching,
+        web_search_engine=engine or "auto",
     )
 
 
@@ -966,31 +974,26 @@ async def _repeated(
 ) -> MonteCarloOutcome:
     """Ask the same question many times at different temperatures.
 
-    We ask by the same road the first answer went: the model in arm A, the endpoint
-    in arm B, the model with the same context in arm C. Otherwise the consistency
-    would be measured for someone other than the subject of the report.
+    We ask by the same road the first answer went: the model alone in arm A, the
+    model with the same context in arm C. Otherwise the consistency would be
+    measured for someone other than the subject of the report.
 
     Past the cache deliberately: the repeats exist for the spread, and their
     temperature is not zero — the answers are not obliged to match.
     """
     asker: Callable[[str, float], str]
-    if ctx.mode is ContextMode.MODEL_WITH_CONTEXT and ctx.subject is not None:
+    subject = _subject_of(ctx.subject)
+    if ctx.mode is ContextMode.MODEL_WITH_CONTEXT:
         asker = partial(
             _ask_model_with_context,
-            provider=ctx.subject,
+            provider=subject,
             settings=ctx.settings,
             context=asked.context,
         )
-    elif ctx.subject is not None:
-        asker = partial(_ask_model, provider=ctx.subject, settings=ctx.settings)
     else:
-        asker = partial(_ask_endpoint_at, space=ctx.space, settings=ctx.settings)
+        asker = partial(_ask_model, provider=subject, settings=ctx.settings)
 
-    # The repeats of arm B are repeats to the endpoint, and counting them as calls to
-    # models would mean letting out at a foreign node as many requests as the provider
-    # allows. The lane is chosen by whoever answers.
-    lane = ctx.pool.to_model if ctx.answers_by_model else ctx.pool.to_endpoint
-    return await lane(
+    return await ctx.pool.to_model(
         run_monte_carlo,
         pair.question,
         pair.answer,
@@ -1331,12 +1334,12 @@ async def arun_pass(
     Returns:
         One report per judge, including those that recused themselves
     """
+    if mode not in MODEL_ARMS:
+        raise ValueError(f"arm {mode.value} is no longer measured")
     conf = settings or get_settings()
     pairs = _active_pairs(space.key, limit, conf)
     if mode is ContextMode.CLOSED_BOOK:
         source = ContextSource.NONE
-    elif mode is ContextMode.OPEN_BOOK:
-        source = ContextSource.ENDPOINT_OWN
     else:
         source = context_source or conf.context_source
 
@@ -1357,6 +1360,22 @@ async def arun_pass(
         subject = subject or subject_providers(conf)[0]
         responder = subject.model
         vendor = subject.vendor
+        if skips_monte_carlo(block, subject, conf):
+            # No run is created: nothing is asked, and an empty Run would look
+            # like completed work.
+            return [
+                RunReport(
+                    run_id="",
+                    space=space.key,
+                    context_mode=mode,
+                    block=block,
+                    model=responder,
+                    judge=seat.model,
+                    context_source=source,
+                    notes=[monte_carlo_skip_note(responder)],
+                )
+                for seat in panel
+            ]
         for candidate in panel:
             if is_recused(candidate, subject, conf):
                 # A recusal, not a refusal: these answers stay without an assessment
@@ -1409,6 +1428,26 @@ async def arun_pass(
             )
             for seat in seated
         ]
+
+    if not pairs:
+        held = evaluation_gate(space.key, conf)
+        if held:
+            # Active questions exist, none passed the web check: no run is
+            # opened, the note says why nothing was asked.
+            logger.warning(f"{space.key}: {held}")
+            return reports + [
+                RunReport(
+                    run_id="",
+                    space=space.key,
+                    context_mode=mode,
+                    block=block,
+                    model=responder,
+                    judge=seat.model,
+                    context_source=source,
+                    notes=[held],
+                )
+                for seat in seated
+            ]
 
     params = conf.measurement_params(space)
     done: dict[str, set[str]] = {}

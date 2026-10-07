@@ -24,6 +24,27 @@ def test_header_is_separated_from_body() -> None:
     assert body == "The hub stores endpoint descriptions, but not the data itself."
 
 
+def test_collector_header_is_separated_whole() -> None:
+    """The news collector adds `type` and `feed_id` after the common keys."""
+    raw = (
+        "---\n"
+        'title: "A story"\n'
+        'published_date: "2026-10-05T18:14:35Z"\n'
+        'method: "playwright"\n'
+        'type: "article"\n'
+        'feed_id: "Article/17933"\n'
+        "---\n"
+        "\n"
+        "# A story\n"
+        "\n"
+        "Body text."
+    )
+    body, header = strip_header(raw)
+
+    assert header["feed_id"] == "Article/17933"
+    assert body == "# A story\n\nBody text."
+
+
 def test_unknown_keys_stay_in_the_body() -> None:
     """Ordinary text with a colon is not a header."""
     body, header = strip_header("Conclusion: the hub does not store documents.")

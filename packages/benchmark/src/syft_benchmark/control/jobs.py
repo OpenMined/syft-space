@@ -444,6 +444,7 @@ def _execute_pipeline(
         job_id,
         state,
         error="; ".join(failures),
+        message="; ".join(done.notes),
         card=card_payload,
         settings=base_settings,
     )
@@ -473,7 +474,16 @@ def _execute_filter(
     )
     reporter.phase(JobPhase.FILTER, outcome.line())
     state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
-    _finish(job_id, state, error="; ".join(outcome.notes), settings=base_settings)
+    summary = [f"filter: {outcome.line()}"]
+    if outcome.rotation is not None:
+        summary.append(f"set: {outcome.rotation.line()}")
+    _finish(
+        job_id,
+        state,
+        error="; ".join(outcome.notes),
+        message="; ".join(summary),
+        settings=base_settings,
+    )
 
 
 def _execute_judge(
@@ -514,10 +524,15 @@ def _finish(
     state: JobState,
     *,
     error: str = "",
+    message: str | None = None,
     card: dict[str, Any] | None = None,
     settings: Settings | None = None,
 ) -> None:
     """Close a job.
+
+    ``message``, when given, replaces the last progress line: on a finished
+    job it carries notes that are not failures (a skipped block). None leaves
+    what the last phase said.
 
     Failed runs do not make a job a failure: the node may have rebooted in the
     middle of one arm while the others went through and gave numbers. A failure
@@ -534,6 +549,8 @@ def _finish(
         job.state = state.value
         job.phase = JobPhase.DONE.value
         job.error = error
+        if message is not None:
+            job.message = message
         job.card = card
         job.finished_at = datetime.now(UTC)
         invalidate_run(session, job_id)

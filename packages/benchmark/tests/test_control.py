@@ -38,6 +38,7 @@ from syft_benchmark.db.models import Job, Target
 from syft_benchmark.db.session import session_scope
 
 TOKEN = "test-control-token"
+WEB_CHECK_MODEL = "openai/gpt-5.1"
 KEY = "pytest-target"
 
 
@@ -257,7 +258,9 @@ def client() -> Any:
     and that would set about running the jobs created in the test against a
     non-existent node.
     """
-    conf = get_settings().model_copy(update={"control_token": TOKEN})
+    conf = get_settings().model_copy(
+        update={"control_token": TOKEN, "filter_model": WEB_CHECK_MODEL}
+    )
     return TestClient(create_app(conf))
 
 
@@ -490,16 +493,17 @@ def test_a_blocked_arm_travels_as_a_code() -> None:
     """
     from syft_benchmark.config import ContextSource
     from syft_benchmark.runs.execute import (
-        NO_ANSWER_TO_GRADE,
+        NO_FRAGMENTS_TO_MIX,
         arm_blocker,
         blocker_code,
     )
 
-    code = blocker_code(ContextMode.OPEN_BOOK, "raw", ContextSource.ENDPOINT_FRAGMENTS)
-    assert code == NO_ANSWER_TO_GRADE
+    arm = ContextMode.MODEL_WITH_CONTEXT
+    code = blocker_code(arm, "summary", ContextSource.ENDPOINT_FRAGMENTS)
+    assert code == NO_FRAGMENTS_TO_MIX
     assert " " not in code
     # The prose stays — it is ours, for the console and for a run note.
-    assert arm_blocker(ContextMode.OPEN_BOOK, "raw", ContextSource.ENDPOINT_FRAGMENTS)
+    assert arm_blocker(arm, "summary", ContextSource.ENDPOINT_FRAGMENTS)
 
 
 def test_a_measurable_arm_is_not_blocked_by_anything() -> None:
@@ -507,10 +511,11 @@ def test_a_measurable_arm_is_not_blocked_by_anything() -> None:
     from syft_benchmark.config import ContextSource
     from syft_benchmark.runs.execute import blocker_code
 
-    assert blocker_code(ContextMode.OPEN_BOOK, "summary", ContextSource.NONE) == ""
+    assert blocker_code(ContextMode.CLOSED_BOOK, "summary", ContextSource.NONE) == ""
     # The node's mode did not read — that is a diagnostic failure, not a known
     # incompatibility, and a run must not be cancelled over it.
-    assert blocker_code(ContextMode.OPEN_BOOK, "", ContextSource.NONE) == ""
+    arm = ContextMode.MODEL_WITH_CONTEXT
+    assert blocker_code(arm, "", ContextSource.ENDPOINT_FRAGMENTS) == ""
 
 
 def test_the_job_row_says_nothing_a_renderer_would_have_to_translate() -> None:
@@ -878,3 +883,28 @@ def test_retract_against_an_unreachable_space_is_a_bad_gateway(
         headers=AUTH,
     )
     assert client.post(f"/targets/{KEY}/retract", headers=AUTH).status_code == 502
+
+
+@needs_db
+def test_a_finished_job_carries_its_notes_as_the_message_not_the_error(
+    clean: Any,
+) -> None:
+    """A skipped block is not a failure: the UI reads `error` as one."""
+    with session_scope() as session:
+        session.add(
+            Job(
+                id="pytest-noted-job",
+                target=KEY,
+                state=JobState.RUNNING.value,
+                phase=JobPhase.EVALUATE.value,
+                message="pass 3",
+            )
+        )
+    note = "openai/o9: no temperature, Monte Carlo skipped"
+    job_queue._finish("pytest-noted-job", JobState.SUCCEEDED, message=note)
+    with session_scope() as session:
+        job = session.get(Job, "pytest-noted-job")
+        assert job is not None
+        assert job.state == JobState.SUCCEEDED.value
+        assert job.error == ""
+        assert job.message == note

@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field
+from loguru import logger
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,14 +41,37 @@ class ContextMode(StrEnum):
         the model interaction with RAG: A and C differ by exactly the presence of
         context, so their difference is interpretable.
 
-    The value ``open_book`` is historical: that is what arm B was called when
-    there were two arms. It must not be renamed — results already collected are
-    marked with it.
+    Arm B (``open_book``) is no longer measured. The value stays so that results
+    already collected under it still read; ``measured_arms`` drops it from any
+    setting that still lists it.
     """
 
     CLOSED_BOOK = "closed_book"  # arm A: the question without a single corpus chunk
-    OPEN_BOOK = "open_book"  # arm B: the question to the endpoint, it answers
+    OPEN_BOOK = "open_book"  # arm B: retired; kept for stored results
     MODEL_WITH_CONTEXT = "model_with_context"  # arm C: the same model + the retrieval
+
+
+# The arms a measurement may run, in the order it runs them.
+MEASURED_ARMS: tuple[ContextMode, ...] = (
+    ContextMode.CLOSED_BOOK,
+    ContextMode.MODEL_WITH_CONTEXT,
+)
+
+_retired_arm_logged = False
+
+
+def measured_arms(arms: list[ContextMode]) -> list[ContextMode]:
+    """The arms without the retired one, logged once per process.
+
+    A stored setting or an old job may still list ``open_book``; refusing it
+    would leave its owner unable to open the form that fixes it.
+    """
+    global _retired_arm_logged
+    kept = [arm for arm in arms if arm in MEASURED_ARMS]
+    if len(kept) != len(arms) and not _retired_arm_logged:
+        _retired_arm_logged = True
+        logger.info("arm open_book is no longer measured; dropped from the settings")
+    return kept
 
 
 # The arm letter for reports. Reading "closed_book vs model_with_context" in a
@@ -167,16 +191,40 @@ class JudgePolicy(StrEnum):
     model tends to approve its own style of answer. It cannot be ruled out entirely
     (a local model has no provider at all), so the policy is configurable.
 
-    ``RECUSE`` is the working choice for a panel: the judge does not judge "its
-    own", but the run carries on with the other judges. ``STRICT`` is appropriate
-    with a single judge, when there is nothing to carry on with and stopping is
-    better.
+    ``STRICT`` refuses to save or start a configuration with a clash (the
+    control API answers 422), and a run that still meets one stops. ``WARN``
+    allows it and logs every clash. The page offers only these two; ``OFF`` and
+    ``RECUSE`` stay readable for stored settings.
     """
 
     OFF = "off"  # do not check
-    WARN = "warn"  # warn and carry on
+    WARN = "warn"  # allow, log the clash
     RECUSE = "recuse"  # the judge recuses itself, those answers stay unassessed
-    STRICT = "strict"  # refuse the run
+    STRICT = "strict"  # refuse the save, the launch and the run
+
+
+class WebSearchEngine(StrEnum):
+    """Which web search a model uses when a role searches.
+
+    ``NATIVE`` is the model's own search, ``PLUGIN`` the Exa engine (the name
+    predates OpenRouter's search tool). ``AUTO`` takes native when the catalogue
+    says the model has it.
+    """
+
+    AUTO = "auto"
+    NATIVE = "native"
+    PLUGIN = "plugin"
+
+
+class ManualStatusPriority(StrEnum):
+    """Who decides a question the user returned to the set by hand.
+
+    ``FILTER``: the web check may reject it again. ``MANUAL``: the user's choice
+    wins and the web check skips it.
+    """
+
+    FILTER = "filter"
+    MANUAL = "manual"
 
 
 class PairStatus(StrEnum):
@@ -209,7 +257,8 @@ class StatusReason(StrEnum):
     OWNER = "owner"
     # Taken out by the freshness window, a newer cohort or the set cap.
     ROTATION = "rotation"
-    # Reserved for the web check, which does not exist yet.
+    # The web check model answered it correctly with web search
+    # (generation/web_check.py).
     WEB_ANSWERABLE = "web_answerable"
     OTHER = "other"
 
@@ -442,15 +491,58 @@ class Settings(BaseSettings):
         default=JudgePolicy.WARN,
         description="Whether the judge must be independent of the model under test",
     )
+    filter_model: str | None = Field(
+        default=None,
+        description=(
+            "The web check model: asked each new question with web search on, "
+            "and a question it answers is dropped. Empty — no web check"
+        ),
+    )
+    filter_judge_model: str | None = Field(
+        default=None,
+        description="The judge of the web check's answers. Empty — the first judge",
+    )
+    manual_status_priority: ManualStatusPriority = Field(
+        default=ManualStatusPriority.FILTER,
+        description=(
+            "A question returned by hand: filter — the web check may reject it "
+            "again; manual — the user's choice wins"
+        ),
+    )
 
-    # --- The measurement arms. All three by default: they measure different
-    # things, and without arm C the model interaction with RAG is not measured.
+    # --- Web search, per role. Only OpenRouter models search; elsewhere the
+    # toggle has no effect. The web check model always searches.
+    web_search_engine: WebSearchEngine = Field(
+        default=WebSearchEngine.AUTO,
+        description=(
+            "auto: the model's own search when it has one, else Exa; native; "
+            "plugin: Exa search"
+        ),
+    )
+    web_search_closed_book: bool = Field(
+        default=True, description="The tested model searches the web on its own"
+    )
+    web_search_with_context: bool = Field(
+        default=False,
+        description="The tested model searches the web when given the endpoint's data",
+    )
+    web_search_generator: bool = Field(
+        default=False, description="The question writer searches the web"
+    )
+    web_search_judge: bool = Field(
+        default=False, description="The judges search the web"
+    )
+    web_search_max_results: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Results per search, for the Exa engine",
+    )
+
+    # --- The measurement arms. Both by default: A and C differ by exactly the
+    # context, and that difference is the measurement.
     arms: list[ContextMode] = Field(
-        default_factory=lambda: [
-            ContextMode.CLOSED_BOOK,
-            ContextMode.OPEN_BOOK,
-            ContextMode.MODEL_WITH_CONTEXT,
-        ],
+        default_factory=lambda: list(MEASURED_ARMS),
         description="Which arms to run when no arm is named explicitly",
     )
     context_source: ContextSource = Field(
@@ -531,7 +623,7 @@ class Settings(BaseSettings):
     # accumulates timeouts. One number for both would mean choosing between an idle
     # provider and a swamped node.
     concurrency: int = Field(
-        default=8,
+        default=16,
         ge=1,
         le=64,
         description=(
@@ -743,7 +835,14 @@ class Settings(BaseSettings):
     )
 
     # --- Generation
-    chunks_per_run: int = Field(default=8, ge=1)
+    chunks_per_run: int = Field(
+        default=8,
+        ge=1,
+        description=(
+            "The question budget: each kind writes at most chunks_per_run x "
+            "pairs_per_chunk questions per run, walking every passage in the window"
+        ),
+    )
     pairs_per_chunk: int = Field(default=2, ge=1)
     min_chunk_chars: int = Field(default=400, ge=0)
 
@@ -877,6 +976,11 @@ class Settings(BaseSettings):
     # For a multi-Space installation this was broken twice over: one Space is
     # summary, another raw, and the setting is one for both.
 
+    @field_validator("arms")
+    @classmethod
+    def _measured_arms(cls, value: list[ContextMode]) -> list[ContextMode]:
+        return measured_arms(value)
+
     def load_spaces(self) -> list[SpaceConfig]:
         """Read the Space registry.
 
@@ -944,6 +1048,13 @@ class Settings(BaseSettings):
             "denial_rounds": self.denial_rounds,
             "monte_carlo_temperatures": list(self.monte_carlo_temperatures),
             "monte_carlo_trials": self.monte_carlo_trials,
+            # Searching changes what a model can answer, so it is part of how a
+            # row was obtained.
+            "web_search_engine": self.web_search_engine.value,
+            "web_search_closed_book": self.web_search_closed_book,
+            "web_search_with_context": self.web_search_with_context,
+            "web_search_judge": self.web_search_judge,
+            "web_search_max_results": self.web_search_max_results,
         }
 
     def space_by_key(self, key: str) -> SpaceConfig:

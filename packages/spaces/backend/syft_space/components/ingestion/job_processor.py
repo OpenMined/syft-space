@@ -13,6 +13,7 @@ in via ``bind()`` at startup.
 """
 
 import asyncio
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -201,9 +202,19 @@ class JobProcessor:
                     ctx = IngestContext(
                         sender="system@openmined.org", dataset_id=dataset.id
                     )
+                    # When the file entered this Space: the benchmark's time
+                    # window reads it for articles without a publication date.
+                    stamped = ingest_file.model_copy(
+                        update={
+                            "metadata": {
+                                **ingest_file.metadata,
+                                "added_at": datetime.now(timezone.utc),
+                            }
+                        }
+                    )
                     try:
                         await dataset_type.ingest(  # type: ignore[attr-defined]
-                            ctx, IngestRequest(files=[ingest_file])
+                            ctx, IngestRequest(files=[stamped])
                         )
                     except Exception as ingest_err:
                         raise RuntimeError(

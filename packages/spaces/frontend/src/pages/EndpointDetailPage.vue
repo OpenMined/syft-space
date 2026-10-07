@@ -862,7 +862,7 @@
 
         <!-- Benchmark Tab: whether it is measured, and every phase of a run -->
         <TabsContent value="benchmark" class="space-y-4 pt-6 mt-0">
-          <RunControl :slug="routeSlug" />
+          <RunControl :slug="routeSlug" :dataset="endpoint?.dataset ?? null" />
         </TabsContent>
 
         <!-- Benchmark results Tab: what the runs found, and what is published -->
@@ -1076,6 +1076,16 @@ const KNOWN_TABS = new Set(['overview', 'access', 'transactions', 'benchmark', '
 const requestedTab = route.query.tab
 const activeTab = ref(
   typeof requestedTab === 'string' && KNOWN_TABS.has(requestedTab) ? requestedTab : 'overview',
+)
+
+// A link inside a tab (the Benchmark tab's "See its results") moves the URL;
+// the tab follows it.
+watch(
+  () => route.query.tab,
+  (tab) => {
+    const next = typeof tab === 'string' && KNOWN_TABS.has(tab) ? tab : 'overview'
+    if (next !== activeTab.value) activeTab.value = next
+  },
 )
 
 watch(activeTab, (tab) => {

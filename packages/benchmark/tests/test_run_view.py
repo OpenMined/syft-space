@@ -913,6 +913,8 @@ def test_a_launch_keeps_the_judging_it_ran_with(
             assert row is not None and row.state == JobState.SUCCEEDED.value, row
             policy = row.params.pop("judge_policy")
             assert policy in {p.value for p in JudgePolicy}
+            assert row.params.pop("web_check_model") == ""
+            assert row.params.pop("manual_status_priority") == "filter"
             assert row.params == {**params, "judge_panel": panel}
 
 

@@ -256,6 +256,42 @@ describe('QuestionsPage', () => {
     expect(wrapper.findAll('[data-testid="question-detail"]')).toHaveLength(1)
   })
 
+  it('links cited pages and flags an answer that did not search', async () => {
+    const report = fakeReport()
+    report.loadQuestion.mockImplementation(async (_job: string, qaId: string) => {
+      const base = questionDetail(qaId)
+      return {
+        ...base,
+        arms: {
+          alone: {
+            ...base.arms.alone!,
+            citations: [
+              { url: 'https://www.example.com/story', title: 'Story' },
+              { url: 'https://news.test/a', title: null },
+              { url: 'javascript:alert(1)', title: 'Bad' },
+            ],
+          },
+          with: { ...base.arms.with!, web_search_unused: true },
+        },
+      }
+    })
+    const { wrapper } = await mountPage(report)
+    await wrapper.get('[data-testid="question-row"] button').trigger('click')
+    await flushPromises()
+
+    const alone = wrapper.get('[data-testid="answer-closed"]')
+    const links = alone.findAll('[data-testid="citations"] a')
+    expect(links.map((a) => a.text())).toEqual(['Story', 'news.test', 'Bad'])
+    expect(links[0]!.attributes('href')).toBe('https://www.example.com/story')
+    expect(links[0]!.attributes('target')).toBe('_blank')
+    expect(links[2]!.attributes('href')).toBeUndefined()
+    expect(alone.find('[data-testid="searched-no"]').exists()).toBe(false)
+
+    const withData = wrapper.get('[data-testid="answer-ctx"]')
+    expect(withData.get('[data-testid="searched-no"]').text()).toBe('Searched: no')
+    expect(withData.find('[data-testid="citations"]').exists()).toBe(false)
+  })
+
   it('has no verdict override or removal controls', async () => {
     const { wrapper } = await mountPage()
     await wrapper.get('[data-testid="question-row"] button').trigger('click')

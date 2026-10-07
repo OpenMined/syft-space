@@ -22,19 +22,19 @@ from typing import Protocol
 from loguru import logger
 
 from syft_benchmark.config import (
-    ContextMode,
-    EvalBlock,
     JobPhase,
     Settings,
     SpaceConfig,
     get_settings,
 )
 from syft_benchmark.generation import (
+    FilterSummary,
     enabled_generators,
     filter_and_rotate,
     generate_for_space,
 )
 from syft_benchmark.llm import (
+    Provider,
     check_perimeter,
     judge_providers,
     subject_providers,
@@ -48,8 +48,10 @@ from syft_benchmark.runs import (
     Progress,
     RunCache,
     endpoint_retriever,
+    evaluation_gate,
     run_pass,
 )
+from syft_benchmark.runs.blocks import monte_carlo_skip_note, skips_monte_carlo
 
 REPORTS_DIR = Path("reports")
 
@@ -73,6 +75,9 @@ class Measured:
 
     metrics: list[Metrics] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
+    # What the measurement chose not to do, by design rather than by failure,
+    # and the stage summaries; the job's final message.
+    notes: list[str] = field(default_factory=list)
     generated: int = 0
     passes: int = 0
 
@@ -154,19 +159,23 @@ class Observer(Protocol):
         return False
 
 
-def _plan(conf: Settings, subjects: int) -> int:
+def _plan(conf: Settings, subjects: list[Provider]) -> int:
     """How many runs this configuration will give on one node.
 
     Computed before the work starts and by exactly the same enumeration as the
     measurement itself: a share of work done computed by a different rule will
-    sooner or later diverge from the work and show "7 of 6".
+    sooner or later diverge from the work and show "7 of 6". A skipped
+    monte_carlo block is not a run.
     """
     total = 0
     for block in conf.blocks:
         for mode in conf.arms:
-            if block is EvalBlock.DENIAL_LOOP and mode is ContextMode.OPEN_BOOK:
+            if mode not in MODEL_ARMS:
+                total += 1
                 continue
-            total += subjects if mode in MODEL_ARMS else 1
+            total += sum(
+                1 for subject in subjects if not skips_monte_carlo(block, subject, conf)
+            )
     return total
 
 
@@ -249,23 +258,26 @@ def measure(
     # switched off by a setting — for example when the corpus is closed to the
     # generator and the dataset is filled separately.
     generate_effective = conf.generate_in_cycle if generate is None else generate
+    filter_effective = generate_effective if filter is None else filter
+    # The same retrieval the control gate is checked with during the build and
+    # in the filter pass: "there is no answer" is meaningful only relative to
+    # this endpoint, not to an abstract corpus.
+    retrieve = endpoint_retriever(space, conf) if filter_effective else None
+    # Questions written by the build were checked as they were written.
+    streamed: FilterSummary | None = None
     if generate_effective:
         if observer is not None:
             observer.phase(JobPhase.GENERATE)
 
-        def built(generator: str, index: int, of: int, pairs: int) -> None:
+        def built(message: str) -> None:
             """Where the build has got to, for whoever is watching it.
 
             Through `phase` rather than `watcher`: a watcher reports a
             position within one run of the measurement, and generation is
-            not one — it walks a different queue per generator, each with
-            its own length, so there is no single count to be at N of.
+            not one — kinds are written in parallel and checked as they go.
             """
             if observer is not None:
-                observer.phase(
-                    JobPhase.GENERATE,
-                    f"{generator} · {index} of {of} · {pairs} built",
-                )
+                observer.phase(JobPhase.GENERATE, message)
 
         try:
             made = generate_for_space(
@@ -279,8 +291,13 @@ def measure(
                 # "two each" means two built and two asked rather than two
                 # asked out of the usual fifty built.
                 per_generator=limit,
-                on_unit=built if observer is not None else None,
+                on_progress=built if observer is not None else None,
+                # Each question is checked as soon as it is written; the
+                # filter pass below takes what is left and recomputes the set.
+                screen=filter_effective,
+                retrieve=retrieve,
             )
+            streamed = getattr(made, "screened", None)
             # Nothing built AND something refused: nothing built on its own
             # means no new chunks since the last pass.
             out.generated_nothing = bool(made.failures) and made.pairs_made == 0
@@ -289,8 +306,7 @@ def measure(
                 f"{space.key}: items {made.pairs_made} pending, "
                 f"failed calls {made.failures}"
             )
-            if observer is not None:
-                observer.phase(JobPhase.GENERATE, f"{made.pairs_made} pending")
+            out.notes.append(f"wrote {made.pairs_made} questions")
         except Exception as exc:  # noqa: BLE001 - the index may have been unreachable
             out.failures.append(f"{space.key}/generate: {exc}")
             logger.warning(f"{space.key} generation failed: {exc}")
@@ -301,7 +317,6 @@ def measure(
     if observer is not None and observer.stop_requested():
         return out
 
-    filter_effective = generate_effective if filter is None else filter
     if filter_effective:
         if observer is not None:
             observer.phase(JobPhase.FILTER)
@@ -309,16 +324,19 @@ def measure(
             filtered = filter_and_rotate(
                 space,
                 settings=conf,
-                # The same retrieval the control gate is checked with at
-                # generation time: "there is no answer" is meaningful only
-                # relative to this endpoint, not to an abstract corpus.
-                retrieve=endpoint_retriever(space, conf),
+                retrieve=retrieve,
                 should_stop=observer.stop_requested if observer else None,
+                rotate_anyway=generate_effective,
             )
+            if streamed is not None:
+                filtered.absorb(streamed)
             out.generated = filtered.active
             logger.info(f"{space.key}: filtering — {filtered.line()}")
             if observer is not None:
                 observer.phase(JobPhase.FILTER, filtered.line())
+            out.notes.append(f"filter: {filtered.line()}")
+            if filtered.rotation is not None:
+                out.notes.append(f"set: {filtered.rotation.line()}")
         except Exception as exc:  # noqa: BLE001 - the index may have been unreachable
             out.failures.append(f"{space.key}/filter: {exc}")
             logger.warning(f"{space.key} filtering failed: {exc}")
@@ -329,25 +347,31 @@ def measure(
     if not evaluate:
         return out
 
+    held = evaluation_gate(space.key, conf)
+    if held:
+        # Active questions exist and none passed the web check: nothing to ask.
+        out.failures.append(f"{space.key}: {held}")
+        return out
+
     if observer is not None:
         # Planned only now: a launch that stops here (evaluate=False) never
         # asks a question, and a pass count announced for it would draw a bar
         # that no further write ever moves.
-        observer.planned(_plan(conf, len(subjects)))
+        observer.planned(_plan(conf, subjects))
         observer.phase(JobPhase.EVALUATE)
 
     for block in conf.blocks:
-        # The order of the arms is not arbitrary: A is the cheapest of all and
-        # discovers an unreachable model before the long part, while C comes after
-        # B because it reuses the same endpoint call in meaning, not in code.
+        # A first: it is the cheapest and discovers an unreachable model before
+        # the long part.
         for mode in conf.arms:
-            # Pressure requires a dialogue, and the endpoint API is single-shot: it
-            # takes one question as a string. Repeats at different temperatures are
-            # available to an endpoint and are therefore not skipped.
-            if block is EvalBlock.DENIAL_LOOP and mode is ContextMode.OPEN_BOOK:
-                continue
             for subject in subjects if mode in MODEL_ARMS else [None]:
                 if subject is not None and subject.model in refused:
+                    continue
+                if skips_monte_carlo(block, subject, conf):
+                    assert subject is not None
+                    note = monte_carlo_skip_note(subject.model)
+                    if note not in out.notes:
+                        out.notes.append(note)
                     continue
                 # A judge the provider refused is stood down the same way. The
                 # panel is shared by every pass, so one refused judge must not

@@ -47,6 +47,7 @@ from syft_space.components.benchmarks.schemas import (
     SessionResponse,
     TargetRequest,
     TargetResponse,
+    WindowResponse,
 )
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint
@@ -464,6 +465,22 @@ class BenchmarkHandler:
         endpoint = await self._endpoint_or_404(tenant, slug)
         connection = await self._pick_connection(tenant, request.connection_id)
 
+        # Pushed before it is stored: a configuration the benchmark refuses
+        # (a judge from a tested model's company, under `strict`) is not kept.
+        spec = await self._spec(
+            tenant,
+            connection,
+            endpoint,
+            collection=request.collection,
+            instrument=request.instrument,
+            probe=request.probe,
+            enabled=request.enabled,
+            schedule=request.schedule,
+            schedule_at=request.schedule_at,
+        )
+        reply = await self._client(connection).put_target(endpoint.slug, spec)
+        _raise_if_refused(reply)
+
         def apply(target: BenchmarkTarget) -> BenchmarkTarget:
             target.connection_id = connection.id
             target.enabled = request.enabled
@@ -492,7 +509,7 @@ class BenchmarkHandler:
                 assert existing is not None
                 target = await self.targets.update(apply(existing))
 
-        await self._push(tenant, connection, target, endpoint)
+        await self._synced(target, endpoint, reply)
         return await self.get_target(tenant, slug)
 
     async def stop_measuring(self, tenant: Tenant, slug: str) -> None:
@@ -528,6 +545,20 @@ class BenchmarkHandler:
             )
         return _parsed(CheckResponse, reply.data)
 
+    async def window(
+        self, tenant: Tenant, slug: str, days: int | None = None
+    ) -> WindowResponse:
+        """How many articles the endpoint's time window holds now."""
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        reply = await self._client(connection).window(slug, days)
+        if not reply.ok:
+            raise HTTPException(
+                status_code=502,
+                detail=reply.detail or "the benchmark could not count the articles",
+            )
+        return _parsed(WindowResponse, reply.data)
+
     # --- runs --------------------------------------------------------------
 
     async def start_run(
@@ -540,10 +571,11 @@ class BenchmarkHandler:
                 status_code=409,
                 detail="Measuring is paused for this endpoint",
             )
-        await self._push(tenant, connection, target, endpoint)
+        _raise_if_refused(await self._push(tenant, connection, target, endpoint))
         reply = await self._client(connection).start_run(
             slug, request.model_dump(exclude_none=True)
         )
+        _raise_if_refused(reply)
         if not reply.ok:
             raise HTTPException(
                 status_code=502,
@@ -1059,15 +1091,56 @@ class BenchmarkHandler:
         connection: BenchmarkConnection,
         target: BenchmarkTarget,
         endpoint: Endpoint,
-    ) -> None:
+    ) -> Reply:
         """Hand this target's settings to the benchmark.
 
         Best effort by design. A benchmark that is down must not make the
         settings page refuse to save — the owner would then have nowhere to
         record the decision he has already made. ``synced_at`` says whether it
-        got through, and the page says so plainly.
+        got through, and the page says so plainly. A refusal of the settings
+        themselves comes back in the reply for the caller to pass on.
         """
-        spec = {
+        spec = await self._spec(
+            tenant,
+            connection,
+            endpoint,
+            collection=target.collection,
+            instrument=target.instrument or {},
+            probe=target.probe or {},
+            enabled=target.enabled,
+            schedule=target.schedule,
+            schedule_at=target.schedule_at,
+        )
+        reply = await self._client(connection).put_target(endpoint.slug, spec)
+        await self._synced(target, endpoint, reply)
+        return reply
+
+    async def _synced(
+        self, target: BenchmarkTarget, endpoint: Endpoint, reply: Reply
+    ) -> None:
+        """Record whether the benchmark took the settings."""
+        if reply.ok:
+            await self.targets.mark_synced(target.id)
+        else:
+            logger.warning(
+                f"benchmark did not take target {endpoint.slug}: {reply.detail}"
+            )
+
+    async def _spec(
+        self,
+        tenant: Tenant,
+        connection: BenchmarkConnection,
+        endpoint: Endpoint,
+        *,
+        collection: str,
+        instrument: dict[str, Any],
+        probe: dict[str, Any],
+        enabled: bool,
+        schedule: str,
+        schedule_at: str,
+    ) -> dict[str, Any]:
+        """The target as the benchmark takes it."""
+        return {
             "key": endpoint.slug,
             "title": endpoint.name or endpoint.slug,
             "url": connection.space_url,
@@ -1075,27 +1148,16 @@ class BenchmarkHandler:
             "container": connection.container,
             "chroma_host": connection.chroma_host or "localhost",
             "chroma_port": connection.chroma_port,
-            "collection": target.collection
-            or await self._collection_for(tenant, endpoint),
+            "collection": collection or await self._collection_for(tenant, endpoint),
             # Two layers flattened into one: the benchmark merges what it is
             # given over its own defaults, and the order between Space-wide and
             # per-endpoint is settled here, where both are known.
-            "instrument": {
-                **(connection.instrument or {}),
-                **(target.instrument or {}),
-            },
-            "probe": {**(connection.probe or {}), **(target.probe or {})},
-            "enabled": target.enabled,
-            "schedule": target.schedule,
-            "schedule_at": target.schedule_at,
+            "instrument": {**(connection.instrument or {}), **instrument},
+            "probe": {**(connection.probe or {}), **probe},
+            "enabled": enabled,
+            "schedule": schedule,
+            "schedule_at": schedule_at,
         }
-        reply = await self._client(connection).put_target(endpoint.slug, spec)
-        if reply.ok:
-            await self.targets.mark_synced(target.id)
-        else:
-            logger.warning(
-                f"benchmark did not take target {endpoint.slug}: {reply.detail}"
-            )
 
     async def _resync(self, tenant: Tenant, connection: BenchmarkConnection) -> None:
         """Re-push every target this connection measures."""
@@ -1209,3 +1271,14 @@ class BenchmarkHandler:
                 detail="The benchmark this endpoint was measured by is gone",
             )
         return target, connection
+
+
+def _raise_if_refused(reply: Reply) -> None:
+    """Pass the benchmark's refusal of the settings on to the browser.
+
+    422 is the benchmark saying the configuration itself is wrong — a judge
+    from a tested model's company under ``strict``, say. Anything else (down,
+    no key) stays best effort.
+    """
+    if reply.status == 422:
+        raise HTTPException(status_code=422, detail=reply.detail)

@@ -31,6 +31,7 @@ from syft_benchmark.config import (
     check_model_host,
     env_settings,
     get_settings,
+    measured_arms,
 )
 from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.db.models import Result
@@ -79,13 +80,15 @@ from syft_benchmark.runs import (
     questionset,
     run_pass,
 )
+from syft_benchmark.runs.blocks import monte_carlo_skip_note, skips_monte_carlo
 from syft_benchmark.runs.console import (
     export_judging,
     export_questions,
     import_answers,
     import_judging,
 )
-from syft_benchmark.runs.execute import active_pairs, pick_pairs
+from syft_benchmark.runs.execute import active_pairs, evaluation_gate, pick_pairs
+from syft_benchmark.runs.gate import evaluable, nothing_passed
 from syft_benchmark.runs.questionset import SliceMismatch
 from syft_benchmark.runs.resume import window_start
 from syft_benchmark.runs.status import collect as collect_status
@@ -561,8 +564,8 @@ def generate(
         int | None,
         typer.Option(
             help=(
-                "How many units (chunks or documents) to hand to EVERY "
-                "generator. This is not a number of items and not a percentage"
+                "The question budget per kind for this run, in place of "
+                "chunks_per_run: each kind writes at most limit x pairs_per_chunk"
             )
         ),
     ] = None,
@@ -763,7 +766,7 @@ def evaluate(
         typer.Option(
             "--mode",
             "-m",
-            help="Arm: closed_book (A), open_book (B), model_with_context (C)",
+            help="Arm: closed_book (A), model_with_context (C)",
         ),
     ] = None,
     block: Annotated[
@@ -830,6 +833,11 @@ def evaluate(
             else node_conf
         )
         typer.echo(f"--- {target.name}")
+        held = evaluation_gate(target.key, settings)
+        if held:
+            # Nothing passed the web check: there is nothing to ask.
+            typer.secho(f"{target.name}: {held}", fg=typer.colors.YELLOW)
+            continue
         if settings.question_set is not None:
             typer.echo(f"frozen slice: {settings.question_set}")
             if limit is not None:
@@ -841,7 +849,7 @@ def evaluate(
                     "the slice is the whole sample",
                     fg=typer.colors.YELLOW,
                 )
-        modes = tuple(mode) if mode else tuple(settings.arms)
+        modes = tuple(measured_arms(list(mode))) if mode else tuple(settings.arms)
         blocks = tuple(block) if block else tuple(settings.blocks)
         subjects = subject_providers(settings)
         judges = judge_providers(settings)
@@ -958,22 +966,14 @@ def _evaluate_arm(
 ) -> None:
     """Run one arm over one Space through every block."""
     for chosen_block in blocks:
-        # Pressure requires a dialogue, and the endpoint's API is single-turn:
-        # it takes one question as a string. In arm C a model answers, and
-        # there is a dialogue there — pressure applies and means something.
-        # Repeats at different temperatures are available everywhere and are
-        # therefore not skipped.
-        if chosen_block is EvalBlock.DENIAL_LOOP and mode is ContextMode.OPEN_BOOK:
-            typer.echo(
-                f"--- {target.name}: denial_loop does not apply to the endpoint "
-                f"(its API is single-turn)"
-            )
-            continue
-
         targets: list[Provider | None] = (
             list(subjects) if mode in MODEL_ARMS else [None]
         )
         for subject in targets:
+            if skips_monte_carlo(chosen_block, subject, settings):
+                assert subject is not None
+                typer.echo(f"--- {monte_carlo_skip_note(subject.model)}")
+                continue
             who = subject.model if subject else target.endpoint
             typer.echo(
                 f"--- {target.name} / {ARM_LETTER.get(mode.value, '?')} "
@@ -1069,9 +1069,14 @@ def freeze(
     ongoing one it means changing the set underneath answers already collected.
     """
     settings, target = _targets([space])[0]
-    rows = active_pairs(target.key, settings)
-    if not rows:
+    active = active_pairs(target.key, settings)
+    if not active:
         typer.echo(f"{target.name}: no active items — run generate first")
+        raise typer.Exit(code=1)
+    # Only questions that passed the web check are ever asked.
+    rows = evaluable(active, settings)
+    if not rows:
+        typer.echo(f"{target.name}: {nothing_passed(len(active), settings)}")
         raise typer.Exit(code=1)
 
     picked = pick_pairs(rows, limit)
@@ -1210,7 +1215,7 @@ def status(
         # measurement under way" is the resume window, and a Space may hold its
         # own.
         since = None if all_time else window_start(settings)
-        pairs = active_pairs(target.key, settings)
+        pairs = evaluable(active_pairs(target.key, settings), settings)
         frozen = ""
         if settings.question_set is not None:
             frozen = str(settings.question_set)

@@ -45,7 +45,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from syft_benchmark.config import (
-    ContextMode,
+    MEASURED_ARMS,
     EvalBlock,
     JobKind,
     Settings,
@@ -57,8 +57,13 @@ from syft_benchmark.config import (
 from syft_benchmark.control import jobs as job_queue
 from syft_benchmark.control import session as console_session_tokens
 from syft_benchmark.control import targets as registry
-from syft_benchmark.control.check import Check, check
-from syft_benchmark.control.compose import settings_for
+from syft_benchmark.control.check import (
+    Check,
+    IndexUnreachable,
+    articles_in_window,
+    check,
+)
+from syft_benchmark.control.compose import merge, settings_for
 from syft_benchmark.control.formfields import catalogue
 from syft_benchmark.control.schemas import (
     Capabilities,
@@ -84,6 +89,7 @@ from syft_benchmark.control.schemas import (
     TargetSpec,
     TargetView,
     VerdictOverride,
+    WindowView,
 )
 from syft_benchmark.control.session import InvalidSession
 from syft_benchmark.control.ticker import Ticker
@@ -100,6 +106,7 @@ from syft_benchmark.llm import openrouter as openrouter_catalogue
 from syft_benchmark.llm.catalog import ModelEntry
 from syft_benchmark.llm.ollama import installed_models
 from syft_benchmark.llm.providers import ProviderKind, kind_for_url
+from syft_benchmark.llm.roles import clash_refusal
 from syft_benchmark.publish import owner_payload_for, payload_for
 from syft_benchmark.publish import publish as publish_card
 from syft_benchmark.publish import retract as retract_card
@@ -113,6 +120,7 @@ from syft_benchmark.runs import (
     override_verdict,
     withdraw_override,
 )
+from syft_benchmark.runs.gate import FILTER_REQUIRED, filter_missing
 
 # How many recent jobs to hand back per target. The history is there to show
 # that yesterday's measurement failed — and is not needed deeper than a few
@@ -292,7 +300,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Capabilities(
             version="1",
             profile=conf.methodology_profile,
-            arms=[m.value for m in ContextMode],
+            arms=[m.value for m in MEASURED_ARMS],
             blocks=[b.value for b in EvalBlock],
             # The registry's order, which is the reading order everywhere this
             # list is drawn. It ends with the control set, whose correct answer
@@ -312,6 +320,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         q: str = "",
         vendor: str = "",
         supports: str = "",
+        lacks: str = "",
+        web_search: str = "",
         include_retired: bool = False,
         limit: int = 0,
     ) -> ModelCatalogView:
@@ -325,23 +335,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             q: Free text over the identifier and the shown name
             vendor: One vendor only
             supports: Comma-separated request parameters the model must honour
+            lacks: Comma-separated request parameters the model must not take
+            web_search: native, plugin, none, or any (native or plugin)
             include_retired: Keep models the provider has dated for withdrawal
             limit: Cap on the answer; zero — everything
 
         Returns:
             The matching models, the vendors to filter by, the moving names and
             the age of each source.
+
+        Raises:
+            HTTPException: an unknown web_search value
         """
-        needed = tuple(part.strip() for part in supports.split(",") if part.strip())
+        needed = _csv(supports)
+        absent = _csv(lacks)
+        searching = web_search.strip().lower()
+        if searching and searching not in (*catalog.WEB_SEARCH_VALUES, "any"):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "web_search must be one of native, plugin, none, any",
+            )
         catalogue_now = catalog.load(conf)
         found = catalogue_now.search(
             query=q,
             vendor=vendor,
             supports=needed,
+            lacks=absent,
+            web_search=searching,
             include_retired=include_retired,
         )
         # Asked for live: the list is one request away and always right.
-        found = _local_models(conf, query=q, vendor=vendor) + found
+        local = [
+            entry
+            for entry in _local_models(conf, query=q, vendor=vendor)
+            if catalog.entry_matches(entry, needed, absent, searching)
+        ]
+        found = local + found
         total = len(found)
         return ModelCatalogView(
             models=found[:limit] if limit > 0 else found,
@@ -539,6 +568,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"the key in the address ({key}) and in the body ({spec.key}) differ",
             )
+        effective = merge(conf, spec.instrument, spec.probe)
+        _refuse_clash(effective)
+        # A target that runs on its own schedule evaluates unattended.
+        _refuse_unfiltered(effective, spec.enabled and bool(spec.schedule.strip()))
         with session_scope(conf) as session:
             try:
                 row = registry.save(session, spec, conf)
@@ -588,6 +621,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "problems": result.problems,
         }
 
+    @app.get("/targets/{key}/window", response_model=WindowView)
+    def target_window(
+        key: str,
+        conf: Guard,
+        days: Annotated[int | None, Query(ge=0)] = None,
+    ) -> WindowView:
+        """How many articles the time window holds now, by generation's rule.
+
+        ``days`` overrides the saved window, so a page can count before saving.
+        """
+        with session_scope(conf) as session:
+            row = _target_or_404(session, key)
+            node_conf, space = settings_for(row, conf)
+        if days is not None:
+            node_conf = node_conf.model_copy(update={"document_window_days": days})
+        try:
+            counted = articles_in_window(space, node_conf)
+        except IndexUnreachable as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        return WindowView(
+            count=counted.count,
+            undated=counted.undated,
+            total=counted.total,
+            window_days=counted.window_days,
+        )
+
     # --- launching ----------------------------------------------------------
 
     @app.post("/targets/{key}/runs", response_model=JobView, status_code=202)
@@ -604,6 +663,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status.HTTP_409_CONFLICT,
                     f"target {key} is disabled — enable it before measuring",
                 )
+            _refuse_run_clash(row, request, conf)
             job = job_queue.enqueue(session, row, request)
             return JobView.model_validate(job)
 
@@ -983,6 +1043,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_scope(auth.settings) as session:
             row = _console_target(session, auth)
             _ensure_enabled(row)
+            _refuse_run_clash(row, request, auth.settings)
             job = job_queue.enqueue(session, row, request)
             return JobView.model_validate(job)
 
@@ -1093,6 +1154,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
+def _csv(value: str) -> tuple[str, ...]:
+    """A comma-separated query parameter, as a tuple of its non-empty parts."""
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
 def _local_models(conf: Settings, *, query: str, vendor: str) -> list[ModelEntry]:
     """The models this installation has pulled, as catalogue entries.
 
@@ -1175,6 +1241,15 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
             judge_model=conf.judge_model,
             judge_models=[p.model for p in judge_providers(conf)],
             judge_policy=conf.judge_policy,
+            filter_model=conf.filter_model,
+            filter_judge_model=conf.filter_judge_model,
+            manual_status_priority=conf.manual_status_priority,
+            web_search_engine=conf.web_search_engine,
+            web_search_closed_book=conf.web_search_closed_book,
+            web_search_with_context=conf.web_search_with_context,
+            web_search_generator=conf.web_search_generator,
+            web_search_judge=conf.web_search_judge,
+            web_search_max_results=conf.web_search_max_results,
             key_facts_threshold=conf.key_facts_threshold,
             answer_coverage_threshold=conf.answer_coverage_threshold,
             consistency_floor=conf.consistency_floor,
@@ -1182,6 +1257,7 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
             extractive_mode=conf.extractive_mode,
             methodology_profile=conf.methodology_profile,
             max_consecutive_failures=conf.max_consecutive_failures,
+            concurrency=conf.concurrency,
             reuse_answers=conf.reuse_answers,
             audit_log=conf.audit_log,
         ),
@@ -1206,6 +1282,28 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
         # question "may this be stored" is answered in one place.
         "installation": {field: dumped[field] for field in sorted(stored_fields())},
     }
+
+
+def _refuse_clash(effective: Settings) -> None:
+    """422 when a judge and a tested model share a company under ``strict``."""
+    reason = clash_refusal(effective)
+    if reason is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, reason)
+
+
+def _refuse_unfiltered(effective: Settings, evaluates: bool) -> None:
+    """422 when questions would be asked and no web check model is set."""
+    if evaluates and filter_missing(effective):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, FILTER_REQUIRED)
+
+
+def _refuse_run_clash(row: Target, request: RunRequest, conf: Settings) -> None:
+    """The launch checks on what the run would use: the target plus the request."""
+    node_conf, _ = settings_for(row, conf)
+    extra = [x for x in (request.instrument, request.probe) if x is not None]
+    effective = merge(node_conf, *extra) if extra else node_conf
+    _refuse_clash(effective)
+    _refuse_unfiltered(effective, request.evaluate is not False)
 
 
 def _target_or_404(session: Any, key: str) -> Target:

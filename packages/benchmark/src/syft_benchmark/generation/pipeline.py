@@ -37,8 +37,12 @@ automatic:
 from __future__ import annotations
 
 import hashlib
+import threading
+import time
 import uuid
 from collections.abc import Callable, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,7 +65,11 @@ from syft_benchmark.generation.extractive import (
     mask_with_spacy,
     parse_combined,
 )
-from syft_benchmark.generation.filter_stage import FilterSummary, filter_pending
+from syft_benchmark.generation.filter_stage import (
+    FilterSummary,
+    Screening,
+    filter_pending,
+)
 from syft_benchmark.generation.generators import (
     EXTRACTIVE_CATEGORIES,
     EXTRACTIVE_KEYS,
@@ -75,6 +83,8 @@ from syft_benchmark.generation.language import pick_spacy_model
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.rotation import RotationReport, fresh_ids, rotate
+from syft_benchmark.generation.slots import Latch, model_slots
+from syft_benchmark.generation.web_check import filter_model
 from syft_benchmark.llm import (
     LLMError,
     Provider,
@@ -83,6 +93,7 @@ from syft_benchmark.llm import (
     parse_json_list,
     parse_json_object,
 )
+from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.sources import ChromaClient, Chunk, Document, load_documents
 
 # Headroom on the answer cap over the computed length of the items.
@@ -101,6 +112,11 @@ from syft_benchmark.sources import ChromaClient, Chunk, Document, load_documents
 # is repeated with a doubled budget until it fits or reaches the shared answer
 # ceiling (`chat` in llm/ollama.py). Raising this saves a wasted call.
 REASONING_HEADROOM = 800
+
+# How often the build's progress line is rewritten, at most.
+_PROGRESS_SECONDS = 0.5
+
+_SPACY_LOCK = threading.Lock()
 
 
 @dataclass(slots=True)
@@ -124,6 +140,8 @@ class GenerationReport:
     notes: list[str] = field(default_factory=list)
     # The cohort this run's items landed in.
     cohort: str = ""
+    # What the checks during the build decided; None — no checks ran.
+    screened: FilterSummary | None = None
     # How recomputing the set ended. In incremental mode there is nothing to
     # recompute, and this stays None — which is not the same as "nothing
     # changed".
@@ -142,17 +160,22 @@ def document_text(doc: Document) -> str:
 
 
 def pick_chunks(
-    documents: list[Document], processed: set[str], limit: int
+    documents: list[Document], processed: set[str], limit: int | None = None
 ) -> list[tuple[Document, Chunk]]:
-    """What to parse in this run.
+    """What to parse in this run, in the order to parse it.
 
-    We walk the documents round-robin rather than in order: the daily cycle
-    takes a little at a time, and walking them in order would give the first
-    documents their items in a week and the last ones never.
+    We walk the documents round-robin rather than in order: a run that stops
+    on its question budget then has read every article a little, rather than
+    the first articles whole and the last ones not at all.
+
+    Args:
+        documents: The documents in play
+        processed: Chunks this queue has already parsed
+        limit: How many to pick; None — every unparsed chunk
     """
     picked: list[tuple[Document, Chunk]] = []
     depth = 0
-    while len(picked) < limit:
+    while limit is None or len(picked) < limit:
         added = False
         for doc in documents:
             if depth >= len(doc.chunks):
@@ -162,7 +185,7 @@ def pick_chunks(
             if chunk.chunk_id in processed:
                 continue
             picked.append((doc, chunk))
-            if len(picked) >= limit:
+            if limit is not None and len(picked) >= limit:
                 break
         if not added:
             break
@@ -218,8 +241,8 @@ def _store(
     cohort: str = "",
     job: str = "",
     cap: int | None = None,
-) -> None:
-    """Write the items down as pending.
+) -> list[QaPair]:
+    """Write the items down as pending; returns the rows written.
 
     Nothing here decides whether an item is fit to measure with — that moved
     to its own pass, ``filter_stage.filter_pending()``, which reads the
@@ -229,60 +252,63 @@ def _store(
     calls one ``active`` or ``rejected``.
     """
     if cap is not None:
-        # A trial run builds a couple of questions per generator and asks those
-        # — the same cap on both halves, so a configuration can be tried end to
-        # end for the price of a handful of calls. Counted per generator, like
-        # the one on asking: a total divided between them would simply drop
-        # some skills out of the trial.
+        # The kind's question budget for this run (smaller on a trial run).
+        # Counted per generator: a total divided between them would simply
+        # drop some skills out of the set.
         room = cap - report.by_generator.get(generator.key, 0)
         if room <= 0:
-            return
+            return []
         pairs = pairs[:room]
 
+    written: list[QaPair] = []
     for pair in pairs:
         try:
             with session_scope() as session:
-                session.add(
-                    QaPair(
-                        id=uuid.uuid4().hex,
-                        space=space.key,
-                        cohort=cohort,
-                        # Empty where nothing named the launch — the CLI, a
-                        # console call. NULL rather than "", so that "this
-                        # launch's questions" cannot accidentally match them.
-                        job_id=job or None,
-                        collection=collection,
-                        generator=generator.key,
-                        task_type=generator.task_type,
-                        doc_id=doc.doc_id,
-                        chunk_id=chunk_id,
-                        document_title=doc.title,
-                        file_name=doc.file_name,
-                        question=pair.question,
-                        answer=pair.answer,
-                        distractors=pair.distractors,
-                        context=fragment[:8000],
-                        expected_behavior=generator.expected.value,
-                        meta={
-                            **pair.meta,
-                            "grading": pair.meta.get("grading", generator.grading),
-                        },
-                        status=PairStatus.PENDING.value,
-                        status_note="",
-                        model=model,
-                        question_hash=question_hash(pair.question),
-                    )
+                row = QaPair(
+                    id=uuid.uuid4().hex,
+                    space=space.key,
+                    cohort=cohort,
+                    # Empty where nothing named the launch — the CLI, a
+                    # console call. NULL rather than "", so that "this
+                    # launch's questions" cannot accidentally match them.
+                    job_id=job or None,
+                    collection=collection,
+                    generator=generator.key,
+                    task_type=generator.task_type,
+                    doc_id=doc.doc_id,
+                    chunk_id=chunk_id,
+                    document_title=doc.title,
+                    file_name=doc.file_name,
+                    question=pair.question,
+                    answer=pair.answer,
+                    distractors=pair.distractors,
+                    context=fragment[:8000],
+                    expected_behavior=generator.expected.value,
+                    meta={
+                        **pair.meta,
+                        "grading": pair.meta.get("grading", generator.grading),
+                    },
+                    status=PairStatus.PENDING.value,
+                    status_note="",
+                    model=model,
+                    question_hash=question_hash(pair.question),
                 )
+                session.add(row)
+                session.flush()
+                # Kept usable after the session closes, for the checks.
+                session.expunge(row)
         except Exception as exc:  # noqa: BLE001 - duplicates caught after the fact, see the module docstring
             if "qa_pairs_unique" in str(exc):
                 report.duplicates += 1
                 continue
             raise
 
+        written.append(row)
         report.pairs_made += 1
         report.by_generator[generator.key] = (
             report.by_generator.get(generator.key, 0) + 1
         )
+    return written
 
 
 def _masked_to_pairs(
@@ -313,6 +339,7 @@ def _extractive_for_chunk(
     keys: tuple[str, ...],
     conf: Settings,
     generator: Provider,
+    hold: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> tuple[dict[str, list[Masked]], str, str | None]:
     """Build masked items from a chunk.
 
@@ -326,9 +353,13 @@ def _extractive_for_chunk(
         return {}, "", None
 
     if conf.extractive_mode != "llm":
-        nlp = pick_spacy_model(chunk.text, conf.spacy_models)
+        # One thread at a time: a spaCy pipeline is not made for sharing.
+        with _SPACY_LOCK:
+            nlp = pick_spacy_model(chunk.text, conf.spacy_models)
+            by_category = (
+                mask_with_spacy(chunk.text, nlp, categories) if nlp is not None else {}
+            )
         if nlp is not None:
-            by_category = mask_with_spacy(chunk.text, nlp, categories)
             return (
                 {EXTRACTIVE_CATEGORIES[c]: v for c, v in by_category.items()},
                 "spacy",
@@ -340,14 +371,18 @@ def _extractive_for_chunk(
             # is lost.
             return {}, "", "there is no spaCy model for the document's language"
 
+    searching, engine = web_search_for(conf, "generator", generator.model)
     try:
-        raw, _usage = chat(
-            COMBINED_SYSTEM.format(n=conf.pairs_per_chunk),
-            user_prompt(doc, chunk, conf.pairs_per_chunk),
-            provider=generator,
-            max_tokens=90 * conf.pairs_per_chunk * len(categories) + 200,
-            settings=conf,
-        )
+        with hold():
+            raw, _usage = chat(
+                COMBINED_SYSTEM.format(n=conf.pairs_per_chunk),
+                user_prompt(doc, chunk, conf.pairs_per_chunk),
+                provider=generator,
+                max_tokens=90 * conf.pairs_per_chunk * len(categories) + 200,
+                settings=conf,
+                web_search=searching,
+                web_search_engine=engine or "auto",
+            )
         data = parse_json_object(raw)
     except LLMError as exc:
         return {}, "", str(exc)
@@ -386,6 +421,7 @@ def _run_llm_generator(
     if generator.key == "tiered_explanation":
         budget = max(budget, conf.answer_max_tokens)
 
+    searching, engine = web_search_for(conf, "generator", provider.model)
     try:
         raw, _usage = chat(
             generator.system.format(n=tasks),
@@ -393,6 +429,8 @@ def _run_llm_generator(
             provider=provider,
             max_tokens=budget,
             settings=conf,
+            web_search=searching,
+            web_search_engine=engine or "auto",
         )
     except LLMError as exc:
         return [], str(exc)
@@ -408,6 +446,98 @@ def _run_llm_generator(
         return [], str(exc)
 
 
+@dataclass(eq=False, slots=True)
+class _Queue:
+    """One kind's walk (the three masking kinds share one) over its units."""
+
+    label: str
+    keys: tuple[str, ...]
+    # The generator key its units are marked processed under.
+    marker: str
+    scope: str
+    units: list[tuple[Document, Chunk | None]]
+    # Questions one unit is asked for, per kind.
+    per_unit: int
+    # None — the extractive group.
+    spec: Generator | None = None
+    pos: int = 0
+    streak: int = 0
+    done: bool = False
+
+
+@dataclass(slots=True)
+class _Outcome:
+    """What one unit gave back: questions per kind, or the error."""
+
+    pairs: dict[str, tuple[list[Pair], list[str]]] = field(default_factory=dict)
+    model: str = ""
+    parsed: int = 0
+    error: str | None = None
+
+
+def _queues(
+    space: str,
+    specs: Sequence[Generator],
+    extractive: tuple[str, ...],
+    documents: list[Document],
+    cohort: str,
+    conf: Settings,
+    report: GenerationReport,
+) -> list[_Queue]:
+    """Each kind's unparsed units, in the order to parse them.
+
+    The extractive ones are built in a single pass: three categories out of
+    one parse, which is why they are marked under one key. The rest have a
+    queue OF THEIR OWN each: a shared batch would mean that a generator
+    plugged in second skips everything the first has already parsed.
+    """
+    queues: list[_Queue] = []
+    if extractive:
+        processed = _processed_ids(space, extractive[0], cohort)
+        batch = pick_chunks(documents, processed)
+        if not batch:
+            report.notes.append("masking: there are no new chunks")
+        else:
+            queues.append(
+                _Queue(
+                    "masking",
+                    extractive,
+                    extractive[0],
+                    "chunk",
+                    [(doc, chunk) for doc, chunk in batch],
+                    conf.pairs_per_chunk,
+                )
+            )
+    for spec in specs:
+        if spec.key in EXTRACTIVE_KEYS:
+            continue
+        processed = _processed_ids(space, spec.key, cohort)
+        units: list[tuple[Document, Chunk | None]]
+        if spec.scope == "document":
+            units = [(doc, None) for doc in documents if doc.doc_id not in processed]
+            if not units:
+                report.notes.append(f"{spec.key}: there are no new documents")
+                continue
+        else:
+            units = [(doc, chunk) for doc, chunk in pick_chunks(documents, processed)]
+            if not units:
+                report.notes.append(f"{spec.key}: there are no new chunks")
+                continue
+        per_unit = 1 if spec.key == "tiered_explanation" else conf.pairs_per_chunk
+        queues.append(
+            _Queue(spec.key, (spec.key,), spec.key, spec.scope, units, per_unit, spec)
+        )
+    return queues
+
+
+def _checked(screening: Screening, row: QaPair) -> None:
+    """Screen one written question; a failure leaves it pending."""
+    try:
+        screening.screen(row)
+    except Exception as exc:  # noqa: BLE001 - the next filter pass checks it again
+        logger.warning(f"{row.id}: the check failed, left pending: {exc}")
+
+
 def generate_for_space(
     space: SpaceConfig,
     *,
@@ -421,6 +551,9 @@ def generate_for_space(
     job: str = "",
     per_generator: int | None = None,
     on_unit: Callable[[str, int, int, int], None] | None = None,
+    screen: bool = False,
+    retrieve: Retriever | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> GenerationReport:
     """Build items from the not-yet-parsed material of one Space.
 
@@ -433,7 +566,10 @@ def generate_for_space(
         generators: Generator keys from GENERATORS
         collection: ChromaDB collection name; empty — the node's own name, and
             failing that, the node's key
-        limit: How many units to take; defaults to the settings
+        limit: The question budget per kind, in units: each kind writes at
+            most ``limit * pairs_per_chunk`` questions; defaults to
+            ``chunks_per_run``. Every passage in the window is eligible, and a
+            kind's walk stops once its budget is spent
         settings: Process settings
         new_cohort: Build the question pool afresh, as a separate cohort, from
             the same material. In rebuild mode this is implied
@@ -453,6 +589,18 @@ def generate_for_space(
             where stopping is worth something; mid-unit there is nothing left
             to save. Without it the build runs to the end, which is what the
             daily cycle wants
+        screen: Check each question as soon as it is written: grounding or
+            the control gate, then the web check (``filter_stage.Screening``),
+            while generation goes on. The set is then not recomputed here: the
+            caller's filter pass checks what is left and recomputes it once
+            (``filter_and_rotate(rotate_anyway=True)``)
+        retrieve: What the control gate checks with when screening
+        on_progress: Told "written N · checked M · removed R" as the build goes
+
+    Units run ``concurrency`` at a time across kinds and passages; generator
+    calls and checks share that limit (``slots.ModelSlots``). A kind's budget
+    is exact: units are dispatched only while it has room beyond the units in
+    flight, and what one unit writes past it is trimmed.
 
     Returns:
         A report on the run
@@ -477,23 +625,31 @@ def generate_for_space(
     report = GenerationReport(space=space.key, cohort=cohort)
 
     stopped = False
+    latch = Latch(should_stop)
 
-    def filled() -> bool:
-        """Whether every generator asked for has reached the cap.
+    # The question budget per kind: "Write at most" on the page is
+    # chunks_per_run * pairs_per_chunk * kinds. Counted in questions written,
+    # not passages read, so a passage that yields less does not shrink the set.
+    quota = (limit or conf.chunks_per_run) * conf.pairs_per_chunk
+    cap = quota if per_generator is None else min(quota, per_generator)
+    # Units in a row that wrote nothing: failed calls, or answers all cleaned
+    # away. Every passage in the window is eligible, so this is what stops a
+    # kind that keeps paying for nothing.
+    give_up = conf.max_consecutive_failures
 
-        Checked before each unit rather than after: a trial that has what it
-        needs must not parse one more chunk, because parsing marks it processed
-        and a later full run would find nothing there to build from.
-        """
-        if per_generator is None:
-            return False
-        wanted = [s.key for s in specs]
-        return all(report.by_generator.get(key, 0) >= per_generator for key in wanted)
+    def gave_up(key: str, streak: int) -> bool:
+        if give_up and streak >= give_up:
+            report.notes.append(
+                f"{key}: {streak} units in a row wrote nothing — stopped before "
+                f"its budget was spent"
+            )
+            return True
+        return False
 
     def called_off() -> bool:
         """Whether to stop before the next unit. Said once, in the report."""
         nonlocal stopped
-        if not stopped and should_stop is not None and should_stop():
+        if not stopped and latch():
             stopped = True
             report.notes.append("the build was stopped at the owner's request")
             logger.info(f"{space.key}: generation stopped at the owner's request")
@@ -547,166 +703,195 @@ def generate_for_space(
         )
         if undated:
             report.notes.append(
-                f"{undated} documents have no date in their header — the window "
-                f"does not apply to them"
+                f"{undated} documents have no publication date or add time — "
+                f"the window does not apply to them"
             )
         if not documents:
             report.notes.append("there is not a single document in the window")
 
-    budget = limit or conf.chunks_per_run
-
     extractive = tuple(s.key for s in specs if s.key in EXTRACTIVE_KEYS)
-    per_chunk = [
-        s for s in specs if s.scope == "chunk" and s.key not in EXTRACTIVE_KEYS
-    ]
-    per_document = [s for s in specs if s.scope == "document"]
+    queues = _queues(space.key, specs, extractive, documents, cohort, conf, report)
 
-    # --- by chunk ---------------------------------------------------------
-    # The extractive ones are built in a single pass: three categories out of
-    # one parse, which is why they are marked under one key.
-    if extractive:
-        processed = _processed_ids(space.key, extractive[0], cohort)
-        batch = pick_chunks(documents, processed, budget)
-        if not batch:
-            report.notes.append("masking: there are no new chunks")
+    width = max(1, conf.concurrency)
+    slots = model_slots(conf)
+    # Checks run as soon as a question is written, sharing the model limit.
+    screening = (
+        Screening(
+            space.key,
+            conf,
+            retrieve=retrieve,
+            should_stop=latch,
+            slots=slots,
+            on_verdict=lambda: tell(),
+        )
+        if screen
+        else None
+    )
+    tell_lock = threading.Lock()
+    told = [0.0]
 
-        for index, (doc, chunk) in enumerate(batch, start=1):
-            if called_off() or filled():
-                break
-            report.units_seen += 1
-            if on_unit is not None:
-                on_unit("masking", index, len(batch), report.pairs_made)
-            whole = document_text(doc)
+    def tell(final: bool = False) -> None:
+        if on_progress is None:
+            return
+        with tell_lock:
+            now = time.monotonic()
+            if not final and now - told[0] < _PROGRESS_SECONDS:
+                return
+            told[0] = now
+            checked = screening.report.checked if screening else 0
+            removed = screening.report.rejected if screening else 0
+            on_progress(
+                f"written {report.pairs_made} · checked {checked} · removed {removed}"
+            )
 
+    # Questions per kind already asked for by units in flight: a unit is
+    # dispatched only while its kind has room beyond them, so the walk reads
+    # no passage it does not need. A unit that writes less frees the room.
+    reserved: dict[str, int] = {}
+
+    def wanted(queue: _Queue) -> tuple[str, ...]:
+        return tuple(
+            key
+            for key in queue.keys
+            if report.by_generator.get(key, 0) + reserved.get(key, 0) < cap
+        )
+
+    def work(
+        queue: _Queue, doc: Document, chunk: Chunk | None, keys: tuple[str, ...]
+    ) -> _Outcome:
+        """One unit on a worker thread: the model call and the cleaning."""
+        whole = document_text(doc)
+        if queue.spec is None:
+            assert chunk is not None
             by_key, path, error = _extractive_for_chunk(
-                doc, chunk, extractive, conf, provider
+                doc, chunk, keys, conf, provider, hold=slots.hold
             )
             if error:
-                report.failures += 1
-                logger.warning(f"{space.key}/{chunk.chunk_id}: {error}")
-                continue
-
+                return _Outcome(error=error)
+            made: dict[str, tuple[list[Pair], list[str]]] = {}
             for key, masked in by_key.items():
                 good, bad = _masked_to_pairs(masked, whole)
-                if bad:
-                    report.notes.append(f"{key} {chunk.chunk_id[:10]}: {reasons(bad)}")
-                _store(
-                    space,
-                    doc,
-                    chunk.chunk_id,
-                    chunk.text,
-                    good,
-                    GENERATORS[key],
-                    f"{path}:{conf.generator_model}",
-                    name,
-                    report,
-                    conf=conf,
-                    cohort=cohort,
-                    job=job,
-                    cap=per_generator,
+                # pairs_per_chunk on both paths: spaCy masks every entity it
+                # finds, and one dense passage would spend a kind's budget.
+                made[key] = (good[: conf.pairs_per_chunk], bad)
+            return _Outcome(
+                pairs=made,
+                model=f"{path}:{conf.generator_model}",
+                parsed=sum(len(v) for v in by_key.values()),
+            )
+        with slots.hold():
+            items, error = _run_llm_generator(queue.spec, doc, chunk, conf, provider)
+        if error:
+            return _Outcome(error=error)
+        good, bad = queue.spec.clean(items, conf.pairs_per_chunk, whole)
+        return _Outcome(
+            pairs={queue.spec.key: (good, bad)},
+            model=conf.generator_model,
+            parsed=len(good),
+        )
+
+    def settle(
+        queue: _Queue, doc: Document, chunk: Chunk | None, outcome: _Outcome
+    ) -> None:
+        """Store one unit's questions and hand them to the checks."""
+        if outcome.error:
+            report.failures += 1
+            queue.streak += 1
+            if queue.spec is not None:
+                report.failure_sample = (
+                    report.failure_sample or f"{queue.label}: {outcome.error}"
                 )
-            _mark_processed(
-                space.key,
-                extractive[0],
-                chunk.chunk_id,
-                "chunk",
-                sum(len(v) for v in by_key.values()),
-                cohort,
-            )
-
-    # The rest have a queue OF THEIR OWN each. A shared batch would mean that a
-    # generator plugged in second skips everything the first has already
-    # parsed, and spends model calls on certain duplicates.
-    for spec in per_chunk:
-        if called_off() or filled():
-            break
-        processed = _processed_ids(space.key, spec.key, cohort)
-        batch = pick_chunks(documents, processed, budget)
-        if not batch:
-            report.notes.append(f"{spec.key}: there are no new chunks")
-            continue
-
-        for index, (doc, chunk) in enumerate(batch, start=1):
-            if called_off() or filled():
-                break
-            report.units_seen += 1
-            if on_unit is not None:
-                on_unit(spec.key, index, len(batch), report.pairs_made)
-            whole = document_text(doc)
-
-            items, error = _run_llm_generator(spec, doc, chunk, conf, provider)
-            if error:
-                report.failures += 1
-                report.failure_sample = report.failure_sample or f"{spec.key}: {error}"
-                logger.warning(f"{space.key}/{spec.key}: {error}")
-                continue
-
-            good, bad = spec.clean(items, conf.pairs_per_chunk, whole)
+            where = chunk.chunk_id if chunk is not None else queue.label
+            logger.warning(f"{space.key}/{where}: {outcome.error}")
+            return
+        before = report.pairs_made
+        fragment = chunk.text if chunk is not None else document_text(doc)
+        unit_id = chunk.chunk_id if chunk is not None else doc.doc_id
+        shown = chunk.chunk_id[:10] if chunk is not None else doc.title[:24]
+        for key, (good, bad) in outcome.pairs.items():
             if bad:
-                report.notes.append(f"{spec.key} {chunk.chunk_id[:10]}: {reasons(bad)}")
-            _store(
+                report.notes.append(f"{key} {shown}: {reasons(bad)}")
+            rows = _store(
                 space,
                 doc,
-                chunk.chunk_id,
-                chunk.text,
+                unit_id if chunk is not None else f"doc:{doc.doc_id}",
+                fragment,
                 good,
-                spec,
-                conf.generator_model,
+                GENERATORS[key],
+                outcome.model,
                 name,
                 report,
                 conf=conf,
                 cohort=cohort,
                 job=job,
-                cap=per_generator,
+                cap=cap,
             )
-            _mark_processed(
-                space.key, spec.key, chunk.chunk_id, "chunk", len(good), cohort
-            )
+            if screening is not None and check_pool is not None:
+                checks.extend(check_pool.submit(_checked, screening, r) for r in rows)
+        _mark_processed(
+            space.key, queue.marker, unit_id, queue.scope, outcome.parsed, cohort
+        )
+        queue.streak = 0 if report.pairs_made > before else queue.streak + 1
+        tell()
 
-    # --- by document ------------------------------------------------------
-    for spec in per_document:
-        if called_off() or filled():
-            break
-        processed = _processed_ids(space.key, spec.key, cohort)
-        pending = [d for d in documents if d.doc_id not in processed][:budget]
-        if not pending:
-            report.notes.append(f"{spec.key}: there are no new documents")
-            continue
-
-        for index, doc in enumerate(pending, start=1):
-            if called_off() or filled():
-                break
-            report.units_seen += 1
-            if on_unit is not None:
-                on_unit(spec.key, index, len(pending), report.pairs_made)
-            whole = document_text(doc)
-            items, error = _run_llm_generator(spec, doc, None, conf, provider)
-            if error:
-                report.failures += 1
-                report.failure_sample = report.failure_sample or f"{spec.key}: {error}"
-                logger.warning(f"{space.key}/{spec.key}: {error}")
-                continue
-            good, bad = spec.clean(items, conf.pairs_per_chunk, whole)
-            if bad:
-                report.notes.append(f"{spec.key} {doc.title[:24]}: {reasons(bad)}")
-            _store(
-                space,
-                doc,
-                f"doc:{doc.doc_id}",
-                whole,
-                good,
-                spec,
-                conf.generator_model,
-                name,
-                report,
-                conf=conf,
-                cohort=cohort,
-                job=job,
-                cap=per_generator,
-            )
-            _mark_processed(
-                space.key, spec.key, doc.doc_id, "document", len(good), cohort
-            )
+    checks: list[Future[None]] = []
+    running: dict[
+        Future[_Outcome], tuple[_Queue, Document, Chunk | None, tuple[str, ...]]
+    ] = {}
+    check_pool = (
+        ThreadPoolExecutor(max_workers=width, thread_name_prefix="check")
+        if screening is not None
+        else None
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=width, thread_name_prefix="gen") as pool:
+            while True:
+                # Round-robin over the kinds, one unit each per sweep.
+                dispatched = True
+                while dispatched and len(running) < width and not called_off():
+                    dispatched = False
+                    for queue in queues:
+                        if len(running) >= width:
+                            break
+                        if queue.done or queue.pos >= len(queue.units):
+                            continue
+                        if gave_up(queue.label, queue.streak):
+                            queue.done = True
+                            continue
+                        keys = wanted(queue)
+                        if not keys:
+                            continue
+                        doc, chunk = queue.units[queue.pos]
+                        queue.pos += 1
+                        report.units_seen += 1
+                        if on_unit is not None:
+                            on_unit(
+                                queue.label,
+                                queue.pos,
+                                len(queue.units),
+                                report.pairs_made,
+                            )
+                        for key in keys:
+                            reserved[key] = reserved.get(key, 0) + queue.per_unit
+                        future = pool.submit(work, queue, doc, chunk, keys)
+                        running[future] = (queue, doc, chunk, keys)
+                        dispatched = True
+                if not running:
+                    break
+                finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                for future in finished:
+                    queue, doc, chunk, keys = running.pop(future)
+                    for key in keys:
+                        reserved[key] -= queue.per_unit
+                    settle(queue, doc, chunk, future.result())
+    finally:
+        if check_pool is not None:
+            # Written questions are checked before the build reports; on a stop
+            # the checks not started leave their questions pending.
+            check_pool.shutdown(wait=True)
+    tell(final=True)
+    if screening is not None:
+        report.screened = screening.summary()
 
     # Recomputing the set comes last: generation has added items from the new
     # material, and only now is it visible what of the accumulated pile takes
@@ -721,6 +906,10 @@ def generate_for_space(
     # already stored stay in the cohort and the next build tops it up.
     if stopped:
         report.notes.append("the set was left as it was: the build did not finish")
+        return report
+    if screen:
+        # The caller's filter pass checks what is left and recomputes the set
+        # once, after it (filter_and_rotate with rotate_anyway).
         return report
 
     report.rotation = rotate(
@@ -743,6 +932,7 @@ def filter_and_rotate(
     settings: Settings | None = None,
     retrieve: Retriever | None = None,
     should_stop: Callable[[], bool] | None = None,
+    rotate_anyway: bool = False,
 ) -> FilterSummary:
     """Screen pending pairs, then reconcile the window, the cohort and the cap.
 
@@ -767,6 +957,8 @@ def filter_and_rotate(
             set is rejected outright
         should_stop: Asked before every pair whether the owner has called the
             pass off
+        rotate_anyway: Recompute the set even when this pass changed nothing:
+            after a build whose questions were checked as they were written
 
     Returns:
         What was screened, and what became of the window/cohort/cap once it
@@ -776,6 +968,28 @@ def filter_and_rotate(
         nothing changed.
     """
     conf = settings or get_settings()
+    web_on = bool(filter_model(conf))
+    current = cohort or cohorts.current(space.key, conf)
+    dated: dict[str, Any] | None = None
+
+    def read_dates() -> dict[str, Any]:
+        client = ChromaClient(space, conf)
+        name = collection or space.collection or space.key
+        collection_id = client.collection_id(name)
+        return (
+            {doc.doc_id: doc.dated_at for doc in load_documents(client, collection_id)}
+            if collection_id is not None
+            else {}
+        )
+
+    # With the web check on, the set's unchecked pairs are checked in the same
+    # pass; the window keeps that to the pairs that can still be measured.
+    in_window: set[str] | None = None
+    if web_on:
+        dated = read_dates()
+        if dated and conf.dataset_mode in (DatasetMode.ROLLING, DatasetMode.REBUILD):
+            in_window = fresh_ids(dated, conf)[0]
+
     report = filter_pending(
         space,
         generator=generator,
@@ -784,22 +998,21 @@ def filter_and_rotate(
         settings=conf,
         retrieve=retrieve,
         should_stop=should_stop,
+        recheck_cohort=current if web_on else None,
+        recheck_docs=in_window,
     )
-    if not report.checked or not report.active:
+    rechecked = report.web is not None and report.web.rechecked > 0
+    if (
+        not rotate_anyway
+        and not rechecked
+        and (not report.checked or not report.active)
+    ):
         return report
 
-    client = ChromaClient(space, conf)
-    name = collection or space.collection or space.key
-    collection_id = client.collection_id(name)
-    dated = (
-        {doc.doc_id: doc.dated_at for doc in load_documents(client, collection_id)}
-        if collection_id is not None
-        else {}
-    )
     report.rotation = rotate(
         space.key,
-        dated,
-        cohort=cohort or cohorts.current(space.key, conf),
+        dated if dated is not None else read_dates(),
+        cohort=current,
         settings=conf,
     )
     report.notes += report.rotation.notes

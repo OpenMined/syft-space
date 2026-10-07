@@ -247,8 +247,6 @@ export function groupWords(code: string): Words {
  * to grade — so the wording says what the endpoint is, not what is broken.
  */
 export const BLOCKED_ARMS: Record<string, string> = {
-  raw_has_no_answer:
-    'This endpoint only finds material — it never writes an answer, so there is nothing for this arm to grade. What it can be graded on is whether the search found the right material.',
   summary_hides_fragments:
     'In summary mode the endpoint strips the fragments it found out of its reply, so there is nothing to put in front of the model. Switch the endpoint to raw or both, or have this arm use the endpoint’s finished answer instead.',
   raw_has_no_answer_to_mix:

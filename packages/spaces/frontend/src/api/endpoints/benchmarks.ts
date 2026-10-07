@@ -25,6 +25,7 @@ import type {
   BenchmarkTarget,
   BenchmarkTargetRequest,
   BenchmarkVerdict,
+  BenchmarkWindow,
   ProviderResponse,
   ProviderUrls,
 } from '../types'
@@ -154,6 +155,15 @@ export const benchmarksApi = {
 
   checkTarget: async (slug: string): Promise<BenchmarkCheck> => {
     const response = await apiClient.post(`/benchmarks/endpoints/${slug}/check`)
+    return response.data
+  },
+
+  // Articles in the time window. `days` counts with an unsaved window;
+  // without it the saved one is used.
+  getWindow: async (slug: string, days?: number): Promise<BenchmarkWindow> => {
+    const response = await apiClient.get(`/benchmarks/endpoints/${slug}/window`, {
+      params: days === undefined ? undefined : { days },
+    })
     return response.data
   },
 

@@ -248,9 +248,9 @@ def test_the_build_reports_where_it_has_got_to(
     """
 
     def fake_generate(space: Any, **kwargs: Any) -> Any:
-        tell = kwargs["on_unit"]
-        tell("named_entity_masking", 1, 2, 0)
-        tell("named_entity_masking", 2, 2, 6)
+        tell = kwargs["on_progress"]
+        tell("written 2 · checked 0 · removed 0")
+        tell("written 6 · checked 4 · removed 1")
         return _Built()
 
     monkeypatch.setattr("syft_benchmark.scheduler.generate_for_space", fake_generate)
@@ -259,11 +259,10 @@ def test_the_build_reports_where_it_has_got_to(
     measure(SPACE, _settings(generate_in_cycle=True), observer=watcher)
 
     said = [text for phase, text in watcher.said if phase is JobPhase.GENERATE]
-    # The units as they are walked, and then the build's own closing count,
-    # which was the only thing this phase used to say.
+    # The build's own line, shown as is.
     assert said[:2] == [
-        "named_entity_masking · 1 of 2 · 0 built",
-        "named_entity_masking · 2 of 2 · 6 built",
+        "written 2 · checked 0 · removed 0",
+        "written 6 · checked 4 · removed 1",
     ]
 
 
@@ -282,4 +281,4 @@ def test_a_build_nobody_is_watching_is_told_to_report_to_nobody(
 
     measure(SPACE, _settings(generate_in_cycle=True), observer=None)
 
-    assert seen["on_unit"] is None
+    assert seen["on_progress"] is None
