@@ -218,6 +218,8 @@ class JobResponse(BaseModel):
     created_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    # The evaluation plan behind step_total; null until evaluation starts.
+    progress_plan: dict[str, Any] | None = None
 
 
 class TargetResponse(BaseModel):

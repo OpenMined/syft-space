@@ -50,6 +50,7 @@ from syft_benchmark.db.models import (
 )
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation.generators import GENERATORS
+from syft_benchmark.question_order import pair_order
 from syft_benchmark.report.metrics import accuracy_by_temperature, held_by_round
 from syft_benchmark.runs.gate import passes
 from syft_benchmark.runs.judge import ERROR_PREFIX, is_technical
@@ -57,7 +58,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 5
+AGGREGATE_VERSION = 7
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -82,13 +83,19 @@ ARM_OF: dict[str, str] = {
 }
 GROUPS = ("fixed", "either", "still", "worse")
 OUTCOMES = frozenset(
-    {Verdict.CORRECT.value, Verdict.ABSTAIN.value, Verdict.HALLUCINATE.value}
+    {
+        Verdict.CORRECT.value,
+        Verdict.ABSTAIN.value,
+        Verdict.HALLUCINATE.value,
+        Verdict.WEB_SOURCED.value,
+    }
 )
 TECHNICAL = Verdict.TECHNICAL.value
 CORRECT = Verdict.CORRECT.value
 ABSTAIN = Verdict.ABSTAIN.value
 HALLUCINATE = Verdict.HALLUCINATE.value
 PENDING = Verdict.PENDING.value
+WEB_SOURCED = Verdict.WEB_SOURCED.value
 ACTIVE_STATES = (JobState.QUEUED.value, JobState.RUNNING.value)
 REMOVED_STATUSES = (PairStatus.REJECTED.value, PairStatus.RETIRED.value)
 
@@ -484,6 +491,7 @@ def _tally(verdicts: Iterable[str | None]) -> dict[str, int]:
         "correct": counts[CORRECT],
         "abstain": counts[ABSTAIN],
         "hallucinate": counts[HALLUCINATE],
+        "web_sourced": counts[WEB_SOURCED],
         "pending": counts[PENDING],
         "technical": counts[TECHNICAL],
         "graded": graded,
@@ -506,7 +514,8 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
                 QaPair.model,
             )
             .join(first_seen, first_seen.c.qa_id == QaPair.id)
-            .order_by(first_seen.c.first_at, QaPair.id)
+            # The question order (report API, "Question order").
+            .order_by(*pair_order(QaPair.generator, QaPair.created_at, QaPair.id))
         )
         .all()
     )
@@ -614,6 +623,8 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
             kind["graded_with"] += with_[qa] in OUTCOMES
             kind["right_alone"] += alone[qa] == CORRECT
             kind["right_with"] += with_[qa] == CORRECT
+            kind["web_alone"] += alone[qa] == WEB_SOURCED
+            kind["web_with"] += with_[qa] == WEB_SOURCED
         kind_rows: list[dict[str, Any]] = []
         for generator, k in kinds.items():
             r_alone = rate(k["right_alone"], k["graded_alone"])
@@ -629,6 +640,8 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
                     "rate_alone": r_alone,
                     "rate_with": r_with,
                     "lift": lift(r_alone, r_with),
+                    "web_alone": k["web_alone"],
+                    "web_with": k["web_with"],
                 }
             )
         kind_rows.sort(key=lambda k: generator_order(k["generator"]))
@@ -859,13 +872,16 @@ def _checks(
         m.get("by_temperature") or {} for m in repeats
     )
 
-    def trick(arm: str) -> tuple[int, int]:
+    def trick(arm: str) -> tuple[int, int, int]:
+        """Graded, made up (anything but abstaining or the web), from the web."""
         graded = [direct.get((model, arm, qa)) for qa in trick_ids]
         graded = [v for v in graded if v in OUTCOMES]
-        return len(graded), sum(1 for v in graded if v != ABSTAIN)
+        web = sum(1 for v in graded if v == WEB_SOURCED)
+        made_up = sum(1 for v in graded if v not in (ABSTAIN, WEB_SOURCED))
+        return len(graded), made_up, web
 
-    trick_asked, trick_answered = trick(WITH)
-    trick_alone_asked, trick_alone_answered = trick(ALONE)
+    trick_asked, trick_answered, trick_web = trick(WITH)
+    trick_alone_asked, trick_alone_answered, trick_alone_web = trick(ALONE)
 
     hits = [retrieval.get((model, qa)) for qa in asked_ids]
     searched = [h for h in hits if h is not None]
@@ -885,6 +901,8 @@ def _checks(
         "trick_answered": trick_answered,
         "trick_alone_asked": trick_alone_asked,
         "trick_alone_answered": trick_alone_answered,
+        "trick_web": trick_web,
+        "trick_alone_web": trick_alone_web,
         "searched": len(searched),
         "search_found": rate(found, len(searched)),
         "missed": len(searched) - found,

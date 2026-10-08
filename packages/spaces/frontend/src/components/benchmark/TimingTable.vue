@@ -1,9 +1,13 @@
 <script setup lang="ts">
-/** Where one job's time went: phases, evaluation passes, call latency. Hidden without data. */
+/**
+ * Where one job's time went (phases, evaluation passes, call latency), and its text
+ * similarity averages per model and condition. Each part hidden without data.
+ */
 import { computed, ref, watch } from 'vue'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
-import type { BenchmarkRunTiming } from '@/api/types'
+import type { BenchmarkRunTiming, BenchmarkTextMetricsRow } from '@/api/types'
 import { armTileWords, blockBrief, shortModel } from './labels'
+import { TEXT_METRIC_LABEL, metricCell, metricColumns } from './textMetrics'
 import { duration, hasTiming, phaseLabel, roleLabel, runSpan } from './timing'
 
 const props = defineProps<{ slug: string; job: string; refreshKey?: number }>()
@@ -11,15 +15,18 @@ const props = defineProps<{ slug: string; job: string; refreshKey?: number }>()
 const timing = ref<BenchmarkRunTiming | null>(null)
 // From the run's own timestamps, for runs recorded without timing.
 const spanS = ref<number | null>(null)
+const metrics = ref<BenchmarkTextMetricsRow[]>([])
 
 async function load(): Promise<void> {
   try {
     const report = await benchmarksApi.getRunReport(props.slug, props.job)
     timing.value = hasTiming(report.timing) ? report.timing : null
     spanS.value = runSpan(report.run?.created_at, report.run?.finished_at)
+    metrics.value = report.text_metrics ?? []
   } catch {
     timing.value = null
     spanS.value = null
+    metrics.value = []
   }
 }
 
@@ -31,6 +38,10 @@ const limits = computed(() => {
   const c = timing.value?.concurrency
   return c ? `Model requests at once: ${c.model}; endpoint: ${c.endpoint}.` : undefined
 })
+
+const metricKeys = computed(() => metricColumns(metrics.value))
+
+const ARM_OF: Record<string, string> = { alone: 'closed_book', with: 'model_with_context' }
 
 const TH = 'px-3 py-2 font-medium'
 const TD = 'px-3 py-1.5 text-right tabular-nums'
@@ -133,5 +144,46 @@ const TD = 'px-3 py-1.5 text-right tabular-nums'
         </table>
       </div>
     </div>
+  </div>
+  <div
+    v-if="metrics.length && metricKeys.length"
+    class="overflow-x-auto rounded-lg border border-border bg-card xl:max-w-[50%]"
+    data-testid="text-metrics"
+  >
+    <table class="w-full min-w-[28rem] text-sm">
+      <thead class="bg-muted/40 text-xs text-muted-foreground">
+        <tr class="border-b border-border">
+          <th scope="col" :class="TH" class="text-left">Model</th>
+          <th
+            scope="col"
+            :class="TH"
+            class="text-right"
+            title="Answers with scores; averages over these."
+          >
+            Answers
+          </th>
+          <th v-for="key in metricKeys" :key="key" scope="col" :class="TH" class="text-right">
+            {{ TEXT_METRIC_LABEL[key] ?? key }}
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          v-for="row in metrics"
+          :key="`${row.model}:${row.arm}`"
+          class="border-b border-border last:border-b-0"
+          data-testid="text-metrics-row"
+        >
+          <td class="px-3 py-1.5" :title="row.model">
+            {{ shortModel(row.model) }}
+            <span class="text-muted-foreground"
+              >· {{ armTileWords(ARM_OF[row.arm] ?? row.arm) }}</span
+            >
+          </td>
+          <td :class="TD">{{ row.counted }}</td>
+          <td v-for="key in metricKeys" :key="key" :class="TD">{{ metricCell(row, key) }}</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </template>

@@ -156,6 +156,8 @@ class GeneratorSlice:
     abstain: int
     hallucinate: int
     failed: int
+    # Control answers its web search supports: graded, not a hallucination.
+    web_sourced: int = 0
 
     @property
     def accuracy(self) -> float:
@@ -233,7 +235,8 @@ def by_generator(
     for row in rows:
         key = str(generators.get(row.qa_id) or "—")
         counts = tally.setdefault(
-            key, {"correct": 0, "abstain": 0, "hallucinate": 0, "failed": 0}
+            key,
+            {"correct": 0, "abstain": 0, "hallucinate": 0, "web": 0, "failed": 0},
         )
         # Out of the denominator, by the same mark as in the summary.
         if is_technical(row.verdict, row.answer):
@@ -244,15 +247,21 @@ def by_generator(
             counts["abstain"] += 1
         elif row.verdict == Verdict.HALLUCINATE.value:
             counts["hallucinate"] += 1
+        elif row.verdict == Verdict.WEB_SOURCED.value:
+            counts["web"] += 1
 
     slices = [
         GeneratorSlice(
             generator=key,
-            graded=counts["correct"] + counts["abstain"] + counts["hallucinate"],
+            graded=counts["correct"]
+            + counts["abstain"]
+            + counts["hallucinate"]
+            + counts["web"],
             correct=counts["correct"],
             abstain=counts["abstain"],
             hallucinate=counts["hallucinate"],
             failed=counts["failed"],
+            web_sourced=counts["web"],
         )
         for key, counts in tally.items()
     ]

@@ -1,3 +1,4 @@
+import type { BenchmarkBehavior } from '@/api/types'
 import { generatorWords, shortModel } from '../labels'
 import type { Group } from './types'
 
@@ -40,6 +41,7 @@ export const VERDICT_LABEL: Record<string, string> = {
   correct: 'Right',
   abstain: 'Didn’t know',
   hallucinate: 'Hallucinated',
+  web_sourced: 'From the web',
   pending: 'Not graded yet',
   technical: 'Not measured',
 }
@@ -48,15 +50,67 @@ export function verdictLabel(verdict: string): string {
   return VERDICT_LABEL[verdict] ?? verdict
 }
 
-const VERDICT_TONE: Record<string, string> = {
-  correct: 'border-transparent bg-primary/10 text-primary',
-  abstain: 'border-transparent bg-muted text-muted-foreground',
-  hallucinate: 'border-transparent bg-warning/20 text-foreground',
+export const WEB_SOURCED_TIP = 'Stated facts its web search supports.'
+
+/** Tooltip of a verdict pill; empty when it needs none. */
+export function verdictTip(verdict: string | null | undefined): string {
+  return verdict === 'web_sourced' ? WEB_SOURCED_TIP : ''
+}
+
+/** Pill colours without the border reset, shared by every verdict pill. */
+export const VERDICT_COLORS: Record<string, string> = {
+  correct: 'bg-primary/10 text-primary',
+  abstain: 'bg-muted text-muted-foreground',
+  hallucinate: 'bg-warning/20 text-foreground',
+  web_sourced: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
 }
 
 /** Badge classes for a verdict pill. */
 export function verdictTone(verdict: string): string {
-  return VERDICT_TONE[verdict] ?? 'border-transparent bg-muted text-muted-foreground'
+  return `border-transparent ${VERDICT_COLORS[verdict] ?? 'bg-muted text-muted-foreground'}`
+}
+
+/** Control questions: graded on how the model behaves, not on a right answer. */
+export const CONTROL_KINDS = new Set(['unanswerable_property', 'false_premise'])
+
+export type Behavior = BenchmarkBehavior
+
+const BEHAVIOR_OF: Record<string, Behavior> = {
+  abstain: 'declined',
+  correct: 'corrected',
+  web_sourced: 'web_sourced',
+  hallucinate: 'made_up',
+}
+
+/**
+ * The fine outcome of a control answer: the one the API gives, else derived from the
+ * verdict (older rows, overrides). Null for other kinds and non-outcomes.
+ */
+export function behaviorOf(
+  generator: string | null | undefined,
+  verdict: string | null | undefined,
+  given?: string | null,
+): Behavior | null {
+  if (!generator || !CONTROL_KINDS.has(generator)) return null
+  if (given && given in BEHAVIOR_LABEL) return given as Behavior
+  return verdict ? (BEHAVIOR_OF[verdict] ?? null) : null
+}
+
+export const BEHAVIOR_LABEL: Record<Behavior, string> = {
+  declined: 'Declined',
+  corrected: 'Corrected',
+  web_sourced: 'From the web',
+  made_up: 'Made up',
+}
+
+/** A verdict in words: the fine outcome on a control question, else the verdict. */
+export function outcomeLabel(
+  generator: string | null | undefined,
+  verdict: string,
+  given?: string | null,
+): string {
+  const behavior = behaviorOf(generator, verdict, given)
+  return behavior ? BEHAVIOR_LABEL[behavior] : verdictLabel(verdict)
 }
 
 export const GROUP_LABEL: Record<Group, string> = {

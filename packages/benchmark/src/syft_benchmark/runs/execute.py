@@ -80,9 +80,11 @@ from syft_benchmark.runs.judge import (
     ERROR_PREFIX,
     Grade,
     check_grounded,
+    control_case,
     grade,
-    grade_behavior,
+    grade_control,
     grade_key_facts,
+    is_control,
     is_error,
 )
 from syft_benchmark.runs.parallel import Launch, Pool, Progress, RunCache
@@ -152,6 +154,8 @@ class RunReport:
     abstain: int = 0
     hallucinate: int = 0
     failed: int = 0
+    # Control answers its web search supports: graded, not a hallucination.
+    web_sourced: int = 0
     # How many verdicts were taken from a previous attempt rather than obtained now.
     # Without this number a resumed run would look like a run over three questions:
     # "asked 3" on a set of fifty is not a report but a riddle.
@@ -175,7 +179,7 @@ class RunReport:
     @property
     def graded(self) -> int:
         """The assessed answers — the denominator of every share."""
-        return self.correct + self.abstain + self.hallucinate
+        return self.correct + self.abstain + self.hallucinate + self.web_sourced
 
 
 @dataclass(frozen=True, slots=True)
@@ -915,19 +919,33 @@ class _Pass:
         return self.mode in MODEL_ARMS
 
 
+def answer_citations(usage: dict[str, Any]) -> list[dict[str, Any]]:
+    """The web sources an answer cited; empty — it did not search."""
+    if not usage.get("web_search"):
+        return []
+    return [c for c in usage.get("citations") or [] if isinstance(c, dict)]
+
+
 async def _verdict_for(pair: QaPair, asked: Asked, seat: Provider, ctx: _Pass) -> Grade:
     """Assess one answer with one judge.
 
     The judging method is set by the generator: options are matched by letter,
-    explanations by a list of facts, control questions are judged by behaviour and
-    the model is not called at all, everything else goes to the judge.
+    explanations by a list of facts, control questions by their behaviour,
+    everything else against the gold answer.
     """
     grading = str((pair.meta or {}).get("grading") or "judge")
-    if grading == "behavior":
-        # A control question: no correct answer exists, there is nothing to judge —
-        # behaviour is measured, and no model is needed for that. There is nothing to
-        # defer here: the judge was not called anyway.
-        return grade_behavior(asked.answer)
+    if is_control(pair.generator, pair.meta):
+        # A control question: the judge reads the behaviour, seeing what the
+        # answer cited when it searched the web.
+        return await ctx.pool.to_model(
+            _timed_judge(ctx, seat, grade_control),
+            control_case(pair.generator, pair.question, pair.answer, pair.meta),
+            asked.answer,
+            citations=answer_citations(asked.usage),
+            settings=ctx.settings,
+            judge=seat,
+            defer=ctx.defer,
+        )
     if grading == "key_facts":
         facts = [str(f) for f in (pair.meta or {}).get("key_facts", [])]
         return await ctx.pool.to_model(
@@ -1059,6 +1077,8 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
 
     # --- the blocks on top of the direct test ------------------------------
     extra: dict[str, Any] = {}
+    if verdict.behavior:
+        extra["behavior"] = verdict.behavior
 
     if verdict.verdict is Verdict.PENDING:
         # There is an answer, there is no verdict. The blocks and the grounding are
@@ -1186,6 +1206,8 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
         entry.correct += 1
     elif verdict.verdict is Verdict.ABSTAIN:
         entry.abstain += 1
+    elif verdict.verdict is Verdict.WEB_SOURCED:
+        entry.web_sourced += 1
     else:
         entry.hallucinate += 1
 

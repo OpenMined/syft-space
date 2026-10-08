@@ -48,8 +48,6 @@ const props = defineProps<{
   marketplaces?: RunMarketplace[]
   busy?: boolean
   working?: boolean
-  /** The generators the benchmark knows, in its own order — sets group order. */
-  generators?: string[]
 }>()
 
 const emit = defineEmits<{ back: []; publish: []; retract: [] }>()
@@ -148,7 +146,7 @@ const TAB =
            leave the owner unable to put it back. -->
       <TabsContent value="generate" class="pt-4 mt-0 space-y-3">
         <KindTable :slug="slug" :job="job" :refresh-key="refreshKey" />
-        <PairList :slug="slug" :job="job" :refresh-key="refreshKey" :generators="generators" />
+        <PairList :slug="slug" :job="job" :refresh-key="refreshKey" />
       </TabsContent>
 
       <TabsContent value="filter" class="pt-4 mt-0">
@@ -158,7 +156,7 @@ const TAB =
       <!-- One tab, because an answer and the verdicts on it are one fact:
            split in two, each tab showed the same rows and said half of it. -->
       <TabsContent value="execute" class="pt-4 mt-0">
-        <AnswerList :slug="slug" :job="job" :refresh-key="refreshKey" :generators="generators" />
+        <AnswerList :slug="slug" :job="job" :refresh-key="refreshKey" />
       </TabsContent>
     </Tabs>
   </div>

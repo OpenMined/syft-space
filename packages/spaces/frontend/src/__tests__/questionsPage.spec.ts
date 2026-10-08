@@ -156,14 +156,14 @@ describe('QuestionsPage', () => {
     expect(wrapper.get('[data-testid="group-still"]').attributes('aria-pressed')).toBe('true')
   })
 
-  it('lists kinds in registry order without trick questions and filters by kind', async () => {
+  it('lists kinds in the canonical order without trick questions and filters by kind', async () => {
     const { wrapper, report } = await mountPage()
     await wrapper.get('[data-testid="kind-select"]').trigger('keydown', { key: 'ArrowDown' })
     await flushPromises()
     const options = [...document.body.querySelectorAll('[role="option"]')].map((o) =>
       squash(o.textContent ?? ''),
     )
-    expect(options).toEqual(['All kinds', 'Dates', 'Names', 'Multiple choice'])
+    expect(options).toEqual(['All kinds', 'Names', 'Dates', 'Multiple choice'])
 
     wrapper.findComponent(Select).vm.$emit('update:modelValue', 'mcq')
     await flushPromises()

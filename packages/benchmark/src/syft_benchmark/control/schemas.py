@@ -36,7 +36,7 @@ import string
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from syft_benchmark.config import (
     ContextMode,
@@ -745,6 +745,16 @@ class ResultResponse(BaseModel):
     web_search_unused: bool = Field(
         default=False, description="Search was offered and nothing was cited"
     )
+    behavior: str | None = Field(
+        default=None,
+        description="A control question's outcome: declined, corrected, "
+        "web_sourced or made_up; null elsewhere and on rows graded before it",
+    )
+    text_metrics: dict[str, float] | None = Field(
+        default=None,
+        description="BLEU / ROUGE / BERTScore against the gold answer, 0..1; "
+        "null where not computed",
+    )
 
     # Only with `prompts=true`; null everywhere else, and with `audit_log` off.
     prompts: ResultPrompts | None = None
@@ -846,6 +856,19 @@ class JobView(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    # The evaluation plan behind step_total (report API, "Progress plan"):
+    # from the job's params, null until evaluation starts.
+    progress_plan: dict[str, Any] | None = Field(
+        default=None, validation_alias=AliasChoices("progress_plan", "params")
+    )
+
+    @field_validator("progress_plan", mode="before")
+    @classmethod
+    def _plan_of(cls, value: Any) -> Any:
+        # A Job hands in its whole params; the plan is one key of them.
+        if isinstance(value, dict) and "steps" not in value:
+            return value.get("progress_plan")
+        return value
 
     @property
     def share(self) -> float | None:

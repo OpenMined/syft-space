@@ -87,10 +87,10 @@
             >
           </span>
           <span class="w-[110px] shrink-0" data-testid="verdict-closed">
-            <VerdictPill :verdict="q.verdict_alone" />
+            <VerdictPill :verdict="q.verdict_alone" :generator="q.generator" />
           </span>
           <span class="w-[110px] shrink-0" data-testid="verdict-ctx">
-            <VerdictPill :verdict="q.verdict_with" />
+            <VerdictPill :verdict="q.verdict_with" :generator="q.generator" />
           </span>
           <ChevronDown
             class="size-[18px] shrink-0 text-muted-foreground transition-transform"
@@ -210,7 +210,11 @@
                 :data-testid="`judge-${arm}`"
               >
                 <template v-if="judge[ARM_KEY[arm]]">
-                  <VerdictPill :verdict="judge[ARM_KEY[arm]]" />
+                  <VerdictPill
+                    :verdict="judge[ARM_KEY[arm]]"
+                    :generator="q.generator"
+                    :behavior="judgeBehavior(judge, arm)"
+                  />
                   <span v-if="judgeReasoning(judge, arm)">{{ judgeReasoning(judge, arm) }}</span>
                 </template>
                 <template v-else>{{ DASH }}</template>
@@ -357,8 +361,17 @@ import { apiErrorDetail } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 import { useReport, useRun } from './context'
 import { DASH } from './figures'
-import { GROUP_LABEL, KIND_LABEL, kindLabel, modelName, verdictLabel } from './labels'
+import {
+  GROUP_LABEL,
+  KIND_LABEL,
+  VERDICT_COLORS,
+  kindLabel,
+  modelName,
+  outcomeLabel,
+  verdictTip,
+} from './labels'
 import { heldOf, isTrick } from './selectors'
+import { sortKinds, sortQuestions } from '../questionOrder'
 import { ARM_KEY, type Arm, type Group } from './types'
 
 const PAGE_SIZE = 25
@@ -370,14 +383,13 @@ const ARMS: Arm[] = ['closed', 'ctx']
 const GRID_ROW =
   'grid grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-border/60 px-3 py-2.5 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)]'
 
-const VERDICT_CLASS: Record<string, string> = {
-  correct: 'bg-primary/10 text-primary',
-  abstain: 'bg-muted text-muted-foreground',
-  hallucinate: 'bg-warning/20 text-foreground',
-}
-
 const VerdictPill = defineComponent({
-  props: { verdict: { type: String as PropType<string | null>, default: null } },
+  props: {
+    verdict: { type: String as PropType<string | null>, default: null },
+    /** Control kinds show the fine outcome. */
+    generator: { type: String as PropType<string | null>, default: null },
+    behavior: { type: String as PropType<string | null>, default: null },
+  },
   setup(props) {
     return () =>
       props.verdict
@@ -386,11 +398,12 @@ const VerdictPill = defineComponent({
             {
               class: cn(
                 'inline-block rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap',
-                VERDICT_CLASS[props.verdict] ?? 'bg-muted text-muted-foreground',
+                VERDICT_COLORS[props.verdict] ?? 'bg-muted text-muted-foreground',
               ),
+              title: verdictTip(props.verdict) || undefined,
               'data-verdict': props.verdict,
             },
-            verdictLabel(props.verdict),
+            outcomeLabel(props.generator, props.verdict, props.behavior),
           )
         : h('span', { class: 'text-muted-foreground' }, DASH)
   },
@@ -478,10 +491,10 @@ const subtitle = computed(() => {
   return parts.filter(Boolean).join(' · ')
 })
 
-/** Generator registry order, as the run recorded it. */
+/** The run's kinds in the canonical order. */
 const kinds = computed(() => {
   const recorded = run.data.value?.method.kinds ?? []
-  return (recorded.length ? recorded : Object.keys(KIND_LABEL)).filter((k) => !isTrick(k))
+  return sortKinds(recorded.length ? recorded : Object.keys(KIND_LABEL)).filter((k) => !isTrick(k))
 })
 
 const chips = computed(() => {
@@ -497,7 +510,10 @@ const chips = computed(() => {
   ]
 })
 
-const rows = computed(() => pageData.value?.items ?? [])
+/** The server's order, kept; kinds never mixed within a page. */
+const rows = computed(() =>
+  sortQuestions(pageData.value?.items ?? [], (q) => ({ generator: q.generator })),
+)
 const total = computed(() => pageData.value?.total ?? 0)
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 const range = computed(() => {
@@ -568,6 +584,10 @@ const judges = computed<BenchmarkQuestionJudge[]>(() =>
 
 function judgeReasoning(judge: BenchmarkQuestionJudge, arm: Arm): string | null {
   return (arm === 'closed' ? judge.alone_reasoning : judge.with_reasoning) || null
+}
+
+function judgeBehavior(judge: BenchmarkQuestionJudge, arm: Arm): string | null {
+  return (arm === 'closed' ? judge.alone_behavior : judge.with_behavior) ?? null
 }
 
 function armOf(d: BenchmarkQuestionDetail, arm: Arm) {

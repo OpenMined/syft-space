@@ -670,6 +670,28 @@ async def test_a_benchmark_that_is_down_does_not_erase_the_last_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_job_carries_its_progress_plan() -> None:
+    plan = {"questions": 30, "models": ["a/m"], "passes": 2, "steps": 60}
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id,
+        endpoint_id=ENDPOINT_ID,
+        connection_id=row.id,
+        last_job={
+            "id": "live",
+            "state": "running",
+            "phase": "evaluate",
+            "progress_plan": plan,
+        },
+    )
+    handler, _ = _handler(
+        client=_Client(reachable=False), connections=[row], target=target
+    )
+    [job] = await handler.list_jobs(TENANT, "support-kb")
+    assert job.model_dump(mode="json")["progress_plan"] == plan
+
+
+@pytest.mark.asyncio
 async def test_a_run_the_benchmark_has_forgotten_leaves_the_page_too() -> None:
     """An explicit "no jobs" is an answer, not silence.
 

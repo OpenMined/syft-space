@@ -13,6 +13,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
+import { sortQuestions } from './questionOrder'
 import { apiErrorDetail } from '@/lib/errors'
 import { generatorWords } from './labels'
 import PairRow from './PairRow.vue'
@@ -22,8 +23,6 @@ const props = defineProps<{
   slug: string
   status?: BenchmarkPairStatus
   refreshKey: number
-  /** The known generators, in the benchmark's own order — sets group order. */
-  generators?: string[]
   /** One launch's questions; empty — everything this endpoint has. */
   job?: string
 }>()
@@ -102,15 +101,17 @@ async function remove(pair: BenchmarkPair): Promise<void> {
 
 const groups = computed(() => {
   const byGenerator = new Map<string, BenchmarkPair[]>()
-  for (const pair of items.value) {
+  const ordered = sortQuestions(items.value, (pair) => ({
+    generator: pair.generator,
+    createdAt: pair.created_at,
+    id: pair.id,
+  }))
+  for (const pair of ordered) {
     const list = byGenerator.get(pair.generator)
     if (list) list.push(pair)
     else byGenerator.set(pair.generator, [pair])
   }
-  const order = props.generators ?? []
-  const known = order.filter((key) => byGenerator.has(key))
-  const unknown = [...byGenerator.keys()].filter((key) => !order.includes(key)).sort()
-  return [...known, ...unknown].map((generator) => ({
+  return [...byGenerator.keys()].map((generator) => ({
     generator,
     pairs: byGenerator.get(generator)!,
   }))

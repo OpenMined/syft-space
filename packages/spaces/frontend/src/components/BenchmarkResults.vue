@@ -49,15 +49,6 @@ const loading = ref(true)
 const quality = ref<EndpointQualityResponse | null>(null)
 const history = ref<QualityCardSummary[]>([])
 const marketplaces = ref<MarketplaceListItem[]>([])
-/**
- * The generators the benchmark knows, in its own order.
- *
- * Only the run's own page needs them, to group its questions the way the
- * console does. Asked for with everything else rather than when a run is
- * opened: it is one small request, and a tab that fills in a beat after it is
- * opened reads as a glitch.
- */
-const generators = ref<string[]>([])
 const mode = ref<BenchmarksMode>('off')
 /** Jobs that wrote or filtered questions but asked no model. */
 const buildOnly = ref<BenchmarkRunSummary[]>([])
@@ -201,19 +192,17 @@ function closeDetail(): void {
 async function load(): Promise<void> {
   loading.value = true
   try {
-    const [card, benchmarks, past, places, target, jobs] = await Promise.all([
+    const [card, benchmarks, past, places, jobs] = await Promise.all([
       endpointsApi.getQuality(props.slug),
       settingsApi.getBenchmarksMode().catch(() => ({ mode: 'off' as BenchmarksMode })),
       endpointsApi.getQualityHistory(props.slug).catch(() => ({ cards: [] })),
       marketplacesApi.list().catch(() => []),
-      benchmarksApi.getTarget(props.slug).catch(() => null),
       benchmarksApi.listReportRuns(props.slug, { limit: 100 }).catch(() => null),
     ])
     quality.value = card
     mode.value = benchmarks.mode
     history.value = past.cards
     marketplaces.value = places
-    generators.value = target?.capabilities?.generators ?? []
     buildOnly.value = (jobs?.items ?? []).filter((run) => run.build_only)
     // Inside the load, not after it: drawn before this arrives, the list is
     // one run short, the stored card stands at the top and opens as the newest
@@ -318,7 +307,6 @@ watch(() => props.slug, load)
   <RunDetail
     v-else-if="opened"
     :slug="slug"
-    :generators="generators"
     :card="opened.card"
     :job-id="opened.jobId"
     :measured="opened.measured"

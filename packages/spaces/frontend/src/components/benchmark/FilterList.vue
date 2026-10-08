@@ -19,6 +19,7 @@ import {
 } from './filter'
 import { generatorWords } from './labels'
 import { modelName } from './report/labels'
+import { sortQuestions } from './questionOrder'
 
 const props = defineProps<{ slug: string; job: string; refreshKey?: number }>()
 
@@ -48,7 +49,11 @@ async function load(): Promise<void> {
       all.push(...page.items)
       offset += PAGE
     }
-    items.value = all
+    items.value = sortQuestions(all, (d) => ({
+      generator: d.generator,
+      createdAt: d.written_at,
+      id: d.qa_id,
+    }))
     total.value = first.total
     counts.value = first.counts ?? {}
     truncated.value = first.total > all.length

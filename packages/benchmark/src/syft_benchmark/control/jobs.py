@@ -73,6 +73,9 @@ NOTHING_GRADED = "nothing_graded"
 NO_QUESTIONS = "no_questions"
 NOTHING_GENERATED = "nothing_generated"
 
+# The job's evaluation plan in its params (report API, "Progress plan").
+PROGRESS_PLAN = "progress_plan"
+
 # How much of a failed call goes into the job's row beside the code. A
 # provider's refusal says why in its first line; what follows is the request
 # echoed back, and the row is read in a UI, not in a log.
@@ -121,6 +124,10 @@ class Reporter:
         # Questions done / planned per pass; the passes run at the same time,
         # and the job row shows their sum.
         self._steps: dict[str, tuple[int, int]] = {}
+        # Questions per pass from the plan; None — no plan, the total is the
+        # sum of what the passes have reported (a judge job).
+        self._per_pass: int | None = None
+        self._finished: set[str] = set()
         # Where the time went, kept with the job when it ends.
         self.clock = JobClock()
         self.pass_times: list[PassTime] = []
@@ -136,6 +143,16 @@ class Reporter:
         self.clock.enter(phase.value)
         self._write(phase=phase, message=message, force=True)
 
+    def plan(self, plan: dict[str, Any]) -> None:
+        """Fix the step total for the whole evaluation and keep the plan."""
+        self._per_pass = int(plan["questions"])
+        self.step_total = int(plan["steps"])
+        with session_scope(self.settings) as session:
+            job = session.get(Job, self.job_id)
+            if job is not None:
+                job.params = {**(job.params or {}), PROGRESS_PLAN: plan}
+        self._write(force=True)
+
     def pass_started(self, index: int, arm: str, block: str, model: str) -> None:
         # The pass that started last; the step counts span every pass.
         self.arm, self.block, self.model = arm, block, model
@@ -145,18 +162,36 @@ class Reporter:
         # Passes end in any order: this counts them.
         self.passes += 1
         self.current = ""
+        # Ended early or not, the pass is all its share of the plan now.
+        self._finished.add(label)
+        self._sum_steps()
         self._write(force=True)
 
     def watcher(self, label: str) -> Callable[[Progress], None]:
         def tick(progress: Progress) -> None:
             self._steps[label] = (progress.done, progress.total)
-            self.step_done = sum(done for done, _ in self._steps.values())
-            self.step_total = sum(total for _, total in self._steps.values())
+            self._sum_steps()
             self._write()
             if self.cancelled:
                 progress.stop("stopped by the owner")
 
         return tick
+
+    def _sum_steps(self) -> None:
+        """step_done/step_total over every pass; with a plan, never backwards."""
+        if self._per_pass is None:
+            self.step_done = sum(done for done, _ in self._steps.values())
+            self.step_total = sum(total for _, total in self._steps.values())
+            return
+        share = self._per_pass
+        # A pass asks fewer than planned when it resumes: those count as done.
+        counted = sum(
+            min(share, done + max(0, share - total))
+            for label, (done, total) in self._steps.items()
+            if label not in self._finished
+        )
+        counted += share * len(self._finished)
+        self.step_done = max(self.step_done, min(self.step_total, counted))
 
     def timing(self) -> dict[str, Any]:
         """The job's ``timing`` (report API, "Timing")."""
@@ -348,7 +383,7 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
             params = {
                 k: v
                 for k, v in (job.params or {}).items()
-                if k not in run_view.SNAPSHOT_KEYS
+                if k not in run_view.SNAPSHOT_KEYS and k != PROGRESS_PLAN
             }
             job.state = JobState.RUNNING.value
             job.started_at = datetime.now(UTC)

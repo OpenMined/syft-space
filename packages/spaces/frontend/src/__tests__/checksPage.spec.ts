@@ -133,6 +133,21 @@ describe('ChecksPage', () => {
     expect(reading(wrapper, 'trick')).toBe('Hallucinated an answer to 1 of 4.')
   })
 
+  it('marks trick questions answered from the web apart from made-up ones', () => {
+    const wrapper = mountPage(report({ trick_asked: 4, trick_answered: 1, trick_web: 2 }))
+    const squares = wrapper.findAll('[data-testid="check-square"]')
+    expect(squares.map((s) => s.attributes('data-outcome'))).toEqual([
+      'made_up',
+      'web_sourced',
+      'web_sourced',
+      'declined',
+    ])
+    expect(squares[1]!.attributes('title')).toBe('From the web')
+    expect(reading(wrapper, 'trick')).toBe(
+      'Hallucinated an answer to 1 of 4. Answered 2 from the web.',
+    )
+  })
+
   it('shows dashes and no bars for unmeasured checks, never NaN', () => {
     const base = runReport()
     const wrapper = mountPage(

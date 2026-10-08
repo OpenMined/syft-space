@@ -44,10 +44,15 @@ from syft_benchmark.config import (
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.db.run_cache import invalidate_run, invalidate_runs
 from syft_benchmark.llm import Provider, judge_providers
+from syft_benchmark.question_order import answer_order, pair_order
 from syft_benchmark.runs.judge import (
+    ControlCase,
+    Grade,
+    control_case,
     grade,
-    grade_behavior,
+    grade_control,
     grade_key_facts,
+    is_control,
     is_technical,
 )
 from syft_benchmark.runs.parallel import Progress
@@ -67,12 +72,14 @@ class JudgeSummary:
     abstain: int = 0
     hallucinate: int = 0
     failed: int = 0
+    web_sourced: int = 0
     notes: list[str] = field(default_factory=list)
 
     def line(self) -> str:
+        web = f", {self.web_sourced} from the web" if self.web_sourced else ""
         return (
             f"checked {self.checked} — {self.correct} correct, "
-            f"{self.abstain} abstained, {self.hallucinate} hallucinated, "
+            f"{self.abstain} abstained, {self.hallucinate} hallucinated{web}, "
             f"{self.failed} failed"
         )
 
@@ -89,6 +96,8 @@ class _Task:
     grading: str
     key_facts: list[str]
     is_mcq: bool
+    # A control question's brief for the behaviour judge; None — not one.
+    control: ControlCase | None
     run_row: dict[str, Any]
     result_row: dict[str, Any]
 
@@ -187,6 +196,11 @@ def _pending_tasks(
                     grading=str(meta.get("grading") or "judge"),
                     key_facts=[str(f) for f in meta.get("key_facts", [])],
                     is_mcq=pair.task_type == "choice",
+                    control=(
+                        control_case(pair.generator, pair.question, pair.answer, meta)
+                        if is_control(pair.generator, meta)
+                        else None
+                    ),
                     run_row={
                         column.name: getattr(run, column.name)
                         for column in Run.__table__.columns
@@ -249,10 +263,14 @@ def judge_pending(
                 report.notes.append("judging was stopped at the owner's request")
                 break
 
-            if task.grading == "behavior":
-                # A control question: no correct answer exists, and behaviour is
-                # read off the text alone — no model is called for it.
-                verdict = grade_behavior(task.answer)
+            if task.control is not None:
+                verdict = grade_control(
+                    task.control,
+                    task.answer,
+                    citations=_citations_of(task.result_row["audit"]),
+                    settings=conf,
+                    judge=seat,
+                )
             elif task.grading == "key_facts":
                 verdict = grade_key_facts(
                     task.answer, task.key_facts, settings=conf, judge=seat
@@ -303,6 +321,9 @@ def judge_pending(
                 audit["judge_system"] = verdict.judge_system
             if verdict.judge_user:
                 audit["judge_user"] = verdict.judge_user
+                # The key the transcript reads.
+                audit["judge_prompt"] = verdict.judge_user
+                audit.pop("judged_without_model", None)
             if verdict.judge_raw:
                 audit["judge_raw"] = verdict.judge_raw
 
@@ -328,7 +349,7 @@ def judge_pending(
                         retrieval_hit=task.result_row["retrieval_hit"],
                         retrieval_rank=task.result_row["retrieval_rank"],
                         retrieved=task.result_row["retrieved"] or [],
-                        extra=dict(task.result_row["extra"] or {}),
+                        extra=_with_behavior(task.result_row["extra"], verdict),
                         audit=audit,
                         latency_s=0.0,
                         model=str(task.result_row["model"] or ""),
@@ -347,6 +368,8 @@ def judge_pending(
                 report.correct += 1
             elif verdict.verdict is Verdict.ABSTAIN:
                 report.abstain += 1
+            elif verdict.verdict is Verdict.WEB_SOURCED:
+                report.web_sourced += 1
             else:
                 report.hallucinate += 1
             progress.step(failed=verdict.failed)
@@ -357,6 +380,15 @@ def judge_pending(
 
     logger.info(f"{space.key}: judging — {report.line()}")
     return report
+
+
+def _with_behavior(extra: Any, verdict: Grade) -> dict[str, Any]:
+    """The answer's extra, with this verdict's control outcome."""
+    out = dict(extra or {})
+    out.pop("behavior", None)
+    if verdict.behavior:
+        out["behavior"] = verdict.behavior
+    return out
 
 
 # What an owner's own verdict is recorded under, in place of a judge.
@@ -585,6 +617,25 @@ def _denial_of(extra: Any) -> DenialView | None:
     )
 
 
+def behavior_of(extra: Any) -> str | None:
+    """A control answer's ``extra.behavior``; None — not one, or graded before it."""
+    value = extra.get("behavior") if isinstance(extra, dict) else None
+    return str(value) if value else None
+
+
+def _text_metrics_of(extra: Any) -> dict[str, float] | None:
+    """`Result.extra["text_metrics"]`, the numeric scores only; None — absent."""
+    scores = (extra or {}).get("text_metrics") if isinstance(extra, dict) else None
+    if not isinstance(scores, dict):
+        return None
+    numeric = {
+        str(key): float(value)
+        for key, value in scores.items()
+        if isinstance(value, int | float) and not isinstance(value, bool)
+    }
+    return numeric or None
+
+
 def _repeats_of(extra: Any) -> RepeatsView | None:
     """The monte carlo block's outcome out of `Result.extra`, if it ran."""
     block = extra.get("monte_carlo") if isinstance(extra, dict) else None
@@ -774,6 +825,10 @@ class ResultView:
     # whether it was offered search and cited nothing.
     citations: list[dict[str, str]] = field(default_factory=list)
     web_search_unused: bool = False
+    # A control question's outcome (``ControlOutcome``); None elsewhere.
+    behavior: str | None = None
+    # BLEU / ROUGE / BERTScore against the gold answer; None — not computed.
+    text_metrics: dict[str, float] | None = None
 
     # Asked for by name: the trail runs to `audit_max_chars` per field, which
     # over a hundred rows is megabytes. Fetched one question at a time.
@@ -865,6 +920,8 @@ def get_result(
             call=_call_of(result.audit),
             citations=_citations_of(result.audit),
             web_search_unused=_unused_search(result.audit),
+            behavior=behavior_of(result.extra),
+            text_metrics=_text_metrics_of(result.extra),
             context_docs=_params_int(run.params, "context_docs"),
             fragment_max_chars=_params_int(run.params, "fragment_max_chars"),
         )
@@ -881,7 +938,7 @@ def list_results(
     prompts: bool = False,
     settings: Settings | None = None,
 ) -> tuple[list[ResultView], int]:
-    """This target's results, newest first.
+    """This target's results in the question order.
 
     Args:
         target_key: The node under test
@@ -920,9 +977,20 @@ def list_results(
             select(func.count()).select_from(base.subquery())
         ).scalar_one()
 
-        rows = session.execute(
-            base.order_by(Result.created_at.desc()).limit(page).offset(offset)
-        ).all()
+        # The question order (report API, "Question order"); a result whose
+        # pair is gone sorts last.
+        ordered = base.outerjoin(QaPair, QaPair.id == Result.qa_id).order_by(
+            *pair_order(QaPair.generator, QaPair.created_at, Result.qa_id),
+            *answer_order(
+                Run.context_mode,
+                Run.block,
+                Run.model,
+                Result.judge_model,
+                Result.created_at,
+                Result.id,
+            ),
+        )
+        rows = session.execute(ordered.limit(page).offset(offset)).all()
         if not rows:
             return [], total
 
@@ -1011,6 +1079,8 @@ def list_results(
                     call=_call_of(result.audit),
                     citations=_citations_of(result.audit),
                     web_search_unused=_unused_search(result.audit),
+                    behavior=behavior_of(result.extra),
+                    text_metrics=_text_metrics_of(result.extra),
                     context_docs=_params_int(run.params, "context_docs"),
                     fragment_max_chars=_params_int(run.params, "fragment_max_chars"),
                     prompts=_prompts_of(result.audit) if prompts else None,

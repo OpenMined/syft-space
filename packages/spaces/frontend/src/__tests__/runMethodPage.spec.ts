@@ -97,7 +97,7 @@ describe('RunMethodPage', () => {
     )
   })
 
-  it('lists kinds in the server order with the asked counts, trick included', () => {
+  it('lists kinds in the canonical order with the asked counts, trick included', () => {
     const report = full()
     const kind = modelReport(OPUS).kinds[0]!
     report.models = [
@@ -111,8 +111,8 @@ describe('RunMethodPage', () => {
     ]
     const rows = mountPage(report).findAll('[data-testid="kind-row"]')
     expect(rows.map((r) => r.findAll('th, td').map((c) => c.text()))).toEqual([
-      ['Dates', 'Fill in a missing date.', '30'],
       ['Names', 'Fill in a missing name in a sentence from your article.', '12'],
+      ['Dates', 'Fill in a missing date.', '30'],
       ['Multiple choice', 'Pick the right answer from four.', '0'],
       [
         'Trick questions',

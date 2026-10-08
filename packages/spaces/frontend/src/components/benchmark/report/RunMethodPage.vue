@@ -93,7 +93,7 @@
         <h2 class="text-base font-semibold">5. How answers were graded</h2>
         <dl class="overflow-hidden rounded-lg border border-border bg-card">
           <div
-            v-for="g in GRADES"
+            v-for="g in grades"
             :key="g.verdict"
             class="flex items-start gap-4 border-b border-border px-4 py-3 last:border-b-0"
           >
@@ -134,8 +134,9 @@ import { Badge } from '@/components/ui/badge'
 import InfoTip from '../InfoTip.vue'
 import { useRun } from './context'
 import { count, DASH, dayTime } from './figures'
-import { kindDescription, kindLabel, verdictLabel, verdictTone } from './labels'
+import { WEB_SOURCED_TIP, kindDescription, kindLabel, verdictLabel, verdictTone } from './labels'
 import {
+  hasWebSourced,
   kindAsked,
   methodKinds,
   methodSettings,
@@ -148,9 +149,16 @@ const GRADES = [
   { verdict: 'correct', text: 'The answer matches your reporting.' },
   { verdict: 'abstain', text: 'The model said it could not answer.' },
   { verdict: 'hallucinate', text: 'The model gave an answer your reporting does not support.' },
-] as const
+]
+
+/** Shown only when a run has answers its web search supports. */
+const WEB_GRADE = { verdict: 'web_sourced', text: WEB_SOURCED_TIP }
 
 const { data } = useRun()
+
+const grades = computed(() =>
+  data.value && hasWebSourced(data.value) ? [...GRADES, WEB_GRADE] : GRADES,
+)
 
 const day = computed(() => dayTime(utcStamp(data.value?.run.created_at)).split(', ')[0])
 

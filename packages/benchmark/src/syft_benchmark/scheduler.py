@@ -16,9 +16,9 @@ import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from loguru import logger
 
@@ -56,6 +56,7 @@ from syft_benchmark.runs import (
     evaluation_gate,
 )
 from syft_benchmark.runs.blocks import monte_carlo_skip_note, skips_monte_carlo
+from syft_benchmark.runs.execute import _active_pairs
 from syft_benchmark.runs.parallel import Launch, Pool
 from syft_benchmark.runs.timing import CallClock, PassTime
 
@@ -147,6 +148,12 @@ class Observer(Protocol):
 
     def phase(self, phase: JobPhase, message: str = "") -> None:
         """The measurement has moved on to the next part of the work."""
+
+    def plan(self, plan: dict[str, Any]) -> None:
+        """The whole evaluation, pass by pass (report API, "Progress plan").
+
+        Known before the first question; optional, looked up with getattr.
+        """
 
     def pass_started(self, index: int, arm: str, block: str, model: str) -> None:
         """Another run has started, and here is what it is busy with.
@@ -359,14 +366,8 @@ def measure(
         out.failures.append(f"{space.key}: {held}")
         return out
 
-    if observer is not None:
-        # Planned only now: a launch that stops here (evaluate=False) never
-        # asks a question, and a pass count announced for it would draw a bar
-        # that no further write ever moves.
-        observer.planned(_plan(conf, subjects))
-        observer.phase(JobPhase.EVALUATE)
-
     specs: list[tuple[ContextMode, EvalBlock, Provider | None]] = []
+    skipped_mc: list[str] = []
     for block in conf.blocks:
         for mode in conf.arms:
             for subject in subjects if mode in MODEL_ARMS else [None]:
@@ -375,8 +376,34 @@ def measure(
                     note = monte_carlo_skip_note(subject.model)
                     if note not in out.notes:
                         out.notes.append(note)
+                    if subject.model not in skipped_mc:
+                        skipped_mc.append(subject.model)
                     continue
                 specs.append((mode, block, subject))
+
+    if observer is not None:
+        # Planned only now: a launch that stops here (evaluate=False) never
+        # asks a question, and a pass count announced for it would draw a bar
+        # that no further write ever moves.
+        passes = _plan(conf, subjects)
+        observer.planned(passes)
+        notify = getattr(observer, "plan", None)
+        if notify is not None:
+            # Every pass asks the same set, so the whole extent is known now.
+            questions = len(_active_pairs(space.key, limit, conf))
+            notify(
+                {
+                    "questions": questions,
+                    "models": [subject.model for subject in subjects],
+                    "conditions": [mode.value for mode in conf.arms],
+                    "checks": [block.value for block in conf.blocks],
+                    "skipped_monte_carlo": skipped_mc,
+                    "passes": passes,
+                    "steps": passes * questions,
+                    "started_at": datetime.now(UTC).isoformat(),
+                }
+            )
+        observer.phase(JobPhase.EVALUATE)
 
     # Every pass runs at once, under the one model lane and the one endpoint
     # lane: one pass at a time left the lanes idle through each pass's slow

@@ -668,6 +668,11 @@ class CardUnanswerable(BaseModel):
     fabricated: float = Field(
         ..., ge=0.0, le=1.0, description="Share that got an answer anyway"
     )
+    web_sourced: int = Field(
+        default=0,
+        ge=0,
+        description="Answers its web search supports; not counted as fabricated",
+    )
 
 
 class CardModel(BaseModel):

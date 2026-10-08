@@ -87,6 +87,8 @@ def payload_for(card: Card) -> dict[str, Any]:
         body["unanswerable"] = {
             "samples": card.control.graded,
             "fabricated": round(card.control.fabrication_rate, 4),
+            # Answers its web search supports: not counted as fabricated.
+            "web_sourced": card.control.web_sourced,
         }
 
     if card.pressure is not None:

@@ -6,11 +6,17 @@ import type {
   BenchmarkRunSummary,
 } from '@/api/types'
 import { count, DASH, dayTime } from './figures'
-import { KIND_LABEL, modelName } from './labels'
+import { KIND_LABEL, modelName, type Behavior } from './labels'
+import { sortKinds } from '../questionOrder'
 import { TRICK_GENERATOR, type Held, type SettingRow } from './types'
 
 export function isOutcome(verdict: string | null | undefined): boolean {
-  return verdict === 'correct' || verdict === 'abstain' || verdict === 'hallucinate'
+  return (
+    verdict === 'correct' ||
+    verdict === 'abstain' ||
+    verdict === 'hallucinate' ||
+    verdict === 'web_sourced'
+  )
 }
 
 export function isTrick(generator: string | null | undefined): boolean {
@@ -45,6 +51,21 @@ export function progressText(p: BenchmarkRunProgress): string {
 /** step_done / step_total; null while the total is unknown. */
 export function progressShare(p: BenchmarkRunProgress): number | null {
   return p.step_total ? p.step_done / p.step_total : null
+}
+
+/** One square per trick question, made-up answers first, then answers from the web. */
+export function trickSquares(asked: number, madeUp: number, web: number): Behavior[] {
+  return Array.from({ length: asked }, (_, i) =>
+    i < madeUp ? 'made_up' : i < madeUp + web ? 'web_sourced' : 'declined',
+  )
+}
+
+/** The trick check in one or two sentences. */
+export function trickReading(asked: number, madeUp: number, web: number): string {
+  if (!asked) return DASH
+  if (!madeUp && !web) return `Refused all ${asked}. It hallucinated an answer to none of them.`
+  const made = `Hallucinated an answer to ${madeUp} of ${asked}.`
+  return web ? `${made} Answered ${web} from the web.` : made
 }
 
 /** Rounds held before giving up, out of the rounds configured. */
@@ -85,19 +106,30 @@ export function articlesText(report: BenchmarkRunReport): string | null {
   return range ? `Articles ${range}` : null
 }
 
+/** Whether any answer in the run was graded as backed by its web search. */
+export function hasWebSourced(report: BenchmarkRunReport): boolean {
+  return report.models.some(
+    (m) =>
+      (m.tally.alone.web_sourced ?? 0) > 0 ||
+      (m.tally.with.web_sourced ?? 0) > 0 ||
+      (m.checks.trick_web ?? 0) > 0 ||
+      (m.checks.trick_alone_web ?? 0) > 0,
+  )
+}
+
 /** Questions removed by the web check; null until the check reports them. */
 export function webRemoved(report: BenchmarkRunReport): number | null {
   return report.funnel.removed.web_answerable ?? null
 }
 
-/** Kinds in the generator registry's order, trick last unless the server places it. */
+/** The run's kinds, trick questions included, in the canonical order. */
 export function methodKinds(report: BenchmarkRunReport): string[] {
   let kinds = report.method.kinds
   if (!kinds.length) {
     const seen = new Set(report.models.flatMap((m) => m.kinds.map((k) => k.generator)))
     kinds = Object.keys(KIND_LABEL).filter((g) => seen.has(g))
   }
-  return kinds.some(isTrick) ? kinds : [...kinds, TRICK_GENERATOR]
+  return sortKinds(kinds.some(isTrick) ? kinds : [...kinds, TRICK_GENERATOR])
 }
 
 /** Questions of a kind asked to each model; null when no model reports kinds. */

@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import delete
 
+import syft_benchmark.runs.judge as judge
 from syft_benchmark.config import SpaceConfig, Verdict
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.llm import Provider
@@ -420,7 +421,9 @@ def test_overriding_an_unknown_result_returns_none(clean: None) -> None:
 
 
 @needs_db
-def test_judging_a_pending_answer_survives_the_session_closing(clean: None) -> None:
+def test_judging_a_pending_answer_survives_the_session_closing(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Regression, two bugs at once:
 
     `_pending_tasks` used to read `Result`/`Run` columns after the session
@@ -470,6 +473,12 @@ def test_judging_a_pending_answer_survives_the_session_closing(clean: None) -> N
             )
         )
 
+    # A control answer goes to the behaviour judge.
+    monkeypatch.setattr(
+        judge,
+        "chat",
+        lambda *a, **k: ('{"behavior": "declined", "reasoning": "r"}', {}),
+    )
     seat = Provider(role="judge", url="http://judge.invalid", api_key="k", model="t")
     report = judge_pending(
         SpaceConfig(key=SPACE, url="http://space.invalid", endpoint="e"), judge=seat
@@ -485,7 +494,9 @@ def test_judging_a_pending_answer_survives_the_session_closing(clean: None) -> N
 
 
 @needs_db
-def test_judging_reports_progress_as_it_grades(clean: None) -> None:
+def test_judging_reports_progress_as_it_grades(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A live judging run used to report nothing until it finished — a
     console watching it had only a spinner, not a count. `judge_pending`
     now tells `watch` how many of how many are done, the same way an
@@ -528,6 +539,12 @@ def test_judging_reports_progress_as_it_grades(clean: None) -> None:
                 )
             )
 
+    # A control answer goes to the behaviour judge.
+    monkeypatch.setattr(
+        judge,
+        "chat",
+        lambda *a, **k: ('{"behavior": "declined", "reasoning": "r"}', {}),
+    )
     seen: list[tuple[int, int]] = []
     seat = Provider(role="judge", url="http://judge.invalid", api_key="k", model="t")
     report = judge_pending(

@@ -1045,6 +1045,38 @@ export interface BenchmarkJob {
   created_at: string | null
   started_at: string | null
   finished_at: string | null
+  /** Null until the evaluate phase starts. */
+  progress_plan?: BenchmarkProgressPlan | null
+}
+
+/** What the evaluate phase will ask, fixed when it starts. */
+export interface BenchmarkProgressPlan {
+  /** Per pass. */
+  questions: number
+  models: string[]
+  /** Arms in plan order. */
+  conditions: string[]
+  /** Blocks in plan order. */
+  checks: string[]
+  skipped_monte_carlo: string[]
+  passes: number
+  /** == step_total. */
+  steps: number
+  /** ISO UTC, when the evaluate phase started. */
+  started_at: string
+}
+
+/** Text similarity scores, 0..1; only the metrics switched on. */
+export type BenchmarkTextScores = Partial<
+  Record<'bleu' | 'rouge1_f' | 'rouge2_f' | 'rougeL_f' | 'bertscore_f1', number>
+>
+
+/** One model × condition's averages over the direct answers that have scores. */
+export interface BenchmarkTextMetricsRow {
+  model: string
+  arm: 'alone' | 'with'
+  counted: number
+  scores: BenchmarkTextScores
 }
 
 export interface BenchmarkTarget {
@@ -1143,13 +1175,23 @@ export interface BenchmarkRunRequest {
 
 export type BenchmarkPairStatus = 'pending' | 'active' | 'rejected' | 'retired'
 /**
- * The three outcomes, and the two states that are not outcomes.
+ * The outcomes, and the two states that are not outcomes. `web_sourced`: a control
+ * question answered with facts its web search supports; not a hallucination.
  *
  * `pending` — no judge has looked yet. `technical` — nothing was measured:
  * the endpoint unreachable, the provider refusing, the judge silent. Neither
  * enters a share, and neither can be recorded by hand.
  */
-export type BenchmarkVerdict = 'correct' | 'abstain' | 'hallucinate' | 'pending' | 'technical'
+/** Fine outcome of a control answer; null on other kinds, overrides and old rows. */
+export type BenchmarkBehavior = 'declined' | 'corrected' | 'web_sourced' | 'made_up'
+
+export type BenchmarkVerdict =
+  | 'correct'
+  | 'abstain'
+  | 'hallucinate'
+  | 'web_sourced'
+  | 'pending'
+  | 'technical'
 
 export interface BenchmarkPair {
   id: string
@@ -1304,6 +1346,9 @@ export interface BenchmarkResult {
   citations?: BenchmarkCitation[] | null
   /** Asked to search the web and cited nothing. */
   web_search_unused?: boolean | null
+  /** Null: not computed for this answer (not a prose kind, or metrics off). */
+  text_metrics?: BenchmarkTextScores | null
+  behavior?: BenchmarkBehavior | null
 }
 
 export interface BenchmarkResultPage {
@@ -1322,6 +1367,8 @@ export interface BenchmarkReportShare {
 export interface BenchmarkReportControl {
   samples: number
   fabricated: number
+  /** Answered from the web; not in `fabricated`. */
+  web_sourced?: number
 }
 
 export interface BenchmarkReportModelRow {
@@ -1425,6 +1472,7 @@ export interface BenchmarkRunProgress {
   message: string
   created_at: string | null
   started_at: string | null
+  progress_plan?: BenchmarkProgressPlan | null
 }
 
 /** One model's figures in a run. Rates are 0..1; lift is in points, −100..100. */
@@ -1489,6 +1537,8 @@ export interface BenchmarkTally {
   correct: number
   abstain: number
   hallucinate: number
+  /** Included in `graded`. */
+  web_sourced?: number
   pending: number
   technical: number
   graded: number
@@ -1506,6 +1556,8 @@ export interface BenchmarkKindFigures {
   rate_alone: number | null
   rate_with: number | null
   lift: number | null
+  web_alone?: number
+  web_with?: number
 }
 
 export interface BenchmarkRunChecks {
@@ -1522,6 +1574,9 @@ export interface BenchmarkRunChecks {
   /** The trick check for the model on its own; null when not measured. */
   trick_alone_asked: number | null
   trick_alone_answered: number | null
+  /** Trick questions answered from the web; not in `trick_answered`. */
+  trick_web?: number
+  trick_alone_web?: number | null
   searched: number
   search_found: number | null
   missed: number
@@ -1654,6 +1709,8 @@ export interface BenchmarkRunReport {
   method: BenchmarkRunMethod
   /** Null for jobs before timing was kept, and while a job is running. */
   timing?: BenchmarkRunTiming | null
+  /** Sorted by model, alone first; [] when nothing was computed. */
+  text_metrics?: BenchmarkTextMetricsRow[]
 }
 
 export type BenchmarkTimingPhase = 'generate' | 'filter' | 'evaluate' | 'judge' | 'publish'
@@ -1753,6 +1810,8 @@ export interface BenchmarkArmDetail {
   citations?: BenchmarkCitation[] | null
   /** Asked to search the web and cited nothing. */
   web_search_unused?: boolean | null
+  /** The counted fine outcome; null under an override. */
+  behavior?: BenchmarkBehavior | null
 }
 
 export interface BenchmarkQuestionJudge {
@@ -1763,6 +1822,8 @@ export interface BenchmarkQuestionJudge {
   /** Absent from servers that predate per-judge reasoning. */
   alone_reasoning?: string | null
   with_reasoning?: string | null
+  alone_behavior?: BenchmarkBehavior | null
+  with_behavior?: BenchmarkBehavior | null
 }
 
 export interface BenchmarkQuestionExclusion {

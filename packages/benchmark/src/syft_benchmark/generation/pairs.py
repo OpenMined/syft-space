@@ -20,6 +20,7 @@ from sqlalchemy import exists, func, select
 from syft_benchmark.config import Settings, get_settings
 from syft_benchmark.db import QaPair, Result, session_scope
 from syft_benchmark.db.pair_guard import delete_pairs
+from syft_benchmark.question_order import pair_order
 
 # A page any larger stops being something a person reviews and starts being
 # something a person scrolls past.
@@ -82,7 +83,7 @@ def list_pairs(
     offset: int = 0,
     settings: Settings | None = None,
 ) -> tuple[list[PairView], int]:
-    """This target's pairs, newest first, with whether each has results.
+    """This target's pairs in the question order, with whether each has results.
 
     Args:
         target_key: The node under test
@@ -119,7 +120,11 @@ def list_pairs(
 
         rows = list(
             session.execute(
-                base.order_by(QaPair.created_at.desc()).limit(page).offset(offset)
+                base.order_by(
+                    *pair_order(QaPair.generator, QaPair.created_at, QaPair.id)
+                )
+                .limit(page)
+                .offset(offset)
             ).scalars()
         )
         if not rows:

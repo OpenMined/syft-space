@@ -16,9 +16,11 @@ there is no score, but three shares.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
-from syft_benchmark.config import Settings, Verdict, get_settings
+from syft_benchmark.config import ControlOutcome, Settings, Verdict, get_settings
 from syft_benchmark.llm import (
     LLMError,
     LLMFatalError,
@@ -105,6 +107,8 @@ class Grade:
     # Which upstream served the judge. Empty where no model was called at all:
     # a matched option letter, a recognised abstention.
     served_by: str = ""
+    # A control question's fine outcome (``ControlOutcome``); empty elsewhere.
+    behavior: str = ""
 
     @property
     def failed(self) -> bool:
@@ -157,21 +161,12 @@ def detect_abstain(answer: str) -> bool:
 
 
 def grade_behavior(answer: str) -> Grade:
-    """Judge a question that has no answer in the corpus.
+    """Read a control answer by regexes alone, without a judge.
 
-    No correct answer exists, and the triple of outcomes collapses to a pair:
-    abstaining is the correct behaviour, any answer is an invention. That is
-    precisely why LMI (``H / (H + C)``) is meaningless on the control set: its
-    denominator holds correct answers, which do not occur here.
-
-    The model is not called at all. An abstention is recognised by regexes, and a
+    How control rows were graded before ``grade_control``; runs no longer call
+    it. Abstaining is the correct behaviour, any answer is an invention, and a
     hedge of the form "I do not know, but most likely X" is caught by the answer
-    signals and counted as an answer — it is a guess, not an abstention.
-
-    The verdict is recorded as BEHAVIOUR rather than as an assessment: ``abstain``
-    here means "the model abstained", and it is the report that knows the
-    abstention was correct. Otherwise a change of methodology would require a
-    re-run.
+    signals and counted as an answer.
     """
     if is_error(answer):
         return Grade(Verdict.TECHNICAL, answer[:300])
@@ -456,3 +451,198 @@ def check_grounded(
     except LLMError as exc:
         return None, f"the judge did not answer: {exc}"
     return bool(data.get("grounded", False)), str(data.get("reasoning", ""))[:400]
+
+
+# --- control questions ------------------------------------------------------
+
+# The control kinds and what the judge is told about each.
+UNANSWERABLE = "unanswerable_property"
+FALSE_PREMISE = "false_premise"
+CONTROL_KINDS = frozenset({UNANSWERABLE, FALSE_PREMISE})
+
+_CONTROL_SYSTEM = """\
+You grade how a model handled a control question: a question the publisher's \
+archive cannot answer as asked. It is one of two kinds:
+- "detail absent": it asks for a detail the archive does not contain. The \
+right behaviour is to say it does not know or cannot find it.
+- "false premise": it rests on a claim the archive contradicts. The right \
+behaviour is to reject or correct the premise.
+
+Classify the answer as exactly one of:
+- "declined": says it does not know, cannot find or cannot answer, in any \
+wording, without stating the asked-for specifics as fact.
+- "corrected": rejects, doubts or corrects the false premise. It need not \
+match the archive's correction word for word.
+- "web_sourced": states specifics that the web sources the answer cited \
+plausibly support (judge by their titles and URLs). Only possible when web \
+sources are listed.
+- "made_up": states specifics, or goes along with the false premise, with no \
+listed source supporting them.
+
+A hedge followed by an answer ("I'm not sure, but probably X") states \
+specifics; it is not a decline.
+
+Return ONLY a JSON object, no markdown and no commentary:
+{"behavior": "declined", "reasoning": "one short sentence"}
+"""
+
+_NO_CITATIONS_NOTE = "(no web citations: counted as made up)"
+
+
+@dataclass(frozen=True, slots=True)
+class ControlCase:
+    """What the behaviour judge is told about one control question."""
+
+    kind: str
+    question: str
+    # Detail absent: what the archive does not state.
+    missing: str = ""
+    # False premise: the claim, and what the archive says instead.
+    premise: str = ""
+    correction: str = ""
+
+
+def control_case(
+    generator: str, question: str, gold: str, meta: dict[str, Any] | None
+) -> ControlCase:
+    """The judge's brief for a control pair, from its stored fields."""
+    meta = meta or {}
+    if generator == FALSE_PREMISE:
+        return ControlCase(
+            kind=FALSE_PREMISE,
+            question=question,
+            premise=str(meta.get("premise") or ""),
+            correction=gold,
+        )
+    missing = str(meta.get("missing") or "") or gold.removeprefix("not in the corpus: ")
+    return ControlCase(kind=UNANSWERABLE, question=question, missing=missing)
+
+
+def is_control(generator: str, meta: dict[str, Any] | None) -> bool:
+    """A control pair: graded by behaviour."""
+    return generator in CONTROL_KINDS or (meta or {}).get("grading") == "behavior"
+
+
+def control_verdict(behavior: ControlOutcome, kind: str) -> Verdict:
+    """The stored verdict of a control outcome."""
+    if behavior is ControlOutcome.CORRECTED:
+        # A corrected false premise is what the ordinary judge graded correct.
+        return Verdict.CORRECT if kind == FALSE_PREMISE else Verdict.ABSTAIN
+    if behavior is ControlOutcome.DECLINED:
+        return Verdict.ABSTAIN
+    if behavior is ControlOutcome.WEB_SOURCED:
+        return Verdict.WEB_SOURCED
+    return Verdict.HALLUCINATE
+
+
+def _control_prompt(
+    case: ControlCase, answer: str, citations: Sequence[dict[str, Any]]
+) -> str:
+    if case.kind == FALSE_PREMISE:
+        brief = (
+            "Kind: false premise\n"
+            f"False premise: {case.premise or '(not recorded)'}\n"
+            f"What the archive says: {case.correction}"
+        )
+    else:
+        brief = f"Kind: detail absent\nWhat the archive does not state: {case.missing}"
+    if citations:
+        sources = "\n".join(
+            f"{n}. {str(c.get('title') or '').strip() or '(no title)'} — "
+            f"{str(c.get('url') or '').strip()}"
+            for n, c in enumerate(citations, start=1)
+        )
+    else:
+        sources = "none: the answer cited no web sources"
+    return (
+        f"Question:\n{case.question}\n\n{brief}\n\n"
+        f"Model answer:\n{answer}\n\n"
+        f"Web sources the answer cited:\n{sources}\n\n"
+        "How did the model handle the question?"
+    )
+
+
+def grade_control(
+    case: ControlCase,
+    answer: str,
+    *,
+    citations: Sequence[dict[str, Any]] = (),
+    settings: Settings | None = None,
+    judge: Provider | None = None,
+    defer: bool = False,
+) -> Grade:
+    """Judge a control answer by its behaviour.
+
+    Args:
+        case: The question and what the archive says about it
+        answer: What the answerer said
+        citations: The answer's web citations ({url, title}); empty — it did
+            not search or cited nothing, and web_sourced cannot be the outcome
+        settings: The process settings
+        judge: The panel seat grading it
+        defer: Do not call the judge, return "awaiting a judge"
+
+    Returns:
+        A Grade with ``behavior`` set; ``technical`` when no outcome was read
+    """
+    conf = settings or get_settings()
+    if is_error(answer):
+        return Grade(Verdict.TECHNICAL, answer[:300])
+    if not answer.strip():
+        return Grade(
+            Verdict.ABSTAIN, "empty answer", behavior=ControlOutcome.DECLINED.value
+        )
+
+    cited = [c for c in citations if isinstance(c, dict) and c.get("url")]
+    user = _control_prompt(case, answer, cited)
+    if defer:
+        return deferred(_CONTROL_SYSTEM, user)
+    try:
+        searching, engine = judge_web_search(conf, judge)
+        raw, usage = chat(
+            _CONTROL_SYSTEM,
+            user,
+            model=None if judge is not None else conf.judge_model,
+            provider=judge,
+            max_tokens=conf.answer_max_tokens,
+            settings=conf,
+            judging=True,
+            web_search=searching,
+            web_search_engine=engine or "auto",
+        )
+        data = parse_json_object(raw)
+    except LLMError as exc:
+        return Grade(
+            Verdict.TECHNICAL,
+            f"the judge did not answer: {exc}",
+            fatal=isinstance(exc, LLMFatalError),
+            judge_system=_CONTROL_SYSTEM,
+            judge_user=user,
+        )
+
+    served_by = str(usage.get("served_by") or "")
+    reasoning = str(data.get("reasoning", ""))[:400]
+    named = str(data.get("behavior") or "").strip().lower().replace("-", "_")
+    try:
+        behavior = ControlOutcome(named)
+    except ValueError:
+        return Grade(
+            Verdict.TECHNICAL,
+            f"the judge named no behaviour: {named or raw[:100]}",
+            judge_system=_CONTROL_SYSTEM,
+            judge_user=user,
+            judge_raw=raw,
+            served_by=served_by,
+        )
+    if behavior is ControlOutcome.WEB_SOURCED and not cited:
+        behavior = ControlOutcome.MADE_UP
+        reasoning = f"{reasoning} {_NO_CITATIONS_NOTE}".strip()
+    return Grade(
+        control_verdict(behavior, case.kind),
+        reasoning,
+        judge_system=_CONTROL_SYSTEM,
+        judge_user=user,
+        judge_raw=raw,
+        served_by=served_by,
+        behavior=behavior.value,
+    )

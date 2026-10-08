@@ -151,6 +151,23 @@ class Verdict(StrEnum):
     HALLUCINATE = "hallucinate"
     PENDING = "pending"
     TECHNICAL = "technical"
+    # A control question answered with specifics its web search supports: not
+    # a hallucination, counted on its own.
+    WEB_SOURCED = "web_sourced"
+
+
+class ControlOutcome(StrEnum):
+    """How a control question was handled, as the judge reads it.
+
+    Kept in ``Result.extra["behavior"]``. The verdict carries it into the
+    shares: declined -> abstain, corrected -> correct on a false premise
+    (abstain otherwise), web_sourced -> web_sourced, made_up -> hallucinate.
+    """
+
+    DECLINED = "declined"
+    CORRECTED = "corrected"
+    WEB_SOURCED = "web_sourced"
+    MADE_UP = "made_up"
 
 
 class TextMetric(StrEnum):

@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
+import syft_benchmark.runs.judge as judge
 from syft_benchmark.config import (
     JobState,
     PairStatus,
@@ -323,13 +324,21 @@ def test_finishing_a_job_drops_its_aggregate(clean: None) -> None:
 
 
 @needs_db
-def test_deferred_judging_belongs_to_the_answers_launch(clean: None) -> None:
+def test_deferred_judging_belongs_to_the_answers_launch(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with session_scope() as session:
         session.add(_job("job-judge"))
         session.add(_pair("p-judge", meta={"grading": "behavior"}))
         session.flush()
         session.add_all(_answered("p-judge", "job-judge", verdict="pending"))
     _cache("job-judge")
+    # A control answer goes to the behaviour judge.
+    monkeypatch.setattr(
+        judge,
+        "chat",
+        lambda *a, **k: ('{"behavior": "declined", "reasoning": "r"}', {}),
+    )
 
     seat = Provider(role="judge", url="http://judge.invalid", api_key="k", model="t")
     report = judge_pending(

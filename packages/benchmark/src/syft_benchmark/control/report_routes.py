@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from syft_benchmark.control.app import ConsoleAuth, ConsoleGuard
 from syft_benchmark.control.compose import merge
+from syft_benchmark.control.jobs import PROGRESS_PLAN
 from syft_benchmark.control.schemas import (
     ExclusionRequest,
     Instrument,
@@ -25,7 +26,13 @@ from syft_benchmark.control.schemas import (
 from syft_benchmark.db import Job, Run, Target, session_scope
 from syft_benchmark.generation import decisions, list_pairs
 from syft_benchmark.generation.pairs import MAX_PAGE as PAIRS_MAX_PAGE
-from syft_benchmark.report import exclusions, filter_view, run_questions, run_view
+from syft_benchmark.report import (
+    exclusions,
+    filter_view,
+    run_questions,
+    run_view,
+    text_view,
+)
 from syft_benchmark.report.run_document import build_summary, filename
 
 router = APIRouter(prefix="/console/report", tags=["results"])
@@ -143,6 +150,7 @@ def list_runs(
                 **{name: getattr(job, name) for name in PROGRESS_FIELDS},
                 "created_at": _iso(job.created_at),
                 "started_at": _iso(job.started_at),
+                "progress_plan": (job.params or {}).get(PROGRESS_PLAN),
             }
             for job in active
         ]
@@ -217,6 +225,7 @@ def get_run(job_id: str, auth: ConsoleGuard) -> dict[str, Any]:
             **run_view.how_tested(job),
         }
         report["timing"] = run_view.timing_of(job)
+        report["text_metrics"] = text_view.job_text_metrics(session, job.id)
         return report
 
 

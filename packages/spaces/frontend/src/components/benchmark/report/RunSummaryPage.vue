@@ -59,12 +59,7 @@
       </span>
     </div>
 
-    <BuildPhases
-      v-if="buildOnly && slug"
-      :slug="slug"
-      :job="jobId"
-      :generators="report.target.value?.capabilities?.generators ?? []"
-    />
+    <BuildPhases v-if="buildOnly && slug" :slug="slug" :job="jobId" />
 
     <section v-if="!buildOnly" class="space-y-2.5" aria-labelledby="models-title">
       <div class="flex flex-wrap items-end justify-between gap-3">

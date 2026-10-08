@@ -17,6 +17,7 @@ from syft_benchmark.config import EvalBlock
 from syft_benchmark.db.models import Job, QaPair, Result, Run, RunExclusion
 from syft_benchmark.report import run_view
 from syft_benchmark.report.run_view import ALONE, ARM_OF, GROUPS, OUTCOMES, WITH
+from syft_benchmark.runs.judge_stage import behavior_of
 
 MAX_PAGE = 100
 EXCLUDED_FILTERS = ("include", "only", "hide")
@@ -235,6 +236,8 @@ def _arm(
         # Web search evidence of the counted answer; empty where it did not search.
         "citations": list((counted.audit or {}).get("citations") or []),
         "web_search_unused": bool((counted.audit or {}).get("web_search_unused")),
+        # A control answer's outcome; None under an owner override.
+        "behavior": None if override is not None else behavior_of(counted.extra),
     }
 
 
@@ -243,11 +246,13 @@ def _judges(
 ) -> tuple[list[dict[str, Any]], bool | None]:
     latest: dict[tuple[str, str], str] = {}
     reasoning: dict[tuple[str, str], str | None] = {}
+    behavior: dict[tuple[str, str], str | None] = {}
     for result, run in rows:
         if run.block == EvalBlock.DIRECT.value and result.judge_model in judges:
             key = (result.judge_model, ARM_OF[run.context_mode])
             latest[key] = run_view.verdict_of(result.verdict, result.answer)
             reasoning[key] = result.reasoning or None
+            behavior[key] = behavior_of(result.extra)
     out = [
         {
             "model": judge,
@@ -256,6 +261,8 @@ def _judges(
             "with": latest.get((judge, WITH)),
             "alone_reasoning": reasoning.get((judge, ALONE)),
             "with_reasoning": reasoning.get((judge, WITH)),
+            "alone_behavior": behavior.get((judge, ALONE)),
+            "with_behavior": behavior.get((judge, WITH)),
         }
         for n, judge in enumerate(judges)
     ]

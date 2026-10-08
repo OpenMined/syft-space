@@ -42,12 +42,14 @@
           </div>
           <div v-if="row.squares?.length" class="flex flex-wrap gap-1.5" aria-hidden="true">
             <span
-              v-for="(bad, i) in row.squares"
+              v-for="(outcome, i) in row.squares"
               :key="i"
               class="size-7 rounded border"
-              :class="bad ? 'border-warning bg-warning/15' : 'border-primary bg-primary/10'"
+              :class="SQUARE_TONE[outcome]"
+              :title="BEHAVIOR_LABEL[outcome]"
               data-testid="check-square"
-              :data-bad="bad"
+              :data-bad="outcome === 'made_up'"
+              :data-outcome="outcome"
             />
           </div>
           <p class="text-sm" data-testid="check-reading">{{ row.reading }}</p>
@@ -65,7 +67,15 @@ import { computed } from 'vue'
 import type { BenchmarkRunMethod } from '@/api/types'
 import { useRun } from './context'
 import { DASH, pct } from './figures'
-import { modelName } from './labels'
+import { BEHAVIOR_LABEL, modelName, type Behavior } from './labels'
+import { trickReading, trickSquares } from './selectors'
+
+const SQUARE_TONE: Record<Behavior, string> = {
+  made_up: 'border-warning bg-warning/15',
+  web_sourced: 'border-sky-500 bg-sky-500/10',
+  declined: 'border-primary bg-primary/10',
+  corrected: 'border-primary bg-primary/10',
+}
 
 interface Line {
   label: string
@@ -77,7 +87,7 @@ interface CheckRow {
   title: string
   what: string
   lines: Line[]
-  squares?: boolean[]
+  squares?: Behavior[]
   reading: string
 }
 
@@ -154,12 +164,8 @@ const rows = computed<CheckRow[]>(() => {
     title: 'Refusing questions with no answer',
     what: `${plural(c.trick_asked, 'trick question', 'trick questions')} asked for details your reporting does not contain. The right response is “I don’t know”.`,
     lines: [],
-    squares: Array.from({ length: c.trick_asked }, (_, i) => i < c.trick_answered),
-    reading: !c.trick_asked
-      ? DASH
-      : c.trick_answered === 0
-        ? `Refused all ${c.trick_asked}. It hallucinated an answer to none of them.`
-        : `Hallucinated an answer to ${c.trick_answered} of ${c.trick_asked}.`,
+    squares: trickSquares(c.trick_asked, c.trick_answered, c.trick_web ?? 0),
+    reading: trickReading(c.trick_asked, c.trick_answered, c.trick_web ?? 0),
   }
 
   const search: CheckRow = {

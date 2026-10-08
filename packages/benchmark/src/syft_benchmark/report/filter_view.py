@@ -19,6 +19,7 @@ from syft_benchmark.config import PairStatus, StatusReason
 from syft_benchmark.db.models import Job, QaPair
 from syft_benchmark.generation import decisions
 from syft_benchmark.generation.web_check import CONTROL_NOTE, exclusion
+from syft_benchmark.question_order import pair_key
 
 MAX_PAGE = 200
 
@@ -135,7 +136,7 @@ def _web(record: Any) -> dict[str, Any] | None:
 def _decisions_of(
     rows: Sequence[QaPair], job_id: str, written: dict[str, datetime | None]
 ) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+    out: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     for row in rows:
         meta = row.meta or {}
         entry = decisions.of_job(meta, job_id)
@@ -150,31 +151,33 @@ def _decisions_of(
         else:
             web_record = entry.get("web")
         out.append(
-            {
-                "qa_id": row.id,
-                "question": row.question,
-                "answer": row.answer,
-                "generator": row.generator,
-                "task_type": row.task_type,
-                "stage": entry.get("stage"),
-                "outcome": entry.get("outcome"),
-                "reason": str(entry.get("note") or ""),
-                "reason_code": entry.get("reason"),
-                "at": entry.get("at"),
-                "written_by_job": row.job_id,
-                "written_by_job_at": _iso(written.get(row.job_id or "")),
-                "written_at": _iso(row.created_at),
-                "earlier": row.job_id != job_id,
-                "status": row.status,
-                "status_note": row.status_note,
-                "recorded": recorded,
-                "web_check": _web(web_record),
-            }
+            (
+                pair_key(row.generator, row.created_at, row.id),
+                {
+                    "qa_id": row.id,
+                    "question": row.question,
+                    "answer": row.answer,
+                    "generator": row.generator,
+                    "task_type": row.task_type,
+                    "stage": entry.get("stage"),
+                    "outcome": entry.get("outcome"),
+                    "reason": str(entry.get("note") or ""),
+                    "reason_code": entry.get("reason"),
+                    "at": entry.get("at"),
+                    "written_by_job": row.job_id,
+                    "written_by_job_at": _iso(written.get(row.job_id or "")),
+                    "written_at": _iso(row.created_at),
+                    "earlier": row.job_id != job_id,
+                    "status": row.status,
+                    "status_note": row.status_note,
+                    "recorded": recorded,
+                    "web_check": _web(web_record),
+                },
+            )
         )
-    out.sort(key=lambda d: (d["at"] is None, d["at"] or "", d["qa_id"]))
-    # Newest first, undated last.
-    dated = [d for d in out if d["at"] is not None][::-1]
-    return dated + [d for d in out if d["at"] is None]
+    # The question order (report API, "Question order").
+    out.sort(key=lambda item: item[0])
+    return [decision for _, decision in out]
 
 
 def _writer_dates(
@@ -196,7 +199,8 @@ def job_filter(
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """The job's filter decisions, newest first, paged; counts before filters."""
+    """The job's filter decisions in the question order, paged; counts before
+    filters."""
     rows = _rows(session, job.target, [job.id])
     found = _decisions_of(rows, job.id, _writer_dates(session, rows))
     counts = decisions.outcome_counts(found)

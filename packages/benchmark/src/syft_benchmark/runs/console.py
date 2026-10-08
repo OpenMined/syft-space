@@ -62,7 +62,13 @@ from syft_benchmark.config import (
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.llm import judge_provider
 from syft_benchmark.runs.gate import evaluable
-from syft_benchmark.runs.judge import grade, grade_behavior, is_technical
+from syft_benchmark.runs.judge import (
+    control_case,
+    grade,
+    grade_control,
+    is_control,
+    is_technical,
+)
 
 _HEADER = """\
 Below are {count} questions. Answer each one from your own knowledge.
@@ -241,8 +247,13 @@ def import_answers(
         # The judging method is set by the generator — as in an ordinary run. A
         # control question is judged by behaviour: there is no correct answer, and
         # nothing to compare it against.
-        if str((pair.meta or {}).get("grading") or "judge") == "behavior":
-            verdict = grade_behavior(answer)
+        if is_control(pair.generator, pair.meta):
+            verdict = grade_control(
+                control_case(pair.generator, pair.question, pair.answer, pair.meta),
+                answer,
+                settings=conf,
+                judge=judge,
+            )
         else:
             verdict = grade(
                 pair.question,
@@ -264,7 +275,10 @@ def import_answers(
                     verdict=verdict.verdict.value,
                     reasoning=verdict.reasoning,
                     expected_behavior=pair.expected_behavior,
-                    extra={"source": "console"},
+                    extra={
+                        "source": "console",
+                        **({"behavior": verdict.behavior} if verdict.behavior else {}),
+                    },
                     model=model,
                     judge_model=judge.model,
                     judge_served_by=verdict.served_by,

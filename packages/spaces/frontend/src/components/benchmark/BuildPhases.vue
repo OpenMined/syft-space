@@ -5,7 +5,7 @@ import FilterList from './FilterList.vue'
 import PairList from './PairList.vue'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-defineProps<{ slug: string; job: string; generators?: string[] }>()
+defineProps<{ slug: string; job: string }>()
 
 const phase = ref('generate')
 
@@ -26,7 +26,7 @@ const TAB =
       <TabsTrigger value="filter" :class="TAB">Filter</TabsTrigger>
     </TabsList>
     <TabsContent value="generate" class="pt-4 mt-0">
-      <PairList :slug="slug" :job="job" :refresh-key="0" :generators="generators" />
+      <PairList :slug="slug" :job="job" :refresh-key="0" />
     </TabsContent>
     <TabsContent value="filter" class="pt-4 mt-0">
       <FilterList :slug="slug" :job="job" />

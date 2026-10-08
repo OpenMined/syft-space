@@ -40,6 +40,9 @@ import {
   generatorWords,
   shortModel,
 } from './labels'
+import { BEHAVIOR_LABEL, WEB_SOURCED_TIP, behaviorOf } from './report/labels'
+import { metricsLine } from './textMetrics'
+import { sortKinds } from './questionOrder'
 import ClampText from './ClampText.vue'
 import HoverPanel from './HoverPanel.vue'
 import ModelChip from './ModelChip.vue'
@@ -63,8 +66,6 @@ import type {
 const props = defineProps<{
   slug: string
   refreshKey: number
-  /** The known generators, in the benchmark's own order — sets group order. */
-  generators?: string[]
   /** One launch's answers; empty — everything this endpoint has. */
   job?: string
 }>()
@@ -122,10 +123,10 @@ const DIRECT = 'direct'
  * was right" is the honest reading, and rounding a disagreement up would make a
  * published number depend on which grader was asked first.
  */
-const WORST_FIRST = ['hallucinate', 'abstain', 'correct']
+const WORST_FIRST = ['hallucinate', 'web_sourced', 'abstain', 'correct']
 
-/** The order the shares are read in, worst first — see WORST_FIRST. */
-const SHARE_ORDER = ['abstain', 'hallucinate', 'correct']
+/** The order the shares are read in. */
+const SHARE_ORDER = ['abstain', 'hallucinate', 'web_sourced', 'correct']
 
 /**
  * Nothing was measured: the row is about the rig, not about the model. It
@@ -161,6 +162,11 @@ interface Tile {
   actionId: string
   /** How the call ended: a cut-off answer is graded like a whole one. */
   call: BenchmarkCall | null
+  generator: string
+  /** The fine outcome the API gave for the standing verdict, if any. */
+  behavior: string | null
+  /** BLEU / ROUGE / BERTScore of the direct answer; empty when not computed. */
+  metrics: string
 }
 
 interface Question {
@@ -229,6 +235,8 @@ function tileOf(key: string, rows: BenchmarkResult[]): Tile {
   const byBlock = group(rows, (row) => row.block)
   const blocks = [...byBlock.keys()].sort((a, b) => BLOCK_ORDER.indexOf(a) - BLOCK_ORDER.indexOf(b))
   const direct = byBlock.get(DIRECT) ?? rows
+  const verdict = decide(direct)
+  const overridden = direct.some((row) => row.is_latest && row.judge_model === OWNER)
 
   const names = [...new Set(rows.map((row) => row.judge_model).filter(Boolean))].sort((a, b) => {
     // The owner last: the panel is the measurement, his word is what came after.
@@ -255,7 +263,14 @@ function tileOf(key: string, rows: BenchmarkResult[]): Tile {
       })),
     })),
     call: direct[0]!.call ?? null,
-    verdict: decide(direct),
+    generator: rows[0]!.generator,
+    // An override has no fine outcome of its own; it is derived from the verdict.
+    behavior: overridden
+      ? null
+      : (direct.find((row) => row.is_latest && row.verdict === verdict && row.behavior)?.behavior ??
+        null),
+    metrics: metricsLine(direct.find((row) => row.text_metrics)?.text_metrics),
+    verdict,
     overrideId: direct.find((row) => row.is_latest && row.judge_model === OWNER)?.id ?? null,
     actionId: direct[0]!.id,
   }
@@ -348,11 +363,8 @@ const armsSeen = computed(() =>
 
 const groups = computed(() => {
   const byGenerator = group(items.value, (row) => row.generator)
-  const order = props.generators ?? []
-  const known = order.filter((name) => byGenerator.has(name))
-  const rest = [...byGenerator.keys()].filter((name) => !order.includes(name)).sort()
-
-  return [...known, ...rest].map((generator) => {
+  // Kinds in the canonical order; questions within a kind in the listing's order.
+  return sortKinds(byGenerator.keys()).map((generator) => {
     const questions = [...group(byGenerator.get(generator)!, (row) => row.qa_id)].map(
       ([key, own]) => questionOf(key, own),
     )
@@ -389,8 +401,16 @@ function generatorLabel(key: string): string {
 function verdictTone(verdict: string): string {
   if (verdict === 'correct') return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
   if (verdict === 'hallucinate') return 'bg-destructive/10 text-destructive'
+  if (verdict === 'web_sourced') return 'bg-sky-500/10 text-sky-700 dark:text-sky-400'
   // `technical` and `pending` share the grey: neither is an outcome.
   return 'bg-muted text-muted-foreground'
+}
+
+/** The verdict code, or the fine outcome on a control question. */
+function verdictWords(generator: string, verdict: string, given?: string | null): string {
+  const behavior = behaviorOf(generator, verdict, given)
+  if (behavior) return BEHAVIOR_LABEL[behavior].toLowerCase()
+  return verdict === 'web_sourced' ? 'from the web' : verdict
 }
 
 /** The tooltip on a `technical` verdict: what broke, in its own words. */
@@ -728,8 +748,9 @@ function goldWhy(question: Question): string {
                   :key="part.verdict"
                   class="rounded px-1.5 py-0.5 text-[11px] whitespace-nowrap"
                   :class="verdictTone(part.verdict)"
+                  :title="part.verdict === 'web_sourced' ? WEB_SOURCED_TIP : undefined"
                 >
-                  {{ part.verdict }} {{ share(part.share) }}
+                  {{ verdictWords(group.generator, part.verdict) }} {{ share(part.share) }}
                 </span>
                 <span
                   v-if="side.technical"
@@ -863,10 +884,16 @@ function goldWhy(question: Question): string {
                       <span
                         class="inline-flex items-center gap-1 rounded px-2 py-1 text-base font-semibold"
                         :class="verdictTone(tile.verdict)"
-                        :title="tile.verdict === TECHNICAL ? technicalWhy(tile) : undefined"
+                        :title="
+                          tile.verdict === TECHNICAL
+                            ? technicalWhy(tile)
+                            : tile.verdict === 'web_sourced'
+                              ? WEB_SOURCED_TIP
+                              : undefined
+                        "
                       >
                         <UserRound v-if="tile.overrideId" class="h-4 w-4" />
-                        {{ tile.verdict }}
+                        {{ verdictWords(tile.generator, tile.verdict, tile.behavior) }}
                         <!-- On the verdict: the answer was cut off and graded
                              anyway, so the verdict covers part of a sentence. -->
                         <AlertTriangle
@@ -920,6 +947,14 @@ function goldWhy(question: Question): string {
                         See what was sent
                       </button>
                       <ClampText :text="tile.answer" :lines="5" class="text-foreground" />
+                      <p
+                        v-if="tile.metrics"
+                        class="mt-1 text-xs text-muted-foreground tabular-nums"
+                        title="Text similarity to the expected answer."
+                        data-testid="answer-metrics"
+                      >
+                        {{ tile.metrics }}
+                      </p>
                     </div>
 
                     <div class="text-sm">
@@ -972,7 +1007,9 @@ function goldWhy(question: Question): string {
                                 :class="verdictTone(cell.row.verdict)"
                                 :title="cell.row.reasoning"
                               >
-                                {{ cell.row.verdict }}
+                                {{
+                                  verdictWords(tile.generator, cell.row.verdict, cell.row.behavior)
+                                }}
                               </span>
 
                               <!-- Pushed back on: how much it took, and the

@@ -62,7 +62,11 @@
               />
             </div>
             <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              <span v-for="part in arm.parts" :key="part.key">
+              <span
+                v-for="part in arm.parts"
+                :key="part.key"
+                :title="verdictTip(part.key) || undefined"
+              >
                 <b class="font-semibold tabular-nums" :class="part.text">{{ part.n }}</b>
                 {{ part.label }}
               </span>
@@ -154,9 +158,10 @@ import { ChevronRight } from 'lucide-vue-next'
 import type { BenchmarkTally } from '@/api/types'
 import { useRun } from './context'
 import { count, DASH, pct, points } from './figures'
-import { kindLabel, modelName, vendorName } from './labels'
+import { kindLabel, modelName, vendorName, verdictTip } from './labels'
 import { checksLocation, questionsLocation } from './routing'
 import { isTrick } from './selectors'
+import { compareKinds } from '../questionOrder'
 
 const run = useRun()
 
@@ -192,10 +197,19 @@ const PARTS = [
     bar: 'bg-warning',
     text: 'text-amber-700 dark:text-amber-400',
   },
+  {
+    key: 'web_sourced',
+    label: 'from the web',
+    bar: 'bg-sky-500/60',
+    text: 'text-sky-700 dark:text-sky-400',
+  },
 ] as const
 
+/** From the web only where it happened: it is a control-question outcome. */
 function parts(t: BenchmarkTally) {
-  return PARTS.map((p) => ({ ...p, n: t[p.key] }))
+  return PARTS.map((p) => ({ ...p, n: t[p.key] ?? 0 })).filter(
+    (p) => p.key !== 'web_sourced' || p.n > 0,
+  )
 }
 
 const arms = computed(() => {
@@ -224,7 +238,11 @@ const hallucinationText = computed(() => {
   return `Hallucinations ${verb} from ${before} to ${after} when the model had your data.`
 })
 
-const kinds = computed(() => (report.value?.kinds ?? []).filter((k) => !isTrick(k.generator)))
+const kinds = computed(() =>
+  (report.value?.kinds ?? [])
+    .filter((k) => !isTrick(k.generator))
+    .sort((a, b) => compareKinds(a.generator, b.generator)),
+)
 
 const links = computed(() => {
   const model = run.model.value ?? ''

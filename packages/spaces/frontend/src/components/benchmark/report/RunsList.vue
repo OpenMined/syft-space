@@ -88,7 +88,10 @@
                   :style="{ width: share(progressShare(run)!) }"
                 />
               </div>
-              <div class="mt-1.5 text-xs text-muted-foreground">
+              <div
+                class="mt-1.5 text-xs text-muted-foreground"
+                :title="planText(run.progress_plan, modelName) || undefined"
+              >
                 {{ progressText(run) }}
               </div>
             </td>
@@ -247,7 +250,9 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useReport } from './context'
 import { count, DASH, dayTime, pointsRange, scheduleText } from './figures'
+import { modelName } from './labels'
 import { runLocation } from './routing'
+import { planText } from '../setup/progress'
 import { buildText } from '../filter'
 import { progressShare, progressText, runStateLabel, utcStamp } from './selectors'
 import { RUNS_PAGE } from './useRunReport'

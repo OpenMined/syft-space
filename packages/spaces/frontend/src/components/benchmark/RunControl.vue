@@ -741,10 +741,13 @@
       <div v-if="activeJob" role="status" class="flex flex-col gap-2">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-col gap-0.5">
-            <b class="font-semibold">{{ progressTitle }}</b>
+            <b class="font-semibold" :title="planTip || undefined" data-testid="run-step">{{
+              progressTitle
+            }}</b>
             <span class="text-sm text-muted-foreground">
-              {{ phaseText(activeJob.phase) }} A run takes about an hour; you can leave this page
-              and the results will appear under
+              {{ phaseText(activeJob.phase) }}
+              <template v-if="timeLeft">{{ timeLeft }}; you</template
+              ><template v-else>You</template> can leave this page and the results will appear under
               <RouterLink :to="runsListLocation()" class="font-medium text-primary hover:underline">
                 Benchmark results</RouterLink
               >.
@@ -893,6 +896,7 @@ import {
   windowDaysParam,
 } from '@/components/benchmark/setup/setupForm'
 import type { Choice, Kind, SetupForm } from '@/components/benchmark/setup/setupForm'
+import { leftText, msLeft, paceStart, planText } from '@/components/benchmark/setup/progress'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -1237,6 +1241,21 @@ const activeJob = computed(() =>
 )
 
 const progressTitle = computed(() => (activeJob.value ? progressTitleOf(activeJob.value) : ''))
+
+const planTip = computed(() =>
+  activeJob.value?.step_total ? planText(activeJob.value.progress_plan, nameOf) : '',
+)
+
+// Read on every poll, so the estimate moves with the bar.
+const now = ref(Date.now())
+watch(jobs, () => (now.value = Date.now()))
+
+const timeLeft = computed(() => {
+  const job = activeJob.value
+  if (!job || job.state !== 'running') return ''
+  const left = msLeft(job.step_done, job.step_total, paceStart(job.progress_plan), now.value)
+  return leftText(left)
+})
 
 const progressShare = computed(() => {
   const job = activeJob.value

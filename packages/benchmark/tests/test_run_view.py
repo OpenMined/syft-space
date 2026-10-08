@@ -270,6 +270,7 @@ def test_pending_and_technical_stay_out_of_rates(
         "correct": 1,
         "abstain": 0,
         "hallucinate": 0,
+        "web_sourced": 0,
         "pending": 1,
         "technical": 2,
         "graded": 1,

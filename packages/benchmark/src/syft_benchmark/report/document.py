@@ -410,6 +410,7 @@ def _control_section(sections: _Sections, rows: list[Metrics], conf: Settings) -
             "Questions",
             "Abstentions",
             "Inventions",
+            "From the web",
         ),
         [
             (
@@ -420,6 +421,7 @@ def _control_section(sections: _Sections, rows: list[Metrics], conf: Settings) -
                 str(m.graded),
                 f"{m.abstain_rate:.0%}",
                 f"{m.fabrication_rate:.0%}",
+                str(m.web_sourced),
             )
             for m in rows
         ],

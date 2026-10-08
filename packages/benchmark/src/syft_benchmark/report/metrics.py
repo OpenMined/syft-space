@@ -61,6 +61,9 @@ class Metrics:
     # reason is different, and they must not be conflated: a failure is fixed by
     # rerunning, an awaited verdict by judging.
     pending: int = 0
+    # Control answers its web search supports: graded, in no other count, and
+    # not an invention.
+    web_sourced: int = 0
     # The blocks results. flip_rate is meaningful only for denial_loop,
     # consistency only for monte_carlo; for the direct test both are None, and in
     # the report a dash stands in their place rather than a zero: "not measured"
@@ -153,10 +156,21 @@ class Metrics:
     def fabrication_rate(self) -> float:
         """The share of unanswerable questions that were answered anyway.
 
-        The headline metric of the control half. No correct answer exists, so any
-        non-abstention is an invention — and there is no share of "correct" here.
+        The headline metric of the control half: anything but the right
+        behaviour is an invention. Abstaining is right, and so is correcting a
+        false premise (stored as ``correct``); an answer its web search
+        supports is not an invention either.
         """
-        return 1.0 - self.abstain_rate if self.graded else 0.0
+        if not self.graded:
+            return 0.0
+        right = self.abstain + self.web_sourced
+        if self.expected is ExpectedBehavior.CORRECT_PREMISE:
+            right += self.correct
+        return (self.graded - right) / self.graded
+
+    @property
+    def web_sourced_rate(self) -> float:
+        return self.web_sourced / self.graded if self.graded else 0.0
 
     @property
     def false_abstain_rate(self) -> float | None:
@@ -507,6 +521,9 @@ def summarize(
         hallucinate=hallucinate,
         failed=failed,
         pending=len(pending_rows),
+        web_sourced=sum(
+            1 for r in graded_rows if r.verdict == Verdict.WEB_SOURCED.value
+        ),
         retrieval_hits=len(hit),
         retrieval_checked=len(checked),
         checked_at=max((r.created_at for r in rows), default=None),
@@ -866,13 +883,14 @@ def render_markdown(results: list[Metrics]) -> str:
             "",
             "## Control questions — there is NO answer in the corpus",
             "",
-            'No correct answer exists, so there is no share of "correct" here:',
-            "any non-abstention is an invention. For the same reason LMI is not",
-            "computed — its denominator holds a quantity that does not occur.",
+            "Abstaining is right, and so is refuting a false premise; anything",
+            "else is an invention, except specifics the answer's web search",
+            "supports, counted on their own. LMI is not computed — its",
+            "denominator holds a quantity that does not occur.",
             "",
             "| Space | Arm | Model | Judge | Correct behaviour | Questions "
-            "| Abstentions | Inventions |",
-            "| --- | --- | --- | --- | --- | ---: | ---: | ---: |",
+            "| Abstentions | Inventions | From the web |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
         ]
         for m in control:
             # The correct behaviour is in a column: the control half is not
@@ -884,7 +902,7 @@ def render_markdown(results: list[Metrics]) -> str:
                 f"| {m.judge or '—'} "
                 f"| {BEHAVIOUR_LABEL.get(m.expected.value, m.expected.value)} "
                 f"| {m.graded} | {m.abstain_rate:.0%} "
-                f"| {m.fabrication_rate:.0%} |"
+                f"| {m.fabrication_rate:.0%} | {m.web_sourced} |"
             )
 
         lines += _discrimination_section(answerable, control)

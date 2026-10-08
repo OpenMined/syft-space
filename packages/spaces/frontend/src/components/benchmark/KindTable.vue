@@ -5,6 +5,7 @@ import { benchmarksApi } from '@/api/endpoints/benchmarks'
 import type { BenchmarkKindBuild } from '@/api/types'
 import { droppedLines, droppedTotal, readText, stoppedLabel } from './filter'
 import { kindLabel } from './report/labels'
+import { compareKinds } from './questionOrder'
 
 const props = defineProps<{ slug: string; job: string; refreshKey?: number }>()
 
@@ -13,7 +14,7 @@ const kinds = ref<BenchmarkKindBuild[]>([])
 async function load(): Promise<void> {
   try {
     const page = await benchmarksApi.getRunGenerated(props.slug, props.job, { limit: 1 })
-    kinds.value = page.kinds ?? []
+    kinds.value = [...(page.kinds ?? [])].sort((a, b) => compareKinds(a.kind, b.kind))
   } catch {
     kinds.value = []
   }
