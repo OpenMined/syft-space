@@ -18,10 +18,11 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { FlaskConical } from 'lucide-vue-next'
+import { ChevronRight, FlaskConical } from 'lucide-vue-next'
 
 import RunCard from '@/components/benchmark/RunCard.vue'
 import RunDetail from '@/components/benchmark/RunDetail.vue'
+import { buildText } from '@/components/benchmark/filter'
 import type { RunMarketplace } from '@/components/benchmark/runs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
@@ -32,6 +33,7 @@ import { apiErrorDetail } from '@/lib/errors'
 import type {
   BenchmarkCard,
   BenchmarkReport,
+  BenchmarkRunSummary,
   BenchmarksMode,
   EndpointQualityResponse,
   MarketplaceListItem,
@@ -57,6 +59,8 @@ const marketplaces = ref<MarketplaceListItem[]>([])
  */
 const generators = ref<string[]>([])
 const mode = ref<BenchmarksMode>('off')
+/** Jobs that wrote or filtered questions but asked no model. */
+const buildOnly = ref<BenchmarkRunSummary[]>([])
 
 /**
  * The card as it would be built from what is graded right now.
@@ -97,7 +101,10 @@ interface RunView {
   key: string
   /** Null for the run that has not been reported to this Space yet. */
   cardId: string | null
-  card: BenchmarkCard | BenchmarkReport
+  /** Null for a build-only job. */
+  card: BenchmarkCard | BenchmarkReport | null
+  jobId?: string
+  build?: string | null
   measured: string
   at: number
   published: boolean
@@ -149,8 +156,24 @@ const runs = computed<RunView[]>(() => {
     }
   }
 
+  for (const job of buildOnly.value) {
+    stored.push({
+      key: `job-${job.job_id}`,
+      cardId: null,
+      card: null,
+      jobId: job.job_id,
+      build: buildText(job.build),
+      measured: formatMoment(job.created_at),
+      at: moment(job.created_at)?.valueOf() ?? 0,
+      published: false,
+    })
+  }
+
   return stored.sort((a, b) => b.at - a.at)
 })
+
+/** The newest run with figures: its card opens on first draw. */
+const newestCard = computed(() => runs.value.find((run) => run.card)?.key ?? null)
 
 /**
  * The run opened on its own, if any — in the address rather than in memory.
@@ -178,18 +201,20 @@ function closeDetail(): void {
 async function load(): Promise<void> {
   loading.value = true
   try {
-    const [card, benchmarks, past, places, target] = await Promise.all([
+    const [card, benchmarks, past, places, target, jobs] = await Promise.all([
       endpointsApi.getQuality(props.slug),
       settingsApi.getBenchmarksMode().catch(() => ({ mode: 'off' as BenchmarksMode })),
       endpointsApi.getQualityHistory(props.slug).catch(() => ({ cards: [] })),
       marketplacesApi.list().catch(() => []),
       benchmarksApi.getTarget(props.slug).catch(() => null),
+      benchmarksApi.listReportRuns(props.slug, { limit: 100 }).catch(() => null),
     ])
     quality.value = card
     mode.value = benchmarks.mode
     history.value = past.cards
     marketplaces.value = places
     generators.value = target?.capabilities?.generators ?? []
+    buildOnly.value = (jobs?.items ?? []).filter((run) => run.build_only)
     // Inside the load, not after it: drawn before this arrives, the list is
     // one run short, the stored card stands at the top and opens as the newest
     // — and when the unreported run then takes that place, the card below it
@@ -295,6 +320,7 @@ watch(() => props.slug, load)
     :slug="slug"
     :generators="generators"
     :card="opened.card"
+    :job-id="opened.jobId"
     :measured="opened.measured"
     :published="opened.published"
     :marketplaces="publishedAt"
@@ -306,19 +332,43 @@ watch(() => props.slug, load)
   />
 
   <div v-else class="space-y-3">
-    <RunCard
-      v-for="(run, index) in runs"
-      :key="run.key"
-      :card="run.card"
-      :measured="run.measured"
-      :published="run.published"
-      :marketplaces="publishedAt"
-      :default-open="index === 0"
-      :busy="working !== null"
-      :working="working === run.key"
-      @publish="publish(run)"
-      @retract="retract(run)"
-      @more="open(run)"
-    />
+    <template v-for="run in runs" :key="run.key">
+      <RunCard
+        v-if="run.card"
+        :card="run.card"
+        :measured="run.measured"
+        :published="run.published"
+        :marketplaces="publishedAt"
+        :default-open="run.key === newestCard"
+        :busy="working !== null"
+        :working="working === run.key"
+        @publish="publish(run)"
+        @retract="retract(run)"
+        @more="open(run)"
+      />
+      <section v-else class="border border-border/60 rounded-lg overflow-hidden">
+        <div
+          class="flex items-center gap-3 p-3 sm:p-4 cursor-pointer select-none hover:bg-muted/30"
+          role="button"
+          tabindex="0"
+          data-testid="build-only-run"
+          @click="open(run)"
+          @keydown.enter.prevent="open(run)"
+          @keydown.space.prevent="open(run)"
+        >
+          <ChevronRight class="h-4 w-4 text-muted-foreground shrink-0" />
+          <div class="min-w-0 text-sm font-medium text-foreground truncate">
+            Benchmark Result
+            <span class="text-muted-foreground font-normal">{{ run.measured }}</span>
+          </div>
+          <span
+            class="ml-auto shrink-0 text-xs text-muted-foreground"
+            title="Questions were written and filtered; no model was asked."
+          >
+            {{ run.build ? `Build only · ${run.build}` : 'Build only' }}
+          </span>
+        </div>
+      </section>
+    </template>
   </div>
 </template>

@@ -861,6 +861,10 @@ export type BenchmarkInstrumentLayer = BenchmarkLayer & {
   manual_status_priority?: 'filter' | 'manual'
   /** Model calls in flight at once, 1..64. */
   concurrency?: number
+  /** Judge temperature, 0..2; null means the model's own default. */
+  /** 0..2, or "default" for the model's own; null inherits. */
+  judge_temperature?: number | 'default' | null
+  judge_reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'default'
 }
 
 export interface BenchmarkField {
@@ -1456,6 +1460,20 @@ export interface BenchmarkRunSummary {
   card_outdated: boolean
   published: boolean
   card_id: string | null
+  /** True: the job wrote or filtered questions but asked no model. */
+  build_only?: boolean
+  state?: 'succeeded' | 'failed' | 'cancelled'
+  build?: BenchmarkBuildCounts | null
+}
+
+/** What one job wrote, and its filter decisions by outcome. */
+export interface BenchmarkBuildCounts {
+  written: number
+  checked: number
+  kept: number
+  removed: number
+  failed: number
+  skipped: number
 }
 
 export type BenchmarkRunStatusFilter = 'all' | 'published' | 'private'
@@ -1543,6 +1561,88 @@ export interface BenchmarkRunMethod {
   denial_rounds: number | null
   /** Repeats per temperature and the temperatures, ascending; null when the block did not run. */
   repeats: { trials: number; temperatures: number[] } | null
+  web_check_model?: string | null
+  /** The filter judge, else Judge 1. */
+  web_check_judge?: string | null
+  cost?: BenchmarkRunCost | null
+}
+
+/** OpenRouter spend of one job, in USD. */
+export interface BenchmarkRunCost {
+  /** spend_after − spend_before; null if either read failed. */
+  usd: number | null
+  spend_before: number | null
+  spend_after: number | null
+  /** Sum of per-call usage.cost. */
+  usd_calls: number
+}
+
+/** How one kind's generation went in one job. */
+export interface BenchmarkKindBuild {
+  kind: string
+  unit: 'passage' | 'article'
+  budget: number
+  written: number
+  units_available: number
+  /** Failed ones included. */
+  units_read: number
+  failed_units: number
+  dropped: Record<string, number>
+  stopped: string
+}
+
+export interface BenchmarkGeneratedPage {
+  kinds: BenchmarkKindBuild[]
+  items: BenchmarkPair[]
+  total: number
+}
+
+export type BenchmarkFilterStage = 'grounding' | 'control' | 'web_check'
+export type BenchmarkFilterOutcome = 'kept' | 'removed' | 'failed' | 'skipped'
+
+export interface BenchmarkWebCheck {
+  model: string
+  judge: string
+  answer: string
+  verdict: string
+  reasoning: string
+  citations: BenchmarkCitation[]
+  searches: number | null
+  engine: string
+  searched: boolean | null
+  search_unused: boolean
+  error: string | null
+  checked_at: string | null
+}
+
+/** One filter decision a job made, on a question it wrote or an earlier one. */
+export interface BenchmarkFilterDecision {
+  qa_id: string
+  question: string
+  answer: string
+  generator: string
+  task_type: string
+  stage: BenchmarkFilterStage
+  outcome: BenchmarkFilterOutcome
+  reason: string
+  reason_code: string | null
+  at: string | null
+  written_by_job: string | null
+  written_by_job_at: string | null
+  written_at: string
+  /** Written by another job. */
+  earlier: boolean
+  status: string
+  status_note: string
+  /** False: inferred from the question's status, not stamped. */
+  recorded: boolean
+  web_check: BenchmarkWebCheck | null
+}
+
+export interface BenchmarkFilterPage {
+  items: BenchmarkFilterDecision[]
+  total: number
+  counts: Record<BenchmarkFilterOutcome, number>
 }
 
 export interface BenchmarkRunReport {
@@ -1552,6 +1652,44 @@ export interface BenchmarkRunReport {
   /** Primary first. */
   judges: string[]
   method: BenchmarkRunMethod
+  /** Null for jobs before timing was kept, and while a job is running. */
+  timing?: BenchmarkRunTiming | null
+}
+
+export type BenchmarkTimingPhase = 'generate' | 'filter' | 'evaluate' | 'judge' | 'publish'
+
+/** Where one job's time went; seconds rounded to 0.01. */
+export interface BenchmarkRunTiming {
+  total_s: number
+  /** In the order they ran; only phases that ran. */
+  phases: { phase: BenchmarkTimingPhase | string; s: number }[]
+  /** Evaluation passes in plan order; they run concurrently, so they overlap. */
+  passes: BenchmarkPassTiming[]
+  /** One row per model and role, sorted by role then model. */
+  calls: BenchmarkCallTiming[]
+  concurrency: { model: number; endpoint: number }
+}
+
+export interface BenchmarkPassTiming {
+  arm: string
+  block: string
+  model: string
+  s: number
+  questions: number
+  /** '' or why the pass ended early. */
+  stopped: string
+}
+
+export interface BenchmarkCallTiming {
+  model: string
+  role: 'answer' | 'judge' | string
+  count: number
+  failed: number
+  mean_s: number
+  p90_s: number
+  max_s: number
+  /** Sum of call times; calls overlap, so it can exceed the phase. */
+  total_s: number
 }
 
 export interface BenchmarkQuestionRow {

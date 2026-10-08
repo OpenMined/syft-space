@@ -500,11 +500,11 @@ def test_a_measurement_hands_its_launch_down_to_the_runs(
         scheduler, "judge_providers", lambda conf: [FakeProvider("judge-1")]
     )
 
-    def fake_run_pass(space: Any, mode: Any, **kwargs: Any) -> list[Any]:
+    async def fake_run_pass(space: Any, mode: Any, **kwargs: Any) -> list[Any]:
         seen.append(kwargs.get("job_id"))
         return []
 
-    monkeypatch.setattr(scheduler, "run_pass", fake_run_pass)
+    monkeypatch.setattr(scheduler, "arun_pass", fake_run_pass)
     monkeypatch.setattr(scheduler, "summarize", lambda *a, **k: None)
 
     conf = Settings(

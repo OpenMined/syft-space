@@ -11,14 +11,21 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from syft_benchmark.control.app import ConsoleAuth, ConsoleGuard
 from syft_benchmark.control.compose import merge
-from syft_benchmark.control.schemas import ExclusionRequest, Instrument, Probe
+from syft_benchmark.control.schemas import (
+    ExclusionRequest,
+    Instrument,
+    PairResponse,
+    Probe,
+)
 from syft_benchmark.db import Job, Run, Target, session_scope
-from syft_benchmark.report import exclusions, run_questions, run_view
+from syft_benchmark.generation import decisions, list_pairs
+from syft_benchmark.generation.pairs import MAX_PAGE as PAIRS_MAX_PAGE
+from syft_benchmark.report import exclusions, filter_view, run_questions, run_view
 from syft_benchmark.report.run_document import build_summary, filename
 
 router = APIRouter(prefix="/console/report", tags=["results"])
@@ -72,8 +79,30 @@ def _start_of(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=UTC)
 
 
-def _summary(job: Job, run: dict[str, Any]) -> dict[str, Any]:
-    return {**run, "card_outdated": run_view.card_outdated(job.card, run)}
+def _summary(
+    job: Job,
+    run: dict[str, Any],
+    *,
+    build_only: bool = False,
+    build: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    summary = {
+        **run,
+        "card_outdated": run_view.card_outdated(job.card, run),
+        "build_only": build_only,
+        "state": job.state,
+    }
+    if build is not None:
+        summary["build"] = build
+    return summary
+
+
+def _has_runs(session: Session, job_ids: list[str]) -> set[str]:
+    if not job_ids:
+        return set()
+    return set(
+        session.scalars(select(Run.job_id).where(Run.job_id.in_(job_ids)).distinct())
+    )
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -121,7 +150,8 @@ def list_runs(
         where = [
             Job.target == auth.target_key,
             Job.state.not_in(run_view.ACTIVE_STATES),
-            exists().where(Run.job_id == Job.id),
+            # Build-only jobs too: they wrote or filtered questions.
+            or_(exists().where(Run.job_id == Job.id), filter_view.touched_by_job()),
         ]
         if date_from is not None:
             where.append(Job.created_at >= _start_of(date_from))
@@ -147,9 +177,20 @@ def list_runs(
         runs = run_view.summaries(
             session, jobs, configured=lambda: _panel(target, auth)
         )
+        ids = [job.id for job in jobs]
+        measured = _has_runs(session, ids)
+        built = filter_view.build_counts(session, auth.target_key, ids)
         return {
             "in_progress": in_progress,
-            "items": [_summary(job, runs[job.id]) for job in jobs],
+            "items": [
+                _summary(
+                    job,
+                    runs[job.id],
+                    build_only=job.id not in measured,
+                    build=built[job.id],
+                )
+                for job in jobs
+            ],
             "total": total,
         }
 
@@ -163,9 +204,79 @@ def get_run(job_id: str, auth: ConsoleGuard) -> dict[str, Any]:
         report = run_view.report_part(
             session, job, configured=lambda: _panel(target, auth)
         )
-        report["run"] = _summary(job, report["run"])
-        report["method"] = {**report["method"], "next_run_at": _iso(target.next_run_at)}
+        build_only = not _has_runs(session, [job.id])
+        report["run"] = _summary(
+            job,
+            report["run"],
+            build_only=build_only,
+            build=filter_view.build_counts(session, auth.target_key, [job.id])[job.id],
+        )
+        report["method"] = {
+            **report["method"],
+            "next_run_at": _iso(target.next_run_at),
+            **run_view.how_tested(job),
+        }
+        report["timing"] = run_view.timing_of(job)
         return report
+
+
+@router.get("/runs/{job_id}/generated")
+def list_run_generated(
+    job_id: str,
+    auth: ConsoleGuard,
+    generator: str | None = None,
+    status_value: Annotated[str | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=PAIRS_MAX_PAGE)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """The questions this job wrote, paged, and its build per kind."""
+    with session_scope(auth.settings) as session:
+        _target(session, auth)
+        kinds = run_view.generation_of(_job(session, auth, job_id))
+    items, total = list_pairs(
+        auth.target_key,
+        status=status_value,
+        generator=generator,
+        job=job_id,
+        limit=limit,
+        offset=offset,
+        settings=auth.settings,
+    )
+    return {
+        "kinds": kinds,
+        "items": [
+            PairResponse.model_validate(item).model_dump(mode="json") for item in items
+        ],
+        "total": total,
+    }
+
+
+@router.get("/runs/{job_id}/filter")
+def list_run_filter(
+    job_id: str,
+    auth: ConsoleGuard,
+    stage: str | None = None,
+    outcome: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=filter_view.MAX_PAGE)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """The job's filter decisions, including questions earlier jobs wrote."""
+    if stage is not None and stage not in decisions.STAGES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"stage must be one of {', '.join(decisions.STAGES)}",
+        )
+    if outcome is not None and outcome not in decisions.OUTCOMES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"outcome must be one of {', '.join(decisions.OUTCOMES)}",
+        )
+    with session_scope(auth.settings) as session:
+        _target(session, auth)
+        job = _job(session, auth, job_id)
+        return filter_view.job_filter(
+            session, job, stage=stage, outcome=outcome, limit=limit, offset=offset
+        )
 
 
 @router.get("/runs/{job_id}/questions")

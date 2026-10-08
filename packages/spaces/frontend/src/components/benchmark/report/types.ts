@@ -15,6 +15,7 @@ export interface SettingRow {
   key: string
   label: string
   value: string | null
+  tip?: string
 }
 
 export interface Held {

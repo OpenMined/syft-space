@@ -39,11 +39,13 @@ from syft_benchmark.db.models import Job, Run, Target
 from syft_benchmark.db.run_cache import invalidate_run
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation import filter_and_rotate
+from syft_benchmark.llm.cost import cost_meter, openrouter_spend
 from syft_benchmark.publish import payload_for, publish
 from syft_benchmark.report import run_view
 from syft_benchmark.report.card import build as build_card
 from syft_benchmark.runs import endpoint_retriever, judge_pending
 from syft_benchmark.runs.parallel import Progress
+from syft_benchmark.runs.timing import CallClock, JobClock, PassTime
 from syft_benchmark.scheduler import measure
 
 # How often the worker thread looks into the queue. A second is the delay
@@ -116,6 +118,14 @@ class Reporter:
         self.step_done = 0
         self.step_total = 0
         self._beat = 0.0
+        # Questions done / planned per pass; the passes run at the same time,
+        # and the job row shows their sum.
+        self._steps: dict[str, tuple[int, int]] = {}
+        # Where the time went, kept with the job when it ends.
+        self.clock = JobClock()
+        self.pass_times: list[PassTime] = []
+        self.calls: CallClock | None = None
+        self.concurrency: dict[str, int] | None = None
 
     # --- what the measurement calls ----------------------------------------
     def planned(self, passes: int) -> None:
@@ -123,31 +133,38 @@ class Reporter:
         self._write(force=True)
 
     def phase(self, phase: JobPhase, message: str = "") -> None:
+        self.clock.enter(phase.value)
         self._write(phase=phase, message=message, force=True)
 
     def pass_started(self, index: int, arm: str, block: str, model: str) -> None:
-        # The run has started, but how many questions it holds is not yet known:
-        # that comes out after the items are picked. A zero here means "still
-        # counting", not "nothing to ask", and until then there is nothing to
-        # draw a bar from.
+        # The pass that started last; the step counts span every pass.
         self.arm, self.block, self.model = arm, block, model
-        self.step_done = self.step_total = 0
         self._write(force=True)
 
     def pass_done(self, index: int, label: str) -> None:
-        self.passes = index
+        # Passes end in any order: this counts them.
+        self.passes += 1
         self.current = ""
         self._write(force=True)
 
     def watcher(self, label: str) -> Callable[[Progress], None]:
         def tick(progress: Progress) -> None:
-            self.step_done = progress.done
-            self.step_total = progress.total
+            self._steps[label] = (progress.done, progress.total)
+            self.step_done = sum(done for done, _ in self._steps.values())
+            self.step_total = sum(total for _, total in self._steps.values())
             self._write()
             if self.cancelled:
                 progress.stop("stopped by the owner")
 
         return tick
+
+    def timing(self) -> dict[str, Any]:
+        """The job's ``timing`` (report API, "Timing")."""
+        return self.clock.payload(
+            passes=self.pass_times,
+            calls=self.calls.stats() if self.calls is not None else [],
+            concurrency=self.concurrency,
+        )
 
     def stop_requested(self) -> bool:
         """Whether the owner has asked for this measurement to stop.
@@ -337,12 +354,30 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
             job.started_at = datetime.now(UTC)
             node_conf, space = settings_for(target, conf)
 
-        if kind == JobKind.FILTER.value:
-            _execute_filter(job_id, space, node_conf, params, base_settings=conf)
-        elif kind == JobKind.JUDGE.value:
-            _execute_judge(job_id, space, node_conf, params, base_settings=conf)
-        else:
-            _execute_pipeline(job_id, space, node_conf, params, base_settings=conf)
+        reporter = Reporter(job_id, conf)
+        reporter.concurrency = {
+            "model": node_conf.concurrency,
+            "endpoint": node_conf.endpoint_concurrency,
+        }
+        with cost_meter(job_id=job_id) as meter:
+            before = _spend(node_conf)
+            try:
+                if kind == JobKind.FILTER.value:
+                    _execute_filter(job_id, space, node_conf, params, reporter=reporter)
+                elif kind == JobKind.JUDGE.value:
+                    _execute_judge(job_id, space, node_conf, params, reporter=reporter)
+                else:
+                    _execute_pipeline(
+                        job_id,
+                        space,
+                        node_conf,
+                        params,
+                        base_settings=conf,
+                        reporter=reporter,
+                    )
+            finally:
+                _record_cost(job_id, before, _spend(node_conf), meter.total_usd, conf)
+                _record_timing(job_id, reporter, conf)
     except Exception as exc:  # noqa: BLE001 - the owner needs the cause, not a traceback
         logger.exception(f"job {job_id} failed")
         _finish(job_id, JobState.FAILED, error=str(exc), settings=settings)
@@ -355,6 +390,7 @@ def _execute_pipeline(
     params: dict[str, Any],
     *,
     base_settings: Settings,
+    reporter: Reporter | None = None,
 ) -> None:
     """The original, uninterrupted run: generate, filter, evaluate, the card.
 
@@ -379,7 +415,8 @@ def _execute_pipeline(
     # not happen and have no business existing for this one.
     want_evaluate = request.evaluate if request.evaluate is not None else True
 
-    reporter = Reporter(job_id, base_settings)
+    if reporter is None:
+        reporter = Reporter(job_id, base_settings)
     card_payload: dict[str, Any] | None = None
     done = measure(
         space,
@@ -392,6 +429,8 @@ def _execute_pipeline(
         observer=reporter,
         job_id=job_id,
     )
+    reporter.pass_times = done.pass_times
+    reporter.calls = done.clock
     failures = list(done.failures)
     # Outside `want_evaluate` on purpose: a launch that only refreshes the
     # question set can fail this way too.
@@ -456,12 +495,12 @@ def _execute_filter(
     node_conf: Settings,
     params: dict[str, Any],
     *,
-    base_settings: Settings,
+    reporter: Reporter,
 ) -> None:
     """Screen this target's pending pairs on their own — no fresh generate."""
+    base_settings = reporter.settings
     request = FilterRequest.model_validate(params)
     _snapshot_judging(job_id, node_conf, base_settings)
-    reporter = Reporter(job_id, base_settings)
     reporter.phase(JobPhase.FILTER)
     outcome = filter_and_rotate(
         space,
@@ -471,6 +510,7 @@ def _execute_filter(
         settings=node_conf,
         retrieve=endpoint_retriever(space, node_conf),
         should_stop=reporter.stop_requested,
+        job_id=job_id,
     )
     reporter.phase(JobPhase.FILTER, outcome.line())
     state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
@@ -492,12 +532,12 @@ def _execute_judge(
     node_conf: Settings,
     params: dict[str, Any],
     *,
-    base_settings: Settings,
+    reporter: Reporter,
 ) -> None:
     """Grade this target's pending verdicts on their own — no fresh evaluate."""
+    base_settings = reporter.settings
     request = JudgeRequest.model_validate(params)
     _snapshot_judging(job_id, node_conf, base_settings)
-    reporter = Reporter(job_id, base_settings)
     reporter.phase(JobPhase.JUDGE)
     outcome = judge_pending(
         space,
@@ -511,7 +551,56 @@ def _execute_judge(
     _finish(job_id, state, error="; ".join(outcome.notes), settings=base_settings)
 
 
-def _snapshot_judging(job_id: str, conf: Settings, settings: Settings) -> None:
+def _spend(conf: Settings) -> float | None:
+    """The OpenRouter keys' spend so far; None — not OpenRouter or unreadable."""
+    try:
+        return openrouter_spend(conf)
+    except Exception:  # noqa: BLE001 - the cost line is never worth a failed job
+        logger.exception("OpenRouter spend could not be read")
+        return None
+
+
+def _record_cost(
+    job_id: str,
+    before: float | None,
+    after: float | None,
+    calls_usd: float,
+    settings: Settings,
+) -> None:
+    """Keep what the job spent in its params (``run_view.COST``)."""
+    usd = (
+        round(max(0.0, after - before), 6)
+        if before is not None and after is not None
+        else None
+    )
+    cost = {
+        "spend_before": before,
+        "spend_after": after,
+        "usd": usd,
+        "usd_calls": round(calls_usd, 6),
+    }
+    try:
+        with session_scope(settings) as session:
+            job = session.get(Job, job_id)
+            if job is not None:
+                job.params = {**(job.params or {}), run_view.COST: cost}
+    except Exception:  # noqa: BLE001 - as above
+        logger.exception(f"job {job_id}: its cost was not recorded")
+
+
+def _record_timing(job_id: str, reporter: Reporter, settings: Settings) -> None:
+    """Keep where the job's time went in its params (``run_view.TIMING``)."""
+    try:
+        timing = reporter.timing()
+        with session_scope(settings) as session:
+            job = session.get(Job, job_id)
+            if job is not None:
+                job.params = {**(job.params or {}), run_view.TIMING: timing}
+    except Exception:  # noqa: BLE001 - the timing is never worth a failed job
+        logger.exception(f"job {job_id}: its timing was not recorded")
+
+
+def _snapshot_judging(job_id: str, conf: Settings, settings: Settings | None) -> None:
     """Keep the judge panel and policy the job runs with in its params."""
     with session_scope(settings) as session:
         job = session.get(Job, job_id)

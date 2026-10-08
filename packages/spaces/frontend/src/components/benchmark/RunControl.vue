@@ -29,7 +29,12 @@
     </Button>
   </section>
 
-  <div v-else-if="target && form" class="flex flex-col gap-6" data-testid="benchmark-setup">
+  <!-- The negative bottom margin eats the page's bottom padding, so the bar ends flush with the page. -->
+  <div
+    v-else-if="target && form"
+    class="-mb-10 flex flex-col gap-6 lg:-mb-12"
+    data-testid="benchmark-setup"
+  >
     <div class="space-y-0.5">
       <h1 class="text-xl font-semibold text-foreground">Benchmark setup</h1>
       <p class="max-w-[780px] text-sm text-muted-foreground">
@@ -617,6 +622,30 @@
             <Checkbox id="bm-web-judges" v-model="form.webJudges" />
             <span class="text-sm">On</span>
           </SettingRow>
+          <SettingRow
+            label="Judge temperature"
+            tip="Empty uses the model’s default."
+            for-id="bm-judge-temp"
+          >
+            <NumberInput
+              id="bm-judge-temp"
+              v-model="form.judgeTemperature"
+              :min="0"
+              :max="2"
+              :step="0.1"
+            />
+          </SettingRow>
+          <SettingRow
+            label="Judge reasoning"
+            tip="Less reasoning grades faster."
+            for-id="bm-judge-reasoning"
+          >
+            <ChoiceSelect
+              id="bm-judge-reasoning"
+              v-model="form.judgeReasoning"
+              :choices="JUDGE_REASONING"
+            />
+          </SettingRow>
         </template>
       </SetupStep>
 
@@ -840,6 +869,7 @@ import {
   DATASET_MODES,
   EXTRACTIVE_MODES,
   JUDGE_POLICIES,
+  JUDGE_REASONING,
   KINDS,
   MANUAL_PRIORITIES,
   MODEL_CONCURRENCY_MAX,

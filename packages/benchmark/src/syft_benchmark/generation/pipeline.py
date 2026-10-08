@@ -118,6 +118,52 @@ _PROGRESS_SECONDS = 0.5
 
 _SPACY_LOCK = threading.Lock()
 
+# Why a kind stopped writing.
+BUDGET_REACHED = "budget reached"
+OUT_OF_MATERIAL = "ran out of material"
+FAILURE_STREAK = "failure streak"
+CANCELLED = "cancelled"
+
+# Drop reasons the pipeline adds to the generators' own.
+DUPLICATE = "duplicate"
+OVER_BUDGET = "over budget"
+OVER_UNIT_LIMIT = "over the per-passage limit"
+
+
+@dataclass(slots=True)
+class KindStats:
+    """One kind's build: budget, what it read and wrote, what it dropped, why
+    it stopped. Updated only from the build's dispatching thread."""
+
+    kind: str
+    unit: str  # "passage" | "article"
+    budget: int = 0
+    written: int = 0
+    # Unread units in the window at the start, and how many were read.
+    units_available: int = 0
+    units_read: int = 0
+    # Units whose model call failed.
+    failed_units: int = 0
+    dropped: dict[str, int] = field(default_factory=dict)
+    stopped: str = ""
+
+    def drop(self, reason: str, count: int = 1) -> None:
+        if count > 0:
+            self.dropped[reason] = self.dropped.get(reason, 0) + count
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "unit": self.unit,
+            "budget": self.budget,
+            "written": self.written,
+            "units_available": self.units_available,
+            "units_read": self.units_read,
+            "failed_units": self.failed_units,
+            "dropped": dict(self.dropped),
+            "stopped": self.stopped,
+        }
+
 
 @dataclass(slots=True)
 class GenerationReport:
@@ -146,6 +192,11 @@ class GenerationReport:
     # recompute, and this stays None — which is not the same as "nothing
     # changed".
     rotation: RotationReport | None = None
+    # Per kind, in the order the kinds were asked for.
+    kinds: dict[str, KindStats] = field(default_factory=dict)
+
+    def kind_rows(self) -> list[dict[str, Any]]:
+        return [stats.as_dict() for stats in self.kinds.values()]
 
 
 def question_hash(question: str) -> str:
@@ -256,6 +307,9 @@ def _store(
         # Counted per generator: a total divided between them would simply
         # drop some skills out of the set.
         room = cap - report.by_generator.get(generator.key, 0)
+        stats = report.kinds.get(generator.key)
+        if stats is not None:
+            stats.drop(OVER_BUDGET, len(pairs) - max(room, 0))
         if room <= 0:
             return []
         pairs = pairs[:room]
@@ -300,6 +354,8 @@ def _store(
         except Exception as exc:  # noqa: BLE001 - duplicates caught after the fact, see the module docstring
             if "qa_pairs_unique" in str(exc):
                 report.duplicates += 1
+                if generator.key in report.kinds:
+                    report.kinds[generator.key].drop(DUPLICATE)
                 continue
             raise
 
@@ -308,6 +364,8 @@ def _store(
         report.by_generator[generator.key] = (
             report.by_generator.get(generator.key, 0) + 1
         )
+        if generator.key in report.kinds:
+            report.kinds[generator.key].written += 1
     return written
 
 
@@ -463,6 +521,7 @@ class _Queue:
     pos: int = 0
     streak: int = 0
     done: bool = False
+    gave_up: bool = False
 
 
 @dataclass(slots=True)
@@ -528,6 +587,24 @@ def _queues(
             _Queue(spec.key, (spec.key,), spec.key, spec.scope, units, per_unit, spec)
         )
     return queues
+
+
+def _settle_kinds(
+    report: GenerationReport, queues: Sequence[_Queue], cap: int, *, cancelled: bool
+) -> None:
+    """Why each kind stopped writing."""
+    queue_of = {key: queue for queue in queues for key in queue.keys}
+    for key, stats in report.kinds.items():
+        queue = queue_of.get(key)
+        left = queue is not None and queue.pos < len(queue.units)
+        if stats.written >= cap:
+            stats.stopped = BUDGET_REACHED
+        elif queue is not None and queue.gave_up:
+            stats.stopped = FAILURE_STREAK
+        elif cancelled and left:
+            stats.stopped = CANCELLED
+        else:
+            stats.stopped = OUT_OF_MATERIAL
 
 
 def _checked(screening: Screening, row: QaPair) -> None:
@@ -632,6 +709,12 @@ def generate_for_space(
     # not passages read, so a passage that yields less does not shrink the set.
     quota = (limit or conf.chunks_per_run) * conf.pairs_per_chunk
     cap = quota if per_generator is None else min(quota, per_generator)
+    for spec in specs:
+        report.kinds[spec.key] = KindStats(
+            kind=spec.key,
+            unit="article" if spec.scope == "document" else "passage",
+            budget=cap,
+        )
     # Units in a row that wrote nothing: failed calls, or answers all cleaned
     # away. Every passage in the window is eligible, so this is what stops a
     # kind that keeps paying for nothing.
@@ -684,6 +767,7 @@ def generate_for_space(
     collection_id = client.collection_id(name)
     if collection_id is None:
         report.notes.append(f'there is no collection "{name}"')
+        _settle_kinds(report, [], cap, cancelled=False)
         return report
 
     documents = load_documents(client, collection_id)
@@ -711,6 +795,10 @@ def generate_for_space(
 
     extractive = tuple(s.key for s in specs if s.key in EXTRACTIVE_KEYS)
     queues = _queues(space.key, specs, extractive, documents, cohort, conf, report)
+    for queue in queues:
+        for key in queue.keys:
+            if key in report.kinds:
+                report.kinds[key].units_available = len(queue.units)
 
     width = max(1, conf.concurrency)
     slots = model_slots(conf)
@@ -723,6 +811,7 @@ def generate_for_space(
             should_stop=latch,
             slots=slots,
             on_verdict=lambda: tell(),
+            job_id=job,
         )
         if screen
         else None
@@ -773,7 +862,11 @@ def generate_for_space(
                 good, bad = _masked_to_pairs(masked, whole)
                 # pairs_per_chunk on both paths: spaCy masks every entity it
                 # finds, and one dense passage would spend a kind's budget.
-                made[key] = (good[: conf.pairs_per_chunk], bad)
+                surplus = max(0, len(good) - conf.pairs_per_chunk)
+                made[key] = (
+                    good[: conf.pairs_per_chunk],
+                    bad + [OVER_UNIT_LIMIT] * surplus,
+                )
             return _Outcome(
                 pairs=made,
                 model=f"{path}:{conf.generator_model}",
@@ -791,9 +884,17 @@ def generate_for_space(
         )
 
     def settle(
-        queue: _Queue, doc: Document, chunk: Chunk | None, outcome: _Outcome
+        queue: _Queue,
+        doc: Document,
+        chunk: Chunk | None,
+        keys: tuple[str, ...],
+        outcome: _Outcome,
     ) -> None:
         """Store one unit's questions and hand them to the checks."""
+        for key in keys:
+            if key in report.kinds:
+                report.kinds[key].units_read += 1
+                report.kinds[key].failed_units += bool(outcome.error)
         if outcome.error:
             report.failures += 1
             queue.streak += 1
@@ -811,6 +912,9 @@ def generate_for_space(
         for key, (good, bad) in outcome.pairs.items():
             if bad:
                 report.notes.append(f"{key} {shown}: {reasons(bad)}")
+                if key in report.kinds:
+                    for why in bad:
+                        report.kinds[key].drop(why)
             rows = _store(
                 space,
                 doc,
@@ -857,6 +961,7 @@ def generate_for_space(
                             continue
                         if gave_up(queue.label, queue.streak):
                             queue.done = True
+                            queue.gave_up = True
                             continue
                         keys = wanted(queue)
                         if not keys:
@@ -883,13 +988,14 @@ def generate_for_space(
                     queue, doc, chunk, keys = running.pop(future)
                     for key in keys:
                         reserved[key] -= queue.per_unit
-                    settle(queue, doc, chunk, future.result())
+                    settle(queue, doc, chunk, keys, future.result())
     finally:
         if check_pool is not None:
             # Written questions are checked before the build reports; on a stop
             # the checks not started leave their questions pending.
             check_pool.shutdown(wait=True)
     tell(final=True)
+    _settle_kinds(report, queues, cap, cancelled=stopped)
     if screening is not None:
         report.screened = screening.summary()
 
@@ -933,6 +1039,7 @@ def filter_and_rotate(
     retrieve: Retriever | None = None,
     should_stop: Callable[[], bool] | None = None,
     rotate_anyway: bool = False,
+    job_id: str = "",
 ) -> FilterSummary:
     """Screen pending pairs, then reconcile the window, the cohort and the cap.
 
@@ -959,6 +1066,7 @@ def filter_and_rotate(
             pass off
         rotate_anyway: Recompute the set even when this pass changed nothing:
             after a build whose questions were checked as they were written
+        job_id: The job every filter decision is stamped with; empty — none
 
     Returns:
         What was screened, and what became of the window/cohort/cap once it
@@ -1000,6 +1108,7 @@ def filter_and_rotate(
         should_stop=should_stop,
         recheck_cohort=current if web_on else None,
         recheck_docs=in_window,
+        job_id=job_id,
     )
     rechecked = report.web is not None and report.web.rechecked > 0
     if (

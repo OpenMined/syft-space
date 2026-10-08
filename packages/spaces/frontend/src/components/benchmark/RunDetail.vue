@@ -25,9 +25,12 @@ import { computed, ref } from 'vue'
 import { ArrowLeft, Megaphone } from 'lucide-vue-next'
 
 import AnswerList from './AnswerList.vue'
+import FilterList from './FilterList.vue'
+import KindTable from './KindTable.vue'
 import CardCharts from './CardCharts.vue'
 import CardFigures from './CardFigures.vue'
 import PairList from './PairList.vue'
+import TimingTable from './TimingTable.vue'
 import VisibleAt from './VisibleAt.vue'
 import type { RunMarketplace } from './runs'
 import { Button } from '@/components/ui/button'
@@ -36,7 +39,10 @@ import type { BenchmarkCard, BenchmarkReport } from '@/api/types'
 
 const props = defineProps<{
   slug: string
-  card: BenchmarkCard | BenchmarkReport
+  /** Null for a job that asked no model: only its phases are shown. */
+  card: BenchmarkCard | BenchmarkReport | null
+  /** The launch, when the card does not name it. */
+  jobId?: string
   measured: string
   published: boolean
   marketplaces?: RunMarketplace[]
@@ -49,7 +55,7 @@ const props = defineProps<{
 const emit = defineEmits<{ back: []; publish: []; retract: [] }>()
 
 /** The launch behind this card; empty where the run belongs to none. */
-const job = computed(() => props.card.job ?? '')
+const job = computed(() => props.card?.job ?? props.jobId ?? '')
 
 const phase = ref('generate')
 
@@ -80,7 +86,7 @@ const TAB =
         <span class="text-muted-foreground font-normal">{{ measured }}</span>
       </h2>
 
-      <div class="ml-auto flex items-center gap-2 shrink-0">
+      <div v-if="card" class="ml-auto flex items-center gap-2 shrink-0">
         <VisibleAt v-if="published && marketplaces?.length" :marketplaces="marketplaces" />
         <span class="text-xs" :class="published ? 'text-primary' : 'text-muted-foreground'">
           {{ published ? 'Public' : 'Private' }}
@@ -107,17 +113,21 @@ const TAB =
       </div>
     </div>
 
-    <CardFigures :card="card" />
+    <template v-if="card">
+      <CardFigures :card="card" />
 
-    <CardCharts
-      :answerable="card.answerable"
-      :models="card.models"
-      :skills="card.skills"
-      :pressure="card.pressure"
-      :stability="card.stability"
-    />
+      <CardCharts
+        :answerable="card.answerable"
+        :models="card.models"
+        :skills="card.skills"
+        :pressure="card.pressure"
+        :stability="card.stability"
+      />
 
-    <hr class="border-border/60" />
+      <hr class="border-border/60" />
+    </template>
+
+    <TimingTable v-if="job" :slug="slug" :job="job" :refresh-key="refreshKey" />
 
     <p v-if="!job" class="text-xs text-muted-foreground">
       This run belongs to no launch the benchmark can name, so there is nothing to show phase by
@@ -136,12 +146,13 @@ const TAB =
       <!-- What this launch built, screened ones included: a rejected question
            is part of what generation did, and taking it out of the list would
            leave the owner unable to put it back. -->
-      <TabsContent value="generate" class="pt-4 mt-0">
+      <TabsContent value="generate" class="pt-4 mt-0 space-y-3">
+        <KindTable :slug="slug" :job="job" :refresh-key="refreshKey" />
         <PairList :slug="slug" :job="job" :refresh-key="refreshKey" :generators="generators" />
       </TabsContent>
 
       <TabsContent value="filter" class="pt-4 mt-0">
-        <p class="text-xs text-muted-foreground">Nothing here yet.</p>
+        <FilterList :slug="slug" :job="job" :refresh-key="refreshKey" />
       </TabsContent>
 
       <!-- One tab, because an answer and the verdicts on it are one fact:

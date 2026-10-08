@@ -799,6 +799,14 @@ class BenchmarkHandler:
         path = f"/console/report/runs/{_seg(job_id)}/questions"
         return _console_dict(await console.raw("GET", path, params=query))
 
+    async def list_run_part(
+        self, tenant: Tenant, slug: str, job_id: str, part: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        """A run's ``generated`` or ``filter`` list, passed through."""
+        _, console = await self._report_console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/{part}"
+        return _console_dict(await console.raw("GET", path, params=query))
+
     async def get_run_question(
         self, tenant: Tenant, slug: str, job_id: str, qa_id: str, query: dict[str, Any]
     ) -> dict[str, Any]:

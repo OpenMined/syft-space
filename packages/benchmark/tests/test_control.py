@@ -455,6 +455,8 @@ def test_the_field_catalogue_carries_no_prose() -> None:
         # The name of a list too long to inline, not a word to show anybody.
         "catalog",
         "item_type",
+        # A value code a number field also takes ("default"), not prose.
+        "special",
         "minimum",
         "maximum",
         "exclusiveMinimum",

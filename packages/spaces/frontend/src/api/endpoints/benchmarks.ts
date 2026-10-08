@@ -3,6 +3,10 @@ import type {
   BenchmarkCheck,
   BenchmarkConnection,
   BenchmarkConnectionRequest,
+  BenchmarkFilterOutcome,
+  BenchmarkFilterPage,
+  BenchmarkFilterStage,
+  BenchmarkGeneratedPage,
   BenchmarkJob,
   BenchmarkModelCatalog,
   BenchmarkPair,
@@ -319,6 +323,31 @@ export const benchmarksApi = {
 
   getRunReport: async (slug: string, jobId: string): Promise<BenchmarkRunReport> => {
     const response = await apiClient.get(reportPath(slug, jobId))
+    return response.data
+  },
+
+  /** Questions a job wrote, with how each kind's generation went. */
+  getRunGenerated: async (
+    slug: string,
+    jobId: string,
+    params: { generator?: string; status?: string; limit?: number; offset?: number } = {},
+  ): Promise<BenchmarkGeneratedPage> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/generated`, { params })
+    return response.data
+  },
+
+  /** A job's filter decisions, newest first. */
+  listRunFilter: async (
+    slug: string,
+    jobId: string,
+    params: {
+      stage?: BenchmarkFilterStage
+      outcome?: BenchmarkFilterOutcome
+      limit?: number
+      offset?: number
+    } = {},
+  ): Promise<BenchmarkFilterPage> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/filter`, { params })
     return response.data
   },
 

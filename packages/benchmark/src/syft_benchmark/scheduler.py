@@ -12,6 +12,7 @@ One Space failing does not stop the rest: the node may simply have been rebootin
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -22,6 +23,8 @@ from typing import Protocol
 from loguru import logger
 
 from syft_benchmark.config import (
+    ContextMode,
+    EvalBlock,
     JobPhase,
     Settings,
     SpaceConfig,
@@ -43,15 +46,18 @@ from syft_benchmark.publish import publish
 from syft_benchmark.report import Metrics, build_docx, render_markdown, summarize
 from syft_benchmark.report.card import build as build_card
 from syft_benchmark.report.metrics import latest_measuring_job
+from syft_benchmark.report.run_view import record_generation
 from syft_benchmark.runs import (
     MODEL_ARMS,
     Progress,
     RunCache,
+    arun_pass,
     endpoint_retriever,
     evaluation_gate,
-    run_pass,
 )
 from syft_benchmark.runs.blocks import monte_carlo_skip_note, skips_monte_carlo
+from syft_benchmark.runs.parallel import Launch, Pool
+from syft_benchmark.runs.timing import CallClock, PassTime
 
 REPORTS_DIR = Path("reports")
 
@@ -100,6 +106,14 @@ class Measured:
     # of the owner.
     generated_nothing: bool = False
     generation_failure_sample: str = ""
+
+    # The names the provider refused outright. On the rig one misspelt model
+    # name went through every pass of every arm and came back eighteen minutes
+    # later with nothing to show.
+    refused: set[str] = field(default_factory=set)
+    # Where the evaluation's time went: per pass, and per model call.
+    pass_times: list[PassTime] = field(default_factory=list)
+    clock: CallClock = field(default_factory=CallClock)
 
     @property
     def measured_nothing(self) -> bool:
@@ -242,18 +256,6 @@ def measure(
     subjects = subject_providers(conf)
     judges = judge_providers(conf)
 
-    # The names the provider refused outright. A refusal is about the name, the
-    # key or the money, and no later pass changes any of those — but each pass
-    # asked in that name costs a whole set of questions and the time to ask
-    # them. On the rig one misspelt model name went through every pass of every
-    # arm and came back eighteen minutes later with nothing to show.
-    #
-    # The failure streak inside a pass cannot stand in for this. It counts
-    # within one pass and starts again at the next, and a trial run's pass is
-    # shorter than the threshold it counts to — so on the very run meant to be
-    # a quick probe the streak never fires at all.
-    refused: set[str] = set()
-
     # Generation goes first: the runs have to go over a fresh dataset. It is
     # switched off by a setting — for example when the corpus is closed to the
     # generator and the dataset is filled separately.
@@ -298,6 +300,9 @@ def measure(
                 retrieve=retrieve,
             )
             streamed = getattr(made, "screened", None)
+            kind_rows = getattr(made, "kind_rows", None)
+            if job_id and kind_rows is not None:
+                record_generation(job_id, kind_rows(), conf)
             # Nothing built AND something refused: nothing built on its own
             # means no new chunks since the last pass.
             out.generated_nothing = bool(made.failures) and made.pairs_made == 0
@@ -327,6 +332,7 @@ def measure(
                 retrieve=retrieve,
                 should_stop=observer.stop_requested if observer else None,
                 rotate_anyway=generate_effective,
+                job_id=job_id or "",
             )
             if streamed is not None:
                 filtered.absorb(streamed)
@@ -360,117 +366,187 @@ def measure(
         observer.planned(_plan(conf, subjects))
         observer.phase(JobPhase.EVALUATE)
 
+    specs: list[tuple[ContextMode, EvalBlock, Provider | None]] = []
     for block in conf.blocks:
-        # A first: it is the cheapest and discovers an unreachable model before
-        # the long part.
         for mode in conf.arms:
             for subject in subjects if mode in MODEL_ARMS else [None]:
-                if subject is not None and subject.model in refused:
-                    continue
                 if skips_monte_carlo(block, subject, conf):
                     assert subject is not None
                     note = monte_carlo_skip_note(subject.model)
                     if note not in out.notes:
                         out.notes.append(note)
                     continue
-                # A judge the provider refused is stood down the same way. The
-                # panel is shared by every pass, so one refused judge must not
-                # end the measurement while the others can still grade.
-                panel = [seat for seat in judges if seat.model not in refused]
-                if judges and not panel:
-                    out.failures.append(
-                        f"{space.key}: the provider refused every judge — "
-                        f"an answer nobody can grade is not worth asking for"
-                    )
-                    return out
+                specs.append((mode, block, subject))
 
-                # Where the decision to carry on is actually taken. Progress
-                # stops a run from within, one question at a time, and that is
-                # the right grain for "this answerer is not answering" — a run
-                # so stopped is followed by the next one, which is fresh and
-                # knows nothing, and only a refusal is carried across by the
-                # set above. Asked here, before the pass exists at all, a
-                # cancellation costs nothing further: no questions are
-                # dispatched, so none are paid for.
-                if observer is not None and observer.stop_requested():
-                    return out
-
-                label = f"{space.key}/{mode.value}/{block.value}"
-                if subject is not None:
-                    label += f" [{subject.model}]"
-                out.passes += 1
-                if observer is not None:
-                    observer.pass_started(
-                        out.passes,
-                        mode.value,
-                        block.value,
-                        subject.model if subject else "",
-                    )
-                try:
-                    # The panel is handled inside the run: the answerer is asked
-                    # once and assessed by all the judges.
-                    outcomes = run_pass(
+    # Every pass runs at once, under the one model lane and the one endpoint
+    # lane: one pass at a time left the lanes idle through each pass's slow
+    # tail. The cache makes the passes of one question share their calls.
+    async def evaluate_all() -> None:
+        pool = Pool(conf, clock=out.clock)
+        launch = Launch(
+            conf, halt=observer.stop_requested if observer is not None else None
+        )
+        try:
+            ran = await asyncio.gather(
+                *(
+                    _one_pass(
                         space,
-                        mode,
-                        limit=limit,
-                        settings=conf,
-                        subject=subject,
-                        block=block,
-                        judges=panel,
-                        cache=shared,
-                        resume=resume or conf.resume,
-                        defer_judging=defer_judging,
-                        watch=observer.watcher(label) if observer else None,
-                        job_id=job_id,
-                    )
-                except Exception as exc:  # noqa: BLE001 - the node may have rebooted
-                    out.failures.append(f"{label}: {exc}")
-                    logger.warning(f"{label} failed: {exc}")
-                    if observer is not None:
-                        observer.pass_done(out.passes, label)
-                    continue
-
-                for outcome in outcomes:
-                    out.asked += outcome.asked
-                    out.graded += outcome.graded
-                    out.failed += outcome.failed
-                    out.resumed += outcome.resumed
-                    if not out.failure_sample and outcome.failure_sample:
-                        out.failure_sample = outcome.failure_sample
-                    if outcome.refused and outcome.refused not in refused:
-                        refused.add(outcome.refused)
-                        out.failures.append(
-                            f"{space.key}: the provider refused "
-                            f"{outcome.refused} outright, and the passes still "
-                            f"to come in that name were not asked"
-                        )
-                        logger.warning(
-                            f"{label}: {outcome.refused} was refused outright — "
-                            f"its remaining passes are skipped"
-                        )
-                    logger.info(
-                        f"{label}/{outcome.judge}: asked {outcome.asked}, "
-                        f"correct {outcome.correct}, abstentions {outcome.abstain}, "
-                        f"hallucinations {outcome.hallucinate}"
-                        + (
-                            f", from the previous attempt {outcome.resumed}"
-                            if outcome.resumed
-                            else ""
-                        )
-                    )
-                    metrics = summarize(
-                        space.key,
+                        conf,
                         mode,
                         block,
-                        subject.model if subject else None,
-                        outcome.judge,
+                        subject,
+                        judges=judges,
+                        out=out,
+                        pool=pool,
+                        launch=launch,
+                        cache=shared,
+                        limit=limit,
+                        resume=resume,
+                        defer_judging=defer_judging,
+                        observer=observer,
+                        job_id=job_id,
                     )
-                    if metrics is not None:
-                        out.metrics.append(metrics)
-                if observer is not None:
-                    observer.pass_done(out.passes, label)
+                    for mode, block, subject in specs
+                )
+            )
+            out.pass_times = [timed for timed in ran if timed is not None]
+        finally:
+            pool.close()
 
+    if specs:
+        asyncio.run(evaluate_all())
     return out
+
+
+async def _one_pass(
+    space: SpaceConfig,
+    conf: Settings,
+    mode: ContextMode,
+    block: EvalBlock,
+    subject: Provider | None,
+    *,
+    judges: list[Provider],
+    out: Measured,
+    pool: Pool,
+    launch: Launch,
+    cache: RunCache,
+    limit: int | None,
+    resume: bool,
+    defer_judging: bool,
+    observer: Observer | None,
+    job_id: str | None,
+) -> PassTime | None:
+    """One pass of the launch, alongside the others; None — not started."""
+    # A name the provider refused outright is not asked in passes still to
+    # come. A refusal is about the name, the key or the money, and no later
+    # pass changes any of those — but each pass asked in that name costs a
+    # whole set of questions and the time to ask them.
+    if subject is not None and subject.model in launch.refused:
+        return None
+    # A judge the provider refused is stood down the same way. The panel is
+    # shared by every pass, so one refused judge must not end the measurement
+    # while the others can still grade.
+    panel = [seat for seat in judges if seat.model not in launch.refused]
+    if judges and not panel:
+        failure = (
+            f"{space.key}: the provider refused every judge — "
+            f"an answer nobody can grade is not worth asking for"
+        )
+        if failure not in out.failures:
+            out.failures.append(failure)
+        return None
+
+    # Asked before the pass exists at all, a cancellation costs nothing
+    # further: no questions are dispatched, so none are paid for.
+    if observer is not None and observer.stop_requested():
+        return None
+
+    label = f"{space.key}/{mode.value}/{block.value}"
+    if subject is not None:
+        label += f" [{subject.model}]"
+    out.passes += 1
+    index = out.passes
+    if observer is not None:
+        observer.pass_started(
+            index, mode.value, block.value, subject.model if subject else ""
+        )
+    timed = PassTime(
+        arm=mode.value, block=block.value, model=subject.model if subject else ""
+    )
+    started = time.monotonic()
+    try:
+        # The panel is handled inside the run: the answerer is asked once and
+        # assessed by all the judges.
+        outcomes = await arun_pass(
+            space,
+            mode,
+            pool=pool,
+            cache=cache,
+            limit=limit,
+            settings=conf,
+            subject=subject,
+            block=block,
+            judges=panel,
+            resume=resume or conf.resume,
+            defer_judging=defer_judging,
+            watch=observer.watcher(label) if observer else None,
+            job_id=job_id,
+            launch=launch,
+        )
+    except Exception as exc:  # noqa: BLE001 - the node may have rebooted
+        out.failures.append(f"{label}: {exc}")
+        logger.warning(f"{label} failed: {exc}")
+        timed.seconds = time.monotonic() - started
+        timed.stopped = str(exc)[:200]
+        if observer is not None:
+            observer.pass_done(index, label)
+        return timed
+    timed.seconds = time.monotonic() - started
+
+    for outcome in outcomes:
+        timed.questions = max(timed.questions, outcome.asked)
+        if outcome.stopped and not timed.stopped:
+            timed.stopped = outcome.stopped
+        out.asked += outcome.asked
+        out.graded += outcome.graded
+        out.failed += outcome.failed
+        out.resumed += outcome.resumed
+        if not out.failure_sample and outcome.failure_sample:
+            out.failure_sample = outcome.failure_sample
+        if outcome.refused and outcome.refused not in out.refused:
+            out.refused.add(outcome.refused)
+            launch.refused.add(outcome.refused)
+            out.failures.append(
+                f"{space.key}: the provider refused "
+                f"{outcome.refused} outright, and the passes still "
+                f"to come in that name were not asked"
+            )
+            logger.warning(
+                f"{label}: {outcome.refused} was refused outright — "
+                f"its remaining passes are skipped"
+            )
+        logger.info(
+            f"{label}/{outcome.judge}: asked {outcome.asked}, "
+            f"correct {outcome.correct}, abstentions {outcome.abstain}, "
+            f"hallucinations {outcome.hallucinate}"
+            + (
+                f", from the previous attempt {outcome.resumed}"
+                if outcome.resumed
+                else ""
+            )
+        )
+        metrics = summarize(
+            space.key,
+            mode,
+            block,
+            subject.model if subject else None,
+            outcome.judge,
+        )
+        if metrics is not None:
+            out.metrics.append(metrics)
+    if observer is not None:
+        observer.pass_done(index, label)
+    return timed
 
 
 def parse_interval(text: str) -> float:

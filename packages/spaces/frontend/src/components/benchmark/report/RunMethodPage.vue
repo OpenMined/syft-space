@@ -17,7 +17,10 @@
             class="flex items-start gap-4 border-b border-border px-4 py-3 last:border-b-0"
             :data-testid="`setting-${row.key}`"
           >
-            <dt class="w-32 shrink-0 font-semibold sm:w-[14.375rem]">{{ row.label }}</dt>
+            <dt class="flex w-32 shrink-0 items-center gap-1.5 font-semibold sm:w-[14.375rem]">
+              {{ row.label }}
+              <InfoTip v-if="row.tip" :text="row.tip" />
+            </dt>
             <dd class="min-w-0 flex-1 text-muted-foreground">{{ row.value ?? DASH }}</dd>
           </div>
         </dl>
@@ -128,6 +131,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Badge } from '@/components/ui/badge'
+import InfoTip from '../InfoTip.vue'
 import { useRun } from './context'
 import { count, DASH, dayTime } from './figures'
 import { kindDescription, kindLabel, verdictLabel, verdictTone } from './labels'

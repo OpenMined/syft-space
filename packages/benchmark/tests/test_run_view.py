@@ -908,13 +908,25 @@ def test_a_launch_keeps_the_judging_it_ran_with(
             )
         jobs.execute(job_id)
     with session_scope() as session:
-        for job_id, _, params, panel in launches:
+        for job_id, kind, params, panel in launches:
             row = session.get(Job, job_id)
             assert row is not None and row.state == JobState.SUCCEEDED.value, row
             policy = row.params.pop("judge_policy")
             assert policy in {p.value for p in JudgePolicy}
             assert row.params.pop("web_check_model") == ""
+            assert row.params.pop("web_check_judge") == ""
+            assert row.params.pop("cost")["usd"] is None
             assert row.params.pop("manual_status_priority") == "filter"
+            timing = row.params.pop("timing")
+            assert set(timing) == {
+                "total_s",
+                "phases",
+                "passes",
+                "calls",
+                "concurrency",
+            }
+            if kind == "judge":
+                assert [p["phase"] for p in timing["phases"]] == ["judge"]
             assert row.params == {**params, "judge_panel": panel}
 
 
@@ -935,3 +947,37 @@ def test_the_summary_document(client: TestClient, clean: Any) -> None:
         body = docx.read("word/document.xml").decode()
     assert M1 in body and "+100 pts" in body
     assert "SECRET QUESTION TEXT" not in body
+
+
+def test_the_run_carries_its_timing(client: TestClient, clean: Any) -> None:
+    auth = _console(client)
+    timing = {
+        "total_s": 12.5,
+        "phases": [{"phase": "evaluate", "s": 12.0}],
+        "passes": [
+            {
+                "arm": "closed_book",
+                "block": "direct",
+                "model": M1,
+                "s": 11.0,
+                "questions": 1,
+                "stopped": "",
+            }
+        ],
+        "calls": [],
+        "concurrency": {"model": 16, "endpoint": 2},
+    }
+    seed = Seed()
+    seed.pair("q1")
+    seed.answer("q1", M1, "alone", "correct")
+    seed.save(params={"timing": timing})
+    assert _report(client, auth)["timing"] == timing
+
+
+def test_an_older_run_has_no_timing(client: TestClient, clean: Any) -> None:
+    auth = _console(client)
+    seed = Seed()
+    seed.pair("q1")
+    seed.answer("q1", M1, "alone", "correct")
+    seed.save()
+    assert _report(client, auth)["timing"] is None

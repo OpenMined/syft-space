@@ -56,6 +56,7 @@ from sqlalchemy import cast as sa_cast
 from sqlalchemy.dialects.postgresql import JSONB
 
 from syft_benchmark.config import (
+    DatasetMode,
     PairStatus,
     Settings,
     SpaceConfig,
@@ -64,6 +65,8 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
+from syft_benchmark.generation import cohort as cohorts
+from syft_benchmark.generation import decisions
 from syft_benchmark.generation.control import Retriever, gate_unanswerable
 from syft_benchmark.generation.generators import GENERATORS, Generator
 from syft_benchmark.generation.rotation import OVER_CAP_NOTE, RotationReport
@@ -211,8 +214,11 @@ class Screening:
         should_stop: Callable[[], bool] | None = None,
         slots: ModelSlots | None = None,
         on_verdict: Callable[[], None] | None = None,
+        job_id: str = "",
     ) -> None:
         self.conf = conf
+        # Every decision is stamped with this job (meta.screening); empty — none.
+        self.job_id = job_id
         self.on_verdict = on_verdict
         self.report = FilterSummary(space=space)
         # The control gate's judge (Judge 1). The web check picks its own.
@@ -229,6 +235,37 @@ class Screening:
         self._lock = threading.Lock()
 
     # --- verdicts ------------------------------------------------------------
+    def _decision(
+        self,
+        row: QaPair,
+        stage: str,
+        outcome: str,
+        note: str,
+        reason: StatusReason | None = None,
+        web: Any = None,
+    ) -> dict[str, Any]:
+        """The ``meta.screening`` update for one decision; empty without a job."""
+        if not self.job_id:
+            return {}
+        return decisions.stamped(
+            row.meta,
+            decisions.record(
+                job_id=self.job_id,
+                stage=stage,
+                outcome=outcome,
+                note=note,
+                reason=reason.value if reason else None,
+                web=web if isinstance(web, dict) else None,
+            ),
+        )
+
+    def _web_meta(self, verdict: WebVerdict) -> dict[str, Any]:
+        """The verdict's meta, its web check record stamped with the job."""
+        web = verdict.meta.get("web_check")
+        if not self.job_id or not isinstance(web, dict):
+            return dict(verdict.meta)
+        return {**verdict.meta, "web_check": {**web, "job_id": self.job_id}}
+
     def _write(
         self,
         row: QaPair,
@@ -236,7 +273,11 @@ class Screening:
         reason: StatusReason | None,
         note: str,
         meta: dict[str, Any],
+        stage: str = decisions.GROUNDING,
     ) -> None:
+        outcome = decisions.KEPT if status is PairStatus.ACTIVE else decisions.REMOVED
+        web = meta.get("web_check") if stage == decisions.WEB_CHECK else None
+        meta = {**meta, **self._decision(row, stage, outcome, note, reason, web)}
         with session_scope(self.conf) as session:
             session.execute(
                 update(QaPair)
@@ -260,21 +301,34 @@ class Screening:
         if self.on_verdict is not None:
             self.on_verdict()
 
+    def _web_note(
+        self, row: QaPair, verdict: WebVerdict, outcome: str
+    ) -> dict[str, Any]:
+        """The pair's meta with the web check record and its stamp."""
+        web = self._web_meta(verdict)
+        stamp = self._decision(
+            row, decisions.WEB_CHECK, outcome, verdict.note, web=web.get("web_check")
+        )
+        return {**row.meta, **web, **stamp}
+
     def _note_pending(self, row: QaPair, verdict: WebVerdict) -> None:
+        meta = self._web_note(row, verdict, decisions.FAILED)
         with session_scope(self.conf) as session:
             session.execute(
                 update(QaPair)
                 .where(QaPair.id == row.id, QaPair.status == PairStatus.PENDING.value)
-                .values(status_note=verdict.note, meta={**row.meta, **verdict.meta})
+                .values(status_note=verdict.note, meta=meta)
             )
 
     def _note_in_set(self, row: QaPair, verdict: WebVerdict) -> None:
         # Status and note stay; the set cap reads the verdict from meta.
+        outcome = decisions.FAILED if verdict.answerable is None else decisions.KEPT
+        meta = self._web_note(row, verdict, outcome)
         with session_scope(self.conf) as session:
             session.execute(
                 update(QaPair)
                 .where(QaPair.id == row.id, QaPair.status == row.status)
-                .values(meta={**row.meta, **verdict.meta})
+                .values(meta=meta)
             )
 
     def stopped(self) -> bool:
@@ -321,7 +375,7 @@ class Screening:
                 )
             if self.web_on:
                 meta = {**meta, "web_check": {"skipped": CONTROL_NOTE}}
-            self._write(row, status, reason, note, meta)
+            self._write(row, status, reason, note, meta, decisions.CONTROL)
             return
 
         status, reason, note, meta = _screen_pair(
@@ -339,6 +393,7 @@ class Screening:
                 StatusReason.OTHER,
                 excluded,
                 {**meta, "web_check": {"skipped": excluded}},
+                decisions.WEB_CHECK,
             )
             return
         if skips_manual(row, self.conf):
@@ -356,10 +411,18 @@ class Screening:
                 PairStatus.REJECTED,
                 StatusReason.WEB_ANSWERABLE,
                 WEB_ANSWERABLE,
-                {**meta, **verdict.meta},
+                {**meta, **self._web_meta(verdict)},
+                decisions.WEB_CHECK,
             )
         else:
-            self._write(row, PairStatus.ACTIVE, None, note, {**meta, **verdict.meta})
+            self._write(
+                row,
+                PairStatus.ACTIVE,
+                None,
+                note,
+                {**meta, **self._web_meta(verdict)},
+                decisions.WEB_CHECK,
+            )
 
     def recheck(self, row: QaPair) -> None:
         """One pair already in the set, put to the web check."""
@@ -376,7 +439,8 @@ class Screening:
                 PairStatus.REJECTED,
                 StatusReason.WEB_ANSWERABLE,
                 WEB_ANSWERABLE,
-                verdict.meta,
+                self._web_meta(verdict),
+                decisions.WEB_CHECK,
             )
         else:
             self._note_in_set(row, verdict)
@@ -436,6 +500,7 @@ def filter_pending(
     should_stop: Callable[[], bool] | None = None,
     recheck_cohort: str | None = None,
     recheck_docs: Collection[str] | None = None,
+    job_id: str = "",
 ) -> FilterSummary:
     """Screen this node's pending pairs, deciding active or rejected.
 
@@ -454,6 +519,7 @@ def filter_pending(
             verdict from the current ``filter_model``; None — none of them
         recheck_docs: Limit those to pairs from these documents (the window);
             None — no limit
+        job_id: The job every decision is stamped with; empty — none
 
     Returns:
         A summary of what was screened and how it came out
@@ -467,13 +533,23 @@ def filter_pending(
     decides.
     """
     conf = settings or get_settings()
-    screening = Screening(space.key, conf, retrieve=retrieve, should_stop=should_stop)
-    width = max(1, conf.concurrency)
-    _run_all(
-        screening.screen,
-        _pending_rows(space.key, conf, generator, cohort, limit),
-        width,
+    screening = Screening(
+        space.key, conf, retrieve=retrieve, should_stop=should_stop, job_id=job_id
     )
+    width = max(1, conf.concurrency)
+    rows = _pending_rows(space.key, conf, generator, cohort, limit)
+    if conf.dataset_mode is DatasetMode.REBUILD and cohort is None:
+        # A rebuild measures only the current cohort: an older cohort's pending
+        # leftover screened active would be retired at once, its checks paid
+        # for nothing. It stays pending.
+        current = cohorts.current(space.key, conf)
+        left = sum(1 for row in rows if (row.cohort or "") != current)
+        if left:
+            rows = [row for row in rows if (row.cohort or "") == current]
+            screening.report.notes.append(
+                f"{left} pending from older cohorts not screened"
+            )
+    _run_all(screening.screen, rows, width)
 
     if screening.web_on and recheck_cohort is not None and not screening.stopped():
         recheck = _unchecked_in_set(

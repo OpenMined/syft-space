@@ -62,10 +62,12 @@ from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.runs.blocks import (
     DenialOutcome,
     MonteCarloOutcome,
+    monte_carlo_plan,
     monte_carlo_skip_note,
+    monte_carlo_trial,
     run_denial_loop,
-    run_monte_carlo,
     skips_monte_carlo,
+    tally_monte_carlo,
 )
 from syft_benchmark.runs.endpoint import (
     RETRIEVAL_ONLY_TOKENS,
@@ -83,11 +85,12 @@ from syft_benchmark.runs.judge import (
     grade_key_facts,
     is_error,
 )
-from syft_benchmark.runs.parallel import Pool, Progress, RunCache
+from syft_benchmark.runs.parallel import Launch, Pool, Progress, RunCache
 from syft_benchmark.runs.questionset import apply as apply_slice
 from syft_benchmark.runs.questionset import load as load_slice
 from syft_benchmark.runs.resume import done_units, window_start
 from syft_benchmark.runs.textmetrics import applies_to, score_text
+from syft_benchmark.runs.timing import ANSWER, JUDGE
 
 # The arms in which a model under test answers. Every measured arm does.
 MODEL_ARMS = (ContextMode.CLOSED_BOOK, ContextMode.MODEL_WITH_CONTEXT)
@@ -166,6 +169,8 @@ class RunReport:
     # enough: when nothing was graded at all, they are all the same failure.
     failure_sample: str = ""
     notes: list[str] = field(default_factory=list)
+    # Why the pass ended before its last question; empty — it did not.
+    stopped: str = ""
 
     @property
     def graded(self) -> int:
@@ -888,11 +893,13 @@ class _Pass:
     pool: Pool
     cache: RunCache
     progress: Progress
-    # How many questions to keep in work at once. Separate from the pool lanes: the
-    # lanes count calls, and this one counts questions, and "is it time to stop" can
-    # only be checked here. The coroutines of all the questions are created at once,
-    # and a check before the queue would pass for all of them before the first failure.
-    units: asyncio.Semaphore
+    # What the passes running at the same time share: ``launch.units`` is how many
+    # questions to keep in work at once over all of them. Separate from the pool
+    # lanes: the lanes count calls, and this one counts questions, and "is it time
+    # to stop" can only be checked here. The coroutines of all the questions are
+    # created at once, and a check before the queue would pass for all of them
+    # before the first failure.
+    launch: Launch
     # Per judge — the questions it already has a usable verdict for. The cut by judge
     # is mandatory: a run gets interrupted in the middle of a panel, and "the question
     # is done" would take away from the second judge work it never did.
@@ -924,7 +931,7 @@ async def _verdict_for(pair: QaPair, asked: Asked, seat: Provider, ctx: _Pass) -
     if grading == "key_facts":
         facts = [str(f) for f in (pair.meta or {}).get("key_facts", [])]
         return await ctx.pool.to_model(
-            grade_key_facts,
+            _timed_judge(ctx, seat, grade_key_facts),
             asked.answer,
             facts,
             settings=ctx.settings,
@@ -932,7 +939,7 @@ async def _verdict_for(pair: QaPair, asked: Asked, seat: Provider, ctx: _Pass) -
             defer=ctx.defer,
         )
     return await ctx.pool.to_model(
-        grade,
+        _timed_judge(ctx, seat, grade),
         pair.question,
         pair.answer,
         asked.answer,
@@ -940,6 +947,23 @@ async def _verdict_for(pair: QaPair, asked: Asked, seat: Provider, ctx: _Pass) -
         settings=ctx.settings,
         judge=seat,
         defer=ctx.defer,
+    )
+
+
+def _called_judge(verdict: Grade) -> bool:
+    """A judge model was called for this verdict (not a letter match, not deferred)."""
+    return bool(verdict.judge_user) and verdict.verdict is not Verdict.PENDING
+
+
+def _timed_judge(
+    ctx: _Pass, seat: Provider, fn: Callable[..., Grade]
+) -> Callable[..., Grade]:
+    return ctx.pool.clock.timed(
+        seat.model,
+        JUDGE,
+        fn,
+        failed=lambda verdict: verdict.failed,
+        counted=_called_judge,
     )
 
 
@@ -966,6 +990,7 @@ async def _under_pressure(
         first_prompt=asked.user,
         web_search=searching,
         web_search_engine=engine or "auto",
+        record=ctx.pool.clock.record,
     )
 
 
@@ -980,6 +1005,9 @@ async def _repeated(
 
     Past the cache deliberately: the repeats exist for the spread, and their
     temperature is not zero — the answers are not obliged to match.
+
+    The repeats are independent and go side by side, each taking a model lane
+    for its answer and its grade; the outcome keeps the plan order.
     """
     asker: Callable[[str, float], str]
     subject = _subject_of(ctx.subject)
@@ -993,20 +1021,32 @@ async def _repeated(
     else:
         asker = partial(_ask_model, provider=subject, settings=ctx.settings)
 
-    return await ctx.pool.to_model(
-        run_monte_carlo,
-        pair.question,
-        pair.answer,
-        ask=asker,
-        settings=ctx.settings,
-        is_mcq=pair.task_type == "choice",
-        judge=seat,
+    clock = ctx.pool.clock
+    trials = await asyncio.gather(
+        *(
+            ctx.pool.to_model(
+                monte_carlo_trial,
+                pair.question,
+                pair.answer,
+                temperature,
+                ask=clock.timed(subject.model, ANSWER, asker),
+                settings=ctx.settings,
+                is_mcq=pair.task_type == "choice",
+                judge=seat,
+                grade_with=_timed_judge(ctx, seat, grade),
+            )
+            for temperature in monte_carlo_plan(ctx.settings)
+        )
     )
+    return tally_monte_carlo(trials)
 
 
 async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> None:
     """Take one answer through to a database record in the eyes of one judge."""
     seat, run_id, entry = ctx.per_judge[seat_key]
+    if seat.model in ctx.launch.refused:
+        # Refused outright in this pass or another: stood down for the rest.
+        return
     if pair.id in ctx.done.get(seat.model, ()):
         # This judge already has a verdict for this question, and it is a usable one.
         # Re-asking means paying for the same thing twice. Counting skips here is not
@@ -1105,7 +1145,15 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
             if doc.get("content")
         ]
         grounded, grounded_note = await ctx.pool.to_model(
-            check_grounded, asked.answer, fragments, ctx.settings, seat
+            (
+                ctx.pool.clock.timed(seat.model, JUDGE, check_grounded)
+                if fragments
+                else check_grounded
+            ),
+            asked.answer,
+            fragments,
+            ctx.settings,
+            seat,
         )
 
     await ctx.pool.to_storage(
@@ -1123,10 +1171,10 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
     )
 
     if verdict.fatal:
-        # The judge, not the answerer: the answer arrived and nobody can grade
-        # it. Every remaining question would be answered, paid for and left
-        # ungraded all the same.
-        ctx.progress.refuse(seat.model)
+        # The judge, not the answerer: the answer arrived and this judge cannot
+        # grade it. It stands down in every pass of the launch; the rest of the
+        # panel carries on. With no judge left, nothing is worth asking.
+        _stand_down(seat, entry, ctx)
 
     if verdict.failed:
         entry.failed += 1
@@ -1186,6 +1234,39 @@ def _save_result(
         )
 
 
+def _stand_down(seat: Provider, entry: RunReport, ctx: _Pass) -> None:
+    """A judge the provider refused outright grades nothing more in this launch.
+
+    ``max_consecutive_failures`` of zero turns this off, as it does a refused
+    answerer: the owner chose not to abandon anything early.
+    """
+    if not ctx.settings.max_consecutive_failures or seat.model in ctx.launch.refused:
+        return
+    ctx.launch.refused.add(seat.model)
+    entry.refused = seat.model
+    entry.notes.append(f"judge {seat.model} was refused outright and stood down")
+    logger.warning(f"{ctx.progress.label}: judge {seat.model} refused outright")
+    if all(model in ctx.launch.refused for model in ctx.per_judge):
+        ctx.progress.stop(f"the provider refused {seat.model} outright")
+
+
+def _halted(ctx: _Pass) -> bool:
+    """Whether this pass asks no further question: stopped, cancelled, refused."""
+    if ctx.progress.stopped:
+        return True
+    if ctx.launch.halted():
+        ctx.progress.stop("stopped by the owner")
+        return True
+    if ctx.subject is not None and ctx.subject.model in ctx.launch.refused:
+        # Refused in another pass of the launch.
+        ctx.progress.refuse(ctx.subject.model)
+        return ctx.progress.stopped
+    if ctx.per_judge and all(model in ctx.launch.refused for model in ctx.per_judge):
+        ctx.progress.stop("the provider refused every judge of this pass")
+        return True
+    return False
+
+
 async def _ask_and_judge(pair: QaPair, ctx: _Pass) -> None:
     """One question: asked once, shown to the whole panel.
 
@@ -1194,8 +1275,8 @@ async def _ask_and_judge(pair: QaPair, ctx: _Pass) -> None:
     with the spread of the answers themselves, and the model under test would be
     counted as many times as there are judges.
     """
-    async with ctx.units:
-        if ctx.progress.stopped:
+    async with ctx.launch.units:
+        if _halted(ctx):
             return
 
         asked = await aask_once(
@@ -1215,6 +1296,8 @@ async def _ask_and_judge(pair: QaPair, ctx: _Pass) -> None:
             *(_judge_one(pair, asked, key, ctx) for key in ctx.per_judge)
         )
         ctx.progress.step(failed=asked.call_failed, refused=asked.refused)
+        if ctx.progress.refused:
+            ctx.launch.refused.add(ctx.progress.refused)
 
 
 def _open_runs(
@@ -1299,6 +1382,7 @@ async def arun_pass(
     defer_judging: bool = False,
     watch: Callable[[Progress], None] | None = None,
     job_id: str | None = None,
+    launch: Launch | None = None,
 ) -> list[RunReport]:
     """Run a Space dataset through one arm with the whole panel of judges.
 
@@ -1330,6 +1414,9 @@ async def arun_pass(
             issued later — by the export-judging and import-judging commands
         watch: Called after every answered question. Through it a launch from outside
             both sees the progress and stops the run
+        launch: What the passes running at the same time share (the question
+            slots, refused names, the answerer's failure streak); None — this
+            pass alone
 
     Returns:
         One report per judge, including those that recused themselves
@@ -1337,6 +1424,7 @@ async def arun_pass(
     if mode not in MODEL_ARMS:
         raise ValueError(f"arm {mode.value} is no longer measured")
     conf = settings or get_settings()
+    launch = launch if launch is not None else Launch(conf)
     pairs = _active_pairs(space.key, limit, conf)
     if mode is ContextMode.CLOSED_BOOK:
         source = ContextSource.NONE
@@ -1344,6 +1432,7 @@ async def arun_pass(
         source = context_source or conf.context_source
 
     panel = list(judges) if judges else judge_providers(conf)
+    panel = [seat for seat in panel if seat.model not in launch.refused] or panel
     if block is not EvalBlock.DIRECT:
         # Pressure and repeats measure the answerer behaviour, not the spread of
         # assessments, and cost several times as much. The first judge computes them.
@@ -1527,6 +1616,16 @@ async def arun_pass(
                 f"resumed: {skipped} items already done, " f"asking {len(pending)}"
             )
 
+    # The failure streak belongs to the answerer, over all its passes.
+    streak = launch.streak(responder)
+    progress = Progress(
+        total=len(pending),
+        label=f"{space.key}/{mode.value}/{block.value} [{responder}]",
+        give_up_after=conf.max_consecutive_failures,
+        watch=watch,
+        shared=streak,
+    )
+    streak.members.append(progress)
     ctx = _Pass(
         space=space,
         mode=mode,
@@ -1538,22 +1637,22 @@ async def arun_pass(
         per_judge=per_judge,
         pool=pool,
         cache=cache,
-        progress=Progress(
-            total=len(pending),
-            label=f"{space.key}/{mode.value}/{block.value} [{responder}]",
-            give_up_after=conf.max_consecutive_failures,
-            watch=watch,
-        ),
-        units=asyncio.Semaphore(conf.concurrency),
+        progress=progress,
+        launch=launch,
         done=done,
         defer=defer_judging,
     )
-    await asyncio.gather(*(_ask_and_judge(pair, ctx) for pair in pending))
+    try:
+        await asyncio.gather(*(_ask_and_judge(pair, ctx) for pair in pending))
+    finally:
+        streak.members.remove(progress)
 
     if ctx.progress.stopped:
         for entry in opened:
             entry.notes.append(f"the run was stopped: {ctx.progress.fatal}")
-            entry.refused = ctx.progress.refused
+            entry.stopped = ctx.progress.fatal
+            if ctx.progress.refused:
+                entry.refused = ctx.progress.refused
     return reports
 
 

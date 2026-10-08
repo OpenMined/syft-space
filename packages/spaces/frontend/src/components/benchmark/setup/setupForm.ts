@@ -104,6 +104,16 @@ export const MANUAL_PRIORITIES: Choice[] = [
   { value: 'manual', label: 'Your choice wins' },
 ]
 
+/** How much judges may think before grading. */
+export const JUDGE_REASONING: Choice[] = [
+  { value: 'none', label: 'None' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'default', label: 'Model default' },
+]
+
 export const MAX_JUDGES = 3
 
 /** Settings the page does not show; every save keeps them at these values. */
@@ -352,6 +362,9 @@ export interface SetupForm {
   keyFacts: number
   textMetrics: string[]
   webJudges: boolean
+  /** NaN means the model's own default. */
+  judgeTemperature: number
+  judgeReasoning: string
   // run settings
   maxFailures: number
   reuseAnswers: boolean
@@ -386,6 +399,9 @@ const FALLBACK = {
 } as const
 
 /** The benchmark's own defaults for fields written only when they differ from them. */
+/** The judge temperature value that means the model's own default. */
+export const MODEL_DEFAULT = 'default'
+
 const BENCH_DEFAULTS = {
   web_search_closed_book: true,
   web_search_with_context: false,
@@ -395,6 +411,8 @@ const BENCH_DEFAULTS = {
   web_search_max_results: 5,
   manual_status_priority: 'filter',
   concurrency: 16,
+  judge_temperature: 0,
+  judge_reasoning_effort: 'low',
 } as const
 
 export const MODEL_CONCURRENCY_MAX = 64
@@ -470,6 +488,8 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
   const temperatures = instrument.monte_carlo_temperatures ?? FALLBACK.monte_carlo_temperatures
   const engine = str(instrument, 'web_search_engine', BENCH_DEFAULTS.web_search_engine)
   const priority = str(instrument, 'manual_status_priority')
+  const reasoning = str(instrument, 'judge_reasoning_effort', BENCH_DEFAULTS.judge_reasoning_effort)
+  const judgeTemperature = instrument.judge_temperature
 
   return {
     enabled: target.enabled,
@@ -523,6 +543,11 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
     keyFacts: toPercent(num(instrument, 'key_facts_threshold')),
     textMetrics: strings(instrument, 'text_metrics'),
     webJudges: bool(instrument, 'web_search_judge'),
+    judgeTemperature:
+      judgeTemperature === MODEL_DEFAULT ? NaN : num(instrument, 'judge_temperature'),
+    judgeReasoning: JUDGE_REASONING.some((c) => c.value === reasoning)
+      ? reasoning
+      : BENCH_DEFAULTS.judge_reasoning_effort,
 
     maxFailures: num(instrument, 'max_consecutive_failures'),
     reuseAnswers: bool(instrument, 'reuse_answers'),
@@ -703,6 +728,23 @@ export function buildRequest(
       MODEL_CONCURRENCY_MAX,
       Math.max(1, Math.round(finite(form.modelConcurrency, BENCH_DEFAULTS.concurrency))),
     ),
+  )
+
+  // Empty temperature is stored as "default", the model's own; null would mean inherit.
+  const judgeTemperature = Number.isFinite(form.judgeTemperature)
+    ? Math.min(2, Math.max(0, form.judgeTemperature))
+    : null
+  if (judgeTemperature === null) {
+    if (inheritedInstrument.judge_temperature === MODEL_DEFAULT) delete instrument.judge_temperature
+    else instrument.judge_temperature = MODEL_DEFAULT
+  } else {
+    unlessDefault('judge_temperature', judgeTemperature)
+  }
+  unlessDefault(
+    'judge_reasoning_effort',
+    JUDGE_REASONING.some((c) => c.value === form.judgeReasoning)
+      ? form.judgeReasoning
+      : BENCH_DEFAULTS.judge_reasoning_effort,
   )
 
   for (const [key, value] of Object.entries(FIXED_INSTRUMENT)) i(key, value)

@@ -255,6 +255,8 @@ def check_pair(
     record: dict[str, Any] = {
         "model": provider.model,
         "judge": judge.model if judge is not None else conf.judge_model,
+        "judge_temperature": conf.judge_temperature,
+        "judge_reasoning_effort": conf.judge_reasoning_effort.value,
         "search": (engine or "auto") if searching else "none",
         "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "attempts": _attempts(row),

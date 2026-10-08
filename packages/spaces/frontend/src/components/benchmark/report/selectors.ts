@@ -1,5 +1,10 @@
 /** Pure helpers that turn the server's report shapes into words. */
-import type { BenchmarkArmDetail, BenchmarkRunProgress, BenchmarkRunReport } from '@/api/types'
+import type {
+  BenchmarkArmDetail,
+  BenchmarkRunProgress,
+  BenchmarkRunReport,
+  BenchmarkRunSummary,
+} from '@/api/types'
 import { count, DASH, dayTime } from './figures'
 import { KIND_LABEL, modelName } from './labels'
 import { TRICK_GENERATOR, type Held, type SettingRow } from './types'
@@ -113,7 +118,40 @@ export function repeatsTotal(report: BenchmarkRunReport): number | null {
   return r.trials * Math.max(r.temperatures.length, 1)
 }
 
-/** "Settings for this run" rows; null values show as a dash. */
+/** Status chip of a job that asked no model, in place of Published/Private; null otherwise. */
+export function runStateLabel(
+  run: Pick<BenchmarkRunSummary, 'build_only' | 'state'>,
+): string | null {
+  if (!run.build_only) return null
+  if (run.state === 'failed') return 'Failed'
+  if (run.state === 'cancelled') return 'Cancelled'
+  return 'Build only'
+}
+
+/** `$1.23`; `<$0.01` for a spend below a cent. */
+export function usdText(usd: number): string {
+  if (usd > 0 && usd < 0.005) return '<$0.01'
+  return `$${usd.toFixed(2)}`
+}
+
+/** The job's OpenRouter spend: the balance difference, else the per-call sum. */
+export function runCost(method: BenchmarkRunReport['method']): number | null {
+  const cost = method.cost
+  if (!cost) return null
+  if (typeof cost.usd === 'number') return cost.usd
+  return cost.usd_calls > 0 ? cost.usd_calls : null
+}
+
+/** `GPT-5.1 · judged by Claude Sonnet 5`; null when no web check model is known. */
+export function webCheckText(method: BenchmarkRunReport['method']): string | null {
+  if (!method.web_check_model) return null
+  const model = modelName(method.web_check_model)
+  return method.web_check_judge
+    ? `${model} · judged by ${modelName(method.web_check_judge)}`
+    : model
+}
+
+/** "Settings for this run" rows; null values show as a dash, optional rows are left out. */
 export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
   const { method, funnel } = report
   const written =
@@ -130,7 +168,9 @@ export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
   const judges = method.judges.length ? method.judges : report.judges
   const rounds = method.denial_rounds
   const repeats = repeatsTotal(report)
-  return [
+  const webCheck = webCheckText(method)
+  const cost = runCost(method)
+  const rows: (SettingRow | null)[] = [
     { key: 'articles', label: 'Articles', value: articlesText(report) },
     { key: 'written', label: 'Questions written', value: written },
     {
@@ -138,6 +178,7 @@ export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
       label: 'Removed by the web check',
       value: removed === null ? null : count(removed),
     },
+    webCheck ? { key: 'webcheck', label: 'Web check', value: webCheck } : null,
     { key: 'asked', label: 'Questions asked', value: asked },
     {
       key: 'models',
@@ -165,6 +206,15 @@ export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
           }`
         : null,
     },
+    cost === null
+      ? null
+      : {
+          key: 'cost',
+          label: 'Cost',
+          value: usdText(cost),
+          tip: 'OpenRouter spend during this run.',
+        },
     { key: 'profile', label: 'Method version', value: method.profile },
   ]
+  return rows.filter((row): row is SettingRow => row !== null)
 }

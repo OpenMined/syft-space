@@ -46,6 +46,7 @@ from sqlalchemy import select
 
 from syft_benchmark.config import (
     MEASURED_ARMS,
+    MODEL_DEFAULT,
     EvalBlock,
     JobKind,
     Settings,
@@ -1250,6 +1251,12 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
             web_search_generator=conf.web_search_generator,
             web_search_judge=conf.web_search_judge,
             web_search_max_results=conf.web_search_max_results,
+            judge_temperature=(
+                MODEL_DEFAULT
+                if conf.judge_temperature is None
+                else conf.judge_temperature
+            ),
+            judge_reasoning_effort=conf.judge_reasoning_effort,
             key_facts_threshold=conf.key_facts_threshold,
             answer_coverage_threshold=conf.answer_coverage_threshold,
             consistency_floor=conf.consistency_floor,

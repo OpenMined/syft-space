@@ -327,6 +327,30 @@ def test_a_question_is_checked_before_generation_ends(
 
 
 @needs_db
+def test_streamed_checks_are_stamped_with_the_job(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Generation(monkeypatch, _documents(2, 2))
+    _Web(monkeypatch)
+    conf = _settings(chunks_per_run=2, concurrency=2, filter_model="openai/gpt-5.1")
+
+    pipeline.generate_for_space(
+        _space(), generators=("qa",), settings=conf, screen=True, job="gen-job"
+    )
+
+    rows = _rows()
+    assert rows and {row.job_id for row in rows} == {"gen-job"}
+    for row in rows:
+        (entry,) = row.meta["screening"]
+        assert (entry["job_id"], entry["stage"], entry["outcome"]) == (
+            "gen-job",
+            "web_check",
+            "kept",
+        )
+        assert row.meta["web_check"]["job_id"] == "gen-job"
+
+
+@needs_db
 def test_a_stop_mid_stream_leaves_the_unchecked_pending(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -565,3 +589,100 @@ def test_the_backoff_grows_and_stops_at_its_cap() -> None:
     assert ollama.backoff_delay(1, retry_after=500) == 120
     assert ollama.retry_after_of({"retry-after": "12"}) == 12
     assert ollama.retry_after_of({}) is None
+
+
+# --- per-kind build stats ------------------------------------------------------
+
+
+def _kind(report: Any, key: str = "qa") -> dict[str, Any]:
+    return report.kinds[key].as_dict()
+
+
+@needs_db
+def test_a_kind_that_spends_its_budget_says_so(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Generation(monkeypatch, _documents(5, 4), per_unit=3)
+    conf = _settings(chunks_per_run=2, concurrency=1)
+
+    report = pipeline.generate_for_space(_space(), generators=("qa",), settings=conf)
+
+    assert _kind(report) == {
+        "kind": "qa",
+        "unit": "passage",
+        "budget": 4,
+        "written": 4,
+        "units_available": 20,
+        "units_read": 2,
+        "failed_units": 0,
+        "dropped": {pipeline.OVER_BUDGET: 2},
+        "stopped": pipeline.BUDGET_REACHED,
+    }
+
+
+@needs_db
+def test_a_kind_that_runs_out_of_material_says_so(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Generation(monkeypatch, _documents(1, 1))
+    conf = _settings(chunks_per_run=10, concurrency=1)
+
+    report = pipeline.generate_for_space(_space(), generators=("qa",), settings=conf)
+
+    stats = _kind(report)
+    assert (stats["written"], stats["units_available"], stats["units_read"]) == (
+        2,
+        1,
+        1,
+    )
+    assert stats["stopped"] == pipeline.OUT_OF_MATERIAL
+
+
+@needs_db
+def test_a_failure_streak_and_duplicates_are_counted(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Same(_Generation):
+        def clean(self, items: Any, n: int, whole: str) -> tuple[list[Pair], list[str]]:
+            same = Pair(
+                question="The same question?", answer=ANSWER, distractors=[], meta={}
+            )
+            return [same], ["empty question or answer"]
+
+    _Same(monkeypatch, _documents(1, 3))
+    conf = _settings(chunks_per_run=10, concurrency=1)
+    report = pipeline.generate_for_space(_space(), generators=("qa",), settings=conf)
+    stats = _kind(report)
+    assert stats["written"] == 1
+    assert stats["dropped"] == {pipeline.DUPLICATE: 2, "empty question or answer": 3}
+    assert stats["stopped"] == pipeline.OUT_OF_MATERIAL
+
+    def failing(*_: Any, **__: Any) -> Any:
+        raise LLMError("the provider is down")
+
+    monkeypatch.setattr(pipeline, "chat", failing)
+    failed = pipeline.generate_for_space(
+        _space(),
+        generators=("qa",),
+        settings=_settings(
+            chunks_per_run=10, concurrency=1, max_consecutive_failures=2
+        ),
+        new_cohort=True,
+    )
+    stats = _kind(failed)
+    assert (stats["failed_units"], stats["units_read"]) == (2, 2)
+    assert stats["stopped"] == pipeline.FAILURE_STREAK
+
+
+@needs_db
+def test_a_cancelled_kind_says_so(clean: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    _Generation(monkeypatch, _documents(2, 2))
+    conf = _settings(chunks_per_run=10, concurrency=1)
+
+    report = pipeline.generate_for_space(
+        _space(), generators=("qa",), settings=conf, should_stop=lambda: True
+    )
+
+    stats = _kind(report)
+    assert stats["units_read"] == 0
+    assert stats["stopped"] == pipeline.CANCELLED

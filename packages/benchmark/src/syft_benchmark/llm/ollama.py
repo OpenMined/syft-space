@@ -18,6 +18,7 @@ whole text.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import random
 import threading
@@ -28,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from syft_benchmark.config import Settings, check_model_host, get_settings
-from syft_benchmark.llm import catalog
+from syft_benchmark.llm import catalog, cost
 from syft_benchmark.llm.providers import ProviderKind, kind_for_url
 
 if TYPE_CHECKING:
@@ -289,6 +290,72 @@ def _engine_for(asked: str, model: str, conf: Settings) -> str:
     return "native" if catalog.load(conf).web_search_of(model) == "native" else "plugin"
 
 
+# Judge tuning: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+# A refused effort steps down: "none" and "minimal" to "low" (some models reason
+# by force), any other to the model's own default ("").
+_EFFORT_FALLBACK = {"none": "low", "minimal": "low"}
+# (wire model, asked effort) -> the effort its refusals left; "" sends none.
+_EFFORT_STEPPED: dict[tuple[str, str], str] = {}
+# Wire models that refused a temperature.
+_NO_TEMPERATURE: set[str] = set()
+_TUNING_LOCK = threading.Lock()
+
+
+def judge_tuning(model: str, base_url: str, conf: Settings) -> dict[str, Any]:
+    """The temperature and ``reasoning`` a judge call carries; absent — not sent.
+
+    Temperature goes only to a model the catalogue says takes one (unknown — it
+    does). Reasoning goes only to OpenRouter, and only to a model the catalogue
+    lists with ``reasoning`` (unknown — sent, a refusal steps it down).
+    """
+    entry = catalog.load(conf).get(model)
+    wire = catalog.load(conf).native(model, kind_for_url(base_url))
+    out: dict[str, Any] = {}
+    with _TUNING_LOCK:
+        no_temperature = wire in _NO_TEMPERATURE
+        asked = conf.judge_reasoning_effort.value
+        effort = _EFFORT_STEPPED.get((wire, asked), asked)
+    if (
+        conf.judge_temperature is not None
+        and catalog.load(conf).takes_temperature(model)
+        and not no_temperature
+    ):
+        out["temperature"] = conf.judge_temperature
+    reasons = entry is None or (not entry.local and "reasoning" in entry.supports)
+    if (
+        effort not in ("", "default")
+        and reasons
+        and kind_for_url(base_url) is ProviderKind.OPENROUTER
+    ):
+        out["reasoning"] = {"effort": effort, "exclude": True}
+    return out
+
+
+def _refuses_tuning(
+    error: LLMFatalError, named: str, body: dict[str, Any], wire: str, asked: str
+) -> bool:
+    """A refusal of the judge's reasoning or temperature: step it down in ``body``."""
+    text = str(error).replace(named, "").lower()
+    reasoning = body.get("reasoning")
+    if isinstance(reasoning, dict) and any(
+        word in text for word in ("reasoning", "effort", "thinking")
+    ):
+        lower = _EFFORT_FALLBACK.get(str(reasoning.get("effort")), "")
+        with _TUNING_LOCK:
+            _EFFORT_STEPPED[(wire, asked)] = lower
+        if lower:
+            body["reasoning"] = {**reasoning, "effort": lower}
+        else:
+            body.pop("reasoning")
+        return True
+    if "temperature" in body and "temperature" in text:
+        with _TUNING_LOCK:
+            _NO_TEMPERATURE.add(wire)
+        body.pop("temperature")
+        return True
+    return False
+
+
 def citations_of(message: dict[str, Any]) -> list[dict[str, str]]:
     """The ``url_citation`` annotations of an answer, as {url, title}, deduplicated."""
     out: list[dict[str, str]] = []
@@ -319,6 +386,7 @@ def chat(
     web_search: bool = False,
     web_search_engine: str = "auto",
     max_results: int | None = None,
+    judging: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """A single call to the chat endpoint.
 
@@ -349,10 +417,16 @@ def chat(
         web_search_engine: "native", "plugin" (Exa) or "auto" (native when the
             catalogue says the model has it, else Exa)
         max_results: Results per search for Exa; None — the settings
+        judging: A judge call: ``judge_temperature`` and
+            ``judge_reasoning_effort`` replace ``temperature``, sent only where
+            the catalogue says the model takes them (see judge_tuning); a
+            provider's refusal of either steps it down
 
     Returns:
-        The answer text and usage, extended with finish_reason, web_search
-        (the engine used, or False), citations ([{url, title}]) and, when
+        The answer text and usage, extended with cost_usd (USD the provider
+        charged over all attempts; None — not priced), finish_reason, web_search
+        (the engine used, or False), citations ([{url, title}]), latency_s
+        (wall seconds of the whole call, retries included) and, when
         searching, web_search_via (tool or plugin), web_search_forced
         ("required", "named" or False) and
         web_search_requests (the provider's count, or None)
@@ -362,6 +436,8 @@ def chat(
         LLMError: it did not answer, or answered empty
     """
     conf = settings or get_settings()
+    # Wall time of the whole call, retries and waits included.
+    started = time.monotonic()
 
     # The role sets the address, the key and the model; without a role it is the
     # shared settings. That way calls from the old code keep working, while new
@@ -391,6 +467,10 @@ def chat(
             {"role": "user", "content": user_prompt},
         ],
     }
+    asked_effort = conf.judge_reasoning_effort.value
+    if judging:
+        body.pop("temperature")
+        body.update(judge_tuning(chosen, base_url, conf))
     searched: str | bool = False
     steps: list[_Step] = []
     results = conf.web_search_max_results if max_results is None else max_results
@@ -415,6 +495,9 @@ def chat(
     # Busy replies (429, overload) waited out, and the seconds spent waiting.
     busy = 0
     waited = 0.0
+    # USD over every priced response of this call, cut-offs included; None —
+    # the provider priced none of them.
+    spent: float | None = None
     while True:
         attempts += 1
         try:
@@ -441,6 +524,11 @@ def chat(
                     f"{named}: {str(failure.get('message'))[:300]}",
                 )
 
+            priced = cost.cost_of(data.get("usage") or {})
+            cost.charge(priced)
+            if priced is not None:
+                spent = (spent or 0.0) + priced
+
             choice = (data.get("choices") or [{}])[0]
             content = ((choice.get("message") or {}).get("content") or "").strip()
             finish = str(choice.get("finish_reason") or "")
@@ -462,7 +550,14 @@ def chat(
                 backoff_seconds=round(waited, 1),
                 web_search=searched,
                 citations=citations_of(choice.get("message") or {}),
+                cost_usd=spent,
             )
+            if judging:
+                usage.update(
+                    temperature=body.get("temperature"),
+                    reasoning_effort=(body.get("reasoning") or {}).get("effort")
+                    or False,
+                )
             if steps:
                 usage.update(
                     web_search_via=steps[0][0],
@@ -505,8 +600,12 @@ def chat(
             # A truncated answer comes back with a note rather than a failure:
             # truncated text can be graded, missing text cannot. Array parsing
             # can pull whole objects out of it.
+            usage["latency_s"] = round(time.monotonic() - started, 3)
             return content, usage
         except LLMFatalError as exc:
+            # A judge's reasoning effort or temperature refused: step it down.
+            if judging and _refuses_tuning(exc, named, body, wire, asked_effort):
+                continue
             # A refused search step: the next one down, at once. Forcing the
             # tool or the tool itself can be refused where plain search works.
             if len(steps) > 1 and _refuses_search(exc, named):
@@ -710,6 +809,9 @@ def check_model_available(
             headers=_headers_for(api_key, conf.llm_app_name),
             timeout=60,
         )
+        if resp.status_code < 400:
+            with contextlib.suppress(ValueError, AttributeError):
+                cost.charge(cost.cost_of(resp.json().get("usage") or {}))
         if resp.status_code >= 400:
             raise LLMError(
                 f'the provider did not accept the model "{wire}": '

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import string
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -44,6 +44,7 @@ from syft_benchmark.config import (
     DatasetMode,
     EvalBlock,
     JudgePolicy,
+    JudgeReasoningEffort,
     ManualStatusPriority,
     PairStatus,
     TextMetric,
@@ -197,6 +198,20 @@ class Instrument(Layer):
         ge=1,
         le=20,
         description="Results per search, for the Exa engine",
+    )
+
+    # --- How every judge is called
+    judge_temperature: (
+        Annotated[float, Field(ge=0.0, le=2.0)] | Literal["default"] | None
+    ) = Field(
+        default=None,
+        description=(
+            'Where the model takes one. "default" — the model default; null — inherit'
+        ),
+    )
+    judge_reasoning_effort: JudgeReasoningEffort | None = Field(
+        default=None,
+        description="none, minimal, low, medium, high, or default (the model's own)",
     )
 
     # --- Judging thresholds

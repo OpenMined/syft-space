@@ -193,10 +193,55 @@ JUDGE_POLICY = "judge_policy"
 PRIMARY_JUDGE = "primary_judge"
 # The web check gate the launch asked through.
 WEB_CHECK_MODEL = "web_check_model"
+WEB_CHECK_JUDGE = "web_check_judge"
 MANUAL_PRIORITY = "manual_status_priority"
+# What the job spent: {spend_before, spend_after, usd, usd_calls}.
+COST = "cost"
+# The build per kind (``pipeline.KindStats.as_dict``).
+GENERATION = "generation"
+# Where the job's time went (``runs.timing``; report API, "Timing").
+TIMING = "timing"
 SNAPSHOT_KEYS = frozenset(
-    {JUDGE_PANEL, JUDGE_POLICY, PRIMARY_JUDGE, WEB_CHECK_MODEL, MANUAL_PRIORITY}
+    {
+        JUDGE_PANEL,
+        JUDGE_POLICY,
+        PRIMARY_JUDGE,
+        WEB_CHECK_MODEL,
+        WEB_CHECK_JUDGE,
+        MANUAL_PRIORITY,
+        COST,
+        GENERATION,
+        TIMING,
+    }
 )
+
+
+def record_generation(
+    job_id: str, kinds: list[dict[str, Any]], settings: Settings | None = None
+) -> None:
+    """Keep the job's per-kind build stats in its params."""
+    with session_scope(settings) as session:
+        job = session.get(Job, job_id)
+        if job is not None:
+            job.params = {**(job.params or {}), GENERATION: kinds}
+
+
+def generation_of(job: Job) -> list[dict[str, Any]]:
+    """The job's per-kind build stats; empty — it built nothing (or before they
+    were kept)."""
+    kinds = (job.params or {}).get(GENERATION)
+    return [k for k in kinds if isinstance(k, dict)] if isinstance(kinds, list) else []
+
+
+def web_check_judge(settings: Settings) -> str:
+    """The web check judge: ``filter_judge_model``, else Judge 1; empty without
+    a web check model."""
+    if not settings.filter_model:
+        return ""
+    if settings.filter_judge_model:
+        return settings.filter_judge_model
+    panel = configured_panel(settings)
+    return panel[0] if panel else ""
 
 
 def judging_snapshot(settings: Settings) -> dict[str, Any]:
@@ -205,8 +250,26 @@ def judging_snapshot(settings: Settings) -> dict[str, Any]:
         JUDGE_PANEL: configured_panel(settings),
         JUDGE_POLICY: settings.judge_policy.value,
         WEB_CHECK_MODEL: settings.filter_model or "",
+        WEB_CHECK_JUDGE: web_check_judge(settings),
         MANUAL_PRIORITY: settings.manual_status_priority.value,
     }
+
+
+def how_tested(job: Job) -> dict[str, Any]:
+    """The job's web check model and judge, and what it spent (``method``)."""
+    params = job.params or {}
+    cost = params.get(COST)
+    return {
+        WEB_CHECK_MODEL: str(params.get(WEB_CHECK_MODEL) or "") or None,
+        WEB_CHECK_JUDGE: str(params.get(WEB_CHECK_JUDGE) or "") or None,
+        COST: dict(cost) if isinstance(cost, dict) else None,
+    }
+
+
+def timing_of(job: Job) -> dict[str, Any] | None:
+    """The job's phase, pass and call timings; None — not kept (yet)."""
+    timing = (job.params or {}).get(TIMING)
+    return dict(timing) if isinstance(timing, dict) else None
 
 
 def job_gate(job: Job) -> Settings | None:

@@ -502,3 +502,73 @@ describe('model capabilities', () => {
     )
   })
 })
+
+describe('judge settings', () => {
+  it('reads the benchmark defaults: temperature 0, low reasoning', () => {
+    const form = formFromTarget(makeTarget(), KEYS)
+    expect(form.judgeTemperature).toBe(0)
+    expect(form.judgeReasoning).toBe('low')
+  })
+
+  it('a page left alone writes neither field, with or without them in the defaults', () => {
+    const bare = makeTarget()
+    const req = buildRequest(bare, formFromTarget(bare, KEYS), KEYS)
+    expect(req.instrument).not.toHaveProperty('judge_temperature')
+    expect(req.instrument).not.toHaveProperty('judge_reasoning_effort')
+    const withDefaults = makeTarget()
+    Object.assign(withDefaults.defaults.instrument!, {
+      judge_temperature: 0,
+      judge_reasoning_effort: 'low',
+    })
+    const form = formFromTarget(withDefaults, KEYS)
+    expect(sameRequest(buildRequest(withDefaults, form, KEYS), storedRequest(withDefaults))).toBe(
+      true,
+    )
+  })
+
+  it('maps temperature and reasoning to instrument fields, clamping to 0..2', () => {
+    const target = makeTarget()
+    const form = formFromTarget(target, KEYS)
+    form.judgeTemperature = 0.5
+    form.judgeReasoning = 'default'
+    expect(buildRequest(target, form, KEYS).instrument).toMatchObject({
+      judge_temperature: 0.5,
+      judge_reasoning_effort: 'default',
+    })
+    form.judgeTemperature = 7
+    expect(buildRequest(target, form, KEYS).instrument!.judge_temperature).toBe(2)
+  })
+
+  it('stores an empty temperature as the model default, and reads it back as empty', () => {
+    const target = makeTarget()
+    const form = formFromTarget(target, KEYS)
+    form.judgeTemperature = NaN
+    const req = buildRequest(target, form, KEYS)
+    expect(req.instrument!.judge_temperature).toBe('default')
+    const saved = makeTarget({ instrument: req.instrument! })
+    expect(formFromTarget(saved, KEYS).judgeTemperature).toBeNaN()
+    expect(
+      sameRequest(buildRequest(saved, formFromTarget(saved, KEYS), KEYS), storedRequest(saved)),
+    ).toBe(true)
+  })
+
+  it('writes a default value back when a higher layer set another one', () => {
+    const target = makeTarget({
+      connection_instrument: { judge_temperature: 1, judge_reasoning_effort: 'high' },
+    })
+    const form = formFromTarget(target, KEYS)
+    expect(form.judgeTemperature).toBe(1)
+    expect(form.judgeReasoning).toBe('high')
+    form.judgeTemperature = 0
+    form.judgeReasoning = 'low'
+    expect(buildRequest(target, form, KEYS).instrument).toMatchObject({
+      judge_temperature: 0,
+      judge_reasoning_effort: 'low',
+    })
+  })
+
+  it('reads an unknown reasoning effort as low', () => {
+    const target = makeTarget({ instrument: { judge_reasoning_effort: 'extreme' } })
+    expect(formFromTarget(target, KEYS).judgeReasoning).toBe('low')
+  })
+})

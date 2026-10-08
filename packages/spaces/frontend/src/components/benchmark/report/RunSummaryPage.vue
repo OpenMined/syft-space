@@ -12,7 +12,7 @@
           {{ articles }}
         </p>
       </div>
-      <div class="flex flex-wrap gap-2">
+      <div v-if="!buildOnly" class="flex flex-wrap gap-2">
         <Button
           variant="outline"
           :disabled="downloading"
@@ -59,7 +59,14 @@
       </span>
     </div>
 
-    <section class="space-y-2.5" aria-labelledby="models-title">
+    <BuildPhases
+      v-if="buildOnly && slug"
+      :slug="slug"
+      :job="jobId"
+      :generators="report.target.value?.capabilities?.generators ?? []"
+    />
+
+    <section v-if="!buildOnly" class="space-y-2.5" aria-labelledby="models-title">
       <div class="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 id="models-title" class="text-base font-semibold">How each model did</h2>
@@ -160,6 +167,7 @@ import { ChevronRight } from 'lucide-vue-next'
 import type { QualityMarketplaceResult } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import BuildPhases from '../BuildPhases.vue'
 import { apiErrorDetail } from '@/lib/errors'
 import { useReport, useRun } from './context'
 import { count, DASH, dayTime, points } from './figures'
@@ -171,9 +179,11 @@ const PUBLISHED_TONE = 'border-transparent bg-primary/10 text-primary'
 const PRIVATE_TONE = 'border-transparent bg-muted text-muted-foreground'
 
 const report = useReport()
-const { jobId, data } = useRun()
+const { jobId, slug, data } = useRun()
 
 const published = computed(() => data.value?.run.published ?? false)
+/** No model was asked: the page shows what the job wrote and filtered. */
+const buildOnly = computed(() => data.value?.run.build_only ?? false)
 const articles = computed(() => (data.value ? articlesText(data.value) : null))
 const removed = computed(() => (data.value ? webRemoved(data.value) : null))
 

@@ -212,6 +212,8 @@ Rules:
 - The answer is correct if it states the same facts as the expected answer. \
 Paraphrasing and extra correct detail are fine; wrong or contradicting facts \
 are not.
+- An answer that is right in substance is correct even when it is worded \
+differently from the expected answer.
 - Missing a key fact that the question asks for makes the answer incorrect.
 - If the model refused to answer or said it does not know, mark it incorrect.
 - For multiple choice the model must pick the same option as the expected \
@@ -306,9 +308,9 @@ def grade(
             user,
             model=None if judge is not None else conf.judge_model,
             provider=judge,
-            temperature=0.0,
             max_tokens=conf.answer_max_tokens,
             settings=conf,
+            judging=True,
             web_search=searching,
             web_search_engine=engine or "auto",
         )
@@ -376,9 +378,9 @@ def grade_key_facts(
             user,
             model=None if judge is not None else conf.judge_model,
             provider=judge,
-            temperature=0.0,
             max_tokens=conf.answer_max_tokens,
             settings=conf,
+            judging=True,
             web_search=searching,
             web_search_engine=engine or "auto",
         )
@@ -446,9 +448,9 @@ def check_grounded(
             user,
             model=None if judge is not None else conf.judge_model,
             provider=judge,
-            temperature=0.0,
             max_tokens=conf.answer_max_tokens,
             settings=conf,
+            judging=True,
         )
         data = parse_json_object(raw)
     except LLMError as exc:

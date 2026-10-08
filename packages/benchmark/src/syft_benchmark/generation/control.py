@@ -99,9 +99,9 @@ def gate_unanswerable(
             user,
             model=None if judge is not None else conf.judge_model,
             provider=judge,
-            temperature=0.0,
             max_tokens=600,
             settings=conf,
+            judging=True,
             web_search=searching,
             web_search_engine=engine or "auto",
         )

@@ -93,11 +93,11 @@ def two_subjects(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         "syft_benchmark.scheduler.judge_providers", lambda conf: [Provider("judge")]
     )
 
-    def fake_run_pass(space: Any, mode: Any, **kwargs: Any) -> list[Any]:
+    async def fake_run_pass(space: Any, mode: Any, **kwargs: Any) -> list[Any]:
         calls.append(f"{mode.value}")
         return []
 
-    monkeypatch.setattr("syft_benchmark.scheduler.run_pass", fake_run_pass)
+    monkeypatch.setattr("syft_benchmark.scheduler.arun_pass", fake_run_pass)
     return calls
 
 

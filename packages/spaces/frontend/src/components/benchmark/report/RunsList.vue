@@ -122,8 +122,17 @@
             </td>
             <td class="px-3 py-3 text-right tabular-nums">{{ count(run.articles) }}</td>
             <td class="px-3 py-3 text-right tabular-nums">{{ count(run.questions) }}</td>
-            <td class="px-3 py-3 text-right tabular-nums">{{ count(run.models.length) }}</td>
-            <td class="px-4 py-3">
+            <td class="px-3 py-3 text-right tabular-nums">
+              {{ run.build_only ? DASH : count(run.models.length) }}
+            </td>
+            <td
+              v-if="run.build_only"
+              class="px-4 py-3 text-muted-foreground"
+              data-testid="run-build"
+            >
+              {{ buildText(run.build) ?? DASH }}
+            </td>
+            <td v-else class="px-4 py-3">
               <div class="flex items-center gap-3">
                 <div
                   class="relative h-2 min-w-20 flex-1 overflow-hidden rounded-full bg-muted"
@@ -142,6 +151,16 @@
             </td>
             <td class="px-3 py-3">
               <Badge
+                v-if="runStateLabel(run)"
+                variant="outline"
+                class="border-transparent bg-muted text-muted-foreground"
+                :title="run.build_only ? BUILD_ONLY_TIP : undefined"
+                data-testid="run-state"
+              >
+                {{ runStateLabel(run) }}
+              </Badge>
+              <Badge
+                v-else
                 variant="outline"
                 :class="
                   run.published
@@ -229,7 +248,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useReport } from './context'
 import { count, DASH, dayTime, pointsRange, scheduleText } from './figures'
 import { runLocation } from './routing'
-import { progressShare, progressText, utcStamp } from './selectors'
+import { buildText } from '../filter'
+import { progressShare, progressText, runStateLabel, utcStamp } from './selectors'
 import { RUNS_PAGE } from './useRunReport'
 
 defineProps<{ slug: string }>()
@@ -239,6 +259,8 @@ const STATUS_OPTIONS = [
   { value: 'private', label: 'Private' },
   { value: 'published', label: 'Published' },
 ] as const
+
+const BUILD_ONLY_TIP = 'Questions were written and filtered; no model was asked.'
 
 const report = useReport()
 const router = useRouter()

@@ -20,14 +20,16 @@ each is switched off separately.
 
 from __future__ import annotations
 
+import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from syft_benchmark.config import EvalBlock, Settings, Verdict
 from syft_benchmark.llm import LLMError, Provider, catalog, chat
-from syft_benchmark.runs.judge import ERROR_PREFIX, detect_abstain, grade
+from syft_benchmark.runs.judge import ERROR_PREFIX, Grade, detect_abstain, grade
+from syft_benchmark.runs.timing import ANSWER, JUDGE
 
 
 def skips_monte_carlo(
@@ -127,6 +129,7 @@ def run_denial_loop(
     first_prompt: str | None = None,
     web_search: bool = False,
     web_search_engine: str = "auto",
+    record: Callable[..., None] | None = None,
 ) -> DenialOutcome:
     """Push at a correct answer until the model gives in or the rounds run out.
 
@@ -156,6 +159,7 @@ def run_denial_loop(
             question itself
         web_search: Keep the model's web search on, as it was for the first answer
         web_search_engine: The engine the first answer searched with
+        record: Told every call's duration (``CallClock.record``)
 
     Returns:
         DenialOutcome: at which round the model gave up the correct answer
@@ -173,6 +177,7 @@ def run_denial_loop(
     outcome.limit = limit
     for step in range(limit):
         conversation.append({"role": "user", "content": DENIAL_PHRASES[step]})
+        started = time.monotonic()
         try:
             answer, _usage = chat(
                 "",
@@ -186,8 +191,12 @@ def run_denial_loop(
                 web_search_engine=web_search_engine,
             )
         except LLMError as exc:
+            if record is not None:
+                record(subject.model, ANSWER, time.monotonic() - started, failed=True)
             outcome.note = f"round {step + 1}: {exc}"
             return outcome
+        if record is not None:
+            record(subject.model, ANSWER, time.monotonic() - started)
 
         conversation.append({"role": "assistant", "content": answer})
         outcome.rounds = step + 1
@@ -207,9 +216,14 @@ def run_denial_loop(
             outcome.note = "switched to an abstention"
             return outcome
 
+        started = time.monotonic()
         verdict = grade(
             question, expected, answer, is_mcq=is_mcq, settings=settings, judge=judge
         )
+        if record is not None and judge is not None and verdict.judge_user:
+            record(
+                judge.model, JUDGE, time.monotonic() - started, failed=verdict.failed
+            )
         if verdict.failed:
             outcome.note = f"round {step + 1}: the judge did not answer"
             return outcome
@@ -222,6 +236,101 @@ def run_denial_loop(
     return outcome
 
 
+@dataclass(frozen=True, slots=True)
+class Trial:
+    """One Monte Carlo repeat that came back."""
+
+    temperature: float
+    answer: str
+    correct: bool
+
+
+def monte_carlo_plan(settings: Settings) -> list[float]:
+    """The temperature of every repeat, in the order they are reported."""
+    return [
+        temperature
+        for temperature in settings.monte_carlo_temperatures
+        for _ in range(settings.monte_carlo_trials)
+    ]
+
+
+def monte_carlo_trial(
+    question: str,
+    expected: str,
+    temperature: float,
+    *,
+    ask: Callable[[str, float], str],
+    settings: Settings,
+    judge: Provider | None = None,
+    is_mcq: bool = False,
+    grade_with: Callable[..., Grade] | None = None,
+) -> Trial | None:
+    """One repeat: asked and graded. None: the attempt failed.
+
+    The repeats of one question are independent, so a run asks them side by side.
+    """
+    try:
+        answer = ask(question, temperature)
+    except LLMError:
+        return None
+    if answer.startswith(ERROR_PREFIX):
+        return None
+    verdict = (grade_with or grade)(
+        question,
+        expected,
+        answer,
+        is_mcq=is_mcq,
+        settings=settings,
+        judge=judge,
+    )
+    return Trial(
+        temperature=temperature,
+        answer=answer,
+        correct=verdict.verdict is Verdict.CORRECT and not verdict.failed,
+    )
+
+
+def tally_monte_carlo(trials: Sequence[Trial | None]) -> MonteCarloOutcome:
+    """The block's figures from the repeats, in plan order.
+
+    Consistency is computed over the most frequent answer, reduced to lower case
+    and the first hundred characters: one and the same explanation in substance
+    can be written out at different lengths, and telling them apart as different
+    answers would mean measuring talkativeness.
+    """
+    outcome = MonteCarloOutcome()
+    seen: Counter[str] = Counter()
+    per_temp: dict[float, list[bool]] = {}
+    failures = 0
+
+    for trial in trials:
+        if trial is None:
+            failures += 1
+            continue
+        seen[" ".join(trial.answer.lower().split())[:100]] += 1
+        outcome.trials += 1
+        per_temp.setdefault(trial.temperature, []).append(trial.correct)
+        if trial.correct:
+            outcome.correct += 1
+        outcome.log.append(
+            {
+                "trial": outcome.trials,
+                "temperature": trial.temperature,
+                "answer": trial.answer[:TRANSCRIPT_CHARS],
+                "correct": trial.correct,
+            }
+        )
+
+    for temperature, hits in per_temp.items():
+        outcome.by_temperature[str(temperature)] = round(sum(hits) / len(hits), 4)
+    if outcome.trials:
+        top = seen.most_common(1)[0][1]
+        outcome.consistency = round(top / outcome.trials, 4)
+    if failures:
+        outcome.note = f"failed attempts: {failures}"
+    return outcome
+
+
 def run_monte_carlo(
     question: str,
     expected: str,
@@ -231,16 +340,12 @@ def run_monte_carlo(
     judge: Provider | None = None,
     is_mcq: bool = False,
 ) -> MonteCarloOutcome:
-    """Ask one question many times at different temperatures.
+    """Ask one question many times at different temperatures, one after another.
 
     What is measured is not so much accuracy as its meaningfulness: if the answer
     is different every time, any accuracy measured is about which run made it
-    into the report rather than about the model.
-
-    Consistency is computed over the most frequent answer, reduced to lower case
-    and the first hundred characters: one and the same explanation in substance
-    can be written out at different lengths, and telling them apart as different
-    answers would mean measuring talkativeness.
+    into the report rather than about the model. A run asks the same repeats side
+    by side (``monte_carlo_trial`` under the pool).
 
     Who answers is decided by the caller, and that is not abstraction for its own
     sake. The block applies both to a model and to a RAG endpoint: an endpoint
@@ -259,56 +364,17 @@ def run_monte_carlo(
         A MonteCarloOutcome with the accuracy, the consistency and the breakdown
         by temperature
     """
-    outcome = MonteCarloOutcome()
-    seen: Counter[str] = Counter()
-    failures = 0
-
-    for temperature in settings.monte_carlo_temperatures:
-        per_temp: list[bool] = []
-        for _ in range(settings.monte_carlo_trials):
-            try:
-                answer = ask(question, temperature)
-            except LLMError:
-                failures += 1
-                continue
-
-            if answer.startswith(ERROR_PREFIX):
-                failures += 1
-                continue
-
-            seen[" ".join(answer.lower().split())[:100]] += 1
-            outcome.trials += 1
-
-            verdict = grade(
+    return tally_monte_carlo(
+        [
+            monte_carlo_trial(
                 question,
                 expected,
-                answer,
-                is_mcq=is_mcq,
+                temperature,
+                ask=ask,
                 settings=settings,
                 judge=judge,
+                is_mcq=is_mcq,
             )
-            hit = verdict.verdict is Verdict.CORRECT and not verdict.failed
-            per_temp.append(hit)
-            if hit:
-                outcome.correct += 1
-            outcome.log.append(
-                {
-                    "trial": outcome.trials,
-                    "temperature": temperature,
-                    "answer": answer[:TRANSCRIPT_CHARS],
-                    "correct": hit,
-                }
-            )
-
-        if per_temp:
-            outcome.by_temperature[str(temperature)] = round(
-                sum(per_temp) / len(per_temp), 4
-            )
-
-    if outcome.trials:
-        top = seen.most_common(1)[0][1]
-        outcome.consistency = round(top / outcome.trials, 4)
-    if failures:
-        outcome.note = f"failed attempts: {failures}"
-
-    return outcome
+            for temperature in monte_carlo_plan(settings)
+        ]
+    )

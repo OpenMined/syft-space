@@ -48,7 +48,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, TypeVar
 
@@ -58,6 +58,7 @@ from syft_benchmark.config import Settings, SpaceConfig
 from syft_benchmark.llm import Provider, chat
 from syft_benchmark.llm.ollama import search_mechanism
 from syft_benchmark.runs.endpoint import RETRIEVAL_ONLY_TOKENS, ask_endpoint
+from syft_benchmark.runs.timing import ANSWER, CallClock
 
 T = TypeVar("T")
 
@@ -79,7 +80,9 @@ class Pool:
     outlived ``asyncio.run`` would fail on the next run.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, clock: CallClock | None = None) -> None:
+        # Model call latencies of everything asked through this pool.
+        self.clock = clock if clock is not None else CallClock()
         self.model_limit = settings.concurrency
         self.endpoint_limit = settings.endpoint_concurrency
         self._model = asyncio.Semaphore(self.model_limit)
@@ -273,7 +276,7 @@ class RunCache:
             self.savings.model_asked += 1
             started = time.monotonic()
             answer, usage = await pool.to_model(
-                chat,
+                pool.clock.timed(provider.model, ANSWER, chat),
                 system,
                 user,
                 provider=provider,
@@ -369,6 +372,9 @@ class Progress:
     # name not to ask again — the streak says only that this pass went badly.
     refused: str = ""
     watch: Callable[[Progress], None] | None = None
+    # The answerer's streak over all its passes running at once; None — this
+    # pass counts its own.
+    shared: Streak | None = None
 
     def step(self, *, failed: bool = False, refused: str = "") -> None:
         self.done += 1
@@ -376,14 +382,22 @@ class Progress:
             self.refuse(refused)
         if failed:
             self.failures += 1
-            self.streak += 1
+            if self.shared is not None:
+                self.shared.count += 1
+                self.streak = self.shared.count
+            else:
+                self.streak += 1
             if self.give_up_after and self.streak >= self.give_up_after:
-                self.stop(
+                reason = (
                     f"{self.streak} questions in a row failed — the answerer "
                     f"is not answering, and there is nothing to carry on with"
                 )
+                for member in self.shared.members if self.shared else [self]:
+                    member.stop(reason)
         else:
             self.streak = 0
+            if self.shared is not None:
+                self.shared.count = 0
         if self.done % _PROGRESS_EVERY == 0 or self.done == self.total:
             logger.info(
                 f"{self.label}: {self.done}/{self.total}"
@@ -437,3 +451,53 @@ class Progress:
             f"{self.label}: the run was stopped — {reason}. "
             f"What was done is saved; the cause must be fixed and the run started again"
         )
+
+
+@dataclass(slots=True)
+class Streak:
+    """Failed questions in a row of one answerer, across its concurrent passes.
+
+    Passes of one model run at the same time and interleave; a model that has
+    gone quiet fails in all of them, and a streak counted per pass would buy
+    the threshold once per pass. A success anywhere resets it.
+    """
+
+    count: int = 0
+    members: list[Progress] = field(default_factory=list)
+
+
+class Launch:
+    """What the passes of one launch share while they run at the same time.
+
+    One loop, one pool: the model and endpoint lanes are global. ``units``
+    bounds the questions in work over all passes, so a stop is read before a
+    question is dispatched rather than after a backlog of them. ``refused``
+    holds the names the provider refused outright: a refused answerer's passes
+    stop, a refused judge stands down in every pass.
+    """
+
+    # How often the owner's stop is asked for (it is a database read).
+    HALT_EVERY = 1.0
+
+    def __init__(
+        self, settings: Settings, *, halt: Callable[[], bool] | None = None
+    ) -> None:
+        self.units = asyncio.Semaphore(settings.concurrency)
+        self.refused: set[str] = set()
+        self._streaks: dict[str, Streak] = {}
+        self._halt = halt
+        self._halted = False
+        self._asked_at = 0.0
+
+    def streak(self, model: str) -> Streak:
+        return self._streaks.setdefault(model, Streak())
+
+    def halted(self) -> bool:
+        """Whether the owner asked to stop; asked at most once a second."""
+        if self._halted or self._halt is None:
+            return self._halted
+        now = time.monotonic()
+        if now - self._asked_at >= self.HALT_EVERY:
+            self._asked_at = now
+            self._halted = bool(self._halt())
+        return self._halted

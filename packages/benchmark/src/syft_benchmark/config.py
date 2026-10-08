@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from loguru import logger
@@ -214,6 +214,25 @@ class WebSearchEngine(StrEnum):
     AUTO = "auto"
     NATIVE = "native"
     PLUGIN = "plugin"
+
+
+class JudgeReasoningEffort(StrEnum):
+    """How hard a judge reasons: OpenRouter's ``reasoning.effort``.
+
+    ``DEFAULT`` sends nothing and leaves the model's own default.
+    """
+
+    NONE = "none"
+    MINIMAL = "minimal"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    DEFAULT = "default"
+
+
+# The layer value that asks for the model's own temperature: a layer's null
+# means "inherit", so "model default" needs a value of its own.
+MODEL_DEFAULT: Literal["default"] = "default"
 
 
 class ManualStatusPriority(StrEnum):
@@ -501,6 +520,22 @@ class Settings(BaseSettings):
     filter_judge_model: str | None = Field(
         default=None,
         description="The judge of the web check's answers. Empty — the first judge",
+    )
+    judge_temperature: float | None = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+        description=(
+            "Every judge's temperature, where the model takes one. "
+            "None — the model's default"
+        ),
+    )
+    judge_reasoning_effort: JudgeReasoningEffort = Field(
+        default=JudgeReasoningEffort.LOW,
+        description=(
+            "Every judge's reasoning effort, where the model reasons; "
+            "default — the model's own"
+        ),
     )
     manual_status_priority: ManualStatusPriority = Field(
         default=ManualStatusPriority.FILTER,
@@ -976,6 +1011,13 @@ class Settings(BaseSettings):
     # For a multi-Space installation this was broken twice over: one Space is
     # summary, another raw, and the setting is one for both.
 
+    @field_validator("judge_temperature", mode="before")
+    @classmethod
+    def _model_default_temperature(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip().lower() in ("", MODEL_DEFAULT):
+            return None
+        return value
+
     @field_validator("arms")
     @classmethod
     def _measured_arms(cls, value: list[ContextMode]) -> list[ContextMode]:
@@ -1055,6 +1097,9 @@ class Settings(BaseSettings):
             "web_search_with_context": self.web_search_with_context,
             "web_search_judge": self.web_search_judge,
             "web_search_max_results": self.web_search_max_results,
+            # How the judges were tuned decides their verdicts.
+            "judge_temperature": self.judge_temperature,
+            "judge_reasoning_effort": self.judge_reasoning_effort.value,
         }
 
     def space_by_key(self, key: str) -> SpaceConfig:

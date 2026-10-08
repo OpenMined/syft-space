@@ -85,6 +85,7 @@ const modelReport = computed(() => data.value?.models.find((m) => m.model === mo
 
 provideRun({
   jobId: props.jobId,
+  slug: props.slug,
   data,
   loading,
   error,

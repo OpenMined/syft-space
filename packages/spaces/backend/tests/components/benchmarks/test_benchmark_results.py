@@ -117,7 +117,13 @@ class _Console:
         if method == "DELETE":
             return Reply(ok=True, status=204)
         if path.startswith("/console/report/runs/") and path.count("/") == 4:
-            return Reply(ok=True, data={"run": {"job_id": path.rsplit("/", 1)[1]}})
+            return Reply(
+                ok=True,
+                data={
+                    "run": {"job_id": path.rsplit("/", 1)[1]},
+                    "timing": TIMING,
+                },
+            )
         if path == "/console/report/runs/missing/questions":
             return Reply(ok=False, status=404, detail="there is no job missing")
         return Reply(ok=True, data={"items": [], "total": 0})
@@ -322,6 +328,14 @@ def test_runs_route_passes_dates_and_paging_through() -> None:
 
 # --- one run ----------------------------------------------------------------
 
+TIMING = {
+    "total_s": 10.0,
+    "phases": [{"phase": "evaluate", "s": 9.5}],
+    "passes": [],
+    "calls": [],
+    "concurrency": {"model": 16, "endpoint": 2},
+}
+
 
 @pytest.mark.asyncio
 async def test_a_runs_report_carries_its_published_state_too() -> None:
@@ -330,6 +344,7 @@ async def test_a_runs_report_carries_its_published_state_too() -> None:
     assert console.calls[-1][1] == "/console/report/runs/job-mid"
     assert data["run"]["published"] is True
     assert data["run"]["card_id"] == str(STANDING)
+    assert data["timing"] == TIMING
 
 
 def test_questions_route_passes_every_query_parameter_through() -> None:
@@ -349,6 +364,27 @@ def test_questions_route_passes_every_query_parameter_through() -> None:
     assert resp.status_code == 200
     method, path, _, params = console.calls[-1]
     assert (method, path) == ("GET", "/console/report/runs/job-mid/questions")
+    assert params == query
+
+
+@pytest.mark.parametrize(
+    ("part", "query"),
+    [
+        ("filter", {"stage": "web_check", "outcome": "removed", "limit": "10"}),
+        ("generated", {"generator": "mcq", "status": "active", "offset": "5"}),
+    ],
+)
+def test_filter_and_generated_pass_the_query_through(
+    part: str, query: dict[str, str]
+) -> None:
+    handler, console, _ = _handler()
+    resp = _app(handler).get(
+        f"/benchmarks/endpoints/{SLUG}/report/runs/job-mid/{part}", params=query
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"items": [], "total": 0}
+    method, path, _, params = console.calls[-1]
+    assert (method, path) == ("GET", f"/console/report/runs/job-mid/{part}")
     assert params == query
 
 

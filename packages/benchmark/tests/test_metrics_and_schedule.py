@@ -239,7 +239,7 @@ def test_a_refused_name_is_not_asked_in_the_passes_still_to_come(
 
     asked: list[str] = []
 
-    def one_pass(space, mode, **kwargs):  # type: ignore[no-untyped-def]
+    async def one_pass(space, mode, **kwargs):  # type: ignore[no-untyped-def]
         subject = kwargs["subject"]
         asked.append(subject.model)
         return [
@@ -255,7 +255,7 @@ def test_a_refused_name_is_not_asked_in_the_passes_still_to_come(
             )
         ]
 
-    monkeypatch.setattr(sched, "run_pass", one_pass)
+    monkeypatch.setattr(sched, "arun_pass", one_pass)
 
     conf = Settings(  # type: ignore[call-arg]
         ollama_url="http://localhost:11434",

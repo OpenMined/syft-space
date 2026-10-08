@@ -685,11 +685,11 @@ def test_a_model_without_temperature_gets_no_monte_carlo(
     )
     monkeypatch.setattr("syft_benchmark.scheduler.check_perimeter", lambda conf: None)
 
-    def fake_run_pass(space: Any, mode: Any, **kwargs: Any) -> list[Any]:
+    async def fake_run_pass(space: Any, mode: Any, **kwargs: Any) -> list[Any]:
         asked.append((mode.value, kwargs["block"].value, kwargs["subject"].model))
         return []
 
-    monkeypatch.setattr("syft_benchmark.scheduler.run_pass", fake_run_pass)
+    monkeypatch.setattr("syft_benchmark.scheduler.arun_pass", fake_run_pass)
     conf = Settings(
         arms=[ContextMode.CLOSED_BOOK, ContextMode.MODEL_WITH_CONTEXT],
         blocks=[EvalBlock.DIRECT, EvalBlock.MONTE_CARLO],

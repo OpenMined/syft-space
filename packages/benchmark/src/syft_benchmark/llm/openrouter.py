@@ -23,9 +23,16 @@ Three of their fields decide the shape of an entry:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+from loguru import logger
+
+from syft_benchmark.config import ExternalCallBlocked, check_model_host
+from syft_benchmark.llm.providers import ProviderKind, kind_for_url
+
+if TYPE_CHECKING:
+    from syft_benchmark.config import Settings
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 SOURCE = "openrouter"
@@ -211,3 +218,60 @@ def snapshot(
         "models": entries,
         "pins": pins,
     }
+
+
+# The key's own spend: GET /api/v1/key -> data.usage (USD, all time). Works with
+# an ordinary inference key; /api/v1/credits is account-wide and documented as
+# management-key only. https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key
+KEY_PATH = "/v1/key"
+SPEND_TIMEOUT_SECONDS = 20
+
+
+def key_spend(
+    base_url: str, api_key: str, *, timeout: float = SPEND_TIMEOUT_SECONDS
+) -> float:
+    """USD used so far by one OpenRouter key.
+
+    Raises:
+        httpx.HTTPError: no answer, or an error status
+        ValueError: the answer carries no usage
+    """
+    root = base_url.rstrip("/").removesuffix("/v1")
+    response = httpx.get(
+        f"{root}{KEY_PATH}",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    data = (response.json() or {}).get("data") or {}
+    usage = data.get("usage")
+    if isinstance(usage, bool) or not isinstance(usage, int | float):
+        raise ValueError("the key record carries no 'usage'")
+    return float(usage)
+
+
+def openrouter_spend(conf: Settings) -> float | None:
+    """USD used so far by the OpenRouter keys the configured roles call with.
+
+    Summed over distinct keys, so a job's spend is the difference of two reads.
+    None when no role calls OpenRouter, or a key could not be read (a partial
+    sum would make that difference wrong). Includes traffic on the same keys
+    from outside the job; the per-call meter (llm.cost) does not.
+    """
+    from syft_benchmark.llm.roles import configured_providers
+
+    keys: dict[str, str] = {}
+    for provider in configured_providers(conf):
+        if provider.api_key and kind_for_url(provider.url) is ProviderKind.OPENROUTER:
+            keys.setdefault(provider.api_key, provider.url)
+    if not keys:
+        return None
+    total = 0.0
+    for api_key, url in keys.items():
+        try:
+            check_model_host(url, conf)
+            total += key_spend(url, api_key)
+        except (httpx.HTTPError, ValueError, ExternalCallBlocked) as exc:
+            logger.warning("OpenRouter spend unavailable: {}", exc)
+            return None
+    return total

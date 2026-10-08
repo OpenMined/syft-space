@@ -74,6 +74,8 @@ GROUPS: dict[str, str] = {
     "web_search_max_results": ARMS,
     "web_search_generator": DATASET,
     "web_search_judge": JUDGING,
+    "judge_temperature": JUDGING,
+    "judge_reasoning_effort": JUDGING,
     "judge_policy": JUDGING,
     "key_facts_threshold": JUDGING,
     "answer_coverage_threshold": JUDGING,
@@ -151,7 +153,11 @@ def _unwrap(schema: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
     if "$ref" in schema:
         name = schema["$ref"].rsplit("/", 1)[-1]
         return dict(defs.get(name, {}))
-    options = [s for s in schema.get("anyOf", []) if s.get("type") != "null"]
+    options = [
+        s
+        for s in schema.get("anyOf", [])
+        if s.get("type") != "null" and "const" not in s
+    ]
     if len(options) == 1:
         return _unwrap(options[0], defs)
     return schema
@@ -176,6 +182,10 @@ def describe(model: type[BaseModel]) -> list[dict[str, Any]]:
             "type": body.get("type", "string"),
             "group": GROUPS.get(name, RUN),
         }
+        # A word a number field also takes, such as "default" for the model's own.
+        special = [s["const"] for s in raw.get("anyOf", []) if "const" in s]
+        if special:
+            field["special"] = special
         if name in CATALOGUES:
             field["catalog"] = CATALOGUES[name]
         if "enum" in body:

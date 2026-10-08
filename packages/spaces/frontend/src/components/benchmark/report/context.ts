@@ -8,6 +8,7 @@ const RUN_KEY: InjectionKey<RunContext> = Symbol('runContext')
 /** The run a report page shows, shared by its sections. */
 export interface RunContext {
   jobId: string
+  slug?: string
   data: Ref<BenchmarkRunReport | null>
   loading: Ref<boolean>
   error: Ref<string | null>

@@ -544,6 +544,34 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
             tenant, slug, job_id, dict(request.query_params)
         )
 
+    @router.get("/endpoints/{slug}/report/runs/{job_id}/generated")
+    async def list_run_generated(
+        slug: str,
+        job_id: str,
+        request: Request,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """The questions the run wrote, paged, and its build per kind. Query
+        passed through (``generator``, ``status``, ``limit``, ``offset``)."""
+        return await handler.list_run_part(
+            tenant, slug, job_id, "generated", dict(request.query_params)
+        )
+
+    @router.get("/endpoints/{slug}/report/runs/{job_id}/filter")
+    async def list_run_filter(
+        slug: str,
+        job_id: str,
+        request: Request,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """The run's filter decisions, paged. Query passed through
+        (``stage``, ``outcome``, ``limit``, ``offset``)."""
+        return await handler.list_run_part(
+            tenant, slug, job_id, "filter", dict(request.query_params)
+        )
+
     @router.get("/endpoints/{slug}/report/runs/{job_id}/questions/{qa_id}")
     async def get_run_question(
         slug: str,
