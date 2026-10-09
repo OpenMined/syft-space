@@ -112,6 +112,22 @@ describe('timing table', () => {
     expect(calls[1]!.text()).toContain('0.42s')
   })
 
+  it('shows the cost with the key spend and the span from the job start', async () => {
+    const base = runReport({ timing: null })
+    api.getRunReport.mockResolvedValue({
+      ...base,
+      run: { ...base.run, started_at: '2026-09-30T06:10:00Z', finished_at: '2026-09-30T06:50:00Z' },
+      method: {
+        ...base.method,
+        cost: { usd: 1.5, spend_before: 1, spend_after: 2.5, usd_calls: 1.2, total_usd: 1.2 },
+      },
+    })
+    const wrapper = mount(TimingTable, { props: { slug: 'news', job: 'j1' } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="timing-total"]').text()).toBe('Total 40m 0s')
+    expect(wrapper.get('[data-testid="timing-cost"]').text()).toBe('Cost $1.20(key $1.50)')
+  })
+
   it('is hidden when the run kept no timing', async () => {
     api.getRunReport.mockResolvedValue(runReport({ timing: null }))
     const wrapper = mount(TimingTable, { props: { slug: 'news', job: 'j1' } })

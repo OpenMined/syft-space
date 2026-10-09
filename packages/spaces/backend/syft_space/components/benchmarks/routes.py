@@ -19,6 +19,7 @@ reach this route at all. See ``SettingsRepository.enable_benchmarks_if_untouched
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 
 from syft_space.components.benchmarks.handlers import BenchmarkHandler
 from syft_space.components.benchmarks.schemas import (
@@ -643,6 +644,24 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         if headers.get("content-disposition"):
             passed["Content-Disposition"] = headers["content-disposition"]
         return Response(content=content, media_type=media_type, headers=passed)
+
+    @router.get("/endpoints/{slug}/report/runs/{job_id}/export.xlsx")
+    async def stream_run_export(
+        slug: str,
+        job_id: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> StreamingResponse:
+        """Everything that took part in the run as one workbook, streamed as
+        the benchmark sends it."""
+        body, headers = await handler.stream_run_export(tenant, slug, job_id)
+        media_type = headers.get("content-type") or (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        passed = {}
+        if headers.get("content-disposition"):
+            passed["Content-Disposition"] = headers["content-disposition"]
+        return StreamingResponse(body, media_type=media_type, headers=passed)
 
     @router.post("/endpoints/{slug}/report/runs/{job_id}/publish")
     async def publish_run(

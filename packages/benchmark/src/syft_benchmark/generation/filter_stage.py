@@ -86,10 +86,14 @@ from syft_benchmark.generation.web_check import (
     WebVerdict,
     exclusion,
     filter_model,
+    lean,
     skips_manual,
     web_checked,
 )
 from syft_benchmark.llm import Provider, judge_providers
+
+# The control gate's call, carried from the check to the decision record.
+GATE_CALL = "_gate_call"
 
 # Statuses that carry no status_reason.
 _IN_PLAY = frozenset({PairStatus.PENDING, PairStatus.ACTIVE})
@@ -178,15 +182,19 @@ def _screen_pair(
         )
 
     outcome = gate_unanswerable(row.question, gate, settings=conf, judge=judge)
+    meta: dict[str, Any] = {
+        "gate": outcome.note,
+        "gate_checked": outcome.checked,
+        "gate_fragments": outcome.fragments,
+    }
+    if outcome.call:
+        # Taken off before the pair's meta is written: the job's decision keeps it.
+        meta[GATE_CALL] = outcome.call
     return (
         PairStatus.ACTIVE if outcome.clear else PairStatus.REJECTED,
         None if outcome.clear else StatusReason.RETRIEVAL_GATE,
         outcome.note,
-        {
-            "gate": outcome.note,
-            "gate_checked": outcome.checked,
-            "gate_fragments": outcome.fragments,
-        },
+        meta,
     )
 
 
@@ -243,6 +251,7 @@ class Screening:
         note: str,
         reason: StatusReason | None = None,
         web: Any = None,
+        gate: Any = None,
     ) -> dict[str, Any]:
         """The ``meta.screening`` update for one decision; empty without a job."""
         if not self.job_id:
@@ -256,15 +265,24 @@ class Screening:
                 note=note,
                 reason=reason.value if reason else None,
                 web=web if isinstance(web, dict) else None,
+                gate=gate if isinstance(gate, dict) else None,
             ),
         )
 
-    def _web_meta(self, verdict: WebVerdict) -> dict[str, Any]:
-        """The verdict's meta, its web check record stamped with the job."""
+    def _web_record(self, verdict: WebVerdict) -> dict[str, Any] | None:
+        """The verdict's full web check record, stamped with the job."""
         web = verdict.meta.get("web_check")
-        if not self.job_id or not isinstance(web, dict):
+        if not isinstance(web, dict):
+            return None
+        return {**web, "job_id": self.job_id} if self.job_id else dict(web)
+
+    def _web_meta(self, verdict: WebVerdict) -> dict[str, Any]:
+        """The verdict's meta; its ``web_check`` without the full texts, which
+        only the job's decision record keeps."""
+        web = self._web_record(verdict)
+        if web is None:
             return dict(verdict.meta)
-        return {**verdict.meta, "web_check": {**web, "job_id": self.job_id}}
+        return {**verdict.meta, "web_check": lean(web)}
 
     def _write(
         self,
@@ -274,10 +292,16 @@ class Screening:
         note: str,
         meta: dict[str, Any],
         stage: str = decisions.GROUNDING,
+        web: dict[str, Any] | None = None,
     ) -> None:
         outcome = decisions.KEPT if status is PairStatus.ACTIVE else decisions.REMOVED
-        web = meta.get("web_check") if stage == decisions.WEB_CHECK else None
-        meta = {**meta, **self._decision(row, stage, outcome, note, reason, web)}
+        if web is None and stage == decisions.WEB_CHECK:
+            web = meta.get("web_check")
+        gate = meta.pop(GATE_CALL, None)
+        meta = {
+            **meta,
+            **self._decision(row, stage, outcome, note, reason, web, gate),
+        }
         with session_scope(self.conf) as session:
             session.execute(
                 update(QaPair)
@@ -305,11 +329,14 @@ class Screening:
         self, row: QaPair, verdict: WebVerdict, outcome: str
     ) -> dict[str, Any]:
         """The pair's meta with the web check record and its stamp."""
-        web = self._web_meta(verdict)
         stamp = self._decision(
-            row, decisions.WEB_CHECK, outcome, verdict.note, web=web.get("web_check")
+            row,
+            decisions.WEB_CHECK,
+            outcome,
+            verdict.note,
+            web=self._web_record(verdict),
         )
-        return {**row.meta, **web, **stamp}
+        return {**row.meta, **self._web_meta(verdict), **stamp}
 
     def _note_pending(self, row: QaPair, verdict: WebVerdict) -> None:
         meta = self._web_note(row, verdict, decisions.FAILED)
@@ -413,6 +440,7 @@ class Screening:
                 WEB_ANSWERABLE,
                 {**meta, **self._web_meta(verdict)},
                 decisions.WEB_CHECK,
+                self._web_record(verdict),
             )
         else:
             self._write(
@@ -422,6 +450,7 @@ class Screening:
                 note,
                 {**meta, **self._web_meta(verdict)},
                 decisions.WEB_CHECK,
+                self._web_record(verdict),
             )
 
     def recheck(self, row: QaPair) -> None:
@@ -441,6 +470,7 @@ class Screening:
                 WEB_ANSWERABLE,
                 self._web_meta(verdict),
                 decisions.WEB_CHECK,
+                self._web_record(verdict),
             )
         else:
             self._note_in_set(row, verdict)

@@ -8,7 +8,9 @@ import { benchmarksApi } from '@/api/endpoints/benchmarks'
 import type { BenchmarkRunTiming, BenchmarkTextMetricsRow } from '@/api/types'
 import { armTileWords, blockBrief, shortModel } from './labels'
 import { TEXT_METRIC_LABEL, metricCell, metricColumns } from './textMetrics'
-import { duration, hasTiming, phaseLabel, roleLabel, runSpan } from './timing'
+import { duration, hasTiming, phaseLabel, roleLabel } from './timing'
+import { usdText } from './report/selectors'
+import { customerCost, keySpend, runDuration } from './report/timeCost'
 
 const props = defineProps<{ slug: string; job: string; refreshKey?: number }>()
 
@@ -16,17 +18,23 @@ const timing = ref<BenchmarkRunTiming | null>(null)
 // From the run's own timestamps, for runs recorded without timing.
 const spanS = ref<number | null>(null)
 const metrics = ref<BenchmarkTextMetricsRow[]>([])
+const cost = ref<number | null>(null)
+const spend = ref<number | null>(null)
 
 async function load(): Promise<void> {
   try {
     const report = await benchmarksApi.getRunReport(props.slug, props.job)
     timing.value = hasTiming(report.timing) ? report.timing : null
-    spanS.value = runSpan(report.run?.created_at, report.run?.finished_at)
+    spanS.value = report.run ? runDuration(report.run) : null
     metrics.value = report.text_metrics ?? []
+    cost.value = report.method ? customerCost(report.method) : null
+    spend.value = report.method ? keySpend(report.method) : null
   } catch {
     timing.value = null
     spanS.value = null
     metrics.value = []
+    cost.value = null
+    spend.value = null
   }
 }
 
@@ -48,20 +56,36 @@ const TD = 'px-3 py-1.5 text-right tabular-nums'
 </script>
 
 <template>
-  <p v-if="!timing && totalS" class="text-xs text-muted-foreground" data-testid="timing-total">
-    Total <span class="tabular-nums text-foreground">{{ duration(totalS) }}</span>
-  </p>
-  <div v-if="timing" class="space-y-2" data-testid="timing">
-    <p class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-      <span :title="limits" class="cursor-help" data-testid="timing-total">
-        Total <span class="tabular-nums text-foreground">{{ duration(totalS) }}</span>
-      </span>
+  <p
+    v-if="totalS || cost !== null || spend !== null"
+    class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
+  >
+    <span
+      v-if="totalS"
+      :title="limits"
+      :class="{ 'cursor-help': limits }"
+      data-testid="timing-total"
+    >
+      Total <span class="tabular-nums text-foreground">{{ duration(totalS) }}</span>
+    </span>
+    <template v-if="timing">
       <span v-for="p in timing.phases" :key="p.phase" data-testid="timing-phase">
         {{ phaseLabel(p.phase) }}
         <span class="tabular-nums text-foreground">{{ duration(p.s) }}</span>
       </span>
-    </p>
-
+    </template>
+    <span v-if="cost !== null || spend !== null" data-testid="timing-cost">
+      Cost
+      <span v-if="cost !== null" class="tabular-nums text-foreground">{{ usdText(cost) }}</span>
+      <span
+        v-if="spend !== null"
+        class="ml-1 cursor-help tabular-nums"
+        title="OpenRouter key spend during this run."
+        >(key {{ usdText(spend) }})</span
+      >
+    </span>
+  </p>
+  <div v-if="timing" class="space-y-2" data-testid="timing">
     <div class="grid gap-3 xl:grid-cols-2">
       <div
         v-if="timing.passes.length"

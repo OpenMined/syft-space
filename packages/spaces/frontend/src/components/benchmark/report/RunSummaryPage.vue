@@ -8,8 +8,8 @@
             {{ published ? 'Published' : 'Private' }}
           </Badge>
         </div>
-        <p v-if="articles" class="text-sm text-muted-foreground" data-testid="run-articles">
-          {{ articles }}
+        <p v-if="header" class="text-sm text-muted-foreground" data-testid="run-articles">
+          {{ header }}
         </p>
       </div>
       <div v-if="!buildOnly" class="flex flex-wrap gap-2">
@@ -138,6 +138,61 @@
       </div>
     </section>
 
+    <section
+      v-if="took !== null || cost !== null || parts"
+      class="space-y-2.5"
+      aria-labelledby="cost-title"
+      data-testid="time-cost"
+    >
+      <div>
+        <h2 id="cost-title" class="text-base font-semibold">Time and cost</h2>
+        <p class="text-sm text-muted-foreground">Paid with your own model keys.</p>
+      </div>
+      <div class="flex flex-wrap overflow-hidden rounded-lg border border-border bg-card">
+        <div v-if="took !== null" :class="TILE" class="flex-[1_1_12.5rem]" data-testid="took">
+          <span class="text-xs font-medium text-muted-foreground">Took</span>
+          <b class="text-2xl font-semibold tabular-nums">{{ tookText(took) }}</b>
+          <span v-if="startFinish" class="text-xs text-muted-foreground">{{ startFinish }}</span>
+        </div>
+        <div v-if="cost !== null" :class="TILE" class="flex-[1_1_12.5rem]" data-testid="cost">
+          <span class="text-xs font-medium text-muted-foreground">Cost</span>
+          <b class="text-2xl font-semibold tabular-nums">{{ usdText(cost) }}</b>
+          <span class="text-xs text-muted-foreground">All model calls in this run</span>
+        </div>
+        <div
+          v-if="parts"
+          :class="TILE"
+          class="flex-[2_1_26.25rem] gap-2.5"
+          data-testid="cost-parts"
+        >
+          <span class="text-xs font-medium text-muted-foreground">Where the cost went</span>
+          <div
+            class="flex h-3 gap-0.5 overflow-hidden rounded-md"
+            role="img"
+            :aria-label="costLabel(parts, usdText)"
+          >
+            <span
+              v-for="p in parts.filter((x) => x.usd > 0)"
+              :key="p.key"
+              class="block h-full"
+              :style="{ width: p.width, background: p.color }"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-x-5 gap-y-1 text-sm">
+            <span v-for="p in parts" :key="p.key" class="flex items-center gap-2">
+              <i
+                class="size-2.5 shrink-0 rounded-sm"
+                :style="{ background: p.color }"
+                aria-hidden="true"
+              />
+              <span class="min-w-0 flex-1 text-muted-foreground">{{ p.label }}</span>
+              <b class="font-semibold tabular-nums">{{ usdText(p.usd) }}</b>
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <RouterLink
       :to="methodLocation(jobId)"
       class="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3.5 transition-colors hover:bg-muted/40"
@@ -168,10 +223,20 @@ import { useReport, useRun } from './context'
 import { count, DASH, dayTime, points } from './figures'
 import { modelName, vendorName } from './labels'
 import { methodLocation, modelLocation } from './routing'
-import { articlesText, utcStamp, webRemoved } from './selectors'
+import { runHeaderText, usdText, utcStamp, webRemoved } from './selectors'
+import {
+  costLabel,
+  costParts,
+  customerCost,
+  runDuration,
+  startFinishText,
+  tookText,
+} from './timeCost'
 
 const PUBLISHED_TONE = 'border-transparent bg-primary/10 text-primary'
 const PRIVATE_TONE = 'border-transparent bg-muted text-muted-foreground'
+const TILE =
+  'flex flex-col gap-0.5 border-b border-border px-5 py-4 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0'
 
 const report = useReport()
 const { jobId, slug, data } = useRun()
@@ -179,7 +244,11 @@ const { jobId, slug, data } = useRun()
 const published = computed(() => data.value?.run.published ?? false)
 /** No model was asked: the page shows what the job wrote and filtered. */
 const buildOnly = computed(() => data.value?.run.build_only ?? false)
-const articles = computed(() => (data.value ? articlesText(data.value) : null))
+const header = computed(() => (data.value ? runHeaderText(data.value) : null))
+const took = computed(() => (data.value ? runDuration(data.value.run) : null))
+const startFinish = computed(() => (data.value ? startFinishText(data.value.run) : null))
+const cost = computed(() => (data.value ? customerCost(data.value.method) : null))
+const parts = computed(() => (data.value ? costParts(data.value.method) : null))
 const removed = computed(() => (data.value ? webRemoved(data.value) : null))
 
 /** Unsigned whole points: 47 → `47`, −5 → `−5`. */

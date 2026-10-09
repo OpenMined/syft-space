@@ -56,6 +56,23 @@ export function dayTime(iso: string | null | undefined): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, ${two(d.getHours())}:${two(d.getMinutes())}`
 }
 
+/** A stamp as UTC: the Space stores naive datetimes that are UTC. */
+export function utcStamp(value: string | null | undefined): string | null {
+  if (!value) return null
+  return /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`
+}
+
+/** `06:00`, in the reader's time zone. */
+export function clock(d: Date): string {
+  return `${two(d.getHours())}:${two(d.getMinutes())}`
+}
+
+/** `30 Sep 06:00`, local time; null for a missing or unreadable stamp. */
+export function shortStamp(value: string | null | undefined): string | null {
+  const d = parse(utcStamp(value))
+  return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${clock(d)}` : null
+}
+
 /** The reader's calendar day of a stamp, `YYYY-MM-DD`, as a date input holds it. */
 export function localDay(iso: string | null | undefined): string | null {
   const d = parse(iso)

@@ -387,6 +387,7 @@ def chat(
     web_search_engine: str = "auto",
     max_results: int | None = None,
     judging: bool = False,
+    role: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """A single call to the chat endpoint.
 
@@ -421,6 +422,8 @@ def chat(
             ``judge_reasoning_effort`` replace ``temperature``, sent only where
             the catalogue says the model takes them (see judge_tuning); a
             provider's refusal of either steps it down
+        role: Who the call is made for, for the job's cost by role
+            (``cost.ROLES``); ``cost.acting_as`` overrides it
 
     Returns:
         The answer text and usage, extended with cost_usd (USD the provider
@@ -525,7 +528,7 @@ def chat(
                 )
 
             priced = cost.cost_of(data.get("usage") or {})
-            cost.charge(priced)
+            cost.charge(priced, cost.role_of(role))
             if priced is not None:
                 spent = (spent or 0.0) + priced
 

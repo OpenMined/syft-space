@@ -9,16 +9,19 @@ withdrawing a run by its job.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from syft_space.components.benchmarks.client import Reply
+from syft_space.components.benchmarks import client as client_module
+from syft_space.components.benchmarks.client import BenchmarkClient, Reply
 from syft_space.components.benchmarks.entities import (
     BenchmarkConnection,
     BenchmarkTarget,
@@ -40,6 +43,8 @@ TENANT = SimpleNamespace(id=uuid4(), name="default")
 ENDPOINT_ID = uuid4()
 SLUG = "support-kb"
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+XLSX_CHUNKS = (b"PK\x03\x04", b"xlsx-" * 1000, b"end")
 
 STANDING = uuid4()
 OLDER = uuid4()
@@ -141,6 +146,25 @@ class _Console:
                 ),
             },
         )
+
+    async def stream(
+        self, path: str, *, params: dict | None = None
+    ) -> tuple[Reply, AsyncIterator[bytes] | None]:
+        self.calls.append(("GET", path, None, params or {}))
+        if "/missing/" in path:
+            return Reply(ok=False, status=404, detail="there is no job missing"), None
+
+        async def body() -> AsyncIterator[bytes]:
+            for chunk in XLSX_CHUNKS:
+                yield chunk
+
+        headers = {
+            "content-type": XLSX,
+            "content-disposition": (
+                'attachment; filename="support-kb-run-2026-09-30-0300.xlsx"'
+            ),
+        }
+        return Reply(ok=True, status=200, headers=headers), body()
 
 
 def _rows(standing: bool = True) -> list[tuple[UUID, str, datetime | None]]:
@@ -445,6 +469,71 @@ def test_summary_document_arrives_with_the_benchmarks_name_and_type() -> None:
         'attachment; filename="support-kb-2026-09-30-0300.docx"'
     )
     assert console.calls[-1][1] == "/console/report/runs/job-mid/summary.docx"
+
+
+def test_the_excel_export_streams_through_with_its_name_and_type() -> None:
+    handler, console, _ = _handler()
+    resp = _app(handler).get(
+        f"/benchmarks/endpoints/{SLUG}/report/runs/job-mid/export.xlsx"
+    )
+    assert resp.status_code == 200
+    assert resp.content == b"".join(XLSX_CHUNKS)
+    assert resp.headers["content-type"] == XLSX
+    assert resp.headers["content-disposition"] == (
+        'attachment; filename="support-kb-run-2026-09-30-0300.xlsx"'
+    )
+    assert console.calls[-1][1] == "/console/report/runs/job-mid/export.xlsx"
+
+
+def test_the_excel_export_passes_a_refusal_on() -> None:
+    handler, _, _ = _handler()
+    resp = _app(handler).get(
+        f"/benchmarks/endpoints/{SLUG}/report/runs/missing/export.xlsx"
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "there is no job missing"
+
+
+@pytest.mark.asyncio
+async def test_the_client_streams_a_file_and_reads_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/gone/export.xlsx"):
+            return httpx.Response(404, json={"detail": "there is no job gone"})
+        assert request.headers["authorization"] == "Bearer k"
+        return httpx.Response(
+            200,
+            content=b"".join(XLSX_CHUNKS),
+            headers={
+                "content-type": XLSX,
+                "content-disposition": 'attachment; filename="a.xlsx"',
+                "x-other": "dropped",
+            },
+        )
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        client_module.httpx,
+        "AsyncClient",
+        lambda **kw: real(transport=httpx.MockTransport(answer), **kw),
+    )
+    client = BenchmarkClient("http://benchmark:8200", "k")
+    reply, body = await client.stream("/console/report/runs/j/export.xlsx")
+    assert reply.ok and body is not None
+    assert reply.headers == {
+        "content-type": XLSX,
+        "content-disposition": 'attachment; filename="a.xlsx"',
+    }
+    assert b"".join([chunk async for chunk in body]) == b"".join(XLSX_CHUNKS)
+
+    reply, body = await client.stream("/console/report/runs/gone/export.xlsx")
+    assert body is None
+    assert (reply.ok, reply.status, reply.detail) == (
+        False,
+        404,
+        "there is no job gone",
+    )
 
 
 # --- publishing a run -------------------------------------------------------

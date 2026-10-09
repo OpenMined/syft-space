@@ -1496,6 +1496,8 @@ export interface BenchmarkModelFigures {
 export interface BenchmarkRunSummary {
   job_id: string
   created_at: string | null
+  /** Job start; run duration = finished_at − started_at. */
+  started_at?: string | null
   finished_at: string | null
   trigger: string
   window_days: number | null
@@ -1630,6 +1632,17 @@ export interface BenchmarkRunCost {
   spend_after: number | null
   /** Sum of per-call usage.cost. */
   usd_calls: number
+  /** Sum of `by_role`; null for older jobs. */
+  total_usd?: number | null
+  by_role?: BenchmarkCostByRole | null
+}
+
+/** Per-call cost of one job by role, in USD. */
+export interface BenchmarkCostByRole {
+  writer: number
+  web_check: number
+  subjects: number
+  judges: number
 }
 
 /** How one kind's generation went in one job. */

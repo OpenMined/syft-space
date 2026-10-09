@@ -13,11 +13,11 @@ import {
 } from '@/components/benchmark/filter'
 import {
   methodSettings,
-  runCost,
   runStateLabel,
   usdText,
   webCheckText,
 } from '@/components/benchmark/report/selectors'
+import { customerCost } from '@/components/benchmark/report/timeCost'
 import type { BenchmarkWebCheck } from '@/api/types'
 import { runReport } from './reportFixtures'
 
@@ -96,17 +96,15 @@ describe('filter decisions', () => {
 })
 
 describe('how tested: web check and cost', () => {
-  it('prefers the balance difference, falls back to the per-call sum', () => {
+  it('prefers the per-call total, then the per-call sum, then the key spend', () => {
     const base = runReport().method
-    expect(runCost(base)).toBeNull()
+    expect(customerCost(base)).toBeNull()
+    const cost = { usd: 1.234, spend_before: 1, spend_after: 2.234, usd_calls: 1 }
+    expect(customerCost({ ...base, cost: { ...cost, total_usd: 0.9 } })).toBe(0.9)
+    expect(customerCost({ ...base, cost })).toBe(1)
+    expect(customerCost({ ...base, cost: { ...cost, usd_calls: 0 } })).toBe(1.234)
     expect(
-      runCost({ ...base, cost: { usd: 1.234, spend_before: 1, spend_after: 2.234, usd_calls: 1 } }),
-    ).toBe(1.234)
-    expect(
-      runCost({ ...base, cost: { usd: null, spend_before: null, spend_after: 2, usd_calls: 0.5 } }),
-    ).toBe(0.5)
-    expect(
-      runCost({
+      customerCost({
         ...base,
         cost: { usd: null, spend_before: null, spend_after: null, usd_calls: 0 },
       }),
@@ -145,8 +143,15 @@ describe('how tested: web check and cost', () => {
     )
     expect(rows.find((r) => r.key === 'webcheck')?.value).toBe('GPT-5.1')
     const cost = rows.find((r) => r.key === 'cost')
-    expect(cost?.value).toBe('$0.42')
-    expect(cost?.tip).toBe('OpenRouter spend during this run.')
+    expect(cost?.value).toBe('$0.40')
+    expect(cost?.tip).toBe('All model calls in this run.')
+    expect(rows.map((r) => r.key)).not.toContain('duration')
+    const timed = methodSettings(
+      runReport({
+        run: { ...base.run, started_at: '2026-09-30T06:00:00', finished_at: '2026-09-30T06:54:00' },
+      }),
+    )
+    expect(timed.find((r) => r.key === 'duration')?.value).toBe('54 min')
   })
 })
 

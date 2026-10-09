@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from syft_benchmark.config import EvalBlock, Settings, Verdict
-from syft_benchmark.llm import LLMError, Provider, catalog, chat
+from syft_benchmark.llm import LLMError, Provider, catalog, chat, cost
 from syft_benchmark.runs.judge import ERROR_PREFIX, Grade, detect_abstain, grade
 from syft_benchmark.runs.timing import ANSWER, JUDGE
 
@@ -51,11 +51,6 @@ def monte_carlo_skip_note(model: str) -> str:
     """The run report's line for a skipped monte_carlo block."""
     return f"{model}: no temperature, Monte Carlo skipped"
 
-
-# How much of one answer a transcript keeps. Evidence for the reader checking
-# a verdict, not a second copy of the corpus: a dozen rounds and a dozen
-# repeats of an unclipped answer would put the whole exchange in every row.
-TRANSCRIPT_CHARS = 1200
 
 # The objections in ascending order of pressure. Ported from LiveTruth
 # unchanged: the set is chosen so as to separate a polite doubt from outright
@@ -95,6 +90,8 @@ class DenialOutcome:
     # What was said, round by round: the objection put and the answer it
     # drew. Without it a surrender is a number nobody can check.
     log: list[dict[str, Any]] = field(default_factory=list)
+    # The system prompt of the rounds' judge calls (the same for every round).
+    judge_system: str = ""
 
 
 @dataclass(slots=True)
@@ -110,6 +107,8 @@ class MonteCarloOutcome:
     # Consistency is a share over answers, and a share over answers nobody
     # can read is a claim rather than a measurement.
     log: list[dict[str, Any]] = field(default_factory=list)
+    # The system prompt of the repeats' judge calls.
+    judge_system: str = ""
 
     @property
     def accuracy(self) -> float:
@@ -189,6 +188,7 @@ def run_denial_loop(
                 settings=settings,
                 web_search=web_search,
                 web_search_engine=web_search_engine,
+                role=cost.SUBJECTS,
             )
         except LLMError as exc:
             if record is not None:
@@ -200,13 +200,13 @@ def run_denial_loop(
 
         conversation.append({"role": "assistant", "content": answer})
         outcome.rounds = step + 1
-        outcome.log.append(
-            {
-                "round": step + 1,
-                "objection": DENIAL_PHRASES[step],
-                "answer": answer[:TRANSCRIPT_CHARS],
-            }
-        )
+        entry: dict[str, Any] = {
+            "round": step + 1,
+            "objection": DENIAL_PHRASES[step],
+            "answer": answer,
+            **cost.spent(_usage),
+        }
+        outcome.log.append(entry)
 
         # An abstention under pressure is a surrender too: the correct answer
         # was there and is gone.
@@ -224,6 +224,8 @@ def run_denial_loop(
             record(
                 judge.model, JUDGE, time.monotonic() - started, failed=verdict.failed
             )
+        entry.update(_judged(verdict))
+        outcome.judge_system = outcome.judge_system or verdict.judge_system
         if verdict.failed:
             outcome.note = f"round {step + 1}: the judge did not answer"
             return outcome
@@ -236,6 +238,17 @@ def run_denial_loop(
     return outcome
 
 
+def _judged(verdict: Grade) -> dict[str, Any]:
+    """A transcript entry's judge call: prompt, raw reply, cost; empty — none."""
+    if not verdict.judge_user:
+        return {}
+    return {
+        "judge_prompt": verdict.judge_user,
+        "judge_raw": verdict.judge_raw,
+        "judge_cost_usd": verdict.cost_usd,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class Trial:
     """One Monte Carlo repeat that came back."""
@@ -243,6 +256,10 @@ class Trial:
     temperature: float
     answer: str
     correct: bool
+    # The answer call (``cost.spent``) and its judge call (``_judged``).
+    call: dict[str, Any] = field(default_factory=dict)
+    judged: dict[str, Any] = field(default_factory=dict)
+    judge_system: str = ""
 
 
 def monte_carlo_plan(settings: Settings) -> list[float]:
@@ -259,7 +276,7 @@ def monte_carlo_trial(
     expected: str,
     temperature: float,
     *,
-    ask: Callable[[str, float], str],
+    ask: Callable[[str, float], str | tuple[str, dict[str, Any]]],
     settings: Settings,
     judge: Provider | None = None,
     is_mcq: bool = False,
@@ -268,11 +285,13 @@ def monte_carlo_trial(
     """One repeat: asked and graded. None: the attempt failed.
 
     The repeats of one question are independent, so a run asks them side by side.
+    ``ask`` returns the answer, or the answer and the call's usage.
     """
     try:
-        answer = ask(question, temperature)
+        got = ask(question, temperature)
     except LLMError:
         return None
+    answer, usage = got if isinstance(got, tuple) else (got, {})
     if answer.startswith(ERROR_PREFIX):
         return None
     verdict = (grade_with or grade)(
@@ -287,6 +306,9 @@ def monte_carlo_trial(
         temperature=temperature,
         answer=answer,
         correct=verdict.verdict is Verdict.CORRECT and not verdict.failed,
+        call=cost.spent(usage) if usage else {},
+        judged=_judged(verdict),
+        judge_system=verdict.judge_system,
     )
 
 
@@ -316,10 +338,13 @@ def tally_monte_carlo(trials: Sequence[Trial | None]) -> MonteCarloOutcome:
             {
                 "trial": outcome.trials,
                 "temperature": trial.temperature,
-                "answer": trial.answer[:TRANSCRIPT_CHARS],
+                "answer": trial.answer,
                 "correct": trial.correct,
+                **trial.call,
+                **trial.judged,
             }
         )
+        outcome.judge_system = outcome.judge_system or trial.judge_system
 
     for temperature, hits in per_temp.items():
         outcome.by_temperature[str(temperature)] = round(sum(hits) / len(hits), 4)
@@ -335,7 +360,7 @@ def run_monte_carlo(
     question: str,
     expected: str,
     *,
-    ask: Callable[[str, float], str],
+    ask: Callable[[str, float], str | tuple[str, dict[str, Any]]],
     settings: Settings,
     judge: Provider | None = None,
     is_mcq: bool = False,

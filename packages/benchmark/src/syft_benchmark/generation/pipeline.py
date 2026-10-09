@@ -75,6 +75,7 @@ from syft_benchmark.generation.generators import (
     EXTRACTIVE_KEYS,
     GENERATORS,
     MAX_DOCUMENT_CHARS,
+    MAX_FRAGMENT_CHARS,
     Generator,
     reasons,
     user_prompt,
@@ -82,6 +83,7 @@ from syft_benchmark.generation.generators import (
 from syft_benchmark.generation.language import pick_spacy_model
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
+from syft_benchmark.generation.recorded import new_call, writer_meta
 from syft_benchmark.generation.rotation import RotationReport, fresh_ids, rotate
 from syft_benchmark.generation.slots import Latch, model_slots
 from syft_benchmark.generation.web_check import filter_model
@@ -89,6 +91,7 @@ from syft_benchmark.llm import (
     LLMError,
     Provider,
     chat,
+    cost,
     generator_provider,
     parse_json_list,
     parse_json_object,
@@ -292,8 +295,13 @@ def _store(
     cohort: str = "",
     job: str = "",
     cap: int | None = None,
+    writer: dict[str, Any] | None = None,
 ) -> list[QaPair]:
     """Write the items down as pending; returns the rows written.
+
+    ``writer`` is the model call that wrote them (``recorded.new_call``):
+    the first row stored from it keeps its texts in ``meta.writer``, the
+    rest its id.
 
     Nothing here decides whether an item is fit to measure with — that moved
     to its own pass, ``filter_stage.filter_pending()``, which reads the
@@ -316,6 +324,11 @@ def _store(
 
     written: list[QaPair] = []
     for pair in pairs:
+        stamp = (
+            {"writer": writer_meta(writer, fragment[:8000])}
+            if writer is not None
+            else {}
+        )
         try:
             with session_scope() as session:
                 row = QaPair(
@@ -341,6 +354,7 @@ def _store(
                     meta={
                         **pair.meta,
                         "grading": pair.meta.get("grading", generator.grading),
+                        **stamp,
                     },
                     status=PairStatus.PENDING.value,
                     status_note="",
@@ -353,6 +367,9 @@ def _store(
                 session.expunge(row)
         except Exception as exc:  # noqa: BLE001 - duplicates caught after the fact, see the module docstring
             if "qa_pairs_unique" in str(exc):
+                if writer is not None and "system" in stamp["writer"]:
+                    # Not stored: the call's texts go on the next row.
+                    writer["_stored"] = False
                 report.duplicates += 1
                 if generator.key in report.kinds:
                     report.kinds[generator.key].drop(DUPLICATE)
@@ -398,8 +415,11 @@ def _extractive_for_chunk(
     conf: Settings,
     generator: Provider,
     hold: Callable[[], AbstractContextManager[None]] = nullcontext,
+    record: dict[str, Any] | None = None,
 ) -> tuple[dict[str, list[Masked]], str, str | None]:
     """Build masked items from a chunk.
+
+    ``record``, when given, gets the model call (``recorded.new_call``).
 
     Returns:
         The pairs keyed by generator, the path that was used and the error text
@@ -430,16 +450,30 @@ def _extractive_for_chunk(
             return {}, "", "there is no spaCy model for the document's language"
 
     searching, engine = web_search_for(conf, "generator", generator.model)
+    system = COMBINED_SYSTEM.format(n=conf.pairs_per_chunk)
+    user = user_prompt(doc, chunk, conf.pairs_per_chunk)
     try:
         with hold():
-            raw, _usage = chat(
-                COMBINED_SYSTEM.format(n=conf.pairs_per_chunk),
-                user_prompt(doc, chunk, conf.pairs_per_chunk),
+            raw, usage = chat(
+                system,
+                user,
                 provider=generator,
                 max_tokens=90 * conf.pairs_per_chunk * len(categories) + 200,
                 settings=conf,
                 web_search=searching,
                 web_search_engine=engine or "auto",
+                role=cost.WRITER,
+            )
+        if record is not None:
+            record.update(
+                new_call(
+                    model=generator.model,
+                    system=system,
+                    user=user,
+                    reply=raw,
+                    passage=chunk.text[:MAX_FRAGMENT_CHARS],
+                    usage=usage,
+                )
             )
         data = parse_json_object(raw)
     except LLMError as exc:
@@ -455,8 +489,12 @@ def _run_llm_generator(
     chunk: Chunk | None,
     conf: Settings,
     provider: Provider,
+    record: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    """A single model call for one particular generator."""
+    """A single model call for one particular generator.
+
+    ``record``, when given, gets the call (``recorded.new_call``).
+    """
     tasks = 1 if generator.key == "tiered_explanation" else conf.pairs_per_chunk
     if generator.scope == "document":
         text = document_text(doc)[:MAX_DOCUMENT_CHARS]
@@ -465,6 +503,7 @@ def _run_llm_generator(
         )
     else:
         assert chunk is not None
+        text = chunk.text[:MAX_FRAGMENT_CHARS]
         prompt = user_prompt(doc, chunk, tasks)
 
     # The starting budget. tiered_explanation is the longest item there is by
@@ -480,18 +519,31 @@ def _run_llm_generator(
         budget = max(budget, conf.answer_max_tokens)
 
     searching, engine = web_search_for(conf, "generator", provider.model)
+    system = generator.system.format(n=tasks)
     try:
-        raw, _usage = chat(
-            generator.system.format(n=tasks),
+        raw, usage = chat(
+            system,
             prompt,
             provider=provider,
             max_tokens=budget,
             settings=conf,
             web_search=searching,
             web_search_engine=engine or "auto",
+            role=cost.WRITER,
         )
     except LLMError as exc:
         return [], str(exc)
+    if record is not None:
+        record.update(
+            new_call(
+                model=provider.model,
+                system=system,
+                user=prompt,
+                reply=raw,
+                passage=text,
+                usage=usage,
+            )
+        )
 
     try:
         # tiered answers with an object, the rest with an array; the object is
@@ -532,6 +584,8 @@ class _Outcome:
     model: str = ""
     parsed: int = 0
     error: str | None = None
+    # The writer call (``recorded.new_call``); empty — no model call (spaCy).
+    call: dict[str, Any] = field(default_factory=dict)
 
 
 def _queues(
@@ -850,10 +904,11 @@ def generate_for_space(
     ) -> _Outcome:
         """One unit on a worker thread: the model call and the cleaning."""
         whole = document_text(doc)
+        call: dict[str, Any] = {}
         if queue.spec is None:
             assert chunk is not None
             by_key, path, error = _extractive_for_chunk(
-                doc, chunk, keys, conf, provider, hold=slots.hold
+                doc, chunk, keys, conf, provider, hold=slots.hold, record=call
             )
             if error:
                 return _Outcome(error=error)
@@ -871,9 +926,12 @@ def generate_for_space(
                 pairs=made,
                 model=f"{path}:{conf.generator_model}",
                 parsed=sum(len(v) for v in by_key.values()),
+                call=call,
             )
         with slots.hold():
-            items, error = _run_llm_generator(queue.spec, doc, chunk, conf, provider)
+            items, error = _run_llm_generator(
+                queue.spec, doc, chunk, conf, provider, record=call
+            )
         if error:
             return _Outcome(error=error)
         good, bad = queue.spec.clean(items, conf.pairs_per_chunk, whole)
@@ -881,6 +939,7 @@ def generate_for_space(
             pairs={queue.spec.key: (good, bad)},
             model=conf.generator_model,
             parsed=len(good),
+            call=call,
         )
 
     def settle(
@@ -929,6 +988,7 @@ def generate_for_space(
                 cohort=cohort,
                 job=job,
                 cap=cap,
+                writer=outcome.call or None,
             )
             if screening is not None and check_pool is not None:
                 checks.extend(check_pool.submit(_checked, screening, r) for r in rows)

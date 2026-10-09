@@ -20,10 +20,11 @@ only relative to a specific endpoint, not to an abstract corpus.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from syft_benchmark.config import Settings, get_settings
-from syft_benchmark.llm import LLMError, Provider, chat, parse_json_object
+from syft_benchmark.llm import LLMError, Provider, chat, cost, parse_json_object
 from syft_benchmark.llm.roles import web_search_for
 
 # What to query retrieval with: a question in, the texts of the chunks found
@@ -56,6 +57,9 @@ class Gate:
     note: str
     fragments: int = 0
     checked: bool = True  # False — the check failed, fitness is unknown
+    # The model call, for the record: {model, system, user, reply, cost_usd,
+    # latency_s}; empty — no call was made or it failed.
+    call: dict[str, Any] = field(default_factory=dict)
 
 
 def gate_unanswerable(
@@ -94,7 +98,7 @@ def gate_unanswerable(
         conf, "judge", judge.model if judge is not None else conf.judge_model
     )
     try:
-        raw, _usage = chat(
+        raw, usage = chat(
             _GATE_SYSTEM,
             user,
             model=None if judge is not None else conf.judge_model,
@@ -104,7 +108,15 @@ def gate_unanswerable(
             judging=True,
             web_search=searching,
             web_search_engine=engine or "auto",
+            role=cost.WEB_CHECK,
         )
+        call = {
+            "model": judge.model if judge is not None else conf.judge_model,
+            "system": _GATE_SYSTEM,
+            "user": user,
+            "reply": raw,
+            **cost.spent(usage),
+        }
         data = parse_json_object(raw)
     except LLMError as exc:
         # Unknown is not fit: a candidate about which one cannot say whether it
@@ -116,7 +128,15 @@ def gate_unanswerable(
     answered = bool(data.get("answered", False))
     if answered:
         where = str(data.get("where", ""))[:200]
-        return Gate(False, f"retrieval answers the question: {where}", len(fragments))
+        return Gate(
+            False,
+            f"retrieval answers the question: {where}",
+            len(fragments),
+            call=call,
+        )
     return Gate(
-        True, f"retrieval does not answer ({len(fragments)} chunks)", len(fragments)
+        True,
+        f"retrieval does not answer ({len(fragments)} chunks)",
+        len(fragments),
+        call=call,
     )

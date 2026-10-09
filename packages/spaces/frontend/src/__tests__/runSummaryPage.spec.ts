@@ -116,6 +116,60 @@ describe('RunSummaryPage', () => {
     })
   })
 
+  it('shows time and cost, split by role', () => {
+    const { wrapper } = mountPage(
+      runReport({
+        run: runSummary('j1', {
+          started_at: '2026-09-30T06:00:00Z',
+          finished_at: '2026-09-30T06:54:00Z',
+        }),
+        method: {
+          ...runReport().method,
+          cost: {
+            usd: 18.52,
+            spend_before: 1,
+            spend_after: 19.52,
+            usd_calls: 18.4,
+            total_usd: 18.4,
+            by_role: { writer: 5.1, web_check: 2.3, subjects: 7.6, judges: 3.4 },
+          },
+        },
+      }),
+    )
+    expect(wrapper.get('[data-testid="run-articles"]').text()).toMatch(
+      / · took 54 min · cost \$18\.40$/,
+    )
+    const section = wrapper.get('[data-testid="time-cost"]')
+    expect(section.text()).toContain('Paid with your own model keys.')
+    expect(wrapper.get('[data-testid="took"]').text()).toMatch(
+      /^Took54 minStarted \d{2}:\d{2} · finished \d{2}:\d{2}$/,
+    )
+    expect(wrapper.get('[data-testid="cost"]').text()).toBe('Cost$18.40All model calls in this run')
+    const bar = wrapper.get('[role="img"]')
+    expect(bar.attributes('aria-label')).toContain('Judges $3.40')
+    expect(bar.findAll('span')).toHaveLength(4)
+    expect(wrapper.get('[data-testid="cost-parts"]').text()).toContain('Models being tested$7.60')
+  })
+
+  it('hides time and cost for an older run', () => {
+    const { wrapper } = mountPage(runReport())
+    expect(wrapper.find('[data-testid="time-cost"]').exists()).toBe(false)
+  })
+
+  it('shows only the cost tile without a split', () => {
+    const { wrapper } = mountPage(
+      runReport({
+        method: {
+          ...runReport().method,
+          cost: { usd: null, spend_before: null, spend_after: null, usd_calls: 0.5 },
+        },
+      }),
+    )
+    expect(wrapper.get('[data-testid="cost"]').text()).toContain('$0.50')
+    expect(wrapper.find('[data-testid="took"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="cost-parts"]').exists()).toBe(false)
+  })
+
   it('publishes a private run and then shows the note without the button', async () => {
     const { wrapper, actions } = mountPage(runReport())
     expect(wrapper.find('[data-testid="published-note"]').exists()).toBe(false)

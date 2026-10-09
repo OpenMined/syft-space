@@ -100,7 +100,7 @@ export const BEHAVIOR_LABEL: Record<Behavior, string> = {
   declined: 'Declined',
   corrected: 'Corrected',
   web_sourced: 'From the web',
-  made_up: 'Made up',
+  made_up: 'Hallucinated',
 }
 
 /** A verdict in words: the fine outcome on a control question, else the verdict. */
@@ -121,7 +121,7 @@ export const GROUP_LABEL: Record<Group, string> = {
 }
 
 export const ARM_LABEL = {
-  closed: 'On its own, with web search',
+  closed: 'On its own',
   ctx: 'With your data',
 } as const
 

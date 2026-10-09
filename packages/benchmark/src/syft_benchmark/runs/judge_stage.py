@@ -326,6 +326,11 @@ def judge_pending(
                 audit.pop("judged_without_model", None)
             if verdict.judge_raw:
                 audit["judge_raw"] = verdict.judge_raw
+            if verdict.latency_s is not None:
+                audit["judge_call"] = {
+                    "cost_usd": verdict.cost_usd,
+                    "latency_s": verdict.latency_s,
+                }
 
             with session_scope(conf) as session:
                 session.add(

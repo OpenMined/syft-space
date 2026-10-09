@@ -39,7 +39,7 @@ from syft_benchmark.db.models import Job, Run, Target
 from syft_benchmark.db.run_cache import invalidate_run
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation import filter_and_rotate
-from syft_benchmark.llm.cost import cost_meter, openrouter_spend
+from syft_benchmark.llm.cost import CostMeter, cost_meter, openrouter_spend
 from syft_benchmark.publish import payload_for, publish
 from syft_benchmark.report import run_view
 from syft_benchmark.report.card import build as build_card
@@ -411,7 +411,7 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
                         reporter=reporter,
                     )
             finally:
-                _record_cost(job_id, before, _spend(node_conf), meter.total_usd, conf)
+                _record_cost(job_id, before, _spend(node_conf), meter, conf)
                 _record_timing(job_id, reporter, conf)
     except Exception as exc:  # noqa: BLE001 - the owner needs the cause, not a traceback
         logger.exception(f"job {job_id} failed")
@@ -599,20 +599,28 @@ def _record_cost(
     job_id: str,
     before: float | None,
     after: float | None,
-    calls_usd: float,
+    meter: CostMeter,
     settings: Settings,
 ) -> None:
-    """Keep what the job spent in its params (``run_view.COST``)."""
+    """Keep what the job spent in its params (``run_view.COST``).
+
+    ``total_usd`` is the sum of ``by_role``: the calls made for the writer,
+    the web check, the tested models and the judges; ``usd_calls`` is every
+    priced call, untagged ones included.
+    """
     usd = (
         round(max(0.0, after - before), 6)
         if before is not None and after is not None
         else None
     )
+    by_role = {role: round(usd_, 6) for role, usd_ in meter.by_role.items()}
     cost = {
         "spend_before": before,
         "spend_after": after,
         "usd": usd,
-        "usd_calls": round(calls_usd, 6),
+        "usd_calls": round(meter.total_usd, 6),
+        "total_usd": round(sum(meter.by_role.values()), 6),
+        "by_role": by_role,
     }
     try:
         with session_scope(settings) as session:
@@ -624,12 +632,18 @@ def _record_cost(
 
 
 def _record_timing(job_id: str, reporter: Reporter, settings: Settings) -> None:
-    """Keep where the job's time went in its params (``run_view.TIMING``)."""
+    """Keep where the job's time went in its params (``run_view.TIMING``).
+
+    ``total_s`` is the job's own time: finished (or now) minus started.
+    """
     try:
         timing = reporter.timing()
         with session_scope(settings) as session:
             job = session.get(Job, job_id)
             if job is not None:
+                if job.started_at is not None:
+                    end = job.finished_at or datetime.now(UTC)
+                    timing["total_s"] = round((end - job.started_at).total_seconds(), 2)
                 job.params = {**(job.params or {}), run_view.TIMING: timing}
     except Exception:  # noqa: BLE001 - the timing is never worth a failed job
         logger.exception(f"job {job_id}: its timing was not recorded")

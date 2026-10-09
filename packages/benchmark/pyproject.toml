@@ -17,6 +17,7 @@ dependencies = [
     "httpx>=0.28.1",
     "loguru>=0.7.3",
     "matplotlib>=3.11.2",
+    "openpyxl>=3.1.5",
     "psycopg[binary]>=3.3.5",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
@@ -68,7 +69,7 @@ python_version = "3.12"
 strict = true
 warn_unreachable = true
 
-# python-docx ships no types. The check stays strict everywhere the code is
+# python-docx and openpyxl ship no types. The check stays strict everywhere the code is
 # ours; the document builder calls a foreign API, and demanding annotations of
 # it that it does not have would mean switching strict off across the project.
 #
@@ -79,7 +80,7 @@ warn_unreachable = true
 # so a type check that fails unless an optional dependency is present would be
 # reporting a fault that is not one.
 [[tool.mypy.overrides]]
-module = ["docx.*", "bert_score.*", "spacy.*"]
+module = ["docx.*", "bert_score.*", "spacy.*", "openpyxl.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

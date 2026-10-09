@@ -17,7 +17,6 @@ from syft_benchmark.llm import Provider
 from syft_benchmark.runs import blocks
 from syft_benchmark.runs.blocks import (
     DENIAL_PHRASES,
-    TRANSCRIPT_CHARS,
     run_denial_loop,
     run_monte_carlo,
 )
@@ -88,13 +87,23 @@ def test_a_model_that_holds_records_every_round_it_held(
     assert len(outcome.log) == 4
 
 
-def test_a_transcript_does_not_carry_the_whole_answer(
+def test_a_transcript_keeps_the_whole_answer_and_the_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Evidence, not a second copy of the corpus."""
-    monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("x" * 9000, None))
+    """The export shows every round in full, with its answer and judge calls."""
+    usage = {"cost_usd": 0.002, "latency_s": 1.234}
+    monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("x" * 9000, usage))
     monkeypatch.setattr(blocks, "detect_abstain", lambda _answer: False)
-    monkeypatch.setattr(blocks, "grade", lambda *a, **k: _verdict(Verdict.CORRECT))
+    judged = Grade(
+        Verdict.CORRECT,
+        "because",
+        judge_system="SYS",
+        judge_user="PROMPT",
+        judge_raw="RAW",
+        cost_usd=0.001,
+        latency_s=0.5,
+    )
+    monkeypatch.setattr(blocks, "grade", lambda *a, **k: judged)
 
     outcome = run_denial_loop(
         "What port?",
@@ -104,7 +113,12 @@ def test_a_transcript_does_not_carry_the_whole_answer(
         settings=_settings(denial_rounds=1),
     )
 
-    assert len(outcome.log[0]["answer"]) == TRANSCRIPT_CHARS
+    entry = outcome.log[0]
+    assert len(entry["answer"]) == 9000
+    assert (entry["cost_usd"], entry["latency_s"]) == (0.002, 1.23)
+    assert (entry["judge_prompt"], entry["judge_raw"]) == ("PROMPT", "RAW")
+    assert entry["judge_cost_usd"] == 0.001
+    assert outcome.judge_system == "SYS"
 
 
 # --- repeats -----------------------------------------------------------------
@@ -199,3 +213,35 @@ def test_a_row_measured_before_transcripts_reads_as_having_none() -> None:
     assert denial is not None
     assert denial.log == []
     assert denial.limit == 0
+
+
+def test_a_repeat_keeps_its_answer_call_and_judge_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    judged = Grade(
+        Verdict.CORRECT,
+        "because",
+        judge_system="SYS",
+        judge_user="PROMPT",
+        judge_raw="RAW",
+        cost_usd=0.001,
+        latency_s=0.5,
+    )
+    monkeypatch.setattr(blocks, "grade", lambda *a, **k: judged)
+
+    def ask(_question: str, temperature: float) -> tuple[str, dict[str, Any]]:
+        return "y" * 5000, {"cost_usd": 0.003, "latency_s": 2.0}
+
+    outcome = run_monte_carlo(
+        "What port?",
+        "5442",
+        ask=ask,
+        settings=_settings(monte_carlo_temperatures=[0.3], monte_carlo_trials=1),
+    )
+
+    entry = outcome.log[0]
+    assert len(entry["answer"]) == 5000
+    assert (entry["cost_usd"], entry["latency_s"]) == (0.003, 2.0)
+    assert (entry["judge_prompt"], entry["judge_raw"]) == ("PROMPT", "RAW")
+    assert entry["judge_cost_usd"] == 0.001
+    assert outcome.judge_system == "SYS"

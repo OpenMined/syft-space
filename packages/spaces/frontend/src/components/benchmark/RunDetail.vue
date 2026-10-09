@@ -22,6 +22,7 @@
  * showing the endpoint's whole history under the heading of one run.
  */
 import { computed, ref } from 'vue'
+import { toast } from 'vue-sonner'
 import { ArrowLeft, Megaphone } from 'lucide-vue-next'
 
 import AnswerList from './AnswerList.vue'
@@ -33,6 +34,8 @@ import PairList from './PairList.vue'
 import TimingTable from './TimingTable.vue'
 import VisibleAt from './VisibleAt.vue'
 import type { RunMarketplace } from './runs'
+import { saveRunExport } from './report/useRunReport'
+import { apiErrorDetail } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { BenchmarkCard, BenchmarkReport } from '@/api/types'
@@ -56,6 +59,19 @@ const emit = defineEmits<{ back: []; publish: []; retract: [] }>()
 const job = computed(() => props.card?.job ?? props.jobId ?? '')
 
 const phase = ref('generate')
+
+const exporting = ref(false)
+
+async function downloadExcel(): Promise<void> {
+  exporting.value = true
+  try {
+    await saveRunExport(props.slug, job.value)
+  } catch (e) {
+    toast.error(apiErrorDetail(e, 'Could not download the Excel file'))
+  } finally {
+    exporting.value = false
+  }
+}
 
 /** Bumped to make a list refetch; the lists watch it. */
 const refreshKey = ref(0)
@@ -84,30 +100,43 @@ const TAB =
         <span class="text-muted-foreground font-normal">{{ measured }}</span>
       </h2>
 
-      <div v-if="card" class="ml-auto flex items-center gap-2 shrink-0">
-        <VisibleAt v-if="published && marketplaces?.length" :marketplaces="marketplaces" />
-        <span class="text-xs" :class="published ? 'text-primary' : 'text-muted-foreground'">
-          {{ published ? 'Public' : 'Private' }}
-        </span>
+      <div v-if="card || job" class="ml-auto flex items-center gap-2 shrink-0">
         <Button
-          v-if="published"
+          v-if="job"
           variant="outline"
           size="sm"
           class="h-7 px-2.5 text-xs"
-          :disabled="busy"
-          @click="emit('retract')"
+          :disabled="exporting"
+          data-testid="download-excel"
+          @click="downloadExcel"
         >
-          {{ working ? 'Working…' : 'Unpublish' }}
+          {{ exporting ? 'Preparing…' : 'Download Excel' }}
         </Button>
-        <Button
-          v-else
-          size="sm"
-          class="h-7 px-2.5 text-xs"
-          :disabled="busy"
-          @click="emit('publish')"
-        >
-          {{ working ? 'Working…' : 'Publish' }}
-        </Button>
+        <template v-if="card">
+          <VisibleAt v-if="published && marketplaces?.length" :marketplaces="marketplaces" />
+          <span class="text-xs" :class="published ? 'text-primary' : 'text-muted-foreground'">
+            {{ published ? 'Public' : 'Private' }}
+          </span>
+          <Button
+            v-if="published"
+            variant="outline"
+            size="sm"
+            class="h-7 px-2.5 text-xs"
+            :disabled="busy"
+            @click="emit('retract')"
+          >
+            {{ working ? 'Working…' : 'Unpublish' }}
+          </Button>
+          <Button
+            v-else
+            size="sm"
+            class="h-7 px-2.5 text-xs"
+            :disabled="busy"
+            @click="emit('publish')"
+          >
+            {{ working ? 'Working…' : 'Publish' }}
+          </Button>
+        </template>
       </div>
     </div>
 

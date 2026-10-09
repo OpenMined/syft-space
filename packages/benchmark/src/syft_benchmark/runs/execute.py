@@ -53,6 +53,7 @@ from syft_benchmark.llm import (
     Provider,
     chat,
     check_judge_independence,
+    cost,
     is_recused,
     judge_providers,
     subject_providers,
@@ -401,7 +402,7 @@ def _ask_model(
     *,
     provider: Provider,
     settings: Settings,
-) -> str:
+) -> tuple[str, dict[str, Any]]:
     """Ask the model directly, without a single corpus chunk."""
     searching, engine = arm_web_search(ContextMode.CLOSED_BOOK, provider, settings)
     answer, _usage = chat(
@@ -413,8 +414,9 @@ def _ask_model(
         settings=settings,
         web_search=searching,
         web_search_engine=engine or "auto",
+        role=cost.SUBJECTS,
     )
-    return answer
+    return answer, _usage
 
 
 def _ask_model_with_context(
@@ -424,7 +426,7 @@ def _ask_model_with_context(
     provider: Provider,
     settings: Settings,
     context: str,
-) -> str:
+) -> tuple[str, dict[str, Any]]:
     """Ask the model with the context already assembled.
 
     The context is fixed rather than searched afresh on every trial: monte_carlo
@@ -443,8 +445,9 @@ def _ask_model_with_context(
         settings=settings,
         web_search=searching,
         web_search_engine=engine or "auto",
+        role=cost.SUBJECTS,
     )
-    return answer
+    return answer, _usage
 
 
 # Why an arm can be unmeasurable — as codes. A code goes out, not a sentence: the
@@ -672,6 +675,7 @@ def ask_once(
                 settings=settings,
                 web_search=searching,
                 web_search_engine=engine or "auto",
+                role=cost.SUBJECTS,
             )
         except LLMError as exc:
             answer = f"{ERROR_PREFIX} {exc}"
@@ -706,6 +710,7 @@ def ask_once(
             settings=settings,
             web_search=searching,
             web_search_engine=engine or "auto",
+            role=cost.SUBJECTS,
         )
     except LLMError as exc:
         answer = f"{ERROR_PREFIX} {exc}"
@@ -822,10 +827,12 @@ def audit_record(asked: Asked, verdict: Grade, settings: Settings) -> dict[str, 
     """
     if not settings.audit_log:
         return {}
+    # Prompts and replies whole (the export shows them); ``context`` repeats
+    # what the prompt carries, so it alone stays cut.
     cut = settings.audit_max_chars
     record: dict[str, Any] = {
-        "responder_system": asked.system[:cut],
-        "responder_prompt": asked.user[:cut],
+        "responder_system": asked.system,
+        "responder_prompt": asked.user,
         "context_source": asked.context_source.value,
     }
     if asked.usage:
@@ -855,6 +862,9 @@ def audit_record(asked: Asked, verdict: Grade, settings: Settings) -> dict[str, 
                 "web_search_via",
                 "web_search_forced",
                 "web_search_requests",
+                # USD of the call (None: not priced); with ``reused`` the call
+                # was made earlier in the launch.
+                "cost_usd",
             )
             if key in asked.usage
         }
@@ -866,9 +876,14 @@ def audit_record(asked: Asked, verdict: Grade, settings: Settings) -> dict[str, 
     if asked.context:
         record["context"] = asked.context[:cut]
     if verdict.judge_user:
-        record["judge_system"] = verdict.judge_system[:cut]
-        record["judge_prompt"] = verdict.judge_user[:cut]
-        record["judge_raw"] = verdict.judge_raw[:cut]
+        record["judge_system"] = verdict.judge_system
+        record["judge_prompt"] = verdict.judge_user
+        record["judge_raw"] = verdict.judge_raw
+        if verdict.latency_s is not None:
+            record["judge_call"] = {
+                "cost_usd": verdict.cost_usd,
+                "latency_s": verdict.latency_s,
+            }
     else:
         # The judge was not called: the option letter was matched arithmetically, the
         # abstention recognised by regexes. That too is a fact for the audit — the
@@ -1027,7 +1042,7 @@ async def _repeated(
     The repeats are independent and go side by side, each taking a model lane
     for its answer and its grade; the outcome keeps the plan order.
     """
-    asker: Callable[[str, float], str]
+    asker: Callable[[str, float], tuple[str, dict[str, Any]]]
     subject = _subject_of(ctx.subject)
     if ctx.mode is ContextMode.MODEL_WITH_CONTEXT:
         asker = partial(
@@ -1119,6 +1134,7 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
             "note": denial.note,
             "limit": denial.limit,
             "log": denial.log,
+            "judge_system": denial.judge_system,
         }
         if denial.flipped:
             # An answer given up is not counted as correct: in a conversation with an
@@ -1140,6 +1156,7 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
             "by_temperature": trials.by_temperature,
             "note": trials.note,
             "log": trials.log,
+            "judge_system": trials.judge_system,
         }
 
     # The mechanical resemblance to the gold answer — a second view of the same answer,
@@ -1235,7 +1252,7 @@ def _save_result(
                 space=ctx.space.key,
                 endpoint=(ctx.space.endpoint if ctx.mode in ENDPOINT_ARMS else ""),
                 endpoint_response_type=ctx.response_type,
-                answer=asked.answer[:8000],
+                answer=asked.answer,
                 verdict=verdict.verdict.value,
                 reasoning=verdict.reasoning,
                 expected_behavior=pair.expected_behavior,

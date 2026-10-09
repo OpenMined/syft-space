@@ -14,6 +14,7 @@ settings page refuse to save.
 """
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, TypeVar
@@ -847,6 +848,19 @@ class BenchmarkHandler:
         )
         _console_empty(reply)
         return reply.data or b"", reply.headers
+
+    async def stream_run_export(
+        self, tenant: Tenant, slug: str, job_id: str
+    ) -> tuple[AsyncIterator[bytes], dict[str, str]]:
+        """The run's Excel export as it arrives, and the headers it came with."""
+        _, console = await self._report_console(tenant, slug)
+        reply, body = await console.stream(
+            f"/console/report/runs/{_seg(job_id)}/export.xlsx"
+        )
+        _console_empty(reply)
+        if body is None:
+            raise HTTPException(status_code=502, detail="the export came back empty")
+        return body, reply.headers
 
     async def publish_run(
         self, tenant: Tenant, slug: str, job_id: str

@@ -10,6 +10,7 @@ than an exception. A benchmark that is down must make its own page say so, not
 make the Space's settings page unopenable.
 """
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
@@ -29,6 +30,9 @@ CHECK_TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 # A generated document: built from a cached aggregate, but still a file.
 DOWNLOAD_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
 
+# The Excel export of a run: every text of thousands of rows, built on request.
+EXPORT_TIMEOUT = httpx.Timeout(300.0, connect=5.0)
+
 
 @dataclass
 class Reply:
@@ -38,7 +42,7 @@ class Reply:
     data: Any = None
     status: int = 0
     detail: str = ""
-    # Set only by `download`: the headers a file is passed on with.
+    # Set only by `download` and `stream`: the headers a file is passed on with.
     headers: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -258,15 +262,52 @@ class BenchmarkClient:
             return Reply(ok=False, detail=str(exc))
         if resp.status_code >= 400:
             return Reply(ok=False, status=resp.status_code, detail=_detail(resp))
-        kept = ("content-type", "content-disposition")
         return Reply(
             ok=True,
             data=resp.content,
             status=resp.status_code,
-            headers={
-                k.lower(): v for k, v in resp.headers.items() if k.lower() in kept
-            },
+            headers=_file_headers(resp),
         )
+
+    async def stream(
+        self, path: str, *, params: dict[str, Any] | None = None
+    ) -> tuple[Reply, AsyncIterator[bytes] | None]:
+        """A file from the console, passed on as it arrives: the reply (type
+        and name in `headers`) and its body, or a refusal and None."""
+        clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+        suffix = f"?{urlencode(clean)}" if clean else ""
+        url = f"{self.url}{path}{suffix}"
+        http = httpx.AsyncClient(timeout=EXPORT_TIMEOUT)
+        try:
+            resp = await http.send(
+                http.build_request("GET", url, headers=self._headers), stream=True
+            )
+        except httpx.HTTPError as exc:
+            await http.aclose()
+            logger.warning(f"benchmark {url}: {exc}")
+            return Reply(ok=False, detail=str(exc)), None
+        if resp.status_code >= 400:
+            await resp.aread()
+            await resp.aclose()
+            await http.aclose()
+            return Reply(ok=False, status=resp.status_code, detail=_detail(resp)), None
+
+        async def body() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+            finally:
+                await resp.aclose()
+                await http.aclose()
+
+        reply = Reply(ok=True, status=resp.status_code, headers=_file_headers(resp))
+        return reply, body()
+
+
+def _file_headers(resp: httpx.Response) -> dict[str, str]:
+    """The headers a file is passed on with."""
+    kept = ("content-type", "content-disposition")
+    return {k.lower(): v for k, v in resp.headers.items() if k.lower() in kept}
 
 
 def _detail(resp: httpx.Response) -> str:

@@ -415,6 +415,20 @@ export const benchmarksApi = {
     }
   },
 
+  /** Everything that took part in a run, one sheet per part. */
+  downloadRunExport: async (
+    slug: string,
+    jobId: string,
+  ): Promise<{ blob: Blob; fileName: string | null }> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/export.xlsx`, {
+      responseType: 'blob',
+    })
+    return {
+      blob: response.data,
+      fileName: dispositionFileName(response.headers?.['content-disposition']),
+    }
+  },
+
   /** Publishes the card of that run, whatever its age. */
   publishRun: async (slug: string, jobId: string): Promise<BenchmarkRunPublishResponse> => {
     const response = await apiClient.post(`${reportPath(slug, jobId)}/publish`)

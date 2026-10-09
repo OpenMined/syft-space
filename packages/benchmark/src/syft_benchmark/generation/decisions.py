@@ -1,7 +1,8 @@
 """Filter decisions stamped on a pair, one per job that decided on it.
 
 ``meta.screening`` is a list of records ``{stage, outcome, note, reason,
-job_id, at}`` (plus ``web``, the web check record, for that stage). A job's
+job_id, at}`` (plus ``web``, the web check record, for that stage, and
+``gate``, the control gate's call, for the control stage). A job's
 Filter list is every pair carrying a record with its id, including pairs an
 earlier job wrote. The writer job stays ``qa_pairs.job_id``.
 """
@@ -37,6 +38,7 @@ def record(
     note: str = "",
     reason: str | None = None,
     web: dict[str, Any] | None = None,
+    gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One decision, stamped now."""
     entry: dict[str, Any] = {
@@ -49,6 +51,8 @@ def record(
     }
     if web is not None:
         entry["web"] = web
+    if gate is not None:
+        entry["gate"] = gate
     return entry
 
 

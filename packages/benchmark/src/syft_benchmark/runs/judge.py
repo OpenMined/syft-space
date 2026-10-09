@@ -26,8 +26,10 @@ from syft_benchmark.llm import (
     LLMFatalError,
     Provider,
     chat,
+    cost,
     parse_json_object,
 )
+from syft_benchmark.llm.cost import spent
 from syft_benchmark.llm.roles import web_search_for
 
 
@@ -109,6 +111,9 @@ class Grade:
     served_by: str = ""
     # A control question's fine outcome (``ControlOutcome``); empty elsewhere.
     behavior: str = ""
+    # The judge call: USD (None — not priced) and wall seconds; None — no call.
+    cost_usd: float | None = None
+    latency_s: float | None = None
 
     @property
     def failed(self) -> bool:
@@ -306,6 +311,7 @@ def grade(
             max_tokens=conf.answer_max_tokens,
             settings=conf,
             judging=True,
+            role=cost.JUDGES,
             web_search=searching,
             web_search_engine=engine or "auto",
         )
@@ -328,6 +334,7 @@ def grade(
         judge_user=user,
         judge_raw=raw,
         served_by=str(usage.get("served_by") or ""),
+        **spent(usage),
     )
 
 
@@ -376,6 +383,7 @@ def grade_key_facts(
             max_tokens=conf.answer_max_tokens,
             settings=conf,
             judging=True,
+            role=cost.JUDGES,
             web_search=searching,
             web_search_engine=engine or "auto",
         )
@@ -398,6 +406,7 @@ def grade_key_facts(
             judge_user=user,
             judge_raw=raw,
             served_by=str(usage.get("served_by") or ""),
+            **spent(usage),
         )
 
     share = sum(covered) / len(facts)
@@ -412,6 +421,7 @@ def grade_key_facts(
         judge_user=user,
         judge_raw=raw,
         served_by=str(usage.get("served_by") or ""),
+        **spent(usage),
     )
 
 
@@ -446,6 +456,7 @@ def check_grounded(
             max_tokens=conf.answer_max_tokens,
             settings=conf,
             judging=True,
+            role=cost.JUDGES,
         )
         data = parse_json_object(raw)
     except LLMError as exc:
@@ -607,6 +618,7 @@ def grade_control(
             max_tokens=conf.answer_max_tokens,
             settings=conf,
             judging=True,
+            role=cost.JUDGES,
             web_search=searching,
             web_search_engine=engine or "auto",
         )
@@ -633,6 +645,7 @@ def grade_control(
             judge_user=user,
             judge_raw=raw,
             served_by=served_by,
+            **spent(usage),
         )
     if behavior is ControlOutcome.WEB_SOURCED and not cited:
         behavior = ControlOutcome.MADE_UP
@@ -645,4 +658,5 @@ def grade_control(
         judge_raw=raw,
         served_by=served_by,
         behavior=behavior.value,
+        **spent(usage),
     )

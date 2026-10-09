@@ -23,6 +23,12 @@ Usage::
     meter.total_usd
 
     ThreadPoolExecutor(max_workers=n, **pool_kwargs())  # exact attribution
+
+Every call is tagged with the role it was made for (``ROLES``): the call site
+passes ``role=`` to chat(), and ``acting_as()`` overrides it for a block run in
+one thread (the web check grades with the run's judging functions). An
+explicit tag travels with the call, so it survives pools and async passes.
+Untagged calls (the access check, the narrative) count in ``total_usd`` only.
 """
 
 from __future__ import annotations
@@ -36,7 +42,13 @@ from typing import Any, ParamSpec, TypeVar
 from syft_benchmark.llm.openrouter import openrouter_spend
 
 __all__ = [
+    "JUDGES",
+    "ROLES",
+    "SUBJECTS",
+    "WEB_CHECK",
+    "WRITER",
     "CostMeter",
+    "acting_as",
     "bind",
     "charge",
     "cost_meter",
@@ -45,7 +57,16 @@ __all__ = [
     "meter_for",
     "openrouter_spend",
     "pool_kwargs",
+    "role_of",
+    "spent",
 ]
+
+# Who a call was made for (report API, "Cost and time").
+WRITER = "writer"  # question writer
+WEB_CHECK = "web_check"  # web check model and judge, control gate
+SUBJECTS = "subjects"  # tested models, every arm and block
+JUDGES = "judges"  # panel judges grading answers
+ROLES = (WRITER, WEB_CHECK, SUBJECTS, JUDGES)
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
@@ -60,8 +81,9 @@ class CostMeter:
         self._total = 0.0
         self._calls = 0
         self._unpriced = 0
+        self._by_role = dict.fromkeys(ROLES, 0.0)
 
-    def add(self, cost_usd: float | None) -> None:
+    def add(self, cost_usd: float | None, role: str | None = None) -> None:
         """Count one call; None is a call the provider did not price."""
         with self._lock:
             if cost_usd is None:
@@ -69,6 +91,14 @@ class CostMeter:
             else:
                 self._total += cost_usd
                 self._calls += 1
+                if role in self._by_role:
+                    self._by_role[role] += cost_usd
+
+    @property
+    def by_role(self) -> dict[str, float]:
+        """USD per role (``ROLES``); untagged calls are not in it."""
+        with self._lock:
+            return dict(self._by_role)
 
     @property
     def total_usd(self) -> float:
@@ -90,6 +120,9 @@ class CostMeter:
 _ACTIVE: contextvars.ContextVar[CostMeter | None] = contextvars.ContextVar(
     "cost_meter", default=None
 )
+_ROLE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "cost_role", default=None
+)
 _OPEN: list[CostMeter] = []
 _OPEN_LOCK = threading.Lock()
 
@@ -107,6 +140,21 @@ def cost_meter(job_id: Any = None) -> Iterator[CostMeter]:
         with _OPEN_LOCK:
             _OPEN.remove(meter)
         _ACTIVE.reset(token)
+
+
+@contextmanager
+def acting_as(role: str) -> Iterator[None]:
+    """Charge every call made in this block, in this thread, to ``role``."""
+    token = _ROLE.set(role)
+    try:
+        yield
+    finally:
+        _ROLE.reset(token)
+
+
+def role_of(tagged: str | None) -> str | None:
+    """The role a call is charged to: ``acting_as`` here, else its own tag."""
+    return _ROLE.get() or tagged
 
 
 def current() -> CostMeter | None:
@@ -158,8 +206,18 @@ def cost_of(usage: dict[str, Any]) -> float | None:
         return None
 
 
-def charge(cost_usd: float | None) -> None:
+def spent(usage: dict[str, Any] | None) -> dict[str, Any]:
+    """One call's ``cost_usd`` and ``latency_s`` (seconds, 0.01), from chat() usage."""
+    usage = usage or {}
+    latency = usage.get("latency_s")
+    return {
+        "cost_usd": usage.get("cost_usd"),
+        "latency_s": round(float(latency), 2) if latency is not None else None,
+    }
+
+
+def charge(cost_usd: float | None, role: str | None = None) -> None:
     """Add one response's cost to the current meter, if any."""
     meter = current()
     if meter is not None:
-        meter.add(cost_usd)
+        meter.add(cost_usd, role)

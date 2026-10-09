@@ -54,6 +54,12 @@ export function saveBlob(blob: Blob, fileName: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
+/** Download a run's Excel export. */
+export async function saveRunExport(slug: string, jobId: string): Promise<void> {
+  const { blob, fileName } = await benchmarksApi.downloadRunExport(slug, jobId)
+  saveBlob(blob, fileName ?? `${slug}-run-${jobId}.xlsx`)
+}
+
 /**
  * Data for the Benchmark results pages of one endpoint, all served aggregated:
  * the runs list (paged, filtered, polled while any job is queued or running),

@@ -390,7 +390,8 @@ def test_how_tested_reads_the_jobs_snapshot(client: TestClient, clean: Any) -> N
     method = client.get(f"/console/report/runs/{WRITER}", headers=auth).json()["method"]
     assert method["web_check_model"] == "openai/gpt-5.1"
     assert method["web_check_judge"] == "judge/one"
-    assert method["cost"] == cost
+    # An older job: no cost by role.
+    assert method["cost"] == {**cost, "total_usd": None, "by_role": None}
     bare = client.get(f"/console/report/runs/{CHECKER}", headers=auth).json()["method"]
     assert bare["web_check_model"] is None
     assert bare["web_check_judge"] is None
@@ -419,7 +420,8 @@ def test_a_job_records_what_it_spent(
     monkeypatch.setattr(jobs, "openrouter_spend", lambda conf: next(reads))
 
     def judging(*_: Any, **__: Any) -> Any:
-        cost.charge(0.2)
+        cost.charge(0.2, cost.JUDGES)
+        # Untagged (an access check): in usd_calls, not in total_usd.
         cost.charge(0.1)
         return SimpleNamespace(line=lambda: "", notes=[])
 
@@ -435,6 +437,9 @@ def test_a_job_records_what_it_spent(
     assert spent["spend_before"] == 10.0 and spent["spend_after"] == 10.5
     assert spent["usd"] == pytest.approx(0.5)
     assert spent["usd_calls"] == pytest.approx(0.3)
+    assert spent["total_usd"] == pytest.approx(0.2)
+    assert spent["by_role"]["judges"] == pytest.approx(0.2)
+    assert spent["by_role"]["writer"] == 0.0
 
 
 def test_a_failed_spend_read_leaves_usd_empty(
@@ -467,6 +472,13 @@ def test_a_failed_spend_read_leaves_usd_empty(
             "spend_after": None,
             "usd": None,
             "usd_calls": 0.0,
+            "total_usd": 0.0,
+            "by_role": {
+                "writer": 0.0,
+                "web_check": 0.0,
+                "subjects": 0.0,
+                "judges": 0.0,
+            },
         }
 
 

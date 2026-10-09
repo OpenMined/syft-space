@@ -7,12 +7,16 @@ Everything is scoped to the session's target; a job of another target is a
 
 from __future__ import annotations
 
+import os
+import tempfile
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from syft_benchmark.control.app import ConsoleAuth, ConsoleGuard
 from syft_benchmark.control.compose import merge
@@ -28,6 +32,7 @@ from syft_benchmark.generation import decisions, list_pairs
 from syft_benchmark.generation.pairs import MAX_PAGE as PAIRS_MAX_PAGE
 from syft_benchmark.report import (
     exclusions,
+    export_xlsx,
     filter_view,
     run_questions,
     run_view,
@@ -95,6 +100,7 @@ def _summary(
 ) -> dict[str, Any]:
     summary = {
         **run,
+        **run_view.job_times(job),
         "card_outdated": run_view.card_outdated(job.card, run),
         "build_only": build_only,
         "state": job.state,
@@ -445,4 +451,28 @@ def download_summary(job_id: str, auth: ConsoleGuard) -> Response:
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ),
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@router.get("/runs/{job_id}/export.xlsx")
+def download_export(job_id: str, auth: ConsoleGuard) -> FileResponse:
+    """Everything that took part in the run, full texts, as one workbook."""
+    handle, path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(handle)
+    try:
+        with session_scope(auth.settings) as session:
+            target = _target(session, auth)
+            job = _job(session, auth, job_id)
+            export_xlsx.write(
+                session, job, target, path, configured=lambda: _panel(target, auth)
+            )
+            name = export_xlsx.filename(target.endpoint or target.key, job.created_at)
+    except BaseException:
+        os.unlink(path)
+        raise
+    return FileResponse(
+        path,
+        media_type=export_xlsx.MEDIA_TYPE,
+        filename=name,
+        background=BackgroundTask(os.unlink, path),
     )

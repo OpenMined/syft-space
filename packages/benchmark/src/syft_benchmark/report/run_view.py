@@ -202,7 +202,8 @@ PRIMARY_JUDGE = "primary_judge"
 WEB_CHECK_MODEL = "web_check_model"
 WEB_CHECK_JUDGE = "web_check_judge"
 MANUAL_PRIORITY = "manual_status_priority"
-# What the job spent: {spend_before, spend_after, usd, usd_calls}.
+# What the job spent: {spend_before, spend_after, usd, usd_calls, total_usd,
+# by_role} (report API, "Cost and time").
 COST = "cost"
 # The build per kind (``pipeline.KindStats.as_dict``).
 GENERATION = "generation"
@@ -269,7 +270,32 @@ def how_tested(job: Job) -> dict[str, Any]:
     return {
         WEB_CHECK_MODEL: str(params.get(WEB_CHECK_MODEL) or "") or None,
         WEB_CHECK_JUDGE: str(params.get(WEB_CHECK_JUDGE) or "") or None,
-        COST: dict(cost) if isinstance(cost, dict) else None,
+        COST: _cost(cost) if isinstance(cost, dict) else None,
+    }
+
+
+def _cost(cost: dict[str, Any]) -> dict[str, Any]:
+    """The stored cost; ``total_usd`` and ``by_role`` null for older jobs."""
+    by_role = cost.get("by_role")
+    return {
+        **cost,
+        "total_usd": cost.get("total_usd"),
+        "by_role": dict(by_role) if isinstance(by_role, dict) else None,
+    }
+
+
+def job_times(job: Job) -> dict[str, Any]:
+    """When the job started and finished, and how long it took (seconds);
+    null while unknown."""
+    took = (
+        round((job.finished_at - job.started_at).total_seconds(), 2)
+        if job.started_at is not None and job.finished_at is not None
+        else None
+    )
+    return {
+        "started_at": _iso(job.started_at),
+        "finished_at": _iso(job.finished_at),
+        "duration_s": took,
     }
 
 

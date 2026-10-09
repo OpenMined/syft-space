@@ -148,7 +148,7 @@ describe('control outcomes', () => {
     expect(behaviorOf('unanswerable_property', 'hallucinate')).toBe('made_up')
     expect(behaviorOf('unanswerable_property', 'pending')).toBeNull()
     expect(behaviorOf('qa', 'abstain')).toBeNull()
-    expect(outcomeLabel('false_premise', 'hallucinate')).toBe('Made up')
+    expect(outcomeLabel('false_premise', 'hallucinate')).toBe('Hallucinated')
     expect(outcomeLabel('qa', 'hallucinate')).toBe('Hallucinated')
   })
 

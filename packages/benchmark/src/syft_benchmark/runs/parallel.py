@@ -55,7 +55,7 @@ from typing import Any, TypeVar
 from loguru import logger
 
 from syft_benchmark.config import Settings, SpaceConfig
-from syft_benchmark.llm import Provider, chat
+from syft_benchmark.llm import Provider, chat, cost
 from syft_benchmark.llm.ollama import search_mechanism
 from syft_benchmark.runs.endpoint import RETRIEVAL_ONLY_TOKENS, ask_endpoint
 from syft_benchmark.runs.timing import ANSWER, CallClock
@@ -285,6 +285,7 @@ class RunCache:
                 settings=settings,
                 web_search=web_search,
                 web_search_engine=web_search_engine,
+                role=cost.SUBJECTS,
             )
             # What the answer really cost. A reused answer would otherwise be
             # recorded as instantaneous: there was no call, and timing it would show

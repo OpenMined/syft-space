@@ -37,7 +37,7 @@ from loguru import logger
 
 from syft_benchmark.config import Settings, Verdict
 from syft_benchmark.db import QaPair
-from syft_benchmark.llm import LLMError, LLMFatalError, Provider, chat, roles
+from syft_benchmark.llm import LLMError, LLMFatalError, Provider, chat, cost, roles
 from syft_benchmark.llm.ollama import search_unused, supports_web_search
 from syft_benchmark.runs.judge import Grade, grade, grade_key_facts
 
@@ -66,9 +66,26 @@ NO_SEARCH_NOTE = "no web search for this model here: answered from its own train
 CONTROL_NOTE = "not checked: a control question, its right answer is to abstain"
 NO_FACTS_NOTE = "not checked: a key-facts question without key facts"
 
-# How much of the web model's answer to keep on the pair, for review.
+# How much of the web model's answer ``meta.web_check`` keeps; the job's
+# decision record (``meta.screening``) keeps it whole, with the prompts.
 _ANSWER_KEPT = 2000
 _CITATIONS_KEPT = 10
+# The full texts of a check, kept only in the decision record.
+FULL_KEYS = (
+    "system",
+    "user",
+    "judge_system",
+    "judge_prompt",
+    "judge_reply",
+)
+
+
+def lean(record: dict[str, Any]) -> dict[str, Any]:
+    """The record ``meta.web_check`` keeps: no prompts, the answer cut."""
+    out = {k: v for k, v in record.items() if k not in FULL_KEYS}
+    if isinstance(out.get("answer"), str):
+        out["answer"] = out["answer"][:_ANSWER_KEPT]
+    return out
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,16 +280,19 @@ def check_pair(
     }
     if not searching:
         record["note"] = NO_SEARCH_NOTE
+    record["system"] = WEB_CHECK_SYSTEM if searching else OWN_KNOWLEDGE_SYSTEM
+    record["user"] = row.question
     try:
         answer, usage = chat(
-            WEB_CHECK_SYSTEM if searching else OWN_KNOWLEDGE_SYSTEM,
-            row.question,
+            record["system"],
+            record["user"],
             provider=provider,
             temperature=0.0,
             max_tokens=conf.answer_max_tokens,
             settings=conf,
             web_search=searching,
             web_search_engine=engine or "auto",
+            role=cost.WEB_CHECK,
         )
     except LLMError as exc:
         return WebVerdict(
@@ -283,7 +303,8 @@ def check_pair(
         )
 
     citations = _citations(usage)
-    record["answer"] = answer[:_ANSWER_KEPT]
+    record["answer"] = answer
+    record.update(cost.spent(usage))
     record["citations"] = citations
     record["web_search"] = usage.get("web_search", searching)
     for key in ("web_search_via", "web_search_forced", "web_search_requests"):
@@ -292,7 +313,16 @@ def check_pair(
     if searching and search_unused({**usage, "web_search": True}):
         record["web_search_unused"] = True
 
-    verdict = _graded(row, answer, conf, judge)
+    # The judging functions are the run's; the call is the web check's.
+    with cost.acting_as(cost.WEB_CHECK):
+        verdict = _graded(row, answer, conf, judge)
+    record.update(
+        judge_system=verdict.judge_system,
+        judge_prompt=verdict.judge_user,
+        judge_reply=verdict.judge_raw,
+        judge_cost_usd=verdict.cost_usd,
+        judge_latency_s=verdict.latency_s,
+    )
     record["verdict"] = verdict.verdict.value
     record["reasoning"] = verdict.reasoning
     if verdict.failed or verdict.verdict is Verdict.PENDING:

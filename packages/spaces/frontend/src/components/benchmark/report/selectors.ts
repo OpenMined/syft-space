@@ -5,7 +5,8 @@ import type {
   BenchmarkRunReport,
   BenchmarkRunSummary,
 } from '@/api/types'
-import { count, DASH, dayTime } from './figures'
+import { count, DASH, dayTime, utcStamp } from './figures'
+import { customerCost, runDuration, tookText } from './timeCost'
 import { KIND_LABEL, modelName, type Behavior } from './labels'
 import { sortKinds } from '../questionOrder'
 import { TRICK_GENERATOR, type Held, type SettingRow } from './types'
@@ -23,24 +24,7 @@ export function isTrick(generator: string | null | undefined): boolean {
   return generator === TRICK_GENERATOR
 }
 
-/** A stamp as UTC: the Space stores naive datetimes that are UTC. */
-export function utcStamp(value: string | null | undefined): string | null {
-  if (!value) return null
-  return /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`
-}
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/** `30 Sep 06:00`, local time; null for a missing or unreadable stamp. */
-export function shortStamp(value: string | null | undefined): string | null {
-  const iso = utcStamp(value)
-  if (!iso) return null
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return null
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${hh}:${mm}`
-}
+export { shortStamp, utcStamp } from './figures'
 
 /** `Step 11 of 15` for an in-progress run. */
 export function progressText(p: BenchmarkRunProgress): string {
@@ -166,12 +150,18 @@ export function usdText(usd: number): string {
   return `$${usd.toFixed(2)}`
 }
 
-/** The job's OpenRouter spend: the balance difference, else the per-call sum. */
-export function runCost(method: BenchmarkRunReport['method']): number | null {
-  const cost = method.cost
-  if (!cost) return null
-  if (typeof cost.usd === 'number') return cost.usd
-  return cost.usd_calls > 0 ? cost.usd_calls : null
+/** `9 articles published … · took 54 min · cost $18.40`, with only the parts known. */
+export function runHeaderText(report: BenchmarkRunReport): string | null {
+  const seconds = runDuration(report.run)
+  const cost = customerCost(report.method)
+  const parts = [
+    articlesText(report),
+    seconds === null ? null : `took ${tookText(seconds)}`,
+    cost === null ? null : `cost ${usdText(cost)}`,
+  ].filter((p): p is string => !!p)
+  if (!parts.length) return null
+  const text = parts.join(' · ')
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 /** `GPT-5.1 · judged by Claude Sonnet 5`; null when no web check model is known. */
@@ -201,7 +191,8 @@ export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
   const rounds = method.denial_rounds
   const repeats = repeatsTotal(report)
   const webCheck = webCheckText(method)
-  const cost = runCost(method)
+  const cost = customerCost(method)
+  const seconds = runDuration(report.run)
   const rows: (SettingRow | null)[] = [
     { key: 'articles', label: 'Articles', value: articlesText(report) },
     { key: 'written', label: 'Questions written', value: written },
@@ -244,8 +235,9 @@ export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
           key: 'cost',
           label: 'Cost',
           value: usdText(cost),
-          tip: 'OpenRouter spend during this run.',
+          tip: 'All model calls in this run.',
         },
+    seconds === null ? null : { key: 'duration', label: 'Duration', value: tookText(seconds) },
     { key: 'profile', label: 'Method version', value: method.profile },
   ]
   return rows.filter((row): row is SettingRow => row !== null)
