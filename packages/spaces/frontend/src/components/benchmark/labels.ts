@@ -324,8 +324,7 @@ export const RUN_PROBLEMS: Record<string, string> = {
   // fails for the same reasons grading does, and the benchmark sends the text
   // of one refused call after the colon.
   nothing_generated:
-    'Not one question could be built — every generator call was refused. The question set is unchanged.',
-}
+    'Not one question could be built — every generator call was refused. The question set is unchanged.',}
 
 export function runProblemWords(problem: string): string {
   const exact = RUN_PROBLEMS[problem]

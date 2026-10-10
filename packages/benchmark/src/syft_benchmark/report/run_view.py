@@ -49,6 +49,7 @@ from syft_benchmark.db.models import (
     RunExclusion,
 )
 from syft_benchmark.db.session import session_scope
+from syft_benchmark.generation.article_dates import DATE_KEY
 from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.question_order import pair_order
 from syft_benchmark.report.metrics import accuracy_by_temperature, held_by_round
@@ -58,7 +59,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 7
+AGGREGATE_VERSION = 8
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -510,6 +511,33 @@ def _funnel(
     }
 
 
+def _articles(
+    session: Session, job: Job, asked_ids: Sequence[str], *, asked: bool
+) -> dict[str, Any]:
+    """The asked questions' articles and their real date range (UTC days), and
+    the articles this job wrote questions from."""
+    by_doc: dict[str, str | None] = {}
+    if asked_ids:
+        for doc, day in session.execute(
+            select(QaPair.doc_id, QaPair.meta[DATE_KEY].astext).where(
+                QaPair.id.in_(asked_ids)
+            )
+        ):
+            if doc:
+                by_doc[doc] = by_doc.get(doc) or day
+    days = sorted(day for day in by_doc.values() if day)
+    new = session.execute(
+        select(func.count(func.distinct(QaPair.doc_id))).where(QaPair.job_id == job.id)
+    ).scalar_one()
+    return {
+        "articles": len(by_doc) if asked else None,
+        "articles_first": days[0] if days else None,
+        "articles_last": days[-1] if days else None,
+        "articles_dated": len(days) if asked else None,
+        "articles_new": new if new or generation_of(job) else None,
+    }
+
+
 def _tally(verdicts: Iterable[str | None]) -> dict[str, int]:
     counts = Counter(v for v in verdicts if v)
     graded = sum(counts[v] for v in OUTCOMES)
@@ -698,20 +726,24 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     lifts = [m["lift"] for m in reports if m["lift"] is not None]
 
     counted_pairs = [p for p in pairs if p[0] in counted_main]
-    documents = {doc for _, _, _, doc, _ in counted_pairs if doc}
-    generator_model = Counter(m for *_, m in counted_pairs if m).most_common(1)
+    generator_model = Counter(
+        m for *_, m in counted_pairs if m and not m.startswith("spacy:")
+    ).most_common(1)
     card = job.card if isinstance(job.card, dict) else {}
     dataset = card.get("dataset") if isinstance(card.get("dataset"), dict) else {}
     window_days = dataset.get("window_days") if dataset else None
     window_days = int(window_days) if isinstance(window_days, int) else None
 
+    articles = _articles(
+        session, job, [qa for qa, *_ in counted_pairs], asked=bool(pairs)
+    )
     run = {
         "job_id": job.id,
         "created_at": _iso(job.created_at),
         "finished_at": _iso(job.finished_at),
         "trigger": job.trigger,
         "window_days": window_days,
-        "articles": len(documents) if pairs else None,
+        **articles,
         "questions": len(counted_main) if pairs else None,
         "models": summary_models,
         "lift_lo": min(lifts) if lifts else None,
@@ -725,6 +757,7 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     method = {
         "articles_from": _iso(since),
         "articles_to": _iso(job.created_at) if since else None,
+        **articles,
         "generator_model": generator_model[0][0] if generator_model else None,
         "kinds": sorted(
             {gen for gen in generator_of.values() if gen}, key=generator_order

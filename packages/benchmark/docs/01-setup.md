@@ -338,15 +338,15 @@ documents it must not be turned on.
 
 ---
 
-## spaCy: optional, but cheap
+## spaCy
 
 Extractive generators are built through spaCy if there is a model for the
-document's language, and through an LLM if there is not. With spaCy they do not
-call a model at all — dozens of items in seconds.
+document's language, and through an LLM if there is not (the reason is kept on
+each question, `meta.llm_why`). spaCy and `en_core_web_sm` are regular
+dependencies: `uv sync` installs them. Another language's model is installed
+by hand:
 
 ```bash
-uv sync --extra spacy
-uv run python -m spacy download en_core_web_sm
 uv run python -m spacy download ru_core_news_sm
 ```
 

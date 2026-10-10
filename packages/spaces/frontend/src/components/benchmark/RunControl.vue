@@ -99,6 +99,13 @@
             <span v-if="articles !== null" data-testid="articles-in-window">
               <span class="text-muted-foreground">{{ windowLabel }}</span> ·
               {{ plural(articles, 'article') }}
+              <span
+                v-if="form.datasetMode === 'incremental'"
+                class="text-muted-foreground"
+                title="Earlier runs’ questions stay in the set."
+                data-testid="articles-earlier"
+                >+ earlier questions</span
+              >
             </span>
           </div>
           <RouterLink
@@ -746,8 +753,7 @@
             }}</b>
             <span class="text-sm text-muted-foreground">
               {{ phaseText(activeJob.phase) }}
-              <template v-if="timeLeft">{{ timeLeft }}; you</template
-              ><template v-else>You</template> can leave this page and the results will appear under
+              You can leave this page and the results will appear under
               <RouterLink :to="runsListLocation()" class="font-medium text-primary hover:underline">
                 Benchmark results</RouterLink
               >.
@@ -896,7 +902,7 @@ import {
   windowDaysParam,
 } from '@/components/benchmark/setup/setupForm'
 import type { Choice, Kind, SetupForm } from '@/components/benchmark/setup/setupForm'
-import { leftText, msLeft, paceStart, planText } from '@/components/benchmark/setup/progress'
+import { planText } from '@/components/benchmark/setup/progress'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -1245,17 +1251,6 @@ const progressTitle = computed(() => (activeJob.value ? progressTitleOf(activeJo
 const planTip = computed(() =>
   activeJob.value?.step_total ? planText(activeJob.value.progress_plan, nameOf) : '',
 )
-
-// Read on every poll, so the estimate moves with the bar.
-const now = ref(Date.now())
-watch(jobs, () => (now.value = Date.now()))
-
-const timeLeft = computed(() => {
-  const job = activeJob.value
-  if (!job || job.state !== 'running') return ''
-  const left = msLeft(job.step_done, job.step_total, paceStart(job.progress_plan), now.value)
-  return leftText(left)
-})
 
 const progressShare = computed(() => {
   const job = activeJob.value

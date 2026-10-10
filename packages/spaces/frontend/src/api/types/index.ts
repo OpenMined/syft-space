@@ -1501,7 +1501,15 @@ export interface BenchmarkRunSummary {
   finished_at: string | null
   trigger: string
   window_days: number | null
+  /** Distinct articles of the asked questions. */
   articles: number | null
+  /** `YYYY-MM-DD`: earliest and latest article date (published, else added) among them. */
+  articles_first?: string | null
+  articles_last?: string | null
+  /** How many of `articles` have a date; the range covers only these. */
+  articles_dated?: number | null
+  /** Distinct articles this job wrote questions from. */
+  articles_new?: number | null
   questions: number | null
   models: BenchmarkModelFigures[]
   lift_lo: number | null
@@ -1513,6 +1521,8 @@ export interface BenchmarkRunSummary {
   /** True: the job wrote or filtered questions but asked no model. */
   build_only?: boolean
   state?: 'succeeded' | 'failed' | 'cancelled'
+  /** Who stopped the job; null — it was not stopped. */
+  stopped?: 'owner' | 'spending_cap' | null
   build?: BenchmarkBuildCounts | null
 }
 
@@ -1657,6 +1667,11 @@ export interface BenchmarkKindBuild {
   failed_units: number
   dropped: Record<string, number>
   stopped: string
+  /** Masking kinds only: questions cut by spaCy / written by the LLM. */
+  spacy?: number | null
+  llm?: number | null
+  /** Passages sent to the LLM, by reason. */
+  llm_why?: Record<string, number> | null
 }
 
 export interface BenchmarkGeneratedPage {

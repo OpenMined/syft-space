@@ -56,9 +56,7 @@ describe('RunMethodPage', () => {
     expect(wrapper.text()).toContain(
       'The settings used in the run of 30 Sep 2026. Another run can use different settings.',
     )
-    expect(setting(wrapper, 'articles')).toMatch(
-      /^9 articles published 29 Sep 2026 \d{2}:\d{2} to 30 Sep 2026 \d{2}:\d{2}$/,
-    )
+    expect(setting(wrapper, 'articles')).toBe('9 articles')
     expect(setting(wrapper, 'written')).toBe('1,000, by Claude Opus 5.5 inside your Syft Space')
     expect(setting(wrapper, 'removed')).toBe('—')
     expect(setting(wrapper, 'asked')).toBe('100, plus 4 trick questions')

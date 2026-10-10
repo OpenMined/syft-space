@@ -20,6 +20,7 @@ a model for", and stop words answer it more precisely than a universal detector.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -103,27 +104,48 @@ def detect_language(text: str, candidates: tuple[str, ...]) -> str | None:
     return best[1] if best else None
 
 
-def pick_spacy_model(text: str, models: dict[str, str]) -> Any | None:
-    """The spaCy model for this text's language, if there is one.
+# Why a chunk goes to the LLM instead of spaCy (``meta.llm_why`` on its pairs).
+NO_SPACY = "spaCy not installed"
+LANGUAGE_UNKNOWN = "language not recognised"
+LLM_MODE = "llm mode"
+
+
+def no_model_for(lang: str) -> str:
+    return f"no spaCy model for '{lang}'"
+
+
+@dataclass(frozen=True, slots=True)
+class SpacyChoice:
+    """The spaCy model for a chunk, or why there is none."""
+
+    nlp: Any | None
+    model: str = ""
+    language: str = ""
+    why: str = ""
+
+
+def choose_spacy_model(text: str, models: dict[str, str]) -> SpacyChoice:
+    """The spaCy model for this text's language, or why the LLM takes it.
 
     Args:
         text: The chunk whose language we choose by
         models: The mapping "language code -> model name" from the settings
-
-    Returns:
-        A loaded model, or None — then the chunk will go through the LLM
     """
-    if not models or not spacy_available():
-        return None
-
-    lang = detect_language(text, tuple(models))
+    if not spacy_available():
+        return SpacyChoice(None, why=NO_SPACY)
+    lang = detect_language(text, tuple(models)) if models else None
     if lang is None:
-        return None
-
+        return SpacyChoice(None, why=LANGUAGE_UNKNOWN)
     model = load_model(models[lang])
     if model is None:
         logger.info(
             f"the language was detected as {lang!r}, but the model "
             f"{models[lang]!r} is not installed — the chunk will go through the LLM"
         )
-    return model
+        return SpacyChoice(None, language=lang, why=no_model_for(lang))
+    return SpacyChoice(model, model=models[lang], language=lang)
+
+
+def pick_spacy_model(text: str, models: dict[str, str]) -> Any | None:
+    """The loaded spaCy model for this text's language, if there is one."""
+    return choose_spacy_model(text, models).nlp

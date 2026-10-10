@@ -39,7 +39,7 @@ from syft_benchmark.db.models import Job, Run, Target
 from syft_benchmark.db.run_cache import invalidate_run
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation import filter_and_rotate
-from syft_benchmark.llm.cost import CostMeter, cost_meter, openrouter_spend
+from syft_benchmark.llm.cost import CostMeter, cost_meter, meter_for, openrouter_spend
 from syft_benchmark.publish import payload_for, publish
 from syft_benchmark.report import run_view
 from syft_benchmark.report.card import build as build_card
@@ -72,6 +72,10 @@ SERVICE_RESTARTED = "service_restarted"
 NOTHING_GRADED = "nothing_graded"
 NO_QUESTIONS = "no_questions"
 NOTHING_GENERATED = "nothing_generated"
+OVER_BUDGET = "over_budget"
+
+# A job whose priced calls reach this many USD is stopped, as if by the owner.
+MAX_JOB_USD = 100.0
 
 # The job's evaluation plan in its params (report API, "Progress plan").
 PROGRESS_PLAN = "progress_plan"
@@ -115,6 +119,8 @@ class Reporter:
         self.total = 0
         self.current = ""
         self.cancelled = False
+        # The USD spent when the cap stopped the job; None — it did not.
+        self.over_budget: float | None = None
         self.arm = ""
         self.block = ""
         self.model = ""
@@ -212,7 +218,23 @@ class Reporter:
         """
         if not self.cancelled:
             self._read_cancelled()
+        if not self.cancelled:
+            self._check_budget()
         return self.cancelled
+
+    def budget_problem(self) -> list[str]:
+        """The job's error line when the cap stopped it."""
+        if self.over_budget is None:
+            return []
+        spent = f"${self.over_budget:.2f} spent, the cap is ${MAX_JOB_USD:.0f}"
+        return [f"{OVER_BUDGET}: {spent}"]
+
+    def _check_budget(self) -> None:
+        meter = meter_for(self.job_id)
+        if meter is not None and meter.total_usd >= MAX_JOB_USD:
+            self.over_budget = meter.total_usd
+            self.cancelled = True
+            logger.warning(f"job {self.job_id}: stopped at ${meter.total_usd:.2f}")
 
     # --- writing -----------------------------------------------------------
     def _write(
@@ -254,6 +276,8 @@ class Reporter:
             row = session.get(Job, self.job_id)
             if row is not None and row.cancel_requested:
                 self.cancelled = True
+        if not self.cancelled:
+            self._check_budget()
 
     def _read_cancelled(self) -> None:
         """Pick up the flag without writing anything."""
@@ -466,7 +490,7 @@ def _execute_pipeline(
     )
     reporter.pass_times = done.pass_times
     reporter.calls = done.clock
-    failures = list(done.failures)
+    failures = reporter.budget_problem() + list(done.failures)
     # Outside `want_evaluate` on purpose: a launch that only refreshes the
     # question set can fail this way too.
     if done.generated_nothing:
@@ -555,7 +579,7 @@ def _execute_filter(
     _finish(
         job_id,
         state,
-        error="; ".join(outcome.notes),
+        error="; ".join([*reporter.budget_problem(), *outcome.notes]),
         message="; ".join(summary),
         settings=base_settings,
     )
@@ -583,7 +607,12 @@ def _execute_judge(
     )
     reporter.phase(JobPhase.JUDGE, outcome.line())
     state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
-    _finish(job_id, state, error="; ".join(outcome.notes), settings=base_settings)
+    _finish(
+        job_id,
+        state,
+        error="; ".join([*reporter.budget_problem(), *outcome.notes]),
+        settings=base_settings,
+    )
 
 
 def _spend(conf: Settings) -> float | None:

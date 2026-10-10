@@ -18,9 +18,10 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from syft_benchmark.config import JobState
 from syft_benchmark.control.app import ConsoleAuth, ConsoleGuard
 from syft_benchmark.control.compose import merge
-from syft_benchmark.control.jobs import PROGRESS_PLAN
+from syft_benchmark.control.jobs import OVER_BUDGET, PROGRESS_PLAN
 from syft_benchmark.control.schemas import (
     ExclusionRequest,
     Instrument,
@@ -104,10 +105,18 @@ def _summary(
         "card_outdated": run_view.card_outdated(job.card, run),
         "build_only": build_only,
         "state": job.state,
+        "stopped": _stopped(job),
     }
     if build is not None:
         summary["build"] = build
     return summary
+
+
+def _stopped(job: Job) -> str | None:
+    """Who stopped the job: ``spending_cap``, ``owner``; None — it was not stopped."""
+    if job.state != JobState.CANCELLED.value:
+        return None
+    return "spending_cap" if (job.error or "").startswith(OVER_BUDGET) else "owner"
 
 
 def _has_runs(session: Session, job_ids: list[str]) -> set[str]:

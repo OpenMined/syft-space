@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /** How each kind's generation went in one job; hidden when the job kept no stats. */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
 import type { BenchmarkKindBuild } from '@/api/types'
-import { droppedLines, droppedTotal, readText, stoppedLabel } from './filter'
+import { droppedLines, droppedTotal, maskedCounts, readText, stoppedLabel } from './filter'
 import { kindLabel } from './report/labels'
 import { compareKinds } from './questionOrder'
 
@@ -21,6 +21,8 @@ async function load(): Promise<void> {
 }
 
 watch([() => props.job, () => props.refreshKey], load, { immediate: true })
+
+const masking = computed(() => kinds.value.some((k) => maskedCounts(k)))
 
 const STOP_TONE: Record<string, string> = {
   'budget reached': 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
@@ -61,6 +63,14 @@ const STOP_TONE: Record<string, string> = {
           >
             Dropped
           </th>
+          <th
+            v-if="masking"
+            scope="col"
+            class="px-3 py-2 text-right font-medium"
+            title="Masking questions cut by spaCy / written by the LLM; hover a number for why."
+          >
+            spaCy / LLM
+          </th>
           <th scope="col" class="px-3 py-2 text-left font-medium">Stopped</th>
         </tr>
       </thead>
@@ -85,6 +95,16 @@ const STOP_TONE: Record<string, string> = {
               >{{ droppedTotal(k) }}</span
             >
             <span v-else class="text-muted-foreground">0</span>
+          </td>
+          <td v-if="masking" class="px-3 py-2 text-right tabular-nums" data-testid="kind-masked">
+            <span
+              v-if="maskedCounts(k)?.tip"
+              class="cursor-help underline decoration-dotted underline-offset-2"
+              :title="maskedCounts(k)!.tip"
+              >{{ maskedCounts(k)!.text }}</span
+            >
+            <span v-else-if="maskedCounts(k)">{{ maskedCounts(k)!.text }}</span>
+            <span v-else class="text-muted-foreground">—</span>
           </td>
           <td class="px-3 py-2">
             <span

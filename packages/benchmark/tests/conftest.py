@@ -93,3 +93,9 @@ def pytest_configure(config: pytest.Config) -> None:
             f"be skipped.",
             stacklevel=1,
         )
+
+
+@pytest.fixture(autouse=True)
+def _blocks_not_paused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The block tests run every block; the pause is tested on its own."""
+    monkeypatch.setattr("syft_benchmark.scheduler.PAUSED_BLOCKS", frozenset())

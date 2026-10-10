@@ -20,7 +20,7 @@ import {
   sortQuestions,
 } from '@/components/benchmark/questionOrder'
 import { KINDS } from '@/components/benchmark/setup/setupForm'
-import { leftText, msLeft, paceStart, planText } from '@/components/benchmark/setup/progress'
+import { planText } from '@/components/benchmark/setup/progress'
 import {
   metricCell,
   metricColumns,
@@ -28,8 +28,6 @@ import {
   metricsLine,
 } from '@/components/benchmark/textMetrics'
 import { modelReport, OPUS, runReport } from './reportFixtures'
-
-const MIN = 60_000
 
 function plan(over: Partial<BenchmarkProgressPlan> = {}): BenchmarkProgressPlan {
   return {
@@ -69,42 +67,6 @@ describe('progress plan tooltip', () => {
   it('is empty without a plan', () => {
     expect(planText(null)).toBe('')
     expect(planText(undefined)).toBe('')
-  })
-})
-
-describe('time left', () => {
-  const start = paceStart(plan())!
-
-  it('reads the start of the evaluate phase as UTC', () => {
-    expect(start).toEqual({ at: Date.parse('2026-10-08T10:00:00Z'), done: 0 })
-    expect(paceStart(plan({ started_at: 'nonsense' }))).toBeNull()
-    expect(paceStart(null)).toBeNull()
-  })
-
-  it('estimates from the pace so far', () => {
-    // 90 of 360 in 10 minutes -> 270 left at 9 per minute.
-    expect(msLeft(90, 360, start, start.at + 10 * MIN)).toBe(30 * MIN)
-  })
-
-  it('waits for 5% of the steps and a minute', () => {
-    expect(msLeft(17, 360, start, start.at + 10 * MIN)).toBeNull()
-    expect(msLeft(18, 360, start, start.at + 10 * MIN)).not.toBeNull()
-    expect(msLeft(100, 360, start, start.at + 59_000)).toBeNull()
-    expect(msLeft(0, 360, start, start.at + 10 * MIN)).toBeNull()
-  })
-
-  it('has nothing to say without a start, a total, or work left', () => {
-    expect(msLeft(90, 360, null, start.at + 10 * MIN)).toBeNull()
-    expect(msLeft(0, 0, start, start.at + 10 * MIN)).toBeNull()
-    expect(msLeft(360, 360, start, start.at + 10 * MIN)).toBeNull()
-  })
-
-  it('words the estimate', () => {
-    expect(leftText(null)).toBe('')
-    expect(leftText(10_000)).toBe('About 1 min left')
-    expect(leftText(24.2 * MIN)).toBe('About 25 min left')
-    expect(leftText(60 * MIN)).toBe('About 1 h left')
-    expect(leftText(71 * MIN)).toBe('About 1 h 10 min left')
   })
 })
 

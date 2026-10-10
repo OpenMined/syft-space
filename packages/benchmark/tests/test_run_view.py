@@ -982,3 +982,47 @@ def test_an_older_run_has_no_timing(client: TestClient, clean: Any) -> None:
     seed.answer("q1", M1, "alone", "correct")
     seed.save()
     assert _report(client, auth)["timing"] is None
+
+
+def test_run_articles_are_the_asked_articles_with_their_real_dates(
+    client: TestClient, clean: Any
+) -> None:
+    auth = _console(client)
+    seed = Seed()
+    seed.pair("q1", doc_id="a", meta={"article_date": "2026-10-05"})
+    seed.pair("q2", doc_id="b", meta={"article_date": "2026-10-09"}, job_id=JOB)
+    seed.pair("q3", doc_id="b", meta={"article_date": "2026-10-09"}, job_id=JOB)
+    seed.pair("q4", doc_id="c", job_id=JOB)
+    for qa in ("q1", "q2", "q3", "q4"):
+        seed.answer(qa, M1, "with", "correct")
+    seed.save()
+
+    report = _report(client, auth)
+    want = {
+        "articles": 3,
+        "articles_first": "2026-10-05",
+        "articles_last": "2026-10-09",
+        "articles_dated": 2,
+        "articles_new": 2,
+    }
+    for source in (report["run"], report["method"]):
+        assert {k: source[k] for k in want} == want
+    listed = client.get("/console/report/runs", headers=auth).json()["items"]
+    assert {k: listed[0][k] for k in want} == want
+
+
+def test_a_run_without_article_dates_shows_no_range(
+    client: TestClient, clean: Any
+) -> None:
+    auth = _console(client)
+    seed = Seed()
+    seed.pair("q1")
+    seed.answer("q1", M1, "with", "correct")
+    seed.save()
+
+    run = _report(client, auth)["run"]
+    assert run["articles"] == 1
+    assert run["articles_first"] is None and run["articles_last"] is None
+    assert run["articles_dated"] == 0
+    # Wrote nothing and kept no build stats: unknown, not zero.
+    assert run["articles_new"] is None

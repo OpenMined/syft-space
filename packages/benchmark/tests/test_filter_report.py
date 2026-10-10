@@ -533,6 +533,9 @@ def test_the_build_per_kind_is_kept_with_the_job(
             "failed_units": 0,
             "dropped": {"duplicate": 1},
             "stopped": "ran out of material",
+            "spacy": None,
+            "llm": None,
+            "llm_why": None,
         }
     ]
     assert body["total"] == 2

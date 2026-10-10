@@ -7,6 +7,15 @@
           <Badge variant="outline" :class="published ? PUBLISHED_TONE : PRIVATE_TONE">
             {{ published ? 'Published' : 'Private' }}
           </Badge>
+          <Badge
+            v-if="stoppedLabel(data.run)"
+            variant="outline"
+            :class="STOPPED_TONE"
+            :title="stoppedTip(data.run)"
+            data-testid="run-stopped"
+          >
+            {{ stoppedLabel(data.run) }}
+          </Badge>
         </div>
         <p v-if="header" class="text-sm text-muted-foreground" data-testid="run-articles">
           {{ header }}
@@ -223,7 +232,7 @@ import { useReport, useRun } from './context'
 import { count, DASH, dayTime, points } from './figures'
 import { modelName, vendorName } from './labels'
 import { methodLocation, modelLocation } from './routing'
-import { runHeaderText, usdText, utcStamp, webRemoved } from './selectors'
+import { runHeaderText, stoppedLabel, stoppedTip, usdText, utcStamp, webRemoved } from './selectors'
 import {
   costLabel,
   costParts,
@@ -235,6 +244,7 @@ import {
 
 const PUBLISHED_TONE = 'border-transparent bg-primary/10 text-primary'
 const PRIVATE_TONE = 'border-transparent bg-muted text-muted-foreground'
+const STOPPED_TONE = 'border-transparent bg-amber-500/10 text-amber-700 dark:text-amber-400'
 const TILE =
   'flex flex-col gap-0.5 border-b border-border px-5 py-4 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0'
 

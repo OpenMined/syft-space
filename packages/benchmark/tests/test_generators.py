@@ -25,9 +25,7 @@ DOC = "Space registers with the Hub. The Hub stores endpoint metadata."
 # broken install: without it the extractive generators go through an LLM. So a
 # check of what spaCy does has nothing to say when spaCy is not there, and
 # failing would report a fault that is not one.
-needs_spacy = pytest.mark.skipif(
-    not spacy_available(), reason="spaCy is an optional extra and is not installed"
-)
+needs_spacy = pytest.mark.skipif(not spacy_available(), reason="spaCy is not installed")
 
 
 # --- the line-up -----------------------------------------------------------

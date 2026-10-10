@@ -49,6 +49,22 @@ export function day(iso: string | null | undefined): string | null {
   return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : null
 }
 
+/** Calendar days `YYYY-MM-DD` as `5–9 Oct`, `28 Sep–3 Oct`, `9 Oct`; the year when not `thisYear`. */
+export function daySpan(first: string, last: string, thisYear: number): string | null {
+  const parts = (value: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+    const month = m ? MONTHS[Number(m[2]) - 1] : undefined
+    return m && month ? { y: Number(m[1]), m: month, d: Number(m[3]) } : null
+  }
+  const a = parts(first)
+  const b = parts(last)
+  if (!a || !b) return null
+  const year = a.y !== b.y || b.y !== thisYear
+  const end = `${b.d} ${b.m}${year ? ` ${b.y}` : ''}`
+  if (a.y === b.y && a.m === b.m) return a.d === b.d ? end : `${a.d}–${end}`
+  return `${a.d} ${a.m}${a.y !== b.y ? ` ${a.y}` : ''}–${end}`
+}
+
 /** `30 Sep 2026, 06:00`, in the reader's time zone. */
 export function dayTime(iso: string | null | undefined): string {
   const d = parse(iso)

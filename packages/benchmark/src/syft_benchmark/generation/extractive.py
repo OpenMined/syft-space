@@ -28,9 +28,9 @@ from typing import Any
 _MIN_SENTENCE_CHARS = 40
 _MASK = "______"
 
-# The spaCy labels by category. They match the original: the set was checked on
-# a news corpus and is carried over unchanged.
-NER_LABELS = frozenset({"PERSON", "ORG", "GPE", "NORP", "FAC", "LOC", "EVENT"})
+# The spaCy labels by category: the original's OntoNotes set (English), plus
+# PER, the person label of the WikiNER models (ru, de, fr, ...).
+NER_LABELS = frozenset({"PERSON", "PER", "ORG", "GPE", "NORP", "FAC", "LOC", "EVENT"})
 NUMERIC_LABELS = frozenset({"CARDINAL", "MONEY", "PERCENT", "QUANTITY", "ORDINAL"})
 TEMPORAL_LABELS = frozenset({"DATE", "TIME"})
 
@@ -124,6 +124,18 @@ def _acceptable(category: str, answer: str) -> bool:
     if not any(ch.isalnum() for ch in answer):
         return False
     return not (category == "temporal" and _VAGUE_TIME.match(answer))
+
+
+def labelled_categories(nlp: Any, categories: tuple[str, ...]) -> tuple[str, ...]:
+    """The categories the model's entity recogniser has labels for.
+
+    The WikiNER models (ru, de, ...) know names only: no dates, no numbers.
+    """
+    try:
+        labels = set(nlp.get_pipe("ner").labels)
+    except (KeyError, AttributeError):
+        return ()
+    return tuple(c for c in categories if CATEGORIES[c] & labels)
 
 
 def mask_with_spacy(

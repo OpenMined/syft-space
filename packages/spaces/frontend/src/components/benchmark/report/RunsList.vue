@@ -152,12 +152,21 @@
                 </span>
               </div>
             </td>
-            <td class="px-3 py-3">
+            <td class="space-x-1.5 whitespace-nowrap px-3 py-3">
+              <Badge
+                v-if="!run.build_only && stoppedLabel(run)"
+                variant="outline"
+                class="border-transparent bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                :title="stoppedTip(run)"
+                data-testid="run-stopped"
+              >
+                {{ stoppedLabel(run) }}
+              </Badge>
               <Badge
                 v-if="runStateLabel(run)"
                 variant="outline"
                 class="border-transparent bg-muted text-muted-foreground"
-                :title="run.build_only ? BUILD_ONLY_TIP : undefined"
+                :title="run.build_only ? (stoppedTip(run) ?? BUILD_ONLY_TIP) : undefined"
                 data-testid="run-state"
               >
                 {{ runStateLabel(run) }}
@@ -254,7 +263,14 @@ import { modelName } from './labels'
 import { runLocation } from './routing'
 import { planText } from '../setup/progress'
 import { buildText } from '../filter'
-import { progressShare, progressText, runStateLabel, utcStamp } from './selectors'
+import {
+  progressShare,
+  progressText,
+  runStateLabel,
+  stoppedLabel,
+  stoppedTip,
+  utcStamp,
+} from './selectors'
 import { RUNS_PAGE } from './useRunReport'
 
 defineProps<{ slug: string }>()

@@ -398,10 +398,10 @@ const FALLBACK = {
   reuse_answers: true,
 } as const
 
-/** The benchmark's own defaults for fields written only when they differ from them. */
 /** The judge temperature value that means the model's own default. */
 export const MODEL_DEFAULT = 'default'
 
+/** The benchmark's own defaults, shown when no layer sets a field. */
 const BENCH_DEFAULTS = {
   web_search_closed_book: true,
   web_search_with_context: false,
@@ -589,26 +589,22 @@ function same(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Put a value in the endpoint's own layer, or take it out when it is what the
- * layer would inherit anyway, so later changes higher up still reach it.
+ * Put a value in the endpoint's own layer, so it stays as saved whatever the
+ * layers below it later say. An empty value can't be stored: it is cleared
+ * (null over an inherited one, else left out).
  */
 function place(layer: BenchmarkLayer, inherited: BenchmarkLayer, key: string, value: unknown) {
   const empty = value === '' || value === undefined || value === null
-  const unset = inherited[key] === undefined || inherited[key] === null
-  if ((empty && unset) || same(value, inherited[key])) {
-    delete layer[key]
-  } else if (empty) {
-    layer[key] = null
-  } else {
-    layer[key] = value
-  }
+  if (!empty) layer[key] = value
+  else if (inherited[key] === undefined || inherited[key] === null) delete layer[key]
+  else layer[key] = null
 }
 
 function finite(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
-/** The one save: the stored request with the page's values placed in it. */
+/** The one save: the stored request with every value the page manages placed in it. */
 export function buildRequest(
   target: BenchmarkTarget,
   form: SetupForm,
@@ -624,12 +620,11 @@ export function buildRequest(
   const instrument: BenchmarkInstrumentLayer = { ...target.instrument }
   const p = (key: string, value: unknown) => place(probe, inheritedProbe, key, value)
   const i = (key: string, value: unknown) => place(instrument, inheritedInstrument, key, value)
-  const keep = (key: string, layer: BenchmarkLayer) => finite(layer[key], 0)
 
-  const pairsPerChunk = Math.max(1, finite(form.pairsPerChunk, keep('pairs_per_chunk', effProbe)))
+  const pairsPerChunk = Math.max(1, finite(form.pairsPerChunk, num(effProbe, 'pairs_per_chunk')))
   const enabledKinds = enabledKindCount(form, kinds)
 
-  p('document_window_days', finite(form.windowDays, keep('document_window_days', effProbe)))
+  p('document_window_days', finite(form.windowDays, num(effProbe, 'document_window_days')))
   p('dataset_mode', form.datasetMode)
   p('generate_in_cycle', form.generateInCycle)
   p('chunks_per_run', chunksForBudget(finite(form.writeAtMost, 1), pairsPerChunk, enabledKinds))
@@ -638,44 +633,41 @@ export function buildRequest(
     kinds.filter((key) => form.disabledKinds.includes(key)),
   )
   p('pairs_per_chunk', pairsPerChunk)
-  p('min_chunk_chars', finite(form.minChunkChars, keep('min_chunk_chars', effProbe)))
-  p('dataset_max_pairs', finite(form.keepAtMost, keep('dataset_max_pairs', effProbe)))
-  p('retrieval_top_k', finite(form.retrievalTopK, keep('retrieval_top_k', effProbe)))
-  p(
-    'similarity_threshold',
-    finite(form.similarityThreshold, keep('similarity_threshold', effProbe)),
-  )
-  p(
-    'endpoint_concurrency',
-    finite(form.endpointConcurrency, keep('endpoint_concurrency', effProbe)),
-  )
+  p('min_chunk_chars', finite(form.minChunkChars, num(effProbe, 'min_chunk_chars')))
+  p('dataset_max_pairs', finite(form.keepAtMost, num(effProbe, 'dataset_max_pairs')))
+  p('retrieval_top_k', finite(form.retrievalTopK, num(effProbe, 'retrieval_top_k')))
+  p('similarity_threshold', finite(form.similarityThreshold, num(effProbe, 'similarity_threshold')))
+  p('endpoint_concurrency', finite(form.endpointConcurrency, num(effProbe, 'endpoint_concurrency')))
 
   i('generator_model', form.writer)
   i('extractive_mode', form.extractiveMode)
   i(
     'answer_coverage_threshold',
-    fromPercent(
-      finite(form.answerCoverage, toPercent(keep('answer_coverage_threshold', effInstr))),
-    ),
+    fromPercent(finite(form.answerCoverage, toPercent(num(effInstr, 'answer_coverage_threshold')))),
   )
   i('filter_model', form.webCheckModel)
+  i('filter_judge_model', form.webCheckJudge)
   i('subject_models', form.models)
   i('blocks', [
     'direct',
     ...(form.challenge ? ['denial_loop'] : []),
     ...(form.repeat ? ['monte_carlo'] : []),
   ])
-  i('context_docs', finite(form.contextDocs, keep('context_docs', effInstr)))
-  i('fragment_max_chars', finite(form.fragmentMaxChars, keep('fragment_max_chars', effInstr)))
-  i('denial_rounds', finite(form.denialRounds, keep('denial_rounds', effInstr)))
-  const temperatures = parseNumberList(form.repeatSettings)
-  if (temperatures) i('monte_carlo_temperatures', temperatures)
-  i('monte_carlo_trials', finite(form.repeatTrials, keep('monte_carlo_trials', effInstr)))
+  i('context_docs', finite(form.contextDocs, num(effInstr, 'context_docs')))
+  i('fragment_max_chars', finite(form.fragmentMaxChars, num(effInstr, 'fragment_max_chars')))
+  i('denial_rounds', finite(form.denialRounds, num(effInstr, 'denial_rounds')))
+  i(
+    'monte_carlo_temperatures',
+    parseNumberList(form.repeatSettings) ??
+      effInstr.monte_carlo_temperatures ??
+      FALLBACK.monte_carlo_temperatures,
+  )
+  i('monte_carlo_trials', finite(form.repeatTrials, num(effInstr, 'monte_carlo_trials')))
   i(
     'consistency_floor',
-    fromPercent(finite(form.consistencyFloor, toPercent(keep('consistency_floor', effInstr)))),
+    fromPercent(finite(form.consistencyFloor, toPercent(num(effInstr, 'consistency_floor')))),
   )
-  i('answer_max_tokens', finite(form.answerMaxTokens, keep('answer_max_tokens', effInstr)))
+  i('answer_max_tokens', finite(form.answerMaxTokens, num(effInstr, 'answer_max_tokens')))
 
   const judges = activeJudges(form)
   i('judge_model', judges[0] ?? '')
@@ -683,64 +675,48 @@ export function buildRequest(
   i('judge_policy', form.judgePolicy === 'warn' ? 'warn' : 'strict')
   i(
     'key_facts_threshold',
-    fromPercent(finite(form.keyFacts, toPercent(keep('key_facts_threshold', effInstr)))),
+    fromPercent(finite(form.keyFacts, toPercent(num(effInstr, 'key_facts_threshold')))),
   )
   i(
     'text_metrics',
     TEXT_METRICS.map((m) => m.value).filter((m) => form.textMetrics.includes(m)),
   )
-  i(
-    'max_consecutive_failures',
-    finite(form.maxFailures, keep('max_consecutive_failures', effInstr)),
-  )
+  i('max_consecutive_failures', finite(form.maxFailures, num(effInstr, 'max_consecutive_failures')))
   i('reuse_answers', form.reuseAnswers)
 
-  // A value equal to the benchmark's default, where no layer above states it, is not written.
-  const unlessDefault = (key: keyof typeof BENCH_DEFAULTS, value: unknown) => {
-    if (inheritedInstrument[key] === undefined && same(value, BENCH_DEFAULTS[key])) {
-      delete instrument[key]
-    } else {
-      i(key, value)
-    }
-  }
-  unlessDefault('web_search_closed_book', form.webAlone)
-  unlessDefault('web_search_with_context', form.webWithData)
-  unlessDefault('web_search_generator', form.webWriter)
-  unlessDefault('web_search_judge', form.webJudges)
-  unlessDefault(
+  i('web_search_closed_book', form.webAlone)
+  i('web_search_with_context', form.webWithData)
+  i('web_search_generator', form.webWriter)
+  i('web_search_judge', form.webJudges)
+  i(
     'web_search_engine',
     WEB_ENGINES.some((e) => e.value === form.webEngine)
       ? form.webEngine
       : BENCH_DEFAULTS.web_search_engine,
   )
-  unlessDefault(
+  i(
     'web_search_max_results',
     Math.min(
       20,
       Math.max(1, Math.round(finite(form.webMaxResults, BENCH_DEFAULTS.web_search_max_results))),
     ),
   )
-  i('filter_judge_model', form.webCheckJudge)
-  unlessDefault('manual_status_priority', form.manualPriority === 'manual' ? 'manual' : 'filter')
-  unlessDefault(
+  i('manual_status_priority', form.manualPriority === 'manual' ? 'manual' : 'filter')
+  i(
     'concurrency',
     Math.min(
       MODEL_CONCURRENCY_MAX,
       Math.max(1, Math.round(finite(form.modelConcurrency, BENCH_DEFAULTS.concurrency))),
     ),
   )
-
   // Empty temperature is stored as "default", the model's own; null would mean inherit.
-  const judgeTemperature = Number.isFinite(form.judgeTemperature)
-    ? Math.min(2, Math.max(0, form.judgeTemperature))
-    : null
-  if (judgeTemperature === null) {
-    if (inheritedInstrument.judge_temperature === MODEL_DEFAULT) delete instrument.judge_temperature
-    else instrument.judge_temperature = MODEL_DEFAULT
-  } else {
-    unlessDefault('judge_temperature', judgeTemperature)
-  }
-  unlessDefault(
+  i(
+    'judge_temperature',
+    Number.isFinite(form.judgeTemperature)
+      ? Math.min(2, Math.max(0, form.judgeTemperature))
+      : MODEL_DEFAULT,
+  )
+  i(
     'judge_reasoning_effort',
     JUDGE_REASONING.some((c) => c.value === form.judgeReasoning)
       ? form.judgeReasoning

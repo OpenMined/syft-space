@@ -62,6 +62,9 @@ from syft_benchmark.runs.timing import CallClock, PassTime
 
 REPORTS_DIR = Path("reports")
 
+# Temporarily off, whatever the settings say: these blocks are not run.
+PAUSED_BLOCKS = frozenset({EvalBlock.DENIAL_LOOP, EvalBlock.MONTE_CARLO})
+
 
 @dataclass(slots=True)
 class CycleReport:
@@ -359,6 +362,13 @@ def measure(
 
     if not evaluate:
         return out
+
+    paused = [block for block in conf.blocks if block in PAUSED_BLOCKS]
+    if paused:
+        conf = conf.model_copy(
+            update={"blocks": [b for b in conf.blocks if b not in PAUSED_BLOCKS]}
+        )
+        out.notes.append(f"paused: {', '.join(b.value for b in paused)}")
 
     held = evaluation_gate(space.key, conf)
     if held:

@@ -706,6 +706,14 @@ wheels = [
 ]
 
 [[package]]
+name = "en-core-web-sm"
+version = "3.8.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl", hash = "sha256:1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85" },
+]
+
+[[package]]
 name = "et-xmlfile"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2727,6 +2735,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "cryptography" },
+    { name = "en-core-web-sm" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "loguru" },
@@ -2736,6 +2745,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-docx" },
+    { name = "spacy" },
     { name = "sqlalchemy" },
     { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
@@ -2744,9 +2754,6 @@ dependencies = [
 [package.optional-dependencies]
 metrics = [
     { name = "bert-score" },
-]
-spacy = [
-    { name = "spacy" },
 ]
 
 [package.dev-dependencies]
@@ -2761,6 +2768,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.19.2" },
     { name = "bert-score", marker = "extra == 'metrics'", specifier = ">=0.3.13" },
     { name = "cryptography", specifier = ">=46.0.4" },
+    { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "loguru", specifier = ">=0.7.3" },
@@ -2770,12 +2778,12 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13.5" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "python-docx", specifier = ">=1.2.0" },
-    { name = "spacy", marker = "extra == 'spacy'", specifier = ">=3.8.16" },
+    { name = "spacy", specifier = ">=3.8.16,<3.9" },
     { name = "sqlalchemy", specifier = ">=2.0.52" },
     { name = "typer", specifier = ">=0.27.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.53.0" },
 ]
-provides-extras = ["spacy", "metrics"]
+provides-extras = ["metrics"]
 
 [package.metadata.requires-dev]
 dev = [

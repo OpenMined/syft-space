@@ -22,6 +22,12 @@ dependencies = [
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "python-docx>=1.2.0",
+    # Fill-in-the-blank questions are cut out of the passage by spaCy. Only the
+    # English model ships; other languages go to the LLM (meta.llm_why). Models
+    # are wheels from the spacy-models releases, pinned to the spaCy minor they
+    # were trained for (3.8.x).
+    "spacy>=3.8.16,<3.9",
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "sqlalchemy>=2.0.52",
     "typer>=0.27.2",
     "uvicorn[standard]>=0.53.0",
@@ -31,9 +37,6 @@ dependencies = [
 syft-benchmark = "syft_benchmark.cli:main"
 
 [project.optional-dependencies]
-spacy = [
-    "spacy>=3.8.16",
-]
 # BERTScore is the only text metric that is itself a model run: it drags in
 # torch. BLEU and ROUGE are computed without third-party packages and are
 # always available.
@@ -73,12 +76,7 @@ warn_unreachable = true
 # ours; the document builder calls a foreign API, and demanding annotations of
 # it that it does not have would mean switching strict off across the project.
 #
-# spaCy is here for a different reason: it is an optional extra, so a plain
-# `uv sync` does not install it and mypy cannot find it. Its absence is a
-# supported mode rather than a broken install — without it the extractive
-# generators work through an LLM, and `spacy_available()` guards every use —
-# so a type check that fails unless an optional dependency is present would be
-# reporting a fault that is not one.
+# spaCy is reached only through `spacy_available()` and typed as Any here.
 [[tool.mypy.overrides]]
 module = ["docx.*", "bert_score.*", "spacy.*", "openpyxl.*"]
 ignore_missing_imports = true

@@ -123,6 +123,32 @@ export function droppedLines(kind: Pick<BenchmarkKindBuild, 'dropped'>): string[
     .map(([reason, n]) => `${reason}: ${n}`)
 }
 
+/** Masking kinds: `12 / 3` (spaCy / LLM), the LLM's reasons in the tip; null for other kinds. */
+export function maskedCounts(
+  kind: Pick<BenchmarkKindBuild, 'spacy' | 'llm' | 'llm_why'>,
+): { text: string; tip: string } | null {
+  if (typeof kind.spacy !== 'number' && typeof kind.llm !== 'number') return null
+  const why = droppedLines({ dropped: kind.llm_why ?? {} })
+  return { text: `${kind.spacy ?? 0} / ${kind.llm ?? 0}`, tip: why.join('\n') }
+}
+
+/** A masking question's path: `spaCy` or `LLM`, with the model or the reason; null for other kinds. */
+export function maskedBy(meta: Record<string, unknown> | null | undefined): {
+  label: string
+  tip: string
+} | null {
+  const text = (key: string) => (typeof meta?.[key] === 'string' ? (meta[key] as string) : '')
+  if (text('mode') === 'spacy') {
+    const model = text('spacy_model')
+    return { label: 'spaCy', tip: model ? `Cut by spaCy (${model}).` : 'Cut by spaCy.' }
+  }
+  if (text('mode') === 'llm') {
+    const why = text('llm_why')
+    return { label: 'LLM', tip: why ? `Written by the LLM: ${why}.` : 'Written by the LLM.' }
+  }
+  return null
+}
+
 /** `12 / 40 passages`, failed reads noted. */
 export function readText(
   kind: Pick<BenchmarkKindBuild, 'unit' | 'units_read' | 'units_available' | 'failed_units'>,

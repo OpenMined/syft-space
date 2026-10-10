@@ -40,9 +40,17 @@ function mountPage(report: BenchmarkRunReport) {
 }
 
 describe('RunSummaryPage', () => {
-  it('shows the title, the article window and the funnel', () => {
+  it('shows the title, the article dates and the funnel', () => {
     const { wrapper } = mountPage(
       runReport({
+        run: runSummary('j1', {
+          questions: 23,
+          articles: 10,
+          articles_first: '2025-10-05',
+          articles_last: '2025-10-09',
+          articles_dated: 10,
+          articles_new: 4,
+        }),
         method: {
           ...runReport().method,
           articles_from: '2026-09-29T06:00:00Z',
@@ -53,8 +61,8 @@ describe('RunSummaryPage', () => {
     )
     expect(wrapper.get('h1').text()).toMatch(/^Run of 30 Sep 2026, \d{2}:\d{2}$/)
     expect(wrapper.text()).toContain('Private')
-    expect(wrapper.get('[data-testid="run-articles"]').text()).toMatch(
-      /^9 articles published 29 Sep 2026 \d{2}:\d{2} to 30 Sep 2026 \d{2}:\d{2}$/,
+    expect(wrapper.get('[data-testid="run-articles"]').text()).toBe(
+      '23 questions from 10 articles published 5–9 Oct 2025 · 4 new this run',
     )
     const funnel = wrapper.get('[data-testid="funnel"]').text()
     expect(funnel).toContain('1,000 questions written')
@@ -65,7 +73,7 @@ describe('RunSummaryPage', () => {
   it('shows only what is known about the articles and the funnel', () => {
     const { wrapper } = mountPage(
       runReport({
-        run: runSummary('j1', { articles: null, window_days: null }),
+        run: runSummary('j1', { articles: null, questions: null, window_days: null }),
         funnel: {
           written: null,
           removed: { web_answerable: 900 },
@@ -80,11 +88,11 @@ describe('RunSummaryPage', () => {
     expect(wrapper.get('[data-testid="funnel-removed"]').text()).toBe('900')
   })
 
-  it('falls back to the run window for the article dates', () => {
-    const { wrapper } = mountPage(runReport({ run: runSummary('j1', { articles: 1 }) }))
-    expect(wrapper.get('[data-testid="run-articles"]').text()).toMatch(
-      /^1 article published 29 Sep 2026 \d{2}:\d{2} to 30 Sep 2026 \d{2}:\d{2}$/,
+  it('never shows the run window as article dates', () => {
+    const { wrapper } = mountPage(
+      runReport({ run: runSummary('j1', { questions: 3, articles: 1 }) }),
     )
+    expect(wrapper.get('[data-testid="run-articles"]').text()).toBe('3 questions from 1 article')
   })
 
   it('lists each model with both scores and links to it', () => {

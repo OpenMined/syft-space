@@ -10,9 +10,10 @@
 # hands the Space a card; what it needs to reach either comes from the
 # environment and from the targets table.
 #
-# Neither `metrics` (bert-score drags in torch) nor `spacy` is installed: both
-# are extras, both are gigabytes, and both are guarded at every use. A rig that
-# wants them builds with --build-arg EXTRAS="--extra metrics".
+# spaCy and its English model (en_core_web_sm) are regular dependencies, so
+# `uv sync --locked` installs them. `metrics` (bert-score drags in torch) is an
+# extra and is not installed; a rig that wants it builds with
+# --build-arg EXTRAS="--extra metrics".
 #
 # The console (frontend/) is built outside the image, the same way the
 # Space's own frontend is: `cd frontend && npm install && npm run build-only`

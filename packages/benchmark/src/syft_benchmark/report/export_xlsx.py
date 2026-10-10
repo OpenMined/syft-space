@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from syft_benchmark.config import PairStatus, StatusReason
 from syft_benchmark.db.models import Job, QaPair, Result, Run, Target
 from syft_benchmark.generation import decisions, recorded
+from syft_benchmark.generation.article_dates import DATE_KEY
 from syft_benchmark.question_order import answer_order, pair_key, pair_order
 from syft_benchmark.report import run_view
 from syft_benchmark.report.filter_view import _inferred, _rows
@@ -227,8 +228,10 @@ PAIR_COLS = (
     Col("Task type", 12),
     Col("Article", 30, long=True),
     Col("File", 24),
+    Col("Article date", 12),
     Col("Passage", 60, long=True),
     Col("Writer model", 26),
+    Col("Masked by", 24),
     Col("Writer prompt (system)", 60, long=True),
     Col("Writer prompt (user)", 60, long=True),
     Col("Writer reply", 60, long=True),
@@ -291,6 +294,15 @@ def _details(row: QaPair) -> str:
     return "\n\n".join(out)
 
 
+def _masked_by(meta: dict[str, Any]) -> str:
+    """Masking kinds: "spaCy <model>" or "LLM: <why>"; empty for other kinds."""
+    if meta.get("mode") == "spacy":
+        return " ".join(["spaCy", str(meta.get("spacy_model") or "")]).strip()
+    if meta.get("mode") == "llm":
+        return f"LLM: {meta['llm_why']}" if meta.get("llm_why") else "LLM"
+    return ""
+
+
 def _pair_cells(row: QaPair, calls: Calls) -> list[Any]:
     call_id = _call_id(row)
     call = calls.get(call_id, {})
@@ -300,8 +312,10 @@ def _pair_cells(row: QaPair, calls: Calls) -> list[Any]:
         row.task_type,
         row.document_title,
         row.file_name,
+        (row.meta or {}).get(DATE_KEY),
         call.get("passage") or row.context,
         call.get("model") or row.model,
+        _masked_by(row.meta or {}),
         call.get("system"),
         call.get("user"),
         call.get("reply"),
@@ -704,9 +718,13 @@ def _run_rows(
         ["Finished (UTC)", job.finished_at],
         ["Duration (s)", _seconds(job.started_at, job.finished_at)],
         ["Window (days)", run.get("window_days")],
-        ["Articles from", method.get("articles_from")],
-        ["Articles to", method.get("articles_to")],
+        ["Window from", method.get("articles_from")],
+        ["Window to", method.get("articles_to")],
         ["Articles", run.get("articles")],
+        ["Articles dated", run.get("articles_dated")],
+        ["Articles published from", run.get("articles_first")],
+        ["Articles published to", run.get("articles_last")],
+        ["Articles new this run", run.get("articles_new")],
         ["Written", counts.get("written")],
         ["Filter decisions", counts.get("checked")],
         ["Kept", counts.get("kept")],

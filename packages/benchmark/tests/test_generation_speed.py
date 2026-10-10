@@ -617,6 +617,9 @@ def test_a_kind_that_spends_its_budget_says_so(
         "failed_units": 0,
         "dropped": {pipeline.OVER_BUDGET: 2},
         "stopped": pipeline.BUDGET_REACHED,
+        "spacy": None,
+        "llm": None,
+        "llm_why": None,
     }
 
 

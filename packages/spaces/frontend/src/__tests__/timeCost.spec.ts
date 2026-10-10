@@ -91,13 +91,17 @@ describe('run header', () => {
       runReport({
         run: runSummary('j1', {
           articles: 9,
+          articles_first: '2026-09-29',
+          articles_last: '2026-09-30',
           started_at: '2026-09-30T06:00:00Z',
           finished_at: '2026-09-30T06:54:00Z',
         }),
         method: method(COST),
       }),
     )
-    expect(text).toMatch(/^9 articles published .+ · took 54 min · cost \$18\.40$/)
+    expect(text).toMatch(
+      /^100 questions from 9 articles published .+ · took 54 min · cost \$18\.40$/,
+    )
   })
 
   it('starts with a capital when there are no articles', () => {
@@ -105,6 +109,7 @@ describe('run header', () => {
       runReport({
         run: runSummary('j1', {
           articles: null,
+          questions: null,
           window_days: null,
           started_at: '2026-09-30T06:00:00Z',
           finished_at: '2026-09-30T06:54:00Z',

@@ -96,6 +96,19 @@ function makeTarget(over: Partial<BenchmarkTarget> = {}): BenchmarkTarget {
   }
 }
 
+/** The target as it reads back after the page saved it unchanged. */
+function saveAsIs(target: BenchmarkTarget): BenchmarkTarget {
+  const req = buildRequest(target, formFromTarget(target, KEYS), KEYS)
+  return { ...target, probe: req.probe, instrument: req.instrument ?? {} }
+}
+
+function holdsChanges(target: BenchmarkTarget): boolean {
+  return !sameRequest(
+    buildRequest(target, formFromTarget(target, KEYS), KEYS),
+    storedRequest(target),
+  )
+}
+
 describe('companies and clashes', () => {
   it('reads the company from the vendor, else the id prefix, through the alias map', () => {
     expect(companyOf('x-ai/grok-4.6')).toBe('xai')
@@ -181,10 +194,47 @@ describe('values on the page', () => {
     expect(form.judgePolicy).toBe('strict')
   })
 
-  it('a page left alone holds no changes', () => {
-    const target = makeTarget()
-    const form = formFromTarget(target, KEYS)
-    expect(sameRequest(buildRequest(target, form, KEYS), storedRequest(target))).toBe(true)
+  it('a saved page left alone holds no changes', () => {
+    expect(holdsChanges(saveAsIs(makeTarget()))).toBe(false)
+  })
+
+  it('a sparse layer holds changes until the first save fills it', () => {
+    const sparse = makeTarget({ instrument: { concurrency: 8 } })
+    expect(holdsChanges(sparse)).toBe(true)
+    expect(holdsChanges(saveAsIs(sparse))).toBe(false)
+  })
+
+  it('keeps saved values when the layers below change later', () => {
+    const saved = saveAsIs(makeTarget())
+    const before = formFromTarget(saved, KEYS)
+    Object.assign(saved.defaults.probe!, { document_window_days: 7, pairs_per_chunk: 5 })
+    Object.assign(saved.defaults.instrument!, {
+      judge_model: 'openai/gpt-5.1',
+      judge_models: ['openai/gpt-5.1'],
+      subject_models: ['qwen/qwen3.8-27b'],
+      web_search_closed_book: false,
+      concurrency: 4,
+      judge_temperature: 1,
+      judge_reasoning_effort: 'high',
+      audit_log: false,
+    })
+    saved.connection_instrument = { manual_status_priority: 'manual' }
+    expect(formFromTarget(saved, KEYS)).toEqual(before)
+    expect(holdsChanges(saved)).toBe(false)
+  })
+
+  it('fills an empty layer from the inherited values', () => {
+    const req = buildRequest(makeTarget(), formFromTarget(makeTarget(), KEYS), KEYS)
+    expect(req.probe).toMatchObject({ document_window_days: 1, pairs_per_chunk: 2 })
+    expect(req.instrument).toMatchObject({
+      generator_model: 'anthropic/claude-opus-5',
+      judge_models: ['google/gemini-3.1-pro-preview', 'openai/gpt-5.1'],
+      web_search_closed_book: true,
+      concurrency: 16,
+      judge_temperature: 0,
+      judge_reasoning_effort: 'low',
+      manual_status_priority: 'filter',
+    })
   })
 })
 
@@ -252,9 +302,12 @@ describe('the save request', () => {
     form.webCheckModel = 'openai/gpt-5.1'
     const req = buildRequest(target, form, KEYS)
     expect(req.instrument!.filter_model).toBe('openai/gpt-5.1')
-    // Equal to the inherited fixed values, so taken out of the endpoint layer.
-    expect(req.instrument!.arms).toBeUndefined()
-    expect(req.instrument!.audit_log).toBeUndefined()
+    expect(req.instrument).toMatchObject({
+      arms: ['closed_book', 'model_with_context'],
+      context_source: 'endpoint_fragments',
+      methodology_profile: 'demosyft',
+      audit_log: true,
+    })
   })
 
   it('writes fixed values when the layer above disagrees', () => {
@@ -311,25 +364,19 @@ describe('web search settings', () => {
     expect(form.webCheckJudge).toBe('')
   })
 
-  it('a page left alone writes no web fields, with or without them in the defaults', () => {
+  it('a page left alone stores the shown web fields', () => {
     const bare = makeTarget()
-    expect(buildRequest(bare, formFromTarget(bare, KEYS), KEYS).instrument).not.toHaveProperty(
-      'web_search_closed_book',
-    )
-    const withDefaults = makeTarget()
-    Object.assign(withDefaults.defaults.instrument!, {
+    expect(buildRequest(bare, formFromTarget(bare, KEYS), KEYS).instrument).toMatchObject({
       web_search_engine: 'auto',
       web_search_closed_book: true,
       web_search_with_context: false,
       web_search_generator: false,
       web_search_judge: false,
       web_search_max_results: 5,
-      filter_judge_model: null,
     })
-    const form = formFromTarget(withDefaults, KEYS)
-    expect(sameRequest(buildRequest(withDefaults, form, KEYS), storedRequest(withDefaults))).toBe(
-      true,
-    )
+    const withDefaults = makeTarget()
+    Object.assign(withDefaults.defaults.instrument!, { filter_judge_model: null })
+    expect(holdsChanges(saveAsIs(withDefaults))).toBe(false)
   })
 
   it('maps every toggle to its flat instrument field', () => {
@@ -380,20 +427,11 @@ describe('web check gate and speed', () => {
     expect(form.endpointConcurrency).toBe(2)
   })
 
-  it('a page left alone writes neither field, with or without them in the defaults', () => {
+  it('a page left alone stores both fields as shown', () => {
     const bare = makeTarget()
     const req = buildRequest(bare, formFromTarget(bare, KEYS), KEYS)
-    expect(req.instrument).not.toHaveProperty('manual_status_priority')
-    expect(req.instrument).not.toHaveProperty('concurrency')
-    const withDefaults = makeTarget()
-    Object.assign(withDefaults.defaults.instrument!, {
-      manual_status_priority: 'filter',
-      concurrency: 16,
-    })
-    const form = formFromTarget(withDefaults, KEYS)
-    expect(sameRequest(buildRequest(withDefaults, form, KEYS), storedRequest(withDefaults))).toBe(
-      true,
-    )
+    expect(req.instrument).toMatchObject({ manual_status_priority: 'filter', concurrency: 16 })
+    expect(req.probe.endpoint_concurrency).toBe(2)
   })
 
   it('maps the hand-returned rule and model requests to instrument fields', () => {
@@ -510,20 +548,10 @@ describe('judge settings', () => {
     expect(form.judgeReasoning).toBe('low')
   })
 
-  it('a page left alone writes neither field, with or without them in the defaults', () => {
+  it('a page left alone stores both fields as shown', () => {
     const bare = makeTarget()
     const req = buildRequest(bare, formFromTarget(bare, KEYS), KEYS)
-    expect(req.instrument).not.toHaveProperty('judge_temperature')
-    expect(req.instrument).not.toHaveProperty('judge_reasoning_effort')
-    const withDefaults = makeTarget()
-    Object.assign(withDefaults.defaults.instrument!, {
-      judge_temperature: 0,
-      judge_reasoning_effort: 'low',
-    })
-    const form = formFromTarget(withDefaults, KEYS)
-    expect(sameRequest(buildRequest(withDefaults, form, KEYS), storedRequest(withDefaults))).toBe(
-      true,
-    )
+    expect(req.instrument).toMatchObject({ judge_temperature: 0, judge_reasoning_effort: 'low' })
   })
 
   it('maps temperature and reasoning to instrument fields, clamping to 0..2', () => {
@@ -545,11 +573,13 @@ describe('judge settings', () => {
     form.judgeTemperature = NaN
     const req = buildRequest(target, form, KEYS)
     expect(req.instrument!.judge_temperature).toBe('default')
-    const saved = makeTarget({ instrument: req.instrument! })
+    const saved = makeTarget({ probe: req.probe, instrument: req.instrument! })
     expect(formFromTarget(saved, KEYS).judgeTemperature).toBeNaN()
-    expect(
-      sameRequest(buildRequest(saved, formFromTarget(saved, KEYS), KEYS), storedRequest(saved)),
-    ).toBe(true)
+    expect(holdsChanges(saved)).toBe(false)
+    // Stays the model's own even under an inherited "default".
+    saved.defaults.instrument!.judge_temperature = 'default'
+    const again = buildRequest(saved, formFromTarget(saved, KEYS), KEYS)
+    expect(again.instrument!.judge_temperature).toBe('default')
   })
 
   it('writes a default value back when a higher layer set another one', () => {

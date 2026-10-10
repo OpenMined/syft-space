@@ -5,7 +5,7 @@ import type {
   BenchmarkRunReport,
   BenchmarkRunSummary,
 } from '@/api/types'
-import { count, DASH, dayTime, utcStamp } from './figures'
+import { count, DASH, daySpan } from './figures'
 import { customerCost, runDuration, tookText } from './timeCost'
 import { KIND_LABEL, modelName, type Behavior } from './labels'
 import { sortKinds } from '../questionOrder'
@@ -59,35 +59,34 @@ export function heldOf(denial: BenchmarkArmDetail['denial'] | null | undefined):
   return { held, of: denial.limit || denial.rounds }
 }
 
-function dayClock(value: string | null | undefined): string | null {
-  const stamp = dayTime(utcStamp(value))
-  return stamp === DASH ? null : stamp.replace(', ', ' ')
+type ArticleFacts = Pick<
+  BenchmarkRunSummary,
+  'articles' | 'articles_first' | 'articles_last' | 'articles_dated' | 'articles_new'
+>
+
+function plural(n: number, word: string): string {
+  return `${count(n)} ${n === 1 ? word : `${word}s`}`
 }
 
-/** The article window of a run: the method's own bounds, else the run's window before it started. */
-function articleBounds(report: BenchmarkRunReport): { from: string; to: string } | null {
-  const { method, run } = report
-  const from = dayClock(method.articles_from)
-  const to = dayClock(method.articles_to)
-  if (from && to) return { from, to }
-  const start = utcStamp(run.created_at)
-  if (!start || typeof run.window_days !== 'number' || run.window_days <= 0) return null
-  const end = new Date(start)
-  if (Number.isNaN(end.getTime())) return null
-  const begin = new Date(end.getTime() - run.window_days * 86_400_000)
-  return { from: dayClock(begin.toISOString())!, to: dayClock(end.toISOString())! }
-}
-
-/** `9 articles published 29 Sep 2026 06:00 to 30 Sep 2026 06:00`, with only the parts known. */
-export function articlesText(report: BenchmarkRunReport): string | null {
-  const n = report.run.articles
-  const bounds = articleBounds(report)
-  const range = bounds ? `published ${bounds.from} to ${bounds.to}` : null
-  if (typeof n === 'number') {
-    const head = `${count(n)} ${n === 1 ? 'article' : 'articles'}`
-    return range ? `${head} ${range}` : head
+/** `10 articles published 5–9 Oct · 4 new this run`, from the asked questions' own article dates. */
+export function articlesText(
+  run: ArticleFacts,
+  thisYear: number = new Date().getFullYear(),
+): string | null {
+  const n = run.articles
+  const fresh = typeof run.articles_new === 'number' ? run.articles_new : null
+  if (typeof n !== 'number') return fresh === null ? null : plural(fresh, 'new article')
+  const span =
+    run.articles_first && run.articles_last
+      ? daySpan(run.articles_first, run.articles_last, thisYear)
+      : null
+  const dated = run.articles_dated
+  let text = plural(n, 'article')
+  if (span) {
+    const some = typeof dated === 'number' && dated > 0 && dated < n
+    text += some ? `, ${count(dated)} published ${span}` : ` published ${span}`
   }
-  return range ? `Articles ${range}` : null
+  return fresh === null ? text : `${text} · ${count(fresh)} new this run`
 }
 
 /** Whether any answer in the run was graded as backed by its web search. */
@@ -136,12 +135,29 @@ export function repeatsTotal(report: BenchmarkRunReport): number | null {
 
 /** Status chip of a job that asked no model, in place of Published/Private; null otherwise. */
 export function runStateLabel(
-  run: Pick<BenchmarkRunSummary, 'build_only' | 'state'>,
+  run: Pick<BenchmarkRunSummary, 'build_only' | 'state' | 'stopped'>,
 ): string | null {
   if (!run.build_only) return null
   if (run.state === 'failed') return 'Failed'
-  if (run.state === 'cancelled') return 'Cancelled'
+  if (run.state === 'cancelled') return stoppedLabel(run) ?? 'Cancelled'
   return 'Build only'
+}
+
+const STOPPED = {
+  owner: { label: 'Stopped', tip: 'You stopped this run before it finished.' },
+  spending_cap: {
+    label: 'Stopped: spending cap',
+    tip: 'Stopped when its spend reached the cap for one run.',
+  },
+} as const
+
+/** Chip of a run stopped before it finished; null otherwise. */
+export function stoppedLabel(run: Pick<BenchmarkRunSummary, 'stopped'>): string | null {
+  return run.stopped ? STOPPED[run.stopped].label : null
+}
+
+export function stoppedTip(run: Pick<BenchmarkRunSummary, 'stopped'>): string | undefined {
+  return run.stopped ? STOPPED[run.stopped].tip : undefined
 }
 
 /** `$1.23`; `<$0.01` for a spend below a cent. */
@@ -150,12 +166,19 @@ export function usdText(usd: number): string {
   return `$${usd.toFixed(2)}`
 }
 
-/** `9 articles published … · took 54 min · cost $18.40`, with only the parts known. */
-export function runHeaderText(report: BenchmarkRunReport): string | null {
+/** `23 questions from 10 articles published 5–9 Oct · 4 new this run · took 54 min · cost $18.40`. */
+export function runHeaderText(
+  report: BenchmarkRunReport,
+  thisYear: number = new Date().getFullYear(),
+): string | null {
   const seconds = runDuration(report.run)
   const cost = customerCost(report.method)
+  const asked = report.run.questions
+  const articles = articlesText(report.run, thisYear)
+  const questions = typeof asked === 'number' ? plural(asked, 'question') : null
+  const joined = questions && articles && typeof report.run.articles === 'number'
   const parts = [
-    articlesText(report),
+    ...(joined ? [`${questions} from ${articles}`] : [questions, articles]),
     seconds === null ? null : `took ${tookText(seconds)}`,
     cost === null ? null : `cost ${usdText(cost)}`,
   ].filter((p): p is string => !!p)
@@ -194,7 +217,7 @@ export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
   const cost = customerCost(method)
   const seconds = runDuration(report.run)
   const rows: (SettingRow | null)[] = [
-    { key: 'articles', label: 'Articles', value: articlesText(report) },
+    { key: 'articles', label: 'Articles', value: articlesText(report.run) },
     { key: 'written', label: 'Questions written', value: written },
     {
       key: 'removed',

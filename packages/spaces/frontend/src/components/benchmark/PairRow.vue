@@ -1,14 +1,18 @@
 <script setup lang="ts">
 /** One pair's question, answer, status and the actions available on it. */
+import { computed } from 'vue'
 import { Trash2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import type { BenchmarkPair, BenchmarkPairStatus } from '@/api/types'
+import { maskedBy } from './filter'
 
-defineProps<{ pair: BenchmarkPair; busy: boolean }>()
+const props = defineProps<{ pair: BenchmarkPair; busy: boolean }>()
 const emit = defineEmits<{
   setStatus: [BenchmarkPairStatus]
   remove: []
 }>()
+
+const masked = computed(() => maskedBy(props.pair.meta))
 </script>
 
 <template>
@@ -33,6 +37,13 @@ const emit = defineEmits<{
       {{ pair.status_note }}
     </p>
     <div class="flex items-center gap-2 pt-1">
+      <span
+        v-if="masked"
+        class="cursor-help rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+        :title="masked.tip"
+        data-testid="pair-masked-by"
+        >{{ masked.label }}</span
+      >
       <Button
         v-if="pair.status !== 'active'"
         variant="outline"
